@@ -1,0 +1,34 @@
+apiVersion: platform/v1alpha1
+kind: Module
+name: airflow
+category: orchestration
+version: 0.1.0
+
+provides:
+  - contract: workflow-api
+    endpointEnv: AIRFLOW_API_URL
+  - contract: scheduler
+  - contract: metadata-db-client
+    expects:
+      - db.dsn
+      - db.user
+      - db.passwordRef
+
+requires:
+  - contract: sql-database
+    purpose: metadata
+    optional: false
+  - contract: object-store
+    purpose: logs
+    optional: true
+  - contract: secrets-provider
+    optional: false
+
+operational:
+  healthChecks:
+    - type: http
+      target: /health
+  backup:
+    responsibility: external-db-module
+  upgrades:
+    strategy: migrate-then-roll
