@@ -1,88 +1,90 @@
-# The composable data stack
+# Composable Data Stack
 
-A modular, self-hosted data platform repository for assembling reproducible data stack distributions from explicit, composable building blocks.
+Composable Data Stack is a modular approach to defining and running data platform building blocks such as orchestration, storage, and BI through reusable module contracts and profiles.
 
-This repository is designed around **modules** and **profiles**:
+## Quickstart
 
-- **Modules** are reusable platform components such as orchestrators, warehouses, BI tools, secrets providers, and ingress.
-- **Profiles** are supported runnable compositions of modules, with explicit bindings and minimal hidden dependencies.
+### 1. Clone the repository
 
-The long-term target is a production-ready distribution for CloudStack-based environments, while preserving a clean path from local development to integration environments and eventually hardened deployments.
-
-## Goals
-
-- Build a **composable** data platform instead of a fixed demo stack
-- Support **interchangeable modules**:
-  - Airflow or Dagster
-  - Postgres, MariaDB, or Spark-oriented backends
-  - Superset, Metabase, and other BI options
-  - dbt, Great Expectations, Soda, Vault, and more
-- Keep **module contracts explicit**
-- Make **profiles the unit of support**
-- Avoid **implicit coupling** and hidden dependencies
-- Evolve from:
-  - local development
-  - reproducible integration environments
-  - production-ready deployments
-
-## Design principles
-
-### Contract-first modules
-Each module should declare:
-
-- what it **provides**
-- what it **requires**
-- configuration inputs
-- health checks
-- lifecycle hooks
-- operational responsibilities
-
-### Profile-driven composition
-Profiles define supported combinations of modules.
-
-If a combination is not represented as a profile, it should be treated as experimental rather than supported.
-
-### Minimal hidden dependencies
-Modules should interact through declared contracts and bindings, not through undocumented environment variables, cross-folder assumptions, or shared mutable state.
-
-### One architecture, multiple stages
-The platform should preserve the same logical composition model across:
-
-- local development
-- CI or integration environments
-- production deployment targets
-
-Only the runtime packaging and operational controls should change.
-
-## Repository structure
-
-```text
-composable-data-stack/
-├── LICENSE
-├── README.md
-├── docs/
-├── examples/
-├── modules/
-├── profiles/
-├── scripts/
-├── shared/
-└── tooling/
+```bash
+git clone https://github.com/RonaldHensbergen/composable-data-stack.git
+cd composable-data-stack
 ```
-## Key directories
-| Path |	Purpose |
-| ---- | ---------- |
-| `modules/` |	Deployable, reusable building blocks |
-| `profiles/`|	Supported runnable combinations of modules |
-| `shared/contracts/`|	Reusable contract definitions between modules |
-| `shared/templates/`|	Shared rendering and generation templates |
-| `shared/compose/`|	Shared Compose fragments or helpers |
-| `tooling/`	|Validation, CLI, linting, and automation tools |
-| `docs/`|	Architecture, contracts, modules, operations, and profiles |
-| `examples/`|	Example projects, datasets, and sample workloads |
+
+### 2. Create and activate a virtual environment
+```bash
+
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Install the CLI
+```bash
+make install
+```
+
+Or manually:
+```bash
+pip install -e .
+```
+
+### 4. Create your local environment file
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` and set real values for:
+
+- `CDS_POSTGRES_PASSWORD`
+- `CDS_SUPERSET_SECRET_KEY`
+- `CDS_SUPERSET_ADMIN_PASSWORD`
+
+### 5. Validate the example profile
+```bash
+make validate
+```
+
+Or directly:
+```bash
+cds validate profiles/local-dagster-postgres-superset/profile.yaml
+```
+
+## Current example profile
+
+The main example profile is:
+```text
+profiles/local-dagster-postgres-superset/profile.yaml
+```
+
+It composes:
+
+-    Postgres for storage
+-    Dagster for orchestration
+-    Superset for BI
+
+## Project status
+
+This repository currently includes:
+
+-    profile/module YAML modeling
+-    contract-based module wiring
+-    a validation CLI
+-    example modules for Postgres, Dagster, and Superset
+
+Planned next steps:
+
+-    compose rendering
+-    secret resolution
+-    runtime generation
+-    stack bootstrap and smoke tests
+
+
+## Core concepts
+This repository is designed around **modules**, **profiles**, and **contracts**.
 
 ## Modules
 
-Modules are the core building blocks of the platform.
+Modules are reusable platform components such as orchestrators, warehouses, BI tools, secrets providers, and ingress.
 
 Examples include:
 
@@ -109,7 +111,7 @@ modules/<category>/<name>/
 
 ## Profiles
 
-Profiles are supported compositions of modules.
+Profiles are supported runnable compositions of modules, with explicit bindings and minimal hidden dependencies.
 
 A profile should define:
 
@@ -146,18 +148,94 @@ Examples:
 
 A module should never depend on another module implicitly. Instead, it should require a contract and receive it through profile bindings.
 
-## Current direction
+## Goals
 
-The repository is being shaped toward:
+- Build a composable data platform instead of a fixed demo stack
+- Support interchangeable modules, such as:
 
-- **A normalized module layout**
-- **Declarative profile definitions**
-- **Machine-validated module and profile schemas**
--    **A planner/renderer flow for environment bootstrap**
--    **Portable local and integration runtimes first**
--    **Production-oriented deployment packaging later**
+  -  Airflow or Dagster
+  -  Postgres, MariaDB, or Spark-oriented backends
+  -  Superset, Metabase, and other BI options
+  -  dbt, Great Expectations, Soda, Vault, and more
 
-## Planned bootstrap flow
+- Keep module contracts explicit
+- Make profiles the unit of support
+- Avoid implicit coupling and hidden dependencies
+- Evolve from:
+
+  -  local development
+  -  reproducible integration environments
+  -  production-ready deployments
+
+## Design principles
+### Contract-first modules
+
+Each module should declare:
+
+-    what it **provides**
+-    what it **requires**
+-    configuration inputs
+-    health checks
+-    lifecycle hooks
+-    operational responsibilities
+
+### Profile-driven composition
+
+Profiles define supported combinations of modules.
+
+If a combination is not represented as a profile, it should be treated as experimental rather than supported.
+
+### Minimal hidden dependencies
+
+Modules should interact through declared contracts and bindings, not through undocumented environment variables, cross-folder assumptions, or shared mutable state.
+### One architecture, multiple stages
+
+The platform should preserve the same logical composition model across:
+
+-    local development
+-    CI or integration environments
+-   production deployment targets
+
+Only the runtime packaging and operational controls should change.
+
+## Development
+### Install dependencies
+```bash
+make install
+```
+
+### Validate the default profile
+```bash
+make validate
+```
+### Validate a specific profile
+```bash
+make validate-profile P=profiles/local-dagster-postgres-superset/profile.yaml
+```
+## Repository structure
+```text
+.
+├── cli/
+├── modules/
+│   ├── bi/
+│   ├── orchestration/
+│   ├── secrets/
+│   └── warehouse/
+├── profiles/
+├── pyproject.toml
+├── Makefile
+├── .env.example
+└── README.md
+```
+### Key directories
+| Path |	Purpose |
+| ---- | ------- |
+| `cli/` |	Validation CLI and future planning/rendering tooling |
+| `modules/` |	Deployable, reusable building blocks |
+| `profiles/`	| Supported runnable combinations of modules | 
+| `docs/` |	Architecture, contracts, modules, operations, and profiles |
+
+### Planned bootstrap flow
 
 The intended workflow is:
 
@@ -170,15 +248,16 @@ The intended workflow is:
 1.    Run initialization and health checks
 1.    Produce an environment report
 
-Example future commands:
+### Example future commands:
 ```bash
-platform validate
-platform plan --profile local-airflow-postgres-superset
-platform render --profile local-airflow-postgres-superset
-platform up --profile local-airflow-postgres-superset
-platform test --profile local-airflow-postgres-superset
+cds validate profiles/local-dagster-postgres-superset/profile.yaml
+cds plan profiles/local-dagster-postgres-superset/profile.yaml
+cds render profiles/local-dagster-postgres-superset/profile.yaml
+cds up profiles/local-dagster-postgres-superset/profile.yaml
+cds test profiles/local-dagster-postgres-superset/profile.yaml
 ```
-## Initial implementation priorities
+
+### Initial implementation priorities
 
 The near-term focus is:
 
@@ -189,22 +268,21 @@ The near-term focus is:
 1.    Build validation and planning tooling
 1.    Add health checks and smoke tests
 
-## MVP target
+### MVP target
 
-The initial MVP should center on a single supported local profile:
+The initial MVP centers on a single supported local profile:
 ```text
-
-local-airflow-postgres-superset
+local-dagster-postgres-superset
 ```
 This is intended to validate:
 
 -    module manifests
 -    contract binding rules
 -    profile composition
--    local rendering/bootstrap flow
+-    local rendering and bootstrap flow
 -    health and smoke test behavior
 
-Non-goals for the initial phase
+### Non-goals for the initial phase
 
 The following are intentionally deferred:
 
@@ -215,27 +293,9 @@ The following are intentionally deferred:
 -    multi-node Spark orchestration
 -    complex secrets management automation
 
-## Documentation
+### Documentation
 
-Current and planned documentation lives under `docs/`:
-
--    `architecture.md`
--    `modules.md`
--    `contracts.md`
--    `profiles.md`
--    `bootstrap.md`
--    `operations.md`
-
-## Status
-
-This repository is under active design and implementation.
-
-The current focus is on establishing:
-
--    a stable repo shape
--    explicit contracts
--    profile-driven composition
--    a minimal but real bootstrap path
+Current and planned documentation lives under `docs/`.
 
 ## License
 

@@ -1,0 +1,108 @@
+# modules/warehouse/postgres/module.yaml
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: postgres
+  category: warehouse
+  version: "0.1.0"
+  displayName: PostgreSQL
+  description: >
+    PostgreSQL database module that provides a sql-database contract.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: postgres
+      ports:
+        - name: postgres
+          containerPort: 5432
+          protocol: TCP
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - database
+      - username
+      - passwordFrom
+      - port
+    properties:
+      database:
+        type: string
+        minLength: 1
+
+      username:
+        type: string
+        minLength: 1
+
+      passwordFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+
+      port:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 5432
+
+      storage:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          size:
+            type: string
+            default: 5Gi
+
+      healthcheck:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+  provides:
+    - name: sql-database
+      contract:
+        kind: sql-database
+        spec:
+          host: ${service.host}
+          port: ${config.port}
+          database: ${config.database}
+          username: ${config.username}
+          password: ${secrets.resolvedPassword}
+          connectionUri: postgresql://${config.username}:${secrets.resolvedPassword}@${service.host}:${config.port}/${config.database}
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        postgres:
+          image: postgres:16
+          ports:
+            - "${config.port}:5432"
+          environment:
+            POSTGRES_DB: "${config.database}"
+            POSTGRES_USER: "${config.username}"
+            POSTGRES_PASSWORD: "${secrets.resolvedPassword}"
+          volumes:
+            - postgres-data:/var/lib/postgresql/data
+          healthcheck:
+            conditionallyEnabledFrom: spec.config.healthcheck.enabled
+            test:
+              - CMD-SHELL
+              - pg_isready -U ${config.username} -d ${config.database}
+            interval: 10s
+            timeout: 5s
+            retries: 10
+
+      volumes:
+        postgres-data:
+          enabledFrom: spec.config.storage.enabled

@@ -42,6 +42,7 @@ spec:
       daemon:
         type: object
         additionalProperties: false
+        default: {}
         properties:
           enabled:
             type: boolean
@@ -75,6 +76,7 @@ spec:
       healthcheck:
         type: object
         additionalProperties: false
+        default: {}
         properties:
           enabled:
             type: boolean
@@ -130,9 +132,9 @@ spec:
             - -h
             - 0.0.0.0
             - -p
-            - "${config.webPort}"
+            - 3000
           ports:
-            - "${config.webPort}:${config.webPort}"
+            - "${config.webPort}:3000"
           environment:
             DAGSTER_HOME: "${config.homeDir}"
             DAGSTER_RUN_STORAGE_POSTGRES_URL: "${bindings.run-storage.connectionUri}"
