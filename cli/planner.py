@@ -157,11 +157,11 @@ def resolve_provided_contracts(inst: dict[str, Any], secrets: dict[str, str] = {
     provides = inst["module"].get("spec", {}).get("provides", [])
     resolved: dict[str, Any] = {}
     service_name = inst["id"]
-    
+
     for provided in provides:
         provide_name = provided.get("name")
         contract = deepcopy(provided.get("contract", {}))
-        
+
         contract = substitute_values(
             contract,
             context={
@@ -171,37 +171,107 @@ def resolve_provided_contracts(inst: dict[str, Any], secrets: dict[str, str] = {
                 "bindings": {},
             },
         )
-        
+
         if provide_name:
             resolved[provide_name] = contract
-    
+
     return resolved
 
-def resolve_provided_contracts(inst: dict[str, Any], secrets: dict[str, str] = {}) -> dict[str, Any]:
-    """
-    Resolve contracts provided by a module instance.
-    """
-    provides = inst["module"].get("spec", {}).get("provides", [])
+
+def resolve_consumed_contracts(
+    inst: dict[str, Any],
+    modules_by_id: dict[str, dict[str, Any]],
+    diagnostics: list[Diagnostic],
+    secrets: dict[str, str] = {},
+) -> dict[str, Any]:
+    consumes = inst["module"].get("spec", {}).get("consumes", [])
     resolved: dict[str, Any] = {}
-    service_name = inst["id"]
-    
-    for provided in provides:
-        provide_name = provided.get("name")
-        contract = deepcopy(provided.get("contract", {}))
-        
+
+    for consume in consumes:
+        consume_name = consume.get("name")
+        mapped_from = consume.get("mappedFrom")
+
+        if not consume_name or not mapped_from:
+            continue
+
+        try:
+            binding = resolve_path({"spec": {"config": inst["config"]}}, mapped_from)
+        except KeyError:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E041",
+                    message=f'Path "{mapped_from}" could not be resolved in planned config.',
+                    path=f'module:{inst["id"]}.consumes.{consume_name}',
+                )
+            )
+            continue
+
+        if not isinstance(binding, dict) or "contractRef" not in binding:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E041",
+                    message=f'Binding for "{consume_name}" must contain "contractRef".',
+                    path=f'module:{inst["id"]}.consumes.{consume_name}',
+                )
+            )
+            continue
+
+        parsed = parse_contract_ref(binding["contractRef"])
+        if parsed is None:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E041",
+                    message=f'Invalid contract ref "{binding["contractRef"]}".',
+                    path=f'module:{inst["id"]}.consumes.{consume_name}',
+                )
+            )
+            continue
+
+        producer_id, provide_name = parsed
+        producer = modules_by_id.get(producer_id)
+        if producer is None:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E041",
+                    message=f'Unknown producer module "{producer_id}".',
+                    path=f'module:{inst["id"]}.consumes.{consume_name}',
+                )
+            )
+            continue
+
+        provides = producer["module"].get("spec", {}).get("provides", [])
+        matched = next((p for p in provides if p.get("name") == provide_name), None)
+        if matched is None:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E041",
+                    message=f'Module "{producer_id}" does not provide "{provide_name}".',
+                    path=f'module:{inst["id"]}.consumes.{consume_name}',
+                )
+            )
+            continue
+
+        contract = deepcopy(matched.get("contract", {}))
         contract = substitute_values(
             contract,
             context={
                 "config": inst["config"],
-                "service": {"host": service_name},
+                "service": {"host": inst["id"]},
                 "secrets": secrets,
                 "bindings": {},
             },
         )
-        
-        if provide_name:
-            resolved[provide_name] = contract
-    
+
+        resolved[consume_name] = {
+            "contractRef": binding["contractRef"],
+            "contract": contract,
+        }
+
     return resolved
 
 
