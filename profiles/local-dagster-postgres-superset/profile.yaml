@@ -1,0 +1,96 @@
+# profiles/local-dagster-postgres-superset/profile.yaml
+# yaml-language-server: $schema=../../schemas/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: local-dagster-postgres-superset
+  displayName: Local Dagster + Postgres + Superset
+  description: >
+    Minimal local development stack for orchestration, warehouse, and BI.
+
+spec:
+  runtime:
+    type: docker-compose
+    namespace: cds-local
+
+  modules:
+    - id: postgres
+      source: ../../modules/warehouse/postgres
+      version: "0.1.0"
+      enabled: true
+      config:
+        database: analytics
+        username: analytics
+        passwordFrom: secrets.postgres_password
+        port: 5432
+        storage:
+          enabled: true
+          size: 5Gi
+        healthcheck:
+          enabled: true
+
+    - id: dagster
+      source: ../../modules/orchestration/dagster
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+      config:
+        webPort: 3000
+        daemon:
+          enabled: true
+        homeDir: /opt/dagster/dagster_home
+        storage:
+          runStorage:
+            contractRef: postgres.sql-database
+          eventLogStorage:
+            contractRef: postgres.sql-database
+          scheduleStorage:
+            contractRef: postgres.sql-database
+          
+        runLauncher:
+          type: default
+        healthcheck:
+          enabled: true
+
+    - id: superset
+      source: ../../modules/bi/superset
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+      config:
+        webPort: 8088
+        secretKeyFrom: secrets.superset_secret_key
+        adminUser:
+          username: admin
+          passwordFrom: secrets.superset_admin_password
+          email: admin@example.local
+        metadataDatabase:
+          contractRef: postgres.sql-database
+        healthcheck:
+          enabled: true
+
+  secrets:
+    provider:
+      type: env
+    values:
+      postgres_password:
+        env: CDS_POSTGRES_PASSWORD
+        required: true
+      superset_secret_key:
+        env: CDS_SUPERSET_SECRET_KEY
+        required: true
+      superset_admin_password:
+        env: CDS_SUPERSET_ADMIN_PASSWORD
+        required: true
+
+  outputs:
+    contracts:
+      warehouse:
+        from: postgres.sql-database
+      orchestrationApi:
+        from: dagster.http-service
+      biApi:
+        from: superset.http-service

@@ -1,0 +1,21 @@
+# pyproject.toml
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "composable-data-stack"
+version = "0.1.0"
+description = "CLI for validating and composing composable data stack profiles"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "PyYAML>=6.0",
+  "jsonschema>=4.22.0",
+]
+
+[project.scripts]
+cds = "cli.main:main"
+
+[tool.setuptools]
+packages = ["cli"]

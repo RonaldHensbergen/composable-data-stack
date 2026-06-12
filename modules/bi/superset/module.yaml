@@ -1,0 +1,119 @@
+# modules/bi/superset/module.yaml
+# yaml-language-server: $schema=../../../schemas/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: superset
+  category: bi
+  version: "0.1.0"
+  displayName: Superset
+  description: >
+    Apache Superset BI service with a metadata database binding.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: superset
+      ports:
+        - name: http
+          containerPort: 8088
+          protocol: TCP
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - webPort
+      - secretKeyFrom
+      - adminUser
+      - metadataDatabase
+    properties:
+      webPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 8088
+
+      secretKeyFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+
+      adminUser:
+        type: object
+        additionalProperties: false
+        required:
+          - username
+          - passwordFrom
+          - email
+        properties:
+          username:
+            type: string
+            minLength: 1
+          passwordFrom:
+            type: string
+            pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+          email:
+            type: string
+            minLength: 3
+
+      metadataDatabase:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
+      healthcheck:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+  consumes:
+    - name: metadata-database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.metadataDatabase
+
+  provides:
+    - name: http-service
+      contract:
+        kind: http-service
+        spec:
+          portFrom: spec.config.webPort
+          healthPath: /health
+          protocol: http
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        superset:
+          image: apache/superset:4.0.2
+          ports:
+            - "${config.webPort}:8088"
+          environment:
+            SUPERSET_SECRET_KEY: "${secrets.secretKey}"
+            SUPERSET_ADMIN_USERNAME: "${config.adminUser.username}"
+            SUPERSET_ADMIN_PASSWORD: "${secrets.adminPassword}"
+            SUPERSET_ADMIN_EMAIL: "${config.adminUser.email}"
+            SUPERSET_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
+          healthcheck:
+            conditionallyEnabledFrom: spec.config.healthcheck.enabled
+            test:
+              - CMD
+              - python
+              - -c
+              - "import urllib.request; urllib.request.urlopen('http://localhost:8088/health')"
+            interval: 10s
+            timeout: 5s
+            retries: 20

@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "./module.schema.json",
+  "title": "Composable Data Stack Module",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "cds/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "Module"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "category", "version"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtime", "configSchema", "implementation"],
+      "properties": {
+        "runtime": {
+          "$ref": "#/$defs/runtime"
+        },
+        "configSchema": {
+          "type": "object"
+        },
+        "consumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contractConsume"
+          }
+        },
+        "provides": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contractProvide"
+          }
+        },
+        "implementation": {
+          "$ref": "#/$defs/implementation"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "service"],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "ports"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ports": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/servicePort"
+              }
+            }
+          }
+        }
+      }
+    },
+    "servicePort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "containerPort", "protocol"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "containerPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "protocol": {
+          "type": "string"
+        }
+      }
+    },
+    "contractConsume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "contract", "required", "mappedFrom"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "contract": {
+          "$ref": "#/$defs/contractRef"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "mappedFrom": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "contractProvide": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "contract"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "contract": {
+          "$ref": "#/$defs/contractSpec"
+        }
+      }
+    },
+    "contractRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
+        }
+      }
+    },
+    "contractSpec": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "spec": {
+          "type": "object"
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "compose": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

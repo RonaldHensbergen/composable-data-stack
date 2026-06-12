@@ -1,0 +1,165 @@
+# modules/orchestration/dagster/module.yaml
+# yaml-language-server: $schema=../../../schemas/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: dagster
+  category: orchestration
+  version: "0.1.0"
+  displayName: Dagster
+  description: >
+    Dagster orchestration service with optional daemon and pluggable storage bindings.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: dagster
+      ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - webPort
+      - homeDir
+      - storage
+    properties:
+      webPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 3000
+
+      homeDir:
+        type: string
+        minLength: 1
+        default: /opt/dagster/dagster_home
+
+      daemon:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+      storage:
+        type: object
+        additionalProperties: false
+        required:
+          - runStorage
+          - eventLogStorage
+          - scheduleStorage
+        properties:
+          runStorage:
+            $ref: "#/$defs/contractBinding"
+          eventLogStorage:
+            $ref: "#/$defs/contractBinding"
+          scheduleStorage:
+            $ref: "#/$defs/contractBinding"
+
+      runLauncher:
+        type: object
+        additionalProperties: false
+        properties:
+          type:
+            type: string
+            enum:
+              - default
+            default: default
+
+      healthcheck:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+    $defs:
+      contractBinding:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
+  consumes:
+    - name: run-storage
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.storage.runStorage
+
+    - name: event-log-storage
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.storage.eventLogStorage
+
+    - name: schedule-storage
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.storage.scheduleStorage
+
+  provides:
+    - name: http-service
+      contract:
+        kind: http-service
+        spec:
+          portFrom: spec.config.webPort
+          healthPath: /
+          protocol: http
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        dagster-webserver:
+          image: dagster/dagster:latest
+          command:
+            - dagster-webserver
+            - -h
+            - 0.0.0.0
+            - -p
+            - 3000
+          ports:
+            - "${config.webPort}:3000"
+          environment:
+            DAGSTER_HOME: "${config.homeDir}"
+            DAGSTER_RUN_STORAGE_POSTGRES_URL: "${bindings.run-storage.connectionUri}"
+            DAGSTER_EVENT_LOG_STORAGE_POSTGRES_URL: "${bindings.event-log-storage.connectionUri}"
+            DAGSTER_SCHEDULE_STORAGE_POSTGRES_URL: "${bindings.schedule-storage.connectionUri}"
+          healthcheck:
+            conditionallyEnabledFrom: spec.config.healthcheck.enabled
+            test:
+              - CMD
+              - python
+              - -c
+              - "import urllib.request; urllib.request.urlopen('http://localhost:${config.webPort}/')"
+            interval: 10s
+            timeout: 5s
+            retries: 10
+
+        dagster-daemon:
+          enabledFrom: spec.config.daemon.enabled
+          image: dagster/dagster:latest
+          command:
+            - dagster-daemon
+            - run
+          environment:
+            DAGSTER_HOME: "${config.homeDir}"
+            DAGSTER_RUN_STORAGE_POSTGRES_URL: "${bindings.run-storage.connectionUri}"
+            DAGSTER_EVENT_LOG_STORAGE_POSTGRES_URL: "${bindings.event-log-storage.connectionUri}"
+            DAGSTER_SCHEDULE_STORAGE_POSTGRES_URL: "${bindings.schedule-storage.connectionUri}"

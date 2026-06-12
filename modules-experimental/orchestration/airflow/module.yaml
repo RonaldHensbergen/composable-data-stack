@@ -1,4 +1,5 @@
-apiVersion: platform/v1alpha1
+# yaml-language-server: $schema=../../../schemas/module.schema.json
+apiVersion: cds/v1alpha1
 kind: Module
 name: airflow
 category: orchestration
