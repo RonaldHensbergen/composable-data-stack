@@ -8,41 +8,59 @@ from typing import Any
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file
 from .resolver import parse_contract_ref, resolve_path
+from .secrets import load_secrets_from_env
 
-
-def build_plan(profile_path: str) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
+def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
+    """
+    Build a resolved plan from a profile.
+    
+    Args:
+        profile_path: Path to profile.yaml
+        env_file: Optional path to .env file for secrets
+        
+    Returns:
+        Tuple of (plan, diagnostics)
+    """
     diagnostics: list[Diagnostic] = []
-
+    
+    # Load secrets early so they're available during planning
+    secrets, secret_diags = load_secrets_from_env(env_file)
+    diagnostics.extend(secret_diags)
+    
     profile_file = Path(profile_path)
     profile, diags = load_yaml_file(profile_file)
     diagnostics.extend(diags)
+    
     if profile is None:
         return None, diagnostics
-
+    
     spec = profile.get("spec", {})
     modules = spec.get("modules", [])
     profile_dir = profile_file.parent
-
+    
     loaded_modules: list[dict[str, Any]] = []
     module_instances_by_id: dict[str, dict[str, Any]] = {}
-
+    
     for i, module_instance in enumerate(modules):
         if module_instance.get("enabled", True) is False:
             continue
-
+        
         source = module_instance["source"]
         module_file = (profile_dir / source / "module.yaml").resolve()
-
         module_def, diags = load_yaml_file(module_file)
         diagnostics.extend(diags)
+        
         if module_def is None:
             continue
-
+        
         normalized_config = apply_defaults(
             module_instance.get("config", {}),
             module_def.get("spec", {}).get("configSchema", {})
         )
-
+        
+        # Substitute secrets in config
+        normalized_config = substitute_values(normalized_config, {"secrets": secrets})
+        
         loaded = {
             "index": i,
             "id": module_instance["id"],
@@ -56,11 +74,11 @@ def build_plan(profile_path: str) -> tuple[dict[str, Any] | None, list[Diagnosti
         }
         loaded_modules.append(loaded)
         module_instances_by_id[loaded["id"]] = loaded
-
+    
     resolved_contracts_by_module: dict[str, dict[str, Any]] = {}
     for inst in loaded_modules:
-        resolved_contracts_by_module[inst["id"]] = resolve_provided_contracts(inst)
-
+        resolved_contracts_by_module[inst["id"]] = resolve_provided_contracts(inst, secrets)
+    
     planned_modules: list[dict[str, Any]] = []
     for inst in loaded_modules:
         planned_modules.append(
@@ -70,25 +88,24 @@ def build_plan(profile_path: str) -> tuple[dict[str, Any] | None, list[Diagnosti
                 "version": inst["version"],
                 "dependsOn": inst["dependsOn"],
                 "config": inst["config"],
-                "consumes": resolve_consumed_contracts(inst, module_instances_by_id, diagnostics),
+                "consumes": resolve_consumed_contracts(inst, module_instances_by_id, diagnostics, secrets),
                 "provides": resolved_contracts_by_module[inst["id"]],
                 "implementation": inst["module"].get("spec", {}).get("implementation", {}),
             }
         )
-
+    
     plan = {
         "apiVersion": "cds/v1alpha1",
         "kind": "Plan",
         "metadata": deepcopy(profile.get("metadata", {})),
         "sourceProfile": str(profile_file),
         "runtime": spec.get("runtime", {}),
-        "secrets": spec.get("secrets", {}),
+        "secrets": secrets,  # Include resolved secrets in plan
         "outputs": resolve_outputs(spec.get("outputs", {}), resolved_contracts_by_module, diagnostics),
         "modules": planned_modules,
     }
-
+    
     return plan, diagnostics
-
 
 def apply_defaults(config: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     config_copy = deepcopy(config)
@@ -133,124 +150,58 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any]) -> Any:
 
     return value
 
-
-def resolve_provided_contracts(inst: dict[str, Any]) -> dict[str, Any]:
+def resolve_provided_contracts(inst: dict[str, Any], secrets: dict[str, str] = {}) -> dict[str, Any]:
+    """
+    Resolve contracts provided by a module instance.
+    """
     provides = inst["module"].get("spec", {}).get("provides", [])
     resolved: dict[str, Any] = {}
-
     service_name = inst["id"]
-
+    
     for provided in provides:
         provide_name = provided.get("name")
         contract = deepcopy(provided.get("contract", {}))
+        
         contract = substitute_values(
             contract,
             context={
                 "config": inst["config"],
                 "service": {"host": service_name},
-                "secrets": {},
+                "secrets": secrets,
                 "bindings": {},
             },
         )
+        
         if provide_name:
             resolved[provide_name] = contract
-
+    
     return resolved
 
-
-def resolve_consumed_contracts(
-    inst: dict[str, Any],
-    modules_by_id: dict[str, dict[str, Any]],
-    diagnostics: list[Diagnostic],
-) -> dict[str, Any]:
-    consumes = inst["module"].get("spec", {}).get("consumes", [])
+def resolve_provided_contracts(inst: dict[str, Any], secrets: dict[str, str] = {}) -> dict[str, Any]:
+    """
+    Resolve contracts provided by a module instance.
+    """
+    provides = inst["module"].get("spec", {}).get("provides", [])
     resolved: dict[str, Any] = {}
-
-    for consume in consumes:
-        consume_name = consume.get("name")
-        mapped_from = consume.get("mappedFrom")
-
-        if not consume_name or not mapped_from:
-            continue
-
-        try:
-            binding = resolve_path({"spec": {"config": inst["config"]}}, mapped_from)
-        except KeyError:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E041",
-                    message=f'Path "{mapped_from}" could not be resolved in planned config.',
-                    path=f'module:{inst["id"]}.consumes.{consume_name}',
-                )
-            )
-            continue
-
-        if not isinstance(binding, dict) or "contractRef" not in binding:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E041",
-                    message=f'Binding for "{consume_name}" must contain "contractRef".',
-                    path=f'module:{inst["id"]}.consumes.{consume_name}',
-                )
-            )
-            continue
-
-        parsed = parse_contract_ref(binding["contractRef"])
-        if parsed is None:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E041",
-                    message=f'Invalid contract ref "{binding["contractRef"]}".',
-                    path=f'module:{inst["id"]}.consumes.{consume_name}',
-                )
-            )
-            continue
-
-        producer_id, provide_name = parsed
-        producer = modules_by_id.get(producer_id)
-        if producer is None:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E041",
-                    message=f'Unknown producer module "{producer_id}".',
-                    path=f'module:{inst["id"]}.consumes.{consume_name}',
-                )
-            )
-            continue
-
-        provides = producer["module"].get("spec", {}).get("provides", [])
-        matched = next((p for p in provides if p.get("name") == provide_name), None)
-        if matched is None:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E041",
-                    message=f'Module "{producer_id}" does not provide "{provide_name}".',
-                    path=f'module:{inst["id"]}.consumes.{consume_name}',
-                )
-            )
-            continue
-
-        contract = deepcopy(matched.get("contract", {}))
+    service_name = inst["id"]
+    
+    for provided in provides:
+        provide_name = provided.get("name")
+        contract = deepcopy(provided.get("contract", {}))
+        
         contract = substitute_values(
             contract,
             context={
-                "config": producer["config"],
-                "service": {"host": producer["id"]},
-                "secrets": {},
+                "config": inst["config"],
+                "service": {"host": service_name},
+                "secrets": secrets,
                 "bindings": {},
             },
         )
-
-        resolved[consume_name] = {
-            "source": binding["contractRef"],
-            "contract": contract,
-        }
-
+        
+        if provide_name:
+            resolved[provide_name] = contract
+    
     return resolved
 
 
@@ -259,15 +210,20 @@ def resolve_outputs(
     resolved_contracts_by_module: dict[str, dict[str, Any]],
     diagnostics: list[Diagnostic],
 ) -> dict[str, Any]:
+    """
+    Resolve output contracts.
+    """
     contracts = outputs.get("contracts", {})
     resolved: dict[str, Any] = {"contracts": {}}
-
+    
     for name, value in contracts.items():
         ref = value.get("from")
+        
         if not isinstance(ref, str):
             continue
-
+        
         parsed = parse_contract_ref(ref)
+        
         if parsed is None:
             diagnostics.append(
                 Diagnostic(
@@ -278,9 +234,10 @@ def resolve_outputs(
                 )
             )
             continue
-
+        
         module_id, provide_name = parsed
         contract = resolved_contracts_by_module.get(module_id, {}).get(provide_name)
+        
         if contract is None:
             diagnostics.append(
                 Diagnostic(
@@ -291,16 +248,20 @@ def resolve_outputs(
                 )
             )
             continue
-
+        
         resolved["contracts"][name] = {
             "from": ref,
             "contract": contract,
         }
-
+    
     return resolved
 
 
 def substitute_values(obj: Any, context: dict[str, Any]) -> Any:
+    """
+    Recursively substitute interpolations in object.
+    Supports both pure ${...} and mixed ${...} interpolations.
+    """
     if isinstance(obj, dict):
         return {k: substitute_values(v, context) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -311,13 +272,40 @@ def substitute_values(obj: Any, context: dict[str, Any]) -> Any:
 
 
 def substitute_string(value: str, context: dict[str, Any]) -> Any:
-    if value.startswith("${") and value.endswith("}"):
+    """
+    Substitute interpolations in a string.
+    
+    Supports:
+    - Pure: ${config.name} (entire value replaced, preserves type)
+    - Mixed: "prefix-${config.name}-suffix" (string concatenation)
+    - Secrets: ${secrets.CDS_PASSWORD} (from .env or environment)
+    
+    Examples:
+        "${config.name}" -> value of config.name (any type)
+        "db://${config.host}:5432" -> "db://localhost:5432"
+        "${secrets.CDS_DB_PASSWORD}" -> password from .env
+        "host=${bindings.db.host}" -> "host=postgres"
+    """
+    # Check if the entire string is a single pure interpolation
+    if value.startswith("${") and value.endswith("}") and value.count("${") == 1:
         expr = value[2:-1]
-        parts = expr.split(".")
-        current: Any = context
-        for part in parts:
-            if not isinstance(current, dict) or part not in current:
-                return value
-            current = current[part]
-        return current
+        result = resolve_expr(expr, context)
+        if result is not None:
+            return result
+    
+    # Handle mixed interpolation: find all ${...} patterns
+    pattern = r"\$\{([^}]+)\}"
+    has_interpolation = "${" in value
+    
+    if has_interpolation:
+        def replace_expr(match: re.Match) -> str:
+            expr = match.group(1)
+            resolved = resolve_expr(expr, context)
+            # Convert to string for concatenation
+            return str(resolved) if resolved is not None else match.group(0)
+        
+        result = re.sub(pattern, replace_expr, value)
+        return result
+    
     return value
+
