@@ -4,11 +4,12 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+import re
 
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file
-from .resolver import parse_contract_ref, resolve_path
-from .secrets import load_secrets_from_env
+from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
+from .secrets import load_profile_secrets
 
 def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
     """
@@ -23,10 +24,6 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
     """
     diagnostics: list[Diagnostic] = []
     
-    # Load secrets early so they're available during planning
-    secrets, secret_diags = load_secrets_from_env(env_file)
-    diagnostics.extend(secret_diags)
-    
     profile_file = Path(profile_path)
     profile, diags = load_yaml_file(profile_file)
     diagnostics.extend(diags)
@@ -35,6 +32,9 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
         return None, diagnostics
     
     spec = profile.get("spec", {})
+    secrets, secret_diags = load_profile_secrets(spec.get("secrets"), env_file)
+    diagnostics.extend(secret_diags)
+    
     modules = spec.get("modules", [])
     profile_dir = profile_file.parent
     
@@ -57,10 +57,10 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
             module_instance.get("config", {}),
             module_def.get("spec", {}).get("configSchema", {})
         )
-        
-        # Substitute secrets in config
+
+        normalized_config = resolve_secret_refs(normalized_config, secrets, f"spec.modules[{i}].config", diagnostics)
         normalized_config = substitute_values(normalized_config, {"secrets": secrets})
-        
+
         loaded = {
             "index": i,
             "id": module_instance["id"],
@@ -275,6 +275,36 @@ def resolve_consumed_contracts(
     return resolved
 
 
+def resolve_secret_refs(obj: Any, secrets: dict[str, str], current_path: str, diagnostics: list[Diagnostic]) -> Any:
+    if isinstance(obj, dict):
+        return {
+            key: resolve_secret_refs(value, secrets, f"{current_path}.{key}", diagnostics)
+            for key, value in obj.items()
+        }
+
+    if isinstance(obj, list):
+        return [
+            resolve_secret_refs(value, secrets, f"{current_path}[{index}]", diagnostics)
+            for index, value in enumerate(obj)
+        ]
+
+    if isinstance(obj, str) and is_secret_ref(obj):
+        secret_name = secret_name_from_ref(obj)
+        if secret_name in secrets:
+            return secrets[secret_name]
+
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E081",
+                message=f'Secret ref "{obj}" could not be resolved.',
+                path=current_path,
+            )
+        )
+
+    return obj
+
+
 def resolve_outputs(
     outputs: dict[str, Any],
     resolved_contracts_by_module: dict[str, dict[str, Any]],
@@ -373,9 +403,26 @@ def substitute_string(value: str, context: dict[str, Any]) -> Any:
             resolved = resolve_expr(expr, context)
             # Convert to string for concatenation
             return str(resolved) if resolved is not None else match.group(0)
-        
+
         result = re.sub(pattern, replace_expr, value)
         return result
     
     return value
+
+
+def resolve_expr(expr: str, context: dict[str, Any]) -> Any:
+    """
+    Resolve an expression like "config.database.host" or "secrets.CDS_PASSWORD".
+
+    Returns None if path not found.
+    """
+    parts = expr.split(".")
+
+    current: Any = context
+    for part in parts:
+        if not isinstance(current, dict) or part not in current:
+            return None
+        current = current[part]
+
+    return current
 

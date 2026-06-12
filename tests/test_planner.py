@@ -130,5 +130,78 @@ class PlannerRegressionTest(unittest.TestCase):
                 "postgres://localhost:5432/test",
             )
 
+    def test_build_plan_resolves_profile_secret_refs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            module_dir = profile_dir / "modules" / "database"
+            module_dir.mkdir(parents=True)
+
+            module = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Module",
+                "metadata": {"name": "database"},
+                "spec": {
+                    "configSchema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "passwordFrom": {"type": "string"}
+                        },
+                    },
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {"services": {}},
+                    },
+                },
+            }
+
+            profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "local-test"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {
+                            "id": "database",
+                            "source": "./modules/database",
+                            "enabled": True,
+                            "config": {
+                                "passwordFrom": "secrets.postgres_password"
+                            },
+                        }
+                    ],
+                    "secrets": {
+                        "provider": {"type": "env"},
+                        "values": {
+                            "postgres_password": {
+                                "env": "CDS_POSTGRES_PASSWORD",
+                                "required": True,
+                            }
+                        }
+                    },
+                },
+            }
+
+            env_file = Path(root) / ".env"
+            env_file.write_text("CDS_POSTGRES_PASSWORD=supersecret\n", encoding="utf-8")
+
+            import yaml
+
+            module_file = module_dir / "module.yaml"
+            module_file.write_text(yaml.safe_dump(module), encoding="utf-8")
+
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+            plan, diagnostics = planner.build_plan(str(profile_file), env_file=str(env_file))
+
+            self.assertIsNotNone(plan)
+            self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+            self.assertEqual(plan["modules"][0]["config"]["passwordFrom"], "supersecret")
+            self.assertEqual(plan["secrets"]["postgres_password"], "supersecret")
+
+
 if __name__ == "__main__":
     unittest.main()

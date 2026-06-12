@@ -111,3 +111,62 @@ def resolve_secret(key: str, secrets: dict[str, str], required: bool = False) ->
         )
     
     return None, None
+
+
+def load_profile_secrets(spec_secrets: dict[str, Any] | None, env_file: Path | None = None) -> tuple[dict[str, str], list[Diagnostic]]:
+    """
+    Load and resolve profile-defined secrets from .env/environment.
+
+    Args:
+        spec_secrets: The profile spec.secrets object.
+        env_file: Optional path to .env file.
+
+    Returns:
+        Tuple of (resolved_secrets, diagnostics)
+    """
+    diagnostics: list[Diagnostic] = []
+    secrets, secret_diags = load_secrets_from_env(env_file)
+    diagnostics.extend(secret_diags)
+
+    if not isinstance(spec_secrets, dict):
+        return secrets, diagnostics
+
+    values = spec_secrets.get("values", {})
+    if not isinstance(values, dict):
+        return secrets, diagnostics
+
+    for secret_name, secret_def in values.items():
+        if not isinstance(secret_def, dict):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E082",
+                    message=f'Secret definition "{secret_name}" must be an object.',
+                    path=f"spec.secrets.values.{secret_name}",
+                )
+            )
+            continue
+
+        env_name = secret_def.get("env")
+        required = secret_def.get("required", False)
+
+        if not isinstance(env_name, str) or not env_name:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E082",
+                    message=f'Secret definition "{secret_name}" must include a valid env name.',
+                    path=f"spec.secrets.values.{secret_name}.env",
+                )
+            )
+            continue
+
+        secret_value, err = resolve_secret(env_name, secrets, required)
+        if err:
+            diagnostics.append(err)
+            continue
+
+        if secret_value is not None:
+            secrets[secret_name] = secret_value
+
+    return secrets, diagnostics
