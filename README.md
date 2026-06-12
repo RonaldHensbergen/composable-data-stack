@@ -79,6 +79,14 @@ Planned next steps:
 -    stack bootstrap and smoke tests
 
 
+Recommended next steps for the current branch:
+
+-    add a regression test for secret interpolation during compose rendering
+-    add a regression test for `.env` and environment secret loading
+-    add a profile-level smoke test covering `cds validate` and `cds plan`
+-    keep the branch scope focused on secret handling and contract resolution
+
+
 ## Core concepts
 This repository is designed around **modules**, **profiles**, and **contracts**.
 
