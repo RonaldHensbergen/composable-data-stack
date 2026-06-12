@@ -77,8 +77,8 @@ spec:
           port: ${config.port}
           database: ${config.database}
           username: ${config.username}
-          password: ${secrets.resolvedPassword}
-          connectionUri: postgresql://${config.username}:${secrets.resolvedPassword}@${service.host}:${config.port}/${config.database}
+          password: ${config.passwordFrom}
+          connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.host}:${config.port}/${config.database}
 
   implementation:
     kind: docker-compose
@@ -91,7 +91,7 @@ spec:
           environment:
             POSTGRES_DB: "${config.database}"
             POSTGRES_USER: "${config.username}"
-            POSTGRES_PASSWORD: "${secrets.resolvedPassword}"
+            POSTGRES_PASSWORD: "${config.passwordFrom}"
           volumes:
             - postgres-data:/var/lib/postgresql/data
           healthcheck:

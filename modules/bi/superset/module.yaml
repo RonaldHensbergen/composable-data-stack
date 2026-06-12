@@ -102,9 +102,9 @@ spec:
           ports:
             - "${config.webPort}:8088"
           environment:
-            SUPERSET_SECRET_KEY: "${secrets.secretKey}"
+            SUPERSET_SECRET_KEY: "${config.secretKeyFrom}"
             SUPERSET_ADMIN_USERNAME: "${config.adminUser.username}"
-            SUPERSET_ADMIN_PASSWORD: "${secrets.adminPassword}"
+            SUPERSET_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
             SUPERSET_ADMIN_EMAIL: "${config.adminUser.email}"
             SUPERSET_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
           healthcheck:
