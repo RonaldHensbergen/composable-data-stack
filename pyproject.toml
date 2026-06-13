@@ -14,6 +14,11 @@ dependencies = [
   "jsonschema>=4.22.0",
 ]
 
+[project.optional-dependencies]
+completion = [
+  "argcomplete>=3.0.0",
+]
+
 [project.scripts]
 cds = "cli.main:main"
 

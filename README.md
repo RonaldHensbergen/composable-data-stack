@@ -28,6 +28,11 @@ Or manually:
 pip install -e .
 ```
 
+### 3.1 Build a distributable package
+```bash
+make package
+```
+
 ### 4. Create your local environment file
 ```bash
 cp .env.example .env
@@ -38,6 +43,31 @@ Then edit `.env` and set real values for:
 - `CDS_POSTGRES_PASSWORD`
 - `CDS_SUPERSET_SECRET_KEY`
 - `CDS_SUPERSET_ADMIN_PASSWORD`
+
+### Environment variables for CLI defaults
+
+The CLI supports two optional environment variables:
+
+- `CDS_PROFILE_PATH`
+  - path to a `profiles/` directory, or a specific `profile.yaml` file.
+  - If set, `cds validate`, `cds plan`, and `cds render` can accept a profile name instead of a full path.
+- `CDS_MODULE_PATH`
+  - path to a `modules/` directory.
+  - If set, module sources in profiles are loaded from this directory instead of the profile directory.
+
+Example shell usage:
+
+```bash
+export CDS_PROFILE_PATH=/home/ronald/Projects/composable-data-stack/profiles
+export CDS_MODULE_PATH=/home/ronald/Projects/composable-data-stack/modules
+```
+
+Example PowerShell usage:
+
+```powershell
+$env:CDS_PROFILE_PATH = 'C:\Projects\composable-data-stack\profiles'
+$env:CDS_MODULE_PATH = 'C:\Projects\composable-data-stack\modules'
+```
 
 ### 5. Validate the example profile
 ```bash
@@ -220,6 +250,40 @@ make validate
 ```bash
 make validate-profile P=profiles/local-dagster-postgres-superset/profile.yaml
 ```
+
+## Packaging and installers
+
+This repo is packaged as a Python CLI and can be installed from source or built into distributable artifacts.
+
+### Recommended installer targets
+
+- Linux: wheel plus Homebrew/Linuxbrew formula or native `.deb`/`.rpm` package.
+- macOS: wheel plus Homebrew formula; optionally an installer package (`.pkg`/`.dmg`).
+- Windows: wheel plus PyInstaller bundle or MSI installer.
+
+### Build the Python package
+
+```bash
+python3 -m pip install --upgrade build
+python3 -m build
+```
+
+Then install locally:
+
+```bash
+python3 -m pip install dist/composable_data_stack-0.1.0-py3-none-any.whl
+```
+
+### Installer recommendation
+
+For a CLI package like this, the lowest-risk path is to publish a Python wheel and optionally provide native wrappers:
+
+- Linux: `pip install composable-data-stack`, or build a Homebrew/Linuxbrew tap.
+- macOS: Homebrew formula plus `pip install` support.
+- Windows: `pip install` for Python users, or create a PyInstaller single-file executable and wrap it in an MSI if you need a native installer.
+
+For fuller installer support, create a dedicated `docs/packaging.md` with packaging steps for each platform.
+
 ## Repository structure
 ```text
 .

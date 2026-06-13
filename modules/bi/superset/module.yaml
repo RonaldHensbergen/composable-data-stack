@@ -98,7 +98,7 @@ spec:
     compose:
       services:
         superset:
-          image: apache/superset:4.0.2
+          image: apache/superset:6.1.0
           ports:
             - "${config.webPort}:8088"
           environment:

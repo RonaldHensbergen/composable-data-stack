@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+import os
 import re
 
 from .diagnostics import Diagnostic
@@ -46,7 +47,23 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
             continue
         
         source = module_instance["source"]
-        module_file = (profile_dir / source / "module.yaml").resolve()
+        source_path = Path(source)
+        if not source_path.is_absolute() and source_path.parts and source_path.parts[0] == ".":
+            source_path = source_path.relative_to(".")
+
+        module_root = os.getenv("CDS_MODULE_PATH")
+        module_file = None
+        if module_root:
+            module_root_path = Path(module_root).expanduser()
+            if module_root_path.is_file():
+                module_root_path = module_root_path.parent
+            candidate = (module_root_path / source_path / "module.yaml").resolve()
+            if candidate.exists():
+                module_file = candidate
+
+        if module_file is None:
+            module_file = (profile_dir / source_path / "module.yaml").resolve()
+
         module_def, diags = load_yaml_file(module_file)
         diagnostics.extend(diags)
         
