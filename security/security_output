@@ -1,0 +1,816 @@
+[HIGH] CDS-SEC-001 passwordFrom
+  Secret-like value appears to be hardcoded
+  module: postgres
+  value: se***REDACTED***rd
+  fix: Move the value to environment variables or a secret backend.
+  fix: Replace literal values with references.
+
+[HIGH] CDS-SEC-001 adminUser.passwordFrom
+  Secret-like value appears to be hardcoded
+  module: superset
+  value: se***REDACTED***rd
+  fix: Move the value to environment variables or a secret backend.
+  fix: Replace literal values with references.
+
+[HIGH] CDS-SEC-001 secretKeyFrom
+  Secret-like value appears to be hardcoded
+  module: superset
+  value: se***REDACTED***ey
+  fix: Move the value to environment variables or a secret backend.
+  fix: Replace literal values with references.
+
+[HIGH] CDS-SEC-003 metadata.description
+  Private key material or secret-like high-entropy value appears inline
+  module: <profile>
+  value: Mi***REDACTED***.
+
+  fix: Store private keys in a secret backend or mounted secret file.
+  fix: Do not keep cryptographic material directly in profile YAML.
+
+[HIGH] CDS-SEC-003 metadata.displayName
+  Private key material or secret-like high-entropy value appears inline
+  module: <profile>
+  value: Lo***REDACTED***et
+  fix: Store private keys in a secret backend or mounted secret file.
+  fix: Do not keep cryptographic material directly in profile YAML.
+
+[HIGH] CDS-SEC-006 metadata.description
+  Rendered or planned output appears to contain a resolved secret
+  module: <profile>
+  value: Mi***REDACTED***.
+
+  fix: Redact secrets in plan and render output.
+  fix: Avoid writing resolved secret values to generated files.
+
+[HIGH] CDS-SEC-006 metadata.displayName
+  Rendered or planned output appears to contain a resolved secret
+  module: <profile>
+  value: Lo***REDACTED***et
+  fix: Redact secrets in plan and render output.
+  fix: Avoid writing resolved secret values to generated files.
+
+[HIGH] CDS-SEC-006 passwordFrom
+  Rendered or planned output appears to contain a resolved secret
+  module: postgres
+  value: se***REDACTED***rd
+  fix: Redact secrets in plan and render output.
+  fix: Avoid writing resolved secret values to generated files.
+
+[HIGH] CDS-SEC-006 adminUser.passwordFrom
+  Rendered or planned output appears to contain a resolved secret
+  module: superset
+  value: se***REDACTED***rd
+  fix: Redact secrets in plan and render output.
+  fix: Avoid writing resolved secret values to generated files.
+
+[HIGH] CDS-SEC-006 secretKeyFrom
+  Rendered or planned output appears to contain a resolved secret
+  module: superset
+  value: se***REDACTED***ey
+  fix: Redact secrets in plan and render output.
+  fix: Avoid writing resolved secret values to generated files.
+
+[HIGH] CDS-SEC-012 kind
+  Secret value appears too weak or predictable
+  module: <profile>
+  value: Pr***REDACTED***le
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 runtime.namespace
+  Secret value appears too weak or predictable
+  module: <profile>
+  value: cd***REDACTED***al
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 secrets.provider.type
+  Secret value appears too weak or predictable
+  module: <profile>
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 secrets.values.postgres_password.required
+  Secret value appears too weak or predictable
+  module: <profile>
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 secrets.values.superset_admin_password.required
+  Secret value appears too weak or predictable
+  module: <profile>
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 secrets.values.superset_secret_key.required
+  Secret value appears too weak or predictable
+  module: <profile>
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 daemon.enabled
+  Secret value appears too weak or predictable
+  module: dagster
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 healthcheck.enabled
+  Secret value appears too weak or predictable
+  module: dagster
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 runLauncher.type
+  Secret value appears too weak or predictable
+  module: dagster
+  value: de***REDACTED***lt
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 webPort
+  Secret value appears too weak or predictable
+  module: dagster
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 database
+  Secret value appears too weak or predictable
+  module: postgres
+  value: an***REDACTED***cs
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 healthcheck.enabled
+  Secret value appears too weak or predictable
+  module: postgres
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 port
+  Secret value appears too weak or predictable
+  module: postgres
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 storage.enabled
+  Secret value appears too weak or predictable
+  module: postgres
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 storage.size
+  Secret value appears too weak or predictable
+  module: postgres
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 username
+  Secret value appears too weak or predictable
+  module: postgres
+  value: an***REDACTED***cs
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 adminUser.username
+  Secret value appears too weak or predictable
+  module: superset
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 healthcheck.enabled
+  Secret value appears too weak or predictable
+  module: superset
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[HIGH] CDS-SEC-012 webPort
+  Secret value appears too weak or predictable
+  module: superset
+  value: ***
+  fix: Require randomly generated secrets of sufficient length.
+  fix: Reject dictionary-like or commonly used values.
+
+[MEDIUM] CDS-SEC-013 passwordFrom
+  The same secret appears reused across multiple services
+  module: postgres
+  value: se***REDACTED***rd
+  fix: Use separate credentials or secrets per service.
+  fix: Generate scoped secrets rather than sharing one across components.
+
+[MEDIUM] CDS-SEC-013 adminUser.passwordFrom
+  The same secret appears reused across multiple services
+  module: superset
+  value: se***REDACTED***rd
+  fix: Use separate credentials or secrets per service.
+  fix: Generate scoped secrets rather than sharing one across components.
+
+[MEDIUM] CDS-SEC-013 secretKeyFrom
+  The same secret appears reused across multiple services
+  module: superset
+  value: se***REDACTED***ey
+  fix: Use separate credentials or secrets per service.
+  fix: Generate scoped secrets rather than sharing one across components.
+
+[MEDIUM] CDS-SEC-031 secrets.values.postgres_password.env
+  Environment file path may be stored or handled insecurely
+  module: <profile>
+  value: CD***REDACTED***RD
+  fix: Keep secret env files out of generated output directories and version control.
+  fix: Prefer secret injection over checked-in env files.
+
+[MEDIUM] CDS-SEC-031 secrets.values.superset_admin_password.env
+  Environment file path may be stored or handled insecurely
+  module: <profile>
+  value: CD***REDACTED***RD
+  fix: Keep secret env files out of generated output directories and version control.
+  fix: Prefer secret injection over checked-in env files.
+
+[MEDIUM] CDS-SEC-031 secrets.values.superset_secret_key.env
+  Environment file path may be stored or handled insecurely
+  module: <profile>
+  value: CD***REDACTED***EY
+  fix: Keep secret env files out of generated output directories and version control.
+  fix: Prefer secret injection over checked-in env files.
+
+[MEDIUM] CDS-SEC-032 apiVersion
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: cd***REDACTED***a1
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 kind
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: Pr***REDACTED***le
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 metadata.description
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: Mi***REDACTED***.
+
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 metadata.displayName
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: Lo***REDACTED***et
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 metadata.name
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: lo***REDACTED***et
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 outputs.contracts.biApi.from
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: su***REDACTED***ce
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 outputs.contracts.orchestrationApi.from
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: da***REDACTED***ce
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 outputs.contracts.warehouse.from
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: po***REDACTED***se
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 runtime.namespace
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: cd***REDACTED***al
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 runtime.type
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: do***REDACTED***se
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 secrets.provider.type
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 secrets.values.postgres_password.env
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: CD***REDACTED***RD
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 secrets.values.postgres_password.required
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 secrets.values.superset_admin_password.env
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: CD***REDACTED***RD
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 secrets.values.superset_admin_password.required
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 secrets.values.superset_secret_key.env
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: CD***REDACTED***EY
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 secrets.values.superset_secret_key.required
+  Secret-bearing file permissions are broader than owner-only
+  module: <profile>
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 daemon.enabled
+  Secret-bearing file permissions are broader than owner-only
+  module: dagster
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 healthcheck.enabled
+  Secret-bearing file permissions are broader than owner-only
+  module: dagster
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 homeDir
+  Secret-bearing file permissions are broader than owner-only
+  module: dagster
+  value: /o***REDACTED***me
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 runLauncher.type
+  Secret-bearing file permissions are broader than owner-only
+  module: dagster
+  value: de***REDACTED***lt
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 storage.eventLogStorage.contractRef
+  Secret-bearing file permissions are broader than owner-only
+  module: dagster
+  value: po***REDACTED***se
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 storage.runStorage.contractRef
+  Secret-bearing file permissions are broader than owner-only
+  module: dagster
+  value: po***REDACTED***se
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 storage.scheduleStorage.contractRef
+  Secret-bearing file permissions are broader than owner-only
+  module: dagster
+  value: po***REDACTED***se
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 webPort
+  Secret-bearing file permissions are broader than owner-only
+  module: dagster
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 database
+  Secret-bearing file permissions are broader than owner-only
+  module: postgres
+  value: an***REDACTED***cs
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 healthcheck.enabled
+  Secret-bearing file permissions are broader than owner-only
+  module: postgres
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 passwordFrom
+  Secret-bearing file permissions are broader than owner-only
+  module: postgres
+  value: se***REDACTED***rd
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 port
+  Secret-bearing file permissions are broader than owner-only
+  module: postgres
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 storage.enabled
+  Secret-bearing file permissions are broader than owner-only
+  module: postgres
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 storage.size
+  Secret-bearing file permissions are broader than owner-only
+  module: postgres
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 username
+  Secret-bearing file permissions are broader than owner-only
+  module: postgres
+  value: an***REDACTED***cs
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 adminUser.email
+  Secret-bearing file permissions are broader than owner-only
+  module: superset
+  value: ad***REDACTED***al
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 adminUser.passwordFrom
+  Secret-bearing file permissions are broader than owner-only
+  module: superset
+  value: se***REDACTED***rd
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 adminUser.username
+  Secret-bearing file permissions are broader than owner-only
+  module: superset
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 healthcheck.enabled
+  Secret-bearing file permissions are broader than owner-only
+  module: superset
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 metadataDatabase.contractRef
+  Secret-bearing file permissions are broader than owner-only
+  module: superset
+  value: po***REDACTED***se
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 secretKeyFrom
+  Secret-bearing file permissions are broader than owner-only
+  module: superset
+  value: se***REDACTED***ey
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-032 webPort
+  Secret-bearing file permissions are broader than owner-only
+  module: superset
+  value: ***
+  fix: Set permissions to owner-only for files containing secrets.
+  fix: Tighten file creation umask for generated secret artifacts.
+
+[MEDIUM] CDS-SEC-033 passwordFrom
+  A secret-like field contains a literal value rather than an external reference
+  module: postgres
+  value: se***REDACTED***rd
+  fix: Use environment or secret-backend references for sensitive fields.
+  fix: Keep profiles declarative and secret-free.
+
+[MEDIUM] CDS-SEC-033 adminUser.passwordFrom
+  A secret-like field contains a literal value rather than an external reference
+  module: superset
+  value: se***REDACTED***rd
+  fix: Use environment or secret-backend references for sensitive fields.
+  fix: Keep profiles declarative and secret-free.
+
+[MEDIUM] CDS-SEC-033 secretKeyFrom
+  A secret-like field contains a literal value rather than an external reference
+  module: superset
+  value: se***REDACTED***ey
+  fix: Use environment or secret-backend references for sensitive fields.
+  fix: Keep profiles declarative and secret-free.
+
+[MEDIUM] CDS-SEC-050 apiVersion
+  Container image uses the latest tag
+  module: <profile>
+  value: cd***REDACTED***a1
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 kind
+  Container image uses the latest tag
+  module: <profile>
+  value: Pr***REDACTED***le
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 metadata.description
+  Container image uses the latest tag
+  module: <profile>
+  value: Mi***REDACTED***.
+
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 metadata.displayName
+  Container image uses the latest tag
+  module: <profile>
+  value: Lo***REDACTED***et
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 metadata.name
+  Container image uses the latest tag
+  module: <profile>
+  value: lo***REDACTED***et
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 outputs.contracts.biApi.from
+  Container image uses the latest tag
+  module: <profile>
+  value: su***REDACTED***ce
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 outputs.contracts.orchestrationApi.from
+  Container image uses the latest tag
+  module: <profile>
+  value: da***REDACTED***ce
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 outputs.contracts.warehouse.from
+  Container image uses the latest tag
+  module: <profile>
+  value: po***REDACTED***se
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 runtime.namespace
+  Container image uses the latest tag
+  module: <profile>
+  value: cd***REDACTED***al
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 runtime.type
+  Container image uses the latest tag
+  module: <profile>
+  value: do***REDACTED***se
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 secrets.provider.type
+  Container image uses the latest tag
+  module: <profile>
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 secrets.values.postgres_password.env
+  Container image uses the latest tag
+  module: <profile>
+  value: CD***REDACTED***RD
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 secrets.values.postgres_password.required
+  Container image uses the latest tag
+  module: <profile>
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 secrets.values.superset_admin_password.env
+  Container image uses the latest tag
+  module: <profile>
+  value: CD***REDACTED***RD
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 secrets.values.superset_admin_password.required
+  Container image uses the latest tag
+  module: <profile>
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 secrets.values.superset_secret_key.env
+  Container image uses the latest tag
+  module: <profile>
+  value: CD***REDACTED***EY
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 secrets.values.superset_secret_key.required
+  Container image uses the latest tag
+  module: <profile>
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 daemon.enabled
+  Container image uses the latest tag
+  module: dagster
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 healthcheck.enabled
+  Container image uses the latest tag
+  module: dagster
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 homeDir
+  Container image uses the latest tag
+  module: dagster
+  value: /o***REDACTED***me
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 runLauncher.type
+  Container image uses the latest tag
+  module: dagster
+  value: de***REDACTED***lt
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 storage.eventLogStorage.contractRef
+  Container image uses the latest tag
+  module: dagster
+  value: po***REDACTED***se
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 storage.runStorage.contractRef
+  Container image uses the latest tag
+  module: dagster
+  value: po***REDACTED***se
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 storage.scheduleStorage.contractRef
+  Container image uses the latest tag
+  module: dagster
+  value: po***REDACTED***se
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 webPort
+  Container image uses the latest tag
+  module: dagster
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 database
+  Container image uses the latest tag
+  module: postgres
+  value: an***REDACTED***cs
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 healthcheck.enabled
+  Container image uses the latest tag
+  module: postgres
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 passwordFrom
+  Container image uses the latest tag
+  module: postgres
+  value: se***REDACTED***rd
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 port
+  Container image uses the latest tag
+  module: postgres
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 storage.enabled
+  Container image uses the latest tag
+  module: postgres
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 storage.size
+  Container image uses the latest tag
+  module: postgres
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 username
+  Container image uses the latest tag
+  module: postgres
+  value: an***REDACTED***cs
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 adminUser.email
+  Container image uses the latest tag
+  module: superset
+  value: ad***REDACTED***al
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 adminUser.passwordFrom
+  Container image uses the latest tag
+  module: superset
+  value: se***REDACTED***rd
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 adminUser.username
+  Container image uses the latest tag
+  module: superset
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 healthcheck.enabled
+  Container image uses the latest tag
+  module: superset
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 metadataDatabase.contractRef
+  Container image uses the latest tag
+  module: superset
+  value: po***REDACTED***se
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 secretKeyFrom
+  Container image uses the latest tag
+  module: superset
+  value: se***REDACTED***ey
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+
+[MEDIUM] CDS-SEC-050 webPort
+  Container image uses the latest tag
+  module: superset
+  value: ***
+  fix: Pin images to explicit versions.
+  fix: Prefer immutable digests for critical services.
+

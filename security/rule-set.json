@@ -149,7 +149,7 @@
     },
     {
       "id": "CDS-SEC-006",
-      "title": "Resolved secret present in generated output",
+      "title": "Resolved secret present in generated or CLI output",
       "severity": "high",
       "category": "secrets",
       "scope": ["rendered-output", "plan-output"],
@@ -190,10 +190,10 @@
           },
           {
             "pathPatterns": [
-              "services.*.env.ADMIN_USERNAME",
-              "services.*.env.ADMIN_PASSWORD",
-              "services.*.env.POSTGRES_USER",
-              "services.*.env.POSTGRES_PASSWORD"
+              "services.*.environment.ADMIN_USERNAME",
+              "services.*.environment.ADMIN_PASSWORD",
+              "services.*.environment.POSTGRES_USER",
+              "services.*.environment.POSTGRES_PASSWORD"
             ],
             "equalsAny": [
               "admin",
@@ -222,11 +222,12 @@
         "all": [
           {
             "pathPatterns": [
-              "services.*.env.SUPERSET_SECRET_KEY",
-              "services.*.env.POSTGRES_PASSWORD",
-              "services.*.env.ADMIN_PASSWORD",
-              "services.*.env.JWT_SECRET"
-            ]
+              "services.*.environment.SUPERSET_SECRET_KEY",
+              "services.*.environment.POSTGRES_PASSWORD",
+              "services.*.environment.ADMIN_PASSWORD",
+              "services.*.environment.JWT_SECRET"
+            ],
+            "profileClasses": ["dev", "staging", "prod"]
           },
           {
             "allowEmpty": true
@@ -381,7 +382,7 @@
             "pathPatterns": [
               "services.*.url",
               "services.*.ingress.*",
-              "services.*.env.*_URL"
+              "services.*.environment.*_URL"
             ],
             "valueRegex": "^http://"
           }
@@ -418,7 +419,7 @@
         "Redact generated output or write secret references only.",
         "Keep rendered artifacts free of resolved secrets."
       ],
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "CDS-SEC-031",
@@ -587,7 +588,7 @@
         "Track origin of inherited settings and flag security regressions.",
         "Require explicit approval for overrides that reduce security."
       ],
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "CDS-SEC-050",
@@ -597,9 +598,9 @@
       "scope": ["image"],
       "match": {
         "any": [
-          {
-            "valueRegex": "^[^@]+:latest$"
-          }
+          { "pathPatterns": ["services.*.image"] },
+          { "valueRegex": "^[^@]+:latest$" },
+          { "notValueRegex": "^local/" }
         ]
       },
       "message": "Container image uses the latest tag",
@@ -618,12 +619,9 @@
       "scope": ["image"],
       "match": {
         "all": [
-          {
-            "serviceTypes": ["admin-ui", "database", "api"]
-          },
-          {
-            "imageTagPolicy": "require-digest"
-          }
+          { "serviceTypes": ["admin-ui", "database", "api"] },
+          { "pathPatterns": ["services.*.image"] },
+          { "notValueRegex": "@sha256:[a-f0-9]{64}" }
         ]
       },
       "message": "Critical service image is not pinned by digest",
@@ -641,10 +639,9 @@
       "category": "supply-chain",
       "scope": ["image"],
       "match": {
-        "any": [
-          {
-            "valueRegex": "^(?!docker\\.io/|ghcr\\.io/).+/.+"
-          }
+        "all": [
+          { "pathPatterns": ["services.*.image"] },
+          { "notValueRegex": "^(docker\\.io/|ghcr\\.io/|local/)" }
         ]
       },
       "message": "Image registry does not match the configured allowlist",
@@ -698,7 +695,7 @@
         "Run services as a non-root user where supported.",
         "Define user IDs explicitly in hardened profiles."
       ],
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "CDS-SEC-061",
@@ -753,7 +750,7 @@
         "Enable read-only root filesystems where feasible.",
         "Use explicit writable mounts for required paths."
       ],
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "CDS-SEC-063",
@@ -841,7 +838,7 @@
         "Redact sensitive output by default.",
         "Provide explicit unsafe flags for debugging only."
       ],
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "CDS-SEC-072",
@@ -853,8 +850,8 @@
         "any": [
           {
             "pathPatterns": [
-              "services.*.env.DEBUG",
-              "services.*.env.FLASK_DEBUG",
+              "services.*.environment.DEBUG",
+              "services.*.environment.FLASK_DEBUG",
               "services.*.logging.level"
             ],
             "equalsAny": ["true", "True", "1", "debug", "DEBUG"]

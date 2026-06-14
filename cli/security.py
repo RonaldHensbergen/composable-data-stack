@@ -1,6 +1,7 @@
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -43,6 +44,43 @@ def flatten(obj, prefix=""):
     else:
         items.append((prefix, obj))
     return items
+
+
+def flatten_profile_by_module(profile: dict) -> list[tuple[str, str, Any]]:
+    """
+    Returns a list of (module_id, path, value) tuples.
+
+    - Module config keys are flattened under their module id.
+    - Top-level profile keys outside spec.modules are emitted with
+      module_id = "<profile>" so they are never silently dropped.
+    """
+    results: list[tuple[str, str, Any]] = []
+    spec = profile.get("spec", {})
+    modules = spec.get("modules", [])
+
+    # Per-module config
+    for module_instance in modules:
+        if module_instance.get("enabled", False) is False:
+            continue
+        module_id = module_instance.get("id", "<unknown>")
+        config = module_instance.get("config", {})
+        for path, value in flatten(config):
+            results.append((module_id, path, value))
+
+    # Top-level profile keys (runtime, secrets, outputs, metadata, etc.)
+    for key, value in profile.items():
+        if key == "spec":
+            # Flatten spec-level keys that are NOT modules
+            for spec_key, spec_value in spec.items():
+                if spec_key == "modules":
+                    continue
+                for path, value_ in flatten(spec_value, spec_key):
+                    results.append(("<profile>", path, value_))
+        else:
+            for path, value_ in flatten(value, key):
+                results.append(("<profile>", path, value_))
+
+    return results
 
 
 def entropy_like(value: str) -> bool:
@@ -171,7 +209,7 @@ def rule_matches(rule, flat_items, profile_class):
     findings = []
     match = rule["match"]
 
-    for path, value in flat_items:
+    for module_id, path, value in flat_items:
         key = path.split(".")[-1] if path else ""
 
         if "all" in match:
@@ -184,26 +222,25 @@ def rule_matches(rule, flat_items, profile_class):
                 {
                     "rule_id": rule["id"],
                     "severity": rule["severity"],
+                    "module": module_id,
                     "message": rule["message"],
                     "path": path,
                     "value": redact(value),
                     "recommendation": rule["recommendation"],
                 }
             )
-
     return findings
-
 
 def run_security_validation(profile_path: Path, rule_schema_path: Path, rule_set_path: Path):
     profile = load_yaml(profile_path)
     rule_set = validate_rule_set(rule_schema_path, rule_set_path)
     profile_class = infer_profile_class(profile)
-    flat_items = flatten(profile)
+    flat_items = flatten_profile_by_module(profile)   # ← replaces flatten(profile)
 
     findings = []
     for rule in rule_set["rules"]:
         if rule.get("enabled", True):
             findings.extend(rule_matches(rule, flat_items, profile_class))
 
-    findings.sort(key=lambda x: ({"high": 0, "medium": 1, "low": 2}[x["severity"]], x["rule_id"], x["path"]))
+    findings.sort(key=lambda x: ({"high": 0, "medium": 1, "low": 2}[x["severity"]], x["rule_id"], x["module"], x["path"]))
     return findings

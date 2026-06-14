@@ -18,6 +18,7 @@ from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
 from .security import run_security_validation
 
+
 def print_diagnostics(diagnostics) -> None:
     for d in diagnostics:
         prefix = "ERROR" if d.level == "error" else "WARN"
@@ -120,38 +121,29 @@ def list_modules() -> list[str]:
     return modules
 
 
+def _add_profile_arg(subparser: argparse.ArgumentParser) -> None:
+    action = subparser.add_argument(
+        "profile",
+        nargs="?",
+        help="Profile path or identifier. Uses CDS_PROFILE_PATH if set.",
+    )
+    if argcomplete is not None:
+        action.completer = profile_completer  # type: ignore[attr-defined]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="cds")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    profile_arg_kwargs = {
-        "completer": profile_completer,
-    } if argcomplete is not None else {}
-
     validate_parser = subparsers.add_parser("validate", help="Validate a profile")
-    validate_parser.add_argument(
-        "profile",
-        nargs="?",
-        help="Profile path or identifier. Uses CDS_PROFILE_PATH if set.",
-        **profile_arg_kwargs,
-    )
+    _add_profile_arg(validate_parser)
 
     plan_parser = subparsers.add_parser("plan", help="Build a resolved plan from a profile")
-    plan_parser.add_argument(
-        "profile",
-        nargs="?",
-        help="Profile path or identifier. Uses CDS_PROFILE_PATH if set.",
-        **profile_arg_kwargs,
-    )
+    _add_profile_arg(plan_parser)
     plan_parser.add_argument("--json", action="store_true", help="Output plan as JSON")
 
     render_parser = subparsers.add_parser("render", help="Render docker compose from a profile")
-    render_parser.add_argument(
-        "profile",
-        nargs="?",
-        help="Profile path or identifier. Uses CDS_PROFILE_PATH if set.",
-        **profile_arg_kwargs,
-    )
+    _add_profile_arg(render_parser)
     render_parser.add_argument("--output", "-o", help="Output file path for rendered output")
 
     list_parser = subparsers.add_parser("list", help="List available profiles or modules")
@@ -161,12 +153,7 @@ def main() -> int:
     list_subparsers.add_parser("images", help="List images from module templates and check for newer versions")
 
     security_parser = subparsers.add_parser("security", help="Run security validation on a profile")
-    security_parser.add_argument(
-        "profile",
-        nargs="?",
-        help="Profile path or identifier. Uses CDS_PROFILE_PATH if set.",
-        **profile_arg_kwargs,
-    )
+    _add_profile_arg(security_parser)
 
     if argcomplete is not None:
         argcomplete.autocomplete(parser)
@@ -340,8 +327,10 @@ def main() -> int:
             return 0
 
         for f in findings:
+
             print(f"[{f['severity'].upper()}] {f['rule_id']} {f['path']}")
             print(f"  {f['message']}")
+            print(f"  module: {f['module']}")
             if f["value"] is not None:
                 print(f"  value: {f['value']}")
             for rec in f["recommendation"]:
@@ -353,5 +342,7 @@ def main() -> int:
     print("Base validation not shown here.")
     return 0
 
+
 if __name__ == "__main__":
     sys.exit(main())
+
