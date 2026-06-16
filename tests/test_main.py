@@ -61,7 +61,7 @@ class MainCLITest(unittest.TestCase):
     def test_security_command_resolves_profile_and_runs_validation(self, mock_validate, mock_run_security):
         profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
         mock_validate.return_value = []
-        mock_run_security.return_value = []
+        mock_run_security.return_value = ([], [])
 
         with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
             sys, "argv", ["cds", "security", "local-dagster-postgres-superset"]
