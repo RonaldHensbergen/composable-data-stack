@@ -9,7 +9,8 @@ from cli.validator import validate_profile
 class SmokeExampleProfileTest(unittest.TestCase):
     def test_example_profile_validates_and_builds_plan(self):
         repo_root = Path(__file__).resolve().parent.parent
-        profile_path = repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+        profiles_root = repo_root / "profiles"
+        profile_path = profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
         self.assertTrue(profile_path.exists(), f"Example profile not found at {profile_path}")
 
         diagnostics = validate_profile(str(profile_path))

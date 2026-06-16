@@ -313,23 +313,26 @@ def main() -> int:
         rule_set_path = repo_root / "security" / "rule-set.json"
 
         try:
-            findings = run_security_validation(
+            findings, diagnostics = run_security_validation(
                 profile_path=Path(profile_path),
                 rule_schema_path=rule_schema_path,
                 rule_set_path=rule_set_path,
+                env_file=None,
             )
         except Exception as e:
             print(str(e), file=sys.stderr)
             return 2
+
+        for diag in diagnostics:
+            print(diag.format(), file=sys.stderr)
 
         if not findings:
             print("No security findings.")
             return 0
 
         for f in findings:
-
-            print(f"[{f['severity'].upper()}] {f['rule_id']} {f['path']}")
-            print(f"  {f['message']}")
+            print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+            print(f"  object: {f['path']}")
             print(f"  module: {f['module']}")
             if f["value"] is not None:
                 print(f"  value: {f['value']}")

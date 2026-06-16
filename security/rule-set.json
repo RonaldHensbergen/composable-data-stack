@@ -12,7 +12,7 @@
       "title": "Hardcoded secret-like value",
       "severity": "high",
       "category": "secrets",
-      "scope": ["profile-raw", "module-values", "service-env"],
+      "scope": ["profile-raw", "module-values"],
       "match": {
         "all": [
           {
@@ -60,7 +60,7 @@
       "title": "Inline private key or high-entropy secret material",
       "severity": "high",
       "category": "secrets",
-      "scope": ["profile-raw", "module-values", "service-env"],
+      "scope": ["profile-raw", "module-values"],
       "match": {
         "any": [
           {
@@ -100,6 +100,7 @@
               "postgres",
               "postgres123",
               "changeme",
+              "change-me", 
               "secret",
               "default",
               "test",
@@ -121,7 +122,7 @@
       "title": "Secret interpolated into non-secret field",
       "severity": "high",
       "category": "secrets",
-      "scope": ["profile-resolved", "bindings", "service-command", "service-args", "logs-config"],
+      "scope": ["profile-resolved", "bindings"],
       "match": {
         "all": [
           {
@@ -152,7 +153,7 @@
       "title": "Resolved secret present in generated or CLI output",
       "severity": "high",
       "category": "secrets",
-      "scope": ["rendered-output", "plan-output"],
+      "scope": ["none"],
       "match": {
         "any": [
           {
@@ -250,23 +251,26 @@
       "scope": ["profile-raw", "profile-resolved", "service-env"],
       "match": {
         "any": [
-          {
-            "minLength": 1,
-            "valueRegex": "^.{1,11}$"
-          },
-          {
-            "equalsAny": [
-              "admin",
-              "password",
-              "secret",
-              "changeme",
-              "default",
-              "test123"
-            ]
-          }
-        ]
-      },
-      "message": "Secret value appears too weak or predictable",
+        {
+          "keyRegex": "(?i)(password|secret|token|key|credential|passwd|pwd|auth|api[-_]?key|access[-_]?key)",
+          "minLength": 1,
+          "valueRegex": "^.{1,11}$"
+        },
+        {
+          "keyRegex": "(?i)(password|secret|token|key|credential|passwd|pwd|auth|api[-_]?key|access[-_]?key)",
+          "equalsAny": [
+            "admin",
+            "password",
+            "secret",
+            "changeme",
+            "change-me",
+            "default",
+            "test123"
+          ]
+        }
+      ]
+    },
+    "message": "Secret value appears too weak or predictable",
       "whyItMatters": "Short or predictable secrets can be guessed or brute-forced easily.",
       "recommendation": [
         "Require randomly generated secrets of sufficient length.",
@@ -296,14 +300,14 @@
         "Use separate credentials or secrets per service.",
         "Generate scoped secrets rather than sharing one across components."
       ],
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "CDS-SEC-020",
       "title": "Admin or UI service bound to 0.0.0.0",
       "severity": "high",
       "category": "network-exposure",
-      "scope": ["service", "service-ports"],
+      "scope": ["service"],
       "match": {
         "all": [
           {
@@ -327,7 +331,7 @@
       "title": "Database service published externally",
       "severity": "high",
       "category": "network-exposure",
-      "scope": ["service", "service-ports"],
+      "scope": ["service"],
       "match": {
         "all": [
           {
@@ -351,7 +355,7 @@
       "title": "Non-local interface exposure in local profile",
       "severity": "medium",
       "category": "network-exposure",
-      "scope": ["service", "service-ports"],
+      "scope": ["service"],
       "match": {
         "all": [
           {
@@ -401,7 +405,7 @@
       "title": "Generated file contains resolved secrets",
       "severity": "high",
       "category": "file-output-safety",
-      "scope": ["rendered-output", "filesystem"],
+      "scope": ["none"],
       "match": {
         "any": [
           {
@@ -426,7 +430,7 @@
       "title": "Env file path appears repository-managed or unmanaged",
       "severity": "medium",
       "category": "file-output-safety",
-      "scope": ["filesystem", "rendered-output"],
+      "scope": ["none"],
       "match": {
         "any": [
           {
@@ -453,7 +457,7 @@
       "title": "Secret file permissions too broad",
       "severity": "medium",
       "category": "file-output-safety",
-      "scope": ["filesystem"],
+      "scope": ["none"],
       "match": {
         "any": [
           {
@@ -595,7 +599,7 @@
       "title": "Container image uses latest tag",
       "severity": "medium",
       "category": "supply-chain",
-      "scope": ["image"],
+      "scope": ["none"],
       "match": {
         "any": [
           { "pathPatterns": ["services.*.image"] },
@@ -616,7 +620,7 @@
       "title": "Critical image missing digest pin",
       "severity": "medium",
       "category": "supply-chain",
-      "scope": ["image"],
+      "scope": ["none"],
       "match": {
         "all": [
           { "serviceTypes": ["admin-ui", "database", "api"] },
@@ -637,7 +641,7 @@
       "title": "Image registry outside allowlist",
       "severity": "medium",
       "category": "supply-chain",
-      "scope": ["image"],
+      "scope": ["none"],
       "match": {
         "all": [
           { "pathPatterns": ["services.*.image"] },
@@ -657,7 +661,7 @@
       "title": "Image version below policy minimum",
       "severity": "medium",
       "category": "supply-chain",
-      "scope": ["image"],
+      "scope": ["none"],
       "match": {
         "any": [
           {
@@ -673,6 +677,27 @@
       ],
       "enabled": true
     },
+    {
+      "id": "CDS-SEC-054",
+      "title": "Unpinned image tag in non-local profile",
+      "severity": "medium",
+      "category": "supply-chain",
+      "scope": ["none"],
+      "match": {
+        "all": [
+          { "profileClasses": ["dev", "staging", "prod"] },
+          { "pathPatterns": ["services.*.image"] },
+          { "imageTagPolicy": "forbid-latest" }
+        ]
+      },
+      "message": "Service image uses the ':latest' tag in a non-local profile",
+      "whyItMatters": "Unpinned images can silently introduce breaking changes or vulnerabilities.",
+      "recommendation": [
+        "Pin images to a specific version tag or digest.",
+        "Use digest pinning (@sha256:...) for production environments."
+      ],
+      "enabled": true
+    }, 
     {
       "id": "CDS-SEC-060",
       "title": "Container runs as root",
@@ -788,7 +813,7 @@
       "title": "Secret appears in command args or log configuration",
       "severity": "high",
       "category": "observability-leakage",
-      "scope": ["service-command", "service-args", "logs-config"],
+      "scope": ["none"],
       "match": {
         "any": [
           {
@@ -817,7 +842,7 @@
       "title": "CLI plan or validate output prints secrets",
       "severity": "high",
       "category": "observability-leakage",
-      "scope": ["plan-output", "rendered-output"],
+      "scope": ["none"],
       "match": {
         "any": [
           {
@@ -845,7 +870,7 @@
       "title": "Debug mode enabled for sensitive service",
       "severity": "medium",
       "category": "observability-leakage",
-      "scope": ["service", "service-env", "logs-config"],
+      "scope": ["service", "service-env"],
       "match": {
         "any": [
           {

@@ -59,15 +59,8 @@
         "bindings",
         "service",
         "service-env",
-        "service-ports",
-        "service-command",
-        "service-args",
-        "rendered-output",
-        "plan-output",
-        "logs-config",
-        "filesystem",
-        "image",
-        "runtime"
+        "runtime",
+        "none"
       ]
     },
     "matchCondition": {

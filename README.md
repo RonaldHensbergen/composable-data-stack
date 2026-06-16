@@ -1,6 +1,41 @@
 # Composable Data Stack
 
-Composable Data Stack is a modular approach to defining and running data platform building blocks such as orchestration, storage, and BI through reusable module contracts and profiles.
+A modular, contract-first approach to composing and validating data platform stacks.
+
+Instead of a fixed demo stack, CDS lets you define reusable platform modules — orchestrators,
+warehouses, BI tools, secrets providers — and wire them together through explicit contracts.
+Swap Airflow for Dagster, Postgres for MariaDB, or Superset for Metabase, without hidden
+coupling or full rewrites.
+
+## Why CDS?
+
+Most data platform setups force a choice between:
+
+- a rigid, opinionated stack you cannot swap components in
+- a fully custom setup with no shared contracts or reuse between tools
+
+CDS gives you swappable, reusable modules wired together through explicit contracts, so you
+can compose and evolve your stack without hidden coupling.
+
+## Status
+
+The MVP is **ready for testing**.
+
+The `local-dagster-postgres-superset` profile is fully declarative and runnable. It covers:
+
+- module manifest validation
+- contract binding and resolution
+- basic security checks against a profile
+- profile composition and planning
+
+Planned next:
+
+- compose rendering
+- secret resolution
+- runtime generation
+- stack bootstrap and smoke tests
+
+> Feedback on the MVP is very welcome. Please open an issue if something breaks or feels wrong.
 
 ## Quickstart
 
@@ -12,362 +47,273 @@ cd composable-data-stack
 ```
 
 ### 2. Create and activate a virtual environment
-```bash
 
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
 ### 3. Install the CLI
+
 ```bash
 make install
 ```
 
 Or manually:
+
 ```bash
 pip install -e .
 ```
 
-### 3.1 Build a distributable package
-```bash
-make package
-```
-
 ### 4. Create your local environment file
+
 ```bash
 cp .env.example .env
 ```
 
-Then edit `.env` and set real values for:
+Then edit `.env` and set values for:
 
 - `CDS_POSTGRES_PASSWORD`
 - `CDS_SUPERSET_SECRET_KEY`
 - `CDS_SUPERSET_ADMIN_PASSWORD`
 
-### Environment variables for CLI defaults
+### 5. Validate the example profile
 
-The CLI supports two optional environment variables:
+```bash
+make validate
+```
 
-- `CDS_PROFILE_PATH`
-  - path to a `profiles/` directory, or a specific `profile.yaml` file.
-  - If set, `cds validate`, `cds plan`, and `cds render` can accept a profile name instead of a full path.
-- `CDS_MODULE_PATH`
-  - path to a `modules/` directory.
-  - If set, module sources in profiles are loaded from this directory instead of the profile directory.
+Or directly:
 
-Example shell usage:
+```bash
+cds validate local-dagster-postgres-superset
+```
+
+Expected output:
+
+```text
+Profile is valid.
+```
+
+## CLI reference
+
+| Command | Description |
+| ------- | ----------- |
+| `cds validate <profile>` | Validate module manifests, contract bindings, and security checks for a profile |
+| `cds plan <profile>` | Resolve dependencies and produce a composition plan *(planned)* |
+| `cds render <profile>` | Render runtime assets from a resolved plan *(planned)* |
+| `cds up <profile>` | Start services in dependency order *(planned)* |
+| `cds test <profile>` | Run health checks and smoke tests *(planned)* |
+
+### Environment variables
+
+| Variable | Description |
+| -------- | ----------- |
+| `CDS_PROFILE_PATH` | Path to a `profiles/` directory or a specific `profile.yaml`. When set, commands accept a profile name instead of a full path. |
+| `CDS_MODULE_PATH` | Path to a `modules/` directory. When set, module sources are loaded from this directory instead of the profile directory. |
+
+**Linux / macOS:**
 
 ```bash
 export CDS_PROFILE_PATH=/home/ronald/Projects/composable-data-stack/profiles
 export CDS_MODULE_PATH=/home/ronald/Projects/composable-data-stack/modules
 ```
 
-Example PowerShell usage:
+**Windows (PowerShell):**
 
 ```powershell
 $env:CDS_PROFILE_PATH = 'C:\Projects\composable-data-stack\profiles'
-$env:CDS_MODULE_PATH = 'C:\Projects\composable-data-stack\modules'
+$env:CDS_MODULE_PATH  = 'C:\Projects\composable-data-stack\modules'
 ```
-
-### 5. Validate the example profile
-```bash
-make validate
-```
-
-Or directly:
-```bash
-cds validate profiles/local-dagster-postgres-superset/profile.yaml
-```
-
-## Current example profile
-
-The main example profile is:
-```text
-profiles/local-dagster-postgres-superset/profile.yaml
-```
-
-It composes:
-
--    Postgres for storage
--    Dagster for orchestration
--    Superset for BI
-
-## Project status
-
-This repository currently includes:
-
--    profile/module YAML modeling
--    contract-based module wiring
--    a validation CLI
--    example modules for Postgres, Dagster, and Superset
-
-Planned next steps:
-
--    compose rendering
--    secret resolution
--    runtime generation
--    stack bootstrap and smoke tests
-
-
-Recommended next steps for the current branch:
-
--    add a regression test for secret interpolation during compose rendering
--    add a regression test for `.env` and environment secret loading
--    add a profile-level smoke test covering `cds validate` and `cds plan`
--    keep the branch scope focused on secret handling and contract resolution
-
 
 ## Core concepts
-This repository is designed around **modules**, **profiles**, and **contracts**.
 
-## Modules
+CDS is built around three primitives: **modules**, **profiles**, and **contracts**.
 
-Modules are reusable platform components such as orchestrators, warehouses, BI tools, secrets providers, and ingress.
+### Modules
 
-Examples include:
+Modules are reusable, self-contained platform components. Each module declares what it
+provides, what it requires, and how it should be operated. Modules never depend on each
+other directly — they interact only through contracts.
 
--    `modules/orchestration/airflow`
--    `modules/orchestration/dagster`
--    `modules/warehouse/postgres`
--    `modules/warehouse/mariadb`
--    `modules/transform/dbt`
--    `modules/bi/superset`
--    `modules/quality/great-expectations`
--    `modules/secrets/env`
--    `modules/secrets/vault`
+Available module categories:
 
-A module should eventually contain:
+| Category | Examples |
+| -------- | ------- |
+| Orchestration | `airflow`, `dagster` |
+| Warehouse | `postgres`, `mariadb` |
+| Transform | `dbt` |
+| BI | `superset` |
+| Quality | `great-expectations` |
+| Secrets | `env`, `vault` |
+
+Each module lives at `modules/<category>/<name>/` and may contain:
+
 ```text
 modules/<category>/<name>/
-├── module.yaml
-├── defaults.yaml
-├── compose.yaml
-├── README.md
-├── scripts/
-└── tests/
+├── module.yaml       # manifest: provides, requires, inputs, health checks
+├── defaults.yaml     # default configuration values
+├── compose.yaml      # runtime service definition
+├── README.md         # module-level documentation
+├── scripts/          # lifecycle and init scripts
+└── tests/            # module-level smoke tests
 ```
 
-## Profiles
+### Profiles
 
-Profiles are supported runnable compositions of modules, with explicit bindings and minimal hidden dependencies.
+A profile is a supported, runnable combination of modules. It defines which modules are
+included, how their contracts are bound together, and what stage-specific values apply.
 
-A profile should define:
-
--    selected module instances
--    bindings between provided and required contracts
--    stage-specific values
--    supported runtime expectations
+If a module combination is not represented as a profile, it should be treated as
+experimental rather than supported.
 
 Example profile names:
 
--    `local-airflow-postgres-superset`
--    `local-dagster-postgres-superset`
--    `integration-airflow-postgres-dbt`
--    `cloudstack-airflow-postgres-ha`
+- `local-dagster-postgres-superset`
+- `local-airflow-postgres-superset`
+- `integration-airflow-postgres-dbt`
+- `cloudstack-airflow-postgres-ha`
 
-A profile should eventually contain:
+Each profile lives at `profiles/<profile-name>/` and may contain:
+
 ```text
 profiles/<profile-name>/
-├── profile.yaml
-├── values.yaml
-└── README.md
+├── profile.yaml      # module selection, bindings, and stage values
+├── values.yaml       # profile-level configuration overrides
+└── README.md         # profile-level documentation
 ```
-## Contracts
 
-Contracts provide the interface layer between modules.
+### Contracts
 
-Examples:
+Contracts are the interface layer between modules. A module declares what contracts it
+provides and what contracts it requires. The profile wires them together through explicit
+bindings.
 
--    `sql-database`
--    `secrets-provider`
--    `http-service`
--    `warehouse-query`
--    `transformation-runner`
+Available contracts:
 
-A module should never depend on another module implicitly. Instead, it should require a contract and receive it through profile bindings.
+| Contract | Description |
+| -------- | ----------- |
+| `sql-database` | Relational database connection interface |
+| `secrets-provider` | Secret resolution interface |
+| `http-service` | HTTP endpoint exposure interface |
+| `warehouse-query` | Query execution interface |
+| `transformation-runner` | Transformation execution interface |
 
-## Goals
-
-- Build a composable data platform instead of a fixed demo stack
-- Support interchangeable modules, such as:
-
-  -  Airflow or Dagster
-  -  Postgres, MariaDB, or Spark-oriented backends
-  -  Superset, Metabase, and other BI options
-  -  dbt, Great Expectations, Soda, Vault, and more
-
-- Keep module contracts explicit
-- Make profiles the unit of support
-- Avoid implicit coupling and hidden dependencies
-- Evolve from:
-
-  -  local development
-  -  reproducible integration environments
-  -  production-ready deployments
+A module never depends on another module implicitly. If a module needs a database, it
+declares a `sql-database` requirement. The profile decides which module satisfies it.
 
 ## Design principles
+
 ### Contract-first modules
 
-Each module should declare:
+Each module declares:
 
--    what it **provides**
--    what it **requires**
--    configuration inputs
--    health checks
--    lifecycle hooks
--    operational responsibilities
+- what it **provides**
+- what it **requires**
+- configuration inputs
+- health checks
+- lifecycle hooks
+- operational responsibilities
 
 ### Profile-driven composition
 
-Profiles define supported combinations of modules.
-
-If a combination is not represented as a profile, it should be treated as experimental rather than supported.
+Profiles define supported combinations of modules. The profile is the unit of support —
+not individual modules in isolation.
 
 ### Minimal hidden dependencies
 
-Modules should interact through declared contracts and bindings, not through undocumented environment variables, cross-folder assumptions, or shared mutable state.
+Modules interact through declared contracts and profile bindings only. No undocumented
+environment variables, cross-folder assumptions, or shared mutable state.
+
 ### One architecture, multiple stages
 
-The platform should preserve the same logical composition model across:
+The same logical composition model applies across local development, CI environments, and
+production deployment. Only runtime packaging and operational controls change between stages.
 
--    local development
--    CI or integration environments
--   production deployment targets
+## Example profile
 
-Only the runtime packaging and operational controls should change.
+The current example profile is `local-dagster-postgres-superset`. It composes:
 
-## Development
-### Install dependencies
-```bash
-make install
-```
-
-### Validate the default profile
-```bash
-make validate
-```
-### Validate a specific profile
-```bash
-make validate-profile P=profiles/local-dagster-postgres-superset/profile.yaml
-```
-
-## Packaging and installers
-
-This repo is packaged as a Python CLI and can be installed from source or built into distributable artifacts.
-
-### Recommended installer targets
-
-- Linux: wheel plus Homebrew/Linuxbrew formula or native `.deb`/`.rpm` package.
-- macOS: wheel plus Homebrew formula; optionally an installer package (`.pkg`/`.dmg`).
-- Windows: wheel plus PyInstaller bundle or MSI installer.
-
-### Build the Python package
+- **Postgres** for storage
+- **Dagster** for orchestration
+- **Superset** for BI
 
 ```bash
-python3 -m pip install --upgrade build
-python3 -m build
+cds validate local-dagster-postgres-superset
 ```
 
-Then install locally:
+## Bootstrap flow
 
-```bash
-python3 -m pip install dist/composable_data_stack-0.1.0-py3-none-any.whl
-```
+The intended end-to-end workflow, once fully implemented:
 
-### Installer recommendation
-
-For a CLI package like this, the lowest-risk path is to publish a Python wheel and optionally provide native wrappers:
-
-- Linux: `pip install composable-data-stack`, or build a Homebrew/Linuxbrew tap.
-- macOS: Homebrew formula plus `pip install` support.
-- Windows: `pip install` for Python users, or create a PyInstaller single-file executable and wrap it in an MSI if you need a native installer.
-
-For fuller installer support, create a dedicated `docs/packaging.md` with packaging steps for each platform.
+1. Validate module manifests and profile definitions
+2. Resolve dependencies, bindings, and security constraints
+3. Generate a composition plan
+4. Render runtime assets
+5. Start services in dependency order
+6. Run initialization and health checks
+7. Produce an environment report
 
 ## Repository structure
+
 ```text
 .
-├── cli/
-├── modules/
+├── cli/              # Validation CLI and planning/rendering tooling
+├── modules/          # Reusable, deployable building blocks
 │   ├── bi/
 │   ├── orchestration/
 │   ├── secrets/
 │   └── warehouse/
-├── profiles/
+├── profiles/         # Supported runnable module combinations
+├── docs/             # Architecture, contracts, modules, and operations
 ├── pyproject.toml
 ├── Makefile
-├── .env.example
-└── README.md
+└── .env.example
 ```
-### Key directories
-| Path |	Purpose |
-| ---- | ------- |
-| `cli/` |	Validation CLI and future planning/rendering tooling |
-| `modules/` |	Deployable, reusable building blocks |
-| `profiles/`	| Supported runnable combinations of modules | 
-| `docs/` |	Architecture, contracts, modules, operations, and profiles |
 
-### Planned bootstrap flow
+## Installation and packaging
 
-The intended workflow is:
+Install from source for local development:
 
-1.    Validate module manifests
-1.    Validate profile definitions
-1.    Resolve dependencies and bindings
-1.    Generate a composition plan
-1.    Render runtime assets
-1.    Start services in dependency order
-1.    Run initialization and health checks
-1.    Produce an environment report
-
-### Example future commands:
 ```bash
-cds validate profiles/local-dagster-postgres-superset/profile.yaml
-cds plan profiles/local-dagster-postgres-superset/profile.yaml
-cds render profiles/local-dagster-postgres-superset/profile.yaml
-cds up profiles/local-dagster-postgres-superset/profile.yaml
-cds test profiles/local-dagster-postgres-superset/profile.yaml
+pip install -e .
 ```
 
-### Initial implementation priorities
+Build a distributable wheel:
 
-The near-term focus is:
-
-1.    Normalize the repository around modules/ and profiles/
-1.    Define shared module and profile schemas
-1.    Establish initial contract definitions
-1.    Make one profile fully declarative and runnable
-1.    Build validation and planning tooling
-1.    Add health checks and smoke tests
-
-### MVP target
-
-The initial MVP centers on a single supported local profile:
-```text
-local-dagster-postgres-superset
+```bash
+python3 -m pip install --upgrade build
+python3 -m build
+pip install dist/composable_data_stack-0.1.0-py3-none-any.whl
 ```
-This is intended to validate:
 
--    module manifests
--    contract binding rules
--    profile composition
--    local rendering and bootstrap flow
--    health and smoke test behavior
+| Platform | Recommended distribution |
+| -------- | ------------------------ |
+| Linux | `pip install`, Homebrew/Linuxbrew tap, or `.deb`/`.rpm` package |
+| macOS | Homebrew formula plus `pip install` |
+| Windows | `pip install` for Python users; PyInstaller bundle or MSI for broader distribution |
 
-### Non-goals for the initial phase
+See `docs/packaging.md` for full packaging and installer instructions.
 
-The following are intentionally deferred:
+## Development
 
--    full production HA deployment logic
--    advanced CloudStack packaging
--    full upgrade orchestration
--    backup scheduling
--    multi-node Spark orchestration
--    complex secrets management automation
+```bash
+make install       # install dependencies
+make validate      # validate the default profile
+make validate-profile P=profiles/local-dagster-postgres-superset/profile.yaml
+make package       # build a distributable package
+```
 
-### Documentation
+## Contributing
 
-Current and planned documentation lives under `docs/`.
+Contributions are welcome. Please read `CONTRIBUTING.md` before opening a pull request.
+
+Good first areas to contribute:
+
+- adding a new module under an existing category
+- improving or adding profile-level documentation
+- writing smoke tests for existing modules
+- proposing new contract definitions
 
 ## License
 
