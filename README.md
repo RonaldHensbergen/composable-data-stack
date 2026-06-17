@@ -38,6 +38,7 @@ Modern data platforms force a trade-off:
 - composability **without chaos**
 - flexibility **with guarantees**
 - modularity **with structure**
+- 🔓 no vendor lock-in by design
 
 ---
 
