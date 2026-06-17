@@ -1,8 +1,7 @@
-
 # 🚀 Composable Data Stack (CDS)
 
 > **Terraform for data platforms.**  
-> Build, validate, and evolve data stacks using modular components and explicit contracts.
+> Build, validate, secure and evolve data stacks using modular components and explicit contracts.
 
 ---
 
@@ -21,6 +20,7 @@ Instead of hardcoding integrations or relying on fragile pipelines, CDS introduc
 ✅ Swap tools without rewrites  
 ✅ Avoid hidden coupling  
 ✅ Build reproducible stacks  
+✅ Catch security issues before deployment  
 
 ---
 
@@ -86,24 +86,48 @@ Postgres -> MariaDB
 
 CDS wires modules through **contracts**, not direct dependencies:
 
-```
-        +-----------+
-        |  Dagster  |
-        +-----------+
-             |
-   (transformation-runner)
-             |
-             v
-        +-----------+
-        | Postgres  |
-        +-----------+
-             |
-      (warehouse-query)
-             |
-             v
-        +-----------+
-        | Superset  |
-        +-----------+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TD
+    Dagster[Dagster]
+    Postgres[(Postgres)]
+    Superset[Superset]
+    
+    Dagster -->|transformation-runner| Postgres
+    Postgres -->|warehouse-query| Superset
+    
+    classDef tool stroke:#818cf8,fill:#eef2ff
+    classDef database stroke:#2dd4bf,fill:#f0fdfa
+    classDef viz stroke:#a78bfa,fill:#f5f3ff
+    
+    class Dagster tool
+    class Postgres database
+    class Superset viz
+```                       
+
+## 🔐 Security
+
+CDS includes built-in security validation to prevent unsafe configurations
+before a stack is deployed.
+
+The `cds security` checks analyze profiles and modules for common risks such as:
+
+- weak or default passwords
+- missing secret configurations
+- insecure service exposure
+- unsafe defaults in module configuration
+- incomplete contract bindings that may leak data
+
+Security checks run as part of validation and can be extended with custom rules.
+👉 CDS helps you catch security issues before runtime, not after deployment.
+
+### Example
+
+```bash
+cds security local-dagster-postgres-superset
 ```
 
 ---
@@ -169,9 +193,15 @@ Expected output:
 
 ```text
 Profile is valid.
-```text
+```
 
-### 5. Render the stack
+### 5. Run security checks
+
+```bash
+cds security local-dagster-postgres-superset
+```
+
+### 6. Render the stack
 
 ```bash
 cds render local-dagster-postgres-superset
@@ -313,3 +343,127 @@ Next:
 - runtime generation  
 - full stack bootstrap  
 - smoke tests  
+
+
+---
+
+## 🧱 Design Principles
+
+### Contract-first
+
+Modules declare:
+
+- what they provide  
+- what they require  
+- configuration inputs  
+- health checks  
+- lifecycle hooks  
+
+---
+
+### Profile-driven
+
+Profiles define supported stacks.  
+The profile is the unit of support — not individual modules.
+
+---
+
+### Zero hidden coupling
+
+- no implicit environment variables  
+- no cross-module assumptions  
+- no shared mutable state  
+
+All interactions happen through explicit contracts.
+
+---
+
+### Security by default
+
+CDS validates configurations before runtime, ensuring that:
+
+- weak credentials are detected early  
+- secrets are properly configured  
+- services are not unintentionally exposed  
+
+Security is part of platform composition — not an afterthought.
+
+---
+
+### One model, multiple environments
+
+The same composition model applies across:
+
+- local development  
+- CI environments  
+- production  
+
+Only runtime packaging differs.
+
+---
+
+## 📂 Repository Structure
+
+```
+.
+├── cli/
+├── modules/
+│   ├── bi/
+│   ├── orchestration/
+│   ├── secrets/
+│   └── warehouse/
+├── profiles/
+├── docs/
+├── pyproject.toml
+└── Makefile
+```
+
+---
+
+## 📊 Comparison
+
+| Capability | Monolith | Custom pipelines | CDS |
+|------------|----------|------------------|-----|
+| Swap components | ❌ | ⚠️ | ✅ |
+| Reuse modules | ❌ | ❌ | ✅ |
+| Explicit contracts | ❌ | ❌ | ✅ |
+| Reproducibility | ⚠️ | ⚠️ | ✅ |
+| Security validation | ❌ | ❌ | ✅ |
+
+---
+
+## 📌 Status
+
+MVP ready:
+
+- module validation  
+- contract resolution  
+- security checks  
+- profile composition  
+- Docker Compose rendering  
+
+Next:
+
+- runtime orchestration  
+- Kubernetes support  
+- advanced secret providers  
+- stack bootstrap and health checks  
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome.
+
+Good first contributions:
+
+- adding new modules  
+- improving profile examples  
+- extending contract definitions  
+- adding validation or security rules  
+
+---
+
+## 📜 License
+
+See `LICENSE`.
