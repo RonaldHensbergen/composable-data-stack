@@ -1,89 +1,191 @@
-# Composable Data Stack
+# 🚀 Composable Data Stack (CDS)
 
-A modular, contract-first approach to composing and validating data platform stacks.
+> **Terraform for data platforms.**  
+> Build, validate, secure and evolve data stacks using modular components and explicit contracts.
 
-Instead of a fixed demo stack, CDS lets you define reusable platform modules — orchestrators,
-warehouses, BI tools, secrets providers — and wire them together through explicit contracts.
-Swap Airflow for Dagster, Postgres for MariaDB, or Superset for Metabase, without hidden
-coupling or full rewrites.
+---
 
-## Why CDS?
+## 🧠 What is CDS (in 1 minute)
 
-Most data platform setups force a choice between:
+Composable Data Stack (CDS) is a framework for defining and assembling data platforms from reusable modules such as orchestrators, warehouses, BI tools, and secrets providers.
 
-- a rigid, opinionated stack you cannot swap components in
-- a fully custom setup with no shared contracts or reuse between tools
+Instead of hardcoding integrations or relying on fragile pipelines, CDS introduces:
 
-CDS gives you swappable, reusable modules wired together through explicit contracts, so you
-can compose and evolve your stack without hidden coupling.
+- 🔧 **Modules** → reusable components (Dagster, Postgres, Superset)  
+- 🔗 **Contracts** → explicit interfaces between components  
+- 🧩 **Profiles** → fully composed, runnable stacks  
 
-## Status
+> Think: **Infrastructure-as-Code, but for data platforms**
 
-The MVP is **ready for testing**.
+✅ Swap tools without rewrites  
+✅ Avoid hidden coupling  
+✅ Build reproducible stacks  
+✅ Catch security issues before deployment  
 
-The `local-dagster-postgres-superset` profile is fully declarative and runnable. It covers:
+---
 
-- module manifest validation
-- contract binding and resolution
-- basic security checks against a profile
-- profile composition and planning
+## ⚡ Why CDS?
 
-Planned next:
+Modern data platforms force a trade-off:
 
-- compose rendering
-- secret resolution
-- runtime generation
-- stack bootstrap and smoke tests
+| Approach | Problem |
+|----------|--------|
+| Monolithic stack | Rigid, hard to evolve |
+| Custom pipelines | Flexible but fragile and inconsistent |
 
-> Feedback on the MVP is very welcome. Please open an issue if something breaks or feels wrong.
+👉 CDS gives you the best of both:
 
-## Quickstart
+- composability **without chaos**
+- flexibility **with guarantees**
+- modularity **with structure**
 
-### 1. Clone the repository
+---
+
+## 🎯 When to use CDS
+
+Use CDS if you:
+
+- want to swap tools (Airflow ↔ Dagster, Superset ↔ Metabase)
+- need reproducible environments across dev / CI / prod
+- are building a platform for multiple teams
+- want contract-driven integration instead of implicit coupling
+
+CDS may be overkill if:
+
+- you only run a single-tool stack
+- you don't need interchangeable components
+
+---
+
+## 🏗️ Example
+
+The `local-dagster-postgres-superset` profile defines:
+
+- Dagster -> orchestration  
+- Postgres -> storage  
+- Superset -> BI  
+
+### What CDS does:
+
+1. Validates module definitions  
+2. Resolves contract bindings  
+3. Checks compatibility and security constraints  
+4. Produces a fully wired stack definition  
+
+`cds plan` resolves the full dependency graph before any runtime configuration is generated, ensuring that all module interactions are valid and predictable.
+
+You can replace components without changing the system behavior:
+
+```
+Dagster -> Airflow
+Superset -> Metabase
+Postgres -> MariaDB
+```
+
+---
+
+## 🗺️ Architecture Overview
+
+CDS wires modules through **contracts**, not direct dependencies:
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TD
+    Dagster[Dagster]
+    Postgres[(Postgres)]
+    Superset[Superset]
+    
+    Dagster -->|transformation-runner| Postgres
+    Postgres -->|warehouse-query| Superset
+    
+    classDef tool stroke:#818cf8,fill:#eef2ff
+    classDef database stroke:#2dd4bf,fill:#f0fdfa
+    classDef viz stroke:#a78bfa,fill:#f5f3ff
+    
+    class Dagster tool
+    class Postgres database
+    class Superset viz
+```                       
+
+## 🔐 Security
+
+CDS includes built-in security validation to prevent unsafe configurations
+before a stack is deployed.
+
+The `cds security` checks analyze profiles and modules for common risks such as:
+
+- weak or default passwords
+- missing secret configurations
+- insecure service exposure
+- unsafe defaults in module configuration
+- incomplete contract bindings that may leak data
+
+Security checks run as part of validation and can be extended with custom rules.
+👉 CDS helps you catch security issues before runtime, not after deployment.
+
+### Example
+
+```bash
+cds security local-dagster-postgres-superset
+```
+
+---
+
+## 📦 What you get
+
+When you run CDS:
+
+- validated module graph  
+- resolved contract bindings  
+- dependency-aware execution plan  
+- generated Docker Compose configuration  
+- reproducible stack definition  
+
+This allows you to go from a declarative profile to a runnable local data stack.
+
+Coming next:
+
+- Kubernetes generation  
+- one-command stack bootstrap  
+- automated health checks  
+
+---
+
+## 🚀 Quickstart
+
+### 1. Clone
 
 ```bash
 git clone https://github.com/RonaldHensbergen/composable-data-stack.git
 cd composable-data-stack
 ```
 
-### 2. Create and activate a virtual environment
+### 2. Setup environment
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-### 3. Install the CLI
-
-```bash
-make install
-```
-
-Or manually:
-
-```bash
 pip install -e .
 ```
 
-### 4. Create your local environment file
+### 3. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Then edit `.env` and set values for:
+Set:
 
-- `CDS_POSTGRES_PASSWORD`
-- `CDS_SUPERSET_SECRET_KEY`
-- `CDS_SUPERSET_ADMIN_PASSWORD`
-
-### 5. Validate the example profile
-
-```bash
-make validate
+```
+CDS_POSTGRES_PASSWORD
+CDS_SUPERSET_SECRET_KEY
+CDS_SUPERSET_ADMIN_PASSWORD
 ```
 
-Or directly:
+### 4. Validate a stack
 
 ```bash
 cds validate local-dagster-postgres-superset
@@ -95,226 +197,286 @@ Expected output:
 Profile is valid.
 ```
 
-## CLI reference
-
-| Command | Description |
-| ------- | ----------- |
-| `cds validate <profile>` | Validate module manifests, contract bindings, and security checks for a profile |
-| `cds plan <profile>` | Resolve dependencies and produce a composition plan *(planned)* |
-| `cds render <profile>` | Render runtime assets from a resolved plan *(planned)* |
-| `cds up <profile>` | Start services in dependency order *(planned)* |
-| `cds test <profile>` | Run health checks and smoke tests *(planned)* |
-
-### Environment variables
-
-| Variable | Description |
-| -------- | ----------- |
-| `CDS_PROFILE_PATH` | Path to a `profiles/` directory or a specific `profile.yaml`. When set, commands accept a profile name instead of a full path. |
-| `CDS_MODULE_PATH` | Path to a `modules/` directory. When set, module sources are loaded from this directory instead of the profile directory. |
-
-**Linux / macOS:**
+### 5. Run security checks
 
 ```bash
-export CDS_PROFILE_PATH=/home/ronald/Projects/composable-data-stack/profiles
-export CDS_MODULE_PATH=/home/ronald/Projects/composable-data-stack/modules
+cds security local-dagster-postgres-superset
 ```
 
-**Windows (PowerShell):**
+### 6. Generate a plan
 
-```powershell
-$env:CDS_PROFILE_PATH = 'C:\Projects\composable-data-stack\profiles'
-$env:CDS_MODULE_PATH  = 'C:\Projects\composable-data-stack\modules'
+```bash
+cds plan local-dagster-postgres-superset
 ```
 
-## Core concepts
+This resolves:
 
-CDS is built around three primitives: **modules**, **profiles**, and **contracts**.
+- module dependencies
+- contract bindings
+- execution order
+
+### 7. Render the stack
+
+```bash
+cds render local-dagster-postgres-superset
+```
+
+This generates:
+
+- docker-compose.yml
+- service definitions
+- fully wired module configuration
+
+---
+
+## 🧩 Core Concepts
 
 ### Modules
 
-Modules are reusable, self-contained platform components. Each module declares what it
-provides, what it requires, and how it should be operated. Modules never depend on each
-other directly — they interact only through contracts.
+Reusable building blocks:
 
-Available module categories:
+- orchestration (Dagster, Airflow)
+- warehouse (Postgres, MariaDB)
+- BI (Superset, Metabase)
+- secrets (env, vault)
 
-| Category | Examples |
-| -------- | ------- |
-| Orchestration | `airflow`, `dagster` |
-| Warehouse | `postgres`, `mariadb` |
-| Transform | `dbt` |
-| BI | `superset` |
-| Quality | `great-expectations` |
-| Secrets | `env`, `vault` |
+Structure:
 
-Each module lives at `modules/<category>/<name>/` and may contain:
-
-```text
+```
 modules/<category>/<name>/
-├── module.yaml       # manifest: provides, requires, inputs, health checks
-├── defaults.yaml     # default configuration values
-├── compose.yaml      # runtime service definition
-├── README.md         # module-level documentation
-├── scripts/          # lifecycle and init scripts
-└── tests/            # module-level smoke tests
+├── module.yaml
+├── defaults.yaml
+├── compose.yaml
+├── scripts/
+└── tests/
 ```
 
-### Profiles
-
-A profile is a supported, runnable combination of modules. It defines which modules are
-included, how their contracts are bound together, and what stage-specific values apply.
-
-If a module combination is not represented as a profile, it should be treated as
-experimental rather than supported.
-
-Example profile names:
-
-- `local-dagster-postgres-superset`
-- `local-airflow-postgres-superset`
-- `integration-airflow-postgres-dbt`
-- `cloudstack-airflow-postgres-ha`
-
-Each profile lives at `profiles/<profile-name>/` and may contain:
-
-```text
-profiles/<profile-name>/
-├── profile.yaml      # module selection, bindings, and stage values
-├── values.yaml       # profile-level configuration overrides
-└── README.md         # profile-level documentation
-```
+---
 
 ### Contracts
 
-Contracts are the interface layer between modules. A module declares what contracts it
-provides and what contracts it requires. The profile wires them together through explicit
-bindings.
+Contracts define how modules interact.
 
-Available contracts:
+Examples:
 
-| Contract | Description |
-| -------- | ----------- |
-| `sql-database` | Relational database connection interface |
-| `secrets-provider` | Secret resolution interface |
-| `http-service` | HTTP endpoint exposure interface |
-| `warehouse-query` | Query execution interface |
-| `transformation-runner` | Transformation execution interface |
+| Contract | Purpose |
+|----------|--------|
+| sql-database | database interface |
+| http-service | service exposure |
+| secrets-provider | secret resolution |
 
-A module never depends on another module implicitly. If a module needs a database, it
-declares a `sql-database` requirement. The profile decides which module satisfies it.
+Example binding:
 
-## Design principles
-
-### Contract-first modules
-
-Each module declares:
-
-- what it **provides**
-- what it **requires**
-- configuration inputs
-- health checks
-- lifecycle hooks
-- operational responsibilities
-
-### Profile-driven composition
-
-Profiles define supported combinations of modules. The profile is the unit of support —
-not individual modules in isolation.
-
-### Minimal hidden dependencies
-
-Modules interact through declared contracts and profile bindings only. No undocumented
-environment variables, cross-folder assumptions, or shared mutable state.
-
-### One architecture, multiple stages
-
-The same logical composition model applies across local development, CI environments, and
-production deployment. Only runtime packaging and operational controls change between stages.
-
-## Example profile
-
-The current example profile is `local-dagster-postgres-superset`. It composes:
-
-- **Postgres** for storage
-- **Dagster** for orchestration
-- **Superset** for BI
-
-```bash
-cds validate local-dagster-postgres-superset
+```yaml
+dagster.database -> postgres.sql-database
+superset.database -> postgres.sql-database
 ```
 
-## Bootstrap flow
+No implicit dependencies — everything is explicit.
 
-The intended end-to-end workflow, once fully implemented:
+---
 
-1. Validate module manifests and profile definitions
-2. Resolve dependencies, bindings, and security constraints
-3. Generate a composition plan
-4. Render runtime assets
-5. Start services in dependency order
-6. Run initialization and health checks
-7. Produce an environment report
+### Profiles
 
-## Repository structure
+Profiles define supported stacks:
 
-```text
+```
+local-dagster-postgres-superset
+local-airflow-postgres-superset
+integration-airflow-postgres-dbt
+```
+
+Structure:
+
+```
+profiles/<profile>/
+├── profile.yaml
+├── values.yaml
+└── README.md
+```
+
+---
+
+## ⚙️ CLI
+
+| Command | Description |
+|--------|------------|
+| cds validate <profile> | Validate modules and contracts |
+| cds plan <profile> | Resolve dependencies and generate an execution plan |
+| cds render <profile> | Generate Docker Compose configuration from a resolved plan |
+| cds up <profile> | Start services (planned) |
+| cds test <profile> | Run health checks (planned) |
+
+---
+
+## 🔄 Workflow
+
+```
+1. cds validate → check module definitions
+1. cds security → detect unsafe configurations
+1. cds plan → resolve dependencies and bindings
+1. cds render → generate Docker Compose stack
+1. cds up → start services (planned)
+1. cds test → run health checks (planned)
+```
+
+---
+
+## 📂 Repository Structure
+
+```
 .
-├── cli/              # Validation CLI and planning/rendering tooling
-├── modules/          # Reusable, deployable building blocks
+├── cli/
+├── modules/
 │   ├── bi/
 │   ├── orchestration/
 │   ├── secrets/
 │   └── warehouse/
-├── profiles/         # Supported runnable module combinations
-├── docs/             # Architecture, contracts, modules, and operations
+├── profiles/
+├── docs/
 ├── pyproject.toml
-├── Makefile
-└── .env.example
+└── Makefile
 ```
 
-## Installation and packaging
+---
 
-Install from source for local development:
+## 📌 Status
 
-```bash
-pip install -e .
+MVP ready:
+
+- module validation  
+- contract resolution  
+- security checks  
+- profile composition  
+
+Next:
+
+- rendering  
+- secrets integration  
+- runtime generation  
+- full stack bootstrap  
+- smoke tests  
+
+
+---
+
+## 🧱 Design Principles
+
+### Contract-first
+
+Modules declare:
+
+- what they provide  
+- what they require  
+- configuration inputs  
+- health checks  
+- lifecycle hooks  
+
+---
+
+### Profile-driven
+
+Profiles define supported stacks.  
+The profile is the unit of support — not individual modules.
+
+---
+
+### Zero hidden coupling
+
+- no implicit environment variables  
+- no cross-module assumptions  
+- no shared mutable state  
+
+All interactions happen through explicit contracts.
+
+---
+
+### Security by default
+
+CDS validates configurations before runtime, ensuring that:
+
+- weak credentials are detected early  
+- secrets are properly configured  
+- services are not unintentionally exposed  
+
+Security is part of platform composition — not an afterthought.
+
+---
+
+### One model, multiple environments
+
+The same composition model applies across:
+
+- local development  
+- CI environments  
+- production  
+
+Only runtime packaging differs.
+
+---
+
+## 📂 Repository Structure
+
+```
+.
+├── cli/
+├── modules/
+│   ├── bi/
+│   ├── orchestration/
+│   ├── secrets/
+│   └── warehouse/
+├── profiles/
+├── docs/
+├── pyproject.toml
+└── Makefile
 ```
 
-Build a distributable wheel:
+---
 
-```bash
-python3 -m pip install --upgrade build
-python3 -m build
-pip install dist/composable_data_stack-0.1.0-py3-none-any.whl
-```
+## 📊 Comparison
 
-| Platform | Recommended distribution |
-| -------- | ------------------------ |
-| Linux | `pip install`, Homebrew/Linuxbrew tap, or `.deb`/`.rpm` package |
-| macOS | Homebrew formula plus `pip install` |
-| Windows | `pip install` for Python users; PyInstaller bundle or MSI for broader distribution |
+| Capability | Monolith | Custom pipelines | CDS |
+|------------|----------|------------------|-----|
+| Swap components | ❌ | ⚠️ | ✅ |
+| Reuse modules | ❌ | ❌ | ✅ |
+| Explicit contracts | ❌ | ❌ | ✅ |
+| Reproducibility | ⚠️ | ⚠️ | ✅ |
+| Security validation | ❌ | ❌ | ✅ |
 
-See `docs/packaging.md` for full packaging and installer instructions.
+---
 
-## Development
+## 📌 Status
 
-```bash
-make install       # install dependencies
-make validate      # validate the default profile
-make validate-profile P=profiles/local-dagster-postgres-superset/profile.yaml
-make package       # build a distributable package
-```
+MVP ready:
 
-## Contributing
+- module validation  
+- contract resolution  
+- security checks  
+- profile composition  
+- Docker Compose rendering  
 
-Contributions are welcome. Please read `CONTRIBUTING.md` before opening a pull request.
+Next:
 
-Good first areas to contribute:
+- runtime orchestration  
+- Kubernetes support  
+- advanced secret providers  
+- stack bootstrap and health checks  
 
-- adding a new module under an existing category
-- improving or adding profile-level documentation
-- writing smoke tests for existing modules
-- proposing new contract definitions
+---
 
-## License
+## 🤝 Contributing
+
+Contributions are welcome.
+
+Good first contributions:
+
+- adding new modules  
+- improving profile examples  
+- extending contract definitions  
+- adding validation or security rules  
+
+---
+
+## 📜 License
 
 See `LICENSE`.
