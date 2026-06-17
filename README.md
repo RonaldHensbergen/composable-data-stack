@@ -72,6 +72,8 @@ The `local-dagster-postgres-superset` profile defines:
 3. Checks compatibility and security constraints  
 4. Produces a fully wired stack definition  
 
+`cds plan` resolves the full dependency graph before any runtime configuration is generated, ensuring that all module interactions are valid and predictable.
+
 You can replace components without changing the system behavior:
 
 ```
@@ -201,7 +203,19 @@ Profile is valid.
 cds security local-dagster-postgres-superset
 ```
 
-### 6. Render the stack
+### 6. Generate a plan
+
+```bash
+cds plan local-dagster-postgres-superset
+```
+
+This resolves:
+
+- module dependencies
+- contract bindings
+- execution order
+
+### 7. Render the stack
 
 ```bash
 cds render local-dagster-postgres-superset
@@ -288,7 +302,7 @@ profiles/<profile>/
 | Command | Description |
 |--------|------------|
 | cds validate <profile> | Validate modules and contracts |
-| cds plan <profile> | Generate execution plan (planned) |
+| cds plan <profile> | Resolve dependencies and generate an execution plan |
 | cds render <profile> | Generate Docker Compose configuration from a resolved plan |
 | cds up <profile> | Start services (planned) |
 | cds test <profile> | Run health checks (planned) |
@@ -298,13 +312,12 @@ profiles/<profile>/
 ## 🔄 Workflow
 
 ```
-1. Validate modules
-2. Resolve contracts
-3. Generate plan
-4. Render runtime assets
-5. Start services
-6. Run health checks
-7. Produce environment report
+1. cds validate → check module definitions
+1. cds security → detect unsafe configurations
+1. cds plan → resolve dependencies and bindings
+1. cds render → generate Docker Compose stack
+1. cds up → start services (planned)
+1. cds test → run health checks (planned)
 ```
 
 ---
