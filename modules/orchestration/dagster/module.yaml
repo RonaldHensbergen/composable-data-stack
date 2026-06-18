@@ -128,7 +128,7 @@ spec:
       services:
         dagster-webserver:
           build:
-            context: ../dagster
+            context: ../../../dagster
             dockerfile: Dockerfile
           image: local/dagster:custom
           command:

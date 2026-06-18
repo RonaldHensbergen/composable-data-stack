@@ -267,7 +267,10 @@ def main() -> int:
                 return 0
 
             for image_entry in images:
-                info = check_image_update(image_entry["image"])
+                info = check_image_update(
+                    image_entry["image"],
+                    dockerfile=image_entry.get("dockerfile"),
+                )
                 status = info["status"]
                 if status == "update-available":
                     print(

@@ -13,7 +13,6 @@ from .loader import load_yaml_file
 DOCKER_HUB_API = "https://hub.docker.com/v2/repositories"
 SEMVER_PATTERN = re.compile(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?$")
 
-
 def collect_module_images(module_root: Path) -> list[dict[str, Any]]:
     images: list[dict[str, Any]] = []
     for module_file in sorted(module_root.rglob("module.yaml")):
@@ -23,46 +22,114 @@ def collect_module_images(module_root: Path) -> list[dict[str, Any]]:
 
         module_name = str(module_file.parent.relative_to(module_root))
         compose = module_def.get("spec", {}).get("implementation", {}).get("compose", {})
-        module_images = find_images_in_compose(compose)
+        module_images = find_images_in_compose(compose, module_dir=module_file.parent)
+        # ^^^ pass module_dir so build contexts can be resolved
 
-        for service_name, image in module_images:
-            images.append(
-                {
-                    "module": module_name,
-                    "service": service_name,
-                    "image": image,
-                }
-            )
+        for service_name, image, dockerfile in module_images:
+            entry = {"module": module_name, "service": service_name, "image": image}
+            if dockerfile:
+                entry["dockerfile"] = str(dockerfile)
+            images.append(entry)
 
     return images
 
-
-def find_images_in_compose(compose: Any, service_name: str | None = None) -> list[tuple[str, str]]:
-    images: list[tuple[str, str]] = []
+def find_images_in_compose(
+    compose: Any,
+    service_name: str | None = None,
+    module_dir: Path | None = None,
+) -> list[tuple[str, str, Path | None]]:
+    images: list[tuple[str, str, Path | None]] = []
 
     if isinstance(compose, dict):
         if "image" in compose and isinstance(compose["image"], str):
-            images.append((service_name or "<root>", compose["image"]))
+            dockerfile: Path | None = None
+
+            if "build" in compose and module_dir is not None:
+                build = compose["build"]
+                if isinstance(build, str):
+                    # build: ./path  (shorthand)
+                    context = module_dir / build
+                    candidate = context / "Dockerfile"
+                    dockerfile = candidate if candidate.is_file() else None
+                elif isinstance(build, dict):
+                    context_str = build.get("context", ".")
+                    df_name = build.get("dockerfile", "Dockerfile")
+                    context = module_dir / context_str
+                    candidate = context / df_name
+                    dockerfile = candidate if candidate.is_file() else None
+
+            images.append((service_name or "<root>", compose["image"], dockerfile))
 
         for key, value in compose.items():
             if key == "services" and isinstance(value, dict):
                 for svc_name, svc_def in value.items():
-                    images.extend(find_images_in_compose(svc_def, service_name=svc_name))
-            else:
-                images.extend(find_images_in_compose(value, service_name=service_name))
+                    images.extend(
+                        find_images_in_compose(svc_def, service_name=svc_name, module_dir=module_dir)
+                    )
+            elif key != "build":  # don't recurse into build blocks
+                images.extend(
+                    find_images_in_compose(value, service_name=service_name, module_dir=module_dir)
+                )
 
     elif isinstance(compose, list):
         for item in compose:
-            images.extend(find_images_in_compose(item, service_name=service_name))
+            images.extend(find_images_in_compose(item, service_name=service_name, module_dir=module_dir))
 
     return images
 
+_ARG_REF = re.compile(r"\$\{?\w+\}?")
+
+def extract_base_image(dockerfile: Path, *, final_stage: bool = True) -> str | None:
+    """
+    Return the base image from a Dockerfile's FROM instruction.
+
+    Args:
+        dockerfile:  Path to the Dockerfile.
+        final_stage: If True (default), return the last FROM line's image
+                     (the runtime stage). If False, return the first.
+
+    Returns:
+        The image reference string, or None if no suitable FROM is found.
+    """
+    try:
+        lines = dockerfile.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    from_images: list[str] = []
+
+    for line in lines:
+        stripped = line.strip()
+        # Case-insensitive match; guard against lines with no tokens after FROM
+        tokens = stripped.split()
+        if not tokens or tokens[0].upper() != "FROM":
+            continue
+        if len(tokens) < 2:
+            continue  # malformed: bare FROM with no image
+
+        image = tokens[1]
+
+        if image.upper() == "SCRATCH":
+            continue  # scratch has no base to check
+
+        if _ARG_REF.search(image):
+            continue  # skip ARG-substituted references we can't resolve statically
+
+        from_images.append(image)
+
+    if not from_images:
+        return None
+
+    return from_images[-1] if final_stage else from_images[0]
 
 def parse_image_reference(image: str) -> dict[str, str | None]:
     ref = image.split("@", 1)[0]
     tag = "latest"
-    if ":" in ref and "/" in ref and ref.rsplit(":", 1)[1].find("/") == -1:
-        ref, tag = ref.rsplit(":", 1)
+    # Fix: only require ":" to be present, not necessarily "/"
+    if ":" in ref:
+        potential_tag = ref.rsplit(":", 1)[1]
+        if "/" not in potential_tag:  # colon is a tag separator, not a port
+            ref, tag = ref.rsplit(":", 1)
 
     parts = ref.split("/")
     if len(parts) == 1:
@@ -170,11 +237,17 @@ def find_newer_tag(current_tag: str, tags: list[str]) -> str | None:
         return candidate_tags[latest]
     return None
 
-
-def check_image_update(image: str) -> dict[str, Any]:
+def check_image_update(image: str, dockerfile: Path | str | None = None) -> dict[str, Any]:
     info = parse_image_reference(image)
     if is_local_image(image):
-        return {"image": image, "status": "local", "latest": None}
+        if dockerfile is None:
+            return {"image": image, "status": "local", "latest": None}
+        # Resolve FROM line and recurse on the base image
+        base_image = extract_base_image(Path(dockerfile))
+        if base_image is None:
+            return {"image": image, "status": "local-no-base", "latest": None}
+        result = check_image_update(base_image)
+        return {**result, "image": image, "base_image": base_image}
 
     if not is_docker_hub_image(image):
         return {"image": image, "status": "unsupported-registry", "latest": None}

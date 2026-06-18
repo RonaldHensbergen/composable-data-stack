@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from cli.image_updates import collect_module_images
 from cli.main import list_modules, list_profiles, resolve_profile_path, main
 
 
@@ -41,12 +42,12 @@ class MainCLITest(unittest.TestCase):
     @patch("cli.main.check_image_update")
     def test_list_images_command_reports_status(self, mock_check, mock_collect):
         mock_collect.return_value = [
-            {"module": "orchestration/dagster", "service": "dagster", "image": "python:3.10"}
+            {"module": "orchestration/dagster", "service": "dagster", "image": "mock:1.0"}
         ]
         mock_check.return_value = {
-            "image": "python:3.10",
+            "image": "mock:1.0",
             "status": "update-available",
-            "latest": "3.10.15",
+            "latest": "1.1",
         }
 
         with patch.object(sys, "argv", ["cds", "list", "images"]):
@@ -54,7 +55,7 @@ class MainCLITest(unittest.TestCase):
 
         self.assertEqual(result, 0)
         mock_collect.assert_called_once()
-        mock_check.assert_called_once_with("python:3.10")
+        mock_check.assert_called_once_with("mock:1.0", dockerfile=None)
 
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
@@ -73,6 +74,51 @@ class MainCLITest(unittest.TestCase):
         mock_run_security.assert_called_once()
         self.assertEqual(mock_run_security.call_args.kwargs["profile_path"], Path(str(profile_file)))
 
+class CollectModuleImagesTest(unittest.TestCase):
+
+    _ROOT = Path(__file__).parent.parent
+    _MODULES = _ROOT / "modules"
+    _DOCKERFILE = _ROOT / "dagster" / "Dockerfile"
+
+    def test_collects_images_from_real_modules(self):
+        if not self._MODULES.exists():
+            self.skipTest("modules directory not available")
+
+        images = collect_module_images(self._MODULES)
+
+        self.assertIsInstance(images, list)
+        self.assertTrue(len(images) > 0)
+
+        for entry in images:
+            self.assertIn("module", entry)
+            self.assertIn("service", entry)
+            self.assertIn("image", entry)
+            self.assertIsInstance(entry["image"], str)
+            self.assertTrue(len(entry["image"]) > 0)
+
+    def test_dagster_image_matches_dockerfile(self):
+        if not self._MODULES.exists():
+            self.skipTest("modules directory not available")
+        if not self._DOCKERFILE.exists():
+            self.skipTest("dagster Dockerfile not available")
+
+        images = collect_module_images(self._MODULES)
+        dagster_entries = [e for e in images if "dagster" in e["module"]]
+        self.assertTrue(len(dagster_entries) > 0, "No dagster image found")
+        entry = dagster_entries[0]
+
+        # The entry image is the compose-declared local tag
+        self.assertEqual(entry["image"], "local/dagster:custom")
+        from cli.image_updates import extract_base_image
+        base = extract_base_image(Path(entry["dockerfile"]))
+        
+        content = self._DOCKERFILE.read_text()
+        from_line = next(
+            line for line in content.splitlines()
+            if line.strip().startswith("FROM")
+        )
+        declared_image = from_line.split()[1]
+        self.assertEqual(base, declared_image)
 
 if __name__ == "__main__":
     unittest.main()
