@@ -152,6 +152,10 @@ Secrets should be provided through one of these mechanisms:
 - local `.env` files excluded from version control
 - a dedicated secrets module such as Vault
 
+### Secret Placeholders
+
+When authoring a module that requires secrets, you should use standard placeholder behavior (e.g., `<SECRET_NAME_HERE>` or `${SECRET_NAME}`) within example configuration files or `.env.example`. Ensure that these placeholders are well-documented so users know exactly which values must be provided at runtime. Do not provide default values for sensitive fields.
+
 If a module depends on a secrets provider, that dependency must be documented in the module README and in any profile that uses it.
 
 ## Health and readiness

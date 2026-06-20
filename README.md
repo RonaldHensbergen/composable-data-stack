@@ -299,6 +299,14 @@ profiles/[profile]/
 |cds up [profile]|Start services (planned)|
 |cds test [profile]|Run health checks (planned)|
 
+To view the full list of options for any command, use the `--help` flag:
+
+```bash
+cds --help
+cds validate --help
+cds plan --help
+```
+
 ---
 
 ## 🔄 Workflow

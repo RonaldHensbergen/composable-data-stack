@@ -62,6 +62,10 @@ Examples:
 - Bug fixes should include a regression test when possible.
 - PRs should pass CI before merge.
 
+### Writing Regression Tests
+
+When fixing a bug, please write a regression test to prevent the issue from returning. Regression tests should be placed in the `tests/` directory and should clearly reproduce the original failing condition before the fix is applied. Use `unittest.mock` where appropriate to isolate your tests and ensure they run quickly without external dependencies.
+
 ## Pull Request Checklist
 
 - [ ] Tests added or updated
