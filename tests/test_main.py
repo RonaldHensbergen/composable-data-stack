@@ -74,6 +74,30 @@ class MainCLITest(unittest.TestCase):
         mock_run_security.assert_called_once()
         self.assertEqual(mock_run_security.call_args.kwargs["profile_path"], Path(str(profile_file)))
 
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_render_uses_default_project_root_output_when_no_output_arg(
+        self,
+        mock_validate,
+        mock_build_plan,
+        mock_render,
+    ):
+        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+
+        mock_validate.return_value = []
+        mock_build_plan.return_value = ({"metadata": {"name": "cds-test"}, "modules": []}, [])
+        mock_render.return_value = ("name: cds-test\nservices: {}\n", [])
+
+        with patch.object(sys, "argv", ["cds", "render", "local-dagster-postgres-superset"]):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_render.call_count, 1)
+        _, kwargs = mock_render.call_args
+        expected_output = str(self.repo_root / "docker-compose.yml")
+        self.assertEqual(kwargs["output_path"], expected_output)
+
 class CollectModuleImagesTest(unittest.TestCase):
 
     _ROOT = Path(__file__).parent.parent

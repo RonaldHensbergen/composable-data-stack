@@ -5,6 +5,7 @@ kind: Profile
 
 metadata:
   name: local-dagster-postgres-superset
+  environment: production
   displayName: Local Dagster + Postgres + Superset
   description: >
     Minimal local development stack for orchestration, warehouse, and BI.

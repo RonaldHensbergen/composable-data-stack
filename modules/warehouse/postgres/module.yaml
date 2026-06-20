@@ -80,7 +80,6 @@ spec:
           username: ${config.username}
           password: ${config.passwordFrom}
           connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.host}:${config.port}/${config.database}
-
   implementation:
     kind: docker-compose
     compose:

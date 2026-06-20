@@ -222,6 +222,14 @@ This resolves:
 cds render local-dagster-postgres-superset
 ```
 
+By default, this writes `docker-compose.yml` to the project root so you can run `docker compose up` immediately.
+
+Use a custom location when needed:
+
+```bash
+cds render local-dagster-postgres-superset --output build/docker-compose.yml
+```
+
 This generates:
 
 - docker-compose.yml

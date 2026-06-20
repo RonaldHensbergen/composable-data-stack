@@ -9,42 +9,41 @@ from typing import Any
 
 from .diagnostics import Diagnostic
 
-
 def load_secrets_from_env(env_file: Path | None = None) -> tuple[dict[str, str], list[Diagnostic]]:
     """
-    Load secrets from .env file and environment variables.
-    
+    Load CDS_* secrets from .env file and environment variables.
+
+    Only keys prefixed with CDS_ are loaded — arbitrary .env keys are ignored.
+    Profile-defined logical aliases (spec.secrets.values) are handled separately
+    by load_profile_secrets and are the sole source of non-CDS_ keys in secrets.
+
     Priority (lowest to highest):
     1. .env file (if provided)
     2. Environment variables
-    
+
     Args:
         env_file: Optional path to .env file. If None, looks for .env in current directory.
-        
+
     Returns:
         Tuple of (secrets_dict, diagnostics)
     """
     diagnostics: list[Diagnostic] = []
     secrets: dict[str, str] = {}
-    
-    # Determine .env file path
+
     if env_file is None:
         env_file = Path(".env")
     else:
         env_file = Path(env_file)
-    
-    # Load from .env file if it exists
+
     if env_file.exists():
         try:
             with open(env_file, "r", encoding="utf-8") as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.rstrip("\n\r")
-                    
-                    # Skip empty lines and comments
+
                     if not line or line.startswith("#"):
                         continue
-                    
-                    # Parse KEY=VALUE
+
                     if "=" not in line:
                         diagnostics.append(
                             Diagnostic(
@@ -55,18 +54,19 @@ def load_secrets_from_env(env_file: Path | None = None) -> tuple[dict[str, str],
                             )
                         )
                         continue
-                    
+
                     key, _, value = line.partition("=")
                     key = key.strip()
                     value = value.strip()
-                    
-                    # Remove quotes if present
+
                     if (value.startswith('"') and value.endswith('"')) or \
                        (value.startswith("'") and value.endswith("'")):
                         value = value[1:-1]
-                    
-                    if key:
+
+                    # Only accept CDS_* keys from .env — logical aliases come from the profile
+                    if key and key.startswith("CDS_"):
                         secrets[key] = value
+
         except (IOError, OSError) as e:
             diagnostics.append(
                 Diagnostic(
@@ -77,15 +77,13 @@ def load_secrets_from_env(env_file: Path | None = None) -> tuple[dict[str, str],
                 )
             )
             return {}, diagnostics
-    
-    # Override with environment variables
-    # This allows CLI environment variables to take precedence
+
+    # Environment variables — already CDS_* filtered, no change needed
     for key, value in os.environ.items():
         if key.startswith("CDS_"):
             secrets[key] = value
-    
-    return secrets, diagnostics
 
+    return secrets, diagnostics
 
 def resolve_secret(key: str, secrets: dict[str, str], required: bool = False) -> tuple[str | None, Diagnostic | None]:
     """
@@ -112,21 +110,22 @@ def resolve_secret(key: str, secrets: dict[str, str], required: bool = False) ->
     
     return None, None
 
-
-def load_profile_secrets(spec_secrets: dict[str, Any] | None, env_file: Path | None = None) -> tuple[dict[str, str], list[Diagnostic]]:
+def load_profile_secrets(
+    spec_secrets: dict[str, Any] | None,
+    env_file: Path | None = None,
+) -> tuple[dict[str, str], list[Diagnostic]]:
     """
-    Load and resolve profile-defined secrets from .env/environment.
-
-    Args:
-        spec_secrets: The profile spec.secrets object.
-        env_file: Optional path to .env file.
-
     Returns:
-        Tuple of (resolved_secrets, diagnostics)
+        secrets dict where:
+          - CDS_* keys map to themselves (e.g. CDS_DB_PASSWORD -> CDS_DB_PASSWORD)
+          - logical alias keys map to their CDS_* env var NAME (not value)
     """
     diagnostics: list[Diagnostic] = []
-    secrets, secret_diags = load_secrets_from_env(env_file)
+    raw_secrets, secret_diags = load_secrets_from_env(env_file)
     diagnostics.extend(secret_diags)
+
+    # Keep only env variable names in the returned mapping; never include values.
+    secrets: dict[str, str] = {name: name for name in raw_secrets.keys()}
 
     if not isinstance(spec_secrets, dict):
         return secrets, diagnostics
@@ -137,36 +136,34 @@ def load_profile_secrets(spec_secrets: dict[str, Any] | None, env_file: Path | N
 
     for secret_name, secret_def in values.items():
         if not isinstance(secret_def, dict):
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E082",
-                    message=f'Secret definition "{secret_name}" must be an object.',
-                    path=f"spec.secrets.values.{secret_name}",
-                )
-            )
+            diagnostics.append(Diagnostic(
+                level="error", code="E082",
+                message=f'Secret definition "{secret_name}" must be an object.',
+                path=f"spec.secrets.values.{secret_name}",
+            ))
             continue
 
         env_name = secret_def.get("env")
         required = secret_def.get("required", False)
 
         if not isinstance(env_name, str) or not env_name:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E082",
-                    message=f'Secret definition "{secret_name}" must include a valid env name.',
-                    path=f"spec.secrets.values.{secret_name}.env",
-                )
-            )
+            diagnostics.append(Diagnostic(
+                level="error", code="E082",
+                message=f'Secret definition "{secret_name}" must include a valid env name.',
+                path=f"spec.secrets.values.{secret_name}.env",
+            ))
             continue
 
-        secret_value, err = resolve_secret(env_name, secrets, required)
-        if err:
-            diagnostics.append(err)
+        if env_name not in raw_secrets:
+            if required:
+                diagnostics.append(Diagnostic(
+                    level="error", code="E081",
+                    message=f'Required secret "{env_name}" not found in environment.',
+                    path=f"spec.secrets.values.{secret_name}",
+                ))
             continue
 
-        if secret_value is not None:
-            secrets[secret_name] = secret_value
+        # Map logical name → CDS_* var name, NOT the value.
+        secrets[secret_name] = env_name  # e.g. "postgres_password" → "CDS_POSTGRES_PASSWORD"
 
     return secrets, diagnostics

@@ -271,7 +271,7 @@ class PlannerRegressionTest(unittest.TestCase):
             consumer_entry = next(m for m in plan["modules"] if m["id"] == "consumer")
             self.assertEqual(
                 consumer_entry["consumes"]["database"]["contract"]["spec"]["connectionUri"],
-                "postgresql://analytics:supersecret@producer:5432/analytics",
+                "postgresql://analytics:${CDS_DB_PASSWORD}@producer:5432/analytics",
             )
             self.assertEqual(
                 consumer_entry["consumes"]["database"]["contract"]["spec"]["username"],
@@ -279,7 +279,7 @@ class PlannerRegressionTest(unittest.TestCase):
             )
             self.assertEqual(
                 consumer_entry["consumes"]["database"]["contract"]["spec"]["password"],
-                "supersecret",
+                "${CDS_DB_PASSWORD}",
             )
             self.assertEqual(
                 consumer_entry["consumes"]["database"]["contract"]["spec"]["host"],
@@ -359,8 +359,8 @@ class PlannerRegressionTest(unittest.TestCase):
 
             self.assertIsNotNone(plan)
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
-            self.assertEqual(plan["modules"][0]["config"]["passwordFrom"], "supersecret")
-            self.assertEqual(plan["secrets"]["postgres_password"], "supersecret")
+            self.assertEqual(plan["modules"][0]["config"]["passwordFrom"], "secrets.postgres_password")
+            self.assertEqual(plan["secrets"]["postgres_password"], "CDS_POSTGRES_PASSWORD")
 
 
 if __name__ == "__main__":

@@ -81,6 +81,21 @@ def resolve_profile_path(profile: str | None) -> str:
     )
 
 
+def resolve_project_root(profile_path: str) -> Path:
+    """
+    Resolve a project root for output artifacts.
+
+    The resolver walks up from the selected profile location and picks the first
+    directory containing either pyproject.toml or .git. If no marker is found,
+    it falls back to the current working directory.
+    """
+    start = Path(profile_path).resolve().parent
+    for directory in [start, *start.parents]:
+        if (directory / "pyproject.toml").exists() or (directory / ".git").exists():
+            return directory
+    return Path.cwd().resolve()
+
+
 def list_profiles() -> list[str]:
     profile_root = get_profiles_root()
     profiles: list[str] = []
@@ -144,7 +159,11 @@ def main() -> int:
 
     render_parser = subparsers.add_parser("render", help="Render docker compose from a profile")
     _add_profile_arg(render_parser)
-    render_parser.add_argument("--output", "-o", help="Output file path for rendered output")
+    render_parser.add_argument(
+        "--output",
+        "-o",
+        help="Output file path for rendered output (default: <project-root>/docker-compose.yml)",
+    )
 
     list_parser = subparsers.add_parser("list", help="List available profiles or modules")
     list_subparsers = list_parser.add_subparsers(dest="list_command", required=True)
@@ -233,7 +252,11 @@ def main() -> int:
             print("Cannot render because plan generation failed.")
             return 1
 
-        compose_yaml, render_diags = render_compose(plan, output_path=args.output)
+        output_path = args.output
+        if output_path is None:
+            output_path = str(resolve_project_root(profile_path) / "docker-compose.yml")
+
+        compose_yaml, render_diags = render_compose(plan, output_path=output_path)
         all_diags = all_diags + render_diags
 
         if has_errors(all_diags):
@@ -241,10 +264,7 @@ def main() -> int:
             print("Render failed.")
             return 1
 
-        if args.output:
-            print(f"Rendered compose file written to {args.output}")
-        else:
-            print(compose_yaml)
+        print(f"Rendered compose file written to {output_path}")
 
         return 0
 

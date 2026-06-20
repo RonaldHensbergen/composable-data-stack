@@ -7,7 +7,7 @@ import yaml
 from cli.renderer import render_compose
 
 class RendererRegressionTest(unittest.TestCase):
-    def test_render_compose_interpolates_secrets_from_env_file(self):
+    def test_render_compose_emits_env_placeholders_for_secret_refs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             env_file = root / ".env"
@@ -15,6 +15,9 @@ class RendererRegressionTest(unittest.TestCase):
 
             plan = {
                 "metadata": {"name": "cds-test"},
+                "secrets": {
+                    "CDS_DB_PASSWORD": "CDS_DB_PASSWORD",
+                },
                 "modules": [
                     {
                         "id": "db",
@@ -42,7 +45,7 @@ class RendererRegressionTest(unittest.TestCase):
             self.assertIn("db-postgres", compose["services"])
             self.assertEqual(
                 compose["services"]["db-postgres"]["environment"]["POSTGRES_PASSWORD"],
-                "supersecret",
+                "${CDS_DB_PASSWORD}",
             )
 
 if __name__ == "__main__":

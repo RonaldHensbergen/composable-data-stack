@@ -1,6 +1,6 @@
 # cli/renderer.py
 """
-Render docker-compose YAML from a composition plan, with secret resolution.
+Render docker-compose YAML from a composition plan.
 """
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any
 
 from .diagnostics import Diagnostic
-from .secrets import load_secrets_from_env
 
 
 def render_compose(
@@ -20,20 +19,19 @@ def render_compose(
     env_file: str | None = None,
 ) -> tuple[str, list[Diagnostic]]:
     """
-    Render docker-compose from plan, with secret resolution.
+    Render docker-compose from plan.
 
     Args:
         plan:        Composition plan.
         output_path: Optional output file path.
-        env_file:    Optional path to .env file for secrets.
+        env_file:    Reserved for compatibility; not used.
 
     Returns:
         Tuple of (output_yaml, diagnostics).
     """
+    _ = env_file
     diagnostics: list[Diagnostic] = []
-
-    secrets, secret_diags = load_secrets_from_env(env_file)
-    diagnostics.extend(secret_diags)
+    secrets = plan.get("secrets", {})
 
     compose: dict[str, Any] = {
         "name": plan.get("metadata", {}).get("name", "cds"),
@@ -199,7 +197,7 @@ def _substitute_string(value: str, context: dict[str, Any]) -> Any:
     Supports:
     - Pure:   "${config.name}"                    → value of config.name (any type)
     - Mixed:  "db://${bindings.db.host}:5432"     → "db://postgres:5432"
-    - Secret: "${secrets.CDS_PASSWORD}"           → password from .env / environment
+    - Secret: "${secrets.alias_or_env_name}"      → "${CDS_ENV_NAME}"
     """
     _PATTERN = re.compile(r"\$\{([^}]+)\}")
     matches = _PATTERN.findall(value)
@@ -224,16 +222,29 @@ def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
     """
     Resolve a dot-notation expression against context.
 
-    Secrets are stored inside context["secrets"] so the path
-    "secrets.CDS_PASSWORD" resolves naturally without special-casing.
+    Secrets are emitted as Docker Compose runtime placeholders (${VAR}).
+    Raw secret values are never returned.
 
     Returns None if the path is not found.
     """
+    if expr.startswith("secrets."):
+        alias = expr.split(".", 1)[1]
+        secret_map = context.get("secrets", {})
+        env_name = secret_map.get(alias, alias)
+        return f"${{{env_name}}}"
+
     current: Any = context
     for part in expr.split("."):
         if not isinstance(current, dict) or part not in current:
             return None
         current = current[part]
+
+    if isinstance(current, str) and current.startswith("secrets."):
+        alias = current.split(".", 1)[1]
+        secret_map = context.get("secrets", {})
+        env_name = secret_map.get(alias, alias)
+        return f"${{{env_name}}}"
+
     return current
 
 

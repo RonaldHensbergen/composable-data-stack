@@ -31,10 +31,10 @@ class SmokeExampleProfileTest(unittest.TestCase):
             self.assertIn("modules", plan)
             self.assertGreater(len(plan["modules"]), 0)
 
-            # Ensure secrets were resolved in the plan
-            self.assertEqual(plan["secrets"].get("postgres_password"), "testpass")
-            self.assertEqual(plan["secrets"].get("superset_secret_key"), "sekret")
-            self.assertEqual(plan["secrets"].get("superset_admin_password"), "adminpass")
+            # Ensure secrets map to env variable names (no secret values embedded in plan)
+            self.assertEqual(plan["secrets"].get("postgres_password"), "CDS_POSTGRES_PASSWORD")
+            self.assertEqual(plan["secrets"].get("superset_secret_key"), "CDS_SUPERSET_SECRET_KEY")
+            self.assertEqual(plan["secrets"].get("superset_admin_password"), "CDS_SUPERSET_ADMIN_PASSWORD")
 
 
 if __name__ == "__main__":
