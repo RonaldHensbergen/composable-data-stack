@@ -1,2 +1,2 @@
-dagster==1.13.1
+dagster==1.13.9
 dagster-postgres==0.29.9

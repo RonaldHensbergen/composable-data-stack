@@ -128,7 +128,7 @@ spec:
       services:
         dagster-webserver:
           build:
-            context: ../../../dagster
+            context: ../../../images/dagster
             dockerfile: Dockerfile
           image: local/dagster:custom
           command:
@@ -156,7 +156,7 @@ spec:
         dagster-daemon:
           enabledFrom: spec.config.daemon.enabled
           build:
-            context: ../dagster
+            context: ../../../images/dagster
             dockerfile: Dockerfile
           image: local/dagster:custom
           command:
