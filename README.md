@@ -9,6 +9,8 @@
 
 Composable Data Stack (CDS) is a framework for defining and assembling data platforms from reusable modules such as orchestrators, warehouses, BI tools, and secrets providers.
 
+Project branding assets live under `assets/branding/`. Put the primary logo there as `logo.svg`, and add raster exports such as `logo.png` only if needed for specific integrations.
+
 Instead of hardcoding integrations or relying on fragile pipelines, CDS introduces:
 
 - 🔧 **Modules**: reusable components (Dagster, Postgres, Superset)
