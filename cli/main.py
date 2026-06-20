@@ -155,10 +155,22 @@ def main() -> int:
 
     plan_parser = subparsers.add_parser("plan", help="Build a resolved plan from a profile")
     _add_profile_arg(plan_parser)
-    plan_parser.add_argument("--json", action="store_true", help="Output plan as JSON")
+    plan_parser.add_argument(
+        "--output",
+        "-o",
+        help="Save plan to file (default: print to stdout)",
+    )
+    plan_parser.add_argument("--json", action="store_true", help="Output plan as JSON (default when printing to stdout)")
 
-    render_parser = subparsers.add_parser("render", help="Render docker compose from a profile")
-    _add_profile_arg(render_parser)
+    render_parser = subparsers.add_parser(
+        "render",
+        help="Render docker compose from a profile or plan file",
+    )
+    render_parser.add_argument(
+        "profile_or_plan",
+        nargs="?",
+        help="Profile path/identifier or path to saved plan file. Uses CDS_PROFILE_PATH if set.",
+    )
     render_parser.add_argument(
         "--output",
         "-o",
@@ -225,48 +237,101 @@ def main() -> int:
             print("Plan generation failed.")
             return 1
 
-        if args.json:
-            print(json.dumps(plan, indent=2))
+        plan_json = json.dumps(plan, indent=2)
+        
+        if args.output:
+            # Save plan to file
+            output_file = Path(args.output)
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+            output_file.write_text(plan_json)
+            print(f"Plan saved to {args.output}")
         else:
-            print(json.dumps(plan, indent=2))
+            # Output to stdout
+            print(plan_json)
 
         return 0
 
     if args.command == "render":
-        try:
-            profile_path = resolve_profile_path(args.profile)
-        except ValueError as exc:
-            print(f"ERROR {exc}")
-            return 1
+        # Determine if input is a plan file or profile
+        profile_or_plan = args.profile_or_plan
+        plan = None
+        plan_path = None
+        profile_path = None
+        all_diags = []
 
-        diagnostics = validate_profile(profile_path)
-        if has_errors(diagnostics):
-            print_diagnostics(diagnostics)
-            print("Cannot render because validation failed.")
-            return 1
+        # Try to detect if it's a plan file
+        is_plan_file = False
+        if profile_or_plan:
+            candidate_path = Path(profile_or_plan)
+            if candidate_path.exists() and candidate_path.is_file():
+                # Try to load as plan
+                try:
+                    plan_content = json.loads(candidate_path.read_text())
+                    if isinstance(plan_content, dict) and plan_content.get("apiVersion") == "cds/v1alpha1":
+                        is_plan_file = True
+                        plan = plan_content
+                        plan_path = candidate_path
+                except (json.JSONDecodeError, IOError):
+                    pass
 
-        plan, plan_diags = build_plan(profile_path)
-        all_diags = diagnostics + plan_diags
-        if has_errors(all_diags):
-            print_diagnostics(all_diags)
-            print("Cannot render because plan generation failed.")
-            return 1
+        if is_plan_file:
+            # Render from saved plan file
+            if plan is None:
+                print(f"ERROR Failed to load plan from {plan_path}")
+                return 1
 
-        output_path = args.output
-        if output_path is None:
-            output_path = str(resolve_project_root(profile_path) / "docker-compose.yml")
+            output_path = args.output
+            if output_path is None:
+                # Use project root from plan's sourceProfile, or cwd
+                source_profile = Path(plan.get("sourceProfile", "."))
+                output_path = str(resolve_project_root(str(source_profile)) / "docker-compose.yml")
 
-        compose_yaml, render_diags = render_compose(plan, output_path=output_path)
-        all_diags = all_diags + render_diags
+            compose_yaml, render_diags = render_compose(plan, output_path=output_path)
+            all_diags = render_diags
 
-        if has_errors(all_diags):
-            print_diagnostics(all_diags)
-            print("Render failed.")
-            return 1
+            if has_errors(all_diags):
+                print_diagnostics(all_diags)
+                print("Render failed.")
+                return 1
 
-        print(f"Rendered compose file written to {output_path}")
+            print(f"Rendered compose file written to {output_path}")
+            return 0
+        else:
+            # Render from profile (original behavior)
+            try:
+                profile_path = resolve_profile_path(profile_or_plan)
+            except ValueError as exc:
+                print(f"ERROR {exc}")
+                return 1
 
-        return 0
+            diagnostics = validate_profile(profile_path)
+            if has_errors(diagnostics):
+                print_diagnostics(diagnostics)
+                print("Cannot render because validation failed.")
+                return 1
+
+            plan, plan_diags = build_plan(profile_path)
+            all_diags = diagnostics + plan_diags
+            if has_errors(all_diags):
+                print_diagnostics(all_diags)
+                print("Cannot render because plan generation failed.")
+                return 1
+
+            output_path = args.output
+            if output_path is None:
+                output_path = str(resolve_project_root(profile_path) / "docker-compose.yml")
+
+            compose_yaml, render_diags = render_compose(plan, output_path=output_path)
+            all_diags = all_diags + render_diags
+
+            if has_errors(all_diags):
+                print_diagnostics(all_diags)
+                print("Render failed.")
+                return 1
+
+            print(f"Rendered compose file written to {output_path}")
+
+            return 0
 
     if args.command == "list":
         if args.list_command == "profiles":
