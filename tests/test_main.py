@@ -102,7 +102,7 @@ class CollectModuleImagesTest(unittest.TestCase):
 
     _ROOT = Path(__file__).parent.parent
     _MODULES = _ROOT / "modules"
-    _DOCKERFILE = _ROOT / "dagster" / "Dockerfile"
+    _DOCKERFILE = _ROOT / "images" / "dagster" / "Dockerfile"
 
     def test_collects_images_from_real_modules(self):
         if not self._MODULES.exists():

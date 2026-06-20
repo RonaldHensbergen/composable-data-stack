@@ -54,8 +54,8 @@ class RendererRegressionTest(unittest.TestCase):
             (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
             (root / "profiles" / "local").mkdir(parents=True)
             (root / "modules" / "orchestration" / "dagster").mkdir(parents=True)
-            (root / "dagster").mkdir(parents=True)
-            (root / "dagster" / "Dockerfile").write_text("FROM python:3.11\n", encoding="utf-8")
+            (root / "images" / "dagster").mkdir(parents=True)
+            (root / "images" / "dagster" / "Dockerfile").write_text("FROM python:3.11\n", encoding="utf-8")
 
             plan = {
                 "metadata": {"name": "cds-test"},
@@ -70,13 +70,13 @@ class RendererRegressionTest(unittest.TestCase):
                                 "services": {
                                     "web": {
                                         "build": {
-                                            "context": "../../../dagster",
+                                            "context": "../../../images/dagster",
                                             "dockerfile": "Dockerfile",
                                         }
                                     },
                                     "daemon": {
                                         "build": {
-                                            "context": "../dagster",
+                                            "context": "../images/dagster",
                                             "dockerfile": "Dockerfile",
                                         }
                                     },
@@ -91,8 +91,8 @@ class RendererRegressionTest(unittest.TestCase):
 
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
             compose = yaml.safe_load(output)
-            self.assertEqual(compose["services"]["dagster-web"]["build"]["context"], "dagster")
-            self.assertEqual(compose["services"]["dagster-daemon"]["build"]["context"], "dagster")
+            self.assertEqual(compose["services"]["dagster-web"]["build"]["context"], "images/dagster")
+            self.assertEqual(compose["services"]["dagster-daemon"]["build"]["context"], "images/dagster")
 
 if __name__ == "__main__":
     unittest.main()
