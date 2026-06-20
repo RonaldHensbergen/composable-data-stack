@@ -98,6 +98,22 @@ class MainCLITest(unittest.TestCase):
         expected_output = str(self.repo_root / "docker-compose.yml")
         self.assertEqual(kwargs["output_path"], expected_output)
 
+    def test_resolve_project_root_fallback_to_cwd(self):
+        import tempfile
+        from cli.main import resolve_project_root
+
+        with tempfile.TemporaryDirectory() as td:
+            # Create a mock profile file in the temporary directory
+            # The temp dir does not have .git or pyproject.toml
+            profile_path = Path(td) / "profile.yaml"
+            profile_path.touch()
+            
+            with patch.object(Path, "cwd", return_value=Path("/mock/cwd")):
+                resolved = resolve_project_root(str(profile_path))
+                
+                self.assertEqual(resolved, Path("/mock/cwd").resolve())
+
+
 class CollectModuleImagesTest(unittest.TestCase):
 
     _ROOT = Path(__file__).parent.parent
