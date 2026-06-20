@@ -415,6 +415,15 @@ Next:
 
 Contributions are welcome.
 
+Please read these first:
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [SECURITY.md](SECURITY.md)
+- [SUPPORT.md](SUPPORT.md)
+- [CHANGELOG.md](CHANGELOG.md)
+- [RELEASE.md](RELEASE.md)
+
 Good first contributions:
 
 - adding new modules
