@@ -1,11 +1,9 @@
 # 🚀 Composable Data Stack (CDS)
 
-<p align="center">
-  <img src="assets/branding/logo.svg" alt="Composable Data Stack logo" width="180" />
-</p>
-
 > **Terraform for data platforms.**
 > Build, validate, secure, and evolve data stacks using modular components and explicit contracts.
+
+![Composable Data Stack logo](assets/branding/logo.svg)
 
 ---
 
@@ -13,12 +11,11 @@
 
 Composable Data Stack (CDS) is a framework for defining and assembling data platforms from reusable modules such as orchestrators, warehouses, BI tools, and secrets providers.
 
-Project branding assets live under `assets/branding/`. Put the primary logo there as `logo.svg`, and add raster exports such as `logo.png` only if needed for specific integrations.
+## 🤝 Get Involved
 
-## 🔗 Socials & Repository
-
-- GitHub repository: https://github.com/RonaldHensbergen/composable-data-stack
-- Contribute via issues and pull requests: open a discussion, file an issue, or send a PR if you want to help shape CDS
+- **Star and follow** on GitHub: [RonaldHensbergen/composable-data-stack](https://github.com/RonaldHensbergen/composable-data-stack)
+- **Contribute**: open a discussion, file an issue, or send a PR to help shape CDS
+- **Proof it**: if you run it in a real workflow, share your feedback — good or bad
 
 Instead of hardcoding integrations or relying on fragile pipelines, CDS introduces:
 
