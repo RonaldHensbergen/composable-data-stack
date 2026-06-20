@@ -5,6 +5,7 @@ Render docker-compose YAML from a composition plan.
 """
 from __future__ import annotations
 
+import os
 import re
 import yaml
 from copy import deepcopy
@@ -33,6 +34,9 @@ def render_compose(
     _ = env_file
     diagnostics: list[Diagnostic] = []
     secrets = plan.get("secrets", {})
+    compose_dir = Path(output_path).resolve().parent if output_path else Path.cwd().resolve()
+    profile_dir = _resolve_profile_dir(plan)
+    project_root = _resolve_project_root(profile_dir)
 
     compose: dict[str, Any] = {
         "name": plan.get("metadata", {}).get("name", "cds"),
@@ -71,7 +75,14 @@ def render_compose(
         services = compose_impl.get("services", {})
         volumes = compose_impl.get("volumes", {})
 
-        rendered_services = _render_services(module, services, secrets)
+        rendered_services = _render_services(
+            module,
+            services,
+            secrets,
+            profile_dir=profile_dir,
+            project_root=project_root,
+            compose_dir=compose_dir,
+        )
         rendered_volumes = _render_volumes(module, volumes, secrets)
 
         for service_name, service_def in rendered_services.items():
@@ -101,6 +112,9 @@ def _render_services(
     module: dict[str, Any],
     services: dict[str, Any],
     secrets: dict[str, str],
+    profile_dir: Path | None,
+    project_root: Path | None,
+    compose_dir: Path,
 ) -> dict[str, Any]:
     rendered: dict[str, Any] = {}
     context = _build_context(module, secrets)
@@ -132,6 +146,13 @@ def _render_services(
         service_copy = _substitute_values(service_copy, context)
         service_copy = _rewrite_service_volumes(service_copy, module["id"])
         service_copy = _rewrite_depends_on(service_copy, module)
+        service_copy = _rewrite_build_context(
+            service_copy,
+            module,
+            profile_dir=profile_dir,
+            project_root=project_root,
+            compose_dir=compose_dir,
+        )
         rendered[service_name] = service_copy
 
     return rendered
@@ -290,6 +311,145 @@ def _rewrite_depends_on(
         return service_def
 
     return {**service_def, "depends_on": rewritten}
+
+
+def _rewrite_build_context(
+    service_def: dict[str, Any],
+    module: dict[str, Any],
+    profile_dir: Path | None,
+    project_root: Path | None,
+    compose_dir: Path,
+) -> dict[str, Any]:
+    build = service_def.get("build")
+    if build is None:
+        return service_def
+
+    if isinstance(build, str):
+        rewritten = _resolve_context_path(
+            context=build,
+            dockerfile=None,
+            module=module,
+            profile_dir=profile_dir,
+            project_root=project_root,
+            compose_dir=compose_dir,
+        )
+        return {**service_def, "build": rewritten}
+
+    if isinstance(build, dict):
+        context = build.get("context")
+        if not isinstance(context, str):
+            return service_def
+
+        dockerfile = build.get("dockerfile")
+        rewritten = _resolve_context_path(
+            context=context,
+            dockerfile=dockerfile if isinstance(dockerfile, str) else None,
+            module=module,
+            profile_dir=profile_dir,
+            project_root=project_root,
+            compose_dir=compose_dir,
+        )
+        return {**service_def, "build": {**build, "context": rewritten}}
+
+    return service_def
+
+
+def _resolve_context_path(
+    context: str,
+    dockerfile: str | None,
+    module: dict[str, Any],
+    profile_dir: Path | None,
+    project_root: Path | None,
+    compose_dir: Path,
+) -> str:
+    # Keep absolute paths and remote contexts unchanged.
+    if Path(context).is_absolute() or _looks_remote_context(context) or "${" in context:
+        return context
+
+    candidates: list[Path] = []
+    for base in _context_bases(module, profile_dir, project_root, compose_dir):
+        candidate = (base / context).resolve()
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    if not candidates:
+        return context
+
+    chosen = _choose_best_context_candidate(candidates, dockerfile)
+    rel = os.path.relpath(chosen, compose_dir)
+    return Path(rel).as_posix()
+
+
+def _context_bases(
+    module: dict[str, Any],
+    profile_dir: Path | None,
+    project_root: Path | None,
+    compose_dir: Path,
+) -> list[Path]:
+    bases: list[Path] = [compose_dir]
+
+    module_dir = _resolve_module_dir(module, profile_dir)
+    if module_dir is not None:
+        bases.append(module_dir)
+
+    if project_root is not None:
+        # Legacy compose path in this repo used to be project_root/build.
+        bases.append((project_root / "build").resolve())
+
+    return bases
+
+
+def _choose_best_context_candidate(candidates: list[Path], dockerfile: str | None) -> Path:
+    if dockerfile:
+        for candidate in candidates:
+            if candidate.exists() and (candidate / dockerfile).exists():
+                return candidate
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return candidates[0]
+
+
+def _looks_remote_context(value: str) -> bool:
+    return "://" in value or value.startswith("git@")
+
+
+def _resolve_profile_dir(plan: dict[str, Any]) -> Path | None:
+    source_profile = plan.get("sourceProfile")
+    if not isinstance(source_profile, str):
+        return None
+    return Path(source_profile).resolve().parent
+
+
+def _resolve_project_root(profile_dir: Path | None) -> Path | None:
+    if profile_dir is None:
+        return None
+
+    for directory in [profile_dir, *profile_dir.parents]:
+        if (directory / "pyproject.toml").exists() or (directory / ".git").exists():
+            return directory
+
+    return None
+
+
+def _resolve_module_dir(module: dict[str, Any], profile_dir: Path | None) -> Path | None:
+    source = module.get("source")
+    if not isinstance(source, str):
+        return None
+
+    source_path = Path(source)
+    if source_path.is_absolute():
+        return source_path.resolve()
+
+    if profile_dir is None:
+        return None
+
+    if source_path.parts and source_path.parts[0] == ".":
+        source_path = source_path.relative_to(".")
+
+    return (profile_dir / source_path).resolve()
 
 
 def _is_named_volume(value: str) -> bool:
