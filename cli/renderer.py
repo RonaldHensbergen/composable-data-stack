@@ -5,8 +5,8 @@ Render docker-compose YAML from a composition plan.
 """
 from __future__ import annotations
 
-import os
 import re
+import os
 import yaml
 from copy import deepcopy
 from pathlib import Path
@@ -376,7 +376,11 @@ def _resolve_context_path(
         return context
 
     chosen = _choose_best_context_candidate(candidates, dockerfile)
-    rel = os.path.relpath(chosen, compose_dir)
+    try:
+        rel = Path(chosen).relative_to(compose_dir)
+    except ValueError:
+        # relative_to() only works for descendants; relpath preserves ../ segments.
+        rel = Path(os.path.relpath(chosen, compose_dir))
     return Path(rel).as_posix()
 
 
