@@ -8,7 +8,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
-- TBD
+- No entries yet.
 
 ## [0.1.1] - 2026-06-21
 
@@ -17,7 +17,7 @@ The format is based on Keep a Changelog.
 - Default render output path to project-root docker-compose.yml when no output is provided.
 - Open-source project governance and support docs.
 - Troubleshooting guidance in the README for common CLI validation, secret, and contract-binding errors.
-- Added OS compatibility analysis and recommendations doc.
+- Added `docs/os-compatibility.md` with OS compatibility analysis and recommendations.
 
 ### Changed
 
