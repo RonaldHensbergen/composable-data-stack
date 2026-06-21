@@ -319,8 +319,6 @@ cds plan --help
 
 ## 🛠️ Troubleshooting
 
-[#️-troubleshooting](#️-troubleshooting)
-
 Common errors from `cds validate`, `cds plan`, and `cds render`, and how to fix them.
 
 | Error | Cause | Fix |
