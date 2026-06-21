@@ -2,6 +2,8 @@
 
 Thanks for your interest in contributing to Composable Data Stack (CDS).
 
+New here? Read [docs/good-first-issues.md](docs/good-first-issues.md) first. It walks through setup, picking an issue, and the PR flow end-to-end.
+
 ## Ways To Contribute
 
 - Report bugs
