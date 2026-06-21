@@ -1,0 +1,12 @@
+extends: relaxed
+
+ignore: |
+  docker-compose.yml
+  build/
+  modules-experimental/
+
+rules:
+  comments: disable
+  document-start: disable
+  line-length: disable
+  truthy: disable

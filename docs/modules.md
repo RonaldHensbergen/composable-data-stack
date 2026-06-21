@@ -33,7 +33,7 @@ modules/<category>/<name>/
 Each module must include the following files:
 
 | File | Required | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `compose.yml` | yes | Defines the services, networks, volumes, and health checks for the module |
 | `README.md` | yes | Explains what the module does, how it is configured, and how it is used |
 | `.env.example` | yes | Documents the environment variables expected by the module |
@@ -42,7 +42,7 @@ Each module must include the following files:
 Optional directories:
 
 | Directory | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `config/` | Static configuration files |
 | `scripts/` | Bootstrap, init, or helper scripts |
 | `data/` | Local development data or seeds, if intentionally included |

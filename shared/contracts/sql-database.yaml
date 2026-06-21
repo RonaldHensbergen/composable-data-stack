@@ -1,34 +1,43 @@
-apiVersion: platform/v1alpha1
-kind: Module
-name: airflow
-category: orchestration
-version: 0.1.0
+# yaml-language-server: $schema=../../schemas/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
 
-provides:
-  - contract: workflow-api
-    endpointEnv: AIRFLOW_API_URL
-  - contract: scheduler
-  - contract: metadata-db-client
-    expects:
-      - db.dsn
-      - db.user
-      - db.passwordRef
+metadata:
+  name: sql-database
+  category: shared
+  version: "0.1.0"
+  description: Shared contract describing the values a SQL database provider exposes.
 
-requires:
-  - contract: sql-database
-    purpose: metadata
-    optional: false
-  - contract: object-store
-    purpose: logs
-    optional: true
-  - contract: secrets-provider
-    optional: false
-
-operational:
-  healthChecks:
-    - type: http
-      target: /health
-  backup:
-    responsibility: external-db-module
-  upgrades:
-    strategy: migrate-then-roll
+spec:
+  fields:
+    host:
+      type: string
+      required: true
+      description: Hostname or service name clients use to connect.
+    port:
+      type: integer
+      required: true
+      description: TCP port where the database listens.
+    database:
+      type: string
+      required: true
+      description: Database name to connect to.
+    username:
+      type: string
+      required: true
+      description: Username for authentication.
+    password:
+      type: string
+      required: true
+      description: Secret reference or runtime placeholder for the password.
+    connectionUri:
+      type: string
+      required: true
+      description: Fully composed SQLAlchemy-style connection URI.
+  examples:
+    - host: postgres
+      port: 5432
+      database: analytics
+      username: analytics
+      password: ${CDS_POSTGRES_PASSWORD}
+      connectionUri: postgresql://analytics:${CDS_POSTGRES_PASSWORD}@postgres:5432/analytics
