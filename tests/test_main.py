@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import unittest
@@ -74,10 +75,47 @@ class MainCLITest(unittest.TestCase):
         mock_run_security.assert_called_once()
         self.assertEqual(mock_run_security.call_args.kwargs["profile_path"], Path(str(profile_file)))
 
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_plan_saves_to_file_with_output_flag(self, mock_validate, mock_build_plan):
+        """Test that plan --output saves the plan to a file."""
+        import tempfile
+        
+        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+        test_plan = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Plan",
+            "metadata": {"name": "test"},
+            "modules": [],
+        }
+        
+        mock_validate.return_value = []
+        mock_build_plan.return_value = (test_plan, [])
+        
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            output_file = f.name
+        
+        try:
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "plan", "local-dagster-postgres-superset", "--output", output_file]
+            ):
+                result = main()
+            
+            self.assertEqual(result, 0)
+            mock_validate.assert_called_once_with(str(profile_file))
+            mock_build_plan.assert_called_once_with(str(profile_file))
+            
+            # Verify file was written
+            saved_plan = json.loads(Path(output_file).read_text())
+            self.assertEqual(saved_plan["apiVersion"], "cds/v1alpha1")
+            self.assertEqual(saved_plan["metadata"]["name"], "test")
+        finally:
+            Path(output_file).unlink(missing_ok=True)
+
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_render_uses_default_project_root_output_when_no_output_arg(
+    def test_render_from_profile_uses_default_project_root_output(
         self,
         mock_validate,
         mock_build_plan,
@@ -97,6 +135,57 @@ class MainCLITest(unittest.TestCase):
         _, kwargs = mock_render.call_args
         expected_output = str(self.repo_root / "docker-compose.yml")
         self.assertEqual(kwargs["output_path"], expected_output)
+
+    def test_render_from_plan_file(self):
+        """Test rendering from a saved plan file."""
+        import tempfile
+        
+        # Create a minimal valid plan
+        plan = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Plan",
+            "metadata": {"name": "test-plan"},
+            "sourceProfile": str(self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"),
+            "runtime": {},
+            "secrets": {},
+            "outputs": {},
+            "modules": [],
+        }
+        
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(plan, f)
+            plan_file = f.name
+        
+        try:
+            with patch("cli.main.render_compose") as mock_render:
+                mock_render.return_value = ("name: test\nservices: {}\n", [])
+                
+                with patch.object(sys, "argv", ["cds", "render", plan_file]):
+                    result = main()
+                
+                self.assertEqual(result, 0)
+                # Verify render was called with the plan from file
+                mock_render.assert_called_once()
+                call_args = mock_render.call_args[0]
+                self.assertEqual(call_args[0]["apiVersion"], "cds/v1alpha1")
+        finally:
+            Path(plan_file).unlink()
+
+    def test_resolve_project_root_fallback_to_cwd(self):
+        import tempfile
+        from cli.main import resolve_project_root
+
+        with tempfile.TemporaryDirectory() as td:
+            # Create a mock profile file in the temporary directory
+            # The temp dir does not have .git or pyproject.toml
+            profile_path = Path(td) / "profile.yaml"
+            profile_path.touch()
+            
+            with patch.object(Path, "cwd", return_value=Path("/mock/cwd")):
+                resolved = resolve_project_root(str(profile_path))
+                
+                self.assertEqual(resolved, Path("/mock/cwd").resolve())
+
 
 class CollectModuleImagesTest(unittest.TestCase):
 

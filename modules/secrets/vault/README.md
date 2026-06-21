@@ -1,7 +1,7 @@
 # Vault secrets provider
 
-This directory is reserved for a Vault-backed secrets provider module.
+This module provides a local Vault dev container for profiles that need a secrets backend.
 
-The planned module should expose a `secrets-provider` contract and allow profiles to reference Vault-based secrets through the profile `spec.secrets` configuration.
+It exposes a `secrets-provider` contract and runs Vault in dev mode on port 8200.
 
-Currently this is a placeholder for future implementation.
+Profiles can bootstrap the Vault root token from `spec.secrets` and then use Vault for runtime secret storage.

@@ -63,13 +63,18 @@ All test folders mirror the source structure under the root `tests/` directory:
 
 Place your regression test inside the subfolder matching the module you modified.
 
+### Core Regression Test Requirements
+When fixing a bug, write a regression test to prevent the issue from recurring.
+Regression tests must live under the `tests/` directory and fully reproduce the original failing state prior to your fix.
+Use `unittest.mock` to isolate test logic and eliminate external runtime dependencies for faster, reliable test runs.
+
 ### Naming Standards
 1. Test file: `test_<target_module>.py`
 2. Regression test function: `test_regression_<short_bug_description>`
    Example: `test_regression_unsafe_default_postgres_password`
 
 ### Minimal Regression Test Template
-Follow Arrange-Act-Assert pattern consistent with existing test suites:
+Follow the standard Arrange-Act-Assert pattern consistent with all existing repository test suites:
 ```python
 def test_regression_security_default_password():
     # Arrange: Input configuration that reproduces the original bug
@@ -83,28 +88,29 @@ def test_regression_security_default_password():
     assert "weak default password" in result.risk_messages
 ```
 
-### Run Local Test Workflow
-Execute the full test suite before submitting your PR to avoid breaking existing functionality:
+### Local Test Execution Workflow
+Run the full test suite before submitting your PR to avoid breaking existing functionality:
 ```bash
-# Full test suite (official repo command)
+# Full repository test suite (official standard command)
 python -m unittest discover -s tests -p "*.py"
 
-# Target a single module's test folder for faster iteration
+# Target a single module test folder for faster iterative development
 python -m unittest discover -s tests/modules/warehouse -p "*.py"
 ```
 
 ### Regression Test Acceptance Rules
-1. The test reproduces the exact failure scenario from the linked issue
-2. File path and function naming follow the standards above
-3. Full local test suite passes without errors
-4. Reference the related issue number in your PR description
+All regression tests must satisfy these requirements before PR merge:
+1. The test reproduces the exact failure scenario described in the linked GitHub issue
+2. File path and test function strictly follow the naming standards above
+3. Full local test suite executes without failures or warnings
+4. The related issue number is referenced in your PR description
 
 ## Pull Request Checklist
-- [ ] Tests added or updated
-- [ ] Tests pass locally
-- [ ] Docs updated (if needed)
-- [ ] No secrets or generated artifacts committed
-- [ ] PR description explains user-facing impact
+- [ ] Tests added or updated for changed behavior
+- [ ] All local unit tests pass
+- [ ] Documentation updated (if user-facing behavior changes)
+- [ ] No plaintext secrets or auto-generated artifacts committed
+- [ ] PR description clearly outlines user-facing impact of changes
 
 ## Need Help?
-Open a GitHub issue with details, logs, and reproduction steps.
+Open a GitHub issue with full context: reproduction steps, error logs, and environment details.

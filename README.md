@@ -3,11 +3,19 @@
 > **Terraform for data platforms.**
 > Build, validate, secure, and evolve data stacks using modular components and explicit contracts.
 
+![Composable Data Stack logo](assets/branding/logo.svg)
+
 ---
 
 ## 🧠 What Is CDS (In 1 Minute)
 
 Composable Data Stack (CDS) is a framework for defining and assembling data platforms from reusable modules such as orchestrators, warehouses, BI tools, and secrets providers.
+
+## 🤝 Get Involved
+
+- **Star and follow** on GitHub: [RonaldHensbergen/composable-data-stack](https://github.com/RonaldHensbergen/composable-data-stack)
+- **Contribute**: open a discussion, file an issue, or send a PR to help shape CDS
+- **Proof it**: if you run it in a real workflow, share your feedback — good or bad
 
 Instead of hardcoding integrations or relying on fragile pipelines, CDS introduces:
 
@@ -298,6 +306,14 @@ profiles/[profile]/
 |cds render [profile]|Generate Docker Compose configuration from a resolved plan|
 |cds up [profile]|Start services (planned)|
 |cds test [profile]|Run health checks (planned)|
+
+To view the full list of options for any command, use the `--help` flag:
+
+```bash
+cds --help
+cds validate --help
+cds plan --help
+```
 
 ---
 
