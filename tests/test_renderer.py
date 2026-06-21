@@ -47,6 +47,48 @@ class RendererRegressionTest(unittest.TestCase):
                 compose["services"]["db-postgres"]["environment"]["POSTGRES_PASSWORD"],
                 "${CDS_DB_PASSWORD}",
             )
+            self.assertNotIn("supersecret", output)
+
+    def test_render_compose_alias_secret_leak_regression(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            env_file = root / ".env"
+            env_file.write_text("CDS_REAL_DB_PASSWORD=my_actual_secret\n", encoding="utf-8")
+
+            plan = {
+                "metadata": {"name": "cds-alias-test"},
+                "secrets": {
+                    "DB_PASS_ALIAS": "CDS_REAL_DB_PASSWORD",
+                },
+                "modules": [
+                    {
+                        "id": "db",
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {
+                                "services": {
+                                    "postgres": {
+                                        "image": "postgres:latest",
+                                        "environment": {
+                                            "POSTGRES_PASSWORD": "${secrets.DB_PASS_ALIAS}",
+                                        },
+                                    }
+                                }
+                            },
+                        },
+                    }
+                ],
+            }
+
+            output, diagnostics = render_compose(plan, env_file=str(env_file))
+
+            self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+            compose = yaml.safe_load(output)
+            self.assertEqual(
+                compose["services"]["db-postgres"]["environment"]["POSTGRES_PASSWORD"],
+                "${CDS_REAL_DB_PASSWORD}",
+            )
+            self.assertNotIn("my_actual_secret", output)
 
     def test_render_compose_rewrites_build_contexts_for_output_location(self):
         with tempfile.TemporaryDirectory() as tmpdir:
