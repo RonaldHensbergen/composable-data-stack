@@ -151,6 +151,7 @@ activemq-data/
 .env
 .envrc
 .venv
+.tmp-yamllint/
 env/
 venv/
 ENV/

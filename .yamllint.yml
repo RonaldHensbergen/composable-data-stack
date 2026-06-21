@@ -3,6 +3,7 @@ extends: relaxed
 ignore: |
   docker-compose.yml
   build/
+  modules-experimental/
 
 rules:
   comments: disable
