@@ -59,7 +59,7 @@ spec:
             contractRef: postgres.sql-database
           scheduleStorage:
             contractRef: postgres.sql-database
-          
+
         runLauncher:
           type: default
         healthcheck:
