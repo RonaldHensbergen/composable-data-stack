@@ -111,10 +111,12 @@ return Path(rel).as_posix()
 try:
     rel = Path(chosen).relative_to(compose_dir)
 except ValueError:
-    # chosen is not relative to compose_dir, use absolute
-    rel = Path(chosen)
+    # If the path is outside compose_dir, preserve ../ traversal semantics.
+    rel = Path(os.path.relpath(chosen, compose_dir))
 return rel.as_posix()
 ```
+
+**Status**: Completed in branch fix/relativepath-logic. Issue #54 is resolved by using `Path.relative_to()` for descendant paths and `os.path.relpath()` fallback for cross-directory paths.
 
 ---
 
@@ -218,7 +220,7 @@ pip install -e .
 
 ## 📋 Implementation Checklist
 
-- [ ] Fix `os.path.relpath` in `cli/renderer.py`
+- [x] Fix build-context relative path regression in `cli/renderer.py` (Issue #54)
 - [ ] Create `Makefile.ps1` for Windows users
 - [ ] Update `README.md` with Windows setup examples
 - [ ] Update `CONTRIBUTING.md` with Windows instructions
