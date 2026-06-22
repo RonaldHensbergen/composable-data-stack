@@ -1,31 +1,45 @@
-name: Bug report
-description: Report a reproducible problem
-labels:
-  - bug
+name: Bug Report
+description: Report a bug to help us improve the composable data stack.
+title: "[Bug]: "
+labels: ["bug", "triage"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a bug. Please provide enough detail to reproduce.
+        Thanks for reporting a bug! Please fill in as much detail as possible.
 
   - type: input
     id: summary
     attributes:
       label: Summary
-      description: One-line description of the problem
-      placeholder: cds render fails with unresolved contract ref
+      description: One-line description of the problem.
+      placeholder: e.g. cds render fails with unresolved contract ref
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severely does this bug affect you?
+      options:
+        - Critical (system unusable / data loss)
+        - High (major feature broken)
+        - Medium (feature partially broken)
+        - Low (minor inconvenience)
     validations:
       required: true
 
   - type: textarea
-    id: steps
+    id: repro
     attributes:
-      label: Steps to reproduce
-      description: Exact steps and commands
+      label: Minimal Reproducible Example
+      description: |
+        Smallest possible steps or code snippet to reproduce the bug.
       placeholder: |
-        1. Run ...
-        2. Edit ...
-        3. Observe ...
+        1. Configure X with...
+        2. Run command Y...
+        3. See error Z
     validations:
       required: true
 
@@ -40,7 +54,7 @@ body:
     id: actual
     attributes:
       label: Actual behavior and logs
-      description: Include full error output and stack trace
+      description: Include full error output and stack trace.
     validations:
       required: true
 
@@ -48,7 +62,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: OS, Python version, and how CDS was installed
+      description: OS, Python version, and how CDS was installed.
       placeholder: Linux, Python 3.11, pip install -e .
     validations:
       required: true
