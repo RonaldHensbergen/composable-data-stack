@@ -76,3 +76,4 @@ body:
           required: true
         - label: I removed sensitive information from logs
           required: true
+          
