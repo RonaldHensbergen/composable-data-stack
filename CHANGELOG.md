@@ -18,6 +18,7 @@ The format is based on Keep a Changelog.
 - Open-source project governance and support docs.
 - Troubleshooting guidance in the README for common CLI validation, secret, and contract-binding errors.
 - Added `docs/os-compatibility.md` with OS compatibility analysis and recommendations.
+- Improved the bug report template with severity and minimal repro fields.
 
 ### Changed
 
