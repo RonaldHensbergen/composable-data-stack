@@ -24,6 +24,15 @@ Composable Data Stack is in a pre-1.0 phase with a small core team, active docum
 - Create a release branch when you need to stage a weekly release candidate or include a small set of late-breaking fixes.
 - Avoid long-lived release branches unless you are stabilizing a specific milestone.
 
+## Branch Policy
+
+- Do not use long-lived `development`, `test`, `acceptance`, or `production` branches for this project phase.
+- Use `main` as the single long-lived integration branch.
+- Use short-lived topic branches such as `docs/*`, `fix/*`, and `feat/*` for day-to-day work.
+- Use short-lived `release/*` branches only when preparing a weekly release candidate.
+- Treat tagged releases as the production line instead of maintaining a separate production branch.
+- If a hotfix is needed after a tag, use a short-lived `hotfix/*` branch and merge it back through the normal review flow.
+
 ## What Belongs In A Weekly Release
 
 - Bug fixes and regressions with clear test coverage.
