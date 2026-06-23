@@ -1,5 +1,5 @@
-# Default: normalize all text files to LF on check-in
-* text=auto
+# Default: normalize all text files to LF on check-in and checkout
+* text=auto eol=lf
 
 # Source code
 *.py        text eol=lf
