@@ -20,7 +20,7 @@ source .venv/bin/activate
 pip install -e .
 ```
 ## Line Endings
-This repository enforces LF line endings for all source, config, and documentation files via 
+This repository enforces LF line endings for all source, config, and documentation files via
 `.gitattributes`. Windows-specific scripts (`.bat`, `.cmd`, `.ps1`) are intentionally set to CRLF.
 
 If you contribute from Windows, ensure your editor respects `.gitattributes`.
