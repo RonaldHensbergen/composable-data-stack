@@ -443,18 +443,6 @@ Next:
 
 ---
 
-## 🛠️ Development Tools
-
-The `tools/` directory contains helper scripts for development workflows:
-
-- **PR Creation**: Automated scripts to create well-documented pull requests
-  - `tools/scripts/local-create-pr.sh` - Create PRs from your local machine
-  - `tools/workflows/create-documented-pr.yml` - GitHub Actions workflow for PR creation
-
-See `tools/README.md` for detailed usage instructions.
-
----
-
 ## 🤝 Contributing
 
 Contributions are welcome.
