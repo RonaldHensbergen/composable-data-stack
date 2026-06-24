@@ -222,3 +222,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 .aider*
+
+# PR creation tools (helper scripts, not part of main tool)
+/tools/
