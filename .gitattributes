@@ -1,0 +1,45 @@
+# Default: normalize all text files to LF on check-in and checkout
+* text=auto eol=lf
+
+# Source code
+*.py        text eol=lf
+*.sh        text eol=lf
+
+# Config & data formats
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.toml      text eol=lf
+*.ini       text eol=lf
+*.cfg       text eol=lf
+*.env       text eol=lf
+
+# Docs
+*.md        text eol=lf
+*.rst       text eol=lf
+*.txt       text eol=lf
+
+# Web
+*.html      text eol=lf
+*.css       text eol=lf
+*.js        text eol=lf
+
+# Git & CI
+.gitattributes  text eol=lf
+.gitignore      text eol=lf
+Makefile        text eol=lf
+
+# Windows-specific scripts
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Binary files
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.pdf       binary
+*.zip       binary
+*.tar.gz    binary
