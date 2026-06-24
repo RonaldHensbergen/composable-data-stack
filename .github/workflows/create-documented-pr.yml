@@ -1,0 +1,108 @@
+name: Create Documented PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch name to create PR from'
+        required: true
+        type: string
+      title:
+        description: 'PR title'
+        required: true
+        type: string
+      base:
+        description: 'Base branch (default: main)'
+        required: false
+        default: 'main'
+        type: string
+      draft:
+        description: 'Create as draft PR'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Generate PR documentation
+        run: |
+          echo "Generating PR documentation for branch: ${{ inputs.branch }}"
+          
+          # Create PR body from template
+          mkdir -p .github/pr-docs
+          
+          # Get commit messages since base branch
+          git fetch origin ${{ inputs.base }}
+          COMMITS=$(git log --pretty=format:"- %s" origin/${{ inputs.base }}..${{ inputs.branch }})
+          
+          # Get changed files
+          CHANGED_FILES=$(git diff --name-only origin/${{ inputs.base }}..${{ inputs.branch }})
+          
+          # Generate PR body
+          cat > .github/pr-docs/PR_BODY.md << 'EOF'
+          # ${{ inputs.title }}
+          
+          ## Overview
+          
+          This PR includes changes from branch `${{ inputs.branch }}`.
+          
+          ## Changes
+          
+          ### Commits
+          
+          ${COMMITS}
+          
+          ### Files Changed
+          
+          \`\`\`
+          ${CHANGED_FILES}
+          \`\`\`
+          
+          ## Testing
+          
+          - [ ] Unit tests pass
+          - [ ] Integration tests pass
+          - [ ] Manual testing completed
+          
+          ## Checklist
+          
+          - [ ] Code follows project style guidelines
+          - [ ] Documentation updated
+          - [ ] Tests added/updated
+          - [ ] No breaking changes (or documented)
+          
+          EOF
+          
+          # Substitute variables
+          sed -i "s/\${COMMITS}/$COMMITS/g" .github/pr-docs/PR_BODY.md
+          sed -i "s|\${CHANGED_FILES}|$CHANGED_FILES|g" .github/pr-docs/PR_BODY.md
+          
+          echo "PR documentation generated at .github/pr-docs/PR_BODY.md"
+      
+      - name: Create Pull Request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x .github/scripts/create-pr-with-docs.sh
+          .github/scripts/create-pr-with-docs.sh \
+            "${{ inputs.title }}" \
+            "${{ inputs.branch }}" \
+            "${{ inputs.base }}" \
+            "${{ inputs.draft }}"
