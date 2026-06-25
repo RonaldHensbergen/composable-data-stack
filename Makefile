@@ -8,7 +8,7 @@ install:
 lint: lint-markdown lint-yaml
 
 lint-markdown:
-	npx --yes markdownlint-cli@0.39.0 "**/*.md" ".github/**/*.md" ".github/**/*.yml"
+	npx --yes markdownlint-cli@0.39.0 "**/*.md" ".github/**/*.md"
 
 lint-yaml:
 	yamllint .
