@@ -1,7 +1,9 @@
 # MVP proof plan for `local-dagster-postgres-superset(-env)
+
 > Goal: prove the profile is not just “up,” but usable, repeatable, and demoable.
 
-Proof definition
+## Proof definition
+
 Before calling the MVP profile proven, verify these 5 things:
 
 | Area | Must prove |
