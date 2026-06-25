@@ -1,9 +1,17 @@
-l.PHONY: install validate validate-profile package
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
 install:
 	pip install -e .
+
+lint: lint-markdown lint-yaml
+
+lint-markdown:
+	npx --yes markdownlint-cli@0.49.0 "**/*.md" ".github/**/*.md"
+
+lint-yaml:
+	yamllint .
 
 validate:
 	cds validate $(PROFILE)
