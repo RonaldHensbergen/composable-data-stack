@@ -1,0 +1,32 @@
+# CODEOWNERS file for composable-data-stack
+# 
+# This file defines individuals or teams responsible for code in this repository.
+# Code owners are automatically requested for review when someone opens a pull request
+# that modifies code that they own.
+#
+# More info: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repo
+* @RonaldHensbergen
+
+# Core CLI and validation logic
+/cli/ @RonaldHensbergen
+
+# Module definitions
+/modules/ @RonaldHensbergen
+
+# Profile definitions
+/profiles/ @RonaldHensbergen
+
+# Documentation
+/docs/ @RonaldHensbergen
+*.md @RonaldHensbergen
+
+# GitHub workflows and configuration
+/.github/ @RonaldHensbergen
+
+# Tests
+/tests/ @RonaldHensbergen
+
+# Security and validation rules
+/rules/ @RonaldHensbergen

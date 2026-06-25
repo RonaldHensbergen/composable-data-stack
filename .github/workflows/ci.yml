@@ -30,7 +30,7 @@ jobs:
 
       - name: Run Markdown lint
         run: |
-          npx --yes markdownlint-cli@0.39.0 "**/*.md" ".github/**/*.md"
+          npx --yes markdownlint-cli@0.49.0 "**/*.md" ".github/**/*.md"
 
       - name: Run YAML lint
         run: |
