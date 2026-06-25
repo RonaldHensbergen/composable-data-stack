@@ -3,10 +3,10 @@
   "extends": [
     "config:recommended"
   ],
-  "grouping": {
-    "default": {
+  "packageRules": [
+    {
       "groupName": "all dependencies",
-      "groupPattern": ".*"
+      "matchPackagePatterns": [".*"]
     }
-  }
+  ]
 }
