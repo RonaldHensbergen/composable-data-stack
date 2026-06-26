@@ -41,30 +41,32 @@ def get_modules_root() -> Path:
 
 def resolve_profile_path(profile: str | None) -> str:
     profile_root = get_profiles_root()
-
     if profile:
         candidate = Path(profile)
-        if candidate.is_file() or candidate.suffix == ".yaml":
-            return str(candidate)
+        if candidate.is_file():
+            return str(candidate.resolve())
+        
+        if candidate.suffix == ".yaml":
+            return str(candidate.resolve())
 
         if profile_root.is_file():
-            return str(profile_root)
+            return str(profile_root.resolve())
 
         candidate_by_name = profile_root / profile / "profile.yaml"
         candidate_file = profile_root / f"{profile}.yaml"
 
         if candidate_by_name.exists():
-            return str(candidate_by_name)
+            return str(candidate_by_name.resolve())
         if candidate_file.exists():
-            return str(candidate_file)
-        return str(candidate_by_name)
+            return str(candidate_file.resolve())
+        return str(candidate_by_name.resolve())
 
     if profile_root.is_file():
-        return str(profile_root)
+        return str(profile_root.resolve())
 
     direct_profile = profile_root / "profile.yaml"
     if direct_profile.exists():
-        return str(direct_profile)
+        return str(direct_profile.resolve())
 
     if profile_root.is_dir():
         subdirs = [
@@ -73,7 +75,7 @@ def resolve_profile_path(profile: str | None) -> str:
             if directory.is_dir() and (directory / "profile.yaml").exists()
         ]
         if len(subdirs) == 1:
-            return str(subdirs[0] / "profile.yaml")
+            return str((subdirs[0] / "profile.yaml").resolve())
 
     raise ValueError(
         "No profile specified and CDS_PROFILE_PATH is not a specific profile file. "
@@ -190,7 +192,7 @@ def main() -> int:
         argcomplete.autocomplete(parser)
 
     args = parser.parse_args()
-
+    
     if args.command == "validate":
         try:
             profile_path = resolve_profile_path(args.profile)
