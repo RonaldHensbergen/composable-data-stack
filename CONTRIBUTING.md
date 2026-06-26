@@ -31,6 +31,12 @@ If you contribute from Windows, ensure your editor respects `.gitattributes`.
 python -m unittest discover -s tests -p "*.py"
 ```
 
+To verify that all Dockerfiles build:
+
+```bash
+make docker-build
+```
+
 Optional smoke path:
 
 ```bash
