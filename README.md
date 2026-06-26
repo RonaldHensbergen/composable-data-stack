@@ -443,6 +443,8 @@ Next:
 - advanced secret providers
 - stack bootstrap and health checks
 
+See [docs/roadmap.md](docs/roadmap.md) for milestones and detailed status.
+
 ---
 
 ## 🤝 Contributing
