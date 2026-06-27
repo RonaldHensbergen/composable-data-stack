@@ -44,7 +44,7 @@ These work but may have breaking changes in upcoming releases:
 
 ## MVP Test Plan
 
-The [MVP test plan](mvp-test/mvp-test-plan.md) (pending merge from `docs/mvp-test-plan` branch) defines the execution order and release gate for the `local-dagster-postgres-superset` profile:
+The [MVP test plan](mvp-test/mvp-test-plan.md) defines the execution order and release gate for the `local-dagster-postgres-superset` profile:
 
 - Use the MVP test plan as the execution order and release gate for this profile.
 - Use the roadmap and release docs to decide which blockers found during testing should be fixed immediately versus deferred.
