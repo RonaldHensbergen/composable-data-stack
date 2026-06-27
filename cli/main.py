@@ -161,7 +161,15 @@ def _add_profile_arg(subparser: argparse.ArgumentParser) -> None:
     action = subparser.add_argument(
         "profile",
         nargs="?",
-        help="Profile path or identifier. Uses CDS_PROFILE_PATH if set.",
+        help=(
+            "Profile to use. Accepts a profile name (e.g. local-dagster-postgres-superset), "
+            "a path to a profile.yaml file, or a path to a profiles root directory. "
+            "When omitted, CDS_PROFILE_PATH is used. "
+            "CDS_PROFILE_PATH accepts the same forms: a profile name, a profile file path, "
+            "or a profiles root directory. "
+            "If neither is provided and only one profile exists under profiles/, "
+            "it is selected automatically."
+        ),
     )
     if argcomplete is not None:
         action.completer = profile_completer  # type: ignore[attr-defined]

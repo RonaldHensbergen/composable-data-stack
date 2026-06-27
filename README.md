@@ -307,6 +307,16 @@ profiles/[profile]/
 |cds up [profile]|Start services (planned)|
 |cds test [profile]|Run health checks (planned)|
 
+`[profile]` accepts:
+
+| Form | Example |
+| ---- | ------- |
+| Profile name | `local-dagster-postgres-superset` |
+| Path to a `profile.yaml` file | `profiles/local-dagster-postgres-superset/profile.yaml` |
+| Path to a profiles root directory | `profiles/` |
+
+When `[profile]` is omitted, `CDS_PROFILE_PATH` is used instead and accepts the same three forms. If neither is provided and exactly one profile exists under `profiles/`, it is selected automatically.
+
 To view the full list of options for any command, use the `--help` flag:
 
 ```bash
@@ -323,7 +333,7 @@ Common errors from `cds validate`, `cds plan`, and `cds render`, and how to fix 
 
 | Error | Cause | Fix |
 | --- | --- | --- |
-| `[E020] ... YAML file not found: <path>` | The profile identifier or file path passed to `cds validate`, `cds plan`, or `cds render <profile>` doesn't resolve to an existing YAML file. | Run `cds list profiles` to see valid identifiers, or check that `CDS_PROFILE_PATH` points to the right profile file or directory. |
+| `[E020] ... YAML file not found: <path>` | The profile identifier or file path passed to `cds validate`, `cds plan`, or `cds render <profile>` doesn't resolve to an existing YAML file. | Run `cds list profiles` to see valid identifiers. Set `CDS_PROFILE_PATH` to a profile name, a `profile.yaml` file path, or a profiles root directory. |
 | `[E081] ... Required secret "CDS_X_PASSWORD" not found in environment` | A secret marked `required: true` in the profile's `spec.secrets.values` is missing from the shell environment or the `.env` file in the current working directory. | Copy `.env.example` to `.env` in the project root and set the missing `CDS_*` variable, or export it directly before running the command. |
 | `[E041] ... Contract ref "x.y" points to unknown module "x"` | A `consumes` binding's `contractRef` refers to a module ID that isn't defined in the profile. | Check `spec.modules` for the correct module `id`, and confirm the contract ref follows `<module-id>.<contract-name>`. |
 | `[E041] ... but it does not provide "<contract-name>"` | The referenced module exists, but its `spec.provides` list doesn't expose that contract name. | Check the producing module's `module.yaml` for the contracts it actually provides, and fix the consumer's `contractRef` to match. |
