@@ -24,8 +24,7 @@ These are considered production-ready in the current release (v0.1.1):
 
 These work but may have breaking changes in upcoming releases:
 
-- Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet
-  integrated into a stable profile
+- Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - `cds up` — planned; not yet implemented
 - `cds test` — planned; not yet implemented
 
@@ -33,20 +32,23 @@ These work but may have breaking changes in upcoming releases:
 
 ## Near-Term (Next 1–3 Releases)
 
-- 📋 **Docker runtime smoke test CI** — add CI workflow for Docker runtime
-  smoke test (#26)
-- 📋 **Publish CLI to PyPI** — enable `pipx install composable-data-stack`
-  and `pip install composable-data-stack` (#52)
-- 📋 **Windows and macOS CI** — expand CI coverage to include Windows and macOS
-  host jobs (#58)
-- 📋 **Windows setup instructions** — add Windows setup guide to README and
-  CONTRIBUTING (#56)
-- 📋 **PowerShell task runner** — PowerShell parity for all Makefile targets
-  (#55)
-- 📋 **Pre-commit hooks** — enforce markdown and Python quality checks locally
-  before push (#31)
-- 📋 **Release automation** — automate GitHub release creation on version tags
-  (#32)
+- 📋 **Docker runtime smoke test CI** — add CI workflow for Docker runtime smoke test (#26)
+- 📋 **Publish CLI to PyPI** — enable `pipx install composable-data-stack` and `pip install composable-data-stack` (#52)
+- 📋 **Windows and macOS CI** — expand CI coverage to include Windows and macOS host jobs (#58)
+- 📋 **Windows setup instructions** — add Windows setup guide to README and CONTRIBUTING (#56)
+- 📋 **PowerShell task runner** — PowerShell parity for all Makefile targets (#55)
+- 📋 **Pre-commit hooks** — enforce markdown and Python quality checks locally before push (#31)
+- 📋 **Release automation** — automate GitHub release creation on version tags (#32)
+
+---
+
+## MVP Test Plan
+
+The [MVP test plan](mvp-test/mvp-test-plan.md) (pending merge from `docs/mvp-test-plan` branch) defines the execution order and release gate for the `local-dagster-postgres-superset` profile:
+
+- Use the MVP test plan as the execution order and release gate for this profile.
+- Use the roadmap and release docs to decide which blockers found during testing should be fixed immediately versus deferred.
+- Pull roadmap items forward only when they unblock a failing MVP test or reduce release risk for that exact profile.
 
 ---
 
