@@ -18,12 +18,14 @@ Before calling the MVP profile proven, verify these 5 things:
 
 ### 1. Environment and bootstrap proof
 
-Run on a clean machine or clean CI runner.
+Run on a clean machine or clean CI runner. This means are tested on a fresh cloned repo.
 
 Test:
 
 1. clone repo
 1. copy env/example config
+1. validate profile
+1. plan profile
 1. render profile
 1. boot profile
 1. confirm all containers healthy
