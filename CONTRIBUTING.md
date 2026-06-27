@@ -27,6 +27,14 @@ If you contribute from Windows, ensure your editor respects `.gitattributes`.
 
 ## Run Checks Locally
 
+Use the combined local self-test target first:
+
+```bash
+make check
+```
+
+If you want to run the pieces individually:
+
 ```bash
 python -m unittest discover -s tests -p "*.py"
 ```

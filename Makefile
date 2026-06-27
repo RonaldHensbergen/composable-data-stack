@@ -1,9 +1,14 @@
-l.PHONY: install validate validate-profile package
+.PHONY: install validate validate-profile package check
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
 install:
 	pip install -e .
+
+check:
+	python3 -m unittest discover -s tests -p "*.py"
+	yamllint .
+	npx --yes markdownlint-cli@0.39.0 "**/*.md" ".github/**/*.md"
 
 validate:
 	cds validate $(PROFILE)
