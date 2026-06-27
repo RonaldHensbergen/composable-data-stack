@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml docker-build
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -26,3 +26,12 @@ validate-profile:
 package:
 	python3 -m pip install --upgrade build
 	python3 -m build
+
+docker-build:
+	@echo "Building all Dockerfiles..."
+	@for dockerfile in $$(find . -name "Dockerfile" -type f); do \
+		dir=$$(dirname "$$dockerfile"); \
+		echo "Building $$dockerfile in directory $$dir..."; \
+		docker build -f "$$dockerfile" "$$dir" || exit 1; \
+	done
+	@echo "All Dockerfiles built successfully!"
