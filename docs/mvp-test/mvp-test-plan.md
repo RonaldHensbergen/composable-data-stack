@@ -9,7 +9,7 @@ Before calling the MVP profile proven, verify these 5 things:
 | Area | Must prove |
 | ---- | ---------- |
 | **Boot** | Fresh clone can start reliably |
-| **Control** | plane Dagster, Postgres, Superset are reachable and healthy |
+| **Control** | Dagster, Postgres, and Superset are reachable and healthy |
 | **Persistence** | State survives restart where expected |
 | **Data flow** | A real Dagster pipeline can write data into Postgres |
 | **Consumption** | Superset can read and visualize that data |
