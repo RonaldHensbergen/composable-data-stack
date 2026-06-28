@@ -39,6 +39,15 @@ class RenderExampleProfileTest(unittest.TestCase):
             self.assertIn("services", compose)
             self.assertGreater(len(compose["services"]), 0)
             self.assertIn("name", compose)
+            self.assertIn("dagster-user-code", compose["services"])
+            self.assertEqual(
+                compose["services"]["dagster-user-code"]["build"]["dockerfile"],
+                "images/dagster/Dockerfile-user-code",
+            )
+            self.assertEqual(
+                compose["services"]["dagster-dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],
+                "service_healthy",
+            )
 
     def test_vault_profile_validates_plans_and_renders_vault_service(self):
         repo_root = Path(__file__).resolve().parent.parent
