@@ -1,6 +1,6 @@
-# MVP proof plan for `local-dagster-postgres-superset(-env)
+# MVP proof plan for `local-dagster-postgres-superset(-env)`
 
-> Goal: prove the profile is not just “up,” but usable, repeatable, and demoable.
+> Goal: prove the profile is not just "up," but usable, repeatable, and demoable.
 
 ## Proof definition
 
@@ -8,11 +8,11 @@ Before calling the MVP profile proven, verify these 5 things:
 
 | Area | Must prove |
 | ---- | ---------- |
-| **Boot** |	Fresh clone can start reliably |
-| **Control** | plane	Dagster, Postgres, Superset are reachable and healthy |
-| **Persistence**	| State survives restart where expected |
-| **Data flow**	| A real Dagster pipeline can write data into Postgres |
-| **Consumption**	| Superset can read and visualize that data |
+| **Boot** | Fresh clone can start reliably |
+| **Control** | Dagster, Postgres, and Superset are reachable and healthy |
+| **Persistence** | State survives restart where expected |
+| **Data flow** | A real Dagster pipeline can write data into Postgres |
+| **Consumption** | Superset can read and visualize that data |
 
 ## Test plan by phase
 
@@ -39,7 +39,7 @@ Pass criteria:
 
 ### 2. Dagster proof
 
-You want more than “UI opens.”
+You want more than "UI opens."
 
 Test:
 
@@ -106,7 +106,7 @@ Pass criteria:
 
 ### 5. Persistence proof
 
-You specifically mentioned “running a DAG that can be stored.”
+You specifically mentioned "running a DAG that can be stored."
 
 That should mean testing:
 
@@ -126,7 +126,7 @@ Minimum pass criteria:
 
 ### 6. Superset proof
 
-Again, more than “login page loads.”
+Again, more than "login page loads."
 
 Test:
 
@@ -241,9 +241,9 @@ You can call the profile proven when all of these are true:
 
 ## Recommended implementation order
 
-1.	add demo Dagster job writing to Postgres
-2.	add verification SQL/check script
-3.	add restart/persistence test
-4.	add Superset datasource + query proof
-5.	automate e2e in CI
-6.	document exact expected outputs
+1. add demo Dagster job writing to Postgres
+2. add verification SQL/check script
+3. add restart/persistence test
+4. add Superset datasource + query proof
+5. automate e2e in CI
+6. document exact expected outputs

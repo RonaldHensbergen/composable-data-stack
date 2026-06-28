@@ -1,6 +1,9 @@
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 ENV PYTHONUNBUFFERED=1
+
+RUN mkdir -p /opt/dagster/dagster_home
+ENV DAGSTER_HOME=/opt/dagster/dagster_home
 
 WORKDIR /app
 COPY . /app

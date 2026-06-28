@@ -17,6 +17,8 @@ Composable Data Stack (CDS) is a framework for defining and assembling data plat
 - **Contribute**: open a discussion, file an issue, or send a PR to help shape CDS
 - **Proof it**: if you run it in a real workflow, share your feedback — good or bad
 
+> **Note:** Development helper tools are located in the `tools/` directory (git-ignored). See `tools/pr-cli/README.md` for PR creation scripts.
+
 Instead of hardcoding integrations or relying on fragile pipelines, CDS introduces:
 
 - 🔧 **Modules**: reusable components (Dagster, Postgres, Superset)
@@ -161,11 +163,33 @@ cd composable-data-stack
 
 ### 2. Setup Environment
 
+Linux/macOS:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+
+Windows PowerShell:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+```
+
+Windows CMD:
+
+```bat
+py -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install -e .
+```
+
+If PowerShell blocks the activation script, run
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same
+terminal session and activate the environment again.
 
 ### 3. Configure Environment
 
@@ -307,6 +331,16 @@ profiles/[profile]/
 |cds up [profile]|Start services (planned)|
 |cds test [profile]|Run health checks (planned)|
 
+`[profile]` accepts:
+
+| Form | Example |
+| ---- | ------- |
+| Profile name | `local-dagster-postgres-superset` |
+| Path to a `profile.yaml` file | `profiles/local-dagster-postgres-superset/profile.yaml` |
+| Path to a profiles root directory | `profiles/` |
+
+When `[profile]` is omitted, `CDS_PROFILE_PATH` is used instead and accepts the same three forms. If neither is provided and exactly one profile exists under `profiles/`, it is selected automatically.
+
 To view the full list of options for any command, use the `--help` flag:
 
 ```bash
@@ -323,7 +357,7 @@ Common errors from `cds validate`, `cds plan`, and `cds render`, and how to fix 
 
 | Error | Cause | Fix |
 | --- | --- | --- |
-| `[E020] ... YAML file not found: <path>` | The profile identifier or file path passed to `cds validate`, `cds plan`, or `cds render <profile>` doesn't resolve to an existing YAML file. | Run `cds list profiles` to see valid identifiers, or check that `CDS_PROFILE_PATH` points to the right profile file or directory. |
+| `[E020] ... YAML file not found: <path>` | The profile identifier or file path passed to `cds validate`, `cds plan`, or `cds render <profile>` doesn't resolve to an existing YAML file. | Run `cds list profiles` to see valid identifiers. Set `CDS_PROFILE_PATH` to a profile name, a `profile.yaml` file path, or a profiles root directory. |
 | `[E081] ... Required secret "CDS_X_PASSWORD" not found in environment` | A secret marked `required: true` in the profile's `spec.secrets.values` is missing from the shell environment or the `.env` file in the current working directory. | Copy `.env.example` to `.env` in the project root and set the missing `CDS_*` variable, or export it directly before running the command. |
 | `[E041] ... Contract ref "x.y" points to unknown module "x"` | A `consumes` binding's `contractRef` refers to a module ID that isn't defined in the profile. | Check `spec.modules` for the correct module `id`, and confirm the contract ref follows `<module-id>.<contract-name>`. |
 | `[E041] ... but it does not provide "<contract-name>"` | The referenced module exists, but its `spec.provides` list doesn't expose that contract name. | Check the producing module's `module.yaml` for the contracts it actually provides, and fix the consumer's `contractRef` to match. |
@@ -440,6 +474,8 @@ Next:
 - Kubernetes support
 - advanced secret providers
 - stack bootstrap and health checks
+
+See [docs/roadmap.md](docs/roadmap.md) for milestones and detailed status.
 
 ---
 
