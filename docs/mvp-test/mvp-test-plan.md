@@ -10,9 +10,9 @@ Before calling the MVP profile proven, verify these 5 things:
 | ---- | ---------- |
 | **Boot** |	Fresh clone can start reliably |
 | **Control** | plane	Dagster, Postgres, Superset are reachable and healthy |
-| **Persistence**	| State survives restart where expected |
-| **Data flow**	| A real Dagster pipeline can write data into Postgres |
-| **Consumption**	| Superset can read and visualize that data |
+| **Persistence** | State survives restart where expected |
+| **Data flow** | A real Dagster pipeline can write data into Postgres |
+| **Consumption** | Superset can read and visualize that data |
 
 ## Test plan by phase
 
@@ -197,8 +197,6 @@ Everything above should reduce to automated checks.
 | Smoke | hit health endpoints / check services |
 | E2E | trigger Dagster job and verify Postgres output |
 | Persistence | optional restart and verify retained state |
-
-
 
 ## Recommended proof artifact set
 
