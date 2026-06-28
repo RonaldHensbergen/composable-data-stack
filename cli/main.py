@@ -41,10 +41,13 @@ def get_modules_root() -> Path:
 
 def resolve_profile_path(profile: str | None) -> str:
     profile_root = get_profiles_root()
-
+    
     if profile:
         candidate = Path(profile)
-        if candidate.is_file() or candidate.suffix == ".yaml":
+        if candidate.is_file():
+            return str(candidate.resolve())
+        
+        if candidate.suffix == ".yaml":
             return str(candidate.resolve())
 
         if profile_root.is_file():
@@ -72,6 +75,7 @@ def resolve_profile_path(profile: str | None) -> str:
 
         return str(candidate_by_name.resolve())
 
+    # No profile argument provided, use CDS_PROFILE_PATH
     if profile_root.is_file():
         return str(profile_root.resolve())
 
@@ -97,8 +101,8 @@ def resolve_profile_path(profile: str | None) -> str:
             return str(name_candidate.resolve())
 
     raise ValueError(
-        "No profile specified and CDS_PROFILE_PATH is not a specific profile file. "
-        "Set CDS_PROFILE_PATH to a profile file or provide a profile identifier."
+        "No profile specified. Either provide a profile argument or set CDS_PROFILE_PATH "
+        "to a profile file or directory containing a single profile."
     )
 
 
@@ -219,7 +223,7 @@ def main() -> int:
         argcomplete.autocomplete(parser)
 
     args = parser.parse_args()
-
+    
     if args.command == "validate":
         try:
             profile_path = resolve_profile_path(args.profile)
