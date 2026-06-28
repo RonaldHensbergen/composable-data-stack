@@ -1,4 +1,4 @@
-# MVP proof plan for `local-dagster-postgres-superset(-env)
+# MVP proof plan for `local-dagster-postgres-superset(-env)`
 
 > Goal: prove the profile is not just "up," but usable, repeatable, and demoable.
 
