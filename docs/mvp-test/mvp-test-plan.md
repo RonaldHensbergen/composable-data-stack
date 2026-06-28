@@ -198,8 +198,6 @@ Everything above should reduce to automated checks.
 | E2E | trigger Dagster job and verify Postgres output |
 | Persistence | optional restart and verify retained state |
 
-
-
 ## Recommended proof artifact set
 
 Before MVP signoff, have these in repo:

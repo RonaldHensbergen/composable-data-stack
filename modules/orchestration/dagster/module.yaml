@@ -9,7 +9,8 @@ metadata:
   version: "0.1.0"
   displayName: Dagster
   description: >
-    Dagster orchestration service with optional daemon and pluggable storage bindings.
+    Dagster orchestration service aligned with the Dagster OSS Docker Compose pattern
+    (webserver + daemon), with pluggable storage bindings.
 
 spec:
   runtime:
@@ -126,22 +127,47 @@ spec:
     kind: docker-compose
     compose:
       services:
+        user-code:
+          build:
+            context: ../../../
+            dockerfile: images/dagster/Dockerfile-user-code
+          image: local/dagster-user-code:custom
+          restart: always
+          hostname: dagster-user-code
+          environment:
+            DAGSTER_HOME: "${config.homeDir}"
+            DAGSTER_POSTGRES_HOST: "${bindings.run-storage.host}"
+            DAGSTER_POSTGRES_PORT: "${bindings.run-storage.port}"
+            DAGSTER_POSTGRES_DB: "${bindings.run-storage.database}"
+            DAGSTER_POSTGRES_USER: "${bindings.run-storage.username}"
+            DAGSTER_POSTGRES_PASSWORD: "${bindings.run-storage.password}"
+            DAGSTER_CURRENT_IMAGE: local/dagster-user-code:custom
+
         dagster-webserver:
           build:
             context: ../../../images/dagster
             dockerfile: Dockerfile
           image: local/dagster:custom
+          restart: always
+          depends_on:
+            user-code:
+              condition: service_healthy
           command:
             - bash
             - -c
-            - dagster-webserver -h 0.0.0.0 -p 3000
+            - dagster-webserver -h 0.0.0.0 -p 3000 -w workspace.yaml
           ports:
             - "${config.webPort}:3000"
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /tmp/io_manager_storage:/tmp/io_manager_storage
           environment:
             DAGSTER_HOME: "${config.homeDir}"
-            DAGSTER_RUN_STORAGE_POSTGRES_URL: "${bindings.run-storage.connectionUri}"
-            DAGSTER_EVENT_LOG_STORAGE_POSTGRES_URL: "${bindings.event-log-storage.connectionUri}"
-            DAGSTER_SCHEDULE_STORAGE_POSTGRES_URL: "${bindings.schedule-storage.connectionUri}"
+            DAGSTER_POSTGRES_HOST: "${bindings.run-storage.host}"
+            DAGSTER_POSTGRES_PORT: "${bindings.run-storage.port}"
+            DAGSTER_POSTGRES_DB: "${bindings.run-storage.database}"
+            DAGSTER_POSTGRES_USER: "${bindings.run-storage.username}"
+            DAGSTER_POSTGRES_PASSWORD: "${bindings.run-storage.password}"
           healthcheck:
             conditionallyEnabledFrom: spec.config.healthcheck.enabled
             test:
@@ -159,12 +185,21 @@ spec:
             context: ../../../images/dagster
             dockerfile: Dockerfile
           image: local/dagster:custom
+          restart: on-failure
+          depends_on:
+            user-code:
+              condition: service_healthy
           command:
             - bash
             - -c
             - dagster-daemon run
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /tmp/io_manager_storage:/tmp/io_manager_storage
           environment:
             DAGSTER_HOME: "${config.homeDir}"
-            DAGSTER_RUN_STORAGE_POSTGRES_URL: "${bindings.run-storage.connectionUri}"
-            DAGSTER_EVENT_LOG_STORAGE_POSTGRES_URL: "${bindings.event-log-storage.connectionUri}"
-            DAGSTER_SCHEDULE_STORAGE_POSTGRES_URL: "${bindings.schedule-storage.connectionUri}"
+            DAGSTER_POSTGRES_HOST: "${bindings.run-storage.host}"
+            DAGSTER_POSTGRES_PORT: "${bindings.run-storage.port}"
+            DAGSTER_POSTGRES_DB: "${bindings.run-storage.database}"
+            DAGSTER_POSTGRES_USER: "${bindings.run-storage.username}"
+            DAGSTER_POSTGRES_PASSWORD: "${bindings.run-storage.password}"
