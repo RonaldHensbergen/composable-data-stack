@@ -15,8 +15,11 @@ That means the easiest install path is a Python wheel.
 The CLI supports two optional variables:
 
 - `CDS_PROFILE_PATH`
-  - Path to a `profiles/` directory, or to a specific `profile.yaml` file.
-  - When set, `cds` can use a profile name instead of a full path.
+  - Accepts any of the following forms:
+    - A bare **profile name** (e.g. `local-dagster-postgres-superset`) — resolved against the default `profiles/` directory.
+    - A **profiles root directory** (e.g. `/path/to/profiles`) — profile names are looked up as subdirectories.
+    - A **specific `profile.yaml` file path** — used directly without any further resolution.
+  - When set, running `cds validate` (or `plan`, `render`) without an explicit profile argument uses this value.
 
 - `CDS_MODULE_PATH`
   - Path to a `modules/` directory.
@@ -27,14 +30,27 @@ The CLI supports two optional variables:
 Linux / macOS:
 
 ```bash
+# Profiles root directory — use any profile by name
 export CDS_PROFILE_PATH=/home/ronald/Projects/composable-data-stack/profiles
+
+# Or a specific profile by name — cds validate works without further args
+export CDS_PROFILE_PATH=local-dagster-postgres-superset
+
+# Or a direct profile file path
+export CDS_PROFILE_PATH=/home/ronald/Projects/composable-data-stack/profiles/local-dagster-postgres-superset/profile.yaml
+
 export CDS_MODULE_PATH=/home/ronald/Projects/composable-data-stack/modules
 ```
 
 Windows PowerShell:
 
 ```powershell
+# Profiles root directory
 $env:CDS_PROFILE_PATH = 'C:\Projects\composable-data-stack\profiles'
+
+# Or a specific profile name
+$env:CDS_PROFILE_PATH = 'local-dagster-postgres-superset'
+
 $env:CDS_MODULE_PATH = 'C:\Projects\composable-data-stack\modules'
 ```
 
