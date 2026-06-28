@@ -163,11 +163,33 @@ cd composable-data-stack
 
 ### 2. Setup Environment
 
+Linux/macOS:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+
+Windows PowerShell:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+```
+
+Windows CMD:
+
+```bat
+py -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install -e .
+```
+
+If PowerShell blocks the activation script, run
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same
+terminal session and activate the environment again.
 
 ### 3. Configure Environment
 

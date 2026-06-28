@@ -129,7 +129,7 @@ def list_modules() -> list[str]:
 
     for module_file in sorted(module_root.rglob("module.yaml")):
         try:
-            modules.append(str(module_file.parent.relative_to(module_root)))
+            modules.append(module_file.parent.relative_to(module_root).as_posix())
         except ValueError:
             modules.append(str(module_file.parent))
 
@@ -436,4 +436,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
