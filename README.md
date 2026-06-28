@@ -17,6 +17,8 @@ Composable Data Stack (CDS) is a framework for defining and assembling data plat
 - **Contribute**: open a discussion, file an issue, or send a PR to help shape CDS
 - **Proof it**: if you run it in a real workflow, share your feedback — good or bad
 
+> **Note:** Development helper tools are located in the `tools/` directory (git-ignored). See `tools/pr-cli/README.md` for PR creation scripts.
+
 Instead of hardcoding integrations or relying on fragile pipelines, CDS introduces:
 
 - 🔧 **Modules**: reusable components (Dagster, Postgres, Superset)
@@ -161,11 +163,33 @@ cd composable-data-stack
 
 ### 2. Setup Environment
 
+Linux/macOS:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+
+Windows PowerShell:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+```
+
+Windows CMD:
+
+```bat
+py -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install -e .
+```
+
+If PowerShell blocks the activation script, run
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same
+terminal session and activate the environment again.
 
 ### 3. Configure Environment
 
@@ -450,6 +474,8 @@ Next:
 - Kubernetes support
 - advanced secret providers
 - stack bootstrap and health checks
+
+See [docs/roadmap.md](docs/roadmap.md) for milestones and detailed status.
 
 ---
 

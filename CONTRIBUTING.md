@@ -14,11 +14,34 @@ New here? Read [docs/good-first-issues.md](docs/good-first-issues.md) first. It 
 
 ## Development Setup
 
+Linux/macOS:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
+
+Windows PowerShell:
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+```
+
+Windows CMD:
+
+```bat
+py -m venv .venv
+.venv\Scripts\activate.bat
+python -m pip install -e .
+```
+
+If PowerShell blocks the activation script, run
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same
+terminal session and activate the environment again.
+
 ## Line Endings
 This repository enforces LF line endings for all source, config, and documentation files via
 `.gitattributes`. Windows-specific scripts (`.bat`, `.cmd`, `.ps1`) are intentionally set to CRLF.
@@ -37,6 +60,12 @@ If you want to run the pieces individually:
 
 ```bash
 python -m unittest discover -s tests -p "*.py"
+```
+
+To verify that all Dockerfiles build:
+
+```bash
+make docker-build
 ```
 
 Optional smoke path:

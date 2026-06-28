@@ -36,7 +36,7 @@ In other words, this repository is not just a demo stack. It is intended to beco
 The platform is divided into logical layers.
 
 | Layer | Responsibility | Example modules |
-|---|---|---|
+| --- | --- | --- |
 | **Secrets** | credentials, secret injection, key management | Vault |
 | **Infrastructure services** | service coordination backends and support systems | KeyDB, nginx |
 | **Storage / compute** | databases, warehouses, and processing engines | Postgres, MariaDB, Spark |
