@@ -228,7 +228,7 @@ def main() -> int:
         try:
             profile_path = resolve_profile_path(args.profile)
         except ValueError as exc:
-            print(f"ERROR: {exc}")
+            print(f"ERROR {exc}")
             return 1
 
         diagnostics = validate_profile(profile_path)

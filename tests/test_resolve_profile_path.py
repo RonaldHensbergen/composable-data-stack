@@ -11,10 +11,15 @@ class TestResolveProfilePath(unittest.TestCase):
     def test_resolve_with_no_args_and_no_env_raises_error(self):
         """When no profile arg and CDS_PROFILE_PATH not set, should raise ValueError"""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": tmpdir}, clear=False):
-                with self.assertRaises(ValueError) as ctx:
-                    resolve_profile_path(None)
-                self.assertIn("No profile specified", str(ctx.exception))
+            old_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                with patch.dict(os.environ, {}, clear=True):
+                    with self.assertRaises(ValueError) as ctx:
+                        resolve_profile_path(None)
+                    self.assertIn("No profile specified", str(ctx.exception))
+            finally:
+                os.chdir(old_cwd)
 
     def test_resolve_with_no_args_but_env_points_to_file(self):
         """When CDS_PROFILE_PATH points to a profile.yaml file, should return it"""
