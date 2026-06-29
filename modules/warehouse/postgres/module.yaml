@@ -86,6 +86,7 @@ spec:
       services:
         postgres:
           image: postgres:16
+          hostname: "${service.host}"
           ports:
             - "${config.port}:5432"
           environment:
