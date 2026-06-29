@@ -87,10 +87,23 @@ Wrap the PyInstaller executable with WiX Toolset or another installer authoring 
 
 ## 5. Environment variables
 
-Set these so the CLI can resolve profiles and modules by name:
+Set these so the CLI can resolve profiles and modules without full paths.
 
-- `CDS_PROFILE_PATH`
-- `CDS_MODULE_PATH`
+### `CDS_PROFILE_PATH`
+
+Accepts any of these forms:
+
+| Form | Example | Behaviour |
+| ---- | ------- | --------- |
+| Profile name | `local-dagster-postgres-superset` | Looked up as a subdirectory under the default `profiles/` directory |
+| Profiles root directory | `/path/to/profiles` | Profile names passed to commands are resolved as subdirectories of this root |
+| Specific profile file | `/path/to/profiles/local/profile.yaml` | Used directly; no further resolution needed |
+
+When `CDS_PROFILE_PATH` is set, running `cds validate` (or `plan`, `render`) without an explicit profile argument resolves the profile automatically.
+
+### `CDS_MODULE_PATH`
+
+Path to a `modules/` directory. Module sources are resolved relative to this root instead of the profile directory.
 
 The CLI also supports optional shell completion when `argcomplete` is installed.
 
@@ -119,14 +132,27 @@ eval "$(register-python-argcomplete cds)"
 ### Linux / macOS
 
 ```bash
+# Profiles root directory
 export CDS_PROFILE_PATH=/path/to/profiles
+
+# Or a bare profile name (resolved against profiles/ in the working directory)
+export CDS_PROFILE_PATH=local-dagster-postgres-superset
+
+# Or a direct profile file
+export CDS_PROFILE_PATH=/path/to/profiles/local-dagster-postgres-superset/profile.yaml
+
 export CDS_MODULE_PATH=/path/to/modules
 ```
 
 ### Windows PowerShell
 
 ```powershell
+# Profiles root directory
 $env:CDS_PROFILE_PATH = 'C:\path\to\profiles'
+
+# Or a bare profile name
+$env:CDS_PROFILE_PATH = 'local-dagster-postgres-superset'
+
 $env:CDS_MODULE_PATH = 'C:\path\to\modules'
 ```
 

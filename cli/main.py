@@ -41,30 +41,47 @@ def get_modules_root() -> Path:
 
 def resolve_profile_path(profile: str | None) -> str:
     profile_root = get_profiles_root()
-
+    
     if profile:
         candidate = Path(profile)
-        if candidate.is_file() or candidate.suffix == ".yaml":
-            return str(candidate)
+        if candidate.is_file():
+            return str(candidate.resolve())
+        
+        if candidate.suffix == ".yaml":
+            return str(candidate.resolve())
 
         if profile_root.is_file():
-            return str(profile_root)
+            return str(profile_root.resolve())
 
         candidate_by_name = profile_root / profile / "profile.yaml"
         candidate_file = profile_root / f"{profile}.yaml"
 
         if candidate_by_name.exists():
-            return str(candidate_by_name)
+            return str(candidate_by_name.resolve())
         if candidate_file.exists():
-            return str(candidate_file)
-        return str(candidate_by_name)
+            return str(candidate_file.resolve())
 
+        # CDS_PROFILE_PATH may have been set to a profile name rather than a
+        # profiles root directory. Fall back to the default "profiles/" root so
+        # that an explicit profile name still resolves correctly.
+        default_root = Path("profiles")
+        if default_root.resolve() != profile_root.resolve():
+            default_by_name = default_root / profile / "profile.yaml"
+            default_by_file = default_root / f"{profile}.yaml"
+            if default_by_name.exists():
+                return str(default_by_name.resolve())
+            if default_by_file.exists():
+                return str(default_by_file.resolve())
+
+        return str(candidate_by_name.resolve())
+
+    # No profile argument provided, use CDS_PROFILE_PATH
     if profile_root.is_file():
-        return str(profile_root)
+        return str(profile_root.resolve())
 
     direct_profile = profile_root / "profile.yaml"
     if direct_profile.exists():
-        return str(direct_profile)
+        return str(direct_profile.resolve())
 
     if profile_root.is_dir():
         subdirs = [
@@ -73,11 +90,19 @@ def resolve_profile_path(profile: str | None) -> str:
             if directory.is_dir() and (directory / "profile.yaml").exists()
         ]
         if len(subdirs) == 1:
-            return str(subdirs[0] / "profile.yaml")
+            return str((subdirs[0] / "profile.yaml").resolve())
+
+    # CDS_PROFILE_PATH may be set to a bare profile name rather than a path.
+    # Try resolving it as a name under the default profiles/ directory.
+    default_root = Path("profiles")
+    if default_root.resolve() != profile_root.resolve():
+        name_candidate = default_root / profile_root.name / "profile.yaml"
+        if name_candidate.exists():
+            return str(name_candidate.resolve())
 
     raise ValueError(
-        "No profile specified and CDS_PROFILE_PATH is not a specific profile file. "
-        "Set CDS_PROFILE_PATH to a profile file or provide a profile identifier."
+        "No profile specified. Either provide a profile argument or set CDS_PROFILE_PATH "
+        "to a profile file or directory containing a single profile."
     )
 
 
@@ -129,7 +154,7 @@ def list_modules() -> list[str]:
 
     for module_file in sorted(module_root.rglob("module.yaml")):
         try:
-            modules.append(str(module_file.parent.relative_to(module_root)))
+            modules.append(module_file.parent.relative_to(module_root).as_posix())
         except ValueError:
             modules.append(str(module_file.parent))
 
@@ -140,7 +165,15 @@ def _add_profile_arg(subparser: argparse.ArgumentParser) -> None:
     action = subparser.add_argument(
         "profile",
         nargs="?",
-        help="Profile path or identifier. Uses CDS_PROFILE_PATH if set.",
+        help=(
+            "Profile to use. Accepts a profile name (e.g. local-dagster-postgres-superset), "
+            "a path to a profile.yaml file, or a path to a profiles root directory. "
+            "When omitted, CDS_PROFILE_PATH is used. "
+            "CDS_PROFILE_PATH accepts the same forms: a profile name, a profile file path, "
+            "or a profiles root directory. "
+            "If neither is provided and only one profile exists under profiles/, "
+            "it is selected automatically."
+        ),
     )
     if argcomplete is not None:
         action.completer = profile_completer  # type: ignore[attr-defined]
@@ -190,7 +223,7 @@ def main() -> int:
         argcomplete.autocomplete(parser)
 
     args = parser.parse_args()
-
+    
     if args.command == "validate":
         try:
             profile_path = resolve_profile_path(args.profile)
@@ -436,4 +469,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
