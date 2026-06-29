@@ -11,41 +11,30 @@ This document describes how to create a release.
 ## Steps
 
 1. Sync local main:
-
-```bash
-git checkout main
-git pull --ff-only
-```
-
-1. Create a release branch (optional for larger release prep):
-
-```bash
-git checkout -b release/vX.Y.Z
-```
-
-1. Update version in pyproject.toml and changelog.
-
-1. Run tests:
-
-```bash
-python -m unittest discover -s tests -p "*.py"
-```
-
-1. Commit release metadata:
-
-```bash
-git add pyproject.toml CHANGELOG.md
-git commit -m "Release vX.Y.Z"
-```
-
-1. Tag and push:
-
-```bash
-git tag vX.Y.Z
-git push origin main --tags
-```
-
-1. Create GitHub release notes from CHANGELOG entries.
+   ```bash
+   git checkout main
+   git pull --ff-only
+   ```
+2. Create a release branch (optional for larger release prep):
+   ```bash
+   git checkout -b release/vX.Y.Z
+   ```
+3. Update version in pyproject.toml and changelog.
+4. Run tests:
+   ```bash
+   python -m unittest discover -s tests -p "*.py"
+   ```
+5. Commit release metadata:
+   ```bash
+   git add pyproject.toml CHANGELOG.md
+   git commit -m "Release vX.Y.Z"
+   ```
+6. Tag and push:
+   ```bash
+   git tag vX.Y.Z
+   git push origin main --tags
+   ```
+7. Create GitHub release notes from CHANGELOG entries.
 
 ## Release Notes Template
 
