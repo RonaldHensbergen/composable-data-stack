@@ -11,41 +11,63 @@ This document describes how to create a release.
 ## Steps
 
 1. Sync local main:
+   ```bash
+   git checkout main
+   git pull --ff-only
+   ```
+2. Create a release branch (optional for larger release prep):
+   ```bash
+   git checkout -b release/vX.Y.Z
+   ```
+3. Update version in pyproject.toml and changelog.
+4. Run tests:
+   ```bash
+   python -m unittest discover -s tests -p "*.py"
+   ```
+5. Commit release metadata:
+   ```bash
+   git add pyproject.toml CHANGELOG.md
+   git commit -m "Release vX.Y.Z"
+   ```
+6. Tag and push:
+   ```bash
+   git tag vX.Y.Z
+   git push origin main --tags
+   ```
+7. Create GitHub release notes from CHANGELOG entries.
 
-```bash
-git checkout main
-git pull --ff-only
-```
+## Release Notes Template
 
-1. Create a release branch (optional for larger release prep):
+Use this structure when writing GitHub release notes. Copy relevant sections from `CHANGELOG.md` and remove any that are empty. Write entries in user-facing language. Describe the impact (not the implementation). Credit contributors by GitHub username where applicable (e.g. `— thanks @username`).
 
-```bash
-git checkout -b release/vX.Y.Z
-```
+### Added
 
-1. Update version in pyproject.toml and changelog.
+- Brief user-facing description. Reference the PR: (#123)
 
-1. Run tests:
+### Changed
 
-```bash
-python -m unittest discover -s tests -p "*.py"
-```
+- Brief description of behaviour change. Reference the PR: (#124)
 
-1. Commit release metadata:
+### Fixed
 
-```bash
-git add pyproject.toml CHANGELOG.md
-git commit -m "Release vX.Y.Z"
-```
+- Brief description of the fix. Reference the closed issue: (#125)
 
-1. Tag and push:
+### Breaking
 
-```bash
-git tag vX.Y.Z
-git push origin main --tags
-```
+- Description of breaking change and migration steps required.
 
-1. Create GitHub release notes from CHANGELOG entries.
+## Release Checklist
+
+Before publishing the GitHub release:
+
+- [ ] `CHANGELOG.md` updated with all merged PRs since last release
+- [ ] Version bumped in `pyproject.toml`
+- [ ] All CI checks green on `main`
+- [ ] No unresolved high-severity issues
+- [ ] Release notes formatted using the template above
+- [ ] Each entry references its PR or issue number
+- [ ] Breaking changes are clearly marked and migration steps documented
+- [ ] Contributors credited where applicable
 
 ## Rollback
 

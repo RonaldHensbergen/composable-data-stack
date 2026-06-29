@@ -229,7 +229,6 @@ __marimo__/
 # Generated PR documentation
 .github/pr-docs/
 tools/pr-docs/
-
 # Agent CLIs
 .aider.tags.cache.v4
 .cursor

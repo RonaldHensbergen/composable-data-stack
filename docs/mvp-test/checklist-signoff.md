@@ -20,7 +20,7 @@ Run tests in this order:
 
 ## T1 Bootstrap proof
 
-- [X] **T1.1** Fresh bootstrap  
+- [ ] **T1.1** Fresh bootstrap  
   Clone repo, copy env/config, render profile, and start stack from docs only.
 
 - [ ] **T1.2** Preflight/doctor  
