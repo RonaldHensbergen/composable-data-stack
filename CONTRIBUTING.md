@@ -12,6 +12,10 @@ New here? Read [docs/good-first-issues.md](docs/good-first-issues.md) first. It 
 - Add modules and contracts
 - Improve validation, planner, renderer, or security checks
 
+## Understanding Modules and Profiles
+
+New to CDS? Start with [docs/from-docker-to-cds-profile.md](docs/from-docker-to-cds-profile.md) for a complete guide on transforming Docker Compose configurations into reusable CDS modules and profiles. It covers the entire process from analysis through rendering, with practical examples.
+
 ## Development Setup
 
 Linux/macOS:
