@@ -1,8 +1,10 @@
-## Module contract
+## Module Contract
 
 A module is a self-contained building block of the platform, such as an orchestrator, warehouse, transformation engine, BI tool, validation tool, or secrets provider.
 
 Each module should be independently understandable, minimally reusable, and composable into one or more stack profiles.
+
+**Getting started?** See [docs/from-docker-to-cds-profile.md](from-docker-to-cds-profile.md) for a complete walkthrough on creating modules from existing docker-compose services.
 
 ## Goals
 

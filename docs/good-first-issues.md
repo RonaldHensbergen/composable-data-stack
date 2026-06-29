@@ -2,6 +2,8 @@
 
 A walkthrough for going from zero to a merged PR in this repo. If you've never contributed to an open-source project before, start here.
 
+**Not familiar with CDS yet?** Read [docs/from-docker-to-cds-profile.md](from-docker-to-cds-profile.md) first to understand how modules, profiles, and contracts work together.
+
 ## 1. Setup
 
 Fork the repo, then clone **your fork** (not `RonaldHensbergen/composable-data-stack` directly, you won't have push access to that one):
