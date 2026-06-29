@@ -916,7 +916,7 @@ spec:
 4. Docker Compose starts user-code first, then starts webserver and daemon
 
 **Final Startup Sequence**:
-```
+```text
 1. postgres-postgres (no dependencies)
 2. dagster-user-code (waits for postgres via implicit env var dependency)
 3. dagster-dagster-webserver (waits for dagster-user-code to be healthy)
