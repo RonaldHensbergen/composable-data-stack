@@ -111,7 +111,7 @@ Read each service and decide which platform capability it represents. Group serv
 ### Service Inventory
 
 | Docker Compose Service | Capability | CDS Module | Purpose |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | postgres-postgres | SQL database | warehouse/postgres | Data warehouse and storage |
 | dagster-user-code | Job definitions | orchestration/dagster | Orchestration user code repository |
 | dagster-dagster-webserver | Orchestration UI | orchestration/dagster | Orchestration webserver (UI + API) |
@@ -123,7 +123,7 @@ Read each service and decide which platform capability it represents. Group serv
 ### Concept Mapping Summary
 
 | Docker Compose Concept | CDS Concept | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | A service block | Module `implementation.compose.services` entry | Defines how the module's services run |
 | `ports:` host-side value | `config.<portName>` in module configSchema | Externally configurable port |
 | `ports:` container-side value | `runtime.service.ports[].containerPort` | Internal container listening port |
@@ -208,7 +208,7 @@ spec:
 ### Field Origin Reference
 
 | Schema Field | Origin in docker-compose |
-|---|---|
+| --- | --- |
 | `metadata.name` | Choose a short name matching the service (`postgres`, `dagster`, `superset`) |
 | `metadata.category` | The capability layer (`warehouse`, `orchestration`, `bi`) |
 | `metadata.version` | Start with `"0.1.0"`; this is the module's semver, separate from image tags |
@@ -617,7 +617,7 @@ In the original compose file, secrets came from shell environment variables:
 Each becomes an entry in the profile's `spec.secrets.values` section.
 
 | Secret Value Field | Purpose | Origin |
-|---|---|---|
+| --- | --- | --- |
 | key (e.g., `postgres_password`) | Logical name within CDS | Assigned for clarity |
 | `env` | Actual environment variable name | From original docker-compose |
 | `required` | Whether stack refuses to start without it | True for critical secrets |
@@ -679,7 +679,7 @@ spec:
 ### Field Origin Reference
 
 | Profile Schema Field | What it Replaces in docker-compose |
-|---|---|
+| --- | --- |
 | `metadata.name` | Compose project name |
 | `spec.runtime.type` | Render target (`docker-compose`) |
 | `spec.runtime.namespace` | Compose network/resource namespace |
@@ -872,7 +872,7 @@ implementation:
 ### Quick Reference: Where to Define Dependencies
 
 | Dependency Type | Location | Used For | Example |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **Inter-Module** | `profile.yaml` `modules[].dependsOn[]` | Module depends on another module | `dagster` depends on `postgres` |
 | **Intra-Module** | `module.yaml` `implementation.compose.services[].depends_on` | Service depends on another service within same module | `dagster-webserver` depends on `dagster-user-code` |
 
@@ -990,7 +990,7 @@ Modules become more valuable as:
 ## Summary: From Compose to CDS
 
 | Stage | Deliverable | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | 1. Analysis | Service inventory | Map services to capabilities |
 | 2. Modules | `modules/*/module.yaml` | Define reusable components |
 | 3. Contracts | `shared/contracts/*.yaml` | Define module interfaces |
