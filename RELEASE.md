@@ -47,6 +47,39 @@ git push origin main --tags
 
 1. Create GitHub release notes from CHANGELOG entries.
 
+## Release Notes Template
+
+Use this structure when writing GitHub release notes. Copy relevant sections from `CHANGELOG.md` and remove any that are empty. Write entries in user-facing language. Describe the impact (not the implementation). Credit contributors by GitHub username where applicable (e.g. `— thanks @username`).
+
+### Added
+
+- Brief user-facing description. Reference the PR: (#123)
+
+### Changed
+
+- Brief description of behaviour change. Reference the PR: (#124)
+
+### Fixed
+
+- Brief description of the fix. Reference the closed issue: (#125)
+
+### Breaking
+
+- Description of breaking change and migration steps required.
+
+## Release Checklist
+
+Before publishing the GitHub release:
+
+- [ ] `CHANGELOG.md` updated with all merged PRs since last release
+- [ ] Version bumped in `pyproject.toml`
+- [ ] All CI checks green on `main`
+- [ ] No unresolved high-severity issues
+- [ ] Release notes formatted using the template above
+- [ ] Each entry references its PR or issue number
+- [ ] Breaking changes are clearly marked and migration steps documented
+- [ ] Contributors credited where applicable
+
 ## Rollback
 
 If a release is broken:
