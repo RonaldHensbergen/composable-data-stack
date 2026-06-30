@@ -21,7 +21,7 @@ COPY workdirs/dagster /opt/dagster/app
 # Run dagster code server on port 4000
 EXPOSE 4000
 
-HEALTHCHECK --timeout=1s --start-period=3s --interval=3s --retries=20 CMD ["dagster", "api", "grpc-health-check", "-p", "4000"]
+HEALTHCHECK --timeout=10s --start-period=5s --interval=10s --retries=20 CMD ["dagster", "api", "grpc-health-check", "-p", "4000"]
 
 # CMD allows this to be overridden from run launchers or executors to execute runs and steps
 CMD ["dagster", "code-server", "start", "-h", "0.0.0.0", "-p", "4000", "-f", "/opt/dagster/app/definitions.py"]

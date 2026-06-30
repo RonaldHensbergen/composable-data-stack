@@ -130,7 +130,7 @@ spec:
         user-code:
           build:
             context: ../../../
-            dockerfile: images/dagster/Dockerfile-user-code
+            dockerfile: images/dagster/Dockerfile.user-code
           image: local/dagster-user-code:custom
           restart: always
           hostname: dagster-user-code
