@@ -23,10 +23,10 @@ body:
     label: Severity
     description: How severely does this bug affect you?
     options:
-      - Critical (system unusable / data loss)
-      - High (major feature broken)
-      - Medium (feature partially broken)
-      - Low (minor inconvenience)
+    - Critical (system unusable / data loss)
+    - High (major feature broken)
+    - Medium (feature partially broken)
+    - Low (minor inconvenience)
   validations:
     required: true
 

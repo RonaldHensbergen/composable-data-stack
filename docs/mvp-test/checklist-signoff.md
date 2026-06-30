@@ -20,13 +20,13 @@ Run tests in this order:
 
 ## T1 Bootstrap proof
 
-- [ ] **T1.1** Fresh bootstrap  
+- [x] **T1.1** Fresh bootstrap  
   Clone repo, copy env/config, render profile, and start stack from docs only.
 
-- [ ] **T1.2** Preflight/doctor  
+- [x] **T1.2** Preflight/doctor  
   Verify Docker, Compose, ports, env vars, disk, and memory before startup.
 
-- [ ] **T1.3** Container health  
+- [x] **T1.3** Container health  
   Confirm Dagster, Postgres, and Superset all become healthy within timeout.
 
 ---
@@ -169,7 +169,7 @@ Run tests in this order:
 
 Minimum required before calling the profile proven:
 
-- [ ] **T1.1–T1.3**
+- [x] **T1.1–T1.3**
 - [ ] **T2.1–T2.3**
 - [ ] **T3.1–T3.3**
 - [ ] **T4.1–T4.5**
