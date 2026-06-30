@@ -26,8 +26,7 @@ modules/<category>/<name>/
 ├── README.md
 ├── .env.example
 ├── config/
-├── scripts/
-└── Dockerfile            # optional
+└── scripts/
 ```
 
 ## Minimal required files
@@ -39,7 +38,6 @@ Each module must include the following files:
 | `compose.yml` | yes | Defines the services, networks, volumes, and health checks for the module |
 | `README.md` | yes | Explains what the module does, how it is configured, and how it is used |
 | `.env.example` | yes | Documents the environment variables expected by the module |
-| `Dockerfile` | no | Used only when the module requires a custom image |
 
 Optional directories:
 
@@ -56,7 +54,6 @@ modules/<category>/<name>/
 ├── compose.yml
 ├── README.md
 ├── .env.example
-├── Dockerfile        # optional
 ├── config/           # optional
 └── scripts/          # optional
 ```
@@ -99,6 +96,50 @@ Avoid:
 - hidden reliance on undeclared services
 - hardcoded paths outside the repo unless clearly documented
 - broad coupling to one specific profile
+
+## Custom images
+
+When a module requires a custom Docker image, the build context belongs in the `images/` directory at the repository root, not inside the module directory.
+
+Structure:
+
+```text
+images/<module-name>/
+├── Dockerfile
+└── requirements.txt      # or other build context files
+```
+
+Reference the image from `module.yaml` using a relative path:
+
+```yaml
+build:
+  context: ../../../images/dagster
+  dockerfile: Dockerfile
+image: local/dagster:custom
+```
+
+The `image` field assigns a local tag so Docker Compose can reference the built image consistently across services in the same module.
+
+### Example: Dagster
+
+The Dagster module uses a custom image defined in `images/dagster/`:
+
+```text
+images/dagster/
+├── Dockerfile
+└── requirements.txt
+```
+
+Referenced in `modules/orchestration/dagster/module.yaml`:
+
+```yaml
+build:
+  context: ../../../images/dagster
+  dockerfile: Dockerfile
+image: local/dagster:custom
+```
+
+Modules that use a standard upstream image without customization do not need an entry in `images/` and should reference the image directly in `module.yaml`.
 
 ## Environment variables
 
