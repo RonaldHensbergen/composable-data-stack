@@ -72,7 +72,7 @@ body:
   attributes:
     label: Pre-submit checks
     options:
-      - label: I searched existing issues
-        required: true
-      - label: I removed sensitive information from logs
-        required: true
+    - label: I searched existing issues
+      required: true
+    - label: I removed sensitive information from logs
+      required: true

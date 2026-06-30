@@ -1,5 +1,5 @@
 load_from:
-	- grpc_server:
-			host: dagster-user-code
-			port: 4000
-			location_name: example_user_code
+- grpc_server:
+  host: dagster-user-code
+  port: 4000
+  location_name: example_user_code

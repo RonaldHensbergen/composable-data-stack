@@ -42,5 +42,5 @@ body:
   attributes:
     label: Pre-submit checks
     options:
-      - label: I searched existing issues and discussions
-        required: true
+    - label: I searched existing issues and discussions
+      required: true
