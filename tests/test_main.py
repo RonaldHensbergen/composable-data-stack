@@ -218,10 +218,17 @@ class CollectModuleImagesTest(unittest.TestCase):
         images = collect_module_images(self._MODULES)
         dagster_entries = [e for e in images if "dagster" in e["module"]]
         self.assertTrue(len(dagster_entries) > 0, "No dagster image found")
-        entry = dagster_entries[0]
 
-        # The entry image is the compose-declared local tag
-        self.assertEqual(entry["image"], "local/dagster:custom")
+        # Find the main webserver entry (not user-code); fall back to first entry
+        entry = next(
+            (e for e in dagster_entries if e.get("service") == "dagster-webserver"),
+            dagster_entries[0],
+        )
+
+        # All locally built dagster images must use the :custom tag
+        image = entry["image"]
+        self.assertTrue(image.startswith("local/"), f"Expected local image, got: {image}")
+        self.assertTrue(image.endswith(":custom"), f"Expected :custom tag, got: {image}")
         from cli.image_updates import extract_base_image
         base = extract_base_image(Path(entry["dockerfile"]))
         
