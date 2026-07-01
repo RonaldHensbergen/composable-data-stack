@@ -940,6 +940,7 @@ Good first contributions:
 ## 📖 Documentation
 
 - [Quickstart](README.md#-quickstart) — get running in 5 minutes
+- [How CDS Works](docs/how-it-works.md) — C4 + sequence diagrams of the validate → plan → render engine
 - [From Docker Compose to CDS Profile](docs/from-docker-to-cds-profile.md) — complete transformation guide
 - [Architecture](docs/architecture.md) — design and core concepts
 - [Modules](docs/modules.md) — how to structure reusable components
