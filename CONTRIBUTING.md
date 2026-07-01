@@ -79,6 +79,35 @@ python3 -m cli.main validate local-dagster-postgres-superset
 python3 -m cli.main plan local-dagster-postgres-superset
 python3 -m cli.main render local-dagster-postgres-superset
 ```
+## Pre-commit Hooks
+
+This repo uses [pre-commit](https://pre-commit.com/) to catch formatting and lint issues before you open a PR. Most hooks mirror the checks that run in CI (`markdownlint`, `yamllint`); `flake8` is additional Python quality coverage that CI does not yet run.
+
+Install once per clone:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Run against all files (recommended before your first PR):
+
+```bash
+pre-commit run --all-files
+```
+
+The `markdownlint` hook runs via `npx`, so Node.js must be available on your machine. Every other hook is installed and managed by `pre-commit` itself, no other manual setup needed.
+
+Hooks run automatically on `git commit` after `pre-commit install`. If a hook modifies files (for example, trimming trailing whitespace), re-stage and commit again.
+
+Hooks included:
+
+- `trailing-whitespace`, `end-of-file-fixer` — basic hygiene
+- `check-yaml`, `check-merge-conflict`, `check-added-large-files` — safety checks
+- `flake8` — catches Python syntax errors and undefined names (`E9`, `F63`,
+  `F7`, `F82`)
+- `yamllint` — same config (`.yamllint.yml`) used in CI
+- `markdownlint` — same version and config used in CI
 
 ## Branch And PR Flow
 
