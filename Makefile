@@ -29,7 +29,7 @@ package:
 
 docker-build:
 	@echo "Building all Dockerfiles..."
-	@for dockerfile in $$(find . -name "Dockerfile" -type f); do \
+	@for dockerfile in $$(find . -name "Dockerfile*" -type f); do \
 		dir=$$(dirname "$$dockerfile"); \
 		echo "Building $$dockerfile in directory $$dir..."; \
 		docker build -f "$$dockerfile" "$$dir" || exit 1; \
