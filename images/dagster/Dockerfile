@@ -21,4 +21,11 @@ RUN mkdir -p $DAGSTER_HOME
 
 COPY dagster.yaml workspace.yaml $DAGSTER_HOME
 
+EXPOSE 3000 4000
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \
+  CMD dagster api grpc-health-check -p 4000 || exit 1
+
 WORKDIR $DAGSTER_HOME
+
+CMD ["dagster", "dev"]

@@ -193,6 +193,21 @@ spec:
             - bash
             - -c
             - dagster-daemon run
+          healthcheck:
+            conditionallyEnabledFrom: spec.config.healthcheck.enabled
+            test:
+              - CMD
+              - dagster
+              - api
+              - grpc-health-check
+              - -h
+              - dagster-user-code
+              - -p
+              - "4000"
+            interval: 10s
+            timeout: 2s
+            start_period: 30s
+            retries: 3
           volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - dagster-io-manager-storage:/tmp/io_manager_storage
