@@ -48,6 +48,19 @@ class RenderExampleProfileTest(unittest.TestCase):
                 compose["services"]["dagster-dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],
                 "service_healthy",
             )
+            self.assertEqual(
+                compose["services"]["dagster-dagster-daemon"]["healthcheck"]["test"],
+                [
+                    "CMD",
+                    "dagster",
+                    "api",
+                    "grpc-health-check",
+                    "-h",
+                    "dagster-user-code",
+                    "-p",
+                    "4000",
+                ],
+            )
 
     def test_vault_profile_validates_plans_and_renders_vault_service(self):
         repo_root = Path(__file__).resolve().parent.parent
