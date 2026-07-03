@@ -10,6 +10,9 @@ permissions:
   contents: read
 
 jobs:
+  # Lint stays Linux-only: markdownlint and yamllint check file content, not
+  # OS-dependent code paths, so running them on three OSes would triple CI
+  # cost for zero extra signal.
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -39,10 +42,16 @@ jobs:
         run: |
           yamllint .
 
+  # Core Python checks run on all three host OSes. This exercises unit tests
+  # plus real `cds validate/plan/render` subprocess calls (see
+  # tests/test_cds_workflow.py), catching cross-platform regressions in the
+  # CLI itself, not just on Linux.
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: [3.11]
     steps:
       - name: Checkout
@@ -62,6 +71,10 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "*.py"
 
+  # Docker-heavy tasks stay Linux-only: Docker Desktop licensing and
+  # significantly slower/less reliable Docker support on GitHub's hosted
+  # macOS and Windows runners make this impractical to matrix. Local
+  # Docker Desktop on macOS/Windows is unaffected by this CI limitation.
   docker:
     runs-on: ubuntu-latest
     steps:
