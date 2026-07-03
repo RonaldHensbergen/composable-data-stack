@@ -351,6 +351,31 @@ cds plan --help
 
 ---
 
+## 🪟 Windows Task Runner
+
+Windows contributors without `make` can use `Makefile.ps1`, a PowerShell equivalent covering the core developer tasks:
+
+```powershell
+# Install in editable mode
+.\Makefile.ps1 install
+
+# Validate the default profile
+.\Makefile.ps1 validate
+
+# Validate a specific profile
+.\Makefile.ps1 validate-profile -P profiles/local-dagster-postgres-superset/profile.yaml
+
+# Build distribution packages
+.\Makefile.ps1 package
+
+# List available targets
+.\Makefile.ps1 help
+```
+
+This does not replace the Linux/macOS `Makefile`, both exist side by side. Windows users can still install `make` via WSL or Chocolatey if they prefer the original workflow. `lint` and `docker-build` are not ported here. Run `yamllint .` and `npx markdownlint-cli` directly, or use `pre-commit` if it is set up in this repo. Docker Desktop's `docker build` works the same on Windows as it does elsewhere.
+
+---
+
 ## 🛠️ Troubleshooting
 
 Common errors from `cds validate`, `cds plan`, and `cds render`, and how to fix them.
