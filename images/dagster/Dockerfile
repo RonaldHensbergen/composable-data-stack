@@ -17,7 +17,7 @@ RUN pip install --upgrade pip && \
 
 ENV DAGSTER_HOME=/opt/dagster/dagster_home/
 
-RUN mkdir -p $DAGSTER_HOME
+RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
 
 COPY dagster.yaml workspace.yaml $DAGSTER_HOME
 
