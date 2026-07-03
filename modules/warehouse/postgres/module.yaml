@@ -60,6 +60,11 @@ spec:
             type: string
             default: 5Gi
 
+      initDbScript:
+        type: string
+        minLength: 1
+        default: init-db.sql
+
       healthcheck:
         type: object
         additionalProperties: false
@@ -94,6 +99,10 @@ spec:
             POSTGRES_USER: "${config.username}"
             POSTGRES_PASSWORD: "${config.passwordFrom}"
           volumes:
+            - type: bind
+              source: "${config.initDbScript}"
+              target: /docker-entrypoint-initdb.d/init-db.sql
+              read_only: true
             - postgres-data:/var/lib/postgresql/data
           healthcheck:
             conditionallyEnabledFrom: spec.config.healthcheck.enabled

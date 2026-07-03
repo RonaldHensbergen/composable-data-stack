@@ -35,6 +35,7 @@ spec:
         username: analytics
         passwordFrom: secrets.postgres_password
         port: 5432
+        initDbScript: init-db.sql
         storage:
           enabled: true
           size: 5Gi
