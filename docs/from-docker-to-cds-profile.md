@@ -25,7 +25,7 @@ services:
     environment:
       POSTGRES_DB: analytics
       POSTGRES_USER: analytics
-      POSTGRES_PASSWORD: ${CDS_POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${CDS_ANALYTICS_POSTGRES_PASSWORD}
     volumes:
       - postgres-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -45,9 +45,9 @@ services:
       DAGSTER_HOME: /opt/dagster/dagster_home
       DAGSTER_POSTGRES_HOST: postgres
       DAGSTER_POSTGRES_PORT: 5432
-      DAGSTER_POSTGRES_DB: analytics
-      DAGSTER_POSTGRES_USER: analytics
-      DAGSTER_POSTGRES_PASSWORD: ${CDS_POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_USER: dagster
+      DAGSTER_POSTGRES_PASSWORD: ${CDS_DAGSTER_POSTGRES_PASSWORD}
 
   dagster-dagster-webserver:
     image: local/dagster:custom
@@ -65,9 +65,9 @@ services:
       DAGSTER_HOME: /opt/dagster/dagster_home
       DAGSTER_POSTGRES_HOST: postgres
       DAGSTER_POSTGRES_PORT: 5432
-      DAGSTER_POSTGRES_DB: analytics
-      DAGSTER_POSTGRES_USER: analytics
-      DAGSTER_POSTGRES_PASSWORD: ${CDS_POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_USER: dagster
+      DAGSTER_POSTGRES_PASSWORD: ${CDS_DAGSTER_POSTGRES_PASSWORD}
 
   dagster-dagster-daemon:
     image: local/dagster:custom
@@ -83,9 +83,9 @@ services:
       DAGSTER_HOME: /opt/dagster/dagster_home
       DAGSTER_POSTGRES_HOST: postgres
       DAGSTER_POSTGRES_PORT: 5432
-      DAGSTER_POSTGRES_DB: analytics
-      DAGSTER_POSTGRES_USER: analytics
-      DAGSTER_POSTGRES_PASSWORD: ${CDS_POSTGRES_PASSWORD}
+      DAGSTER_POSTGRES_DB: dagster
+      DAGSTER_POSTGRES_USER: dagster
+      DAGSTER_POSTGRES_PASSWORD: ${CDS_DAGSTER_POSTGRES_PASSWORD}
 
   superset-superset:
     image: apache/superset:6.1.0
@@ -96,7 +96,7 @@ services:
       SUPERSET_ADMIN_USERNAME: admin
       SUPERSET_ADMIN_PASSWORD: ${CDS_SUPERSET_ADMIN_PASSWORD}
       SUPERSET_ADMIN_EMAIL: admin@example.local
-      SUPERSET_DATABASE_URI: postgresql://analytics:${CDS_POSTGRES_PASSWORD}@postgres:5432/analytics
+      SUPERSET_DATABASE_URI: postgresql://superset:${CDS_SUPERSET_POSTGRES_PASSWORD}@postgres:5432/superset
 
 volumes:
   postgres-postgres-data:
@@ -239,7 +239,7 @@ postgres-postgres:
   environment:
     POSTGRES_DB: analytics
     POSTGRES_USER: analytics
-    POSTGRES_PASSWORD: ${CDS_POSTGRES_PASSWORD}
+    POSTGRES_PASSWORD: ${CDS_ANALYTICS_POSTGRES_PASSWORD}
   volumes:
     - postgres-postgres-data:/var/lib/postgresql/data
   healthcheck:
@@ -252,7 +252,7 @@ postgres-postgres:
 **Transformation**:
 - `image: postgres:16` → stays as-is
 - `POSTGRES_DB: analytics` → becomes `${config.database}` (value moves to profile)
-- `POSTGRES_PASSWORD: ${CDS_POSTGRES_PASSWORD}` → becomes `${config.passwordFrom}` (secret reference)
+- `POSTGRES_PASSWORD: ${CDS_ANALYTICS_POSTGRES_PASSWORD}` → becomes `${config.passwordFrom}` (secret reference)
 - `ports: [5432:5432]` → host port becomes `${config.port}`; container port declared in `runtime.service.ports`
 - `volumes: postgres-postgres-data:…` → captured in `implementation.compose.volumes`
 - `healthcheck:` → captured with `conditionallyEnabledFrom` gate
@@ -337,8 +337,8 @@ spec:
           port: "5432"
           database: analytics
           username: analytics
-          password: "${CDS_POSTGRES_PASSWORD}"
-          connectionUri: "postgresql://analytics:${CDS_POSTGRES_PASSWORD}@postgres:5432/analytics"
+          password: "${CDS_ANALYTICS_POSTGRES_PASSWORD}"
+          connectionUri: "postgresql://analytics:${CDS_ANALYTICS_POSTGRES_PASSWORD}@postgres:5432/analytics"
 
   implementation:
     kind: docker-compose
@@ -601,8 +601,8 @@ spec:
       port: 5432
       database: analytics
       username: analytics
-      password: ${CDS_POSTGRES_PASSWORD}
-      connectionUri: postgresql://analytics:${CDS_POSTGRES_PASSWORD}@postgres:5432/analytics
+      password: ${CDS_ANALYTICS_POSTGRES_PASSWORD}
+      connectionUri: postgresql://analytics:${CDS_ANALYTICS_POSTGRES_PASSWORD}@postgres:5432/analytics
 ```
 
 ---
@@ -610,7 +610,9 @@ spec:
 ## Step 4: Identify and Manage Secrets
 
 In the original compose file, secrets came from shell environment variables:
-- `${CDS_POSTGRES_PASSWORD}`
+- `${CDS_ANALYTICS_POSTGRES_PASSWORD}`
+- `${CDS_DAGSTER_POSTGRES_PASSWORD}`
+- `${CDS_SUPERSET_POSTGRES_PASSWORD}`
 - `${CDS_SUPERSET_SECRET_KEY}`
 - `${CDS_SUPERSET_ADMIN_PASSWORD}`
 
@@ -699,9 +701,9 @@ Instead of repeating connection strings:
 ```yaml
 # original compose (repeated 3 times!)
 environment:
-  DAGSTER_RUN_STORAGE_POSTGRES_URL: postgresql://analytics:${CDS_POSTGRES_PASSWORD}@postgres:5432/analytics
-  DAGSTER_EVENT_LOG_STORAGE_POSTGRES_URL: postgresql://analytics:${CDS_POSTGRES_PASSWORD}@postgres:5432/analytics
-  DAGSTER_SCHEDULE_STORAGE_POSTGRES_URL: postgresql://analytics:${CDS_POSTGRES_PASSWORD}@postgres:5432/analytics
+  DAGSTER_RUN_STORAGE_POSTGRES_URL: postgresql://dagster:${CDS_DAGSTER_POSTGRES_PASSWORD}@postgres:5432/dagster
+  DAGSTER_EVENT_LOG_STORAGE_POSTGRES_URL: postgresql://dagster:${CDS_DAGSTER_POSTGRES_PASSWORD}@postgres:5432/dagster
+  DAGSTER_SCHEDULE_STORAGE_POSTGRES_URL: postgresql://dagster:${CDS_DAGSTER_POSTGRES_PASSWORD}@postgres:5432/dagster
 ```
 
 The profile simply wires the contract:
@@ -797,7 +799,13 @@ spec:
       type: env
     values:
       postgres_password:
-        env: CDS_POSTGRES_PASSWORD
+        env: CDS_ANALYTICS_POSTGRES_PASSWORD
+        required: true
+      dagster_postgres_password:
+        env: CDS_DAGSTER_POSTGRES_PASSWORD
+        required: true
+      superset_postgres_password:
+        env: CDS_SUPERSET_POSTGRES_PASSWORD
         required: true
       superset_secret_key:
         env: CDS_SUPERSET_SECRET_KEY
@@ -932,7 +940,9 @@ Once modules and profile are defined, use the CDS CLI to render a docker-compose
 
 ```bash
 # Set required secrets
-export CDS_POSTGRES_PASSWORD=your_password
+export CDS_ANALYTICS_POSTGRES_PASSWORD=your_analytics_password
+export CDS_DAGSTER_POSTGRES_PASSWORD=your_dagster_password
+export CDS_SUPERSET_POSTGRES_PASSWORD=your_superset_password
 export CDS_SUPERSET_SECRET_KEY=your_secret
 export CDS_SUPERSET_ADMIN_PASSWORD=admin_password
 

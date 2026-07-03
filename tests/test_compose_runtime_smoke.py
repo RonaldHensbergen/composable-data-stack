@@ -32,7 +32,9 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
 
     def test_render_then_build_then_up(self):
         env = os.environ.copy()
-        env.setdefault("CDS_POSTGRES_PASSWORD", "testpass")
+        env.setdefault("CDS_ANALYTICS_POSTGRES_PASSWORD", "analytics_testpass")
+        env.setdefault("CDS_DAGSTER_POSTGRES_PASSWORD", "dagster_testpass")
+        env.setdefault("CDS_SUPERSET_POSTGRES_PASSWORD", "superset_testpass")
         env.setdefault("CDS_SUPERSET_SECRET_KEY", "sekret")
         env.setdefault("CDS_SUPERSET_ADMIN_PASSWORD", "adminpass")
 

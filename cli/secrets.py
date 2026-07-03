@@ -90,7 +90,7 @@ def resolve_secret(key: str, secrets: dict[str, str], required: bool = False) ->
     Resolve a single secret by key.
     
     Args:
-        key: Secret key (e.g., "CDS_POSTGRES_PASSWORD")
+        key: Secret key (e.g., "CDS_ANALYTICS_POSTGRES_PASSWORD")
         secrets: Dictionary of available secrets
         required: If True, emit error if secret is missing
         
@@ -164,6 +164,6 @@ def load_profile_secrets(
             continue
 
         # Map logical name → CDS_* var name, NOT the value.
-        secrets[secret_name] = env_name  # e.g. "postgres_password" → "CDS_POSTGRES_PASSWORD"
+        secrets[secret_name] = env_name  # e.g. "analytics_postgres_password" → "CDS_ANALYTICS_POSTGRES_PASSWORD"
 
     return secrets, diagnostics

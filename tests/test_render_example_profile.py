@@ -21,7 +21,9 @@ class RenderExampleProfileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
             env_file.write_text(
-                "CDS_POSTGRES_PASSWORD=testpass\n"
+                "CDS_ANALYTICS_POSTGRES_PASSWORD=analytics_testpass\n"
+                "CDS_DAGSTER_POSTGRES_PASSWORD=dagster_testpass\n"
+                "CDS_SUPERSET_POSTGRES_PASSWORD=superset_testpass\n"
                 "CDS_SUPERSET_SECRET_KEY=sekret\n"
                 "CDS_SUPERSET_ADMIN_PASSWORD=adminpass\n",
                 encoding="utf-8",
@@ -42,7 +44,7 @@ class RenderExampleProfileTest(unittest.TestCase):
             self.assertIn("dagster-user-code", compose["services"])
             self.assertEqual(
                 compose["services"]["dagster-user-code"]["build"]["dockerfile"],
-                "images/dagster/Dockerfile.user-code",
+                "images/dagster/Dockerfile",
             )
             self.assertEqual(
                 compose["services"]["dagster-dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],
@@ -74,7 +76,9 @@ class RenderExampleProfileTest(unittest.TestCase):
             env_file = Path(tmpdir) / ".env"
             env_file.write_text(
                 "CDS_VAULT_TOKEN=test-vault-token\n"
-                "CDS_POSTGRES_PASSWORD=testpass\n"
+                "CDS_ANALYTICS_POSTGRES_PASSWORD=analytics_testpass\n"
+                "CDS_DAGSTER_POSTGRES_PASSWORD=dagster_testpass\n"
+                "CDS_SUPERSET_POSTGRES_PASSWORD=superset_testpass\n"
                 "CDS_SUPERSET_SECRET_KEY=sekret\n"
                 "CDS_SUPERSET_ADMIN_PASSWORD=adminpass\n",
                 encoding="utf-8",

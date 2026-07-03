@@ -42,6 +42,21 @@ spec:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
 
+      dagsterPasswordFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+        default: secrets.postgres_password
+
+      supersetPasswordFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+        default: secrets.postgres_password
+
+      analyticsPasswordFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+        default: secrets.postgres_password
+
       port:
         type: integer
         minimum: 1
@@ -95,13 +110,16 @@ spec:
           ports:
             - "${config.port}:5432"
           environment:
+            POSTGRES_INITDB_ARGS: "-U postgres"
             POSTGRES_DB: "${config.database}"
             POSTGRES_USER: "${config.username}"
-            POSTGRES_PASSWORD: "${config.passwordFrom}"
+            DAGSTER_POSTGRES_PASSWORD: "${config.dagsterPasswordFrom}"
+            SUPERSET_POSTGRES_PASSWORD: "${config.supersetPasswordFrom}"
+            ANALYTICS_POSTGRES_PASSWORD: "${config.analyticsPasswordFrom}"
           volumes:
             - type: bind
               source: "${config.initDbScript}"
-              target: /docker-entrypoint-initdb.d/init-db.sql
+              target: "/docker-entrypoint-initdb.d/${config.initDbScript}"
               read_only: true
             - postgres-data:/var/lib/postgresql/data
           healthcheck:

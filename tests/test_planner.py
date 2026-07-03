@@ -336,7 +336,7 @@ class PlannerRegressionTest(unittest.TestCase):
                         "provider": {"type": "env"},
                         "values": {
                             "postgres_password": {
-                                "env": "CDS_POSTGRES_PASSWORD",
+                                "env": "CDS_ANALYTICS_POSTGRES_PASSWORD",
                                 "required": True,
                             }
                         }
@@ -345,7 +345,7 @@ class PlannerRegressionTest(unittest.TestCase):
             }
 
             env_file = Path(root) / ".env"
-            env_file.write_text("CDS_POSTGRES_PASSWORD=supersecret\n", encoding="utf-8")
+            env_file.write_text("CDS_ANALYTICS_POSTGRES_PASSWORD=supersecret\n", encoding="utf-8")
 
             import yaml
 
@@ -360,7 +360,7 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertIsNotNone(plan)
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
             self.assertEqual(plan["modules"][0]["config"]["passwordFrom"], "secrets.postgres_password")
-            self.assertEqual(plan["secrets"]["postgres_password"], "CDS_POSTGRES_PASSWORD")
+            self.assertEqual(plan["secrets"]["postgres_password"], "CDS_ANALYTICS_POSTGRES_PASSWORD")
 
 
 if __name__ == "__main__":

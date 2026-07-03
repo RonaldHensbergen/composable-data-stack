@@ -19,7 +19,9 @@ class SmokeExampleProfileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
             env_file.write_text(
-                "CDS_POSTGRES_PASSWORD=testpass\n"
+                "CDS_ANALYTICS_POSTGRES_PASSWORD=analytics_testpass\n"
+                "CDS_DAGSTER_POSTGRES_PASSWORD=dagster_testpass\n"
+                "CDS_SUPERSET_POSTGRES_PASSWORD=superset_testpass\n"
                 "CDS_SUPERSET_SECRET_KEY=sekret\n"
                 "CDS_SUPERSET_ADMIN_PASSWORD=adminpass\n",
                 encoding="utf-8",
@@ -32,7 +34,10 @@ class SmokeExampleProfileTest(unittest.TestCase):
             self.assertGreater(len(plan["modules"]), 0)
 
             # Ensure secrets map to env variable names (no secret values embedded in plan)
-            self.assertEqual(plan["secrets"].get("postgres_password"), "CDS_POSTGRES_PASSWORD")
+            self.assertEqual(plan["secrets"].get("postgres_password"), "CDS_ANALYTICS_POSTGRES_PASSWORD")
+            self.assertEqual(plan["secrets"].get("dagster_postgres_password"), "CDS_DAGSTER_POSTGRES_PASSWORD")
+            self.assertEqual(plan["secrets"].get("superset_postgres_password"), "CDS_SUPERSET_POSTGRES_PASSWORD")
+            self.assertEqual(plan["secrets"].get("analytics_postgres_password"), "CDS_ANALYTICS_POSTGRES_PASSWORD")
             self.assertEqual(plan["secrets"].get("superset_secret_key"), "CDS_SUPERSET_SECRET_KEY")
             self.assertEqual(plan["secrets"].get("superset_admin_password"), "CDS_SUPERSET_ADMIN_PASSWORD")
 

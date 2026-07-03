@@ -442,7 +442,7 @@ def resolve_expr(expr: str, context: dict[str, Any]) -> Any:
     always emit ${CDS_VAR_NAME} for Docker Compose runtime resolution.
     Raw secret values are never returned.
     """
-    # Direct secrets.* reference: secrets.postgres_password → ${CDS_POSTGRES_PASSWORD}
+    # Direct secrets.* reference: secrets.analytics_postgres_password → ${CDS_ANALYTICS_POSTGRES_PASSWORD}
     if expr.startswith("secrets."):
         alias = expr.split(".", 1)[1]
         secrets = context.get("secrets", {})
