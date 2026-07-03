@@ -144,7 +144,13 @@ def _render_services(
                     service_copy["healthcheck"] = _substitute_values(hc_copy, context)
 
         service_copy = _substitute_values(service_copy, context)
-        service_copy = _rewrite_service_volumes(service_copy, module["id"])
+        service_copy = _rewrite_service_volumes(
+            service_copy,
+            module,
+            profile_dir=profile_dir,
+            project_root=project_root,
+            compose_dir=compose_dir,
+        )
         service_copy = _rewrite_depends_on(service_copy, module)
         service_copy = _rewrite_build_context(
             service_copy,
@@ -272,7 +278,10 @@ def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
 
 def _rewrite_service_volumes(
     service_def: dict[str, Any],
-    module_id: str,
+    module: dict[str, Any],
+    profile_dir: Path | None,
+    project_root: Path | None,
+    compose_dir: Path,
 ) -> dict[str, Any]:
     volumes = service_def.get("volumes")
     if not isinstance(volumes, list):
@@ -283,10 +292,90 @@ def _rewrite_service_volumes(
         if isinstance(item, str):
             parts = item.split(":", 1)
             if len(parts) == 2 and _is_named_volume(parts[0]):
-                item = f"{module_id}-{parts[0]}:{parts[1]}"
+                item = f"{module['id']}-{parts[0]}:{parts[1]}"
+            elif len(parts) >= 2:
+                source = parts[0]
+                rewritten_source = _rewrite_local_path(
+                    source,
+                    module=module,
+                    profile_dir=profile_dir,
+                    project_root=project_root,
+                    compose_dir=compose_dir,
+                )
+                if rewritten_source != source:
+                    item = f"{rewritten_source}:{parts[1]}"
+        elif isinstance(item, dict):
+            item_copy = deepcopy(item)
+            if item_copy.get("type") == "bind" and isinstance(item_copy.get("source"), str):
+                item_copy["source"] = _rewrite_local_path(
+                    item_copy["source"],
+                    module=module,
+                    profile_dir=profile_dir,
+                    project_root=project_root,
+                    compose_dir=compose_dir,
+                )
+            item = item_copy
         rewritten.append(item)
 
     return {**service_def, "volumes": rewritten}
+
+
+def _rewrite_local_path(
+    path_value: str,
+    module: dict[str, Any],
+    profile_dir: Path | None,
+    project_root: Path | None,
+    compose_dir: Path,
+) -> str:
+    if Path(path_value).is_absolute() or _looks_remote_context(path_value) or "${" in path_value:
+        return path_value
+
+    candidates: list[Path] = []
+    for base in _local_path_bases(module, profile_dir, project_root, compose_dir):
+        candidate = (base / path_value).resolve()
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    if not candidates:
+        return path_value
+
+    chosen = _choose_best_local_path_candidate(candidates)
+    try:
+        rel = Path(chosen).relative_to(compose_dir)
+    except ValueError:
+        rel = Path(os.path.relpath(chosen, compose_dir))
+    return rel.as_posix()
+
+
+def _local_path_bases(
+    module: dict[str, Any],
+    profile_dir: Path | None,
+    project_root: Path | None,
+    compose_dir: Path,
+) -> list[Path]:
+    bases: list[Path] = []
+
+    if profile_dir is not None:
+        bases.append(profile_dir)
+
+    module_dir = _resolve_module_dir(module, profile_dir)
+    if module_dir is not None:
+        bases.append(module_dir)
+
+    bases.append(compose_dir)
+
+    if project_root is not None:
+        bases.append((project_root / "build").resolve())
+
+    return bases
+
+
+def _choose_best_local_path_candidate(candidates: list[Path]) -> Path:
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return candidates[0]
 
 
 def _rewrite_depends_on(

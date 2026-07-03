@@ -48,6 +48,19 @@ class RenderExampleProfileTest(unittest.TestCase):
                 compose["services"]["dagster-dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],
                 "service_healthy",
             )
+            self.assertIn(
+                {
+                    "type": "bind",
+                    "source": "profiles/local-dagster-postgres-superset/init-db.sql",
+                    "target": "/docker-entrypoint-initdb.d/init-db.sql",
+                    "read_only": True,
+                },
+                compose["services"]["postgres-postgres"]["volumes"],
+            )
+            self.assertEqual(
+                compose["services"]["postgres-postgres"]["healthcheck"]["test"],
+                ["CMD-SHELL", "pg_isready -U analytics -d analytics"],
+            )
             self.assertEqual(
                 compose["services"]["dagster-dagster-daemon"]["healthcheck"]["test"],
                 [
