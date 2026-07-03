@@ -7,7 +7,7 @@ RUN mkdir -p $DAGSTER_HOME
 WORKDIR /app
 
 COPY . /app
-COPY images/dagster/requirements.txt ./requirements.txt
+COPY ./requirements.txt ./requirements.txt
 
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt && \
@@ -16,7 +16,7 @@ RUN pip install --upgrade pip && \
 RUN apt-get update && apt-get install -y postgresql-client curl && \
     rm -rf /var/lib/apt/lists/*
 
-COPY images/dagster/dagster.yaml images/dagster/workspace.yaml $DAGSTER_HOME
+COPY ./dagster.yaml ./workspace.yaml $DAGSTER_HOME
 
 EXPOSE 3000 4000
 

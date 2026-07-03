@@ -134,7 +134,7 @@ spec:
           image: local/dagster:custom
           restart: always
           hostname: dagster-user-code
-          command: 
+          command:
             - dagster
             - code-server
             - start
