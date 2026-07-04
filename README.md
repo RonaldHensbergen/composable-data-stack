@@ -194,7 +194,7 @@ terminal session and activate the environment again.
 ### 3. Configure Environment
 
 ```bash
-cp .env.example .env
+cds init local-dagster-postgres-superset
 ```
 
 Set:
@@ -385,7 +385,7 @@ Common errors from `cds validate`, `cds plan`, and `cds render`, and how to fix 
 | Error | Cause | Fix |
 | --- | --- | --- |
 | `[E020] ... YAML file not found: <path>` | The profile identifier or file path passed to `cds validate`, `cds plan`, or `cds render <profile>` doesn't resolve to an existing YAML file. | Run `cds list profiles` to see valid identifiers. Set `CDS_PROFILE_PATH` to a profile name, a `profile.yaml` file path, or a profiles root directory. |
-| `[E081] ... Required secret "CDS_X_PASSWORD" not found in environment` | A secret marked `required: true` in the profile's `spec.secrets.values` is missing from the shell environment or the `.env` file in the current working directory. | Copy `.env.example` to `.env` in the project root and set the missing `CDS_*` variable, or export it directly before running the command. |
+| `[E081] ... Required secret "CDS_X_PASSWORD" not found in environment` | A secret marked `required: true` in the profile's `spec.secrets.values` is missing from the shell environment or the `.env` file in the current working directory. | Run `cds init <profile>` to generate `.env` in the project root, set the missing `CDS_*` variable, or export it directly before running the command. |
 | `[E041] ... Contract ref "x.y" points to unknown module "x"` | A `consumes` binding's `contractRef` refers to a module ID that isn't defined in the profile. | Check `spec.modules` for the correct module `id`, and confirm the contract ref follows `<module-id>.<contract-name>`. |
 | `[E041] ... but it does not provide "<contract-name>"` | The referenced module exists, but its `spec.provides` list doesn't expose that contract name. | Check the producing module's `module.yaml` for the contracts it actually provides, and fix the consumer's `contractRef` to match. |
 | `[E042] ... Contract kind mismatch` | The consumer expects one contract kind (e.g. `sql-database`) but the producer exposes a different kind. | Point the binding at a module that provides the expected contract kind, or update the consumer's expected kind if the mismatch is intentional. |

@@ -103,7 +103,10 @@ class MainCLITest(unittest.TestCase):
             
             self.assertEqual(result, 0)
             mock_validate.assert_called_once_with(str(profile_file))
-            mock_build_plan.assert_called_once_with(str(profile_file))
+            mock_build_plan.assert_called_once()
+            called_args, called_kwargs = mock_build_plan.call_args
+            self.assertEqual(called_args[0], str(profile_file))
+            self.assertIn("env_file", called_kwargs)
             
             # Verify file was written
             saved_plan = json.loads(Path(output_file).read_text())
@@ -135,6 +138,7 @@ class MainCLITest(unittest.TestCase):
         _, kwargs = mock_render.call_args
         expected_output = str(self.repo_root / "docker-compose.yml")
         self.assertEqual(kwargs["output_path"], expected_output)
+        self.assertIn("env_file", kwargs)
 
     def test_render_from_plan_file(self):
         """Test rendering from a saved plan file."""
@@ -185,6 +189,32 @@ class MainCLITest(unittest.TestCase):
                 resolved = resolve_project_root(str(profile_path))
                 
                 self.assertEqual(resolved, Path("/mock/cwd").resolve())
+
+    def test_init_generates_env_file_from_profile_secrets(self):
+        import tempfile
+
+        output_file = Path(tempfile.gettempdir()) / "cds-init-test.env"
+        output_file.unlink(missing_ok=True)
+
+        try:
+            with patch.object(
+                sys,
+                "argv",
+                ["cds", "init", "local-dagster-postgres-superset", "--output", str(output_file)],
+            ):
+                result = main()
+
+            self.assertEqual(result, 0)
+            self.assertTrue(output_file.exists())
+
+            content = output_file.read_text(encoding="utf-8")
+            self.assertIn("CDS_ANALYTICS_POSTGRES_PASSWORD=change-me", content)
+            self.assertIn("CDS_DAGSTER_POSTGRES_PASSWORD=change-me", content)
+            self.assertIn("CDS_SUPERSET_POSTGRES_PASSWORD=change-me", content)
+            self.assertIn("CDS_SUPERSET_SECRET_KEY=change-me", content)
+            self.assertIn("CDS_SUPERSET_ADMIN_PASSWORD=change-me", content)
+        finally:
+            output_file.unlink(missing_ok=True)
 
 
 class CollectModuleImagesTest(unittest.TestCase):
