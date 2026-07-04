@@ -1,0 +1,51 @@
+{% if backend == "postgres" %}
+{% set sections = ["run_storage", "schedule_storage", "event_log_storage"] %}
+{% set module_map = {
+  "run_storage": ("dagster_postgres.run_storage", "PostgresRunStorage"),
+  "schedule_storage": ("dagster_postgres.schedule_storage", "PostgresScheduleStorage"),
+  "event_log_storage": ("dagster_postgres.event_log", "PostgresEventLogStorage")
+} %}
+
+{% for section, (module, cls) in module_map.items() %}
+{{ section }}:
+  module: {{ module }}
+  class: {{ cls }}
+  config:
+    postgres_db:
+      hostname:
+        env: DAGSTER_POSTGRES_HOST
+      username:
+        env: DAGSTER_POSTGRES_USER
+      password:
+        env: DAGSTER_POSTGRES_PASSWORD
+      db_name:
+        env: DAGSTER_POSTGRES_DB
+      port:
+        env: DAGSTER_POSTGRES_PORT
+{% endfor %}
+
+{% elif backend == "sqlite" %}
+run_storage:
+  module: dagster._core.storage.runs
+  class: SqliteRunStorage
+  config:
+    base_dir:
+      env: DAGSTER_SQLITE_DIR
+
+schedule_storage:
+  module: dagster._core.storage.schedules
+  class: SqliteScheduleStorage
+  config:
+    base_dir:
+      env: DAGSTER_SQLITE_DIR
+
+event_log_storage:
+  module: dagster._core.storage.event_log
+  class: SqliteEventLogStorage
+  config:
+    base_dir:
+      env: DAGSTER_SQLITE_DIR
+
+{% elif backend == "mysql" %}
+# Add dagster-mysql blocks here when available
+{% endif %}
