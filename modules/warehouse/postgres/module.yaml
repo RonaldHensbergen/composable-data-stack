@@ -45,17 +45,14 @@ spec:
       dagsterPasswordFrom:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
-        default: secrets.postgres_password
 
       supersetPasswordFrom:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
-        default: secrets.postgres_password
 
       analyticsPasswordFrom:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
-        default: secrets.postgres_password
 
       port:
         type: integer
