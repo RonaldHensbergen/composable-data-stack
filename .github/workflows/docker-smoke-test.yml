@@ -1,0 +1,46 @@
+name: Docker Runtime Smoke Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'docker-smoke-test')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Run Docker Compose smoke test (render -> build -> up -> down)
+        env:
+          CDS_RUN_DOCKER_SMOKE: "1"
+        run: |
+          python -m unittest tests.test_compose_runtime_smoke -v
+
+      - name: Ensure Docker Compose cleanup runs even on failure
+        if: always()
+        run: |
+          if [ -f docker-compose.yml ]; then
+            docker compose -f docker-compose.yml down -v --remove-orphans || true
+          fi
