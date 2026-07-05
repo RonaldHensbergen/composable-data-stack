@@ -33,11 +33,9 @@ This document defines the supported host operating systems for running and contr
 
 ### Windows
 
-- `make` is not available by default. Use `Makefile.ps1` (PowerShell equivalent covering `install`, 
-  `validate`, `validate-profile`, and `package`; see the README's Windows Task Runner section), or install `make` via WSL or Chocolatey if you prefer the original workflow.
+- `make` is not available by default. Use `Makefile.ps1` (PowerShell equivalent covering `install`, `validate`, `validate-profile`, and `package`; see the README's Windows Task Runner section), or install `make` via WSL or Chocolatey if you prefer the original workflow.
 - Docker Desktop with the WSL 2 backend is required.
-- Contributed files are normalized to LF via `.gitattributes`, except `.ps1`, `.bat`, and `.cmd` 
-  scripts, which stay CRLF.
+- Contributed files are normalized to LF via `.gitattributes`, except `.ps1`, `.bat`, and `.cmd` scripts, which stay CRLF.
 
 ### macOS
 
@@ -46,8 +44,7 @@ This document defines the supported host operating systems for running and contr
 
 ### All Platforms
 
-- Container internals are always Linux-based. Paths such as `/opt/dagster/dagster_home` are 
-  intentionally Linux-specific and run inside Docker, not on the host OS.
+- Container internals are always Linux-based. Paths such as `/opt/dagster/dagster_home` are intentionally Linux-specific and run inside Docker, not on the host OS.
 
 ---
 
