@@ -15,6 +15,9 @@ spec:
   runtime:
     type: docker-compose
     namespace: cds-local
+    networks:
+      - name: cds-local
+        driver: bridge
 
   modules:
     - id: vault
