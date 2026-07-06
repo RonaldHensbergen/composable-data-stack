@@ -1,8 +1,6 @@
 # Thank you Open Source
 
-> This project stands on the shoulders of giants.
-
-It exists because of the countless engineers, maintainers, writers, reviewers, testers, and community members who have built and sustained the open-source software it depends on. Their work made it possible to move faster, build better, and focus on solving real problems instead of reinventing the foundations.
+This project exists because of the countless engineers, maintainers, writers, reviewers, testers, and community members who have built and sustained the open-source software it depends on. Their work made it possible to move faster, build better, and focus on solving real problems instead of reinventing the foundations.
 
 I want to explicitly acknowledge and thank the people behind the open-source projects that make this work possible:
 
