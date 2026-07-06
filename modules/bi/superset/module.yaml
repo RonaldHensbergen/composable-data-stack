@@ -20,6 +20,8 @@ spec:
         - name: http
           containerPort: 8088
           protocol: TCP
+      networks:
+        - default
 
   configSchema:
     type: object
@@ -106,7 +108,7 @@ spec:
             SUPERSET_ADMIN_USERNAME: "${config.adminUser.username}"
             SUPERSET_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
             SUPERSET_ADMIN_EMAIL: "${config.adminUser.email}"
-            SUPERSET_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
+            SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
           healthcheck:
             conditionallyEnabledFrom: spec.config.healthcheck.enabled
             test:
