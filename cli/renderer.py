@@ -38,6 +38,22 @@ def render_compose(
     profile_dir = _resolve_profile_dir(plan)
     project_root = _resolve_project_root(profile_dir)
 
+    # Extract networks from runtime config
+    runtime = plan.get("runtime", {})
+    networks_config = runtime.get("networks", [])
+    
+    # Build networks section
+    networks: dict[str, Any] = {}
+    for net in networks_config:
+        net_name = net.get("name", "default")
+        networks[net_name] = {}
+        driver = net.get("driver")
+        if driver:
+            networks[net_name]["driver"] = driver
+
+    # Build the default network name from namespace or profile name
+    default_network_name = runtime.get("namespace") or plan.get("metadata", {}).get("name", "cds")
+
     compose: dict[str, Any] = {
         "name": plan.get("metadata", {}).get("name", "cds"),
         "services": {},
@@ -88,6 +104,7 @@ def render_compose(
             profile_dir=profile_dir,
             project_root=project_root,
             compose_dir=compose_dir,
+            network_name=default_network_name,
         )
         rendered_volumes = _render_volumes(module, volumes, secrets)
 
@@ -123,6 +140,7 @@ def _render_services(
     profile_dir: Path | None,
     project_root: Path | None,
     compose_dir: Path,
+    network_name: str | None = None,
 ) -> dict[str, Any]:
     rendered: dict[str, Any] = {}
     context = _build_context(module, secrets)
