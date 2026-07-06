@@ -503,6 +503,7 @@ Next:
 - stack bootstrap and health checks
 
 See [docs/roadmap.md](docs/roadmap.md) for milestones and detailed status.
+See [docs/support-policy.md](docs/support-policy.md) for OS support policy and platform-specific limitations.
 
 ---
 

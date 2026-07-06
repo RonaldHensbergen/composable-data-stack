@@ -34,7 +34,7 @@ This document describes how to create a release.
    git tag vX.Y.Z
    git push origin main --tags
    ```
-7. Create GitHub release notes from CHANGELOG entries.
+7. Pushing the tag triggers `.github/workflows/release.yml`, which creates a draft GitHub release automatically. The release body is populated from the matching `CHANGELOG.md` section (falling back to a note if no entry is found), plus GitHub's auto-generated commit comparison. Review the draft and publish it manually. The workflow intentionally leaves it as a draft so breaking changes and contributor credit can be verified against the Release Checklist below first.
 
 ## Release Notes Template
 
