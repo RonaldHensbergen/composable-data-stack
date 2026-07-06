@@ -343,7 +343,15 @@ def _rewrite_local_path(
     try:
         rel = Path(chosen).relative_to(compose_dir)
     except ValueError:
-        rel = Path(os.path.relpath(chosen, compose_dir))
+        # relative_to() only works for descendants; relpath preserves ../ segments.
+        try:
+            rel = Path(os.path.relpath(chosen, compose_dir))
+        except ValueError:
+            # On Windows, relpath raises when chosen and compose_dir are on
+            # different drives (e.g. C:\ vs D:\), no relative path can
+            # express that. Fall back to the absolute path, same as the
+            # is_absolute() short-circuit above.
+            return Path(chosen).as_posix()
     return rel.as_posix()
 
 
@@ -469,7 +477,14 @@ def _resolve_context_path(
         rel = Path(chosen).relative_to(compose_dir)
     except ValueError:
         # relative_to() only works for descendants; relpath preserves ../ segments.
-        rel = Path(os.path.relpath(chosen, compose_dir))
+        try:
+            rel = Path(os.path.relpath(chosen, compose_dir))
+        except ValueError:
+            # On Windows, relpath raises when chosen and compose_dir are on
+            # different drives (e.g. C:\ vs D:\), no relative path can
+            # express that. Fall back to the absolute path, same as the
+            # is_absolute() short-circuit above.
+            return Path(chosen).as_posix()
     return Path(rel).as_posix()
 
 
