@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Extract changelog section for this tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          if [ ! -f CHANGELOG.md ]; then
+            echo "_CHANGELOG.md not found. See the commit comparison below._" > release_notes.md
+            exit 0
+          fi
+
+          ESCAPED_VERSION=$(printf '%s' "$VERSION" | sed 's/\./\\./g')
+
+          awk -v ver="$ESCAPED_VERSION" '
+            BEGIN { found=0 }
+            /^## \[/ {
+              if (found) exit
+              if ($0 ~ "\\[" ver "\\]") { found=1; next }
+              next
+            }
+            found { print }
+          ' CHANGELOG.md > release_notes.md 2>/dev/null
+
+          if [ ! -s release_notes.md ]; then
+            echo "_No CHANGELOG.md entry found for ${GITHUB_REF_NAME}. See the commit comparison below._" > release_notes.md
+          fi
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          body_path: release_notes.md
+          generate_release_notes: true
+          draft: true

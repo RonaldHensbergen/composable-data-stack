@@ -38,35 +38,11 @@ def render_compose(
     profile_dir = _resolve_profile_dir(plan)
     project_root = _resolve_project_root(profile_dir)
 
-    # Extract networks from runtime config
-    runtime = plan.get("runtime", {})
-    networks_config = runtime.get("networks", [])
-    
-    # Build networks section
-    networks: dict[str, Any] = {}
-    for net in networks_config:
-        net_name = net.get("name", "default")
-        networks[net_name] = {}
-        driver = net.get("driver")
-        if driver:
-            networks[net_name]["driver"] = driver
-
-    # Build the default network name from namespace or profile name
-    default_network_name = runtime.get("namespace") or plan.get("metadata", {}).get("name", "cds")
-
     compose: dict[str, Any] = {
         "name": plan.get("metadata", {}).get("name", "cds"),
         "services": {},
+        "volumes": {},
     }
-    
-    # Add volumes if there are any
-    compose["volumes"] = {}
-    
-    # Add networks if defined
-    if networks or default_network_name:
-        if not networks:
-            networks[default_network_name] = {}
-        compose["networks"] = networks
 
     for module in plan.get("modules", []):
         implementation = module.get("implementation", {})
@@ -106,7 +82,6 @@ def render_compose(
             profile_dir=profile_dir,
             project_root=project_root,
             compose_dir=compose_dir,
-            network_name=default_network_name,
         )
         rendered_volumes = _render_volumes(module, volumes, secrets)
 
@@ -115,9 +90,6 @@ def render_compose(
 
         for volume_name, volume_def in rendered_volumes.items():
             compose["volumes"][f'{module["id"]}-{volume_name}'] = volume_def
-
-    # Add cross-module dependencies
-    _add_cross_module_dependencies(compose, plan)
 
     if not compose["volumes"]:
         compose.pop("volumes")
@@ -143,7 +115,6 @@ def _render_services(
     profile_dir: Path | None,
     project_root: Path | None,
     compose_dir: Path,
-    network_name: str | None = None,
 ) -> dict[str, Any]:
     rendered: dict[str, Any] = {}
     context = _build_context(module, secrets)
@@ -188,18 +159,6 @@ def _render_services(
             project_root=project_root,
             compose_dir=compose_dir,
         )
-        
-        # Add service to network
-        if network_name:
-            if "networks" not in service_copy:
-                service_copy["networks"] = []
-            if isinstance(service_copy["networks"], list):
-                if network_name not in service_copy["networks"]:
-                    service_copy["networks"].append(network_name)
-            elif isinstance(service_copy["networks"], dict):
-                if network_name not in service_copy["networks"]:
-                    service_copy["networks"][network_name] = {}
-        
         rendered[service_name] = service_copy
 
     return rendered
@@ -384,7 +343,15 @@ def _rewrite_local_path(
     try:
         rel = Path(chosen).relative_to(compose_dir)
     except ValueError:
-        rel = Path(os.path.relpath(chosen, compose_dir))
+        # relative_to() only works for descendants; relpath preserves ../ segments.
+        try:
+            rel = Path(os.path.relpath(chosen, compose_dir))
+        except ValueError:
+            # On Windows, relpath raises when chosen and compose_dir are on
+            # different drives (e.g. C:\ vs D:\), no relative path can
+            # express that. Fall back to the absolute path, same as the
+            # is_absolute() short-circuit above.
+            return Path(chosen).as_posix()
     return rel.as_posix()
 
 
@@ -510,7 +477,14 @@ def _resolve_context_path(
         rel = Path(chosen).relative_to(compose_dir)
     except ValueError:
         # relative_to() only works for descendants; relpath preserves ../ segments.
-        rel = Path(os.path.relpath(chosen, compose_dir))
+        try:
+            rel = Path(os.path.relpath(chosen, compose_dir))
+        except ValueError:
+            # On Windows, relpath raises when chosen and compose_dir are on
+            # different drives (e.g. C:\ vs D:\), no relative path can
+            # express that. Fall back to the absolute path, same as the
+            # is_absolute() short-circuit above.
+            return Path(chosen).as_posix()
     return Path(rel).as_posix()
 
 
@@ -592,7 +566,8 @@ def _is_named_volume(value: str) -> bool:
     return "/" not in value and "\\" not in value
 
 
-def _add_cross_module_dependencies(compose: dict[str, Any], plan: dict[str, Any]) -> None:
+def _add_cross_module_dependencies(compose: dict[str, Any], plan: dict[str, Any]
+) -> None:
     """
     Add explicit cross-module dependencies to docker-compose services.
     
