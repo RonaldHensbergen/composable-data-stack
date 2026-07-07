@@ -2,8 +2,8 @@
 set -e
 
 psql -v ON_ERROR_STOP=1 \
-  -U "$POSTGRES_USER" \
-  -d "$POSTGRES_DB" \
+  -U postgres \
+  -d postgres \
      -v dagster_password="$DAGSTER_POSTGRES_PASSWORD" \
      -v superset_password="$SUPERSET_POSTGRES_PASSWORD" \
      -v analytics_password="$ANALYTICS_POSTGRES_PASSWORD" <<'SQL'

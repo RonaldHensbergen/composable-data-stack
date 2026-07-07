@@ -27,6 +27,7 @@ spec:
         database: analytics
         username: analytics
         passwordFrom: secrets.analytics_postgres_password
+        superuserPasswordFrom: secrets.postgres_superuser_password
         port: 5432
         initDbScript: init-db.sh
         dagsterPasswordFrom: secrets.dagster_postgres_password
@@ -84,6 +85,9 @@ spec:
     provider:
       type: env
     values:
+      postgres_superuser_password:
+        env: CDS_POSTGRES_SUPERUSER_PASSWORD
+        required: true
       postgres_password:
         env: CDS_ANALYTICS_POSTGRES_PASSWORD
         required: true
