@@ -634,7 +634,13 @@ def _add_cross_module_dependencies(compose: dict[str, Any], plan: dict[str, Any]
         for service_name in module_service_names:
             service_def = services.get(service_name)
             if not service_def:
-                continue
+                continance(service_def["depends_on"], dict):
+                        service_def["depends_on"][dep_service_name] = {
+                            "condition": "service_started"
+                        }
+                    elif isinstance(service_def["depends_on"], list):
+                        if dep_service_name not in service_def["depends_on"]:
+                            service_def["depends_on"].append(dep_service_nameue
             
             # Collect all services from dependent modules
             for dep_module_id in depends_on:
@@ -646,10 +652,4 @@ def _add_cross_module_dependencies(compose: dict[str, Any], plan: dict[str, Any]
                         service_def["depends_on"] = {}
                     
                     # Add the dependency with a started condition
-                    if isinstance(service_def["depends_on"], dict):
-                        service_def["depends_on"][dep_service_name] = {
-                            "condition": "service_started"
-                        }
-                    elif isinstance(service_def["depends_on"], list):
-                        if dep_service_name not in service_def["depends_on"]:
-                            service_def["depends_on"].append(dep_service_name)
+                    if isinst)
