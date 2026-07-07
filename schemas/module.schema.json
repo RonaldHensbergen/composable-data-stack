@@ -91,6 +91,13 @@
               "items": {
                 "$ref": "#/$defs/servicePort"
               }
+            },
+            "networks": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           }
         }

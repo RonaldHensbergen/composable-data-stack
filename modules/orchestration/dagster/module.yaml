@@ -21,6 +21,8 @@ spec:
         - name: http
           containerPort: 3000
           protocol: TCP
+      networks:
+        - default
 
   configSchema:
     type: object

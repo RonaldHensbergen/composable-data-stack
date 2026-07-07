@@ -38,11 +38,33 @@ def render_compose(
     profile_dir = _resolve_profile_dir(plan)
     project_root = _resolve_project_root(profile_dir)
 
+    # Extract networks from runtime config
+    runtime = plan.get("runtime", {})
+    networks_config = runtime.get("networks", [])
+    
+    # Build networks section
+    networks: dict[str, Any] = {}
+    for net in networks_config:
+        net_name = net.get("name", "default")
+        networks[net_name] = {}
+        driver = net.get("driver")
+        if driver:
+            networks[net_name]["driver"] = driver
+
+    # Build the default network name from namespace or profile name
+    default_network_name = runtime.get("namespace") or plan.get("metadata", {}).get("name", "cds")
+
     compose: dict[str, Any] = {
         "name": plan.get("metadata", {}).get("name", "cds"),
         "services": {},
         "volumes": {},
     }
+    
+    # Add networks if defined
+    if networks or default_network_name:
+        if not networks:
+            networks[default_network_name] = {}
+        compose["networks"] = networks
 
     for module in plan.get("modules", []):
         implementation = module.get("implementation", {})
@@ -82,6 +104,7 @@ def render_compose(
             profile_dir=profile_dir,
             project_root=project_root,
             compose_dir=compose_dir,
+            network_name=default_network_name,
         )
         rendered_volumes = _render_volumes(module, volumes, secrets)
 
@@ -93,6 +116,8 @@ def render_compose(
 
     if not compose["volumes"]:
         compose.pop("volumes")
+
+    _add_cross_module_dependencies(compose, plan)
 
     output = yaml.safe_dump(compose, sort_keys=False)
 
@@ -115,6 +140,7 @@ def _render_services(
     profile_dir: Path | None,
     project_root: Path | None,
     compose_dir: Path,
+    network_name: str | None = None,
 ) -> dict[str, Any]:
     rendered: dict[str, Any] = {}
     context = _build_context(module, secrets)
@@ -159,6 +185,11 @@ def _render_services(
             project_root=project_root,
             compose_dir=compose_dir,
         )
+        
+        # Attach to the network if network_name is provided
+        if network_name:
+            service_copy["networks"] = [network_name]
+        
         rendered[service_name] = service_copy
 
     return rendered
@@ -564,3 +595,61 @@ def _is_named_volume(value: str) -> bool:
     if value.startswith((".", "/", "~")):
         return False
     return "/" not in value and "\\" not in value
+
+
+def _add_cross_module_dependencies(compose: dict[str, Any], plan: dict[str, Any]
+) -> None:
+    """
+    Add explicit cross-module dependencies to docker-compose services.
+    
+    For each module that has dependsOn declarations, add depends_on entries
+    to all its services, referencing all services from the dependent modules.
+    """
+    modules = plan.get("modules", [])
+    services = compose.get("services", {})
+    
+    # Build a map of module_id -> list of service names in that module
+    module_services: dict[str, list[str]] = {}
+    for service_name in services.keys():
+        # Service names are formatted as "{module_id}-{service_name}"
+        parts = service_name.split("-", 1)
+        if len(parts) == 2:
+            module_id = parts[0]
+            if module_id not in module_services:
+                module_services[module_id] = []
+            module_services[module_id].append(service_name)
+    
+    # For each module, add depends_on for its dependencies
+    for module in modules:
+        module_id = module.get("id")
+        depends_on = module.get("dependsOn", [])
+        
+        if not depends_on or not module_id:
+            continue
+        
+        # Find all services belonging to this module
+        module_service_names = module_services.get(module_id, [])
+        
+        # For each service in this module, add depends_on entries
+        for service_name in module_service_names:
+            service_def = services.get(service_name)
+            if not service_def:
+                continance(service_def["depends_on"], dict):
+                        service_def["depends_on"][dep_service_name] = {
+                            "condition": "service_started"
+                        }
+                    elif isinstance(service_def["depends_on"], list):
+                        if dep_service_name not in service_def["depends_on"]:
+                            service_def["depends_on"].append(dep_service_nameue
+            
+            # Collect all services from dependent modules
+            for dep_module_id in depends_on:
+                dep_services = module_services.get(dep_module_id, [])
+                
+                for dep_service_name in dep_services:
+                    # Initialize depends_on if not present
+                    if "depends_on" not in service_def:
+                        service_def["depends_on"] = {}
+                    
+                    # Add the dependency with a started condition
+                    if isinst)

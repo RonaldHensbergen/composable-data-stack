@@ -27,7 +27,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.14"
+          python-version: "3.12"
 
       - name: Install YAML linter
         run: |
@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.14"]
+        python-version: ["3.12"]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -89,7 +89,7 @@ jobs:
             dir=$(dirname "$dockerfile")
             echo "Building $dockerfile in directory $dir..."
             context="$dir"
-            if [ "$dockerfile" = "./images/dagster/Dockerfile.user-code" ]; then
+            if [ "$dockerfile" = "./images/dagster/Dockerfile" ] || [ "$dockerfile" = "./images/dagster/Dockerfile.user-code" ]; then
               context="."
             fi
             docker build -f "$dockerfile" "$context" || exit 1

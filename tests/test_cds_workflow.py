@@ -1,5 +1,4 @@
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -9,6 +8,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PROFILE_NAME = "local-dagster-postgres-superset"
 _PROFILE_FILE = str(_REPO_ROOT / "profiles" / _PROFILE_NAME / "profile.yaml")
+_PROFILE_ENV_FILE = _REPO_ROOT / ".env"
 
 
 def _find_cds() -> list[str]:
@@ -30,11 +30,21 @@ class TestCDSWorkflow(unittest.TestCase):
         cls.cds = _find_cds()
         cls.repo_root = _REPO_ROOT
 
-        env_example = cls.repo_root / ".env.example"
-        env_file = cls.repo_root / ".env"
+        env_file = _PROFILE_ENV_FILE
         cls._created_env = False
-        if env_example.exists() and not env_file.exists():
-            shutil.copy(str(env_example), str(env_file))
+        if not env_file.exists():
+            init_result = subprocess.run(
+                cls.cds + ["init", _PROFILE_NAME],
+                cwd=str(cls.repo_root),
+                capture_output=True,
+                text=True,
+            )
+            if init_result.returncode != 0:
+                raise RuntimeError(
+                    "Failed to initialize .env for workflow tests:\n"
+                    f"stdout: {init_result.stdout}\n"
+                    f"stderr: {init_result.stderr}"
+                )
             cls._created_env = True
 
         cls.render_tmpdir = tempfile.TemporaryDirectory()
@@ -43,7 +53,7 @@ class TestCDSWorkflow(unittest.TestCase):
     def tearDownClass(cls):
         cls.render_tmpdir.cleanup()
         if cls._created_env:
-            env_file = cls.repo_root / ".env"
+            env_file = _PROFILE_ENV_FILE
             if env_file.exists():
                 env_file.unlink()
 
