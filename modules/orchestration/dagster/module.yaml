@@ -158,8 +158,8 @@ spec:
               - -p
               - "4000"
             interval: 10s
-            timeout: 2s
-            start_period: 30s
+            timeout: 5s
+            start_period: 60s
             retries: 3
           volumes:
             - /var/run/docker.sock:/var/run/docker.sock
@@ -238,8 +238,8 @@ spec:
               - -p
               - "4000"
             interval: 10s
-            timeout: 2s
-            start_period: 30s
+            timeout: 5s
+            start_period: 60s
             retries: 3
           volumes:
             - /var/run/docker.sock:/var/run/docker.sock

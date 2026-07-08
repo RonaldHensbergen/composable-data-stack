@@ -648,7 +648,7 @@ def _add_cross_module_dependencies(compose: dict[str, Any], plan: dict[str, Any]
                     # Add the dependency with a started condition
                     if isinstance(service_def["depends_on"], dict):
                         service_def["depends_on"][dep_service_name] = {
-                            "condition": "service_started"
+                            "condition": "service_healthy"
                         }
                     elif isinstance(service_def["depends_on"], list):
                         if dep_service_name not in service_def["depends_on"]:
