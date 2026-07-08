@@ -20,6 +20,29 @@ from .security import run_security_validation
 from .loader import load_yaml_file
 
 
+def load_env_file(env_file: str = ".env") -> None:
+    """Load environment variables from a .env file."""
+    env_path = Path(env_file)
+    if not env_path.exists():
+        return
+    
+    with open(env_path) as f:
+        for line in f:
+            line = line.strip()
+            # Skip empty lines and comments
+            if not line or line.startswith("#"):
+                continue
+            
+            # Parse KEY=VALUE format
+            if "=" in line:
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                # Only set if not already in environment
+                if key and not os.environ.get(key):
+                    os.environ[key] = value
+
+
 def print_diagnostics(diagnostics) -> None:
     for d in diagnostics:
         prefix = "ERROR" if d.level == "error" else "WARN"
@@ -237,6 +260,9 @@ def _write_env_file(output_path: Path, env_vars: list[str], profile_path: str, f
 
 
 def main() -> int:
+    # Load .env file if it exists
+    load_env_file()
+    
     parser = argparse.ArgumentParser(prog="cds")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
