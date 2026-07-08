@@ -1,7 +1,7 @@
 name: local-dagster-postgres-superset
 services:
   postgres-postgres:
-    image: postgres:16
+    image: postgres:18
     hostname: postgres
     ports:
     - 5432:5432
