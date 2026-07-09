@@ -108,6 +108,9 @@ def render_compose(
         )
         rendered_volumes = _render_volumes(module, volumes, secrets)
 
+        # Handle initDbEnv for postgres service (merge additional env vars)
+        _merge_init_db_env(rendered_services, module, secrets)
+
         for service_name, service_def in rendered_services.items():
             compose["services"][f'{module["id"]}-{service_name}'] = service_def
 
@@ -215,6 +218,38 @@ def _render_volumes(
             rendered[volume_name] = volume_def
 
     return rendered
+
+
+def _merge_init_db_env(
+    services: dict[str, Any],
+    module: dict[str, Any],
+    secrets: dict[str, str],
+) -> None:
+    """
+    Merge initDbEnv into postgres service environment variables.
+    
+    If a module has config.initDbEnv, merge those environment variables
+    into any service named "postgres" in the rendered services.
+    """
+    init_db_env = module.get("config", {}).get("initDbEnv")
+    if not init_db_env or not isinstance(init_db_env, dict):
+        return
+    
+    # Find postgres service and merge env vars
+    postgres_service = services.get("postgres")
+    if postgres_service and isinstance(postgres_service, dict):
+        env = postgres_service.setdefault("environment", {})
+        if not isinstance(env, dict):
+            return
+        
+        # Substitute values in init_db_env and merge
+        context = _build_context(module, secrets)
+        for key, value in init_db_env.items():
+            if isinstance(value, str):
+                # Resolve references like "secrets.xyz"
+                env[key] = _resolve_expr(value, context)
+            else:
+                env[key] = value
 
 
 def _build_context(

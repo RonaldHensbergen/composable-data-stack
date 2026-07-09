@@ -30,9 +30,10 @@ spec:
         superuserPasswordFrom: secrets.postgres_superuser_password
         port: 5432
         initDbScript: init-db.sh
-        dagsterPasswordFrom: secrets.dagster_postgres_password
-        supersetPasswordFrom: secrets.superset_postgres_password
-        analyticsPasswordFrom: secrets.analytics_postgres_password
+        initDbEnv:
+          DAGSTER_POSTGRES_PASSWORD: secrets.dagster_postgres_password
+          SUPERSET_POSTGRES_PASSWORD: secrets.superset_postgres_password
+          ANALYTICS_POSTGRES_PASSWORD: secrets.analytics_postgres_password
         storage:
           enabled: true
           size: 5Gi

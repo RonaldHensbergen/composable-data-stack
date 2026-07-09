@@ -48,17 +48,11 @@ spec:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
 
-      dagsterPasswordFrom:
-        type: string
-        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
-
-      supersetPasswordFrom:
-        type: string
-        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
-
-      analyticsPasswordFrom:
-        type: string
-        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+      initDbEnv:
+        type: object
+        additionalProperties: true
+        default: {}
+        description: Additional environment variables to pass to the init-db script
 
       port:
         type: integer
@@ -116,9 +110,6 @@ spec:
             POSTGRES_PASSWORD: "${config.superuserPasswordFrom}"
             POSTGRES_DB: postgres
             POSTGRES_USER: postgres
-            DAGSTER_POSTGRES_PASSWORD: "${config.dagsterPasswordFrom}"
-            SUPERSET_POSTGRES_PASSWORD: "${config.supersetPasswordFrom}"
-            ANALYTICS_POSTGRES_PASSWORD: "${config.analyticsPasswordFrom}"
           volumes:
             - type: bind
               source: "${config.initDbScript}"
