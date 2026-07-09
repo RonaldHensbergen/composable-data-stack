@@ -3,3 +3,4 @@ dagster-postgres==0.29.12
 dagster-docker==0.29.12
 dagster-graphql==1.13.12
 dagster-webserver==1.13.12
+jinja2>=3.0

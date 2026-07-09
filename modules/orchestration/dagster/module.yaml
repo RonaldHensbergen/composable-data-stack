@@ -171,6 +171,7 @@ spec:
             DAGSTER_DB_NAME: "${bindings.run-storage.database}"
             DAGSTER_DB_USER: "${bindings.run-storage.username}"
             DAGSTER_DB_PASSWORD: "${bindings.run-storage.password}"
+            DAGSTER_DB_CONNECTION_URI: "${bindings.run-storage.connectionUri}"
             DAGSTER_CURRENT_IMAGE: local/dagster:custom
 
         dagster-webserver:
@@ -202,6 +203,7 @@ spec:
             DAGSTER_DB_NAME: "${bindings.run-storage.database}"
             DAGSTER_DB_USER: "${bindings.run-storage.username}"
             DAGSTER_DB_PASSWORD: "${bindings.run-storage.password}"
+            DAGSTER_DB_CONNECTION_URI: "${bindings.run-storage.connectionUri}"
           healthcheck:
             conditionallyEnabledFrom: spec.config.healthcheck.enabled
             test:
@@ -251,6 +253,7 @@ spec:
             DAGSTER_DB_NAME: "${bindings.run-storage.database}"
             DAGSTER_DB_USER: "${bindings.run-storage.username}"
             DAGSTER_DB_PASSWORD: "${bindings.run-storage.password}"
+            DAGSTER_DB_CONNECTION_URI: "${bindings.run-storage.connectionUri}"
 
       volumes:
         dagster-io-manager-storage:

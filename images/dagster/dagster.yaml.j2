@@ -13,15 +13,15 @@
   config:
     postgres_db:
       hostname:
-        env: DAGSTER_POSTGRES_HOST
+        env: DAGSTER_DB_HOST
       username:
-        env: DAGSTER_POSTGRES_USER
+        env: DAGSTER_DB_USER
       password:
-        env: DAGSTER_POSTGRES_PASSWORD
+        env: DAGSTER_DB_PASSWORD
       db_name:
-        env: DAGSTER_POSTGRES_DB
+        env: DAGSTER_DB_NAME
       port:
-        env: DAGSTER_POSTGRES_PORT
+        env: DAGSTER_DB_PORT
 {% endfor %}
 
 {% elif backend == "sqlite" %}
