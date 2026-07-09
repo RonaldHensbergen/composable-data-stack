@@ -77,6 +77,7 @@ class RenderExampleProfileTest(unittest.TestCase):
             env_file = Path(tmpdir) / ".env"
             env_file.write_text(
                 "CDS_VAULT_TOKEN=test-vault-token\n"
+                "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser_testpass\n"
                 "CDS_ANALYTICS_POSTGRES_PASSWORD=analytics_testpass\n"
                 "CDS_DAGSTER_POSTGRES_PASSWORD=dagster_testpass\n"
                 "CDS_SUPERSET_POSTGRES_PASSWORD=superset_testpass\n"
