@@ -48,6 +48,12 @@ spec:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
 
+      initDbEnv:
+        type: object
+        additionalProperties: true
+        default: {}
+        description: Additional environment variables to pass to the init-db script
+
       port:
         type: integer
         minimum: 1

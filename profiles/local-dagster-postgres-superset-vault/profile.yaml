@@ -37,8 +37,13 @@ spec:
         database: analytics
         username: analytics
         passwordFrom: secrets.analytics_postgres_password
+        superuserPasswordFrom: secrets.postgres_superuser_password
         port: 5432
         initDbScript: init-db.sh
+        initDbEnv:
+          DAGSTER_POSTGRES_PASSWORD: secrets.dagster_postgres_password
+          SUPERSET_POSTGRES_PASSWORD: secrets.superset_postgres_password
+          ANALYTICS_POSTGRES_PASSWORD: secrets.analytics_postgres_password
         storage:
           enabled: true
           size: 5Gi
@@ -94,8 +99,17 @@ spec:
       vault_token:
         env: CDS_VAULT_TOKEN
         required: true
+      postgres_superuser_password:
+        env: CDS_POSTGRES_SUPERUSER_PASSWORD
+        required: true
       postgres_password:
         env: CDS_ANALYTICS_POSTGRES_PASSWORD
+        required: true
+      dagster_postgres_password:
+        env: CDS_DAGSTER_POSTGRES_PASSWORD
+        required: true
+      superset_postgres_password:
+        env: CDS_SUPERSET_POSTGRES_PASSWORD
         required: true
       analytics_postgres_password:
         env: CDS_ANALYTICS_POSTGRES_PASSWORD
