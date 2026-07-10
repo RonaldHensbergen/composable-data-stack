@@ -33,26 +33,26 @@ Run tests in this order:
 
 ## T2 Dagster proof
 
-- [ ] **T2.1** Dagster UI load  
+- [x] **T2.1** Dagster UI load  
   Confirm Dagster UI is reachable.
 
-- [ ] **T2.2** Code location loads  
+- [x] **T2.2** Code location loads  
   Confirm repository/code location is visible with no import or config errors.
 
-- [ ] **T2.3** Demo job exists  
+- [x] **T2.3** Demo job exists  
   Confirm `load_demo_sales` or equivalent job is present.
 
 ---
 
 ## T3 Postgres proof
 
-- [ ] **T3.1** Postgres connect  
+- [x] **T3.1** Postgres connect  
   Connect using profile credentials successfully.
 
-- [ ] **T3.2** Schema bootstrap  
+- [x] **T3.2** Schema bootstrap  
   Confirm required database/schema exists.
 
-- [ ] **T3.3** Dagster storage backing  
+- [x] **T3.3** Dagster storage backing  
   Confirm Dagster uses Postgres-backed state if that is part of the profile.
 
 ---
@@ -170,8 +170,8 @@ Run tests in this order:
 Minimum required before calling the profile proven:
 
 - [x] **T1.1–T1.3**
-- [ ] **T2.1–T2.3**
-- [ ] **T3.1–T3.3**
+- [x] **T2.1–T2.3**
+- [x] **T3.1–T3.3**
 - [ ] **T4.1–T4.5**
 - [ ] **T5.1–T5.3**
 - [ ] **T6.1**
