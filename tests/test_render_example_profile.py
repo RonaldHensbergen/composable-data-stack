@@ -46,7 +46,7 @@ class RenderExampleProfileTest(unittest.TestCase):
                     print(f"  Repr: {repr(diag)}")
                     try:
                         print(f"  Str: {str(diag)}")
-                    except:
+                    except Exception:
                         pass
                 print("="*60 + "\n")
             
@@ -120,7 +120,7 @@ class RenderExampleProfileTest(unittest.TestCase):
                     print(f"  Repr: {repr(diag)}")
                     try:
                         print(f"  Str: {str(diag)}")
-                    except:
+                    except Exception:
                         pass
                 print("="*60 + "\n")
             
