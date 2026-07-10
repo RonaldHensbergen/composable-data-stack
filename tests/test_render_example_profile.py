@@ -22,9 +22,9 @@ class RenderExampleProfileTest(unittest.TestCase):
             env_file = Path(tmpdir) / ".env"
             env_file.write_text(
                 "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser_testpass\n"
-                "CDS_ANALYTICS_POSTGRES_PASSWORD=analytics_testpass\n"
-                "CDS_DAGSTER_POSTGRES_PASSWORD=dagster_testpass\n"
-                "CDS_SUPERSET_POSTGRES_PASSWORD=superset_testpass\n"
+                "CDS_ANALYTICS_DB_PASSWORD=analytics_testpass\n"
+                "CDS_DAGSTER_DB_PASSWORD=dagster_testpass\n"
+                "CDS_SUPERSET_DB_PASSWORD=superset_testpass\n"
                 "CDS_SUPERSET_SECRET_KEY=sekret\n"
                 "CDS_SUPERSET_ADMIN_PASSWORD=adminpass\n",
                 encoding="utf-8",
@@ -96,9 +96,9 @@ class RenderExampleProfileTest(unittest.TestCase):
             env_file.write_text(
                 "CDS_VAULT_TOKEN=test-vault-token\n"
                 "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser_testpass\n"
-                "CDS_ANALYTICS_POSTGRES_PASSWORD=analytics_testpass\n"
-                "CDS_DAGSTER_POSTGRES_PASSWORD=dagster_testpass\n"
-                "CDS_SUPERSET_POSTGRES_PASSWORD=superset_testpass\n"
+                "CDS_ANALYTICS_DB_PASSWORD=analytics_testpass\n"
+                "CDS_DAGSTER_DB_PASSWORD=dagster_testpass\n"
+                "CDS_SUPERSET_DB_PASSWORD=superset_testpass\n"
                 "CDS_SUPERSET_SECRET_KEY=sekret\n"
                 "CDS_SUPERSET_ADMIN_PASSWORD=adminpass\n",
                 encoding="utf-8",
