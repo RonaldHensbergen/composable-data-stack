@@ -20,6 +20,8 @@ class SmokeExampleProfileTest(unittest.TestCase):
             env_file = Path(tmpdir) / ".env"
             env_file.write_text(
                 "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser_testpass\n"
+                "CDS_ANALYTICS_DB_NAME=analytics\n"
+                "CDS_ANALYTICS_DB_USER=analytics\n"
                 "CDS_ANALYTICS_DB_PASSWORD=analytics_testpass\n"
                 "CDS_DAGSTER_DB_PASSWORD=dagster_testpass\n"
                 "CDS_SUPERSET_DB_PASSWORD=superset_testpass\n"

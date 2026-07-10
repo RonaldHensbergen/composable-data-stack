@@ -34,13 +34,15 @@ spec:
       version: "0.1.0"
       enabled: true
       config:
-        database: analytics
-        username: analytics
+        database: "${CDS_ANALYTICS_DB_NAME}"
+        username: "${CDS_ANALYTICS_DB_USER}"
         passwordFrom: secrets.analytics_db_password
         superuserPasswordFrom: secrets.postgres_superuser_password
         port: 5432
         initDbScript: init-db.sh
         initDbEnv:
+          ANALYTICS_DB_NAME: config.database
+          ANALYTICS_DB_USER: config.username
           DAGSTER_DB_PASSWORD: secrets.dagster_db_password
           SUPERSET_DB_PASSWORD: secrets.superset_db_password
           ANALYTICS_DB_PASSWORD: secrets.analytics_db_password
