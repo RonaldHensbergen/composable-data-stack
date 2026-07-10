@@ -113,11 +113,13 @@ class RenderExampleProfileTest(unittest.TestCase):
                 print("="*60)
                 for i, diag in enumerate(error_diags, 1):
                     print(f"\n[Error {i}]")
-                    print(f"  Summary: {diag.summary}")
-                    if hasattr(diag, 'detail'):
-                        print(f"  Detail: {diag.detail}")
-                    if hasattr(diag, 'location'):
-                        print(f"  Location: {diag.location}")
+                    print(f"  Diagnostic object: {diag}")
+                    print(f"  Dir: {[attr for attr in dir(diag) if not attr.startswith('_')]}")
+                    print(f"  Repr: {repr(diag)}")
+                    try:
+                        print(f"  Str: {str(diag)}")
+                    except:
+                        pass
                 print("="*60 + "\n")
             
             self.assertEqual(len(error_diags), 0)
