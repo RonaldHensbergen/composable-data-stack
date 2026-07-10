@@ -95,3 +95,4 @@ jobs:
             fi
             docker build -f "$dockerfile" "$context" || exit 1
           done
+# Force workflow re-run
