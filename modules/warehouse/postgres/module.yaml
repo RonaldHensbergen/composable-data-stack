@@ -164,6 +164,7 @@ spec:
             - "${config.port}:5432"
           environment:
             POSTGRES_PASSWORD: "${config.superuserPasswordFrom}"
+            POSTGRES_INITDB_ARGS: -U postgres --auth-local=password
             POSTGRES_DB: postgres
             POSTGRES_USER: postgres
           volumes:

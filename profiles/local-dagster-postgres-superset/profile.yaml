@@ -33,13 +33,13 @@ spec:
         initDbEnv:
           ANALYTICS_DB_NAME: config.database
           ANALYTICS_DB_USER: config.username
+          ANALYTICS_DB_PASSWORD: config.passwordFrom
           DAGSTER_DB_NAME: config.dagsterDatabase.name
           DAGSTER_DB_USER: config.dagsterDatabase.username
+          DAGSTER_DB_PASSWORD: config.dagsterDatabase.passwordFrom
           SUPERSET_DB_NAME: config.supersetDatabase.name
           SUPERSET_DB_USER: config.supersetDatabase.username
-          DAGSTER_DB_PASSWORD: secrets.dagster_db_password
-          SUPERSET_DB_PASSWORD: secrets.superset_db_password
-          ANALYTICS_DB_PASSWORD: secrets.analytics_db_password
+          SUPERSET_DB_PASSWORD: config.supersetDatabase.passwordFrom
         dagsterDatabase:
           name: "${CDS_DAGSTER_DB_NAME}"
           username: "${CDS_DAGSTER_DB_USER}"

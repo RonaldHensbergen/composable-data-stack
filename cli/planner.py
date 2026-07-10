@@ -40,8 +40,6 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
         return None, diagnostics
 
     spec = profile.get("spec", {})
-    raw_env, raw_diags = load_secrets_from_env(Path(env_file) if env_file else None)
-    diagnostics.extend(raw_diags)
     secrets, secret_diags = load_profile_secrets(spec.get("secrets"), env_file)
     diagnostics.extend(secret_diags)
 
@@ -82,11 +80,6 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
         normalized_config = apply_defaults(
             module_instance.get("config", {}),
             module_def.get("spec", {}).get("configSchema", {})
-        )
-
-        # Substitute ${CDS_*} references in config with actual values from .env
-        normalized_config = _substitute_config_env_vars(
-            normalized_config, raw_env, f"spec.modules[{i}].config", diagnostics
         )
 
         # Validate secrets exist but leave "secrets.VAR" strings intact
