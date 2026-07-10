@@ -265,9 +265,9 @@ def _eval_condition(
         policy = cond["imageTagPolicy"]
         if policy == "forbid-latest" and not sval.endswith(":latest"):
             return False
-        if policy == "require-digest" and "@sha256:" not in sval:
+        if policy == "require-digest" and "@sha256:" in sval:
             return False
-        if policy == "require-tag" and ":" not in sval and "@sha256:" not in sval:
+        if policy == "require-tag" and (":" in sval or "@sha256:" in sval):
             return False
 
     if "runtimeFlags" in cond and not any(flag in sval for flag in cond["runtimeFlags"]):
