@@ -43,9 +43,21 @@ spec:
         initDbEnv:
           ANALYTICS_DB_NAME: config.database
           ANALYTICS_DB_USER: config.username
+          DAGSTER_DB_NAME: config.dagsterDatabase.name
+          DAGSTER_DB_USER: config.dagsterDatabase.username
+          SUPERSET_DB_NAME: config.supersetDatabase.name
+          SUPERSET_DB_USER: config.supersetDatabase.username
           DAGSTER_DB_PASSWORD: secrets.dagster_db_password
           SUPERSET_DB_PASSWORD: secrets.superset_db_password
           ANALYTICS_DB_PASSWORD: secrets.analytics_db_password
+        dagsterDatabase:
+          name: "${CDS_DAGSTER_DB_NAME}"
+          username: "${CDS_DAGSTER_DB_USER}"
+          passwordFrom: secrets.dagster_db_password
+        supersetDatabase:
+          name: "${CDS_SUPERSET_DB_NAME}"
+          username: "${CDS_SUPERSET_DB_USER}"
+          passwordFrom: secrets.superset_db_password
         storage:
           enabled: true
           size: 5Gi
@@ -65,11 +77,11 @@ spec:
         homeDir: /opt/dagster/dagster_home
         storage:
           runStorage:
-            contractRef: postgres.sql-database
+            contractRef: postgres.dagster-database
           eventLogStorage:
-            contractRef: postgres.sql-database
+            contractRef: postgres.dagster-database
           scheduleStorage:
-            contractRef: postgres.sql-database
+            contractRef: postgres.dagster-database
 
         runLauncher:
           type: default
@@ -90,7 +102,7 @@ spec:
           passwordFrom: secrets.superset_admin_password
           email: admin@example.local
         metadataDatabase:
-          contractRef: postgres.sql-database
+          contractRef: postgres.superset-database
         healthcheck:
           enabled: true
 

@@ -2,13 +2,13 @@
 set -e
 
 psql -v ON_ERROR_STOP=1 \
-  -U "$POSTGRES_USER" \
-  -d "$POSTGRES_DB" \
-     -v dagster_password="$DAGSTER_DB_PASSWORD" \
-     -v superset_password="$SUPERSET_DB_PASSWORD" \
-     -v analytics_password="$ANALYTICS_DB_PASSWORD" \
-     -v analytics_db="$ANALYTICS_DB_NAME" \
-     -v analytics_user="$ANALYTICS_DB_USER" <<'SQL'
+     -U "$POSTGRES_USER" \
+     -d "$POSTGRES_DB" \
+           -v dagster_password="$DAGSTER_DB_PASSWORD" \
+           -v superset_password="$SUPERSET_DB_PASSWORD" \
+           -v analytics_password="$ANALYTICS_DB_PASSWORD" \
+           -v analytics_db="$ANALYTICS_DB_NAME" \
+           -v analytics_user="$ANALYTICS_DB_USER" <<'SQL'
 SELECT format('CREATE USER %I WITH PASSWORD %L', :'analytics_user', :'analytics_password')
 WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'analytics_user')
 \gexec
@@ -31,20 +31,19 @@ SELECT format('CREATE DATABASE %I', :'analytics_db')
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'analytics_db')
 \gexec
 
-SELECT 'CREATE DATABASE dagster'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'dagster')
+SELECT format('CREATE DATABASE %I', :'dagster_db')
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'dagster_db')
 \gexec
 
-SELECT 'CREATE DATABASE superset'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'superset')
+SELECT format('CREATE DATABASE %I', :'superset_db')
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'superset_db')
 \gexec
-
-GRANT ALL PRIVILEGES ON DATABASE dagster TO dagster;
-GRANT ALL PRIVILEGES ON DATABASE superset TO superset;
 
 DO $do$
 BEGIN
   EXECUTE format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'analytics_db', :'analytics_user');
+  EXECUTE format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'dagster_db', :'dagster_user');
+  EXECUTE format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'superset_db', :'superset_user');
 END
 $do$;
 
@@ -54,15 +53,15 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO :analytics_user
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO :analytics_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO :analytics_user;
 
-\connect dagster
-GRANT ALL ON SCHEMA public TO dagster;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO dagster;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO dagster;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO dagster;
+\connect :dagster_db
+GRANT ALL ON SCHEMA public TO :dagster_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO :dagster_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO :dagster_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO :dagster_user;
 
-\connect superset
-GRANT ALL ON SCHEMA public TO superset;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO superset;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO superset;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO superset;
+\connect :superset_db
+GRANT ALL ON SCHEMA public TO :superset_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO :superset_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO :superset_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO :superset_user;
 SQL

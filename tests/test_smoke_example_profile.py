@@ -23,7 +23,11 @@ class SmokeExampleProfileTest(unittest.TestCase):
                 "CDS_ANALYTICS_DB_NAME=analytics\n"
                 "CDS_ANALYTICS_DB_USER=analytics\n"
                 "CDS_ANALYTICS_DB_PASSWORD=analytics_testpass\n"
+                "CDS_DAGSTER_DB_NAME=dagster\n"
+                "CDS_DAGSTER_DB_USER=dagster\n"
                 "CDS_DAGSTER_DB_PASSWORD=dagster_testpass\n"
+                "CDS_SUPERSET_DB_NAME=superset\n"
+                "CDS_SUPERSET_DB_USER=superset\n"
                 "CDS_SUPERSET_DB_PASSWORD=superset_testpass\n"
                 "CDS_SUPERSET_SECRET_KEY=sekret\n"
                 "CDS_SUPERSET_ADMIN_PASSWORD=adminpass\n",
