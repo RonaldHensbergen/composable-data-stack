@@ -26,14 +26,14 @@ spec:
       config:
         database: analytics
         username: analytics
-        passwordFrom: secrets.analytics_postgres_password
+        passwordFrom: secrets.analytics_db_password
         superuserPasswordFrom: secrets.postgres_superuser_password
         port: 5432
         initDbScript: init-db.sh
         initDbEnv:
-          DAGSTER_POSTGRES_PASSWORD: secrets.dagster_postgres_password
-          SUPERSET_POSTGRES_PASSWORD: secrets.superset_postgres_password
-          ANALYTICS_POSTGRES_PASSWORD: secrets.analytics_postgres_password
+          DAGSTER_DB_PASSWORD: secrets.dagster_db_password
+          SUPERSET_DB_PASSWORD: secrets.superset_db_password
+          ANALYTICS_DB_PASSWORD: secrets.analytics_db_password
         storage:
           enabled: true
           size: 5Gi
@@ -89,17 +89,17 @@ spec:
       postgres_superuser_password:
         env: CDS_POSTGRES_SUPERUSER_PASSWORD
         required: true
-      postgres_password:
-        env: CDS_ANALYTICS_POSTGRES_PASSWORD
+      db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
         required: true
-      dagster_postgres_password:
-        env: CDS_DAGSTER_POSTGRES_PASSWORD
+      dagster_db_password:
+        env: CDS_DAGSTER_DB_PASSWORD
         required: true
-      superset_postgres_password:
-        env: CDS_SUPERSET_POSTGRES_PASSWORD
+      superset_db_password:
+        env: CDS_SUPERSET_DB_PASSWORD
         required: true
-      analytics_postgres_password:
-        env: CDS_ANALYTICS_POSTGRES_PASSWORD
+      analytics_db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
         required: true
       superset_secret_key:
         env: CDS_SUPERSET_SECRET_KEY

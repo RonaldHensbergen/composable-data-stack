@@ -4,9 +4,9 @@ set -e
 psql -v ON_ERROR_STOP=1 \
   -U "$POSTGRES_USER" \
   -d "$POSTGRES_DB" \
-     -v dagster_password="$DAGSTER_POSTGRES_PASSWORD" \
-     -v superset_password="$SUPERSET_POSTGRES_PASSWORD" \
-     -v analytics_password="$ANALYTICS_POSTGRES_PASSWORD" <<'SQL'
+     -v dagster_password="$DAGSTER_DB_PASSWORD" \
+     -v superset_password="$SUPERSET_DB_PASSWORD" \
+     -v analytics_password="$ANALYTICS_DB_PASSWORD" <<'SQL'
 SELECT format('CREATE USER dagster WITH PASSWORD %L', :'dagster_password')
 WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dagster')
 \gexec
