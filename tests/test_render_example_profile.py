@@ -32,7 +32,23 @@ class RenderExampleProfileTest(unittest.TestCase):
 
             plan, plan_diags = build_plan(str(profile_path), env_file=str(env_file))
             self.assertIsNotNone(plan)
-            self.assertEqual(len([d for d in plan_diags if d.level == "error"]), 0)
+            
+            error_diags = [d for d in plan_diags if d.level == "error"]
+            # Add debugging output for errors
+            if error_diags:
+                print("\n" + "="*60)
+                print(f"FOUND {len(error_diags)} VALIDATION ERRORS:")
+                print("="*60)
+                for i, diag in enumerate(error_diags, 1):
+                    print(f"\n[Error {i}]")
+                    print(f"  Summary: {diag.summary}")
+                    if hasattr(diag, 'detail'):
+                        print(f"  Detail: {diag.detail}")
+                    if hasattr(diag, 'location'):
+                        print(f"  Location: {diag.location}")
+                print("="*60 + "\n")
+            
+            self.assertEqual(len(error_diags), 0)
 
             output, render_diags = render_compose(plan, env_file=str(env_file))
             self.assertEqual(len([d for d in render_diags if d.level == "error"]), 0)
@@ -88,7 +104,23 @@ class RenderExampleProfileTest(unittest.TestCase):
 
             plan, plan_diags = build_plan(str(profile_path), env_file=str(env_file))
             self.assertIsNotNone(plan)
-            self.assertEqual(len([d for d in plan_diags if d.level == "error"]), 0)
+            
+            error_diags = [d for d in plan_diags if d.level == "error"]
+            # Add debugging output for errors
+            if error_diags:
+                print("\n" + "="*60)
+                print(f"FOUND {len(error_diags)} VALIDATION ERRORS:")
+                print("="*60)
+                for i, diag in enumerate(error_diags, 1):
+                    print(f"\n[Error {i}]")
+                    print(f"  Summary: {diag.summary}")
+                    if hasattr(diag, 'detail'):
+                        print(f"  Detail: {diag.detail}")
+                    if hasattr(diag, 'location'):
+                        print(f"  Location: {diag.location}")
+                print("="*60 + "\n")
+            
+            self.assertEqual(len(error_diags), 0)
 
             output, render_diags = render_compose(plan, env_file=str(env_file))
             self.assertEqual(len([d for d in render_diags if d.level == "error"]), 0)
