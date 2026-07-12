@@ -186,6 +186,55 @@ class RendererRegressionTest(unittest.TestCase):
             self.assertEqual(compose["services"]["dagster-web"]["build"]["context"], "../../images/dagster")
             self.assertEqual(compose["services"]["dagster-daemon"]["build"]["context"], "../../images/dagster")
 
+    def test_render_compose_preserves_repo_relative_paths_for_external_output_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as output_tmpdir:
+            root = Path(tmpdir)
+            external_output = Path(output_tmpdir) / "docker-compose.yml"
+            (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
+            (root / "profiles" / "local").mkdir(parents=True)
+            (root / "modules" / "orchestration" / "dagster").mkdir(parents=True)
+            (root / "images" / "dagster").mkdir(parents=True)
+            (root / "images" / "dagster" / "Dockerfile").write_text("FROM python:3.11\n", encoding="utf-8")
+            (root / "profiles" / "local" / "data.txt").write_text("data\n", encoding="utf-8")
+
+            plan = {
+                "metadata": {"name": "cds-test"},
+                "sourceProfile": str(root / "profiles" / "local" / "profile.yaml"),
+                "modules": [
+                    {
+                        "id": "dagster",
+                        "source": "../../modules/orchestration/dagster",
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {
+                                "services": {
+                                    "web": {
+                                        "build": {
+                                            "context": "../../../images/dagster",
+                                            "dockerfile": "Dockerfile",
+                                        },
+                                        "volumes": [
+                                            {
+                                                "type": "bind",
+                                                "source": "../../profiles/local/data.txt",
+                                                "target": "/app/data.txt",
+                                            }
+                                        ],
+                                    }
+                                }
+                            },
+                        },
+                    }
+                ],
+            }
+
+            output, diagnostics = render_compose(plan, output_path=str(external_output))
+
+            self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+            compose = yaml.safe_load(output)
+            self.assertEqual(compose["services"]["dagster-web"]["build"]["context"], "images/dagster")
+            self.assertEqual(compose["services"]["dagster-web"]["volumes"][0]["source"], "profiles/local/data.txt")
+
     def test_render_compose_falls_back_to_absolute_context_on_cross_drive_relpath(self):
         """Regression test for a Windows-only bug: os.path.relpath raises
         ValueError when the build context and the compose output directory

@@ -13,8 +13,8 @@ if [ -z "$BACKEND" ]; then
 fi
 
 case "$BACKEND" in
-    postgres) pip install --quiet --no-cache-dir dagster-postgres==0.29.12 ;;
-    mysql)    pip install --quiet --no-cache-dir dagster-mysql==0.29.12 ;;
+    postgres) pip install --quiet --no-cache-dir dagster-postgres==0.29.13 ;;
+    mysql)    pip install --quiet --no-cache-dir dagster-mysql==0.29.13 ;;
     sqlite)   ;; # built into dagster core
 esac
 
