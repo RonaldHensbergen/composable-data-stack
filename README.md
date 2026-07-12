@@ -243,7 +243,7 @@ This resolves:
 cds render local-dagster-postgres-superset
 ```
 
-By default, this writes `docker-compose.yml` to the project root so you can run `docker compose up` immediately.
+By default, this writes `docker-compose.yml` to the project root.
 
 Use a custom location when needed:
 
@@ -256,6 +256,19 @@ This generates:
 - docker-compose.yml
 - service definitions
 - fully wired module configuration
+
+### 8. Run The Stack
+
+```bash
+cds up local-dagster-postgres-superset
+```
+
+This runs `validate` → `plan` → `render` → `docker compose up` in one step.
+Add `--detach` (or `-d`) to run in the background:
+
+```bash
+cds up local-dagster-postgres-superset --detach
+```
 
 ---
 
@@ -330,7 +343,7 @@ profiles/[profile]/
 |cds validate [profile]|Validate modules and contracts|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
 |cds render [profile]|Generate Docker Compose configuration from a resolved plan|
-|cds up [profile]|Start services (planned)|
+|cds up [profile]|Validate, plan, render, and start services with docker compose up|
 |cds test [profile]|Run health checks (planned)|
 
 `[profile]` accepts:
@@ -401,7 +414,7 @@ All diagnostics print with their error code and YAML path (e.g. `spec.modules[1]
 2. cds security -> detect unsafe configurations
 3. cds plan -> resolve dependencies and bindings
 4. cds render -> generate Docker Compose stack
-5. cds up -> start services (planned)
+5. cds up -> start services
 6. cds test -> run health checks (planned)
 ```
 
