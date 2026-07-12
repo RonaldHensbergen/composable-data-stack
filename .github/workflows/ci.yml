@@ -69,7 +69,7 @@ jobs:
 
       - name: Run tests
         run: |
-          python -m unittest discover -s tests -p "*.py"
+          python -m unittest discover -s tests -p "test_*.py" -v
 
   # Docker-heavy tasks stay Linux-only: Docker Desktop licensing and
   # significantly slower/less reliable Docker support on GitHub's hosted
@@ -95,3 +95,4 @@ jobs:
             fi
             docker build -f "$dockerfile" "$context" || exit 1
           done
+# Force workflow re-run

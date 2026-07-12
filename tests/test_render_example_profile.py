@@ -22,9 +22,9 @@ class RenderExampleProfileTest(unittest.TestCase):
             env_file = Path(tmpdir) / ".env"
             env_file.write_text(
                 "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser_testpass\n"
-                "CDS_ANALYTICS_POSTGRES_PASSWORD=analytics_testpass\n"
-                "CDS_DAGSTER_POSTGRES_PASSWORD=dagster_testpass\n"
-                "CDS_SUPERSET_POSTGRES_PASSWORD=superset_testpass\n"
+                "CDS_ANALYTICS_DB_PASSWORD=analytics_testpass\n"
+                "CDS_DAGSTER_DB_PASSWORD=dagster_testpass\n"
+                "CDS_SUPERSET_DB_PASSWORD=superset_testpass\n"
                 "CDS_SUPERSET_SECRET_KEY=sekret\n"
                 "CDS_SUPERSET_ADMIN_PASSWORD=adminpass\n",
                 encoding="utf-8",
@@ -32,7 +32,25 @@ class RenderExampleProfileTest(unittest.TestCase):
 
             plan, plan_diags = build_plan(str(profile_path), env_file=str(env_file))
             self.assertIsNotNone(plan)
-            self.assertEqual(len([d for d in plan_diags if d.level == "error"]), 0)
+            
+            error_diags = [d for d in plan_diags if d.level == "error"]
+            # Add debugging output for errors
+            if error_diags:
+                print("\n" + "="*60)
+                print(f"FOUND {len(error_diags)} VALIDATION ERRORS:")
+                print("="*60)
+                for i, diag in enumerate(error_diags, 1):
+                    print(f"\n[Error {i}]")
+                    print(f"  Diagnostic object: {diag}")
+                    print(f"  Dir: {[attr for attr in dir(diag) if not attr.startswith('_')]}")
+                    print(f"  Repr: {repr(diag)}")
+                    try:
+                        print(f"  Str: {str(diag)}")
+                    except Exception:
+                        pass
+                print("="*60 + "\n")
+            
+            self.assertEqual(len(error_diags), 0)
 
             output, render_diags = render_compose(plan, env_file=str(env_file))
             self.assertEqual(len([d for d in render_diags if d.level == "error"]), 0)
@@ -78,9 +96,9 @@ class RenderExampleProfileTest(unittest.TestCase):
             env_file.write_text(
                 "CDS_VAULT_TOKEN=test-vault-token\n"
                 "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser_testpass\n"
-                "CDS_ANALYTICS_POSTGRES_PASSWORD=analytics_testpass\n"
-                "CDS_DAGSTER_POSTGRES_PASSWORD=dagster_testpass\n"
-                "CDS_SUPERSET_POSTGRES_PASSWORD=superset_testpass\n"
+                "CDS_ANALYTICS_DB_PASSWORD=analytics_testpass\n"
+                "CDS_DAGSTER_DB_PASSWORD=dagster_testpass\n"
+                "CDS_SUPERSET_DB_PASSWORD=superset_testpass\n"
                 "CDS_SUPERSET_SECRET_KEY=sekret\n"
                 "CDS_SUPERSET_ADMIN_PASSWORD=adminpass\n",
                 encoding="utf-8",
@@ -88,7 +106,25 @@ class RenderExampleProfileTest(unittest.TestCase):
 
             plan, plan_diags = build_plan(str(profile_path), env_file=str(env_file))
             self.assertIsNotNone(plan)
-            self.assertEqual(len([d for d in plan_diags if d.level == "error"]), 0)
+            
+            error_diags = [d for d in plan_diags if d.level == "error"]
+            # Add debugging output for errors
+            if error_diags:
+                print("\n" + "="*60)
+                print(f"FOUND {len(error_diags)} VALIDATION ERRORS:")
+                print("="*60)
+                for i, diag in enumerate(error_diags, 1):
+                    print(f"\n[Error {i}]")
+                    print(f"  Diagnostic object: {diag}")
+                    print(f"  Dir: {[attr for attr in dir(diag) if not attr.startswith('_')]}")
+                    print(f"  Repr: {repr(diag)}")
+                    try:
+                        print(f"  Str: {str(diag)}")
+                    except Exception:
+                        pass
+                print("="*60 + "\n")
+            
+            self.assertEqual(len(error_diags), 0)
 
             output, render_diags = render_compose(plan, env_file=str(env_file))
             self.assertEqual(len([d for d in render_diags if d.level == "error"]), 0)

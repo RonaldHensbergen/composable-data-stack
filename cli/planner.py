@@ -10,7 +10,7 @@ import re
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file
 from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
-from .secrets import load_profile_secrets
+from .secrets import load_profile_secrets, load_secrets_from_env
 
 from dataclasses import dataclass
 
@@ -130,6 +130,34 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
     }
 
     return plan, diagnostics
+
+_CDS_VAR_PATTERN = re.compile(r"\$\{(CDS_[A-Z0-9_]+)\}")
+
+def _substitute_config_env_vars(
+    obj: Any,
+    raw_env: dict[str, str],
+    path: str,
+    diagnostics: list[Diagnostic],
+) -> Any:
+    """Recursively substitute ${CDS_*} patterns in config values with values from .env."""
+    if isinstance(obj, dict):
+        return {k: _substitute_config_env_vars(v, raw_env, f"{path}.{k}", diagnostics) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_substitute_config_env_vars(v, raw_env, f"{path}[{i}]", diagnostics) for i, v in enumerate(obj)]
+    if isinstance(obj, str):
+        def _replace(m: re.Match) -> str:
+            var = m.group(1)
+            if var not in raw_env:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E083",
+                    message=f'Config references env var "${{{var}}}" which is not set in .env or environment.',
+                    path=path,
+                ))
+                return ""
+            return raw_env[var]
+        return _CDS_VAR_PATTERN.sub(_replace, obj)
+    return obj
 
 def apply_defaults(config: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     config_copy = deepcopy(config)

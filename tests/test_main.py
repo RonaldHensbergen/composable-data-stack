@@ -208,9 +208,9 @@ class MainCLITest(unittest.TestCase):
             self.assertTrue(output_file.exists())
 
             content = output_file.read_text(encoding="utf-8")
-            self.assertIn("CDS_ANALYTICS_POSTGRES_PASSWORD=change-me", content)
-            self.assertIn("CDS_DAGSTER_POSTGRES_PASSWORD=change-me", content)
-            self.assertIn("CDS_SUPERSET_POSTGRES_PASSWORD=change-me", content)
+            self.assertIn("CDS_ANALYTICS_DB_PASSWORD=change-me", content)
+            self.assertIn("CDS_DAGSTER_DB_PASSWORD=change-me", content)
+            self.assertIn("CDS_SUPERSET_DB_PASSWORD=change-me", content)
             self.assertIn("CDS_SUPERSET_SECRET_KEY=change-me", content)
             self.assertIn("CDS_SUPERSET_ADMIN_PASSWORD=change-me", content)
         finally:

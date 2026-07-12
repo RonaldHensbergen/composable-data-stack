@@ -205,8 +205,8 @@ cython_debug/
 tempCodeRunnerFile.py
 
 # Generated compose output from `cds render`
-/docker-compose.yml
-/docker-compose.yaml
+docker-compose.yml
+docker-compose.yaml
 
 # Ruff stuff:
 .ruff_cache/

@@ -24,16 +24,30 @@ spec:
       version: "0.1.0"
       enabled: true
       config:
-        database: analytics
-        username: analytics
-        passwordFrom: secrets.analytics_postgres_password
+        database: "${CDS_ANALYTICS_DB_NAME}"
+        username: "${CDS_ANALYTICS_DB_USER}"
+        passwordFrom: secrets.analytics_db_password
         superuserPasswordFrom: secrets.postgres_superuser_password
         port: 5432
         initDbScript: init-db.sh
         initDbEnv:
-          DAGSTER_POSTGRES_PASSWORD: secrets.dagster_postgres_password
-          SUPERSET_POSTGRES_PASSWORD: secrets.superset_postgres_password
-          ANALYTICS_POSTGRES_PASSWORD: secrets.analytics_postgres_password
+          ANALYTICS_DB_NAME: config.database
+          ANALYTICS_DB_USER: config.username
+          ANALYTICS_DB_PASSWORD: config.passwordFrom
+          DAGSTER_DB_NAME: config.dagsterDatabase.name
+          DAGSTER_DB_USER: config.dagsterDatabase.username
+          DAGSTER_DB_PASSWORD: config.dagsterDatabase.passwordFrom
+          SUPERSET_DB_NAME: config.supersetDatabase.name
+          SUPERSET_DB_USER: config.supersetDatabase.username
+          SUPERSET_DB_PASSWORD: config.supersetDatabase.passwordFrom
+        dagsterDatabase:
+          name: "${CDS_DAGSTER_DB_NAME}"
+          username: "${CDS_DAGSTER_DB_USER}"
+          passwordFrom: secrets.dagster_db_password
+        supersetDatabase:
+          name: "${CDS_SUPERSET_DB_NAME}"
+          username: "${CDS_SUPERSET_DB_USER}"
+          passwordFrom: secrets.superset_db_password
         storage:
           enabled: true
           size: 5Gi
@@ -53,11 +67,11 @@ spec:
         homeDir: /opt/dagster/dagster_home
         storage:
           runStorage:
-            contractRef: postgres.sql-database
+            contractRef: postgres.dagster-database
           eventLogStorage:
-            contractRef: postgres.sql-database
+            contractRef: postgres.dagster-database
           scheduleStorage:
-            contractRef: postgres.sql-database
+            contractRef: postgres.dagster-database
 
         runLauncher:
           type: default
@@ -78,7 +92,7 @@ spec:
           passwordFrom: secrets.superset_admin_password
           email: admin@example.local
         metadataDatabase:
-          contractRef: postgres.sql-database
+          contractRef: postgres.superset-database
         healthcheck:
           enabled: true
 
@@ -89,17 +103,17 @@ spec:
       postgres_superuser_password:
         env: CDS_POSTGRES_SUPERUSER_PASSWORD
         required: true
-      postgres_password:
-        env: CDS_ANALYTICS_POSTGRES_PASSWORD
+      db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
         required: true
-      dagster_postgres_password:
-        env: CDS_DAGSTER_POSTGRES_PASSWORD
+      dagster_db_password:
+        env: CDS_DAGSTER_DB_PASSWORD
         required: true
-      superset_postgres_password:
-        env: CDS_SUPERSET_POSTGRES_PASSWORD
+      superset_db_password:
+        env: CDS_SUPERSET_DB_PASSWORD
         required: true
-      analytics_postgres_password:
-        env: CDS_ANALYTICS_POSTGRES_PASSWORD
+      analytics_db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
         required: true
       superset_secret_key:
         env: CDS_SUPERSET_SECRET_KEY
