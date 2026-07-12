@@ -48,7 +48,7 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
 
             # Run module-bounded runtime checks inside containers after startup.
             # Extend by setting CDS_DOCKER_EXEC_CHECKS with ';' separated commands,
-            # e.g. "dagster-dagster-daemon|dagster daemon status;postgres-postgres|pg_isready -U analytics".
+            # e.g. "dagster-daemon|dagster daemon status;postgres|pg_isready -U analytics".
             available_services = self._available_services_from_compose()
             for service, command in self._module_exec_checks():
                 if service not in available_services:
@@ -155,7 +155,7 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
             return parsed
 
         return [
-            ("dagster-dagster-daemon", ["dagster", "daemon", "status"]),
+            ("dagster-daemon", ["dagster", "daemon", "status"]),
         ]
 
 

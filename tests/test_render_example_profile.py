@@ -66,11 +66,11 @@ class RenderExampleProfileTest(unittest.TestCase):
                 "images/dagster/Dockerfile",
             )
             self.assertEqual(
-                compose["services"]["dagster-dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],
+                compose["services"]["dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],
                 "service_healthy",
             )
             self.assertEqual(
-                compose["services"]["dagster-dagster-daemon"]["healthcheck"]["test"],
+                compose["services"]["dagster-daemon"]["healthcheck"]["test"],
                 [
                     "CMD",
                     "dagster",
@@ -132,7 +132,7 @@ class RenderExampleProfileTest(unittest.TestCase):
             compose = yaml.safe_load(output)
             self.assertIsInstance(compose, dict)
             self.assertIn("services", compose)
-            self.assertIn("vault-vault", compose["services"])
+            self.assertIn("vault", compose["services"])
             self.assertGreater(len(compose["services"]), 0)
 
 
