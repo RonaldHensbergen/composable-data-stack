@@ -270,6 +270,25 @@ Add `--detach` (or `-d`) to run in the background:
 cds up local-dagster-postgres-superset --detach
 ```
 
+### 9. Persistent Incoming Data Folder For Dagster
+
+The Dagster module mounts a host directory into the containers so incoming files survive reboots.
+
+- Host path: `workdirs/shared-data/incoming`
+- Container path: `/app/data/cds/incoming`
+
+Dagster includes a sensor that detects new files in `/app/data/cds/incoming` and runs a pickup job.
+Picked files are moved to:
+
+- Host path: `workdirs/shared-data/processed`
+- Container path: `/app/data/cds/processed`
+
+Create the directories once if they do not exist:
+
+```bash
+mkdir -p workdirs/shared-data/incoming workdirs/shared-data/processed
+```
+
 ---
 
 ## 🧩 Core Concepts

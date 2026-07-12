@@ -59,6 +59,7 @@ def render_compose(
         "services": {},
         "volumes": {},
     }
+    module_service_names: dict[str, list[str]] = {}
     
     # Add networks if defined
     if networks or default_network_name:
@@ -112,7 +113,9 @@ def render_compose(
         _merge_init_db_env(rendered_services, module, secrets)
 
         for service_name, service_def in rendered_services.items():
-            compose["services"][f'{module["id"]}-{service_name}'] = service_def
+            compose_service_name = _compose_service_name(module["id"], service_name)
+            compose["services"][compose_service_name] = service_def
+            module_service_names.setdefault(module["id"], []).append(compose_service_name)
 
         for volume_name, volume_def in rendered_volumes.items():
             compose["volumes"][f'{module["id"]}-{volume_name}'] = volume_def
@@ -120,7 +123,7 @@ def render_compose(
     if not compose["volumes"]:
         compose.pop("volumes")
 
-    _add_cross_module_dependencies(compose, plan)
+    _add_cross_module_dependencies(compose, plan, module_service_names)
 
     output = yaml.safe_dump(compose, sort_keys=False)
 
@@ -462,12 +465,12 @@ def _rewrite_depends_on(
 
     if isinstance(depends_on, list):
         rewritten = {
-            f"{module['id']}-{dep}": {"condition": "service_started"}
+            _compose_service_name(module["id"], dep): {"condition": "service_started"}
             for dep in depends_on
         }
     elif isinstance(depends_on, dict):
         rewritten = {
-            f"{module['id']}-{dep}": val
+            _compose_service_name(module["id"], dep): val
             for dep, val in depends_on.items()
         }
     else:
@@ -632,7 +635,17 @@ def _is_named_volume(value: str) -> bool:
     return "/" not in value and "\\" not in value
 
 
-def _add_cross_module_dependencies(compose: dict[str, Any], plan: dict[str, Any]
+def _compose_service_name(module_id: str, service_name: str) -> str:
+    """Normalize compose service names so module prefixes are not duplicated."""
+    if service_name == module_id or service_name.startswith(f"{module_id}-"):
+        return service_name
+    return f"{module_id}-{service_name}"
+
+
+def _add_cross_module_dependencies(
+    compose: dict[str, Any],
+    plan: dict[str, Any],
+    module_service_names: dict[str, list[str]],
 ) -> None:
     """
     Add explicit cross-module dependencies to docker-compose services.
@@ -643,17 +656,6 @@ def _add_cross_module_dependencies(compose: dict[str, Any], plan: dict[str, Any]
     modules = plan.get("modules", [])
     services = compose.get("services", {})
     
-    # Build a map of module_id -> list of service names in that module
-    module_services: dict[str, list[str]] = {}
-    for service_name in services.keys():
-        # Service names are formatted as "{module_id}-{service_name}"
-        parts = service_name.split("-", 1)
-        if len(parts) == 2:
-            module_id = parts[0]
-            if module_id not in module_services:
-                module_services[module_id] = []
-            module_services[module_id].append(service_name)
-    
     # For each module, add depends_on for its dependencies
     for module in modules:
         module_id = module.get("id")
@@ -663,17 +665,17 @@ def _add_cross_module_dependencies(compose: dict[str, Any], plan: dict[str, Any]
             continue
         
         # Find all services belonging to this module
-        module_service_names = module_services.get(module_id, [])
+        current_module_service_names = module_service_names.get(module_id, [])
         
         # For each service in this module, add depends_on entries
-        for service_name in module_service_names:
+        for service_name in current_module_service_names:
             service_def = services.get(service_name)
             if not service_def:
                 continue
             
             # Collect all services from dependent modules
             for dep_module_id in depends_on:
-                dep_services = module_services.get(dep_module_id, [])
+                dep_services = module_service_names.get(dep_module_id, [])
                 
                 for dep_service_name in dep_services:
                     # Initialize depends_on if not present

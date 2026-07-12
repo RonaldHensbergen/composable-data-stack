@@ -66,11 +66,11 @@ class RenderExampleProfileTest(unittest.TestCase):
                 "images/dagster/Dockerfile",
             )
             self.assertEqual(
-                compose["services"]["dagster-dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],
+                compose["services"]["dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],
                 "service_healthy",
             )
             self.assertEqual(
-                compose["services"]["dagster-dagster-daemon"]["healthcheck"]["test"],
+                compose["services"]["dagster-daemon"]["healthcheck"]["test"],
                 [
                     "CMD",
                     "dagster",
@@ -82,6 +82,19 @@ class RenderExampleProfileTest(unittest.TestCase):
                     "4000",
                 ],
             )
+            dagster_volumes = compose["services"]["dagster-user-code"].get("volumes", [])
+            shared_data_mount = next(
+                (
+                    item
+                    for item in dagster_volumes
+                    if isinstance(item, dict)
+                    and item.get("type") == "bind"
+                    and str(item.get("target", "")).rstrip("/") == "/app/data/cds"
+                ),
+                None,
+            )
+            self.assertIsNotNone(shared_data_mount)
+            self.assertEqual(shared_data_mount["source"], "workdirs/shared-data")
 
     def test_vault_profile_validates_plans_and_renders_vault_service(self):
         repo_root = Path(__file__).resolve().parent.parent
@@ -132,7 +145,7 @@ class RenderExampleProfileTest(unittest.TestCase):
             compose = yaml.safe_load(output)
             self.assertIsInstance(compose, dict)
             self.assertIn("services", compose)
-            self.assertIn("vault-vault", compose["services"])
+            self.assertIn("vault", compose["services"])
             self.assertGreater(len(compose["services"]), 0)
 
 
