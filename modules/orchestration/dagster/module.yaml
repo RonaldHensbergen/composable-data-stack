@@ -60,12 +60,29 @@ spec:
           - eventLogStorage
           - scheduleStorage
         properties:
+          enabled:
+            type: boolean
+            default: true
           runStorage:
             $ref: "#/$defs/contractBinding"
           eventLogStorage:
             $ref: "#/$defs/contractBinding"
           scheduleStorage:
             $ref: "#/$defs/contractBinding"
+
+      sharedData:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          hostPath:
+            type: string
+            minLength: 1
+            default: ./workdirs/shared-data
+          containerPath:
+            type: string
+            minLength: 1
+            default: /app/data/cds
 
       runLauncher:
         type: object
@@ -164,6 +181,9 @@ spec:
           volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - dagster-io-manager-storage:/tmp/io_manager_storage
+            - type: bind
+              source: "${config.sharedData.hostPath}"
+              target: "${config.sharedData.containerPath}"
           environment:
             DAGSTER_HOME: "${config.homeDir}"
             DAGSTER_DB_HOST: "${bindings.run-storage.host}"
@@ -196,6 +216,9 @@ spec:
           volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - dagster-io-manager-storage:/tmp/io_manager_storage
+            - type: bind
+              source: "${config.sharedData.hostPath}"
+              target: "${config.sharedData.containerPath}"
           environment:
             DAGSTER_HOME: "${config.homeDir}"
             DAGSTER_DB_HOST: "${bindings.run-storage.host}"
@@ -246,6 +269,9 @@ spec:
           volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - dagster-io-manager-storage:/tmp/io_manager_storage
+            - type: bind
+              source: "${config.sharedData.hostPath}"
+              target: "${config.sharedData.containerPath}"
           environment:
             DAGSTER_HOME: "${config.homeDir}"
             DAGSTER_DB_HOST: "${bindings.run-storage.host}"
@@ -254,7 +280,3 @@ spec:
             DAGSTER_DB_USER: "${bindings.run-storage.username}"
             DAGSTER_DB_PASSWORD: "${bindings.run-storage.password}"
             DAGSTER_DB_CONNECTION_URI: "${bindings.run-storage.connectionUri}"
-
-      volumes:
-        dagster-io-manager-storage:
-          enabledFrom: spec.config.storage.enabled

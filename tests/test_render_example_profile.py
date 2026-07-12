@@ -82,6 +82,19 @@ class RenderExampleProfileTest(unittest.TestCase):
                     "4000",
                 ],
             )
+            dagster_volumes = compose["services"]["dagster-user-code"].get("volumes", [])
+            shared_data_mount = next(
+                (
+                    item
+                    for item in dagster_volumes
+                    if isinstance(item, dict)
+                    and item.get("type") == "bind"
+                    and str(item.get("target", "")).rstrip("/") == "/app/data/cds"
+                ),
+                None,
+            )
+            self.assertIsNotNone(shared_data_mount)
+            self.assertEqual(shared_data_mount["source"], "workdirs/shared-data")
 
     def test_vault_profile_validates_plans_and_renders_vault_service(self):
         repo_root = Path(__file__).resolve().parent.parent
