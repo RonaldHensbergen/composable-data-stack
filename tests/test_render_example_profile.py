@@ -59,6 +59,7 @@ class RenderExampleProfileTest(unittest.TestCase):
             self.assertIsInstance(compose, dict)
             self.assertIn("services", compose)
             self.assertGreater(len(compose["services"]), 0)
+            self.assertIn("dagster-dagster-io-manager-storage", compose.get("volumes", {}))
             self.assertIn("name", compose)
             self.assertIn("dagster-user-code", compose["services"])
             self.assertEqual(

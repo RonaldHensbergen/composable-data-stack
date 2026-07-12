@@ -280,3 +280,6 @@ spec:
             DAGSTER_DB_USER: "${bindings.run-storage.username}"
             DAGSTER_DB_PASSWORD: "${bindings.run-storage.password}"
             DAGSTER_DB_CONNECTION_URI: "${bindings.run-storage.connectionUri}"
+
+      volumes:
+        dagster-io-manager-storage: {}
