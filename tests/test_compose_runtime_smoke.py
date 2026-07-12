@@ -4,6 +4,7 @@ import subprocess
 import sys
 import time
 import unittest
+import uuid
 from pathlib import Path
 
 import yaml
@@ -32,9 +33,16 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
 
     def test_render_then_build_then_up(self):
         env = os.environ.copy()
-        env.setdefault("CDS_ANALYTICS_POSTGRES_PASSWORD", "analytics_testpass")
-        env.setdefault("CDS_DAGSTER_POSTGRES_PASSWORD", "dagster_testpass")
-        env.setdefault("CDS_SUPERSET_POSTGRES_PASSWORD", "superset_testpass")
+        env.setdefault("CDS_POSTGRES_SUPERUSER_PASSWORD", "postgres_testpass")
+        env.setdefault("CDS_ANALYTICS_DB_NAME", "analytics")
+        env.setdefault("CDS_ANALYTICS_DB_USER", "analytics")
+        env.setdefault("CDS_ANALYTICS_DB_PASSWORD", "analytics_testpass")
+        env.setdefault("CDS_DAGSTER_DB_NAME", "dagster")
+        env.setdefault("CDS_DAGSTER_DB_USER", "dagster")
+        env.setdefault("CDS_DAGSTER_DB_PASSWORD", "dagster_testpass")
+        env.setdefault("CDS_SUPERSET_DB_NAME", "superset")
+        env.setdefault("CDS_SUPERSET_DB_USER", "superset")
+        env.setdefault("CDS_SUPERSET_DB_PASSWORD", "superset_testpass")
         env.setdefault("CDS_SUPERSET_SECRET_KEY", "sekret")
         env.setdefault("CDS_SUPERSET_ADMIN_PASSWORD", "adminpass")
 
@@ -54,6 +62,8 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
                 if service not in available_services:
                     continue
                 self._run_exec_with_retry(service, command, env)
+
+            self._verify_incoming_csv_ingested(env)
         finally:
             # Always tear down stack resources created by this smoke test.
             subprocess.run(
@@ -157,6 +167,68 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
         return [
             ("dagster-daemon", ["dagster", "daemon", "status"]),
         ]
+
+    def _verify_incoming_csv_ingested(self, env: dict[str, str]) -> None:
+        incoming_dir = self.repo_root / "workdirs" / "shared-data" / "incoming"
+        processed_dir = self.repo_root / "workdirs" / "shared-data" / "processed"
+        incoming_dir.mkdir(parents=True, exist_ok=True)
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        file_stem = f"smoke_{uuid.uuid4().hex[:8]}"
+        file_name = f"{file_stem}.csv"
+        table_name = f"incoming_{file_stem}"
+        source_file = incoming_dir / file_name
+        source_file.write_text("id,name\n1,alice\n2,bob\n", encoding="utf-8")
+
+        analytics_user = env["CDS_ANALYTICS_DB_USER"]
+        analytics_db = env["CDS_ANALYTICS_DB_NAME"]
+        analytics_password = env["CDS_ANALYTICS_DB_PASSWORD"]
+        query = f"SELECT COUNT(*) FROM {table_name} WHERE source_file = '{file_name}';"
+
+        cmd = [
+            "sh",
+            "-lc",
+            (
+                f"PGPASSWORD='{analytics_password}' "
+                f"psql -U '{analytics_user}' -d '{analytics_db}' -tAc \"{query}\""
+            ),
+        ]
+
+        attempts = 30
+        delay_seconds = 5
+        for attempt in range(1, attempts + 1):
+            result = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(self.compose_file),
+                    "exec",
+                    "-T",
+                    "postgres",
+                    *cmd,
+                ],
+                cwd=self.repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            output = result.stdout.strip()
+            if result.returncode == 0 and output.isdigit() and int(output) >= 2:
+                return
+            if attempt < attempts:
+                time.sleep(delay_seconds)
+                continue
+            self.fail(
+                "Incoming ingestion check failed for file {file_name} into {table_name}.\n"
+                "stdout:\n{stdout}\n\nstderr:\n{stderr}".format(
+                    file_name=file_name,
+                    table_name=table_name,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                )
+            )
 
 
 if __name__ == "__main__":
