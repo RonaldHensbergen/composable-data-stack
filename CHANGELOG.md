@@ -8,7 +8,11 @@ The format is based on Keep a Changelog.
 
 ### Added
 
-- No entries yet.
+- `cds up` now supports `--no-build` to skip Docker Compose image builds when images are already available.
+
+### Changed
+
+- `cds up` now runs `docker compose build` before `docker compose up` by default.
 
 ## [0.1.1] - 2026-06-21
 
