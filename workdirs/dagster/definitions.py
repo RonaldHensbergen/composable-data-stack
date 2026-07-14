@@ -1,4 +1,5 @@
 import hashlib
+import importlib
 import os
 from pathlib import Path
 
@@ -17,16 +18,19 @@ from dagster import (
     sensor,
 )
 
+try:
+    _postgres_connection = importlib.import_module("workdirs.dagster.postgres_connection")
+except ModuleNotFoundError:
+    _postgres_connection = importlib.import_module("postgres_connection")
+
+insert_incoming_file_event = _postgres_connection.insert_incoming_file_event
+
 INCOMING_DATA_DIR = Path(os.getenv("CDS_INCOMING_DATA_DIR", "/app/data/cds/incoming"))
 PROCESSED_DATA_DIR = Path(os.getenv("CDS_PROCESSED_DATA_DIR", "/app/data/cds/processed"))
 
 
 def save_data_to_db(context, payload: dict, asset_key: str = "cds_ingestion") -> None:
-    """Persist payload in Dagster's configured event log storage backend.
-
-    This writes an observation event, so the record is stored in whichever
-    Dagster backend is active (for example Postgres or SQLite).
-    """
+    """Persist payload to the analytics database and emit a Dagster event."""
 
     metadata = {}
     for key, value in payload.items():
@@ -34,6 +38,8 @@ def save_data_to_db(context, payload: dict, asset_key: str = "cds_ingestion") ->
             metadata[key] = value
         else:
             metadata[key] = MetadataValue.json(value)
+
+    insert_incoming_file_event(payload, asset_key)
 
     context.log_event(AssetObservation(asset_key=asset_key, metadata=metadata))
 
@@ -165,6 +171,7 @@ def process_incoming_file(context, read_result: dict) -> None:
             "processed_dir": str(processed_dir),
             "file_name": file_name,
             "moved_count": moved_files,
+            "content": read_result.get("content"),
             "content_preview": preview,
         },
         asset_key="cds_pipeline",

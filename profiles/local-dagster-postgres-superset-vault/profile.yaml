@@ -75,6 +75,8 @@ spec:
         daemon:
           enabled: true
         homeDir: /opt/dagster/dagster_home
+        analyticsDatabase:
+          contractRef: postgres.sql-database
         sharedData:
           hostPath: ./workdirs/shared-data
           containerPath: /app/data/cds

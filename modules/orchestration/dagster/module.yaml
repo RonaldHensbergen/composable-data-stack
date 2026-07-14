@@ -70,6 +70,9 @@ spec:
           scheduleStorage:
             $ref: "#/$defs/contractBinding"
 
+      analyticsDatabase:
+        $ref: "#/$defs/contractBinding"
+
       sharedData:
         type: object
         additionalProperties: false
@@ -115,6 +118,12 @@ spec:
             pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
 
   consumes:
+    - name: analytics-database
+      contract:
+        kind: sql-database
+      required: false
+      mappedFrom: spec.config.analyticsDatabase
+
     - name: run-storage
       contract:
         kind: sql-database
@@ -192,6 +201,12 @@ spec:
             DAGSTER_DB_USER: "${bindings.run-storage.username}"
             DAGSTER_DB_PASSWORD: "${bindings.run-storage.password}"
             DAGSTER_DB_CONNECTION_URI: "${bindings.run-storage.connectionUri}"
+            ANALYTICS_DB_HOST: "${bindings.analytics-database.host}"
+            ANALYTICS_DB_PORT: "${bindings.analytics-database.port}"
+            ANALYTICS_DB_NAME: "${bindings.analytics-database.database}"
+            ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
+            ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
+            ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
             DAGSTER_CURRENT_IMAGE: local/dagster:custom
 
         dagster-webserver:
@@ -227,6 +242,12 @@ spec:
             DAGSTER_DB_USER: "${bindings.run-storage.username}"
             DAGSTER_DB_PASSWORD: "${bindings.run-storage.password}"
             DAGSTER_DB_CONNECTION_URI: "${bindings.run-storage.connectionUri}"
+            ANALYTICS_DB_HOST: "${bindings.analytics-database.host}"
+            ANALYTICS_DB_PORT: "${bindings.analytics-database.port}"
+            ANALYTICS_DB_NAME: "${bindings.analytics-database.database}"
+            ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
+            ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
+            ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
           healthcheck:
             conditionallyEnabledFrom: spec.config.healthcheck.enabled
             test:
@@ -280,6 +301,12 @@ spec:
             DAGSTER_DB_USER: "${bindings.run-storage.username}"
             DAGSTER_DB_PASSWORD: "${bindings.run-storage.password}"
             DAGSTER_DB_CONNECTION_URI: "${bindings.run-storage.connectionUri}"
+            ANALYTICS_DB_HOST: "${bindings.analytics-database.host}"
+            ANALYTICS_DB_PORT: "${bindings.analytics-database.port}"
+            ANALYTICS_DB_NAME: "${bindings.analytics-database.database}"
+            ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
+            ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
+            ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
 
       volumes:
         dagster-io-manager-storage: {}
