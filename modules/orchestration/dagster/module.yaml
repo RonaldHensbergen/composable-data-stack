@@ -184,9 +184,9 @@ spec:
               - -p
               - "4000"
             interval: 10s
-            timeout: 5s
+            timeout: 15s
             start_period: 60s
-            retries: 3
+            retries: 5
           volumes:
             - /var/run/docker.sock:/var/run/docker.sock
             - dagster-io-manager-storage:/tmp/io_manager_storage
@@ -284,7 +284,7 @@ spec:
               - -p
               - "4000"
             interval: 10s
-            timeout: 5s
+            timeout: 15s
             start_period: 60s
             retries: 3
           volumes:

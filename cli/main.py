@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -293,6 +294,18 @@ def main() -> int:
         help="Output file path for rendered output (default: <project-root>/docker-compose.yml)",
     )
 
+    up_parser = subparsers.add_parser(
+        "up",
+        help="Validate, plan, render, and run the profile with docker compose up",
+    )
+    _add_profile_arg(up_parser)
+    up_parser.add_argument(
+        "--detach",
+        "-d",
+        action="store_true",
+        help="Run containers in the background (passed through to docker compose up)",
+    )
+
     init_parser = subparsers.add_parser(
         "init",
         help="Initialize a .env file from profile secret definitions",
@@ -467,6 +480,50 @@ def main() -> int:
             print(f"Rendered compose file written to {output_path}")
 
             return 0
+
+    if args.command == "up":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        diagnostics = validate_profile(profile_path)
+        if has_errors(diagnostics):
+            print_diagnostics(diagnostics)
+            print("Cannot start stack because validation failed.")
+            return 1
+
+        env_file = str(resolve_env_file_path(profile_path))
+        plan, plan_diags = build_plan(profile_path, env_file=env_file)
+        all_diags = diagnostics + plan_diags
+        if has_errors(all_diags):
+            print_diagnostics(all_diags)
+            print("Cannot start stack because plan generation failed.")
+            return 1
+
+        output_path = str(resolve_project_root(profile_path) / "docker-compose.yml")
+        compose_yaml, render_diags = render_compose(plan, output_path=output_path, env_file=env_file)
+        all_diags = all_diags + render_diags
+        if has_errors(all_diags):
+            print_diagnostics(all_diags)
+            print("Cannot start stack because render failed.")
+            return 1
+
+        print(f"Rendered compose file written to {output_path}")
+
+        cmd = ["docker", "compose", "-f", output_path, "up"]
+        if args.detach:
+            cmd.append("--detach")
+
+        print(f"Running: {' '.join(cmd)}")
+        try:
+            result = subprocess.run(cmd)
+        except FileNotFoundError:
+            print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
+            return 1
+
+        return result.returncode
 
     if args.command == "init":
         try:
