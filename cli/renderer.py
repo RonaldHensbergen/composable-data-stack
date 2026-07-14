@@ -409,6 +409,11 @@ def _rewrite_local_path(
         return path_value
 
     chosen = _choose_best_local_path_candidate(candidates)
+    if project_root is not None and not _path_is_within_root(compose_dir, project_root):
+        try:
+            return Path(chosen).relative_to(project_root).as_posix()
+        except ValueError:
+            pass
     try:
         rel = Path(chosen).relative_to(compose_dir)
     except ValueError:
@@ -431,6 +436,9 @@ def _local_path_bases(
     compose_dir: Path,
 ) -> list[Path]:
     bases: list[Path] = []
+
+    if project_root is not None:
+        bases.append(project_root)
 
     if profile_dir is not None:
         bases.append(profile_dir)
@@ -542,6 +550,11 @@ def _resolve_context_path(
         return context
 
     chosen = _choose_best_context_candidate(candidates, dockerfile)
+    if project_root is not None and not _path_is_within_root(compose_dir, project_root):
+        try:
+            return Path(chosen).relative_to(project_root).as_posix()
+        except ValueError:
+            pass
     try:
         rel = Path(chosen).relative_to(compose_dir)
     except ValueError:
@@ -563,7 +576,12 @@ def _context_bases(
     project_root: Path | None,
     compose_dir: Path,
 ) -> list[Path]:
-    bases: list[Path] = [compose_dir]
+    bases: list[Path] = []
+
+    if project_root is not None:
+        bases.append(project_root)
+
+    bases.append(compose_dir)
 
     module_dir = _resolve_module_dir(module, profile_dir)
     if module_dir is not None:
@@ -591,6 +609,14 @@ def _choose_best_context_candidate(candidates: list[Path], dockerfile: str | Non
 
 def _looks_remote_context(value: str) -> bool:
     return "://" in value or value.startswith("git@")
+
+
+def _path_is_within_root(path_value: Path, root: Path) -> bool:
+    try:
+        path_value.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def _resolve_profile_dir(plan: dict[str, Any]) -> Path | None:
