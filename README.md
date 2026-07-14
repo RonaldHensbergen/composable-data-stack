@@ -263,11 +263,17 @@ This generates:
 cds up local-dagster-postgres-superset
 ```
 
-This runs `validate` → `plan` → `render` → `docker compose up` in one step.
+This runs `validate` → `plan` → `render` → `docker compose build` → `docker compose up` in one step.
 Add `--detach` (or `-d`) to run in the background:
 
 ```bash
 cds up local-dagster-postgres-superset --detach
+```
+
+Use `--no-build` to skip the build step when images are already available:
+
+```bash
+cds up local-dagster-postgres-superset --no-build
 ```
 
 ### 9. Persistent Incoming Data Folder For Dagster
@@ -362,7 +368,7 @@ profiles/[profile]/
 |cds validate [profile]|Validate modules and contracts|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
 |cds render [profile]|Generate Docker Compose configuration from a resolved plan|
-|cds up [profile]|Validate, plan, render, and start services with docker compose up|
+|cds up [profile]|Validate, plan, render, build, and start services with docker compose (use `--no-build` to skip build)|
 |cds test [profile]|Run health checks (planned)|
 
 `[profile]` accepts:

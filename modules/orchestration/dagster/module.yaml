@@ -207,6 +207,12 @@ spec:
             ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
             ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
             ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
+            CDS_ANALYTICS_DB_HOST: "${bindings.analytics-database.host}"
+            CDS_ANALYTICS_DB_PORT: "${bindings.analytics-database.port}"
+            CDS_ANALYTICS_DB_NAME: "${bindings.analytics-database.database}"
+            CDS_ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
+            CDS_ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
+            CDS_ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
             DAGSTER_CURRENT_IMAGE: local/dagster:custom
 
         dagster-webserver:
@@ -307,6 +313,12 @@ spec:
             ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
             ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
             ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
+            CDS_ANALYTICS_DB_HOST: "${bindings.analytics-database.host}"
+            CDS_ANALYTICS_DB_PORT: "${bindings.analytics-database.port}"
+            CDS_ANALYTICS_DB_NAME: "${bindings.analytics-database.database}"
+            CDS_ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
+            CDS_ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
+            CDS_ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
 
       volumes:
         dagster-io-manager-storage: {}
