@@ -1,10 +1,12 @@
 import json
 import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from cli.diagnostics import Diagnostic
 from cli.image_updates import collect_module_images
 from cli.main import list_modules, list_profiles, resolve_profile_path, main
 
@@ -215,6 +217,222 @@ class MainCLITest(unittest.TestCase):
             self.assertIn("CDS_SUPERSET_ADMIN_PASSWORD=change-me", content)
         finally:
             output_file.unlink(missing_ok=True)
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_runs_docker_compose_up(self, mock_validate, mock_plan, mock_render, mock_run):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_run.call_count, 2)
+        build_cmd = mock_run.call_args_list[0][0][0]
+        up_cmd = mock_run.call_args_list[1][0][0]
+        self.assertEqual(build_cmd[:4], ["docker", "compose", "-f", build_cmd[3]])
+        self.assertEqual(up_cmd[:4], ["docker", "compose", "-f", up_cmd[3]])
+        self.assertIn("build", build_cmd)
+        self.assertIn("up", up_cmd)
+        self.assertNotIn("--detach", up_cmd)
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_detach_flag_passes_through(self, mock_validate, mock_plan, mock_render, mock_run):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--detach"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        up_cmd = mock_run.call_args_list[1][0][0]
+        self.assertIn("--detach", up_cmd)
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_short_detach_flag_passes_through(self, mock_validate, mock_plan, mock_render, mock_run):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "-d"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        up_cmd = mock_run.call_args_list[1][0][0]
+        self.assertIn("--detach", up_cmd)
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_stops_when_build_fails(self, mock_validate, mock_plan, mock_render, mock_run):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=9),
+            subprocess.CompletedProcess(args=[], returncode=0),
+        ]
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 9)
+        self.assertEqual(mock_run.call_count, 1)
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("build", cmd)
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.validate_profile")
+    def test_up_command_stops_on_validation_failure_without_calling_docker(self, mock_validate, mock_run):
+        mock_validate.return_value = [Diagnostic("error", "E001", "bad profile", "spec")]
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+        mock_run.assert_not_called()
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_stops_on_plan_failure_without_calling_docker(self, mock_validate, mock_plan, mock_run):
+        mock_validate.return_value = []
+        mock_plan.return_value = (None, [Diagnostic("error", "E041", "bad binding", "spec")])
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+        mock_run.assert_not_called()
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_stops_on_render_failure_without_calling_docker(
+        self, mock_validate, mock_plan, mock_render, mock_run
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = (None, [Diagnostic("error", "E060", "bad render", "spec")])
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+        mock_run.assert_not_called()
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_reports_clear_error_when_docker_missing(self, mock_validate, mock_plan, mock_render, mock_run):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run.side_effect = FileNotFoundError()
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_propagates_docker_compose_exit_code(self, mock_validate, mock_plan, mock_render, mock_run):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run.side_effect = [
+            subprocess.CompletedProcess(args=[], returncode=0),
+            subprocess.CompletedProcess(args=[], returncode=17),
+        ]
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 17)
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_no_build_skips_build_step(self, mock_validate, mock_plan, mock_render, mock_run):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--no-build"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_run.call_count, 1)
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("up", cmd)
+        self.assertNotIn("build", cmd)
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_no_build_and_detach_flags_both_pass_through(
+        self, mock_validate, mock_plan, mock_render, mock_run
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys,
+            "argv",
+            ["cds", "up", "local-dagster-postgres-superset", "--no-build", "--detach"],
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_run.call_count, 1)
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("up", cmd)
+        self.assertIn("--detach", cmd)
 
 
 class CollectModuleImagesTest(unittest.TestCase):
