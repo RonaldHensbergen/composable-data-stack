@@ -19,11 +19,11 @@ from dagster import (
 )
 
 try:
-    _postgres_connection = importlib.import_module("workdirs.dagster.postgres_connection")
+    _db_connection = importlib.import_module("shared.python.db.connection")
 except ModuleNotFoundError:
-    _postgres_connection = importlib.import_module("postgres_connection")
+    _db_connection = importlib.import_module("postgres_connection")
 
-insert_incoming_file_event = _postgres_connection.insert_incoming_file_event
+insert_incoming_file_event = _db_connection.insert_incoming_file_event
 
 INCOMING_DATA_DIR = Path(os.getenv("CDS_INCOMING_DATA_DIR", "/app/data/cds/incoming"))
 PROCESSED_DATA_DIR = Path(os.getenv("CDS_PROCESSED_DATA_DIR", "/app/data/cds/processed"))
