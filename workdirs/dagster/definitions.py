@@ -1,5 +1,6 @@
 import hashlib
 import importlib
+import importlib.util
 import os
 from pathlib import Path
 
@@ -18,10 +19,25 @@ from dagster import (
     sensor,
 )
 
+def _load_module_from_path(module_name: str, file_path: Path):
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        raise ModuleNotFoundError(f"Unable to load module from {file_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 try:
     _db_connection = importlib.import_module("shared.python.db.connection")
 except ModuleNotFoundError:
-    _db_connection = importlib.import_module("postgres_connection")
+    repo_root = Path(__file__).resolve().parents[2]
+    shared_connection_path = repo_root / "shared" / "python" / "db" / "connection.py"
+    if shared_connection_path.exists():
+        _db_connection = _load_module_from_path("cds_shared_db_connection", shared_connection_path)
+    else:
+        local_connection_path = Path(__file__).resolve().with_name("postgres_connection.py")
+        _db_connection = _load_module_from_path("cds_local_postgres_connection", local_connection_path)
 
 insert_incoming_file_event = _db_connection.insert_incoming_file_event
 
