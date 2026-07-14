@@ -82,6 +82,10 @@ class RenderExampleProfileTest(unittest.TestCase):
                     "4000",
                 ],
             )
+            analytics_env = compose["services"]["dagster-user-code"]["environment"]
+            self.assertIn("ANALYTICS_DB_NAME", analytics_env)
+            self.assertIn("ANALYTICS_DB_CONNECTION_URI", analytics_env)
+            self.assertIn("postgresql://", analytics_env["ANALYTICS_DB_CONNECTION_URI"])
             dagster_volumes = compose["services"]["dagster-user-code"].get("volumes", [])
             shared_data_mount = next(
                 (
