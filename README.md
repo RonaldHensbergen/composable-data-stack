@@ -243,7 +243,7 @@ This resolves:
 cds render local-dagster-postgres-superset
 ```
 
-By default, this writes `docker-compose.yml` to the project root so you can run `docker compose up` immediately.
+By default, this writes `docker-compose.yml` to the project root.
 
 Use a custom location when needed:
 
@@ -257,7 +257,20 @@ This generates:
 - service definitions
 - fully wired module configuration
 
-### 8. Persistent Incoming Data Folder For Dagster
+### 8. Run The Stack
+
+```bash
+cds up local-dagster-postgres-superset
+```
+
+This runs `validate` → `plan` → `render` → `docker compose up` in one step.
+Add `--detach` (or `-d`) to run in the background:
+
+```bash
+cds up local-dagster-postgres-superset --detach
+```
+
+### 9. Persistent Incoming Data Folder For Dagster
 
 The Dagster module mounts a host directory into the containers so incoming files survive reboots.
 
@@ -349,8 +362,8 @@ profiles/[profile]/
 |cds validate [profile]|Validate modules and contracts|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
 |cds render [profile]|Generate Docker Compose configuration from a resolved plan|
-|cds up [profile]|Start services (planned)|
-|cds test [profile]|Run health checks (planned)|
+|cds up [profile]|Validate, plan, render, and start services with docker compose up|
+|cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 
 `[profile]` accepts:
 
@@ -420,8 +433,8 @@ All diagnostics print with their error code and YAML path (e.g. `spec.modules[1]
 2. cds security -> detect unsafe configurations
 3. cds plan -> resolve dependencies and bindings
 4. cds render -> generate Docker Compose stack
-5. cds up -> start services (planned)
-6. cds test -> run health checks (planned)
+5. cds up -> start services
+6. cds test -> one-shot validate + security + plan + render smoke check
 ```
 
 ---
