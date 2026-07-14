@@ -192,6 +192,11 @@ spec:
             DAGSTER_DB_USER: "${bindings.run-storage.username}"
             DAGSTER_DB_PASSWORD: "${bindings.run-storage.password}"
             DAGSTER_DB_CONNECTION_URI: "${bindings.run-storage.connectionUri}"
+            CDS_ANALYTICS_DB_HOST: "${bindings.run-storage.host}"
+            CDS_ANALYTICS_DB_PORT: "${bindings.run-storage.port}"
+            CDS_ANALYTICS_DB_NAME: "${CDS_ANALYTICS_DB_NAME}"
+            CDS_ANALYTICS_DB_USER: "${CDS_ANALYTICS_DB_USER}"
+            CDS_ANALYTICS_DB_PASSWORD: "${CDS_ANALYTICS_DB_PASSWORD}"
             DAGSTER_CURRENT_IMAGE: local/dagster:custom
 
         dagster-webserver:
@@ -280,6 +285,11 @@ spec:
             DAGSTER_DB_USER: "${bindings.run-storage.username}"
             DAGSTER_DB_PASSWORD: "${bindings.run-storage.password}"
             DAGSTER_DB_CONNECTION_URI: "${bindings.run-storage.connectionUri}"
+            CDS_ANALYTICS_DB_HOST: "${bindings.run-storage.host}"
+            CDS_ANALYTICS_DB_PORT: "${bindings.run-storage.port}"
+            CDS_ANALYTICS_DB_NAME: "${CDS_ANALYTICS_DB_NAME}"
+            CDS_ANALYTICS_DB_USER: "${CDS_ANALYTICS_DB_USER}"
+            CDS_ANALYTICS_DB_PASSWORD: "${CDS_ANALYTICS_DB_PASSWORD}"
 
       volumes:
         dagster-io-manager-storage: {}
