@@ -220,7 +220,7 @@ def save_data_to_db(context, payload: dict, asset_key: str = "cds_ingestion") ->
     context.log_event(AssetObservation(asset_key=asset_key, metadata=metadata))
 
 
-def _move_files(incoming_dir: Path, processed_dir: Path, files: list[str]) -> int:
+def _move_files(context, incoming_dir: Path, processed_dir: Path, files: list[str]) -> tuple[int, int]:
     processed_dir.mkdir(parents=True, exist_ok=True)
     db_uri = _resolve_target_db_uri()
 
@@ -260,7 +260,7 @@ def _move_files(incoming_dir: Path, processed_dir: Path, files: list[str]) -> in
         source.replace(destination)
         moved_files += 1
 
-    return moved_files
+    return moved_files, ingested_records
 
 
 @asset
@@ -277,7 +277,7 @@ def pickup_incoming_files(context) -> None:
     processed_dir = Path(context.op_config["processed_dir"])
     files = context.op_config["files"]
 
-    moved_files = _move_files(incoming_dir, processed_dir, files)
+    moved_files, ingested_records = _move_files(context, incoming_dir, processed_dir, files)
 
     context.log.info(
         "Picked up %s file(s) from %s into %s after ingesting %s record(s)",
@@ -293,6 +293,7 @@ def pickup_incoming_files(context) -> None:
             "incoming_dir": str(incoming_dir),
             "processed_dir": str(processed_dir),
             "file_count": moved_files,
+            "row_count": ingested_records,
             "files": files,
         },
     )
@@ -353,7 +354,7 @@ def process_incoming_file(context, read_result: dict) -> None:
     processed_dir = Path(context.op_config["processed_dir"])
     file_name = read_result["file_name"]
 
-    moved_files = _move_files(incoming_dir, processed_dir, [file_name])
+    moved_files, ingested_records = _move_files(context, incoming_dir, processed_dir, [file_name])
     preview = read_result.get("content", "")[:200]
 
     save_data_to_db(
@@ -364,6 +365,7 @@ def process_incoming_file(context, read_result: dict) -> None:
             "processed_dir": str(processed_dir),
             "file_name": file_name,
             "moved_count": moved_files,
+            "row_count": ingested_records,
             "content": read_result.get("content"),
             "content_preview": preview,
         },
