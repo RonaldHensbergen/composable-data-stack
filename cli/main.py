@@ -296,7 +296,7 @@ def main() -> int:
 
     up_parser = subparsers.add_parser(
         "up",
-        help="Validate, plan, render, and run the profile with docker compose up",
+        help="Validate, plan, render, build, and run the profile with docker compose",
     )
     _add_profile_arg(up_parser)
     up_parser.add_argument(
@@ -304,6 +304,11 @@ def main() -> int:
         "-d",
         action="store_true",
         help="Run containers in the background (passed through to docker compose up)",
+    )
+    up_parser.add_argument(
+        "--no-build",
+        action="store_true",
+        help="Skip docker compose build before starting services",
     )
 
     test_parser = subparsers.add_parser(
@@ -518,18 +523,25 @@ def main() -> int:
 
         print(f"Rendered compose file written to {output_path}")
 
-        cmd = ["docker", "compose", "-f", output_path, "up"]
+        up_cmd = ["docker", "compose", "-f", output_path, "up"]
         if args.detach:
-            cmd.append("--detach")
+            up_cmd.append("--detach")
 
-        print(f"Running: {' '.join(cmd)}")
         try:
-            result = subprocess.run(cmd)
+            if not args.no_build:
+                build_cmd = ["docker", "compose", "-f", output_path, "build"]
+                print(f"Running: {' '.join(build_cmd)}")
+                build_result = subprocess.run(build_cmd)
+                if build_result.returncode != 0:
+                    return build_result.returncode
+
+            print(f"Running: {' '.join(up_cmd)}")
+            up_result = subprocess.run(up_cmd)
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
             return 1
 
-        return result.returncode
+        return up_result.returncode
 
     if args.command == "test":
         try:
