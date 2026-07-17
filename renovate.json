@@ -23,12 +23,18 @@
         "^modules/.+/module\\.yaml$"
       ],
       "matchStrings": [
-        "image:\\s*(?<depName>(?!local/dagster)[\\w./-]+):(?<currentValue>[\\w.-]+)"
+        "image:\\s*(?<depName>[\\w./-]+):(?<currentValue>[\\w.-]+)"
       ],
       "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
+    {
+      "description": "Do not update local development image tags",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["local/dagster"],
+      "enabled": false
+    },
     {
       "groupName": "all dependencies",
       "matchPackagePatterns": [".*"]
