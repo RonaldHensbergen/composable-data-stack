@@ -61,18 +61,33 @@ Run tests in this order:
 
 - [ ] **T4.1** Run demo Dagster job  
   Trigger `load_demo_sales` and confirm successful completion.
+  ```bash
+  Dagster UI -> Jobs -> load_demo_sales -> Launch run
+  ```
 
 - [ ] **T4.2** Verify output table  
   Confirm output table exists in Postgres.
+  ```bash
+  psql -h localhost -U analytics -d analytics_db -c "\dt demo_sales"
+  ```
 
 - [ ] **T4.3** Verify row count  
   Confirm row count matches expected fixture.
+  ```bash
+  psql -h localhost -U analytics -d analytics_db -c "select count(*) from demo_sales;"
+  ```
 
 - [ ] **T4.4** Verify rerun behavior  
   Re-run the job and confirm overwrite/append/upsert behavior matches documentation.
+  ```bash
+  Dagster UI -> Jobs -> load_demo_sales -> Launch run again
+  ```
 
 - [ ] **T4.5** Verify logs available  
   Confirm Dagster run logs are visible and useful.
+  ```bash
+  Dagster UI -> Runs -> open latest run logs
+  ```
 
 ---
 
