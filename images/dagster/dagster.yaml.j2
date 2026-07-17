@@ -49,3 +49,9 @@ event_log_storage:
 {% elif backend == "mysql" %}
 # Add dagster-mysql blocks here when available
 {% endif %}
+
+compute_logs:
+  module: dagster._core.storage.local_compute_log_manager
+  class: LocalComputeLogManager
+  config:
+    base_dir: /tmp/io_manager_storage/compute_logs
