@@ -369,7 +369,7 @@ profiles/[profile]/
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
 |cds render [profile]|Generate Docker Compose configuration from a resolved plan|
 |cds up [profile]|Validate, plan, render, build, and start services with docker compose (use `--no-build` to skip build)|
-|cds test [profile]|Run health checks (planned)|
+|cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 
 `[profile]` accepts:
 
@@ -440,7 +440,7 @@ All diagnostics print with their error code and YAML path (e.g. `spec.modules[1]
 3. cds plan -> resolve dependencies and bindings
 4. cds render -> generate Docker Compose stack
 5. cds up -> start services
-6. cds test -> run health checks (planned)
+6. cds test -> one-shot validate + security + plan + render smoke check
 ```
 
 ---

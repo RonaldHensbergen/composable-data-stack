@@ -311,6 +311,12 @@ def main() -> int:
         help="Skip docker compose build before starting services",
     )
 
+    test_parser = subparsers.add_parser(
+        "test",
+        help="One-shot smoke validation: validate, security, plan, and render",
+    )
+    _add_profile_arg(test_parser)
+
     init_parser = subparsers.add_parser(
         "init",
         help="Initialize a .env file from profile secret definitions",
@@ -536,6 +542,76 @@ def main() -> int:
             return 1
 
         return up_result.returncode
+
+    if args.command == "test":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        print(f"== cds test: {args.profile} ==\n")
+        stages: list[tuple[str, str]] = []
+
+        diagnostics = validate_profile(profile_path)
+        validate_ok = not has_errors(diagnostics)
+        stages.append(("validate", "PASS" if validate_ok else "FAIL"))
+        if not validate_ok:
+            print_diagnostics(diagnostics)
+
+        security_ok = False
+        if validate_ok:
+            repo_root = Path(__file__).resolve().parents[1]
+            rule_schema_path = repo_root / "security" / "rule-schema.json"
+            rule_set_path = repo_root / "security" / "rule-set.json"
+            try:
+                findings, sec_diags = run_security_validation(
+                    profile_path=Path(profile_path),
+                    rule_schema_path=rule_schema_path,
+                    rule_set_path=rule_set_path,
+                    env_file=str(resolve_env_file_path(profile_path)),
+                )
+                for diag in sec_diags:
+                    print(diag.format(), file=sys.stderr)
+                for f in findings:
+                    print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+                security_ok = not any(f["severity"] == "high" for f in findings)
+            except Exception as e:
+                print(str(e), file=sys.stderr)
+                security_ok = False
+            stages.append(("security", "PASS" if security_ok else "FAIL"))
+        else:
+            stages.append(("security", "SKIP"))
+
+        env_file = str(resolve_env_file_path(profile_path))
+        plan = None
+        plan_ok = False
+        if validate_ok:
+            plan, plan_diags = build_plan(profile_path, env_file=env_file)
+            plan_ok = not has_errors(diagnostics + plan_diags)
+            if not plan_ok:
+                print_diagnostics(plan_diags)
+            stages.append(("plan", "PASS" if plan_ok else "FAIL"))
+        else:
+            stages.append(("plan", "SKIP"))
+
+        render_ok = False
+        if validate_ok and plan_ok:
+            _, render_diags = render_compose(plan, env_file=env_file)
+            render_ok = not has_errors(render_diags)
+            if not render_ok:
+                print_diagnostics(render_diags)
+            stages.append(("render", "PASS" if render_ok else "FAIL"))
+        else:
+            stages.append(("render", "SKIP"))
+
+        print("\n-- Summary --")
+        for name, status in stages:
+            print(f"[{status}] {name}")
+
+        all_passed = all(status == "PASS" for _, status in stages)
+        print("\nAll stages passed." if all_passed else "\nOne or more stages failed.")
+        return 0 if all_passed else 1
 
     if args.command == "init":
         try:
