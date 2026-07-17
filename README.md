@@ -552,6 +552,7 @@ Contributions are welcome.
 Please read these first:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
+- [docs/maintainer-merge-policy.md](docs/maintainer-merge-policy.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - [SECURITY.md](SECURITY.md)
 - [SUPPORT.md](SUPPORT.md)

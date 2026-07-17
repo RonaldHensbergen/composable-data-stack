@@ -116,6 +116,8 @@ Hooks included:
 3. Add or update tests when behavior changes.
 4. Open a PR with a clear summary and test evidence.
 
+`main` requires an approving review and green CI before merge. See [docs/maintainer-merge-policy.md](docs/maintainer-merge-policy.md) for how that applies to the maintainer's own PRs, since a solo maintainer can't approve their own review.
+
 ## Commit Message Guidance
 
 Use imperative style and keep scope clear.
