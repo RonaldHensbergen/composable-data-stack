@@ -297,6 +297,136 @@ class RendererRegressionTest(unittest.TestCase):
             self.assertTrue(Path(context).is_absolute() or context.startswith("/"))
             self.assertTrue(context.endswith("images/dagster"))
 
+    def test_render_compose_rejects_module_source_traversal_for_volume_local_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            outside_zone = root / "outside_zone"
+            profile_dir.mkdir(parents=True)
+            outside_zone.mkdir()
+            (outside_zone / "payload.txt").write_text("exfiltrated", encoding="utf-8")
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text("placeholder", encoding="utf-8")
+
+            plan = {
+                "sourceProfile": str(profile_file),
+                "metadata": {"name": "cds-test"},
+                "secrets": {},
+                "modules": [
+                    {
+                        "id": "evil",
+                        "source": "../../outside_zone",
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {
+                                "services": {
+                                    "evil-svc": {
+                                        "image": "alpine",
+                                        "volumes": ["./payload.txt:/payload.txt"],
+                                    }
+                                }
+                            },
+                        },
+                    }
+                ],
+            }
+
+            output_path = str(root / "out.yml")
+            compose_yaml, diagnostics = render_compose(plan, output_path=output_path)
+            compose = yaml.safe_load(compose_yaml)
+            rewritten_source = compose["services"]["evil-svc"]["volumes"][0].split(":")[0]
+
+            resolved = (root / rewritten_source).resolve()
+            self.assertFalse(str(resolved).startswith(str(outside_zone.resolve())))
+
+    def test_render_compose_rejects_module_source_traversal_for_build_context(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            outside_zone = root / "outside_zone"
+            profile_dir.mkdir(parents=True)
+            (outside_zone / "buildctx").mkdir(parents=True)
+            (outside_zone / "buildctx" / "Dockerfile").write_text("FROM scratch", encoding="utf-8")
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text("placeholder", encoding="utf-8")
+
+            plan = {
+                "sourceProfile": str(profile_file),
+                "metadata": {"name": "cds-test"},
+                "secrets": {},
+                "modules": [
+                    {
+                        "id": "evil",
+                        "source": "../../outside_zone",
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {
+                                "services": {
+                                    "evil-svc": {
+                                        "build": {"context": "./buildctx"},
+                                    }
+                                }
+                            },
+                        },
+                    }
+                ],
+            }
+
+            output_path = str(root / "out.yml")
+            compose_yaml, diagnostics = render_compose(plan, output_path=output_path)
+            compose = yaml.safe_load(compose_yaml)
+            rewritten_context = compose["services"]["evil-svc"]["build"]["context"]
+
+            resolved = (root / rewritten_context).resolve()
+            self.assertFalse(str(resolved).startswith(str(outside_zone.resolve())))
+
+    def test_render_compose_uses_cds_module_path_for_module_local_path_base(self):
+        # Positive case: CDS_MODULE_PATH-relative resolution (previously
+        # ignored entirely by _resolve_module_dir) must still work so a
+        # module's own local files remain usable as a volume base.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            modules_root = root / "modules"
+            module_dir = modules_root / "warehouse" / "postgres"
+            profile_dir.mkdir(parents=True)
+            module_dir.mkdir(parents=True)
+            (module_dir / "init-db.sql").write_text("-- init", encoding="utf-8")
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text("placeholder", encoding="utf-8")
+
+            plan = {
+                "sourceProfile": str(profile_file),
+                "metadata": {"name": "cds-test"},
+                "secrets": {},
+                "modules": [
+                    {
+                        "id": "postgres",
+                        "source": "warehouse/postgres",
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {
+                                "services": {
+                                    "postgres-db": {
+                                        "image": "postgres",
+                                        "volumes": ["./init-db.sql:/docker-entrypoint-initdb.d/init.sql"],
+                                    }
+                                }
+                            },
+                        },
+                    }
+                ],
+            }
+
+            output_path = str(root / "out.yml")
+            with mock.patch.dict("os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False):
+                compose_yaml, diagnostics = render_compose(plan, output_path=output_path)
+
+            compose = yaml.safe_load(compose_yaml)
+            rewritten_source = compose["services"]["postgres-db"]["volumes"][0].split(":")[0]
+            resolved = (root / rewritten_source).resolve()
+            self.assertEqual(resolved, (module_dir / "init-db.sql").resolve())
+
 def test_render_compose_falls_back_to_absolute_volume_source_on_cross_drive_relpath(self):
         """Regression test for the same Windows-only cross-drive bug as
         above, but in _rewrite_local_path (used for bind-mount volume

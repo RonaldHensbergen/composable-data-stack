@@ -123,3 +123,49 @@ def _is_within(candidate: Path, allowed_root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def resolve_module_dir(
+    source: str,
+    profile_dir: Path | None,
+    module_root: Path | None = None,
+) -> Path | None:
+    """
+    Resolve a module's `source` field to its containing directory, enforcing
+    the same allowed-root boundary as resolve_module_file().
+
+    Unlike resolve_module_file(), this has no diagnostics list: callers (the
+    renderer, when computing bases for volume/build-context path rewriting)
+    already treat a None return as "not a usable base" and silently exclude
+    it, so a boundary violation here fails closed the same way a missing
+    module directory already does; no new diagnostic plumbing needed.
+    """
+    if not isinstance(source, str):
+        return None
+
+    source_path = Path(source).expanduser()
+
+    if source_path.is_absolute():
+        return None
+
+    if source_path.parts and source_path.parts[0] == ".":
+        source_path = source_path.relative_to(".")
+
+    if module_root is not None:
+        allowed_root = module_root.expanduser()
+        if allowed_root.is_file():
+            allowed_root = allowed_root.parent
+        allowed_root = allowed_root.resolve()
+        candidate = (allowed_root / source_path).resolve()
+    else:
+        if profile_dir is None:
+            return None
+        allowed_root = _derive_allowed_module_root(profile_dir, source_path)
+        if allowed_root is None:
+            return None
+        candidate = (profile_dir / source_path).resolve()
+
+    if not _is_within(candidate, allowed_root):
+        return None
+
+    return candidate

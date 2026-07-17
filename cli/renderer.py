@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .diagnostics import Diagnostic
+from .loader import resolve_module_dir
 
 
 def render_compose(
@@ -642,17 +643,10 @@ def _resolve_module_dir(module: dict[str, Any], profile_dir: Path | None) -> Pat
     if not isinstance(source, str):
         return None
 
-    source_path = Path(source)
-    if source_path.is_absolute():
-        return source_path.resolve()
+    module_root = os.getenv("CDS_MODULE_PATH")
+    module_root_path = Path(module_root) if module_root else None
 
-    if profile_dir is None:
-        return None
-
-    if source_path.parts and source_path.parts[0] == ".":
-        source_path = source_path.relative_to(".")
-
-    return (profile_dir / source_path).resolve()
+    return resolve_module_dir(source, profile_dir, module_root=module_root_path)
 
 
 def _is_named_volume(value: str) -> bool:
