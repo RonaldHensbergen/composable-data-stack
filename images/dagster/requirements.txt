@@ -1,5 +1,5 @@
-dagster==1.13.13
-dagster-postgres==0.29.13
-dagster-docker==0.29.13
-dagster-graphql==1.13.13
-dagster-webserver==1.13.13
+dagster==1.13.14
+dagster-postgres==0.29.14
+dagster-docker==0.29.14
+dagster-graphql==1.13.14
+dagster-webserver==1.13.14
