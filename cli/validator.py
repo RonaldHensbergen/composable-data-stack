@@ -1,6 +1,7 @@
 # cli/validator.py
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,7 @@ from jsonschema import Draft202012Validator
 
 from .diagnostics import Diagnostic
 from .graph import validate_dependency_graph
-from .loader import load_yaml_file
+from .loader import load_yaml_file, resolve_module_file
 from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
 
 
@@ -97,7 +98,17 @@ def load_module_instances(profile_file: Path, profile: dict[str, Any]) -> tuple[
             continue
 
         source = module_instance["source"]
-        module_file = (profile_dir / source / "module.yaml").resolve()
+        module_root = os.getenv("CDS_MODULE_PATH")
+        module_root_path = Path(module_root) if module_root else None
+        module_file, diags = resolve_module_file(
+            source=source,
+            profile_dir=profile_dir,
+            module_root=module_root_path,
+            diagnostic_path=f"spec.modules[{i}].source",
+        )
+        diagnostics.extend(diags)
+        if module_file is None:
+            continue
 
         module_def, diags = load_yaml_file(module_file)
         diagnostics.extend(diags)

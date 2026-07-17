@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from cli import planner
@@ -361,6 +362,65 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
             self.assertEqual(plan["modules"][0]["config"]["passwordFrom"], "secrets.postgres_password")
             self.assertEqual(plan["secrets"]["postgres_password"], "CDS_ANALYTICS_POSTGRES_PASSWORD")
+
+    def test_build_plan_rejects_module_source_traversal_outside_configured_module_root(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            modules_root = root / "modules"
+            outside_root = root / "outside_zone"
+            profile_dir.mkdir(parents=True)
+            modules_root.mkdir()
+            outside_root.mkdir()
+
+            import yaml
+
+            (outside_root / "module.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Module",
+                        "metadata": {"name": "outside"},
+                        "spec": {
+                            "configSchema": {"type": "object", "additionalProperties": False},
+                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "local-test"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {
+                            "id": "outside",
+                            "source": "../../../outside_zone",
+                            "enabled": True,
+                            "config": {},
+                        }
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+            with patch.dict("os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False):
+                plan, diagnostics = planner.build_plan(str(profile_file))
+
+            self.assertIsNotNone(diagnostics)
+            self.assertIsNotNone(plan)
+            errors = [d for d in diagnostics if d.level == "error"]
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0].code, "E022")
+            self.assertIn("outside allowed module root", errors[0].message)
+            self.assertEqual(plan["modules"], [])
 
 
 if __name__ == "__main__":
