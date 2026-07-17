@@ -427,7 +427,7 @@ class RendererRegressionTest(unittest.TestCase):
             resolved = (root / rewritten_source).resolve()
             self.assertEqual(resolved, (module_dir / "init-db.sql").resolve())
 
-def test_render_compose_falls_back_to_absolute_volume_source_on_cross_drive_relpath(self):
+    def test_render_compose_falls_back_to_absolute_volume_source_on_cross_drive_relpath(self):
         """Regression test for the same Windows-only cross-drive bug as
         above, but in _rewrite_local_path (used for bind-mount volume
         sources like init-db.sql), a separate function from
