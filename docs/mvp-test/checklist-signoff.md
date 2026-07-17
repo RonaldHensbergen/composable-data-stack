@@ -71,19 +71,19 @@ Run tests in this order:
 
 ## T4 End-to-end DAG execution proof
 
-- [ ] **T4.1** Run demo Dagster job  
+- [x] **T4.1** Run demo Dagster job  
   Trigger `load_demo_sales` and confirm successful completion.
 
-- [ ] **T4.2** Verify output table  
+- [x] **T4.2** Verify output table  
   Confirm output table exists in Postgres.
 
-- [ ] **T4.3** Verify row count  
+- [x] **T4.3** Verify row count  
   Confirm row count matches expected fixture.
 
-- [ ] **T4.4** Verify rerun behavior  
+- [x] **T4.4** Verify rerun behavior  
   Re-run the job and confirm overwrite/append/upsert behavior matches documentation.
 
-- [ ] **T4.5** Verify logs available  
+- [x] **T4.5** Verify logs available  
   Confirm Dagster run logs are visible and useful.
 
 ---
@@ -184,7 +184,7 @@ Minimum required before calling the profile proven:
 - [x] **T1.1–T1.3**
 - [x] **T2.1–T2.3**
 - [x] **T3.1–T3.3**
-- [ ] **T4.1–T4.5**
+- [x] **T4.1–T4.5**
 - [ ] **T5.1–T5.3**
 - [ ] **T6.1**
 - [ ] **T6.3**
