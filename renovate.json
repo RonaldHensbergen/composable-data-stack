@@ -3,6 +3,31 @@
   "extends": [
     "config:recommended"
   ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track pip pins in Dagster entrypoint script",
+      "fileMatch": [
+        "^images/dagster/entrypoint\\.sh$"
+      ],
+      "matchStrings": [
+        "(?<depName>dagster-postgres)==(?<currentValue>\\S+)",
+        "(?<depName>dagster-mysql)==(?<currentValue>\\S+)"
+      ],
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "description": "Track Docker image tags in module definitions",
+      "fileMatch": [
+        "^modules/.+/module\\.yaml$"
+      ],
+      "matchStrings": [
+        "image:\\s*(?<depName>(?!local/dagster)[\\w./-]+):(?<currentValue>[\\w.-]+)"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
   "packageRules": [
     {
       "groupName": "all dependencies",
