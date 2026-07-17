@@ -8,7 +8,7 @@ import os
 import re
 
 from .diagnostics import Diagnostic
-from .loader import load_yaml_file
+from .loader import load_yaml_file, resolve_module_file
 from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
 from .secrets import load_profile_secrets, load_secrets_from_env
 
@@ -59,17 +59,16 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
             source_path = source_path.relative_to(".")
 
         module_root = os.getenv("CDS_MODULE_PATH")
-        module_file = None
-        if module_root:
-            module_root_path = Path(module_root).expanduser()
-            if module_root_path.is_file():
-                module_root_path = module_root_path.parent
-            candidate = (module_root_path / source_path / "module.yaml").resolve()
-            if candidate.exists():
-                module_file = candidate
-
+        module_root_path = Path(module_root) if module_root else None
+        module_file, diags = resolve_module_file(
+            source=source,
+            profile_dir=profile_dir,
+            module_root=module_root_path,
+            diagnostic_path=f"spec.modules[{i}].source",
+        )
+        diagnostics.extend(diags)
         if module_file is None:
-            module_file = (profile_dir / source_path / "module.yaml").resolve()
+            continue
 
         module_def, diags = load_yaml_file(module_file)
         diagnostics.extend(diags)
