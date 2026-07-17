@@ -26,7 +26,7 @@ These work but may have breaking changes in upcoming releases:
 
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - `cds up` — implemented; not yet validated against a real Docker Compose run
-- `cds test` — planned; not yet implemented
+- `cds test` — implemented; not yet exercised in real contributor/CI usage
 
 ---
 

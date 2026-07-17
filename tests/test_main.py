@@ -434,6 +434,124 @@ class MainCLITest(unittest.TestCase):
         self.assertIn("up", cmd)
         self.assertIn("--detach", cmd)
 
+
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_test_command_reports_pass_when_all_stages_succeed(
+        self, mock_validate, mock_security, mock_plan, mock_render
+    ):
+        mock_validate.return_value = []
+        mock_security.return_value = ([], [])
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        mock_render.assert_called_once()
+        render_kwargs = mock_render.call_args
+        self.assertNotIn("output_path", render_kwargs.kwargs)
+
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_test_command_skips_downstream_stages_on_validate_failure(
+        self, mock_validate, mock_security, mock_plan, mock_render
+    ):
+        mock_validate.return_value = [Diagnostic("error", "E001", "bad profile", "spec")]
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+        mock_security.assert_not_called()
+        mock_plan.assert_not_called()
+        mock_render.assert_not_called()
+
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_test_command_still_runs_plan_and_render_when_security_fails(
+        self, mock_validate, mock_security, mock_plan, mock_render
+    ):
+        mock_validate.return_value = []
+        mock_security.return_value = (
+            [{"severity": "high", "rule_id": "CDS-SEC-001", "message": "bad", "path": "x", "module": "x", "value": None, "recommendation": []}],
+            [],
+        )
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+        mock_plan.assert_called_once()
+        mock_render.assert_called_once()
+
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_test_command_only_high_severity_findings_fail_security_stage(
+        self, mock_validate, mock_security, mock_plan, mock_render
+    ):
+        mock_validate.return_value = []
+        mock_security.return_value = (
+            [{"severity": "medium", "rule_id": "CDS-SEC-033", "message": "meh", "path": "x", "module": "x", "value": None, "recommendation": []}],
+            [],
+        )
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_test_command_skips_render_when_plan_fails(self, mock_validate, mock_security, mock_plan, mock_render):
+        mock_validate.return_value = []
+        mock_security.return_value = ([], [])
+        mock_plan.return_value = (None, [Diagnostic("error", "E041", "bad binding", "spec")])
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+        mock_render.assert_not_called()
+
+
+class CollectModuleImagesTest(unittest.TestCase):
+
+    _ROOT = Path(__file__).parent.parent
+    _MODULES = _ROOT / "modules"
+    _DOCKERFILE = _ROOT / "images" / "dagster" / "Dockerfile"
+
+    def test_collects_images_from_real_modules(self):
+        if not self._MODULES.exists():
+            self.skipTest("modules directory not available")
+
+        images = collect_module_images(self._MODULES)
+
 class CollectModuleImagesTest(unittest.TestCase):
 
     _ROOT = Path(__file__).parent.parent
