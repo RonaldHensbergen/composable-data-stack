@@ -315,7 +315,7 @@ class RendererRegressionTest(unittest.TestCase):
                 "modules": [
                     {
                         "id": "evil",
-                        "source": "../../outside_zone",
+                        "source": "modules/../../../outside_zone",
                         "implementation": {
                             "kind": "docker-compose",
                             "compose": {
@@ -357,7 +357,7 @@ class RendererRegressionTest(unittest.TestCase):
                 "modules": [
                     {
                         "id": "evil",
-                        "source": "../../outside_zone",
+                        "source": "modules/../../../outside_zone",
                         "implementation": {
                             "kind": "docker-compose",
                             "compose": {

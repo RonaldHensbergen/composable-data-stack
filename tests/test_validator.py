@@ -41,7 +41,7 @@ class ValidatorRegressionTest(unittest.TestCase):
                     "modules": [
                         {
                             "id": "outside",
-                            "source": "../../../outside_zone",
+                            "source": "modules/../../../outside_zone",
                             "enabled": True,
                             "config": {},
                         }
