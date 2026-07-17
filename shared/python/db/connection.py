@@ -2,6 +2,8 @@ import importlib
 import json
 import os
 from collections.abc import Mapping
+from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import quote_plus
 
 
@@ -108,6 +110,8 @@ def insert_incoming_file_event(
     env: Mapping[str, str] | None = None,
 ) -> None:
     values = os.environ if env is None else env
+    _write_local_event_snapshot(payload, asset_key, values)
+
     if not values.get(f"{prefix}_CONNECTION_URI") and not _has_backend_settings(prefix, values):
         return
 
@@ -170,6 +174,41 @@ def insert_incoming_file_event(
                 "metadata_json": json.dumps(dict(payload)),
             },
         )
+
+
+def _write_local_event_snapshot(
+    payload: Mapping[str, object],
+    asset_key: str,
+    values: Mapping[str, str],
+) -> None:
+    enabled = values.get("CDS_LOCAL_EVENT_LOG_ENABLED", "1").strip().lower()
+    if enabled in {"0", "false", "no", "off"}:
+        return
+
+    output_path = Path(
+        values.get(
+            "CDS_LOCAL_EVENT_LOG_PATH",
+            ".cache/cds/incoming_file_events.jsonl",
+        )
+    )
+
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_type": str(payload.get("event", asset_key)),
+        "asset_key": asset_key,
+        "file_name": payload.get("file_name"),
+        "status": payload.get("status"),
+        "row_count": payload.get("row_count"),
+        "metadata": dict(payload),
+    }
+
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=True) + "\n")
+    except OSError:
+        # Local event logging is best effort and must not block pipeline execution.
+        return
 
 
 def _has_backend_settings(prefix: str, values: Mapping[str, str]) -> bool:

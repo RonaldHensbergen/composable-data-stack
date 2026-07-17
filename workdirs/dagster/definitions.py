@@ -2,6 +2,7 @@ import hashlib
 import importlib
 import importlib.util
 import csv
+import io
 import json
 import os
 import re
@@ -51,6 +52,7 @@ insert_incoming_file_event = _db_connection.insert_incoming_file_event
 INCOMING_DATA_DIR = Path(os.getenv("CDS_INCOMING_DATA_DIR", "/app/data/cds/incoming"))
 PROCESSED_DATA_DIR = Path(os.getenv("CDS_PROCESSED_DATA_DIR", "/app/data/cds/processed"))
 SUPPORTED_INGEST_EXTENSIONS = {".csv", ".json", ".ndjson"}
+TEXT_FILE_ENCODINGS = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
 
 
 def _is_processable_file(file_path: Path) -> bool:
@@ -103,8 +105,25 @@ def _resolve_target_db_uri() -> str:
     )
 
 
+def _read_text_with_fallback(file_path: Path) -> str:
+    payload = file_path.read_bytes()
+    decode_errors: list[str] = []
+    for encoding in TEXT_FILE_ENCODINGS:
+        try:
+            return payload.decode(encoding)
+        except UnicodeDecodeError as exc:
+            decode_errors.append(f"{encoding}: {exc}")
+
+    raise RuntimeError(
+        "Unable to decode text file {path}. Tried encodings: {encodings}".format(
+            path=file_path,
+            encodings="; ".join(decode_errors),
+        )
+    )
+
+
 def _ingest_csv_file(conn, file_path: Path, table_name: str, source_file: str) -> int:
-    with file_path.open("r", newline="", encoding="utf-8") as handle:
+    with io.StringIO(_read_text_with_fallback(file_path), newline="") as handle:
         reader = csv.DictReader(handle)
         if not reader.fieldnames:
             return 0
@@ -152,8 +171,7 @@ def _ingest_csv_file(conn, file_path: Path, table_name: str, source_file: str) -
 
 
 def _ingest_json_file(conn, file_path: Path, table_name: str, source_file: str) -> int:
-    with file_path.open("r", encoding="utf-8") as handle:
-        content = handle.read().strip()
+    content = _read_text_with_fallback(file_path).strip()
     if not content:
         return 0
 
