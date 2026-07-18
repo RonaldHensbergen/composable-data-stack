@@ -60,6 +60,26 @@ class MainCLITest(unittest.TestCase):
         mock_collect.assert_called_once()
         mock_check.assert_called_once_with("mock:1.0", dockerfile=None)
 
+    @patch("cli.main.collect_module_images")
+    @patch("cli.main.check_image_update")
+    def test_list_images_command_caches_duplicate_checks(self, mock_check, mock_collect):
+        mock_collect.return_value = [
+            {"module": "orchestration/dagster", "service": "web", "image": "mock:1.0"},
+            {"module": "orchestration/dagster", "service": "daemon", "image": "mock:1.0"},
+        ]
+        mock_check.return_value = {
+            "image": "mock:1.0",
+            "status": "up-to-date",
+            "latest": None,
+        }
+
+        with patch.object(sys, "argv", ["cds", "list", "images"]):
+            result = main()
+
+        self.assertEqual(result, 0)
+        mock_collect.assert_called_once()
+        mock_check.assert_called_once_with("mock:1.0", dockerfile=None)
+
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
     def test_security_command_resolves_profile_and_runs_validation(self, mock_validate, mock_run_security):

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,15 @@ from .loader import load_yaml_file
 
 DOCKER_HUB_API = "https://hub.docker.com/v2/repositories"
 SEMVER_PATTERN = re.compile(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?$")
+
+
+def _read_max_pages() -> int:
+    raw = os.getenv("CDS_DOCKERHUB_MAX_PAGES", "3").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 3
+    return value if value > 0 else 3
 
 def collect_module_images(module_root: Path) -> list[dict[str, Any]]:
     images: list[dict[str, Any]] = []
@@ -179,17 +189,21 @@ def semver_key(tag: str) -> tuple[int, int, int] | None:
     return tuple(int(part) for part in parts)
 
 
-def fetch_dockerhub_tags(namespace: str, repository: str, page_size: int = 100) -> list[str] | None:
+def fetch_dockerhub_tags(namespace: str, repository: str, page_size: int = 100, max_pages: int | None = None) -> list[str] | None:
     tags: list[str] = []
     url = f"{DOCKER_HUB_API}/{namespace}/{repository}/tags?page_size={page_size}"
+    pages_read = 0
+    page_limit = _read_max_pages() if max_pages is None else max_pages
 
-    while url:
+    while url and pages_read < page_limit:
         try:
             req = Request(url, headers={"User-Agent": "cds-image-check/1.0"})
             with urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode())
         except (HTTPError, URLError, ValueError):
             return None
+
+        pages_read += 1
 
         for result in data.get("results", []):
             name = result.get("name")

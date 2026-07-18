@@ -654,11 +654,17 @@ def main() -> int:
                 print("No images found in modules.")
                 return 0
 
+            update_cache: dict[tuple[str, str | None], dict[str, object]] = {}
+
             for image_entry in images:
-                info = check_image_update(
-                    image_entry["image"],
-                    dockerfile=image_entry.get("dockerfile"),
-                )
+                dockerfile = image_entry.get("dockerfile")
+                cache_key = (image_entry["image"], str(dockerfile) if dockerfile is not None else None)
+                if cache_key not in update_cache:
+                    update_cache[cache_key] = check_image_update(
+                        image_entry["image"],
+                        dockerfile=dockerfile,
+                    )
+                info = update_cache[cache_key]
                 status = info["status"]
                 if status == "update-available":
                     print(
