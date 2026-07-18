@@ -92,7 +92,11 @@ Postgres -> MariaDB
 
 ## 🗺️ Architecture Overview
 
-CDS wires modules through **contracts**, not direct dependencies:
+CDS wires modules through **contracts**, not direct dependencies. This section has two levels: a high-level picture of what gets wired together ([Overview](#overview)), and a detailed look at what happens when you run a CDS command ([Internal Flow](#internal-flow)).
+
+### Overview
+
+Below, `local-dagster-postgres-superset` wires Dagster to Postgres to Superset through contracts:
 
 ```mermaid
 ---
@@ -115,6 +119,50 @@ flowchart TD
     class Postgres database
     class Superset viz
 ```
+
+### Internal Flow
+
+`cds test` (and `cds up`, internally) runs a profile through four stages in order: **validate → security → plan → render**. Each stage can stop the pipeline with a diagnostic before the next one runs.
+
+- **Validate** checks profile shape, module configs, dependencies, secret refs, contract bindings, and outputs.
+- **Security** runs rule-based checks against modules and resolved secrets.
+- **Plan** resolves contract bindings and substitutes secrets and defaults.
+- **Render** generates the final `docker-compose.yaml`.
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TD
+    Profile[/profile.yaml/]
+    Validate[Validate]
+    Security[Security checks]
+    Plan[Plan]
+    Render[Render]
+    Compose[/docker-compose.yaml/]
+    Stop1((stops here))
+
+    Profile --> Validate
+    Validate -->|structural + contract checks| Security
+    Security -->|rule-based checks| Plan
+    Plan -->|resolve + substitute| Render
+    Render --> Compose
+
+    Validate -.->|E020, E041, E042, E081| Stop1
+
+    classDef stage stroke:#818cf8,fill:#eef2ff
+    classDef artifact stroke:#2dd4bf,fill:#f0fdfa
+    classDef stop stroke:#f87171,fill:#fef2f2,stroke-dasharray: 3 3
+
+    class Validate,Security,Plan,Render stage
+    class Profile,Compose artifact
+    class Stop1 stop
+```
+
+This mirrors the [`cds` command table](#️-cli) below: `validate`, `plan`, and `render` are each callable on their own; `security` runs as part of `cds test` and `cds up`. Module and contract definitions follow the [Contract-First](#contract-first) design principle, so most of what "Validate" and "Plan" check comes directly from `module.yaml` and `profile.yaml`.
+
+**See also:** [Security](#-security) for what the security stage checks, [Troubleshooting](#️-troubleshooting) for what each error code means and how to fix it.
 
 ## 🔐 Security
 
