@@ -94,89 +94,158 @@ Run tests in this order:
 ## T5 Persistence proof
 
 - [ ] **T5.1** Restart stack  
-  Stop and start services and confirm healthy recovery.
+  ```bash
+  docker compose restart dagster-user-code dagster-webserver dagster-daemon postgres superset
+  ```
+  State: all services come back healthy and the stack is reachable again.
 
 - [ ] **T5.2** Persisted Dagster run history  
-  Confirm previous successful runs remain visible after restart.
+  ```bash
+  Dagster UI -> Runs -> confirm prior successful runs still appear
+  ```
+  State: earlier successful runs are still listed after the restart.
 
 - [ ] **T5.3** Persisted Postgres data  
-  Confirm written data remains present after restart.
+  ```bash
+  psql -h localhost -U analytics -d analytics_db -c "select count(*) from demo_sales;"
+  ```
+  State: the row count is unchanged after restart.
 
 - [ ] **T5.4** Persisted Superset metadata  
-  Confirm saved connection/dataset/chart persists if the profile promises it.
+  ```bash
+  Superset UI -> Data -> Datasets/Charts -> confirm saved objects still exist
+  ```
+  State: saved datasets/charts/connections are still present.
 
 ---
 
 ## T6 Superset proof
 
 - [ ] **T6.1** Superset UI load  
-  Confirm Superset is reachable.
+  ```bash
+  curl -I http://localhost:8088/
+  ```
+  State: Superset returns a healthy HTTP response.
 
 - [ ] **T6.2** Admin login  
-  Confirm login succeeds with documented credentials.
+  ```bash
+  Superset UI -> log in with documented admin credentials
+  ```
+  State: login succeeds and the home page loads.
 
 - [ ] **T6.3** Datasource connectivity  
-  Confirm Superset can access the produced Postgres table.
+  ```bash
+  Superset UI -> Data -> Datasets -> verify the Postgres table is selectable
+  ```
+  State: the produced Postgres table is visible as a selectable dataset source.
 
 - [ ] **T6.4** Dataset creation  
-  Confirm dataset can be created or is pre-seeded.
+  ```bash
+  Superset UI -> Data -> Datasets -> + Dataset
+  ```
+  State: a dataset can be created or is already pre-seeded.
 
 - [ ] **T6.5** Visualization proof  
-  Confirm at least one chart/dashboard successfully queries the output table.
+  ```bash
+  Superset UI -> Charts -> create a chart from the output table
+  ```
+  State: at least one chart renders data from the output table.
 
 ---
 
 ## T7 Restart and recovery proof
 
 - [ ] **T7.1** Clean restart recovery  
-  Restart the full stack after a successful run and confirm services reconnect properly.
+  ```bash
+  docker compose restart && docker compose ps
+  ```
+  State: all services reconnect and report healthy/ready status.
 
 - [ ] **T7.2** Post-restart rerun  
-  Run the demo job again after restart and confirm success.
+  ```bash
+  Dagster UI -> Jobs -> load_demo_sales -> Launch run again
+  ```
+  State: the job succeeds after the restart.
 
 - [ ] **T7.3** Duplicate/replay behavior  
-  Confirm resulting data state matches documented semantics.
+  ```bash
+  psql -h localhost -U analytics -d analytics_db -c "select count(*) from demo_sales;"
+  ```
+  State: the data state matches the documented rerun semantics.
 
 ---
 
 ## T8 Failure-path proof
 
 - [ ] **T8.1** Postgres unavailable  
-  Stop Postgres and trigger the job; confirm failure is clear and actionable.
+  ```bash
+  docker compose stop postgres && Dagster UI -> Jobs -> load_demo_sales -> Launch run
+  ```
+  State: the job fails clearly and points to the missing database dependency.
 
 - [ ] **T8.2** Missing env/config  
-  Start with broken or missing config and confirm error is actionable.
+  ```bash
+  docker compose --env-file .env.missing up
+  ```
+  State: startup fails with an actionable configuration error.
 
 - [ ] **T8.3** Port conflict  
-  Simulate an occupied port and confirm preflight catches it.
+  ```bash
+  python3 -m http.server 8088
+  ```
+  State: preflight or startup detects the occupied port.
 
 - [ ] **T8.4** Service readiness race  
-  Force dependent services to start early and confirm healthchecks/retries handle it.
+  ```bash
+  docker compose up dagster-webserver
+  ```
+  State: healthchecks/retries handle the dependency startup order.
 
 - [ ] **T8.5** Failure logs/artifacts  
-  Confirm logs clearly identify root cause.
+  ```bash
+  Dagster UI -> Runs -> open failed run logs and artifacts
+  ```
+  State: logs and artifacts identify the root cause.
 
 ---
 
 ## T9 CI proof
 
 - [ ] **T9.1** Validate profile/module config  
-  Confirm schema and structure validation passes on a clean runner.
+  ```bash
+  python3 -m json.tool renovate.json > /dev/null
+  ```
+  State: config/schema validation passes on a clean runner.
 
 - [ ] **T9.2** Render runtime artifacts  
-  Confirm rendered output is generated successfully and deterministically.
+  ```bash
+  python3 images/dagster/generate_config.py
+  ```
+  State: rendered runtime config is generated deterministically.
 
 - [ ] **T9.3** Boot on clean CI runner  
-  Confirm the profile boots successfully in CI.
+  ```bash
+  docker compose up -d
+  ```
+  State: the profile boots successfully in CI.
 
 - [ ] **T9.4** Full happy-path E2E  
-  Run the job, verify DB output, and verify Superset reachability.
+  ```bash
+  Dagster UI -> Jobs -> load_demo_sales -> Launch run; psql -h localhost -U analytics -d analytics_db -c "select count(*) from demo_sales;"
+  ```
+  State: the job succeeds, DB output is present, and the service is reachable.
 
 - [ ] **T9.5** Restart verification in CI  
-  Restart and confirm persistence checks pass.
+  ```bash
+  docker compose restart && docker compose ps
+  ```
+  State: restart succeeds and persistence checks still pass.
 
 - [ ] **T9.6** Collect diagnostics on failure  
-  Confirm logs and artifacts are uploaded on failure.
+  ```bash
+  Dagster UI -> Runs -> open failed run logs and artifacts
+  ```
+  State: logs and uploaded artifacts are available for troubleshooting.
 
 ---
 
