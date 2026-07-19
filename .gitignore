@@ -229,3 +229,8 @@ __marimo__/
 # Generated PR documentation
 .github/pr-docs/
 tools/pr-docs/
+
+# Stray PR-drafting scratch files (seen generated directly under .github/,
+# outside the gitignored tools/ and .github/pr-docs/ locations above)
+.github/PR_DRAFT.md
+.github/PR_BODY_WITH_COMMENTS.md
