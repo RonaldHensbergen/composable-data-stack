@@ -67,9 +67,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install .
 
+      # Coverage is measured and gated once, on Linux, not per-OS: the same
+      # test suite runs identical Python on all three OSes, so coverage %
+      # wouldn't meaningfully differ, and running it three times would just
+      # triple CI cost for the same signal (same tradeoff as the lint job
+      # above). fail_under and source scoping are configured in
+      # pyproject.toml under [tool.coverage.*].
       - name: Run tests
+        if: matrix.os != 'ubuntu-latest'
         run: |
           python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Run tests with coverage gate (Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          pip install .[dev]
+          coverage run -m unittest discover -s tests -p "test_*.py" -v
+          coverage report -m
 
   # Docker-heavy tasks stay Linux-only: Docker Desktop licensing and
   # significantly slower/less reliable Docker support on GitHub's hosted
