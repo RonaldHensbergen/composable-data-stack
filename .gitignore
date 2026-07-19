@@ -234,3 +234,11 @@ tools/pr-docs/
 # outside the gitignored tools/ and .github/pr-docs/ locations above)
 .github/PR_DRAFT.md
 .github/PR_BODY_WITH_COMMENTS.md
+
+# Dagster shared-data mount (workdirs/shared-data/*): populated and mutated at
+# runtime by the incoming-file sensor (files move incoming/ -> processed/).
+# Keep the directories in git via .gitkeep, but not their contents.
+workdirs/shared-data/incoming/*
+workdirs/shared-data/processed/*
+!workdirs/shared-data/incoming/.gitkeep
+!workdirs/shared-data/processed/.gitkeep
