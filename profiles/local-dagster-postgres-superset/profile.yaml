@@ -83,12 +83,23 @@ spec:
         healthcheck:
           enabled: true
 
+    - id: keydb
+      source: ../../modules/cache/keydb
+      version: "0.1.0"
+      enabled: true
+      config:
+        port: 6379
+        password: ""
+        healthcheck:
+          enabled: true
+
     - id: superset
       source: ../../modules/bi/superset
       version: "0.1.0"
       enabled: true
       dependsOn:
         - postgres
+        - keydb
       config:
         webPort: 8088
         secretKeyFrom: secrets.superset_secret_key
@@ -98,6 +109,8 @@ spec:
           email: admin@example.local
         metadataDatabase:
           contractRef: postgres.superset-database
+        cacheService:
+          contractRef: keydb.cache-service
         healthcheck:
           enabled: true
 
