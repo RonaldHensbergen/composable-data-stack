@@ -70,6 +70,16 @@ spec:
             type: string
             pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
 
+      cacheService:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+            description: "Reference to cache-service binding (e.g., keydb.cache-service)"
+
       healthcheck:
         type: object
         additionalProperties: false
@@ -86,6 +96,12 @@ spec:
       required: true
       mappedFrom: spec.config.metadataDatabase
 
+    - name: cache-service
+      contract:
+        kind: cache-service
+      required: false
+      mappedFrom: spec.config.cacheService
+
   provides:
     - name: http-service
       contract:
@@ -100,7 +116,12 @@ spec:
     compose:
       services:
         superset:
-          image: apache/superset:6.1.0
+          build:
+            context: ../../../
+            dockerfile: images/superset/Dockerfile
+            args:
+              IMAGE_PACKAGES: "psycopg2-binary==2.9.12"
+          image: local/superset:custom
           ports:
             - "${config.webPort}:8088"
           environment:
@@ -108,7 +129,10 @@ spec:
             SUPERSET_ADMIN_USERNAME: "${config.adminUser.username}"
             SUPERSET_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
             SUPERSET_ADMIN_EMAIL: "${config.adminUser.email}"
-            SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
+            SUPERSET__SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
+            # Redis cache configuration
+            SUPERSET__REDIS_URL: "${bindings.cache-service.connectionUri}"
+            SUPERSET__CACHE_CONFIG: '{"CACHE_TYPE": "redis", "CACHE_REDIS_URL": "${bindings.cache-service.connectionUri}", "CACHE_DEFAULT_TIMEOUT": 300}'
           healthcheck:
             conditionallyEnabledFrom: spec.config.healthcheck.enabled
             test:
