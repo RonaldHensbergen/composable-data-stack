@@ -90,7 +90,7 @@ jobs:
             dir=$(dirname "$dockerfile")
             echo "Building $dockerfile in directory $dir..."
             context="$dir"
-            if [ "$dockerfile" = "./images/dagster/Dockerfile" ] || [ "$dockerfile" = "./images/dagster/Dockerfile.user-code" ]; then
+            if [ "$dockerfile" = "./images/dagster/Dockerfile" ] || [ "$dockerfile" = "./images/dagster/Dockerfile.user-code" ] || [ "$dockerfile" = "./images/superset/Dockerfile" ]; then
               context="."
             fi
             docker build -f "$dockerfile" "$context" || exit 1

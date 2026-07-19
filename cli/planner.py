@@ -246,9 +246,13 @@ def resolve_consumed_contracts(
         if not consume_name or not mapped_from:
             continue
 
+        required = consume.get("required", True)
+
         try:
             binding = resolve_path({"spec": {"config": inst["config"]}}, mapped_from)
         except KeyError:
+            if not required:
+                continue
             diagnostics.append(
                 Diagnostic(
                     level="error",
@@ -260,6 +264,8 @@ def resolve_consumed_contracts(
             continue
 
         if not isinstance(binding, dict) or "contractRef" not in binding:
+            if not required and not binding:
+                continue
             diagnostics.append(
                 Diagnostic(
                     level="error",
