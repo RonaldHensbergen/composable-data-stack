@@ -115,6 +115,24 @@ spec:
     kind: docker-compose
     compose:
       services:
+        superset-init:
+          build:
+            context: ../../../
+            dockerfile: images/superset/Dockerfile
+            args:
+              IMAGE_PACKAGES: "psycopg2-binary==2.9.12"
+          image: local/superset:custom
+          entrypoint:
+            - /app/docker/init.sh
+          environment:
+            SUPERSET_SECRET_KEY: "${config.secretKeyFrom}"
+            SUPERSET_ADMIN_USERNAME: "${config.adminUser.username}"
+            SUPERSET_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
+            SUPERSET_ADMIN_EMAIL: "${config.adminUser.email}"
+            SUPERSET__SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
+            SUPERSET__REDIS_URL: "${bindings.cache-service.connectionUri}"
+            SUPERSET__CACHE_CONFIG: '{"CACHE_TYPE": "redis", "CACHE_REDIS_URL": "${bindings.cache-service.connectionUri}", "CACHE_DEFAULT_TIMEOUT": 300}'
+          restart: "no"
         superset:
           build:
             context: ../../../
@@ -124,6 +142,9 @@ spec:
           image: local/superset:custom
           ports:
             - "${config.webPort}:8088"
+          depends_on:
+            superset-init:
+              condition: service_completed_successfully
           environment:
             SUPERSET_SECRET_KEY: "${config.secretKeyFrom}"
             SUPERSET_ADMIN_USERNAME: "${config.adminUser.username}"
@@ -140,6 +161,7 @@ spec:
               - python
               - -c
               - "import urllib.request; urllib.request.urlopen('http://localhost:8088/health')"
+            start_period: 180s
             interval: 10s
             timeout: 5s
             retries: 20
