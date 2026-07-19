@@ -244,9 +244,13 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                 )
                 continue
 
+            required = consume.get("required", True)
+
             try:
                 value = resolve_path({"spec": {"config": inst["config"]}}, mapped_from)
             except KeyError:
+                if not required:
+                    continue
                 diagnostics.append(
                     Diagnostic(
                         level="error",
@@ -258,6 +262,8 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                 continue
 
             if not isinstance(value, dict) or "contractRef" not in value:
+                if not required and not value:
+                    continue
                 diagnostics.append(
                     Diagnostic(
                         level="error",
