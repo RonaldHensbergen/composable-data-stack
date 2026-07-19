@@ -96,6 +96,58 @@ Examples of future profile types:
 
 A profile is the unit that should eventually become installable, testable, and supportable.
 
+## Secrets and contract resolution
+
+Two mechanisms are core to how CDS wires a stack together without leaking credentials or coupling modules directly: **secret refs** and **contract refs**. Both resolve through the same `validate → plan → render` pipeline (see the [README Internal Flow diagram](../README.md#internal-flow)).
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TD
+    subgraph secrets["Secret ref flow"]
+        direction TB
+        S1["profile.yaml<br/>spec.secrets.values.NAME:<br/>env: CDS_VAR, required"]
+        S2["module config field:<br/>passwordFrom: secrets.NAME"]
+        S3["planner builds alias map:<br/>NAME -&gt; CDS_VAR<br/>(name only, never the value)"]
+        S4["rendered compose:<br/>PASSWORD: ${CDS_VAR}"]
+        S1 --> S3
+        S3 --> S4
+        S2 --> S4
+    end
+
+    subgraph contracts["Contract ref flow"]
+        direction TB
+        C1["producer module.yaml<br/>spec.provides:<br/>name + contract.kind"]
+        C2["consumer module config:<br/>contractRef: module.contract"]
+        C3["parse_contract_ref splits<br/>module.contract into producer id + name"]
+        C4{"producer provides it,<br/>and kind matches?"}
+        C5["contract merged into<br/>consumer's resolved config"]
+        C6["E041 unknown module/contract,<br/>or E042 kind mismatch"]
+        C1 --> C4
+        C2 --> C3
+        C3 --> C4
+        C4 -->|yes| C5
+        C4 -->|no| C6
+    end
+
+    classDef stage stroke:#818cf8,fill:#eef2ff
+    classDef sink stroke:#2dd4bf,fill:#f0fdfa
+    classDef stop stroke:#f87171,fill:#fef2f2,stroke-dasharray: 3 3
+
+    class S1,S2,C1,C2 stage
+    class S4,C5 sink
+    class C6 stop
+```
+
+**End-to-end example** (from `profiles/local-dagster-postgres-superset/profile.yaml`):
+
+- **Secret**: `postgres` sets `passwordFrom: secrets.analytics_db_password`; the profile maps that alias to `env: CDS_ANALYTICS_DB_PASSWORD`. `load_profile_secrets` builds the alias→env-name map (name only, never the value); `resolve_expr` turns the ref into `${CDS_ANALYTICS_DB_PASSWORD}` in the rendered compose. Docker Compose resolves the real value at container start, CDS never touches it.
+- **Contract**: `postgres` provides `sql-database`; `dagster` sets `analyticsDatabase.contractRef: postgres.sql-database`. `parse_contract_ref` splits producer + name. **Validate**: `validate_contract_bindings` checks producer exists, provides it, and kind matches; `E041` / `E042` on failure. **Plan**: `resolve_consumed_contracts` re-checks existence only (a kind mismatch would already have stopped at validate) and merges the resolved contract (host, port, `password: ${CDS_ANALYTICS_DB_PASSWORD}`, etc.) into `dagster`'s config. See [Troubleshooting](../README.md#️-troubleshooting) for `E041`/`E042`.
+
+**Raw secret values are never embedded in rendered output.** Every `secrets.*` resolution path (`planner.py`'s `resolve_expr`, `renderer.py`'s `_resolve_expr`) emits a `${CDS_VAR_NAME}` placeholder, never the value; the `secrets` dict only ever holds alias→env-name mappings. Docker Compose reads the real value at container start, outside of CDS.
+
 ## CloudStack orientation
 
 Because the target environment is CloudStack, the architecture should avoid assumptions that only fit managed cloud services. Instead, it should favor:

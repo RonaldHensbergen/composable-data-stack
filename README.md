@@ -162,7 +162,7 @@ flowchart TD
 
 This mirrors the [`cds` command table](#️-cli) below: `validate`, `plan`, and `render` are each callable on their own; `security` runs as part of `cds test` and `cds up`. Module and contract definitions follow the [Contract-First](#contract-first) design principle, so most of what "Validate" and "Plan" check comes directly from `module.yaml` and `profile.yaml`.
 
-**See also:** [Security](#-security) for what the security stage checks, [Troubleshooting](#️-troubleshooting) for what each error code means and how to fix it.
+**See also:** [Security](#-security) for what the security stage checks, [Troubleshooting](#️-troubleshooting) for what each error code means and how to fix it, and [docs/architecture.md § Secrets and contract resolution](docs/architecture.md#secrets-and-contract-resolution) for a deeper look at how `secrets.*` and `contractRef` values actually resolve.
 
 ## 🔐 Security
 
