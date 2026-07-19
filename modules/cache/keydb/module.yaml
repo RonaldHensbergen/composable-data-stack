@@ -1,0 +1,80 @@
+# modules/cache/keydb/module.yaml
+# yaml-language-server: $schema=../../../schemas/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: keydb
+  category: cache
+  version: "0.1.0"
+  displayName: KeyDB
+  description: >
+    KeyDB cache layer. High-performance Redis-compatible cache for session storage,
+    caching, and message passing.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: keydb
+      ports:
+        - name: keydb
+          containerPort: 6379
+          protocol: TCP
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      port:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 6379
+
+      password:
+        type: string
+        default: ""
+        description: "Optional password for KeyDB authentication"
+
+      healthcheck:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+  provides:
+    - name: cache-service
+      contract:
+        kind: cache-service
+        spec:
+          host: ${service.host}
+          port: ${config.port}
+          protocol: redis
+          password: ${config.password}
+          connectionUri: "redis://${service.host}:${config.port}"
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        keydb:
+          image: eqalpha/keydb:latest
+          ports:
+            - "${config.port}:6379"
+          environment:
+            KEYDB_PASSWORD: "${config.password}"
+          healthcheck:
+            conditionallyEnabledFrom: spec.config.healthcheck.enabled
+            test:
+              - CMD
+              - redis-cli
+              - ping
+            interval: 10s
+            timeout: 5s
+            retries: 5

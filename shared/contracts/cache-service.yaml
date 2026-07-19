@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=../../schemas/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: cache-service
+  category: shared
+  version: "0.1.0"
+  description: Shared contract describing the values a cache service provider exposes (Redis-compatible).
+
+spec:
+  fields:
+    host:
+      type: string
+      required: true
+      description: Hostname or service name clients use to connect.
+    port:
+      type: integer
+      required: true
+      description: TCP port where the cache service listens.
+    protocol:
+      type: string
+      required: true
+      description: Protocol type (e.g., redis, memcached).
+    password:
+      type: string
+      required: false
+      description: Optional password for authentication.
+    connectionUri:
+      type: string
+      required: true
+      description: Connection URI for the cache service.
+  examples:
+    - host: keydb
+      port: 6379
+      protocol: redis
+      password: ""
+      connectionUri: redis://keydb:6379
