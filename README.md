@@ -122,12 +122,15 @@ flowchart TD
 
 ### Internal Flow
 
-`cds test` (and `cds up`, internally) runs a profile through four stages in order: **validate → security → plan → render**. Each stage can stop the pipeline with a diagnostic before the next one runs.
+CDS splits into two phases: **compile-time**, where `cds` itself validates, resolves, and renders a plain `docker-compose.yaml`; and **runtime**, where the real `docker compose` binary builds and starts containers from that file. CDS never runs containers itself.
+
+`cds test` runs the full compile-time pipeline in order — **validate → security → plan → render** — stopping at the first stage that reports an error. `cds up` runs the same pipeline **minus security** (`validate → plan → render`), then hands off to `docker compose build`/`docker compose up`. See the [CLI table](#️-cli) below for exactly what each command runs.
 
 - **Validate** checks profile shape, module configs, dependencies, secret refs, contract bindings, and outputs.
-- **Security** runs rule-based checks against modules and resolved secrets.
+- **Security** (`cds test` only) runs rule-based checks against modules and resolved secrets.
 - **Plan** resolves contract bindings and substitutes secrets and defaults.
-- **Render** generates the final `docker-compose.yaml`.
+- **Render** generates the final `docker-compose.yaml`, with secret values as `${CDS_VAR}` placeholders; never the raw value.
+- **Runtime** (`cds up` only): `docker compose build` (skippable with `--no-build`), then `docker compose up`. Docker Compose, not CDS, resolves `${CDS_VAR}` placeholders from a `.env` file (see `cds init`) and starts the containers.
 
 ```mermaid
 ---
@@ -135,34 +138,53 @@ config:
   layout: elk
 ---
 flowchart TD
-    Profile[/profile.yaml/]
-    Validate[Validate]
-    Security[Security checks]
-    Plan[Plan]
-    Render[Render]
-    Compose[/docker-compose.yaml/]
-    Stop1((stops here))
+    subgraph compile["Compile-time (cds)"]
+        direction TB
+        Profile[/profile.yaml/]
+        Validate[Validate]
+        Security["Security checks<br/>(cds test only)"]
+        Plan[Plan]
+        Render[Render]
+        Compose[/docker-compose.yaml/]
+        Stop1((stops here))
 
-    Profile --> Validate
-    Validate -->|structural + contract checks| Security
-    Security -->|rule-based checks| Plan
-    Plan -->|resolve + substitute| Render
-    Render --> Compose
+        Profile --> Validate
+        Validate -->|structural + contract checks| Security
+        Security -->|rule-based checks| Plan
+        Plan -->|resolve + substitute| Render
+        Render --> Compose
 
-    Validate -.->|E020, E041, E042, E081| Stop1
+        Validate -.->|E020, E041, E042, E081| Stop1
+    end
+
+    subgraph runtime["Runtime (docker compose, cds up only)"]
+        direction TB
+        Build["docker compose build<br/>(skip with --no-build)"]
+        Up["docker compose up"]
+        Env[(".env file")]
+        Containers["running containers,<br/>real secret values injected"]
+
+        Build --> Up
+        Env -.->|resolves CDS_VAR| Up
+        Up --> Containers
+    end
+
+    Compose --> Build
 
     classDef stage stroke:#818cf8,fill:#eef2ff
     classDef artifact stroke:#2dd4bf,fill:#f0fdfa
     classDef stop stroke:#f87171,fill:#fef2f2,stroke-dasharray: 3 3
+    classDef runtimeNode stroke:#a78bfa,fill:#f5f3ff
 
     class Validate,Security,Plan,Render stage
     class Profile,Compose artifact
     class Stop1 stop
+    class Build,Up,Env,Containers runtimeNode
 ```
 
-This mirrors the [`cds` command table](#️-cli) below: `validate`, `plan`, and `render` are each callable on their own; `security` runs as part of `cds test` and `cds up`. Module and contract definitions follow the [Contract-First](#contract-first) design principle, so most of what "Validate" and "Plan" check comes directly from `module.yaml` and `profile.yaml`.
+This mirrors the [`cds` command table](#️-cli) below: `validate`, `plan`, and `render` are each callable on their own; `security` only runs as part of `cds test`, not `cds up`. Module and contract definitions follow the [Contract-First](#contract-first) design principle, so most of what "Validate" and "Plan" check comes directly from `module.yaml` and `profile.yaml`.
 
-**See also:** [Security](#-security) for what the security stage checks, [Troubleshooting](#️-troubleshooting) for what each error code means and how to fix it, and [docs/architecture.md § Secrets and contract resolution](docs/architecture.md#secrets-and-contract-resolution) for a deeper look at how `secrets.*` and `contractRef` values actually resolve.
+**See also:** [Security](#-security) for what the security stage checks, [Troubleshooting](#️-troubleshooting) for what each error code means and how to fix it.
 
 ## 🔐 Security
 
