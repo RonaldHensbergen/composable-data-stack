@@ -1,0 +1,30 @@
+[changelog]
+title = "# Changelog"
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+## {{ group }}
+{% for commit in commits %}
+- {{ commit.message }}: [{{ commit.id | truncate(length=7, end="") }}](https://github.com/RonaldHensbergen/composable-data-stack/commit/{{ commit.id }}) by @{{ commit.author.name }}
+{% endfor %}
+{% endfor %}
+"""
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+split_commits = false
+commit_parsers = [
+    { message = "^feat", group = "🚀 Features" },
+    { message = "^fix", group = "🐛 Bug Fixes" },
+    { message = "^refactor", group = "♻️ Refactoring" },
+    { message = "^perf", group = "⚡ Performance" },
+    { message = "^docs", group = "📚 Documentation" },
+    { message = "^test", group = "✅ Testing" },
+    { message = "^chore", group = "🔧 Maintenance" },
+    { message = "^[Uu]pdate", group = "🔧 Maintenance" },
+    { message = "^[Rr]econfigured", group = "🔧 Maintenance" },
+]
+
+[remote.github]
+owner = "RonaldHensbergen"
+repo = "composable-data-stack"
