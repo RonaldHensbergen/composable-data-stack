@@ -8,7 +8,7 @@ install:
 lint: lint-markdown lint-yaml
 
 test:
-	python -m unittest discover -s tests -p "test_*.py"
+	python -m unittest discover -s tests -p "*.py"
 
 check: lint test
 
