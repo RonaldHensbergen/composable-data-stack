@@ -20,9 +20,20 @@ dependencies = [
 completion = [
   "argcomplete>=3.0.0",
 ]
+dev = [
+  "coverage>=7.6",
+]
 
 [project.scripts]
 cds = "cli.main:main"
 
 [tool.setuptools]
 packages = ["cli"]
+
+[tool.coverage.run]
+source = ["cli"]
+
+[tool.coverage.report]
+fail_under = 65
+show_missing = true
+skip_covered = false
