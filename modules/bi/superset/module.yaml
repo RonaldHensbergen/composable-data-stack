@@ -132,6 +132,8 @@ spec:
             SUPERSET__SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
             SUPERSET__REDIS_URL: "${bindings.cache-service.connectionUri}"
             SUPERSET__CACHE_CONFIG: '{"CACHE_TYPE": "redis", "CACHE_REDIS_URL": "${bindings.cache-service.connectionUri}", "CACHE_DEFAULT_TIMEOUT": 300}'
+          healthcheck:
+            disable: true
           restart: "no"
         superset:
           build:
