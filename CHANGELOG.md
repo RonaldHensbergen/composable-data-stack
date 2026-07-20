@@ -13,7 +13,7 @@ The format is based on Keep a Changelog.
 ### Changed
 
 - `cds up` now runs `docker compose build` before `docker compose up` by default.
-- CI now measures test coverage on the Ubuntu leg of the test matrix and fails the build if `cli/` coverage drops below 65% (current: 68%).
+- CI now measures test coverage on the Ubuntu leg of the test matrix and fails the build if `cli/` coverage drops below 65%.
 
 ## [0.1.1] - 2026-06-21
 
