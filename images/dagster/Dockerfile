@@ -1,4 +1,4 @@
-FROM python:3.14-slim AS builder
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS builder
 
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
@@ -7,10 +7,13 @@ COPY images/dagster/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-FROM python:3.14-slim
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
 
 ENV PYTHONUNBUFFERED=1
 ENV DAGSTER_HOME=/opt/dagster/dagster_home
+
+RUN groupadd --system dagster && \
+    useradd --system --no-create-home --gid dagster dagster
 
 RUN mkdir -p $DAGSTER_HOME && \
     apt-get update && apt-get install -y curl && \
@@ -25,6 +28,14 @@ COPY . /app
 COPY images/dagster/workspace.yaml $DAGSTER_HOME
 COPY images/dagster/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+RUN chown -R dagster:dagster \
+      "$DAGSTER_HOME" \
+      /usr/local/lib/python3.14/site-packages \
+      /usr/local/bin \
+      /app
+
+USER dagster
 
 EXPOSE 3000 4000
 

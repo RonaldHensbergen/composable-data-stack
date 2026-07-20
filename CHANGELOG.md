@@ -14,6 +14,10 @@ The format is based on Keep a Changelog.
 
 - `cds up` now runs `docker compose build` before `docker compose up` by default.
 
+### Security
+
+- `images/dagster/Dockerfile` now pins its base image to a digest (not just the `python:3.14-slim` tag), runs as a non-root `dagster` user instead of root, and its `requirements.txt` and multi-stage build were already pinned/in place.
+
 ## [0.1.1] - 2026-06-21
 
 ### Added
