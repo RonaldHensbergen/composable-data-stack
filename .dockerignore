@@ -9,6 +9,7 @@ __pycache__
 *.pyc
 *.pyo
 *.pyd
+.env
 .env.local
 docker-compose.override.yml
 node_modules
