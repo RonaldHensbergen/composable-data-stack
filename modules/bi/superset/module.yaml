@@ -122,6 +122,14 @@ spec:
             args:
               IMAGE_PACKAGES: "psycopg2-binary==2.9.12"
           image: local/superset:custom
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev
+            - /app/superset_home:rw,noexec,nosuid,nodev
           ports:
             - "${config.webPort}:8088"
           environment:

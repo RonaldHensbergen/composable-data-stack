@@ -1,4 +1,4 @@
-FROM apache/superset:6.1.0
+FROM apache/superset:6.1.0@sha256:fb3464528ec7076f91195f0ff7835755aa023e281f1bb78a84782ce7a36b3705
 
 ARG IMAGE_PACKAGES=""
 
@@ -7,9 +7,7 @@ RUN if [ -n "$IMAGE_PACKAGES" ]; then \
       pip install --no-cache-dir --target /app/.venv/lib/python3.10/site-packages $IMAGE_PACKAGES; \
     fi
 
-# Copy and set up custom entrypoint script
-COPY images/superset/entrypoint.sh /app/docker/entrypoint-init.sh
-RUN chmod +x /app/docker/entrypoint-init.sh
+COPY --chown=superset:superset --chmod=0555 images/superset/entrypoint.sh /app/docker/entrypoint-init.sh
 
 USER superset
 
