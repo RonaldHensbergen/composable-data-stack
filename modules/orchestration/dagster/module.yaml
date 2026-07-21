@@ -195,12 +195,9 @@ spec:
             conditionallyEnabledFrom: spec.config.healthcheck.enabled
             test:
               - CMD
-              - dagster
-              - api
-              - grpc-health-check
-              - -h
+              - python
+              - /app/images/dagster/healthcheck.py
               - localhost
-              - -p
               - "4000"
             interval: 10s
             timeout: 15s
@@ -287,8 +284,9 @@ spec:
             test:
               - CMD
               - python
-              - -c
-              - "import urllib.request; urllib.request.urlopen('http://localhost:${config.webPort}/')"
+              - /app/images/dagster/healthcheck.py
+              - localhost
+              - "3000"
             interval: 10s
             timeout: 5s
             retries: 10
@@ -321,12 +319,9 @@ spec:
             conditionallyEnabledFrom: spec.config.healthcheck.enabled
             test:
               - CMD
-              - dagster
-              - api
-              - grpc-health-check
-              - -h
+              - python
+              - /app/images/dagster/healthcheck.py
               - dagster-user-code
-              - -p
               - "4000"
             interval: 10s
             timeout: 15s

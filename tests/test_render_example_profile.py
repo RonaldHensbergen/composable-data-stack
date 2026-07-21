@@ -74,12 +74,9 @@ class RenderExampleProfileTest(unittest.TestCase):
                 compose["services"]["dagster-daemon"]["healthcheck"]["test"],
                 [
                     "CMD",
-                    "dagster",
-                    "api",
-                    "grpc-health-check",
-                    "-h",
+                    "python",
+                    "/app/images/dagster/healthcheck.py",
                     "dagster-user-code",
-                    "-p",
                     "4000",
                 ],
             )

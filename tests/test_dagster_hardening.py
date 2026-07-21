@@ -26,6 +26,7 @@ class DagsterHardeningTest(unittest.TestCase):
         self.assertNotIn("dagster-docker", self.requirements)
         self.assertNotIn("dagster-postgres", self.requirements)
         self.assertIn("MySQL storage is not supported by this Dagster image", self.entrypoint)
+        self.assertIn("HOME=/opt/dagster/dagster_home", self.dockerfile)
 
     def test_backend_controls_build_and_runtime(self) -> None:
         for name in ("user-code", "dagster-webserver", "dagster-daemon"):

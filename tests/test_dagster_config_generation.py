@@ -105,6 +105,13 @@ class TestGenerateDagsterYaml(unittest.TestCase):
                 _mod.generate_dagster_yaml()
             self.assertTrue((Path(tmpdir) / "dagster.yaml").exists())
 
+    def test_telemetry_is_disabled(self):
+        output = self._generate(
+            {"DAGSTER_DB_CONNECTION_URI": "postgresql://host/db"}
+        )
+        self.assertIn("telemetry:", output)
+        self.assertIn("enabled: false", output)
+
 
 if __name__ == "__main__":
     unittest.main()
