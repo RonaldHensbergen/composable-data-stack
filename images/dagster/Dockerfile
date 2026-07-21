@@ -1,41 +1,45 @@
 FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS builder
 
-ENV PYTHONUNBUFFERED=1
+ARG DB_BACKEND=postgres
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONUNBUFFERED=1
 WORKDIR /app
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-COPY images/dagster/requirements.txt ./requirements.txt
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+COPY images/dagster/requirements*.txt ./
+RUN python -m pip install --no-cache-dir -r requirements.txt && \
+    case "$DB_BACKEND" in \
+      postgres) python -m pip install --no-cache-dir -r requirements-postgres.txt ;; \
+      sqlite|mysql) ;; \
+      *) echo "Unsupported Dagster database backend: $DB_BACKEND" >&2; exit 1 ;; \
+    esac
 
 FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
 
-ENV PYTHONUNBUFFERED=1
-ENV DAGSTER_HOME=/opt/dagster/dagster_home
-ENV PATH="/opt/venv/bin:$PATH"
+ARG DB_BACKEND=postgres
 
-RUN groupadd --system dagster && \
-    useradd --system --no-create-home --gid dagster dagster
+ENV DAGSTER_HOME=/opt/dagster/dagster_home \
+    DAGSTER_IMAGE_DB_BACKEND="$DB_BACKEND" \
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-RUN mkdir -p $DAGSTER_HOME && \
-    apt-get update && apt-get install -y curl && \
-    rm -rf /var/lib/apt/lists/*
+RUN groupadd --system --gid 999 dagster && \
+    useradd --system --uid 999 --no-create-home --gid dagster dagster && \
+    install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage
 
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY . /app
-
-COPY images/dagster/workspace.yaml $DAGSTER_HOME
-COPY images/dagster/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-RUN chown -R dagster:dagster \
-      "$DAGSTER_HOME" \
-      /opt/venv \
-      /app
+COPY shared/__init__.py /app/shared/__init__.py
+COPY shared/python /app/shared/python
+COPY workdirs/dagster /app/workdirs/dagster
+COPY images/dagster/generate_config.py images/dagster/dagster.yaml.j2 /app/images/dagster/
+COPY --chmod=0444 images/dagster/workspace.yaml /app/images/dagster/workspace.yaml
+COPY --chmod=0555 images/dagster/entrypoint.sh /entrypoint.sh
 
 USER dagster
 

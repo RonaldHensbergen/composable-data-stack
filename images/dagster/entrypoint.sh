@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 BACKEND="${DB_BACKEND:-}"
 if [ -z "$BACKEND" ]; then
@@ -13,10 +13,22 @@ if [ -z "$BACKEND" ]; then
 fi
 
 case "$BACKEND" in
-    postgres) pip install --quiet --no-cache-dir dagster-postgres==0.29.14 ;;
-    mysql)    pip install --quiet --no-cache-dir dagster-mysql==0.29.14 ;;
-    sqlite)   ;; # built into dagster core
+    postgres|sqlite)
+        if [ "$BACKEND" != "$DAGSTER_IMAGE_DB_BACKEND" ]; then
+            echo "Dagster backend '$BACKEND' does not match image backend '$DAGSTER_IMAGE_DB_BACKEND'" >&2
+            exit 1
+        fi
+        ;;
+    mysql)
+        echo "MySQL storage is not supported by this Dagster image" >&2
+        exit 1
+        ;;
+    *)
+        echo "Unsupported Dagster database backend: $BACKEND" >&2
+        exit 1
+        ;;
 esac
 
+cp /app/images/dagster/workspace.yaml "$DAGSTER_HOME/workspace.yaml"
 python /app/images/dagster/generate_config.py
 exec "$@"
