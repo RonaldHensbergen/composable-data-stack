@@ -1,4 +1,6 @@
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS builder
+ARG PYTHON_IMAGE=python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
+
+FROM ${PYTHON_IMAGE} AS builder
 
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
@@ -7,7 +9,7 @@ COPY images/dagster/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
+FROM ${PYTHON_IMAGE}
 
 ENV PYTHONUNBUFFERED=1
 ENV DAGSTER_HOME=/opt/dagster/dagster_home
