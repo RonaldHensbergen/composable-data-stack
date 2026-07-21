@@ -5,6 +5,9 @@ FROM ${PYTHON_IMAGE} AS builder
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
 COPY images/dagster/requirements.txt ./requirements.txt
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
@@ -13,6 +16,7 @@ FROM ${PYTHON_IMAGE}
 
 ENV PYTHONUNBUFFERED=1
 ENV DAGSTER_HOME=/opt/dagster/dagster_home
+ENV PATH="/opt/venv/bin:$PATH"
 
 RUN groupadd --system dagster && \
     useradd --system --no-create-home --gid dagster dagster
@@ -23,8 +27,7 @@ RUN mkdir -p $DAGSTER_HOME && \
 
 WORKDIR /app
 
-COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /opt/venv /opt/venv
 COPY . /app
 
 COPY images/dagster/workspace.yaml $DAGSTER_HOME
@@ -33,8 +36,7 @@ RUN chmod +x /entrypoint.sh
 
 RUN chown -R dagster:dagster \
       "$DAGSTER_HOME" \
-      /usr/local/lib/python3.14/site-packages \
-      /usr/local/bin \
+      /opt/venv \
       /app
 
 USER dagster
