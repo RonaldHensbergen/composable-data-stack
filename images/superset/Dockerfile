@@ -8,11 +8,9 @@ RUN if [ -n "$IMAGE_PACKAGES" ]; then \
     fi
 
 COPY --chown=superset:superset --chmod=0444 images/superset/superset_config.py /app/pythonpath/superset_config.py
-COPY --chown=superset:superset --chmod=0555 images/superset/entrypoint.sh /app/docker/entrypoint-init.sh
+COPY --chown=superset:superset --chmod=0555 images/superset/entrypoint-web.sh /app/docker/entrypoint-web.sh
 COPY --chown=superset:superset --chmod=0555 images/superset/init.sh /app/docker/init.sh
 
 USER superset
 
-ENV SUPERSET_CONFIG_PATH=/app/pythonpath/superset_config.py
-
-ENTRYPOINT ["/app/docker/entrypoint-init.sh"]
+ENTRYPOINT ["/app/docker/entrypoint-web.sh"]

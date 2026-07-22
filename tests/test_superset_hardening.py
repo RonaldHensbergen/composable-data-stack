@@ -34,6 +34,35 @@ class SupersetHardeningTest(unittest.TestCase):
                 self.assertIn("/tmp:rw,noexec,nosuid,nodev", service["tmpfs"])
                 self.assertIn("/app/superset_home:rw,noexec,nosuid,nodev", service["tmpfs"])
 
+    def test_initialization_is_isolated_from_web_service(self) -> None:
+        module = yaml.safe_load(
+            (self.repo_root / "modules" / "bi" / "superset" / "module.yaml").read_text(encoding="utf-8")
+        )
+        services = module["spec"]["implementation"]["compose"]["services"]
+        init_service = services["superset-init"]
+        web_service = services["superset"]
+        init_script = (self.repo_root / "images" / "superset" / "init.sh").read_text(encoding="utf-8")
+        web_script = (self.repo_root / "images" / "superset" / "entrypoint-web.sh").read_text(encoding="utf-8")
+
+        self.assertEqual(init_service["entrypoint"], ["/app/docker/init.sh"])
+        self.assertEqual(init_service["restart"], "no")
+        self.assertEqual(
+            web_service["depends_on"]["superset-init"]["condition"],
+            "service_completed_successfully",
+        )
+        self.assertNotIn("entrypoint", web_service)
+        self.assertIn("superset db upgrade", init_script)
+        self.assertNotIn("superset db upgrade", web_script)
+
+        for variable in (
+            "SUPERSET_ADMIN_USERNAME",
+            "SUPERSET_ADMIN_PASSWORD",
+            "SUPERSET_ADMIN_EMAIL",
+        ):
+            with self.subTest(variable=variable):
+                self.assertIn(variable, init_service["environment"])
+                self.assertNotIn(variable, web_service["environment"])
+
 
 if __name__ == "__main__":
     unittest.main()

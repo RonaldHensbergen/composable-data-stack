@@ -165,9 +165,6 @@ spec:
               condition: service_completed_successfully
           environment:
             SUPERSET_SECRET_KEY: "${config.secretKeyFrom}"
-            SUPERSET_ADMIN_USERNAME: "${config.adminUser.username}"
-            SUPERSET_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
-            SUPERSET_ADMIN_EMAIL: "${config.adminUser.email}"
             SUPERSET__SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
             # Redis cache configuration
             SUPERSET__REDIS_URL: "${bindings.cache-service.connectionUri}"
