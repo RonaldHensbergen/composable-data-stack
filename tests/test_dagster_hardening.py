@@ -52,6 +52,15 @@ class DagsterHardeningTest(unittest.TestCase):
                     service["tmpfs"],
                 )
 
+        user_code_volumes = self.services["user-code"]["volumes"]
+        definitions_mount = next(
+            volume
+            for volume in user_code_volumes
+            if isinstance(volume, dict)
+            and volume.get("target") == "${config.definitionsFile.containerPath}"
+        )
+        self.assertTrue(definitions_mount["read_only"])
+
 
 if __name__ == "__main__":
     unittest.main()

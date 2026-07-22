@@ -97,6 +97,18 @@ class RenderExampleProfileTest(unittest.TestCase):
             )
             self.assertIsNotNone(shared_data_mount)
             self.assertEqual(shared_data_mount["source"], "workdirs/shared-data")
+            definitions_mount = next(
+                (
+                    item
+                    for item in dagster_volumes
+                    if isinstance(item, dict)
+                    and item.get("target") == "/app/workdirs/dagster/definitions.py"
+                ),
+                None,
+            )
+            self.assertIsNotNone(definitions_mount)
+            self.assertEqual(definitions_mount["source"], "workdirs/dagster/definitions.py")
+            self.assertTrue(definitions_mount["read_only"])
 
     def test_vault_profile_validates_plans_and_renders_vault_service(self):
         repo_root = Path(__file__).resolve().parent.parent

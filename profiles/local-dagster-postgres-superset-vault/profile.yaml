@@ -80,6 +80,9 @@ spec:
         sharedData:
           hostPath: ./workdirs/shared-data
           containerPath: /app/data/cds
+        definitionsFile:
+          hostPath: ./workdirs/dagster/definitions.py
+          containerPath: /app/workdirs/dagster/definitions.py
         storage:
           backend: postgres
           runStorage:
