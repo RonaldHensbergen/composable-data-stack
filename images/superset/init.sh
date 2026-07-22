@@ -16,4 +16,8 @@ if [ -n "$SUPERSET__SQLALCHEMY_DATABASE_URI" ]; then
       --lastname "User" || echo "Admin user already exists or creation failed"
     echo "Admin user setup completed"
   fi
+
+  echo "Synchronizing roles and permissions..."
+  superset init
+  echo "Roles and permissions synchronized"
 fi

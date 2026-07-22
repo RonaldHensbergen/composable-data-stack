@@ -14,6 +14,7 @@ The format is based on Keep a Changelog.
 
 - `cds up` now runs `docker compose build` before `docker compose up` by default.
 - CI now measures test coverage on the Ubuntu leg of the test matrix and fails the build if `cli/` coverage drops below 65%.
+- Superset initialization now synchronizes roles and permissions after migrations and admin provisioning, preventing authenticated API requests from failing with `403` responses.
 
 ### Security
 
