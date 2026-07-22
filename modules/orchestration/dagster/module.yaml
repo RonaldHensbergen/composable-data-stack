@@ -95,6 +95,21 @@ spec:
             minLength: 1
             default: /app/data/cds
 
+      definitionsFile:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          hostPath:
+            type: string
+            minLength: 1
+            default: ./workdirs/dagster/definitions.py
+          containerPath:
+            type: string
+            minLength: 1
+            pattern: "^/"
+            default: /app/workdirs/dagster/definitions.py
+
       runLauncher:
         type: object
         additionalProperties: false
@@ -190,17 +205,14 @@ spec:
             - -p
             - "4000"
             - -f
-            - /app/workdirs/dagster/definitions.py
+            - "${config.definitionsFile.containerPath}"
           healthcheck:
             conditionallyEnabledFrom: spec.config.healthcheck.enabled
             test:
               - CMD
-              - dagster
-              - api
-              - grpc-health-check
-              - -h
+              - python
+              - /app/images/dagster/healthcheck.py
               - localhost
-              - -p
               - "4000"
             interval: 10s
             timeout: 15s
@@ -211,6 +223,10 @@ spec:
             - type: bind
               source: "${config.sharedData.hostPath}"
               target: "${config.sharedData.containerPath}"
+            - type: bind
+              source: "${config.definitionsFile.hostPath}"
+              target: "${config.definitionsFile.containerPath}"
+              read_only: true
           environment:
             DB_BACKEND: "${config.storage.backend}"
             DAGSTER_HOME: "${config.homeDir}"
@@ -287,8 +303,9 @@ spec:
             test:
               - CMD
               - python
-              - -c
-              - "import urllib.request; urllib.request.urlopen('http://localhost:${config.webPort}/')"
+              - /app/images/dagster/healthcheck.py
+              - localhost
+              - "3000"
             interval: 10s
             timeout: 5s
             retries: 10
@@ -321,12 +338,9 @@ spec:
             conditionallyEnabledFrom: spec.config.healthcheck.enabled
             test:
               - CMD
-              - dagster
-              - api
-              - grpc-health-check
-              - -h
+              - python
+              - /app/images/dagster/healthcheck.py
               - dagster-user-code
-              - -p
               - "4000"
             interval: 10s
             timeout: 15s
