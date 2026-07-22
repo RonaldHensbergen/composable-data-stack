@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 import yaml
+from jsonschema import Draft202012Validator
 
 
 class DagsterHardeningTest(unittest.TestCase):
@@ -14,6 +15,7 @@ class DagsterHardeningTest(unittest.TestCase):
         module = yaml.safe_load(
             (self.repo_root / "modules" / "orchestration" / "dagster" / "module.yaml").read_text(encoding="utf-8")
         )
+        self.config_schema = module["spec"]["configSchema"]
         self.services = module["spec"]["implementation"]["compose"]["services"]
 
     def test_image_has_minimal_immutable_runtime(self) -> None:
@@ -60,6 +62,16 @@ class DagsterHardeningTest(unittest.TestCase):
             and volume.get("target") == "${config.definitionsFile.containerPath}"
         )
         self.assertTrue(definitions_mount["read_only"])
+
+    def test_definitions_mount_target_must_be_absolute(self) -> None:
+        target_schema = self.config_schema["properties"]["definitionsFile"]["properties"]["containerPath"]
+        validator = Draft202012Validator(target_schema)
+
+        relative_errors = list(validator.iter_errors("workdirs/dagster/definitions.py"))
+        absolute_errors = list(validator.iter_errors("/app/workdirs/dagster/definitions.py"))
+
+        self.assertEqual(len(relative_errors), 1)
+        self.assertEqual(absolute_errors, [])
 
 
 if __name__ == "__main__":

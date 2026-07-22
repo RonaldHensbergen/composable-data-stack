@@ -107,6 +107,7 @@ spec:
           containerPath:
             type: string
             minLength: 1
+            pattern: "^/"
             default: /app/workdirs/dagster/definitions.py
 
       runLauncher:
