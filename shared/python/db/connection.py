@@ -119,7 +119,6 @@ def insert_incoming_file_event(
     connection_uri = get_connection_uri(prefix=prefix, env=env)
     backend = connection_uri.split(":", 1)[0].lower()
     metadata_type = "JSONB" if backend == "postgresql" else "JSON"
-    metadata_value_sql = "CAST(:metadata_json AS JSONB)" if backend == "postgresql" else ":metadata_json"
     id_type = "BIGSERIAL" if backend == "postgresql" else "INTEGER"
     timestamp_sql = "NOW()" if backend == "postgresql" else "CURRENT_TIMESTAMP"
     primary_key_suffix = " PRIMARY KEY" if backend == "postgresql" else " PRIMARY KEY AUTOINCREMENT"
@@ -142,28 +141,49 @@ def insert_incoming_file_event(
                 """
             )
         )
+        insert_sql = (
+            """
+            INSERT INTO incoming_file_events (
+                event_type,
+                asset_key,
+                file_name,
+                incoming_dir,
+                processed_dir,
+                content,
+                metadata_json
+            ) VALUES (
+                :event_type,
+                :asset_key,
+                :file_name,
+                :incoming_dir,
+                :processed_dir,
+                :content,
+                CAST(:metadata_json AS JSONB)
+            )
+            """
+            if backend == "postgresql"
+            else """
+            INSERT INTO incoming_file_events (
+                event_type,
+                asset_key,
+                file_name,
+                incoming_dir,
+                processed_dir,
+                content,
+                metadata_json
+            ) VALUES (
+                :event_type,
+                :asset_key,
+                :file_name,
+                :incoming_dir,
+                :processed_dir,
+                :content,
+                :metadata_json
+            )
+            """
+        )
         connection.execute(
-            sql_text(
-                f"""
-                INSERT INTO incoming_file_events (
-                    event_type,
-                    asset_key,
-                    file_name,
-                    incoming_dir,
-                    processed_dir,
-                    content,
-                    metadata_json
-                ) VALUES (
-                    :event_type,
-                    :asset_key,
-                    :file_name,
-                    :incoming_dir,
-                    :processed_dir,
-                    :content,
-                    {metadata_value_sql}
-                )
-                """
-            ),
+            sql_text(insert_sql),
             {
                 "event_type": str(payload.get("event", asset_key)),
                 "asset_key": asset_key,

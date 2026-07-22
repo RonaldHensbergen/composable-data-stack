@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 
@@ -531,12 +531,14 @@ def main() -> int:
             if not args.no_build:
                 build_cmd = ["docker", "compose", "-f", output_path, "build"]
                 print(f"Running: {' '.join(build_cmd)}")
-                build_result = subprocess.run(build_cmd)
+                # Fixed argv list, not a shell string; no user input concatenated in.
+                build_result = subprocess.run(build_cmd)  # nosec B603
                 if build_result.returncode != 0:
                     return build_result.returncode
 
             print(f"Running: {' '.join(up_cmd)}")
-            up_result = subprocess.run(up_cmd)
+            # Fixed argv list, not a shell string; no user input concatenated in.
+            up_result = subprocess.run(up_cmd)  # nosec B603
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
             return 1

@@ -198,7 +198,9 @@ def fetch_dockerhub_tags(namespace: str, repository: str, page_size: int = 100, 
     while url and pages_read < page_limit:
         try:
             req = Request(url, headers={"User-Agent": "cds-image-check/1.0"})
-            with urlopen(req, timeout=10) as response:
+            # url is always http(s), built from the hardcoded DOCKER_HUB_API
+            # constant or the scheme-validated pagination url below.
+            with urlopen(req, timeout=10) as response:  # nosec B310
                 data = json.loads(response.read().decode())
         except (HTTPError, URLError, ValueError):
             return None
@@ -210,7 +212,8 @@ def fetch_dockerhub_tags(namespace: str, repository: str, page_size: int = 100, 
             if isinstance(name, str):
                 tags.append(name)
 
-        url = data.get("next")
+        next_url = data.get("next")
+        url = next_url if isinstance(next_url, str) and next_url.startswith(("http://", "https://")) else None
         if not url:
             break
 
