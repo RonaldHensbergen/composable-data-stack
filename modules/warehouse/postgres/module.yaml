@@ -158,10 +158,21 @@ spec:
     compose:
       services:
         postgres:
-          image: postgres:18
+          image: postgres:18@sha256:32ca0af8e77bfb8c6610c488e4691f83f972a3e9e64d3b02facf3ab111ad5500
+          user: postgres
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 256
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=1777
+            - /var/run/postgresql:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=3775
           hostname: "${service.host}"
           ports:
-            - "${config.port}:5432"
+            - "127.0.0.1:${config.port}:5432"
           environment:
             POSTGRES_PASSWORD: "${config.superuserPasswordFrom}"
             POSTGRES_INITDB_ARGS: -U postgres --auth-local=password

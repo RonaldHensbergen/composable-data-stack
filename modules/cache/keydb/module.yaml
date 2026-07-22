@@ -64,9 +64,21 @@ spec:
     compose:
       services:
         keydb:
-          image: eqalpha/keydb:latest
+          # Official multi-architecture manifest containing KeyDB 6.3.4.
+          image: eqalpha/keydb:6.3.4@sha256:6537505c42355ca1f571276bddf83f5b750f760f07b2a185a676481791e388ac
+          user: keydb
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 128
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=1777
+            - /data:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700
           ports:
-            - "${config.port}:6379"
+            - "127.0.0.1:${config.port}:6379"
           environment:
             KEYDB_PASSWORD: "${config.password}"
           healthcheck:

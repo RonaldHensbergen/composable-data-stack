@@ -71,6 +71,7 @@ spec:
           hostPath: ./workdirs/shared-data
           containerPath: /app/data/cds
         storage:
+          backend: postgres
           runStorage:
             contractRef: postgres.dagster-database
           eventLogStorage:

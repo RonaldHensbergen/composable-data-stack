@@ -56,10 +56,18 @@ spec:
         type: object
         additionalProperties: false
         required:
+          - backend
           - runStorage
           - eventLogStorage
           - scheduleStorage
         properties:
+          backend:
+            type: string
+            enum:
+              - postgres
+              - sqlite
+              - mysql
+            default: postgres
           enabled:
             type: boolean
             default: true
@@ -159,8 +167,19 @@ spec:
           build:
             context: ../../../
             dockerfile: images/dagster/Dockerfile
+            args:
+              DB_BACKEND: "${config.storage.backend}"
           image: local/dagster:custom
           restart: always
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,mode=1777
+            - /opt/dagster/dagster_home:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700
           hostname: dagster-user-code
           command:
             - dagster
@@ -188,12 +207,12 @@ spec:
             start_period: 60s
             retries: 5
           volumes:
-            - /var/run/docker.sock:/var/run/docker.sock
             - dagster-io-manager-storage:/tmp/io_manager_storage
             - type: bind
               source: "${config.sharedData.hostPath}"
               target: "${config.sharedData.containerPath}"
           environment:
+            DB_BACKEND: "${config.storage.backend}"
             DAGSTER_HOME: "${config.homeDir}"
             DAGSTER_DB_HOST: "${bindings.run-storage.host}"
             DAGSTER_DB_PORT: "${bindings.run-storage.port}"
@@ -213,14 +232,23 @@ spec:
             CDS_ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
             CDS_ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
             CDS_ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
-            DAGSTER_CURRENT_IMAGE: local/dagster:custom
-
         dagster-webserver:
           build:
             context: ../../../
             dockerfile: images/dagster/Dockerfile
+            args:
+              DB_BACKEND: "${config.storage.backend}"
           image: local/dagster:custom
           restart: always
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,mode=1777
+            - /opt/dagster/dagster_home:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700
           depends_on:
             user-code:
               condition: service_healthy
@@ -235,12 +263,12 @@ spec:
           ports:
             - "${config.webPort}:3000"
           volumes:
-            - /var/run/docker.sock:/var/run/docker.sock
             - dagster-io-manager-storage:/tmp/io_manager_storage
             - type: bind
               source: "${config.sharedData.hostPath}"
               target: "${config.sharedData.containerPath}"
           environment:
+            DB_BACKEND: "${config.storage.backend}"
             DAGSTER_HOME: "${config.homeDir}"
             DAGSTER_DB_HOST: "${bindings.run-storage.host}"
             DAGSTER_DB_PORT: "${bindings.run-storage.port}"
@@ -270,8 +298,19 @@ spec:
           build:
             context: ../../../
             dockerfile: images/dagster/Dockerfile
+            args:
+              DB_BACKEND: "${config.storage.backend}"
           image: local/dagster:custom
           restart: on-failure
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,mode=1777
+            - /opt/dagster/dagster_home:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700
           depends_on:
             user-code:
               condition: service_healthy
@@ -294,12 +333,12 @@ spec:
             start_period: 60s
             retries: 3
           volumes:
-            - /var/run/docker.sock:/var/run/docker.sock
             - dagster-io-manager-storage:/tmp/io_manager_storage
             - type: bind
               source: "${config.sharedData.hostPath}"
               target: "${config.sharedData.containerPath}"
           environment:
+            DB_BACKEND: "${config.storage.backend}"
             DAGSTER_HOME: "${config.homeDir}"
             DAGSTER_DB_HOST: "${bindings.run-storage.host}"
             DAGSTER_DB_PORT: "${bindings.run-storage.port}"
