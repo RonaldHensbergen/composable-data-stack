@@ -59,31 +59,31 @@ Run tests in this order:
 
 ## T4 End-to-end DAG execution proof
 
-- [ ] **T4.1** Run demo Dagster job  
+- [x] **T4.1** Run demo Dagster job  
   Trigger `load_demo_sales` and confirm successful completion.
   ```bash
   Dagster UI -> Jobs -> load_demo_sales -> Launch run
   ```
 
-- [ ] **T4.2** Verify output table  
+- [x] **T4.2** Verify output table  
   Confirm output table exists in Postgres.
   ```bash
   psql -h localhost -U analytics -d analytics_db -c "\dt demo_sales"
   ```
 
-- [ ] **T4.3** Verify row count  
+- [x] **T4.3** Verify row count  
   Confirm row count matches expected fixture.
   ```bash
   psql -h localhost -U analytics -d analytics_db -c "select count(*) from demo_sales;"
   ```
 
-- [ ] **T4.4** Verify rerun behavior  
+- [x] **T4.4** Verify rerun behavior  
   Re-run the job and confirm overwrite/append/upsert behavior matches documentation.
   ```bash
   Dagster UI -> Jobs -> load_demo_sales -> Launch run again
   ```
 
-- [ ] **T4.5** Verify logs available  
+- [x] **T4.5** Verify logs available  
   Confirm Dagster run logs are visible and useful.
   ```bash
   Dagster UI -> Runs -> open latest run logs
@@ -93,19 +93,19 @@ Run tests in this order:
 
 ## T5 Persistence proof
 
-- [ ] **T5.1** Restart stack  
+- [x] **T5.1** Restart stack  
   ```bash
   docker compose restart dagster-user-code dagster-webserver dagster-daemon postgres superset
   ```
   State: all services come back healthy and the stack is reachable again.
 
-- [ ] **T5.2** Persisted Dagster run history  
+- [x] **T5.2** Persisted Dagster run history  
   ```bash
   Dagster UI -> Runs -> confirm prior successful runs still appear
   ```
   State: earlier successful runs are still listed after the restart.
 
-- [ ] **T5.3** Persisted Postgres data  
+- [x] **T5.3** Persisted Postgres data  
   ```bash
   psql -h localhost -U analytics -d analytics_db -c "select count(*) from demo_sales;"
   ```
@@ -121,25 +121,25 @@ Run tests in this order:
 
 ## T6 Superset proof
 
-- [ ] **T6.1** Superset UI load  
+- [x] **T6.1** Superset UI load  
   ```bash
   curl -I http://localhost:8088/
   ```
   State: Superset returns a healthy HTTP response.
 
-- [ ] **T6.2** Admin login  
+- [x] **T6.2** Admin login  
   ```bash
   Superset UI -> log in with documented admin credentials
   ```
   State: login succeeds and the home page loads.
 
-- [ ] **T6.3** Datasource connectivity  
+- [x] **T6.3** Datasource connectivity  
   ```bash
   Superset UI -> Data -> Datasets -> verify the Postgres table is selectable
   ```
   State: the produced Postgres table is visible as a selectable dataset source.
 
-- [ ] **T6.4** Dataset creation  
+- [x] **T6.4** Dataset creation  
   ```bash
   Superset UI -> Data -> Datasets -> + Dataset
   ```
@@ -256,10 +256,10 @@ Minimum required before calling the profile proven:
 - [x] **T1.1–T1.3**
 - [x] **T2.1–T2.3**
 - [x] **T3.1–T3.3**
-- [ ] **T4.1–T4.5**
-- [ ] **T5.1–T5.3**
-- [ ] **T6.1**
-- [ ] **T6.3**
+- [x] **T4.1–T4.5**
+- [x] **T5.1–T5.3**
+- [x] **T6.1**
+- [x] **T6.3**
 - [ ] **T7.1–T7.3**
 - [ ] **T8.2**
 - [ ] **T8.3**
