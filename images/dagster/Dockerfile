@@ -23,6 +23,7 @@ ARG DB_BACKEND=postgres
 
 ENV DAGSTER_HOME=/opt/dagster/dagster_home \
     DAGSTER_IMAGE_DB_BACKEND="$DB_BACKEND" \
+    HOME=/opt/dagster/dagster_home \
     PATH="/opt/venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -37,7 +38,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY shared/__init__.py /app/shared/__init__.py
 COPY shared/python /app/shared/python
 COPY workdirs/dagster /app/workdirs/dagster
-COPY images/dagster/generate_config.py images/dagster/dagster.yaml.j2 /app/images/dagster/
+COPY images/dagster/generate_config.py images/dagster/healthcheck.py images/dagster/dagster.yaml.j2 /app/images/dagster/
 COPY --chmod=0444 images/dagster/workspace.yaml /app/images/dagster/workspace.yaml
 COPY --chmod=0555 images/dagster/entrypoint.sh /entrypoint.sh
 
@@ -46,7 +47,7 @@ USER dagster
 EXPOSE 3000 4000
 
 HEALTHCHECK --interval=10s --timeout=10s --start-period=30s --retries=3 \
-  CMD dagster api grpc-health-check -p 4000 || exit 1
+  CMD python /app/images/dagster/healthcheck.py localhost 4000
 
 WORKDIR $DAGSTER_HOME
 

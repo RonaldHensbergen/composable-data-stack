@@ -7,8 +7,10 @@ RUN if [ -n "$IMAGE_PACKAGES" ]; then \
       pip install --no-cache-dir --target /app/.venv/lib/python3.10/site-packages $IMAGE_PACKAGES; \
     fi
 
-COPY --chown=superset:superset --chmod=0555 images/superset/entrypoint.sh /app/docker/entrypoint-init.sh
+COPY --chown=superset:superset --chmod=0444 images/superset/superset_config.py /app/pythonpath/superset_config.py
+COPY --chown=superset:superset --chmod=0555 images/superset/entrypoint-web.sh /app/docker/entrypoint-web.sh
+COPY --chown=superset:superset --chmod=0555 images/superset/init.sh /app/docker/init.sh
 
 USER superset
 
-ENTRYPOINT ["/app/docker/entrypoint-init.sh"]
+ENTRYPOINT ["/app/docker/entrypoint-web.sh"]
