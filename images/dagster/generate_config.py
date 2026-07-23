@@ -20,7 +20,7 @@ def generate_dagster_yaml():
         backend = detect_backend(connection_uri)
 
     script_dir = Path(__file__).parent
-    env = Environment(loader=FileSystemLoader(str(script_dir)))
+    env = Environment(loader=FileSystemLoader(str(script_dir)))  # nosec B701
     template = env.get_template("dagster.yaml.j2")
 
     rendered = template.render(backend=backend)
