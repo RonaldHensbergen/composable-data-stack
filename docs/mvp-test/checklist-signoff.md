@@ -111,7 +111,7 @@ Run tests in this order:
   ```
   State: the row count is unchanged after restart.
 
-- [ ] **T5.4** Persisted Superset metadata  
+- [x] **T5.4** Persisted Superset metadata  
   ```bash
   Superset UI -> Data -> Datasets/Charts -> confirm saved objects still exist
   ```
@@ -145,7 +145,7 @@ Run tests in this order:
   ```
   State: a dataset can be created or is already pre-seeded.
 
-- [ ] **T6.5** Visualization proof  
+- [x] **T6.5** Visualization proof  
   ```bash
   Superset UI -> Charts -> create a chart from the output table
   ```
@@ -155,19 +155,19 @@ Run tests in this order:
 
 ## T7 Restart and recovery proof
 
-- [ ] **T7.1** Clean restart recovery  
+- [x] **T7.1** Clean restart recovery  
   ```bash
   docker compose restart && docker compose ps
   ```
   State: all services reconnect and report healthy/ready status.
 
-- [ ] **T7.2** Post-restart rerun  
+- [x] **T7.2** Post-restart rerun  
   ```bash
   Dagster UI -> Jobs -> load_demo_sales -> Launch run again
   ```
   State: the job succeeds after the restart.
 
-- [ ] **T7.3** Duplicate/replay behavior  
+- [x] **T7.3** Duplicate/replay behavior  
   ```bash
   psql -h localhost -U analytics -d analytics_db -c "select count(*) from demo_sales;"
   ```
@@ -177,19 +177,19 @@ Run tests in this order:
 
 ## T8 Failure-path proof
 
-- [ ] **T8.1** Postgres unavailable  
+- [x] **T8.1** Postgres unavailable  
   ```bash
   docker compose stop postgres && Dagster UI -> Jobs -> load_demo_sales -> Launch run
   ```
   State: the job fails clearly and points to the missing database dependency.
 
-- [ ] **T8.2** Missing env/config  
+- [x] **T8.2** Missing env/config  
   ```bash
   docker compose --env-file .env.missing up
   ```
   State: startup fails with an actionable configuration error.
 
-- [ ] **T8.3** Port conflict  
+- [x] **T8.3** Port conflict  
   ```bash
   python3 -m http.server 8088
   ```
@@ -260,7 +260,7 @@ Minimum required before calling the profile proven:
 - [x] **T5.1–T5.3**
 - [x] **T6.1**
 - [x] **T6.3**
-- [ ] **T7.1–T7.3**
+- [x] **T7.1–T7.3**
 - [ ] **T8.2**
 - [ ] **T8.3**
 - [ ] **T8.5**
