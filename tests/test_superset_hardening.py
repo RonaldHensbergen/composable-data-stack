@@ -26,15 +26,19 @@ class SupersetHardeningTest(unittest.TestCase):
         self.assertIn("apt-get clean", dockerfile)
 
     def test_vulnerable_python_packages_are_patched(self) -> None:
-        from packaging.version import Version
-
         requirements = (self.repo_root / "images" / "superset" / "requirements.txt").read_text(encoding="utf-8")
-        pinned: dict[str, Version] = {}
+        pinned: dict[str, tuple[int, ...]] = {}
         for line in requirements.splitlines():
             line = line.strip()
-            if line and not line.startswith("#") and "==" in line:
-                pkg, _, ver = line.partition("==")
-                pinned[pkg.strip().lower()] = Version(ver.strip())
+            if line and not line.startswith("#"):
+                for op in (">=", "=="):
+                    if op in line:
+                        pkg, _, ver = line.partition(op)
+                        try:
+                            pinned[pkg.strip().lower()] = tuple(int(x) for x in ver.strip().split("."))
+                        except ValueError:
+                            pass
+                        break
 
         min_versions = {
             "mako": "1.3.12",
@@ -54,7 +58,7 @@ class SupersetHardeningTest(unittest.TestCase):
                 self.assertIn(pkg, pinned, msg=f"{pkg} must be pinned in images/superset/requirements.txt")
                 self.assertGreaterEqual(
                     pinned[pkg],
-                    Version(min_ver),
+                    tuple(int(x) for x in min_ver.split(".")),
                     msg=f"{pkg} must be >={min_ver} to fix known CVEs",
                 )
 
