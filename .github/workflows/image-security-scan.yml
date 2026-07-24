@@ -59,7 +59,12 @@ jobs:
 
       - name: Build image for scanning
         run: |
-          docker build -f "${{ matrix.image.dockerfile }}" -t "cds/${{ matrix.image.name }}:scan" .
+          dockerfile="${{ matrix.image.dockerfile }}"
+          context="$(dirname "$dockerfile")"
+          if [ "$dockerfile" = "images/dagster/Dockerfile" ] || [ "$dockerfile" = "images/superset/Dockerfile" ]; then
+            context="."
+          fi
+          docker build -f "$dockerfile" -t "cds/${{ matrix.image.name }}:scan" "$context"
 
       - name: Scan image for HIGH/CRITICAL vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
