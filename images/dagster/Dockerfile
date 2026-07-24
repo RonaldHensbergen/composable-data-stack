@@ -30,7 +30,7 @@ ENV DAGSTER_HOME=/opt/dagster/dagster_home \
 
 RUN groupadd --system --gid 999 dagster && \
     useradd --system --uid 999 --no-create-home --gid dagster dagster && \
-    install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage
+    install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage /var/run/dagster
 
 WORKDIR /app
 
@@ -44,10 +44,10 @@ COPY --chmod=0555 images/dagster/entrypoint.sh /entrypoint.sh
 
 USER dagster
 
-EXPOSE 3000 4000
+EXPOSE 3000
 
 HEALTHCHECK --interval=10s --timeout=10s --start-period=30s --retries=3 \
-  CMD python /app/images/dagster/healthcheck.py localhost 4000
+  CMD python /app/images/dagster/healthcheck.py --unix /var/run/dagster/user-code.sock
 
 WORKDIR $DAGSTER_HOME
 
