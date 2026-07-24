@@ -222,6 +222,70 @@ This allows you to go from a declarative profile to a runnable local data stack.
 
 ---
 
+## ✅ Prerequisites
+
+CDS has separate compile-time and runtime requirements.
+
+### Validate, Plan, And Render
+
+The commands `cds validate`, `cds security`, `cds plan`, and `cds render`
+do not require Docker. Install:
+
+- Python 3.14 or newer, including `pip` and `venv`
+- Git when cloning and installing CDS from source
+- Internet access for the initial source and Python dependency downloads
+
+### Build And Run A Stack
+
+The `cds up` command and generated local profiles additionally require:
+
+- Docker Engine (Linux) or Docker Desktop (macOS and Windows)
+- Docker Compose v2, invoked as `docker compose`
+- A running Docker daemon accessible to the current user
+- Internet access for the initial container image pulls and builds, unless all
+  required artifacts are already cached
+- Free host ports required by the selected profile
+- Write access to the checkout for `.env`, `docker-compose.yml`, and workdir
+  data
+
+Docker Desktop on Windows must use the WSL 2 backend. See the
+[support policy](docs/support-policy.md) for supported operating systems and
+runtime versions. For platform-specific setup from an empty machine, follow
+the [complete installation guide](docs/installation.md).
+
+For the complete example stack, allocate at least 8 GB of memory to Docker and
+keep at least 10 GB of disk space free for images, build layers, volumes, and
+logs. Larger workloads require additional resources.
+
+### Preflight Check
+
+Linux/macOS:
+
+```bash
+python3 --version
+git --version
+docker --version
+docker compose version
+docker info >/dev/null
+```
+
+Windows PowerShell:
+
+```powershell
+py --version
+git --version
+docker --version
+docker compose version
+docker info | Out-Null
+```
+
+Python must report version 3.14 or newer, Docker Compose must report v2, and
+`docker info` must complete without a daemon or permission error. Git is
+optional when CDS is installed from a package rather than source.
+
+Tools such as `make`, Node.js, and `pre-commit` are contributor tooling and are
+not required to run CDS profiles.
+
 ## 🚀 Quickstart
 
 ### 1. Clone
