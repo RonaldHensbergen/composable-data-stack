@@ -4,7 +4,6 @@ import subprocess
 import sys
 import time
 import unittest
-import uuid
 from pathlib import Path
 
 import yaml
@@ -63,7 +62,7 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
                     continue
                 self._run_exec_with_retry(service, command, env)
 
-            self._verify_incoming_csv_ingested(env)
+            self._verify_offers_fixture_ingested(env)
         finally:
             # Always tear down stack resources created by this smoke test.
             subprocess.run(
@@ -175,22 +174,31 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
             ),
         ]
 
-    def _verify_incoming_csv_ingested(self, env: dict[str, str]) -> None:
-        incoming_dir = self.repo_root / "workdirs" / "shared-data" / "incoming"
-        processed_dir = self.repo_root / "workdirs" / "shared-data" / "processed"
-        incoming_dir.mkdir(parents=True, exist_ok=True)
-        processed_dir.mkdir(parents=True, exist_ok=True)
-
-        file_stem = f"smoke_{uuid.uuid4().hex[:8]}"
-        file_name = f"{file_stem}.csv"
-        table_name = f"incoming_{file_stem}"
-        source_file = incoming_dir / file_name
-        source_file.write_text("id,name\n1,alice\n2,bob\n", encoding="utf-8")
+    def _verify_offers_fixture_ingested(self, env: dict[str, str]) -> None:
+        self._run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(self.compose_file),
+                "exec",
+                "-T",
+                "dagster-user-code",
+                "dagster",
+                "job",
+                "execute",
+                "-f",
+                "/app/workdirs/dagster/definitions.py",
+                "-j",
+                "load_offers_1000",
+            ],
+            env,
+        )
 
         analytics_user = env["CDS_ANALYTICS_DB_USER"]
         analytics_db = env["CDS_ANALYTICS_DB_NAME"]
         analytics_password = env["CDS_ANALYTICS_DB_PASSWORD"]
-        query = f"SELECT COUNT(*) FROM {table_name} WHERE source_file = '{file_name}';"
+        query = "SELECT COUNT(*) FROM offers_1000 WHERE source_file = 'offers-1000.csv';"
 
         cmd = [
             "sh",
@@ -201,41 +209,36 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
             ),
         ]
 
-        attempts = 30
-        delay_seconds = 5
-        for attempt in range(1, attempts + 1):
-            result = subprocess.run(
-                [
-                    "docker",
-                    "compose",
-                    "-f",
-                    str(self.compose_file),
-                    "exec",
-                    "-T",
-                    "postgres",
-                    *cmd,
-                ],
-                cwd=self.repo_root,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            output = result.stdout.strip()
-            if result.returncode == 0 and output.isdigit() and int(output) >= 2:
-                return
-            if attempt < attempts:
-                time.sleep(delay_seconds)
-                continue
-            self.fail(
-                "Incoming ingestion check failed for file {file_name} into {table_name}.\n"
-                "stdout:\n{stdout}\n\nstderr:\n{stderr}".format(
-                    file_name=file_name,
-                    table_name=table_name,
-                    stdout=result.stdout,
-                    stderr=result.stderr,
-                )
-            )
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(self.compose_file),
+                "exec",
+                "-T",
+                "postgres",
+                *cmd,
+            ],
+            cwd=self.repo_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(
+            result.returncode,
+            0,
+            "Offers ingestion query failed.\nstdout:\n{stdout}\n\nstderr:\n{stderr}".format(
+                stdout=result.stdout,
+                stderr=result.stderr,
+            ),
+        )
+        self.assertEqual(
+            result.stdout.strip(),
+            "1000",
+            "Expected exactly 1000 rows from offers-1000.csv",
+        )
 
 
 if __name__ == "__main__":

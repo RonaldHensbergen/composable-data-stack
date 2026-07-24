@@ -9,6 +9,7 @@ from unittest.mock import patch
 from cli.diagnostics import Diagnostic
 from cli.image_updates import collect_module_images
 from cli.main import list_modules, list_profiles, resolve_profile_path, main
+from cli.preflight import PreflightCheck
 
 
 class MainCLITest(unittest.TestCase):
@@ -230,13 +231,53 @@ class MainCLITest(unittest.TestCase):
             self.assertTrue(output_file.exists())
 
             content = output_file.read_text(encoding="utf-8")
+            self.assertIn("CDS_ANALYTICS_DB_NAME=change-me", content)
+            self.assertIn("CDS_ANALYTICS_DB_USER=change-me", content)
             self.assertIn("CDS_ANALYTICS_DB_PASSWORD=change-me", content)
+            self.assertIn("CDS_DAGSTER_DB_NAME=change-me", content)
+            self.assertIn("CDS_DAGSTER_DB_USER=change-me", content)
             self.assertIn("CDS_DAGSTER_DB_PASSWORD=change-me", content)
+            self.assertIn("CDS_SUPERSET_DB_NAME=change-me", content)
+            self.assertIn("CDS_SUPERSET_DB_USER=change-me", content)
             self.assertIn("CDS_SUPERSET_DB_PASSWORD=change-me", content)
             self.assertIn("CDS_SUPERSET_SECRET_KEY=change-me", content)
             self.assertIn("CDS_SUPERSET_ADMIN_PASSWORD=change-me", content)
         finally:
             output_file.unlink(missing_ok=True)
+
+    @patch("cli.main.run_preflight")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_preflight_resolves_profile_and_runs_checks(
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_preflight,
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = (
+            {"runtime": {"type": "docker-compose"}, "modules": []},
+            [],
+        )
+        mock_render.return_value = ("services: {}\n", [])
+        mock_preflight.return_value = [
+            PreflightCheck("PASS", "runtime.cli", "Docker CLI found.")
+        ]
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cds", "preflight", "local-dagster-postgres-superset"],
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        mock_validate.assert_called_once()
+        mock_plan.assert_called_once()
+        mock_render.assert_called_once()
+        mock_preflight.assert_called_once()
 
     @patch("cli.main.subprocess.run")
     @patch("cli.main.render_compose")

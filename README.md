@@ -334,9 +334,16 @@ cds init local-dagster-postgres-superset
 Set:
 
 ```text
-CDS_ANALYTICS_POSTGRES_PASSWORD
-CDS_DAGSTER_POSTGRES_PASSWORD
-CDS_SUPERSET_POSTGRES_PASSWORD
+CDS_ANALYTICS_DB_NAME
+CDS_ANALYTICS_DB_USER
+CDS_DAGSTER_DB_NAME
+CDS_DAGSTER_DB_USER
+CDS_SUPERSET_DB_NAME
+CDS_SUPERSET_DB_USER
+CDS_POSTGRES_SUPERUSER_PASSWORD
+CDS_ANALYTICS_DB_PASSWORD
+CDS_DAGSTER_DB_PASSWORD
+CDS_SUPERSET_DB_PASSWORD
 CDS_SUPERSET_SECRET_KEY
 CDS_SUPERSET_ADMIN_PASSWORD
 ```
@@ -353,13 +360,23 @@ Expected output:
 Profile is valid.
 ```
 
-### 5. Run Security Checks
+### 5. Check Runtime Prerequisites
+
+```bash
+cds preflight local-dagster-postgres-superset
+```
+
+This checks the runtime CLI and daemon, Compose support, required environment
+values, and declared host ports without starting services. `cds init` only
+creates configuration, while `cds validate` checks profile structure.
+
+### 6. Run Security Checks
 
 ```bash
 cds security local-dagster-postgres-superset
 ```
 
-### 6. Generate A Plan
+### 7. Generate A Plan
 
 ```bash
 cds plan local-dagster-postgres-superset
@@ -371,7 +388,7 @@ This resolves:
 - contract bindings
 - execution order
 
-### 7. Render The Stack
+### 8. Render The Stack
 
 ```bash
 cds render local-dagster-postgres-superset
@@ -391,7 +408,7 @@ This generates:
 - service definitions
 - fully wired module configuration
 
-### 8. Run The Stack
+### 9. Run The Stack
 
 ```bash
 cds up local-dagster-postgres-superset
@@ -499,7 +516,9 @@ profiles/[profile]/
 
 |Command|Description|
 |---|---|
+|cds init [profile]|Generate a project `.env` template from profile secret definitions|
 |cds validate [profile]|Validate modules and contracts|
+|cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
 |cds render [profile]|Generate Docker Compose configuration from a resolved plan|
 |cds up [profile]|Validate, plan, render, build, and start services with docker compose (use `--no-build` to skip build)|

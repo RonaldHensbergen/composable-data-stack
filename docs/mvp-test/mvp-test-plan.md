@@ -25,6 +25,7 @@ Test:
 1. clone repo
 1. copy env/example config
 1. validate profile
+1. run preflight checks
 1. plan profile
 1. render profile
 1. boot profile
@@ -80,19 +81,19 @@ Create one simple but real example pipeline/job:
 
 #### Recommended example DAG/job
 
-A Dagster job that:
+A `load_offers_1000` Dagster job that:
 
-1. reads a small CSV or inline dataset
-1. transforms it slightly
-1. writes a table into Postgres
+1. reads `workdirs/shared-data/incoming/offers-1000.csv`
+1. normalizes the CSV column names
+1. writes the `offers_1000` table into Postgres
 1. optionally records run metadata/logs
 1. exits successfully
 
-Example table:
+Expected table:
 
-- demo_sales
-- 20–100 rows
-- columns like order_id, region, amount, created_at
+- `offers_1000`
+- exactly 1,000 rows
+- columns `index`, `ean`, `stock`, and `price`
 
 Pass criteria:
 
@@ -100,8 +101,7 @@ Pass criteria:
 - run completes successfully
 - output table exists in Postgres
 - row count matches expectation
-- rerun behavior is defined:
-  - overwrite, append, or idempotent upsert
+- rerunning replaces rows from `offers-1000.csv`, leaving exactly 1,000 rows
 - logs are accessible
 
 ### 5. Persistence proof
