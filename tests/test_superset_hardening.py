@@ -34,10 +34,7 @@ class SupersetHardeningTest(unittest.TestCase):
                 for op in (">=", "=="):
                     if op in line:
                         pkg, _, ver = line.partition(op)
-                        try:
-                            pinned[pkg.strip().lower()] = tuple(int(x) for x in ver.strip().split("."))
-                        except ValueError:
-                            pass
+                        pinned[pkg.strip().lower()] = tuple(int(x) for x in ver.strip().split("."))
                         break
 
         min_versions = {
