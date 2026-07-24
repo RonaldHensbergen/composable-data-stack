@@ -10,11 +10,23 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY images/superset/requirements.txt /tmp/superset-requirements.txt
-RUN pip install --no-cache-dir -r /tmp/superset-requirements.txt
+RUN uv pip install --python /app/.venv/bin/python --no-cache --upgrade \
+      -r /tmp/superset-requirements.txt
 
 RUN if [ -n "$IMAGE_PACKAGES" ]; then \
-      pip install --no-cache-dir --target /app/.venv/lib/python3.10/site-packages $IMAGE_PACKAGES; \
+      uv pip install --python /app/.venv/bin/python --no-cache $IMAGE_PACKAGES; \
     fi
+
+# The application uses /app/.venv; remove unused system packaging tools and their
+# vendored metadata so scanners do not report packages that cannot run.
+RUN rm -rf \
+      /usr/local/lib/python3.10/site-packages/pip \
+      /usr/local/lib/python3.10/site-packages/pip-*.dist-info \
+      /usr/local/lib/python3.10/site-packages/setuptools \
+      /usr/local/lib/python3.10/site-packages/setuptools-*.dist-info \
+      /usr/local/lib/python3.10/site-packages/wheel \
+      /usr/local/lib/python3.10/site-packages/wheel-*.dist-info \
+    && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.10 /usr/local/bin/wheel
 
 COPY --chown=superset:superset --chmod=0444 images/superset/superset_config.py /app/pythonpath/superset_config.py
 COPY --chown=superset:superset --chmod=0555 images/superset/entrypoint-web.sh /app/docker/entrypoint-web.sh

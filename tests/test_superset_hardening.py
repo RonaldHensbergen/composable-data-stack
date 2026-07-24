@@ -26,7 +26,13 @@ class SupersetHardeningTest(unittest.TestCase):
         self.assertIn("apt-get clean", dockerfile)
 
     def test_vulnerable_python_packages_are_patched(self) -> None:
+        dockerfile = (self.repo_root / "images" / "superset" / "Dockerfile").read_text(encoding="utf-8")
         requirements = (self.repo_root / "images" / "superset" / "requirements.txt").read_text(encoding="utf-8")
+        self.assertIn("uv pip install --python /app/.venv/bin/python", dockerfile)
+        self.assertNotIn("pip install --no-cache-dir -r /tmp/superset-requirements.txt", dockerfile)
+        self.assertIn("/usr/local/lib/python3.10/site-packages/setuptools", dockerfile)
+        self.assertIn("rm -f /usr/local/bin/pip", dockerfile)
+
         pinned: dict[str, tuple[int, ...]] = {}
         for line in requirements.splitlines():
             line = line.strip()
@@ -47,6 +53,7 @@ class SupersetHardeningTest(unittest.TestCase):
             "pyopenssl": "26.0.0",
             "pyarrow": "23.0.1",
             "pyasn1": "0.6.4",
+            "setuptools": "83.0.0",
             "urllib3": "2.7.0",
             "wheel": "0.46.2",
         }
