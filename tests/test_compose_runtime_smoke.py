@@ -63,18 +63,19 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
         env.setdefault("CDS_SUPERSET_ADMIN_PASSWORD", "adminpass")
 
         try:
-            self._run(
-                [
-                    "docker",
-                    "compose",
-                    "-f",
-                    str(self.compose_file),
-                    "down",
-                    "-v",
-                    "--remove-orphans",
-                ],
-                env,
-            )
+            if self.compose_file.exists():
+                self._run(
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(self.compose_file),
+                        "down",
+                        "-v",
+                        "--remove-orphans",
+                    ],
+                    env,
+                )
             self._run(
                 [
                     sys.executable,
