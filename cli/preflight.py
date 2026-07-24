@@ -13,6 +13,9 @@ import yaml
 
 
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}")
+# Docker publishes ports on every IPv4 interface when no host IP is specified.
+# Preflight uses this only for a short-lived availability probe.
+_DOCKER_WILDCARD_IPV4 = "0.0.0.0"  # nosec B104
 
 
 @dataclass(frozen=True)
@@ -266,7 +269,7 @@ def _check_ports(compose_yaml: str) -> list[PreflightCheck]:
 
 
 def _hosts_overlap(first: str, second: str) -> bool:
-    wildcard_hosts = {"0.0.0.0", "::", ""}
+    wildcard_hosts = {_DOCKER_WILDCARD_IPV4, "::", ""}
     return first == second or first in wildcard_hosts or second in wildcard_hosts
 
 
@@ -279,7 +282,7 @@ def _published_ports(port_entry: Any) -> list[tuple[str, int, str]]:
         if published is None:
             return []
         ports = _expand_port_range(str(published))
-        host = str(port_entry.get("host_ip") or "0.0.0.0")
+        host = str(port_entry.get("host_ip") or _DOCKER_WILDCARD_IPV4)
         protocol = str(port_entry.get("protocol") or "tcp").lower()
         return [(host, port, protocol) for port in ports]
 
@@ -296,10 +299,10 @@ def _published_ports(port_entry: Any) -> list[tuple[str, int, str]]:
     if len(parts) == 1:
         return []
     elif len(parts) == 2:
-        host = "0.0.0.0"
+        host = _DOCKER_WILDCARD_IPV4
         published = parts[0]
     else:
-        host = parts[0].strip("[]") or "0.0.0.0"
+        host = parts[0].strip("[]") or _DOCKER_WILDCARD_IPV4
         published = parts[1]
 
     return [
