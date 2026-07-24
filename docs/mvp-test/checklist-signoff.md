@@ -158,23 +158,26 @@ Run tests in this order:
 
 ## T9 CI proof
 
-- [ ] **T9.1** Validate profile/module config  
+- [x] **T9.1** Validate profile/module config
   Confirm schema and structure validation passes on a clean runner.
 
-- [ ] **T9.2** Render runtime artifacts  
+- [x] **T9.2** Render runtime artifacts
   Confirm rendered output is generated successfully and deterministically.
 
-- [ ] **T9.3** Boot on clean CI runner  
+- [x] **T9.3** Boot on clean CI runner
   Confirm the profile boots successfully in CI.
 
-- [ ] **T9.4** Full happy-path E2E  
+- [x] **T9.4** Full happy-path E2E
   Run the job, verify DB output, and verify Superset reachability.
 
-- [ ] **T9.5** Restart verification in CI  
+- [x] **T9.5** Restart verification in CI
   Restart and confirm persistence checks pass.
 
-- [ ] **T9.6** Collect diagnostics on failure  
+- [x] **T9.6** Collect diagnostics on failure
   Confirm logs and artifacts are uploaded on failure.
+
+Evidence: [successful MVP CI proof](https://github.com/RonaldHensbergen/composable-data-stack/actions/runs/30133910803)
+and [uploaded failure diagnostics](https://github.com/RonaldHensbergen/composable-data-stack/actions/runs/30133572977).
 
 ---
 
@@ -193,4 +196,4 @@ Minimum required before calling the profile proven:
 - [ ] **T8.2**
 - [ ] **T8.3**
 - [ ] **T8.5**
-- [ ] **T9.1–T9.6**
+- [x] **T9.1–T9.6**
