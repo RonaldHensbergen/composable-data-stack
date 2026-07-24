@@ -8,7 +8,7 @@ macOS, or Windows machine.
 CDS compile-time commands and runtime commands have different requirements:
 
 | Use case | Required software |
-|---|---|
+| --- | --- |
 | Validate, secure, plan, or render profiles | Python 3.14+, `pip`, and `venv` |
 | Clone and update the source repository | Git |
 | Build and run local profiles | Docker Engine/Desktop and Docker Compose v2 |
