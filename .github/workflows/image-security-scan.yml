@@ -1,0 +1,87 @@
+name: Image Security Scan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "images/**"
+      - ".github/workflows/image-security-scan.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  discover-images:
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.find.outputs.images }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Find image Dockerfiles
+        id: find
+        run: |
+          images_json=$(python3 - <<'PY'
+          import json
+          import pathlib
+
+          root = pathlib.Path("images")
+          items = []
+          for entry in sorted(root.iterdir()) if root.is_dir() else []:
+              if not entry.is_dir():
+                  continue
+              dockerfile = entry / "Dockerfile"
+              if dockerfile.is_file():
+                  items.append({"name": entry.name, "dockerfile": str(dockerfile)})
+          print(json.dumps(items))
+          PY
+          )
+          echo "images=$images_json" >> "$GITHUB_OUTPUT"
+
+  scan:
+    needs: discover-images
+    if: needs.discover-images.outputs.images != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(needs.discover-images.outputs.images) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image for scanning
+        run: |
+          docker build -f "${{ matrix.image.dockerfile }}" -t "cds/${{ matrix.image.name }}:scan" .
+
+      - name: Scan image for HIGH/CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: "cds/${{ matrix.image.name }}:scan"
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: "true"
+
+      - name: Generate SBOM (CycloneDX)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: "cds/${{ matrix.image.name }}:scan"
+          format: cyclonedx
+          output: "sbom-${{ matrix.image.name }}.cdx.json"
+
+      - name: Upload SBOM artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom-${{ matrix.image.name }}
+          path: sbom-${{ matrix.image.name }}.cdx.json
