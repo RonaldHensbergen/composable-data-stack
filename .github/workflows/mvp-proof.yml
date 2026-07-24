@@ -1,0 +1,215 @@
+name: MVP CI Proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/mvp-proof.yml"
+      - "cli/**"
+      - "images/**"
+      - "modules/**"
+      - "profiles/**"
+      - "schemas/**"
+      - "shared/**"
+      - "tests/test_compose_runtime_smoke.py"
+      - "workdirs/**"
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mvp-proof-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CDS_POSTGRES_SUPERUSER_PASSWORD: "ci-postgres-superuser-password"
+  CDS_ANALYTICS_DB_NAME: analytics
+  CDS_ANALYTICS_DB_USER: analytics
+  CDS_ANALYTICS_DB_PASSWORD: "ci-analytics-password"
+  CDS_DAGSTER_DB_NAME: dagster
+  CDS_DAGSTER_DB_USER: dagster
+  CDS_DAGSTER_DB_PASSWORD: "ci-dagster-password"
+  CDS_SUPERSET_DB_NAME: superset
+  CDS_SUPERSET_DB_USER: superset
+  CDS_SUPERSET_DB_PASSWORD: "ci-superset-database-password"
+  CDS_SUPERSET_SECRET_KEY: "ci-superset-secret-key-for-mvp-proof"
+  CDS_SUPERSET_ADMIN_PASSWORD: "ci-superset-admin-password"
+
+jobs:
+  validate-render:
+    name: Validate and deterministic render
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install CDS
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Validate and plan profile
+        run: |
+          mkdir -p /tmp/mvp-compile-proof
+          cds validate local-dagster-postgres-superset
+          cds plan local-dagster-postgres-superset \
+            --output /tmp/mvp-compile-proof/plan.json
+
+      - name: Prove deterministic rendering
+        run: |
+          cds render local-dagster-postgres-superset \
+            --output /tmp/mvp-compile-proof/render-1.yml
+          cds render local-dagster-postgres-superset \
+            --output /tmp/mvp-compile-proof/render-2.yml
+          cmp /tmp/mvp-compile-proof/render-1.yml \
+            /tmp/mvp-compile-proof/render-2.yml
+          docker compose \
+            -f /tmp/mvp-compile-proof/render-1.yml \
+            config --quiet
+
+      - name: Upload compile proof
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mvp-compile-proof-${{ github.run_id }}
+          path: /tmp/mvp-compile-proof/
+          if-no-files-found: error
+          retention-days: 14
+
+  runtime-proof:
+    name: Boot, E2E, and persistence
+    needs: validate-render
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CDS_RUN_DOCKER_SMOKE: "1"
+      CDS_KEEP_DOCKER_STACK: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Install CDS
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Run runtime proof
+        shell: bash
+        run: |
+          mkdir -p mvp-artifacts
+          set -o pipefail
+          python -m unittest tests.test_compose_runtime_smoke -v \
+            2>&1 | tee mvp-artifacts/runtime-proof.log
+
+      - name: Collect failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          mkdir -p mvp-artifacts
+          if [ -f docker-compose.yml ]; then
+            cp docker-compose.yml mvp-artifacts/rendered-compose.yml
+            docker compose -f docker-compose.yml ps -a \
+              > mvp-artifacts/compose-ps.txt 2>&1 || true
+            docker compose -f docker-compose.yml logs \
+              --no-color --timestamps \
+              > mvp-artifacts/compose-logs.txt 2>&1 || true
+
+            : > mvp-artifacts/container-health.jsonl
+            for container_id in $(docker compose -f docker-compose.yml ps -aq); do
+              docker inspect "$container_id" --format \
+                '{"Name":{{json .Name}},"Image":{{json .Config.Image}},"State":{{json .State}},"RestartCount":{{json .RestartCount}}}' \
+                >> mvp-artifacts/container-health.jsonl || true
+            done
+
+            docker compose -f docker-compose.yml exec -T postgres sh -c \
+              'PGPASSWORD="$ANALYTICS_DB_PASSWORD" psql -U "$ANALYTICS_DB_USER" -d "$ANALYTICS_DB_NAME" -At -c "SELECT count(*) FROM offers_1000 WHERE source_file = '\''offers-1000.csv'\'';"' \
+              > mvp-artifacts/sql-assertions.txt 2>&1 || true
+            docker compose -f docker-compose.yml exec -T dagster-user-code \
+              dagster run list --limit 10 \
+              > mvp-artifacts/dagster-runs.txt 2>&1 || true
+          fi
+
+      - name: Redact diagnostic artifacts
+        if: failure()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          artifact_dir = Path("mvp-artifacts")
+          sensitive_values = {
+              value
+              for key, value in os.environ.items()
+              if value
+              and any(marker in key.upper() for marker in ("PASSWORD", "SECRET", "TOKEN"))
+          }
+          for path in artifact_dir.iterdir():
+              if not path.is_file():
+                  continue
+              content = path.read_text(encoding="utf-8", errors="replace")
+              for value in sorted(sensitive_values, key=len, reverse=True):
+                  content = content.replace(value, "<redacted>")
+              content = re.sub(
+                  r"(postgresql(?:\+[a-z0-9]+)?://[^:/\s]*:)[^@/\s]+",
+                  r"\1<redacted>",
+                  content,
+                  flags=re.IGNORECASE,
+              )
+              path.write_text(content, encoding="utf-8")
+
+          combined = "\n".join(
+              path.read_text(encoding="utf-8", errors="replace")
+              for path in artifact_dir.iterdir()
+              if path.is_file()
+          )
+          leaked_names = sorted(
+              key
+              for key, value in os.environ.items()
+              if value
+              and any(marker in key.upper() for marker in ("PASSWORD", "SECRET", "TOKEN"))
+              and value in combined
+          )
+          if leaked_names:
+              raise SystemExit(
+                  "Diagnostic artifacts contain sensitive values from: "
+                  + ", ".join(leaked_names)
+              )
+          PY
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mvp-runtime-failure-${{ github.run_id }}
+          path: mvp-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Clean up Compose resources
+        if: always()
+        run: |
+          if [ -f docker-compose.yml ]; then
+            docker compose -f docker-compose.yml \
+              down -v --remove-orphans || true
+          fi
