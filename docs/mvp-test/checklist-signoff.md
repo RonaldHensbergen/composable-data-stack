@@ -35,8 +35,9 @@ Run tests in this order:
 - [x] **T1.1** Fresh bootstrap  
   Clone repo, copy env/config, render profile, and start stack from docs only.
 
-- [x] **T1.2** Preflight/doctor  
-  Verify Docker, Compose, ports, env vars, disk, and memory before startup.
+- [x] **T1.2** Preflight
+  Run `cds preflight local-dagster-postgres-superset` and verify the runtime,
+  Compose support, required environment values, and declared ports.
 
 - [x] **T1.3** Container health  
   Confirm Dagster, Postgres, and Superset all become healthy within timeout.
@@ -52,7 +53,7 @@ Run tests in this order:
   Confirm repository/code location is visible with no import or config errors.
 
 - [x] **T2.3** Demo job exists  
-  Confirm `load_demo_sales` or equivalent job is present.
+  Confirm `load_offers_1000` is present.
 
 ---
 
@@ -72,16 +73,16 @@ Run tests in this order:
 ## T4 End-to-end DAG execution proof
 
 - [x] **T4.1** Run demo Dagster job  
-  Trigger `load_demo_sales` and confirm successful completion.
+  Trigger `load_offers_1000` and confirm successful completion.
 
 - [x] **T4.2** Verify output table  
-  Confirm output table exists in Postgres.
+  Confirm `offers_1000` exists in Postgres.
 
 - [x] **T4.3** Verify row count  
-  Confirm row count matches expected fixture.
+  Confirm `offers_1000` contains exactly 1,000 rows from `offers-1000.csv`.
 
 - [x] **T4.4** Verify rerun behavior  
-  Re-run the job and confirm overwrite/append/upsert behavior matches documentation.
+  Re-run the job and confirm it replaces the fixture rows without duplicates.
 
 - [x] **T4.5** Verify logs available  
   Confirm Dagster run logs are visible and useful.

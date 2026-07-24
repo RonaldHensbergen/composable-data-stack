@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess  # nosec B404
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ from .validator import has_errors, validate_profile
 from .planner import build_plan
 from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
+from .preflight import preflight_passed, run_preflight
 from .security import run_security_validation
 from .loader import load_yaml_file
 
@@ -225,26 +227,41 @@ def _collect_profile_env_vars(profile_path: str) -> list[str]:
         error_messages = [d.format() for d in diags if d.level == "error"]
         raise ValueError("Could not load profile: " + "; ".join(error_messages or ["unknown error"]))
 
-    values = profile.get("spec", {}).get("secrets", {}).get("values", {})
-    if not isinstance(values, dict) or not values:
-        raise ValueError("Profile has no spec.secrets.values entries to initialize .env from.")
-
     env_vars: set[str] = set()
-    for secret_name, secret_def in values.items():
-        if not isinstance(secret_def, dict):
-            continue
-        env_name = secret_def.get("env")
-        if isinstance(env_name, str) and env_name:
-            env_vars.add(env_name)
-        else:
-            raise ValueError(f'Secret "{secret_name}" is missing a valid env name.')
+    spec = profile.get("spec", {})
+    values = spec.get("secrets", {}).get("values", {})
+    if isinstance(values, dict):
+        for secret_name, secret_def in values.items():
+            if not isinstance(secret_def, dict):
+                continue
+            env_name = secret_def.get("env")
+            if isinstance(env_name, str) and env_name:
+                env_vars.add(env_name)
+            else:
+                raise ValueError(f'Secret "{secret_name}" is missing a valid env name.')
+
+    env_vars.update(_find_profile_env_references(spec))
 
     if not env_vars:
-        raise ValueError("No environment variables were found in spec.secrets.values.")
+        raise ValueError("No environment variables were found in the profile.")
 
     return sorted(env_vars)
 
 
+def _find_profile_env_references(value) -> set[str]:
+    if isinstance(value, dict):
+        references: set[str] = set()
+        for nested in value.values():
+            references.update(_find_profile_env_references(nested))
+        return references
+    if isinstance(value, list):
+        references = set()
+        for nested in value:
+            references.update(_find_profile_env_references(nested))
+        return references
+    if isinstance(value, str):
+        return set(re.findall(r"\$\{(CDS_[A-Z0-9_]+)\}", value))
+    return set()
 def _write_env_file(output_path: Path, env_vars: list[str], profile_path: str, force: bool) -> None:
     if output_path.exists() and not force:
         raise FileExistsError(f"Refusing to overwrite existing file: {output_path}. Use --force to overwrite.")
@@ -316,6 +333,12 @@ def main() -> int:
         help="One-shot smoke validation: validate, security, plan, and render",
     )
     _add_profile_arg(test_parser)
+
+    preflight_parser = subparsers.add_parser(
+        "preflight",
+        help="Check runtime prerequisites without starting the profile",
+    )
+    _add_profile_arg(preflight_parser)
 
     init_parser = subparsers.add_parser(
         "init",
@@ -615,6 +638,48 @@ def main() -> int:
         print("\nAll stages passed." if all_passed else "\nOne or more stages failed.")
         return 0 if all_passed else 1
 
+    if args.command == "preflight":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        diagnostics = validate_profile(profile_path)
+        if has_errors(diagnostics):
+            print_diagnostics(diagnostics)
+            print("Cannot run preflight because validation failed.")
+            return 1
+
+        env_file = resolve_env_file_path(profile_path)
+        plan, plan_diags = build_plan(profile_path, env_file=str(env_file))
+        all_diags = diagnostics + plan_diags
+        if has_errors(all_diags) or plan is None:
+            print_diagnostics(all_diags)
+            print("Cannot run preflight because plan generation failed.")
+            return 1
+
+        compose_yaml, render_diags = render_compose(
+            plan,
+            env_file=str(env_file),
+        )
+        all_diags += render_diags
+        if has_errors(all_diags):
+            print_diagnostics(all_diags)
+            print("Cannot run preflight because render failed.")
+            return 1
+
+        checks = run_preflight(plan, compose_yaml, env_file)
+        for check in checks:
+            print(f"[{check.status}] {check.name}: {check.message}")
+
+        if preflight_passed(checks):
+            print("\nPreflight passed.")
+            return 0
+
+        print("\nPreflight failed.")
+        return 1
+
     if args.command == "init":
         try:
             profile_path = resolve_profile_path(args.profile)
@@ -635,7 +700,11 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
 
-        print(f"Initialized environment for {args.profile}.\nPlease edit the values to set your secrets in the .env file before running any commands.")
+        print(
+            f"Initialized environment for {args.profile}.\n"
+            "Please edit the values in the .env file, then run "
+            f"`cds preflight {args.profile or Path(profile_path).parent.name}`."
+        )
         return 0
 
     if args.command == "list":

@@ -51,12 +51,18 @@ insert_incoming_file_event = _db_connection.insert_incoming_file_event
 
 INCOMING_DATA_DIR = Path(os.getenv("CDS_INCOMING_DATA_DIR", "/app/data/cds/incoming"))
 PROCESSED_DATA_DIR = Path(os.getenv("CDS_PROCESSED_DATA_DIR", "/app/data/cds/processed"))
+OFFERS_FIXTURE_PATH = Path(
+    os.getenv("CDS_OFFERS_FIXTURE_PATH", str(INCOMING_DATA_DIR / "offers-1000.csv"))
+)
+OFFERS_EXPECTED_ROWS = 1000
 SUPPORTED_INGEST_EXTENSIONS = {".csv", ".json", ".ndjson"}
 TEXT_FILE_ENCODINGS = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
 
 
 def _is_processable_file(file_path: Path) -> bool:
     if not file_path.is_file():
+        return False
+    if file_path.resolve() == OFFERS_FIXTURE_PATH.resolve():
         return False
     if file_path.name.startswith("."):
         return False
@@ -135,7 +141,14 @@ def _read_text_with_fallback(file_path: Path, logger=None) -> str:
     )
 
 
-def _ingest_csv_file(conn, file_path: Path, table_name: str, source_file: str, logger=None) -> int:
+def _ingest_csv_file(
+    conn,
+    file_path: Path,
+    table_name: str,
+    source_file: str,
+    logger=None,
+    replace_source: bool = False,
+) -> int:
     with io.StringIO(_read_text_with_fallback(file_path, logger=logger), newline="") as handle:
         reader = csv.DictReader(handle)
         if not reader.fieldnames:
@@ -169,6 +182,11 @@ def _ingest_csv_file(conn, file_path: Path, table_name: str, source_file: str, l
                 "(source_file text NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(), {})"
             ).format(table_ident, col_defs)
             cursor.execute(create_query)
+            if replace_source:
+                cursor.execute(
+                    sql.SQL("DELETE FROM {} WHERE source_file = %s").format(table_ident),
+                    (source_file,),
+                )
 
             rows = []
             for row in reader:
@@ -447,6 +465,52 @@ def pickup_incoming_files_job() -> None:
     pickup_incoming_files()
 
 
+@op
+def load_offers_1000_fixture(context) -> int:
+    if not OFFERS_FIXTURE_PATH.is_file():
+        raise FileNotFoundError(f"Offers fixture not found: {OFFERS_FIXTURE_PATH}")
+
+    with psycopg2.connect(_resolve_target_db_uri()) as conn:
+        row_count = _ingest_csv_file(
+            conn,
+            OFFERS_FIXTURE_PATH,
+            "offers_1000",
+            OFFERS_FIXTURE_PATH.name,
+            logger=context.log,
+            replace_source=True,
+        )
+
+    if row_count != OFFERS_EXPECTED_ROWS:
+        raise RuntimeError(
+            f"Expected {OFFERS_EXPECTED_ROWS} offers in {OFFERS_FIXTURE_PATH}, "
+            f"but loaded {row_count}"
+        )
+
+    context.log_event(
+        AssetObservation(
+            asset_key="offers_1000",
+            metadata={
+                "source_file": OFFERS_FIXTURE_PATH.name,
+                "table": "offers_1000",
+                "row_count": row_count,
+            },
+        )
+    )
+    context.add_output_metadata(
+        {
+            "source_file": OFFERS_FIXTURE_PATH.name,
+            "table": "offers_1000",
+            "row_count": row_count,
+        }
+    )
+    return row_count
+
+
+@job(name="load_offers_1000")
+def load_offers_1000_job() -> None:
+    load_offers_1000_fixture()
+
+
 @sensor(job=process_incoming_file_job, minimum_interval_seconds=30)
 def incoming_files_sensor(context: SensorEvaluationContext):
     context.log.debug("Sensor evaluation started for incoming directory %s", INCOMING_DATA_DIR)
@@ -501,6 +565,11 @@ def incoming_files_sensor(context: SensorEvaluationContext):
 
 defs = Definitions(
     assets=[hello_cds],
-    jobs=[hello_cds_job, pickup_incoming_files_job, process_incoming_file_job],
+    jobs=[
+        hello_cds_job,
+        load_offers_1000_job,
+        pickup_incoming_files_job,
+        process_incoming_file_job,
+    ],
     sensors=[incoming_files_sensor],
 )

@@ -237,8 +237,9 @@ tools/pr-docs/
 
 # Dagster shared-data mount (workdirs/shared-data/*): populated and mutated at
 # runtime by the incoming-file sensor (files move incoming/ -> processed/).
-# Keep the directories in git via .gitkeep, but not their contents.
+# Keep the directories and the MVP offers fixture in git, but not runtime data.
 workdirs/shared-data/incoming/*
 workdirs/shared-data/processed/*
 !workdirs/shared-data/incoming/.gitkeep
+!workdirs/shared-data/incoming/offers-1000.csv
 !workdirs/shared-data/processed/.gitkeep
