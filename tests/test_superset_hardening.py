@@ -26,27 +26,36 @@ class SupersetHardeningTest(unittest.TestCase):
         self.assertIn("apt-get clean", dockerfile)
 
     def test_vulnerable_python_packages_are_patched(self) -> None:
-        dockerfile = (self.repo_root / "images" / "superset" / "Dockerfile").read_text(encoding="utf-8")
+        from packaging.version import Version
 
-        patched = {
-            "Mako": "1.3.12",
-            "PyJWT": "2.13.0",
+        requirements = (self.repo_root / "images" / "superset" / "requirements.txt").read_text(encoding="utf-8")
+        pinned: dict[str, Version] = {}
+        for line in requirements.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "==" in line:
+                pkg, _, ver = line.partition("==")
+                pinned[pkg.strip().lower()] = Version(ver.strip())
+
+        min_versions = {
+            "mako": "1.3.12",
+            "pyjwt": "2.13.0",
             "cryptography": "48.0.1",
             "jaraco.context": "6.1.0",
             "msgpack": "1.2.1",
-            "Pillow": "12.3.0",
-            "pyOpenSSL": "26.0.0",
+            "pillow": "12.3.0",
+            "pyopenssl": "26.0.0",
             "pyarrow": "23.0.1",
             "pyasn1": "0.6.4",
             "urllib3": "2.7.0",
             "wheel": "0.46.2",
         }
-        for pkg, min_version in patched.items():
+        for pkg, min_ver in min_versions.items():
             with self.subTest(package=pkg):
-                self.assertIn(
-                    f'"{pkg}>={min_version}"',
-                    dockerfile,
-                    msg=f"{pkg}>={min_version} must be pinned in the Dockerfile to fix CVEs",
+                self.assertIn(pkg, pinned, msg=f"{pkg} must be pinned in images/superset/requirements.txt")
+                self.assertGreaterEqual(
+                    pinned[pkg],
+                    Version(min_ver),
+                    msg=f"{pkg} must be >={min_ver} to fix known CVEs",
                 )
 
     def test_service_has_restricted_runtime(self) -> None:
