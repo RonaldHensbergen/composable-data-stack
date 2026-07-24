@@ -19,6 +19,36 @@ class SupersetHardeningTest(unittest.TestCase):
         users = re.findall(r"^USER\s+(\S+)$", dockerfile, flags=re.MULTILINE)
         self.assertEqual(users[-1], "superset")
 
+    def test_os_packages_are_upgraded_to_fix_cves(self) -> None:
+        dockerfile = (self.repo_root / "images" / "superset" / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("apt-get upgrade", dockerfile)
+        self.assertIn("apt-get clean", dockerfile)
+
+    def test_vulnerable_python_packages_are_patched(self) -> None:
+        dockerfile = (self.repo_root / "images" / "superset" / "Dockerfile").read_text(encoding="utf-8")
+
+        patched = {
+            "Mako": "1.3.12",
+            "PyJWT": "2.13.0",
+            "cryptography": "48.0.1",
+            "jaraco.context": "6.1.0",
+            "msgpack": "1.2.1",
+            "Pillow": "12.3.0",
+            "pyOpenSSL": "26.0.0",
+            "pyarrow": "23.0.1",
+            "pyasn1": "0.6.4",
+            "urllib3": "2.7.0",
+            "wheel": "0.46.2",
+        }
+        for pkg, min_version in patched.items():
+            with self.subTest(package=pkg):
+                self.assertIn(
+                    f'"{pkg}>={min_version}"',
+                    dockerfile,
+                    msg=f"{pkg}>={min_version} must be pinned in the Dockerfile to fix CVEs",
+                )
+
     def test_service_has_restricted_runtime(self) -> None:
         module = yaml.safe_load(
             (self.repo_root / "modules" / "bi" / "superset" / "module.yaml").read_text(encoding="utf-8")
