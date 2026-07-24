@@ -31,4 +31,9 @@ esac
 
 cp /app/images/dagster/workspace.yaml "$DAGSTER_HOME/workspace.yaml"
 python /app/images/dagster/generate_config.py
+
+if [ "$#" -ge 3 ] && [ "$1" = "dagster" ] && [ "$2" = "code-server" ] && [ "$3" = "start" ]; then
+    rm -f /var/run/dagster/user-code.sock
+fi
+
 exec "$@"

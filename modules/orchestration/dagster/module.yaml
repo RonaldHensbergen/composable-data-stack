@@ -200,10 +200,8 @@ spec:
             - dagster
             - code-server
             - start
-            - -h
-            - 0.0.0.0
-            - -p
-            - "4000"
+            - -s
+            - /var/run/dagster/user-code.sock
             - -f
             - "${config.definitionsFile.containerPath}"
           healthcheck:
@@ -212,14 +210,15 @@ spec:
               - CMD
               - python
               - /app/images/dagster/healthcheck.py
-              - localhost
-              - "4000"
+              - --unix
+              - /var/run/dagster/user-code.sock
             interval: 10s
             timeout: 15s
             start_period: 60s
             retries: 5
           volumes:
             - dagster-io-manager-storage:/tmp/io_manager_storage
+            - dagster-grpc-socket:/var/run/dagster
             - type: bind
               source: "${config.sharedData.hostPath}"
               target: "${config.sharedData.containerPath}"
@@ -280,6 +279,10 @@ spec:
             - "${config.webPort}:3000"
           volumes:
             - dagster-io-manager-storage:/tmp/io_manager_storage
+            - type: volume
+              source: dagster-grpc-socket
+              target: /var/run/dagster
+              read_only: true
             - type: bind
               source: "${config.sharedData.hostPath}"
               target: "${config.sharedData.containerPath}"
@@ -340,14 +343,18 @@ spec:
               - CMD
               - python
               - /app/images/dagster/healthcheck.py
-              - dagster-user-code
-              - "4000"
+              - --unix
+              - /var/run/dagster/user-code.sock
             interval: 10s
             timeout: 15s
             start_period: 60s
             retries: 3
           volumes:
             - dagster-io-manager-storage:/tmp/io_manager_storage
+            - type: volume
+              source: dagster-grpc-socket
+              target: /var/run/dagster
+              read_only: true
             - type: bind
               source: "${config.sharedData.hostPath}"
               target: "${config.sharedData.containerPath}"
@@ -375,3 +382,4 @@ spec:
 
       volumes:
         dagster-io-manager-storage: {}
+        dagster-grpc-socket: {}
