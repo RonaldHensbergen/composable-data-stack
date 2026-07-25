@@ -74,7 +74,7 @@ jobs:
           scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: "1"
-          ignore-unfixed: "true"
+          ignore-unfixed: "false"
 
       - name: Generate SBOM (CycloneDX)
         if: always()
