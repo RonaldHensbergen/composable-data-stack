@@ -4,16 +4,22 @@ Use this checklist to prove the MVP profile is ready for release.
 
 ## Current signoff status (as of 2026-07-25)
 
-All MVP proof groups are signed off based on the completed checklist and CI evidence.
+Evidence supports complete signoff for T1–T5, T7, and T9. T6 and T8 remain
+partial.
 
-- Signed off: **T1–T9**
-- MVP release gate: **complete**
+- Signed off: **T1–T5**, **T7**, **T9**
+- Partial: **T6** (reachability only), **T8** (configuration, port, and
+  diagnostics coverage)
+- MVP release gate: **incomplete**
 
 Notes:
 
 - The required Docker proof covers boot, health, ingestion, persistence, and
   restart behavior.
 - T9 includes clean-runner CI evidence and uploaded failure diagnostics.
+- Superset login, analytics datasource access, dataset creation, and
+  visualization still need direct tests.
+- Postgres outage and forced readiness-race scenarios still need direct tests.
 
 ## Suggested test path
 
@@ -111,16 +117,16 @@ Run tests in this order:
 - [x] **T6.1** Superset UI load
   Confirm Superset is reachable.
 
-- [x] **T6.2** Admin login
+- [ ] **T6.2** Admin login
   Confirm login succeeds with documented credentials.
 
-- [x] **T6.3** Datasource connectivity
+- [ ] **T6.3** Datasource connectivity
   Confirm Superset can access the produced Postgres table.
 
-- [x] **T6.4** Dataset creation
+- [ ] **T6.4** Dataset creation
   Confirm dataset can be created or is pre-seeded.
 
-- [x] **T6.5** Visualization proof
+- [ ] **T6.5** Visualization proof
   Confirm at least one chart/dashboard successfully queries the output table.
 
 ---
@@ -140,7 +146,7 @@ Run tests in this order:
 
 ## T8 Failure-path proof
 
-- [x] **T8.1** Postgres unavailable
+- [ ] **T8.1** Postgres unavailable
   Stop Postgres and trigger the job; confirm failure is clear and actionable.
 
 - [x] **T8.2** Missing env/config
@@ -149,7 +155,7 @@ Run tests in this order:
 - [x] **T8.3** Port conflict
   Simulate an occupied port and confirm preflight catches it.
 
-- [x] **T8.4** Service readiness race
+- [ ] **T8.4** Service readiness race
   Force dependent services to start early and confirm healthchecks/retries handle it.
 
 - [x] **T8.5** Failure logs/artifacts
@@ -192,7 +198,7 @@ Minimum required before calling the profile proven:
 - [x] **T4.1–T4.5**
 - [x] **T5.1–T5.3**
 - [x] **T6.1**
-- [x] **T6.3**
+- [ ] **T6.3**
 - [x] **T7.1–T7.3**
 - [x] **T8.2**
 - [x] **T8.3**
