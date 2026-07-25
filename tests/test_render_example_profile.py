@@ -76,10 +76,11 @@ class RenderExampleProfileTest(unittest.TestCase):
                     "CMD",
                     "python",
                     "/app/images/dagster/healthcheck.py",
-                    "dagster-user-code",
-                    "4000",
+                    "--unix",
+                    "/var/run/dagster/user-code.sock",
                 ],
             )
+            self.assertIn("dagster-dagster-grpc-socket", compose.get("volumes", {}))
             analytics_env = compose["services"]["dagster-user-code"]["environment"]
             self.assertIn("ANALYTICS_DB_NAME", analytics_env)
             self.assertIn("ANALYTICS_DB_CONNECTION_URI", analytics_env)

@@ -9,6 +9,44 @@ import yaml
 from cli.renderer import render_compose
 
 class RendererRegressionTest(unittest.TestCase):
+    def test_render_compose_namespaces_long_form_named_volume(self):
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "worker",
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "api": {
+                                    "image": "worker:latest",
+                                    "volumes": [
+                                        {
+                                            "type": "volume",
+                                            "source": "runtime-socket",
+                                            "target": "/var/run/worker",
+                                            "read_only": True,
+                                        }
+                                    ],
+                                }
+                            },
+                            "volumes": {"runtime-socket": {}},
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        self.assertIn("worker-runtime-socket", compose["volumes"])
+        mount = compose["services"]["worker-api"]["volumes"][0]
+        self.assertEqual(mount["source"], "worker-runtime-socket")
+        self.assertTrue(mount["read_only"])
+
     def test_render_compose_emits_env_placeholders_for_secret_refs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
