@@ -1,3 +1,4 @@
+import http.cookiejar
 import json
 import os
 import re
@@ -7,6 +8,7 @@ import sys
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -89,21 +91,7 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
             self.assertTrue(self.compose_file.exists(), "docker-compose.yml was not generated")
 
             self._run(["docker", "compose", "-f", str(self.compose_file), "build"], env)
-            self._run(
-                [
-                    "docker",
-                    "compose",
-                    "-f",
-                    str(self.compose_file),
-                    "up",
-                    "-d",
-                    "--wait",
-                    "--wait-timeout",
-                    "300",
-                ],
-                env,
-            )
-            self._assert_stack_ready(env)
+            self._verify_forced_readiness_recovery(env)
 
             available_services = self._available_services_from_compose()
             for service, command in self._module_exec_checks():
@@ -113,7 +101,7 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
 
             first_run_id = self._execute_offers_fixture_job(env)
             first_snapshot = self._offers_snapshot(env)
-            superset_admin_count = self._superset_admin_count(env)
+            superset_state = self._verify_superset_consumption(env)
 
             self._run(
                 [
@@ -130,11 +118,15 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
 
             self.assertEqual(self._dagster_run_status(first_run_id, env), "SUCCESS")
             self.assertEqual(self._offers_snapshot(env), first_snapshot)
-            self.assertEqual(self._superset_admin_count(env), superset_admin_count)
+            self.assertEqual(
+                self._verify_superset_consumption(env, create_missing=False),
+                superset_state,
+            )
 
             second_run_id = self._execute_offers_fixture_job(env)
             self.assertNotEqual(second_run_id, first_run_id)
             self.assertEqual(self._offers_snapshot(env), first_snapshot)
+            self._verify_postgres_outage_recovery(env, first_snapshot)
         finally:
             if os.getenv("CDS_KEEP_DOCKER_STACK") != "1":
                 subprocess.run(
@@ -325,6 +317,55 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
         self._wait_for_http("http://127.0.0.1:3000/server_info")
         self._wait_for_http("http://127.0.0.1:8088/health")
 
+    def _verify_forced_readiness_recovery(self, env: dict[str, str]) -> None:
+        early_services = ["dagster-daemon", "dagster-webserver", "superset"]
+        self._run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(self.compose_file),
+                "up",
+                "-d",
+                "--no-deps",
+                *early_services,
+            ],
+            env,
+        )
+        result = self._run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(self.compose_file),
+                "ps",
+                "-a",
+                "--services",
+            ],
+            env,
+        )
+        started_services = set(result.stdout.split())
+        self.assertTrue(set(early_services).issubset(started_services))
+        self.assertNotIn("postgres", started_services)
+        self.assertNotIn("dagster-user-code", started_services)
+        self.assertNotIn("keydb", started_services)
+
+        self._run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(self.compose_file),
+                "up",
+                "-d",
+                "--wait",
+                "--wait-timeout",
+                "300",
+            ],
+            env,
+        )
+        self._assert_stack_ready(env)
+
     def _wait_for_stack_ready(self, env: dict[str, str]) -> None:
         deadline = time.monotonic() + 300
         last_error: AssertionError | None = None
@@ -434,14 +475,273 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
         self.assertEqual(aggregates, "1000|500500|500277|503552")
         return columns, aggregates
 
-    def _superset_admin_count(self, env: dict[str, str]) -> str:
-        count = self._postgres_query(
-            "SUPERSET",
-            "SELECT count(*) FROM ab_user WHERE username = 'admin';",
+    def _verify_superset_consumption(
+        self,
+        env: dict[str, str],
+        *,
+        create_missing: bool = True,
+    ) -> tuple[int, int, int]:
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+        )
+        login = self._superset_request(
+            opener,
+            "/api/v1/security/login",
+            payload={
+                "username": "admin",
+                "password": env["CDS_SUPERSET_ADMIN_PASSWORD"],
+                "provider": "db",
+                "refresh": True,
+            },
+        )
+        token = login.get("access_token")
+        self.assertIsInstance(token, str)
+        self.assertTrue(token)
+        csrf = self._superset_request(
+            opener,
+            "/api/v1/security/csrf_token/",
+            token=token,
+        ).get("result")
+        self.assertIsInstance(csrf, str)
+        self.assertTrue(csrf)
+
+        database_name = "MVP Analytics"
+        databases = self._superset_request(
+            opener,
+            "/api/v1/database/?q=(page_size:100)",
+            token=token,
+        ).get("result", [])
+        database = next(
+            (item for item in databases if item.get("database_name") == database_name),
+            None,
+        )
+        if database is None:
+            self.assertTrue(
+                create_missing,
+                "Superset analytics database connection did not persist",
+            )
+            username = urllib.parse.quote(env["CDS_ANALYTICS_DB_USER"], safe="")
+            password = urllib.parse.quote(env["CDS_ANALYTICS_DB_PASSWORD"], safe="")
+            database_value = urllib.parse.quote(env["CDS_ANALYTICS_DB_NAME"], safe="")
+            created = self._superset_request(
+                opener,
+                "/api/v1/database/",
+                token=token,
+                csrf=csrf,
+                payload={
+                    "database_name": database_name,
+                    "expose_in_sqllab": True,
+                    "sqlalchemy_uri": (
+                        f"postgresql+psycopg2://{username}:{password}"
+                        f"@postgres:5432/{database_value}"
+                    ),
+                },
+            )
+            database_id = int(created["id"])
+        else:
+            database_id = int(database["id"])
+
+        datasets = self._superset_request(
+            opener,
+            "/api/v1/dataset/?q=(page_size:100)",
+            token=token,
+        ).get("result", [])
+        dataset = next(
+            (
+                item
+                for item in datasets
+                if item.get("table_name") == "offers_1000"
+                and item.get("schema") == "public"
+                and item.get("database", {}).get("id") == database_id
+            ),
+            None,
+        )
+        if dataset is None:
+            self.assertTrue(
+                create_missing,
+                "Superset offers_1000 dataset did not persist",
+            )
+            created = self._superset_request(
+                opener,
+                "/api/v1/dataset/",
+                token=token,
+                csrf=csrf,
+                payload={
+                    "database": database_id,
+                    "schema": "public",
+                    "table_name": "offers_1000",
+                },
+            )
+            dataset_id = int(created["id"])
+        else:
+            dataset_id = int(dataset["id"])
+
+        query_context = {
+            "datasource": {"id": dataset_id, "type": "table"},
+            "force": True,
+            "queries": [
+                {
+                    "columns": [],
+                    "filters": [],
+                    "metrics": ["count"],
+                    "row_limit": 10,
+                }
+            ],
+            "result_format": "json",
+            "result_type": "full",
+        }
+        query_result = self._superset_request(
+            opener,
+            "/api/v1/chart/data",
+            token=token,
+            csrf=csrf,
+            payload=query_context,
+        )["result"][0]
+        self.assertEqual(query_result["status"], "success")
+        self.assertEqual(query_result["data"], [{"count": 1000}])
+
+        chart_name = "MVP Offers Row Count"
+        charts = self._superset_request(
+            opener,
+            "/api/v1/chart/?q=(page_size:100)",
+            token=token,
+        ).get("result", [])
+        chart = next(
+            (item for item in charts if item.get("slice_name") == chart_name),
+            None,
+        )
+        if chart is None:
+            self.assertTrue(
+                create_missing,
+                "Superset offers row-count chart did not persist",
+            )
+            created = self._superset_request(
+                opener,
+                "/api/v1/chart/",
+                token=token,
+                csrf=csrf,
+                payload={
+                    "datasource_id": dataset_id,
+                    "datasource_type": "table",
+                    "params": json.dumps(
+                        {
+                            "datasource": f"{dataset_id}__table",
+                            "metric": "count",
+                            "viz_type": "big_number_total",
+                        }
+                    ),
+                    "query_context": json.dumps(query_context),
+                    "slice_name": chart_name,
+                    "viz_type": "big_number_total",
+                },
+            )
+            chart_id = int(created["id"])
+        else:
+            chart_id = int(chart["id"])
+
+        return database_id, dataset_id, chart_id
+
+    def _superset_request(
+        self,
+        opener,
+        path: str,
+        *,
+        token: str | None = None,
+        csrf: str | None = None,
+        payload: dict | None = None,
+    ) -> dict:
+        headers = {"Content-Type": "application/json"}
+        if token is not None:
+            headers["Authorization"] = f"Bearer {token}"
+        if csrf is not None:
+            headers["X-CSRFToken"] = csrf
+        data = json.dumps(payload).encode("utf-8") if payload is not None else None
+        request = urllib.request.Request(
+            f"http://127.0.0.1:8088{path}",
+            data=data,
+            headers=headers,
+        )
+        with opener.open(request, timeout=30) as response:
+            self.assertIn(response.status, (200, 201))
+            parsed = json.load(response)
+        self.assertIsInstance(parsed, dict)
+        return parsed
+
+    def _verify_postgres_outage_recovery(
+        self,
+        env: dict[str, str],
+        expected_snapshot: tuple[str, str],
+    ) -> None:
+        self._run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(self.compose_file),
+                "stop",
+                "postgres",
+            ],
             env,
         )
-        self.assertEqual(count, "1")
-        return count
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(self.compose_file),
+                    "exec",
+                    "-T",
+                    "dagster-user-code",
+                    "dagster",
+                    "job",
+                    "execute",
+                    "-f",
+                    "/app/workdirs/dagster/definitions.py",
+                    "-j",
+                    "load_offers_1000",
+                ],
+                cwd=self.repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            output = result.stdout + result.stderr
+            self.assertNotEqual(result.returncode, 0)
+            self.assertNotIn("RUN_SUCCESS", output)
+            self.assertRegex(
+                output.lower(),
+                r"(connection refused|connection to server.*failed|"
+                r"could not connect|operationalerror)",
+            )
+            for key, secret in env.items():
+                if secret and any(
+                    marker in key.upper()
+                    for marker in ("PASSWORD", "SECRET", "TOKEN")
+                ):
+                    self.assertNotIn(secret, output)
+        finally:
+            subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(self.compose_file),
+                    "start",
+                    "postgres",
+                ],
+                cwd=self.repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+
+        self._wait_for_stack_ready(env)
+        recovery_run_id = self._execute_offers_fixture_job(env)
+        self.assertEqual(self._dagster_run_status(recovery_run_id, env), "SUCCESS")
+        self.assertEqual(self._offers_snapshot(env), expected_snapshot)
 
     def _postgres_query(
         self,
