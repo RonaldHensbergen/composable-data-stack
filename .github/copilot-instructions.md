@@ -47,8 +47,9 @@
   `cds up` deliberately omits the security stage, renders
   `docker-compose.yml`, then delegates build/start to the real
   `docker compose` executable. CDS itself does not run containers.
-- Security validation is data-driven by `security/rule-schema.json` and
-  `security/rule-set.json`. Runtime/image support code lives under `images/`
+- Security validation is data-driven by `cli/resources/rule-schema.json` and
+  `cli/resources/rule-set.json`; both files are bundled into the Python
+  distribution. Runtime/image support code lives under `images/`
   and `workdirs/`; those files are consumed by rendered module services rather
   than imported by the CLI package.
 

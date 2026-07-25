@@ -288,6 +288,22 @@ not required to run CDS profiles.
 
 ## 🚀 Quickstart
 
+### CLI package preview
+
+The Python distribution contains the `cds` command and its built-in security
+rules. After production PyPI publishing is enabled, install the isolated CLI
+with:
+
+```bash
+pipx install composable-data-stack
+```
+
+The package does not yet download profiles, modules, image build contexts, or
+runtime workdirs. Continue with a repository checkout for the reference stack,
+or configure external project assets with `CDS_PROFILE_PATH` and
+`CDS_MODULE_PATH`. See [Packaging](docs/packaging.md) for the current TestPyPI
+flow.
+
 ### 1. Clone
 
 ```bash

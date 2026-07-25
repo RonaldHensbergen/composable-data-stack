@@ -7,6 +7,7 @@ This document describes how to create a release.
 - Main branch is green in CI
 - CHANGELOG updated
 - No unresolved high-severity blockers
+- The release version in `pyproject.toml` has not already been published
 
 ## Steps
 
@@ -36,6 +37,22 @@ This document describes how to create a release.
    ```
 7. Pushing the tag triggers `.github/workflows/release.yml`, which creates a draft GitHub release automatically. The release body is populated from the matching `CHANGELOG.md` section (falling back to a note if no entry is found), plus GitHub's auto-generated commit comparison. Review the draft and publish it manually. The workflow intentionally leaves it as a draft so breaking changes and contributor credit can be verified against the Release Checklist below first.
 
+## TestPyPI validation
+
+Before enabling production PyPI publishing, validate the exact package flow
+through `.github/workflows/testpypi.yml`:
+
+1. Configure the `testpypi` GitHub environment and the matching TestPyPI
+   trusted publisher as documented in `docs/packaging.md`.
+2. Set a unique PEP 440 version in `pyproject.toml`.
+3. Run **Publish CLI to TestPyPI** manually.
+4. Install the uploaded wheel using the commands in `docs/packaging.md`.
+5. Confirm `cds --help` and security validation work outside a source checkout.
+
+The workflow uses GitHub OIDC (`id-token: write`) and must not be given a PyPI
+API token. TestPyPI publication does not publish or reserve the version on
+production PyPI.
+
 ## Release Notes Template
 
 Use this structure when writing GitHub release notes. Copy relevant sections from `CHANGELOG.md` and remove any that are empty. Write entries in user-facing language. Describe the impact (not the implementation). Credit contributors by GitHub username where applicable (e.g. `— thanks @username`).
@@ -62,6 +79,8 @@ Before publishing the GitHub release:
 
 - [ ] `CHANGELOG.md` updated with all merged PRs since last release
 - [ ] Version bumped in `pyproject.toml`
+- [ ] Wheel and source distribution pass CI package checks
+- [ ] TestPyPI artifact installed and smoke-tested
 - [ ] All CI checks green on `main`
 - [ ] No unresolved high-severity issues
 - [ ] Release notes formatted using the template above
