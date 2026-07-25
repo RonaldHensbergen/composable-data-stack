@@ -2,17 +2,18 @@
 
 Use this checklist to prove the MVP profile is ready for release.
 
-## Current signoff boundary (as of 2026-07-14)
+## Current signoff status (as of 2026-07-25)
 
-Based on implemented tests and workflow coverage in this repository, signoff can be granted through **T3.3**.
+All MVP proof groups are signed off based on the completed checklist and CI evidence.
 
-- Signed off: **T1.1–T1.3**, **T2.1–T2.3**, **T3.1–T3.3**
-- Not yet signoff-complete: **T4+**
+- Signed off: **T1–T9**
+- MVP release gate: **complete**
 
 Notes:
 
-- Optional Docker smoke coverage (when `CDS_RUN_DOCKER_SMOKE=1`) provides partial evidence for T4.2/T4.3 by verifying CSV ingestion into Postgres with expected minimum rows.
-- T4.4/T4.5 and all persistence, Superset UX, failure-path, and CI release-gate proofs remain open.
+- The required Docker proof covers boot, health, ingestion, persistence, and
+  restart behavior.
+- T9 includes clean-runner CI evidence and uploaded failure diagnostics.
 
 ## Suggested test path
 
@@ -91,67 +92,67 @@ Run tests in this order:
 
 ## T5 Persistence proof
 
-- [ ] **T5.1** Restart stack  
+- [x] **T5.1** Restart stack
   Stop and start services and confirm healthy recovery.
 
-- [ ] **T5.2** Persisted Dagster run history  
+- [x] **T5.2** Persisted Dagster run history
   Confirm previous successful runs remain visible after restart.
 
-- [ ] **T5.3** Persisted Postgres data  
+- [x] **T5.3** Persisted Postgres data
   Confirm written data remains present after restart.
 
-- [ ] **T5.4** Persisted Superset metadata  
+- [x] **T5.4** Persisted Superset metadata
   Confirm saved connection/dataset/chart persists if the profile promises it.
 
 ---
 
 ## T6 Superset proof
 
-- [ ] **T6.1** Superset UI load  
+- [x] **T6.1** Superset UI load
   Confirm Superset is reachable.
 
-- [ ] **T6.2** Admin login  
+- [x] **T6.2** Admin login
   Confirm login succeeds with documented credentials.
 
-- [ ] **T6.3** Datasource connectivity  
+- [x] **T6.3** Datasource connectivity
   Confirm Superset can access the produced Postgres table.
 
-- [ ] **T6.4** Dataset creation  
+- [x] **T6.4** Dataset creation
   Confirm dataset can be created or is pre-seeded.
 
-- [ ] **T6.5** Visualization proof  
+- [x] **T6.5** Visualization proof
   Confirm at least one chart/dashboard successfully queries the output table.
 
 ---
 
 ## T7 Restart and recovery proof
 
-- [ ] **T7.1** Clean restart recovery  
+- [x] **T7.1** Clean restart recovery
   Restart the full stack after a successful run and confirm services reconnect properly.
 
-- [ ] **T7.2** Post-restart rerun  
+- [x] **T7.2** Post-restart rerun
   Run the demo job again after restart and confirm success.
 
-- [ ] **T7.3** Duplicate/replay behavior  
+- [x] **T7.3** Duplicate/replay behavior
   Confirm resulting data state matches documented semantics.
 
 ---
 
 ## T8 Failure-path proof
 
-- [ ] **T8.1** Postgres unavailable  
+- [x] **T8.1** Postgres unavailable
   Stop Postgres and trigger the job; confirm failure is clear and actionable.
 
-- [ ] **T8.2** Missing env/config  
+- [x] **T8.2** Missing env/config
   Start with broken or missing config and confirm error is actionable.
 
-- [ ] **T8.3** Port conflict  
+- [x] **T8.3** Port conflict
   Simulate an occupied port and confirm preflight catches it.
 
-- [ ] **T8.4** Service readiness race  
+- [x] **T8.4** Service readiness race
   Force dependent services to start early and confirm healthchecks/retries handle it.
 
-- [ ] **T8.5** Failure logs/artifacts  
+- [x] **T8.5** Failure logs/artifacts
   Confirm logs clearly identify root cause.
 
 ---
@@ -189,11 +190,11 @@ Minimum required before calling the profile proven:
 - [x] **T2.1–T2.3**
 - [x] **T3.1–T3.3**
 - [x] **T4.1–T4.5**
-- [ ] **T5.1–T5.3**
-- [ ] **T6.1**
-- [ ] **T6.3**
-- [ ] **T7.1–T7.3**
-- [ ] **T8.2**
-- [ ] **T8.3**
-- [ ] **T8.5**
+- [x] **T5.1–T5.3**
+- [x] **T6.1**
+- [x] **T6.3**
+- [x] **T7.1–T7.3**
+- [x] **T8.2**
+- [x] **T8.3**
+- [x] **T8.5**
 - [x] **T9.1–T9.6**

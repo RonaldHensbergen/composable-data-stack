@@ -18,6 +18,15 @@ class MVPProofWorkflowTest(unittest.TestCase):
         self.assertEqual(jobs["runtime-proof"]["needs"], "validate-render")
         self.assertEqual(jobs["runtime-proof"]["timeout-minutes"], 45)
 
+    def test_push_and_pull_request_use_the_same_path_filter(self) -> None:
+        triggers = self.workflow.get("on", self.workflow.get(True))
+
+        self.assertIsNotNone(triggers)
+        self.assertEqual(
+            triggers["push"]["paths"],
+            triggers["pull_request"]["paths"],
+        )
+
     def test_compile_job_validates_plans_and_compares_renders(self) -> None:
         steps = self.workflow["jobs"]["validate-render"]["steps"]
         commands = "\n".join(step.get("run", "") for step in steps)
