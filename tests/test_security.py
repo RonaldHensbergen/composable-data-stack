@@ -1,6 +1,14 @@
 import unittest
 
-from cli.security import _eval_condition
+from cli.security import _eval_condition, _validate_rule_set
+
+
+class BundledSecurityRulesTest(unittest.TestCase):
+    def test_default_rule_set_is_available_as_package_data(self):
+        rule_set = _validate_rule_set()
+
+        self.assertEqual(rule_set["version"], "1.0.0")
+        self.assertGreater(len(rule_set["rules"]), 0)
 
 
 class ImageTagPolicyTest(unittest.TestCase):

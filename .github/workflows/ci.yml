@@ -85,6 +85,44 @@ jobs:
           coverage run -m unittest discover -s tests -p "test_*.py" -v
           coverage report -m
 
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Build and check distributions
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine pipx
+          python -m build
+          python -m twine check dist/*
+
+      - name: Smoke test installed wheel
+        run: |
+          wheel="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          python -m pipx install "$wheel"
+          cd "$RUNNER_TEMP"
+          "$HOME/.local/bin/cds" --help
+          "$HOME/.local/bin/cds" validate \
+            "$GITHUB_WORKSPACE/profiles/local-dagster-postgres-superset/profile.yaml"
+          set +e
+          security_output="$(
+            "$HOME/.local/bin/cds" security \
+              "$GITHUB_WORKSPACE/profiles/local-dagster-postgres-superset/profile.yaml" \
+              2>&1
+          )"
+          security_status=$?
+          set -e
+          test "$security_status" -eq 0 || test "$security_status" -eq 1
+          grep -Eq "No security findings|CDS-SEC-" <<<"$security_output"
+
   profile-compile:
     runs-on: ubuntu-latest
     env:
@@ -145,7 +183,7 @@ jobs:
 
       - name: Run bandit (SAST)
         run: |
-          bandit -r cli/ security/ shared/ images/ workdirs/
+          bandit -r cli/ shared/ images/ workdirs/
 
       - name: Run pip-audit (dependency CVEs)
         run: |

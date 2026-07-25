@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.com/cds-security-rules.schema.json",
+  "$id": "https://github.com/RonaldHensbergen/composable-data-stack/security-rules.schema.json",
   "title": "Composable Data Stack Security Rule Set",
   "type": "object",
   "required": ["version", "rules"],

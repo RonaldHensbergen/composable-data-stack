@@ -121,6 +121,19 @@ reports a daemon or permission error, resolve that before running `cds up`.
 
 ## 3. Download CDS
 
+The CLI can be installed from a built wheel or, after publication, through
+PyPI/pipx. Package installation provides the `cds` command and bundled security
+rules, but it does not yet download profiles, modules, image build contexts, or
+runtime workdirs. Those project assets must currently come from a repository
+checkout or external paths configured with `CDS_PROFILE_PATH` and
+`CDS_MODULE_PATH`.
+
+After production PyPI publishing is enabled, install only the CLI with:
+
+```bash
+pipx install composable-data-stack
+```
+
 Clone the repository and enter its root directory:
 
 ```bash

@@ -1,5 +1,5 @@
 {
-  "$schema": "./rule-schema.json", 
+  "$schema": "rule-schema.json",
   "version": "1.0.0",
   "metadata": {
     "name": "cds-core-security-rules",
