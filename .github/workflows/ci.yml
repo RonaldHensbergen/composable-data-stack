@@ -107,14 +107,15 @@ jobs:
         run: |
           wheel="$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
           test -n "$wheel"
+          export PIPX_BIN_DIR="$RUNNER_TEMP/pipx-bin"
           python -m pipx install "$wheel"
           cd "$RUNNER_TEMP"
-          "$HOME/.local/bin/cds" --help
-          "$HOME/.local/bin/cds" validate \
+          "$PIPX_BIN_DIR/cds" --help
+          "$PIPX_BIN_DIR/cds" validate \
             "$GITHUB_WORKSPACE/profiles/local-dagster-postgres-superset/profile.yaml"
           set +e
           security_output="$(
-            "$HOME/.local/bin/cds" security \
+            "$PIPX_BIN_DIR/cds" security \
               "$GITHUB_WORKSPACE/profiles/local-dagster-postgres-superset/profile.yaml" \
               2>&1
           )"
