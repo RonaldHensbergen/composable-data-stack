@@ -182,7 +182,7 @@ Run tests in this order:
 - [x] **T9.6** Collect diagnostics on failure
   Confirm logs and artifacts are uploaded on failure.
 
-Evidence: [successful MVP CI proof](https://github.com/RonaldHensbergen/composable-data-stack/actions/runs/30133910803)
+Evidence: [successful full MVP CI proof](https://github.com/RonaldHensbergen/composable-data-stack/actions/runs/30155900371)
 and [uploaded failure diagnostics](https://github.com/RonaldHensbergen/composable-data-stack/actions/runs/30133572977).
 
 ---
