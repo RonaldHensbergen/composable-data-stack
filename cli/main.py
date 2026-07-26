@@ -7,6 +7,7 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
+from importlib.metadata import PackageNotFoundError, version as _package_version
 from pathlib import Path
 
 try:
@@ -277,11 +278,25 @@ def _write_env_file(output_path: Path, env_vars: list[str], profile_path: str, f
     output_path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _cds_version() -> str:
+    """Resolve the installed CDS CLI version."""
+    try:
+        return _package_version("composable-data-stack")
+    except PackageNotFoundError:
+        return "unknown"
+
+
 def main() -> int:
     # Load .env file if it exists
     load_env_file()
     
     parser = argparse.ArgumentParser(prog="cds")
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {_cds_version()}",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     validate_parser = subparsers.add_parser("validate", help="Validate a profile")
