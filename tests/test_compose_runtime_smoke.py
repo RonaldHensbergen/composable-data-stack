@@ -318,6 +318,7 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
         self._wait_for_http("http://127.0.0.1:8088/health")
 
     def _verify_forced_readiness_recovery(self, env: dict[str, str]) -> None:
+        """Start a subset of services out of dependency order (--no-deps), confirm their dependencies stay down, then bring up the full stack and confirm it still reaches healthy state."""
         early_services = ["dagster-daemon", "dagster-webserver", "superset"]
         self._run(
             [
