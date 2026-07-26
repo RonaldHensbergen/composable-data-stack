@@ -128,7 +128,6 @@ jobs:
         run: cosign attest --yes --predicate provenance.json --type slsaprovenance "${{ steps.build.outputs.digest }}"
 
       - name: Record fixture data
-        if: always() && steps.build.outputs.digest != ''
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           ### Signed image fixture: ${{ matrix.image.name }}

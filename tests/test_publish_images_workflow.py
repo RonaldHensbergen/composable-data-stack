@@ -51,6 +51,11 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         name_step = next(s for s in self.publish_steps if s.get("id") == "name")
         self.assertIn("tr '[:upper:]' '[:lower:]'", name_step["run"])
 
+    def test_fixture_recording_does_not_use_always(self) -> None:
+        record_step = next(s for s in self.publish_steps if s.get("name") == "Record fixture data")
+        condition = str(record_step.get("if", ""))
+        self.assertNotIn("always()", condition)
+
 
 if __name__ == "__main__":
     unittest.main()
