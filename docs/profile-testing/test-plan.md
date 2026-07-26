@@ -1,10 +1,11 @@
-# MVP proof plan for `local-dagster-postgres-superset(-env)`
+# Profile test plan for `local-dagster-postgres-superset(-env)`
 
-> Goal: prove the profile is not just "up," but usable, repeatable, and demoable.
+> Goal: verify that the profile is usable, repeatable, and suitable for a
+> production-like demonstration.
 
-## Proof definition
+## Test scope
 
-Before calling the MVP profile proven, verify these 5 things:
+Each complete profile test verifies these five areas:
 
 | Area | Must prove |
 | ---- | ---------- |
@@ -14,11 +15,11 @@ Before calling the MVP profile proven, verify these 5 things:
 | **Data flow** | A real Dagster pipeline can write data into Postgres |
 | **Consumption** | Superset can read and visualize that data |
 
-## Test plan by phase
+## Test sequence
 
-### 1. Environment and bootstrap proof
+### 1. Environment and bootstrap
 
-Run on a clean machine or clean CI runner. This means are tested on a fresh cloned repo.
+Run on a clean machine or clean CI runner from a fresh clone.
 
 Test:
 
@@ -38,9 +39,9 @@ Pass criteria:
 - healthchecks pass
 - ports and credentials match docs
 
-### 2. Dagster proof
+### 2. Dagster
 
-You want more than "UI opens."
+Verify the service behavior as well as UI availability.
 
 Test:
 
@@ -56,7 +57,7 @@ Pass criteria:
 - repository loads automatically
 - at least one runnable pipeline/job exists
 
-### 3. Postgres proof
+### 3. Postgres
 
 Test real persistence, not just container health.
 
@@ -73,9 +74,9 @@ Pass criteria:
 - writes succeed
 - restart does not lose persisted data unexpectedly
 
-### 4. End-to-end DAG execution proof
+### 4. End-to-end DAG execution
 
-This is the key MVP proof.
+This is the key end-to-end test.
 
 Create one simple but real example pipeline/job:
 
@@ -104,11 +105,7 @@ Pass criteria:
 - rerunning replaces rows from `offers-1000.csv`, leaving exactly 1,000 rows
 - logs are accessible
 
-### 5. Persistence proof
-
-You specifically mentioned "running a DAG that can be stored."
-
-That should mean testing:
+### 5. Persistence
 
 | **Persistence item** | **What to verify** |
 | ---- | ------ |
@@ -124,9 +121,7 @@ Minimum pass criteria:
 - Postgres still contains produced table/data
 - Superset still has configured connection/metadata if expected
 
-### 6. Superset proof
-
-Again, more than "login page loads."
+### 6. Superset
 
 Test:
 
@@ -136,7 +131,7 @@ Test:
 - produced table is visible
 - simple chart or dataset can be created
 
-Best MVP proof:
+Recommended consumption test:
 
 - create one saved dataset from the table produced by Dagster
 - create one simple chart
@@ -148,7 +143,7 @@ Pass criteria:
 - query returns expected rows
 - at least one saved visualization exists if the profile promises seeded content
 
-### 7. Restart and recovery proof
+### 7. Restart and recovery
 
 Test resilience of the happy path.
 
@@ -166,9 +161,9 @@ Pass criteria:
 - no manual repair needed
 - rerun does not corrupt state
 
-### 8. Failure-path proof
+### 8. Failure paths
 
-MVP should show understandable failure behavior.
+The profile should provide understandable failure behavior.
 
 Test at least these cases:
 
@@ -183,7 +178,7 @@ Pass criteria:
 - logs point to cause
 - doctor/preflight or healthchecks catch common misconfigurations
 
-### 9. CI proof
+### 9. CI
 
 Everything above should reduce to automated checks.
 
@@ -198,9 +193,9 @@ Everything above should reduce to automated checks.
 | E2E | trigger Dagster job and verify Postgres output |
 | Persistence | optional restart and verify retained state |
 
-## Recommended proof artifact set
+## Required test fixtures
 
-Before MVP signoff, have these in repo:
+Keep these reusable fixtures in the repository:
 
 - sample Dagster job/assets
 - sample source data
@@ -209,26 +204,9 @@ Before MVP signoff, have these in repo:
 - e2e test script
 - fresh-machine quickstart
 
-## Concrete test cases
+## Full-suite acceptance criteria
 
-| **ID** | **Test** | **Expected result** |
-| ---- | ------ | ------ |
-| T1 | Fresh bootstrap | stack starts from docs only |
-| T2 | Dagster UI load | reachable and healthy |
-| T3 | Postgres connect | connection succeeds |
-| T4 | Run demo Dagster job | successful run |
-| T5 | Verify output table | table exists with expected rows |
-| T6 | Restart stack | services recover cleanly |
-| T7 | Verify persisted run history | previous Dagster run still visible |
-| T8 | Verify persisted table | data still exists after restart |
-| T9 | Superset query test | table visible and queryable |
-| T10 | Saved chart/dashboard | at least one visualization works |
-| T11 | Re-run job | behavior matches documented semantics |
-| T12 | Common failure diagnostics | errors are actionable |
-
-## MVP signoff checklist
-
-You can call the profile proven when all of these are true:
+The profile passes the full suite when all of these are true:
 
 - one documented example Dagster job runs successfully
 - the job writes usable data into Postgres
@@ -238,12 +216,3 @@ You can call the profile proven when all of these are true:
 - a fresh machine can reproduce the result
 - CI automates at least the happy-path proof
 - known limitations are documented
-
-## Recommended implementation order
-
-1. add demo Dagster job writing to Postgres
-2. add verification SQL/check script
-3. add restart/persistence test
-4. add Superset datasource + query proof
-5. automate e2e in CI
-6. document exact expected outputs

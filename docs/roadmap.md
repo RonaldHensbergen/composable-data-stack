@@ -42,13 +42,15 @@ These work but may have breaking changes in upcoming releases:
 
 ---
 
-## MVP Test Plan
+## Profile Test Plan
 
-The [MVP test plan](mvp-test/mvp-test-plan.md) defines the execution order and release gate for the `local-dagster-postgres-superset` profile:
+The [profile test plan](profile-testing/test-plan.md) defines reusable
+regression coverage for `local-dagster-postgres-superset`:
 
-- Use the MVP test plan as the execution order and release gate for this profile.
+- Use the profile test plan as the execution order for this profile.
 - Use the roadmap and release docs to decide which blockers found during testing should be fixed immediately versus deferred.
-- Pull roadmap items forward only when they unblock a failing MVP test or reduce release risk for that exact profile.
+- Pull roadmap items forward only when they unblock a failing profile test or
+  reduce release risk for that profile.
 
 ---
 

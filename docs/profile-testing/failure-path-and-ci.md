@@ -1,14 +1,14 @@
-# Detailed MVP plan: failure paths and CI
+# Profile failure-path and CI tests
 
 This document expands phases 8 and 9 of the
-[MVP test plan](mvp-test-plan.md).
+[profile test plan](test-plan.md).
 
-## 8. Failure-path proof
+## 8. Failure-path tests
 
-### 8.1 Build a reusable failure-test harness
+### 8.1 Reusable failure-test harness
 
 Extend the Docker runtime test infrastructure or add
-`tests/test_mvp_failure_paths.py`.
+`tests/test_profile_failure_paths.py`.
 
 The harness must:
 
@@ -135,7 +135,7 @@ docker inspect <container>
 Also capture the failed Dagster run status and event logs when available. Do
 not collect `.env` files or unredacted container environments.
 
-### Phase 8 completion gate
+### Phase 8 acceptance criteria
 
 Phase 8 is complete when:
 
@@ -144,10 +144,9 @@ Phase 8 is complete when:
   failures;
 - diagnostics identify the cause;
 - credentials never appear in output;
-- every scenario proves recovery afterward; and
-- T8 checklist statuses are updated only from recorded evidence.
+- every scenario proves recovery afterward.
 
-## 9. CI proof
+## 9. CI tests
 
 ### 9.1 Separate fast and runtime checks
 
@@ -159,12 +158,12 @@ Retain `.github/workflows/ci.yml` for:
 - plan generation; and
 - deterministic rendering.
 
-Use `.github/workflows/docker-smoke-test.yml`, or a new required MVP workflow,
+Use `.github/workflows/docker-smoke-test.yml`, or a dedicated profile workflow,
 for expensive Docker tests.
 
 ### 9.2 Correct validation and rendering stages
 
-Replace the current placeholder commands with actual profile operations:
+Run the profile operations directly:
 
 ```bash
 cds validate local-dagster-postgres-superset
@@ -226,7 +225,7 @@ Avoid UI automation for the minimum gate. Prefer stable CLI and API assertions.
 
 ### 9.6 CI failure artifacts
 
-Add an `if: failure()` or `if: always()` diagnostic step that writes:
+Use an `if: failure()` or `if: always()` diagnostic step that writes:
 
 - rendered Compose configuration;
 - `docker compose ps -a`;
@@ -240,11 +239,11 @@ afterward, but do not allow cleanup failure to hide the original test result.
 
 ### 9.7 Workflow policy
 
-Run the MVP workflow for:
+Run the profile workflow for:
 
 - pull requests changing profiles, modules, images, workdirs, renderer code, or
   runtime tests;
-- pushes to `main`;
+- pushes to `main` that change runtime-relevant paths;
 - manual dispatch; and
 - an optional scheduled weekly cold-start test.
 
@@ -256,20 +255,7 @@ Configure:
 - least-privilege `contents: read`; and
 - one Linux runner for Docker tests.
 
-### 9.8 Implementation sequence
-
-1. Add deterministic SQL assertions for `load_offers_1000`.
-2. Correct environment-variable naming everywhere.
-3. Add preflight validation.
-4. Refactor the runtime smoke test into reusable lifecycle helpers.
-5. Implement the phase 8 failure scenarios.
-6. Implement CI validation, rendering, boot, end-to-end, and persistence
-   stages.
-7. Add failure artifact collection and unconditional cleanup.
-8. Run the workflow on a clean runner.
-9. Update the T8 and T9 checkboxes with links to successful CI evidence.
-
-### Phase 9 completion gate
+### Phase 9 acceptance criteria
 
 Phase 9 is complete when a clean runner renders and boots the profile, executes
 the real pipeline, verifies Postgres and Superset consumption, proves
