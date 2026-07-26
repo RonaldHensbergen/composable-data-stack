@@ -1,0 +1,137 @@
+name: Publish Signed Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "images/**"
+      - ".github/workflows/publish-images.yml"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  discover-images:
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.find.outputs.images }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: find
+        run: |
+          images_json=$(python3 - <<'PY'
+          import json
+          import pathlib
+
+          root = pathlib.Path("images")
+          items = []
+          for entry in sorted(root.iterdir()) if root.is_dir() else []:
+              if not entry.is_dir():
+                  continue
+              dockerfile = entry / "Dockerfile"
+              if dockerfile.is_file():
+                  items.append({"name": entry.name, "dockerfile": str(dockerfile)})
+          print(json.dumps(items))
+          PY
+          )
+          echo "images=$images_json" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: discover-images
+    if: needs.discover-images.outputs.images != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(needs.discover-images.outputs.images) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Lowercase image name
+        id: name
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "ref=${{ env.REGISTRY }}/${owner}/cds-${{ matrix.image.name }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v4.5.1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Build and push
+        id: build
+        run: |
+          dockerfile="${{ matrix.image.dockerfile }}"
+          context="$(dirname "$dockerfile")"
+          if [ "$dockerfile" = "images/dagster/Dockerfile" ] || [ "$dockerfile" = "images/superset/Dockerfile" ]; then
+            context="."
+          fi
+          ref="${{ steps.name.outputs.ref }}"
+          docker build -f "$dockerfile" -t "$ref:sha-${GITHUB_SHA::12}" -t "$ref:latest" "$context"
+          docker push "$ref:sha-${GITHUB_SHA::12}"
+          docker push "$ref:latest"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:sha-${GITHUB_SHA::12}")"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Sign image (keyless)
+        run: cosign sign --yes "${{ steps.build.outputs.digest }}"
+
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.build.outputs.digest }}
+          format: cyclonedx
+          output: sbom.json
+
+      - name: Attest SBOM
+        run: cosign attest --yes --predicate sbom.json --type cyclonedx "${{ steps.build.outputs.digest }}"
+
+      - name: Write provenance predicate
+        run: |
+          cat > provenance.json <<EOF
+          {
+            "builder": { "id": "https://github.com/actions/runner" },
+            "buildType": "https://github.com/${{ github.repository }}/publish-images@v1",
+            "invocation": {
+              "configSource": {
+                "uri": "git+https://github.com/${{ github.repository }}@${{ github.ref }}",
+                "digest": { "sha1": "${{ github.sha }}" },
+                "entryPoint": ".github/workflows/publish-images.yml"
+              }
+            },
+            "metadata": {
+              "buildInvocationId": "${{ github.run_id }}-${{ github.run_attempt }}",
+              "completeness": { "parameters": true, "environment": false, "materials": false },
+              "reproducible": false
+            },
+            "materials": [
+              {
+                "uri": "git+https://github.com/${{ github.repository }}@${{ github.ref }}",
+                "digest": { "sha1": "${{ github.sha }}" }
+              }
+            ]
+          }
+          EOF
+
+      - name: Attest provenance
+        run: cosign attest --yes --predicate provenance.json --type slsaprovenance "${{ steps.build.outputs.digest }}"
+
+      - name: Record fixture data
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ### Signed image fixture: ${{ matrix.image.name }}
+          - digest: \`${{ steps.build.outputs.digest }}\`
+          - oidc_issuer: \`https://token.actions.githubusercontent.com\`
+          - cert_identity: \`https://github.com/${{ github.repository }}/.github/workflows/publish-images.yml@${{ github.ref }}\`
+          EOF

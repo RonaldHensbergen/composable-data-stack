@@ -12,6 +12,9 @@ class DagsterHardeningTest(unittest.TestCase):
         self.dockerfile = (self.repo_root / "images" / "dagster" / "Dockerfile").read_text(encoding="utf-8")
         self.entrypoint = (self.repo_root / "images" / "dagster" / "entrypoint.sh").read_text(encoding="utf-8")
         self.requirements = (self.repo_root / "images" / "dagster" / "requirements.txt").read_text(encoding="utf-8")
+        self.workspace = yaml.safe_load(
+            (self.repo_root / "images" / "dagster" / "workspace.yaml").read_text(encoding="utf-8")
+        )
         module = yaml.safe_load(
             (self.repo_root / "modules" / "orchestration" / "dagster" / "module.yaml").read_text(encoding="utf-8")
         )
@@ -53,6 +56,20 @@ class DagsterHardeningTest(unittest.TestCase):
                     "/opt/dagster/dagster_home:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700",
                     service["tmpfs"],
                 )
+                socket_mount = next(
+                    volume
+                    for volume in volumes
+                    if volume == "dagster-grpc-socket:/var/run/dagster"
+                    or (
+                        isinstance(volume, dict)
+                        and volume.get("source") == "dagster-grpc-socket"
+                        and volume.get("target") == "/var/run/dagster"
+                    )
+                )
+                if name == "user-code":
+                    self.assertEqual(socket_mount, "dagster-grpc-socket:/var/run/dagster")
+                else:
+                    self.assertTrue(socket_mount["read_only"])
 
         user_code_volumes = self.services["user-code"]["volumes"]
         definitions_mount = next(
@@ -72,6 +89,17 @@ class DagsterHardeningTest(unittest.TestCase):
 
         self.assertEqual(len(relative_errors), 1)
         self.assertEqual(absolute_errors, [])
+
+    def test_user_code_uses_shared_unix_socket(self) -> None:
+        user_code = self.services["user-code"]
+        grpc_server = self.workspace["load_from"][0]["grpc_server"]
+
+        self.assertIn("-s", user_code["command"])
+        self.assertIn("/var/run/dagster/user-code.sock", user_code["command"])
+        self.assertNotIn("-p", user_code["command"])
+        self.assertEqual(grpc_server["socket"], "/var/run/dagster/user-code.sock")
+        self.assertNotIn("host", grpc_server)
+        self.assertNotIn("port", grpc_server)
 
 
 if __name__ == "__main__":

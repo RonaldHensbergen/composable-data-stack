@@ -384,6 +384,10 @@ def _rewrite_service_volumes(
                     project_root=project_root,
                     compose_dir=compose_dir,
                 )
+            elif item_copy.get("type") == "volume" and isinstance(item_copy.get("source"), str):
+                source = item_copy["source"]
+                if _is_named_volume(source):
+                    item_copy["source"] = f"{module['id']}-{source}"
             item = item_copy
         rewritten.append(item)
 

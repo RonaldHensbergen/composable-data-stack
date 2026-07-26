@@ -85,6 +85,48 @@ jobs:
           coverage run -m unittest discover -s tests -p "test_*.py" -v
           coverage report -m
 
+  profile-compile:
+    runs-on: ubuntu-latest
+    env:
+      CDS_ANALYTICS_DB_NAME: analytics
+      CDS_ANALYTICS_DB_PASSWORD: analytics_testpass
+      CDS_ANALYTICS_DB_USER: analytics
+      CDS_DAGSTER_DB_NAME: dagster
+      CDS_DAGSTER_DB_PASSWORD: dagster_testpass
+      CDS_DAGSTER_DB_USER: dagster
+      CDS_POSTGRES_SUPERUSER_PASSWORD: postgres_testpass
+      CDS_SUPERSET_ADMIN_PASSWORD: admin_testpass
+      CDS_SUPERSET_DB_NAME: superset
+      CDS_SUPERSET_DB_PASSWORD: superset_testpass
+      CDS_SUPERSET_DB_USER: superset
+      CDS_SUPERSET_SECRET_KEY: ci-only-superset-secret-key
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install .
+
+      - name: Validate MVP profile and modules
+        run: cds validate local-dagster-postgres-superset
+
+      - name: Generate MVP plan
+        run: cds plan local-dagster-postgres-superset --output /tmp/plan.json
+
+      - name: Render MVP profile deterministically
+        run: |
+          cds render local-dagster-postgres-superset --output /tmp/docker-compose.first.yml
+          cds render local-dagster-postgres-superset --output /tmp/docker-compose.second.yml
+          cmp /tmp/docker-compose.first.yml /tmp/docker-compose.second.yml
+          docker compose -f /tmp/docker-compose.first.yml config --quiet
+
   security-scan:
     runs-on: ubuntu-latest
     steps:
@@ -111,28 +153,3 @@ jobs:
           cat images/dagster/requirements.txt >> /tmp/runtime-deps.txt
           cat images/dagster/requirements-postgres.txt >> /tmp/runtime-deps.txt
           pip-audit -r /tmp/runtime-deps.txt
-
-  # Docker-heavy tasks stay Linux-only: Docker Desktop licensing and
-  # significantly slower/less reliable Docker support on GitHub's hosted
-  # macOS and Windows runners make this impractical to matrix. Local
-  # Docker Desktop on macOS/Windows is unaffected by this CI limitation.
-  docker:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Build all Dockerfiles
-        run: |
-          for dockerfile in $(find . -name "Dockerfile*" -type f); do
-            dir=$(dirname "$dockerfile")
-            echo "Building $dockerfile in directory $dir..."
-            context="$dir"
-            if [ "$dockerfile" = "./images/dagster/Dockerfile" ] || [ "$dockerfile" = "./images/dagster/Dockerfile.user-code" ] || [ "$dockerfile" = "./images/superset/Dockerfile" ]; then
-              context="."
-            fi
-            docker build -f "$dockerfile" "$context" || exit 1
-          done

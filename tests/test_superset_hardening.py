@@ -66,6 +66,19 @@ class SupersetHardeningTest(unittest.TestCase):
                     msg=f"{pkg} must be >={min_ver} to fix known CVEs",
                 )
 
+    def test_inherited_uv_binaries_are_patched(self) -> None:
+        dockerfile = (self.repo_root / "images" / "superset" / "Dockerfile").read_text(encoding="utf-8")
+        version_match = re.search(r"(?m)^ARG UV_VERSION=(\d+)\.(\d+)\.(\d+)$", dockerfile)
+
+        self.assertIsNotNone(version_match)
+        self.assertGreaterEqual(
+            tuple(int(part) for part in version_match.groups()),
+            (0, 11, 26),
+            "uv 0.11.26 is the first release embedding quinn-proto 0.11.15",
+        )
+        self.assertIn("/usr/local/bin/python -m pip install", dockerfile)
+        self.assertIn('"uv==${UV_VERSION}"', dockerfile)
+
     def test_service_has_restricted_runtime(self) -> None:
         module = yaml.safe_load(
             (self.repo_root / "modules" / "bi" / "superset" / "module.yaml").read_text(encoding="utf-8")
