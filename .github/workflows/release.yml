@@ -15,6 +15,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          python -m pip install --upgrade pip packaging
+          python scripts/check_release_version.py "${GITHUB_REF_NAME}"
+
       - name: Extract changelog section for this tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
