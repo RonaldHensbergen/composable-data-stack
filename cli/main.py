@@ -290,7 +290,15 @@ def main() -> int:
     # Load .env file if it exists
     load_env_file()
     
-    parser = argparse.ArgumentParser(prog="cds")
+    parser = argparse.ArgumentParser(
+        prog="cds",
+        description=(
+            "Composable Data Stack (CDS): a compiler and CLI for declarative data "
+            "platforms. Define reusable modules (orchestrators, warehouses, BI tools, "
+            "caches, secrets providers) and wire them together in a profile; cds "
+            "validates, plans, and renders the stack to Docker Compose."
+        ),
+    )
     parser.add_argument(
         "-v",
         "--version",
