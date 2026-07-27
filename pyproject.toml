@@ -13,7 +13,7 @@ dependencies = [
   "PyYAML>=6.0",
   "jsonschema>=4.22.0",
   "jinja2>=3.0",
-
+  "packaging>=23.0",
 ]
 
 [project.optional-dependencies]
@@ -24,7 +24,6 @@ dev = [
   "coverage>=7.6",
   "bandit>=1.7",
   "pip-audit>=2.7",
-  "packaging>=23.0",
 ]
 
 [project.scripts]
