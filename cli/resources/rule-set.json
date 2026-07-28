@@ -890,6 +890,31 @@
         "Use controlled debug overrides only when necessary."
       ],
       "enabled": true
+    },
+    {
+      "id": "CDS-SEC-073",
+      "title": "Non-production-suitable module used in a staging/production profile",
+      "severity": "high",
+      "category": "config-integrity",
+      "scope": ["module-values"],
+      "match": {
+        "all": [
+          {
+            "pathPatterns": ["_module.productionSuitable"],
+            "equalsAny": ["False"]
+          },
+          {
+            "profileClasses": ["staging", "prod"]
+          }
+        ]
+      },
+      "message": "Profile declares a staging/production environment but uses a module marked productionSuitable: false",
+      "whyItMatters": "A module's own metadata (e.g. a dev-mode server with no unsealing or hardcoded credentials) says it is not meant for production. A profile claiming production support while depending on it is a contradictory declaration.",
+      "recommendation": [
+        "Use a production-suitable implementation of this module for staging/production profiles.",
+        "If no production-suitable implementation exists yet, declare this profile's environment as local or development instead."
+      ],
+      "enabled": true
     }
   ]
 }

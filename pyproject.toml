@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "composable-data-stack"
-version = "0.1.1"
+version = "0.3.0b1"
 description = "CLI for validating and composing composable data stack profiles"
 readme = "README.md"
 license = "Apache-2.0"
@@ -34,6 +34,7 @@ dependencies = [
   "PyYAML>=6.0",
   "jsonschema>=4.22.0",
   "jinja2>=3.0",
+  "packaging>=23.0",
 ]
 
 [project.urls]

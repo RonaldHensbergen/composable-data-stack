@@ -31,6 +31,11 @@
           "type": "string",
           "minLength": 1
         },
+        "productionSuitable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Set to false for modules whose implementation is inherently unsuitable for production (e.g. a dev-mode server). Checked by CDS-SEC-073 against profiles declaring a non-local environment."
+        },
         "displayName": {
           "type": "string"
         },

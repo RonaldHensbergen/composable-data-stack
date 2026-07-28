@@ -6,11 +6,15 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.3.0-beta-1] - 2026-07-27
+
 ### Added
 
 - `cds up` now supports `--no-build` to skip Docker Compose image builds when images are already available.
 - Python distributions now include the CLI security rules and complete PyPI metadata.
 - CI builds and smoke-tests the wheel outside the source tree, and maintainers can publish validated artifacts to TestPyPI through trusted publishing.
+- `cds --version`/`-v` now reports the installed CLI version.
+- The release workflow now verifies that a pushed `vX.Y.Z` tag matches the version declared in `pyproject.toml` before publishing a GitHub release, failing fast on drift.
 
 ### Changed
 

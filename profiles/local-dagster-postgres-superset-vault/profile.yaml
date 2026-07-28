@@ -4,7 +4,7 @@ kind: Profile
 
 metadata:
   name: local-dagster-postgres-superset-vault
-  environment: production
+  environment: local
   displayName: Local Dagster + Postgres + Superset (Vault Secrets)
   description: >
     Minimal local development stack for orchestration, warehouse, and BI.

@@ -17,11 +17,16 @@
     "metadata": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["name"],
+      "required": ["name", "environment"],
       "properties": {
         "name": {
           "type": "string",
           "minLength": 1
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["local", "development", "staging", "production"],
+          "description": "Declared support level. Read directly by cli/security.py's profile classification, do not infer this from the name."
         },
         "displayName": {
           "type": "string"

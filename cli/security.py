@@ -7,6 +7,7 @@ ${secrets.*} interpolation references in the profile are intentional and skipped
 from __future__ import annotations
 
 import json
+import os
 import re
 from importlib.resources import files
 from importlib.resources.abc import Traversable
@@ -17,6 +18,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 from .diagnostics import Diagnostic
+from .loader import load_yaml_file, resolve_module_file
 from .secrets import load_secrets_from_env
 
 _PROFILE_SCOPES = {
@@ -89,7 +91,10 @@ def _flatten(obj: Any, prefix: str = "") -> list[tuple[str, Any]]:
     return items
 
 
-def _flatten_profile_by_module(profile: dict[str, Any]) -> list[tuple[str, str, Any]]:
+def _flatten_profile_by_module(
+    profile: dict[str, Any],
+    profile_dir: Path | None = None,
+) -> list[tuple[str, str, Any]]:
     """
     Returns (module_id, path, value) triples from the profile.
 
@@ -97,6 +102,12 @@ def _flatten_profile_by_module(profile: dict[str, Any]) -> list[tuple[str, str, 
     - Top-level and spec-level keys outside modules are emitted as "<profile>".
     - Disabled modules are skipped.
     - ${secrets.*} references are left in place here; filtered in rule_matches.
+    - If profile_dir is given, each module's own module.yaml is resolved and
+      its metadata.productionSuitable (when explicitly false) is exposed as
+      a synthetic "_module.productionSuitable" entry, so CDS-SEC-073 can
+      flag a non-local profile using a module that isn't production-suitable.
+      Resolution failures are skipped silently here; cli/planner.py already
+      reports them as validation diagnostics.
     """
     results: list[tuple[str, str, Any]] = []
     spec = profile.get("spec", {})
@@ -108,6 +119,23 @@ def _flatten_profile_by_module(profile: dict[str, Any]) -> list[tuple[str, str, 
         module_id = module_instance.get("id", "<unknown>")
         for path, value in _flatten(module_instance.get("config", {})):
             results.append((module_id, path, value))
+
+        if profile_dir is not None and "source" in module_instance:
+            module_root = os.getenv("CDS_MODULE_PATH")
+            module_root_path = Path(module_root) if module_root else None
+            module_file, _diags = resolve_module_file(
+                source=module_instance["source"],
+                profile_dir=profile_dir,
+                module_root=module_root_path,
+            )
+            if module_file is not None:
+                module_def, _diags = load_yaml_file(module_file)
+                if module_def is not None:
+                    production_suitable = module_def.get("metadata", {}).get(
+                        "productionSuitable", True
+                    )
+                    if production_suitable is False:
+                        results.append((module_id, "_module.productionSuitable", False))
 
     for key, value in profile.items():
         if key == "spec":
@@ -153,15 +181,20 @@ def _is_secret_reference(value: Any) -> bool:
 # Profile class inference
 # ---------------------------------------------------------------------------
 
+# metadata.environment (schema-validated: local/development/staging/production)
+# maps to this short-form vocabulary because every existing rule's
+# profileClasses condition already uses local/dev/staging/prod.
+_ENVIRONMENT_TO_CLASS = {
+    "local": "local",
+    "development": "dev",
+    "staging": "staging",
+    "production": "prod",
+}
+
+
 def _infer_profile_class(profile: dict[str, Any]) -> str:
-    name = str((profile or {}).get("name", "")).lower()
-    if "prod" in name:
-        return "prod"
-    if "stag" in name:
-        return "staging"
-    if "dev" in name:
-        return "dev"
-    return "local"
+    environment = (profile or {}).get("metadata", {}).get("environment", "local")
+    return _ENVIRONMENT_TO_CLASS.get(environment, "local")
 
 
 # ---------------------------------------------------------------------------
@@ -428,7 +461,7 @@ def run_security_validation(
 
     secrets, secret_diags = load_secrets_from_env(env_file)
 
-    flat_profile = _flatten_profile_by_module(profile)
+    flat_profile = _flatten_profile_by_module(profile, profile_dir=profile_path.parent)
     flat_env = _flatten_env_secrets(secrets)
 
     findings: list[dict[str, Any]] = []
