@@ -47,9 +47,20 @@ def _bucket_for(service: dict[str, Any]) -> str:
     health = str(service.get("Health") or "").strip()
     if health:
         return health.upper()
-    state = str(service.get("State") or "").strip()
-    if state:
-        return state.upper()
+
+    state = str(service.get("State") or "").strip().lower()
+    if state == "exited":
+        exit_code_raw = service.get("ExitCode")
+        try:
+            exit_code = int(exit_code_raw)
+        except (TypeError, ValueError):
+            return "UNKNOWN"
+        return "HEALTHY EXIT" if exit_code == 0 else "UNHEALTHY EXIT"
+    if state == "running":
+        return "RUNNING"
+
+    # Paused/Dead/etc. aren't states normal cds workflows produce, no
+    # dedicated bucket for them, they fall in with everything else unknown.
     return "UNKNOWN"
 
 
@@ -57,9 +68,10 @@ def group_services_by_health(services: list[dict[str, Any]]) -> dict[str, list[s
     """
     Groups parsed compose-ps entries into {bucket_name: [service_name, ...]},
     both deterministically sorted. Bucket is Health when the service has a
-    healthcheck (Compose reports "starting"/"healthy"/"unhealthy"), else
-    falls back to State (e.g. "exited", "running"), else "UNKNOWN" if
-    neither is present.
+    healthcheck ("starting"/"healthy"/"unhealthy"); else "healthy exit"/
+    "unhealthy exit" by ExitCode when State is "exited"; else "running";
+    else "UNKNOWN" (covers Paused/Dead/etc., which normal cds workflows
+    don't produce).
     """
     buckets: dict[str, set[str]] = {}
     for service in services:
@@ -76,7 +88,8 @@ _COLORS = {
     "HEALTHY": "\033[32m",
     "RUNNING": "\033[32m",
     "UNHEALTHY": "\033[31m",
-    "EXITED": "\033[31m",
+    "HEALTHY EXIT": "\033[92m",
+    "UNHEALTHY EXIT": "\033[91m",
     "STARTING": "\033[33m",
     "UNKNOWN": "\033[2m",
 }

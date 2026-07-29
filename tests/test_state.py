@@ -59,9 +59,32 @@ class GroupServicesByHealthTest(unittest.TestCase):
             },
         )
 
-    def test_falls_back_to_state_when_health_is_empty(self):
+    def test_exited_with_zero_code_is_healthy_exit(self):
+        services = [{"Service": "svc-a", "Health": "", "State": "exited", "ExitCode": 0}]
+        self.assertEqual(group_services_by_health(services), {"HEALTHY EXIT": ["svc-a"]})
+
+    def test_exited_with_nonzero_code_is_unhealthy_exit(self):
+        services = [{"Service": "svc-a", "Health": "", "State": "exited", "ExitCode": 137}]
+        self.assertEqual(group_services_by_health(services), {"UNHEALTHY EXIT": ["svc-a"]})
+
+    def test_exited_without_exit_code_field_is_unknown_not_guessed(self):
         services = [{"Service": "svc-a", "Health": "", "State": "exited"}]
-        self.assertEqual(group_services_by_health(services), {"EXITED": ["svc-a"]})
+        self.assertEqual(group_services_by_health(services), {"UNKNOWN": ["svc-a"]})
+
+    def test_exited_with_non_numeric_exit_code_is_unknown_not_a_crash(self):
+        services = [{"Service": "svc-a", "Health": "", "State": "exited", "ExitCode": "oops"}]
+        self.assertEqual(group_services_by_health(services), {"UNKNOWN": ["svc-a"]})
+
+    def test_running_state_falls_back_to_running_bucket(self):
+        services = [{"Service": "svc-a", "Health": "", "State": "running"}]
+        self.assertEqual(group_services_by_health(services), {"RUNNING": ["svc-a"]})
+
+    def test_paused_and_dead_states_fall_to_unknown_not_their_own_bucket(self):
+        services = [
+            {"Service": "svc-a", "Health": "", "State": "paused"},
+            {"Service": "svc-b", "Health": "", "State": "dead"},
+        ]
+        self.assertEqual(group_services_by_health(services), {"UNKNOWN": ["svc-a", "svc-b"]})
 
     def test_falls_back_to_unknown_when_both_health_and_state_are_missing(self):
         services = [{"Service": "svc-a"}]
@@ -95,12 +118,17 @@ class GroupServicesByHealthTest(unittest.TestCase):
 
 class FormatStateOutputTest(unittest.TestCase):
     def test_formats_buckets_and_services(self):
-        grouped = {"HEALTHY": ["svc-a", "svc-b"], "EXITED": ["svc-c"]}
+        grouped = {"HEALTHY": ["svc-a", "svc-b"], "HEALTHY EXIT": ["svc-c"]}
         output = format_state_output(grouped, use_color=False)
         self.assertEqual(
             output,
-            "HEALTHY:\n  - svc-a\n  - svc-b\nEXITED:\n  - svc-c",
+            "HEALTHY:\n  - svc-a\n  - svc-b\nHEALTHY EXIT:\n  - svc-c",
         )
+
+    def test_ansi_colors_differ_between_healthy_and_unhealthy_exit(self):
+        healthy = format_state_output({"HEALTHY EXIT": ["svc-a"]}, use_color=True)
+        unhealthy = format_state_output({"UNHEALTHY EXIT": ["svc-a"]}, use_color=True)
+        self.assertNotEqual(healthy.split("\n")[0], unhealthy.split("\n")[0])
 
     def test_no_ansi_codes_without_color(self):
         output = format_state_output({"HEALTHY": ["svc-a"]}, use_color=False)
