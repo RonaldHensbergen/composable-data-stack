@@ -1,7 +1,10 @@
+import contextlib
+import io
 import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -665,6 +668,128 @@ class CollectModuleImagesTest(unittest.TestCase):
         )
         declared_image = from_line.split()[1]
         self.assertEqual(base, declared_image)
+
+class StateCLITest(unittest.TestCase):
+    def setUp(self):
+        self.repo_root = Path(__file__).resolve().parent.parent
+        self.profiles_root = self.repo_root / "profiles"
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.resolve_project_root")
+    def test_state_command_prints_grouped_output(self, mock_root, mock_run):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "docker-compose.yml").write_text("services: {}")
+            mock_root.return_value = project_root
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout='{"Service": "svc-a", "Health": "healthy"}\n',
+                stderr="",
+            )
+
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]):
+                result = main()
+
+        self.assertEqual(result, 0)
+        cmd = mock_run.call_args[0][0]
+        self.assertEqual(cmd[:4], ["docker", "compose", "-f", cmd[3]])
+        self.assertIn("ps", cmd)
+        self.assertIn("-a", cmd)
+        self.assertIn("--format", cmd)
+        self.assertIn("json", cmd)
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.resolve_project_root")
+    def test_state_command_errors_when_compose_file_missing(self, mock_root, mock_run):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_root.return_value = Path(tmpdir)
+
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]):
+                result = main()
+
+        self.assertEqual(result, 1)
+        mock_run.assert_not_called()
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.resolve_project_root")
+    def test_state_command_docker_not_found(self, mock_root, mock_run):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "docker-compose.yml").write_text("services: {}")
+            mock_root.return_value = project_root
+            mock_run.side_effect = FileNotFoundError()
+
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]):
+                result = main()
+
+        self.assertEqual(result, 1)
+
+    @patch("cli.main.subprocess.run")
+    @patch("cli.main.resolve_project_root")
+    def test_state_command_propagates_compose_ps_failure(self, mock_root, mock_run):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "docker-compose.yml").write_text("services: {}")
+            mock_root.return_value = project_root
+            mock_run.return_value = subprocess.CompletedProcess(
+                args=[], returncode=17, stdout="", stderr="boom"
+            )
+
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]):
+                result = main()
+
+        self.assertEqual(result, 17)
+
+    def _run_state_with_tty(self, argv_extra, isatty_return):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_root = Path(tmpdir)
+            (project_root / "docker-compose.yml").write_text("services: {}")
+            captured = io.StringIO()
+            captured.isatty = lambda: isatty_return
+
+            with patch("cli.main.resolve_project_root", return_value=project_root), patch(
+                "cli.main.subprocess.run",
+                return_value=subprocess.CompletedProcess(
+                    args=[],
+                    returncode=0,
+                    stdout='{"Service": "svc-a", "Health": "healthy"}\n',
+                    stderr="",
+                ),
+            ), patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys, "argv", ["cds", "state", "local-dagster-postgres-superset"] + argv_extra
+            ), contextlib.redirect_stdout(
+                captured
+            ):
+                result = main()
+
+        return result, captured.getvalue()
+
+    def test_no_color_flag_suppresses_ansi_even_on_a_tty(self):
+        result, output = self._run_state_with_tty(["--no-color"], isatty_return=True)
+        self.assertEqual(result, 0)
+        self.assertNotIn("\033", output)
+
+    def test_color_suppressed_on_a_non_tty_without_the_flag(self):
+        result, output = self._run_state_with_tty([], isatty_return=False)
+        self.assertEqual(result, 0)
+        self.assertNotIn("\033", output)
+
+    def test_color_enabled_on_a_tty_without_the_flag(self):
+        result, output = self._run_state_with_tty([], isatty_return=True)
+        self.assertEqual(result, 0)
+        self.assertIn("\033", output)
+
 
 if __name__ == "__main__":
     unittest.main()
