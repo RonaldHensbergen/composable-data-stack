@@ -522,6 +522,7 @@ profiles/[profile]/
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
 |cds render [profile]|Generate Docker Compose configuration from a resolved plan|
 |cds up [profile]|Validate, plan, render, build, and start services with docker compose (use `--no-build` to skip build)|
+|cds state [profile]|Show running service status grouped by health (use `--no-color` to disable colored labels)|
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 
 `[profile]` accepts:

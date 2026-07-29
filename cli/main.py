@@ -21,6 +21,7 @@ from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
 from .preflight import preflight_passed, run_preflight
 from .security import run_security_validation
+from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .loader import load_yaml_file
 
 
@@ -389,6 +390,17 @@ def main() -> int:
     )
     _add_profile_arg(preflight_parser)
 
+    state_parser = subparsers.add_parser(
+        "state",
+        help="Show running service status grouped by health",
+    )
+    _add_profile_arg(state_parser)
+    state_parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable colored health labels even on a color-capable terminal",
+    )
+
     init_parser = subparsers.add_parser(
         "init",
         help="Initialize a .env file from profile secret definitions",
@@ -728,6 +740,35 @@ def main() -> int:
 
         print("\nPreflight failed.")
         return 1
+
+    if args.command == "state":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        compose_path = resolve_project_root(profile_path) / "docker-compose.yml"
+        if not compose_path.exists():
+            print(f"ERROR {compose_path} not found. Run 'cds up' first.")
+            return 1
+
+        ps_cmd = ["docker", "compose", "-f", str(compose_path), "ps", "-a", "--format", "json"]
+        try:
+            ps_result = subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603
+        except FileNotFoundError:
+            print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
+            return 1
+
+        if ps_result.returncode != 0:
+            print(ps_result.stderr or "ERROR docker compose ps failed.")
+            return ps_result.returncode
+
+        services = parse_compose_ps_json(ps_result.stdout)
+        grouped = group_services_by_health(services)
+        use_color = (not args.no_color) and sys.stdout.isatty()
+        print(format_state_output(grouped, use_color=use_color))
+        return 0
 
     if args.command == "init":
         try:
