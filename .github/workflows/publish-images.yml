@@ -11,6 +11,9 @@ on:
 env:
   REGISTRY: ghcr.io
 
+permissions:
+  contents: read
+
 jobs:
   discover-images:
     runs-on: ubuntu-latest
