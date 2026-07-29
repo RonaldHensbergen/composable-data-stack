@@ -718,7 +718,7 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
             )
             self.assertEqual(self._redact(output, env), output)
         finally:
-            subprocess.run(
+            self._run(
                 [
                     "docker",
                     "compose",
@@ -727,10 +727,7 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
                     "start",
                     "postgres",
                 ],
-                cwd=self.repo_root,
                 env=env,
-                capture_output=True,
-                text=True,
                 timeout=300,
             )
 
