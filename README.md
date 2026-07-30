@@ -540,6 +540,8 @@ profiles/[profile]/
 |cds up [profile]|Validate, plan, render, build, and start services with docker compose (use `--no-build` to skip build)|
 |cds state [profile]|Show running service status grouped by health (use `--no-color` to disable colored labels)|
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
+|cds use [profile] [--clear]|Save (show/clear) a default profile so it doesn't have to be passed to other commands|
+|cds completion \<bash\|zsh\|powershell\>|Print shell setup instructions for tab-completion|
 
 `[profile]` accepts:
 
@@ -549,7 +551,7 @@ profiles/[profile]/
 | Path to a `profile.yaml` file | `profiles/local-dagster-postgres-superset/profile.yaml` |
 | Path to a profiles root directory | `profiles/` |
 
-When `[profile]` is omitted, `CDS_PROFILE_PATH` is used instead and accepts the same three forms. If neither is provided and exactly one profile exists under `profiles/`, it is selected automatically.
+When `[profile]` is omitted, resolution falls back in order to: the default profile saved via `cds use <profile>`, then `CDS_PROFILE_PATH` (accepts the same three forms), then the single profile under `profiles/` if there is exactly one.
 
 To view the full list of options for any command, use the `--help` flag:
 

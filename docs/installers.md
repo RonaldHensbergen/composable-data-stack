@@ -105,7 +105,38 @@ When `CDS_PROFILE_PATH` is set, running `cds validate` (or `plan`, `render`) wit
 
 Path to a `modules/` directory. Module sources are resolved relative to this root instead of the profile directory.
 
+## 5a. Saving a default profile with `cds use`
+
+Instead of exporting `CDS_PROFILE_PATH` every session, you can persist a default
+profile for the current project with:
+
+```bash
+cds use local-dagster-postgres-superset
+```
+
+This validates that the profile resolves, then writes it to
+`.cds/config.json` at the project root (next to `pyproject.toml` or `.git`).
+Once saved, any command that accepts a profile argument (`validate`, `plan`,
+`render`, `up`, `test`, `preflight`, `state`, `init`, `security`) uses it
+automatically when no profile is given on the command line or overridden via
+an explicit argument.
+
+```bash
+cds use                 # show the currently saved default (if any)
+cds use --clear         # remove the saved default
+```
+
+Resolution order when no profile argument is given: saved default (`cds use`)
+> `CDS_PROFILE_PATH` > the single profile under `profiles/`, if there is
+exactly one. `.cds/` is project-local and gitignored by default.
+
 The CLI also supports optional shell completion when `argcomplete` is installed.
+
+`cds completion <shell>` only prints setup instructions — it never edits your
+shell config or installs anything on its own. This matches how `kubectl`,
+`docker`, `gh`, and `az` handle completion: you stay in control of your
+dotfiles, and the two extra steps below (install once, add one line) are the
+one-time cost of that.
 
 ### Install completion support
 
@@ -115,18 +146,30 @@ python3 -m pip install argcomplete
 
 ### Enable completion
 
-Bash:
+Print copy-pasteable setup instructions for your shell with:
+
+```bash
+cds completion bash        # or: zsh, powershell
+```
+
+Bash: add this line to `~/.bashrc`, then restart your shell (or run `source ~/.bashrc`):
 
 ```bash
 eval "$(register-python-argcomplete cds)"
 ```
 
-Zsh:
+Zsh: add these lines to `~/.zshrc`, then restart your shell (or run `source ~/.zshrc`):
 
 ```bash
 autoload -U bashcompinit
 bashcompinit
 eval "$(register-python-argcomplete cds)"
+```
+
+PowerShell: add this line to your `$PROFILE`, then restart your shell (or run `. $PROFILE`):
+
+```powershell
+register-python-argcomplete --shell powershell cds | Out-String | Invoke-Expression
 ```
 
 ### Linux / macOS

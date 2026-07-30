@@ -68,6 +68,68 @@ def get_modules_root() -> Path:
     return Path(root).expanduser()
 
 
+def find_project_root(start: Path | None = None) -> Path:
+    """
+    Walk up from `start` (default: current working directory) looking for a
+    project root marker (pyproject.toml or .git). Falls back to `start` itself
+    if no marker is found.
+    """
+    current = (start or Path.cwd()).resolve()
+    for directory in [current, *current.parents]:
+        if (directory / "pyproject.toml").exists() or (directory / ".git").exists():
+            return directory
+    return current
+
+
+def get_config_path() -> Path:
+    """Location of the per-project CDS config file used by `cds use`."""
+    override = os.getenv("CDS_CONFIG_PATH")
+    if override:
+        return Path(override).expanduser()
+    return find_project_root() / ".cds" / "config.json"
+
+
+def _read_config() -> dict:
+    config_path = get_config_path()
+    if not config_path.exists():
+        return {}
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_saved_profile() -> str | None:
+    """Return the profile name saved via `cds use`, if any."""
+    profile = _read_config().get("profile")
+    return profile if isinstance(profile, str) and profile else None
+
+
+def save_profile(profile: str) -> Path:
+    """Persist `profile` as the default for this project. Returns the config path."""
+    config_path = get_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    data = _read_config()
+    data["profile"] = profile
+    config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return config_path
+
+
+def clear_saved_profile() -> bool:
+    """Remove a previously saved default profile. Returns True if one was cleared."""
+    config_path = get_config_path()
+    data = _read_config()
+    if "profile" not in data:
+        return False
+    del data["profile"]
+    if data:
+        config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    else:
+        config_path.unlink()
+    return True
+
+
 def resolve_profile_path(profile: str | None) -> str:
     profile_root = get_profiles_root()
     
@@ -104,7 +166,14 @@ def resolve_profile_path(profile: str | None) -> str:
 
         return str(candidate_by_name.resolve())
 
-    # No profile argument provided, use CDS_PROFILE_PATH
+    # No profile argument provided. A saved default (set via `cds use`) takes
+    # precedence over CDS_PROFILE_PATH, since it reflects an explicit, persisted
+    # choice rather than an ambient root/name that may resolve ambiguously.
+    saved_profile = load_saved_profile()
+    if saved_profile:
+        return resolve_profile_path(saved_profile)
+
+    # Use CDS_PROFILE_PATH
     if profile_root.is_file():
         return str(profile_root.resolve())
 
@@ -130,8 +199,9 @@ def resolve_profile_path(profile: str | None) -> str:
             return str(name_candidate.resolve())
 
     raise ValueError(
-        "No profile specified. Either provide a profile argument or set CDS_PROFILE_PATH "
-        "to a profile file or directory containing a single profile."
+        "No profile specified. Either provide a profile argument, run `cds use <profile>` "
+        "to save a default, or set CDS_PROFILE_PATH to a profile file or directory "
+        "containing a single profile."
     )
 
 
@@ -212,11 +282,11 @@ def _add_profile_arg(subparser: argparse.ArgumentParser) -> None:
         help=(
             "Profile to use. Accepts a profile name (e.g. local-dagster-postgres-superset), "
             "a path to a profile.yaml file, or a path to a profiles root directory. "
-            "When omitted, CDS_PROFILE_PATH is used. "
+            "When omitted, resolution falls back in order to: the default profile saved "
+            "via `cds use <profile>`, then CDS_PROFILE_PATH, then the single profile "
+            "under profiles/ if there is exactly one. "
             "CDS_PROFILE_PATH accepts the same forms: a profile name, a profile file path, "
-            "or a profiles root directory. "
-            "If neither is provided and only one profile exists under profiles/, "
-            "it is selected automatically."
+            "or a profiles root directory."
         ),
     )
     if argcomplete is not None:
@@ -311,6 +381,43 @@ def _cds_version() -> str:
         return _package_version("composable-data-stack")
     except PackageNotFoundError:
         return "unknown"
+
+
+def _completion_instructions(shell: str) -> str:
+    """Return copy-pasteable shell setup instructions for cds tab-completion."""
+    preamble = (
+        "# cds does not modify your shell config automatically (same as kubectl, docker,\n"
+        "# gh, and az completion). Copy the steps below into your shell yourself:"
+    )
+    if shell == "powershell":
+        install_step = (
+            "# 1. Install argcomplete (skip if already installed):\n"
+            "python -m pip install argcomplete"
+        )
+        setup_step = (
+            "# 2. Add to your PowerShell profile ($PROFILE), then restart your shell "
+            "(or `. $PROFILE`):\n"
+            "register-python-argcomplete --shell powershell cds | Out-String | Invoke-Expression"
+        )
+        return f"{preamble}\n\n{install_step}\n\n{setup_step}"
+
+    install_step = (
+        "# 1. Install argcomplete (skip if already installed):\n"
+        "python3 -m pip install argcomplete"
+    )
+    if shell == "zsh":
+        setup_step = (
+            "# 2. Add to ~/.zshrc, then restart your shell (or `source ~/.zshrc`):\n"
+            "autoload -U bashcompinit\n"
+            "bashcompinit\n"
+            'eval "$(register-python-argcomplete cds)"'
+        )
+    else:
+        setup_step = (
+            "# 2. Add to ~/.bashrc, then restart your shell (or `source ~/.bashrc`):\n"
+            'eval "$(register-python-argcomplete cds)"'
+        )
+    return f"{preamble}\n\n{install_step}\n\n{setup_step}"
 
 
 def main() -> int:
@@ -425,6 +532,33 @@ def main() -> int:
 
     security_parser = subparsers.add_parser("security", help="Run security validation on a profile")
     _add_profile_arg(security_parser)
+
+    use_parser = subparsers.add_parser(
+        "use",
+        help="Save (or show/clear) a default profile so it doesn't have to be passed on every command",
+    )
+    use_action = use_parser.add_argument(
+        "profile",
+        nargs="?",
+        help="Profile name to save as the default. Omit to show the currently saved default.",
+    )
+    use_parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="Clear the saved default profile instead of setting one",
+    )
+    if argcomplete is not None:
+        use_action.completer = profile_completer  # type: ignore[attr-defined]
+
+    completion_parser = subparsers.add_parser(
+        "completion",
+        help="Print shell setup instructions for cds tab-completion",
+    )
+    completion_parser.add_argument(
+        "shell",
+        choices=["bash", "zsh", "powershell"],
+        help="Shell to print setup instructions for",
+    )
 
     if argcomplete is not None:
         argcomplete.autocomplete(parser)
@@ -889,8 +1023,44 @@ def main() -> int:
 
         return 1 if any(f["severity"] == "high" for f in findings) else 0
 
+    if args.command == "use":
+        if args.clear:
+            if clear_saved_profile():
+                print(f"Cleared saved default profile ({get_config_path()}).")
+            else:
+                print("No saved default profile to clear.")
+            return 0
+
+        if not args.profile:
+            saved_profile = load_saved_profile()
+            if saved_profile:
+                print(saved_profile)
+            else:
+                print("No default profile saved. Run `cds use <profile>` to set one.")
+            return 0
+
+        try:
+            resolved = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        if not Path(resolved).is_file():
+            print(f"ERROR Profile '{args.profile}' could not be found (looked for {resolved}).")
+            return 1
+
+        config_path = save_profile(args.profile)
+        print(f"Saved default profile: {args.profile} (resolves to {resolved})")
+        print(f"Stored in {config_path}")
+        return 0
+
+    if args.command == "completion":
+        print(_completion_instructions(args.shell))
+        return 0
+
     print("Base validation not shown here.")
     return 0
+
 
 
 if __name__ == "__main__":
