@@ -194,7 +194,8 @@ def run_docker_logged(cmd: list[str], log_handle, echo: bool = False) -> int:
         stderr=subprocess.STDOUT,
         text=True,
     )
-    assert process.stdout is not None
+    if process.stdout is None:
+        raise RuntimeError("subprocess stdout unavailable despite stdout=PIPE")
     for line in process.stdout:
         log_handle.write(line)
         if echo:
