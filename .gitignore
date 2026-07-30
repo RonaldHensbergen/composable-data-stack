@@ -224,7 +224,10 @@ __marimo__/
 .aider*
 
 # PR creation tools (helper scripts, not part of main tool)
-/tools/
+/tools/*
+!/tools/pr-cli/
+/tools/pr-cli/*
+!/tools/pr-cli/README.md
 
 # Generated PR documentation
 .github/pr-docs/
