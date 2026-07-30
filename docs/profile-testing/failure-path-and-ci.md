@@ -3,6 +3,13 @@
 This document expands phases 8 and 9 of the
 [profile test plan](test-plan.md).
 
+> These phases test **runtime** correctness (booting the rendered stack,
+> service health, recovery from failure, and CI enforcement of all of the
+> above). They extend, and are complementary to, the README's **compile-time**
+> pipeline (`cds validate → cds security → cds plan → cds render`, see
+> [Internal Flow](../../README.md#internal-flow)), which only proves a
+> profile compiles — not that it runs correctly.
+
 ## 8. Failure-path tests
 
 ### 8.1 Reusable failure-test harness
