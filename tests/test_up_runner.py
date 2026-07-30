@@ -19,12 +19,15 @@ def _ps(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess:
 
 class DefaultLogPathTest(unittest.TestCase):
     def test_builds_expected_filename_shape(self):
-        path = default_log_path("local-dagster-postgres-superset", logs_dir=Path("/tmp/cds-logs"))
-        self.assertTrue(str(path).startswith("/tmp/cds-logs/up-local-dagster-postgres-superset-"))
-        self.assertTrue(str(path).endswith(".log"))
+        logs_dir = Path("/tmp/cds-logs")
+        path = default_log_path("local-dagster-postgres-superset", logs_dir=logs_dir)
+        self.assertEqual(path.parent, logs_dir)
+        self.assertTrue(path.name.startswith("up-local-dagster-postgres-superset-"))
+        self.assertTrue(path.name.endswith(".log"))
 
     def test_flattens_path_like_profile_names(self):
-        path = default_log_path("profiles/my profile", logs_dir=Path("/tmp/cds-logs"))
+        logs_dir = Path("/tmp/cds-logs")
+        path = default_log_path("profiles/my profile", logs_dir=logs_dir)
         self.assertNotIn("/", path.name)
         self.assertNotIn(" ", path.name)
 
