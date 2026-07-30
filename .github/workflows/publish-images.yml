@@ -138,3 +138,58 @@ jobs:
           - oidc_issuer: \`https://token.actions.githubusercontent.com\`
           - cert_identity: \`https://github.com/${{ github.repository }}/.github/workflows/publish-images.yml@${{ github.ref }}\`
           EOF
+
+  publish-dockerhub:
+    needs: discover-images
+    if: needs.discover-images.outputs.images != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(needs.discover-images.outputs.images) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          date_suffix="$(date -u +%Y%m%d)"
+          case "${{ matrix.image.name }}" in
+            dagster)
+              base_version="$(grep -m1 '^dagster==' images/dagster/requirements.txt | cut -d= -f3)"
+              ;;
+            superset)
+              base_version="$(grep -m1 '^FROM apache/superset:' images/superset/Dockerfile | sed -E 's#^FROM apache/superset:([^@[:space:]]+).*#\1#')"
+              ;;
+            *)
+              echo "No version scheme defined for image '${{ matrix.image.name }}'" >&2
+              exit 1
+              ;;
+          esac
+          if [ -z "$base_version" ]; then
+            echo "Failed to determine base version for '${{ matrix.image.name }}'" >&2
+            exit 1
+          fi
+          echo "tag=${base_version}-${date_suffix}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v4.6.0
+        with:
+          username: ronaldsoeverein
+          password: ${{ secrets.RONALDSOEVEREIN_LOGIN }}
+
+      - name: Build and push
+        run: |
+          dockerfile="${{ matrix.image.dockerfile }}"
+          context="$(dirname "$dockerfile")"
+          if [ "$dockerfile" = "images/dagster/Dockerfile" ] || [ "$dockerfile" = "images/superset/Dockerfile" ]; then
+            context="."
+          fi
+          ref="docker.io/ronaldsoeverein/cds-${{ matrix.image.name }}"
+          tag="${{ steps.version.outputs.tag }}"
+          docker build -f "$dockerfile" -t "$ref:$tag" -t "$ref:latest" "$context"
+          docker push "$ref:$tag"
+          docker push "$ref:latest"
