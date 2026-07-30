@@ -17,7 +17,7 @@ Composable Data Stack (CDS) is a framework for defining and assembling data plat
 - **Contribute**: open a discussion, file an issue, or send a PR to help shape CDS
 - **Proof it**: if you run it in a real workflow, share your feedback — good or bad
 
-> **Note:** Development helper tools are located in the `tools/` directory (git-ignored). See `tools/pr-cli/README.md` for PR creation scripts.
+> **Note:** Development helper tools are located in the `tools/` directory (git-ignored).
 
 Instead of hardcoding integrations or relying on fragile pipelines, CDS introduces:
 
@@ -124,7 +124,7 @@ flowchart TD
 
 CDS splits into two phases: **compile-time**, where `cds` itself validates, resolves, and renders a plain `docker-compose.yaml`; and **runtime**, where the real `docker compose` binary builds and starts containers from that file. CDS never runs containers itself.
 
-`cds test` runs the full compile-time pipeline in order — **validate → security → plan → render** — stopping at the first stage that reports an error. `cds up` runs the same pipeline **minus security** (`validate → plan → render`), then hands off to `docker compose build`/`docker compose up`. See the [CLI table](#️-cli) below for exactly what each command runs.
+`cds test` runs the full compile-time pipeline in order — **validate → security → plan → render** — stopping at the first stage that reports an error. `cds up` runs the same pipeline **minus security** (`validate → plan → render`), then hands off to `docker compose build`/`docker compose up`. See the [CLI table](#cli) below for exactly what each command runs.
 
 - **Validate** checks profile shape, module configs, dependencies, secret refs, contract bindings, and outputs.
 - **Security** (`cds test` only) runs rule-based checks against modules and resolved secrets.
@@ -182,9 +182,9 @@ flowchart TD
     class Build,Up,Env,Containers runtimeNode
 ```
 
-This mirrors the [`cds` command table](#️-cli) below: `validate`, `plan`, and `render` are each callable on their own; `security` only runs as part of `cds test`, not `cds up`. Module and contract definitions follow the [Contract-First](#contract-first) design principle, so most of what "Validate" and "Plan" check comes directly from `module.yaml` and `profile.yaml`.
+This mirrors the [`cds` command table](#cli) below: `validate`, `plan`, and `render` are each callable on their own; `security` only runs as part of `cds test`, not `cds up`. Module and contract definitions follow the [Contract-First](#contract-first) design principle, so most of what "Validate" and "Plan" check comes directly from `module.yaml` and `profile.yaml`.
 
-**See also:** [Security](#-security) for what the security stage checks, [Troubleshooting](#️-troubleshooting) for what each error code means and how to fix it, and [docs/architecture.md § Secrets and contract resolution](docs/architecture.md#secrets-and-contract-resolution) for a deeper look at how `secrets.*` and `contractRef` values actually resolve.
+**See also:** [Security](#security) for what the security stage checks, [Troubleshooting](#troubleshooting) for what each error code means and how to fix it, and [docs/architecture.md § Secrets and contract resolution](docs/architecture.md#secrets-and-contract-resolution) for a deeper look at how `secrets.*` and `contractRef` values actually resolve.
 
 ## 🔐 Security
 
