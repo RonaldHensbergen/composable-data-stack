@@ -13,6 +13,8 @@ def _duplicate_module_ids(modules: list[dict[str, Any]]) -> set[str]:
     seen: set[str] = set()
     dupes: set[str] = set()
     for m in modules:
+        if not isinstance(m, dict):
+            continue
         mid = m.get("id")
         if mid is None:
             continue
@@ -148,6 +150,35 @@ def resolve_profile(
     base_modules = base_spec.get("modules", []) if isinstance(base_spec, dict) else []
     overlay_spec = overlay.get("spec", {})
     overlay_modules = overlay_spec.get("modules", []) if isinstance(overlay_spec, dict) else []
+
+    for label, modules in (("base profile", base_modules), (f"overlay {overlay_source}", overlay_modules)):
+        if not isinstance(modules, list):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E093",
+                    message=f"spec.modules in {label} must be a list, got {type(modules).__name__}.",
+                    path="spec.modules",
+                )
+            )
+            continue
+
+        non_dict_indices = [i for i, m in enumerate(modules) if not isinstance(m, dict)]
+        if non_dict_indices:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E093",
+                    message=(
+                        f"Module entr{'y' if len(non_dict_indices) == 1 else 'ies'} in {label} "
+                        f"must be a mapping, not a scalar/list, at index {non_dict_indices}."
+                    ),
+                    path="spec.modules",
+                )
+            )
+
+    if any(d.level == "error" for d in diagnostics):
+        return None, {}, diagnostics
 
     for label, modules in (("base profile", base_modules), (f"overlay {overlay_source}", overlay_modules)):
         missing_id = [i for i, m in enumerate(modules) if not m.get("id")]

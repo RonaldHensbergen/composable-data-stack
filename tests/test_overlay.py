@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from cli.overlay import _merge_modules, _merge_value, resolve_profile
+from cli.overlay import _duplicate_module_ids, _merge_modules, _merge_value, resolve_profile
 
 
 class MergeValueTest(unittest.TestCase):
@@ -69,6 +69,10 @@ class MergeValueTest(unittest.TestCase):
 
 
 class MergeModulesTest(unittest.TestCase):
+    def test_duplicate_module_ids_ignores_non_dict_entries_rather_than_crashing(self):
+        modules = [{"id": "a"}, "oops-a-string", {"id": "a"}]
+        self.assertEqual(_duplicate_module_ids(modules), {"a"})
+
     def test_merges_by_id_not_position(self):
         base_modules = [
             {"id": "dagster", "config": {"image": "dagster:1.0"}},
@@ -213,6 +217,34 @@ class ResolveProfileFixtureTest(unittest.TestCase):
         resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="noid")
         self.assertIsNone(resolved)
         self.assertTrue(any(d.code == "E093" for d in diagnostics))
+
+    def test_spec_modules_not_a_list_rejected_cleanly_not_a_crash(self):
+        self._write_overlay("badshape", {"spec": {"modules": "not-a-list"}})
+        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="badshape")
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E093" for d in diagnostics), diagnostics)
+
+    def test_module_entry_not_a_dict_rejected_cleanly_not_a_crash(self):
+        self._write_overlay("badentry", {"spec": {"modules": ["oops-a-string"]}})
+        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="badentry")
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E093" for d in diagnostics), diagnostics)
+
+    def test_malformed_module_list_in_base_profile_also_rejected_cleanly(self):
+        self.profile_path.write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "analytics", "environment": "local"},
+                    "spec": {"modules": ["oops-a-string"]},
+                }
+            )
+        )
+        self._write_overlay("anything", {"spec": {}})
+        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="anything")
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E093" for d in diagnostics), diagnostics)
 
     def test_fully_merged_profile_receives_normal_validation(self):
         self._write_overlay(
