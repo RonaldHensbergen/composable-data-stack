@@ -188,7 +188,7 @@ jobs:
           if [ "$dockerfile" = "images/dagster/Dockerfile" ] || [ "$dockerfile" = "images/superset/Dockerfile" ]; then
             context="."
           fi
-          ref="docker.io/ronaldsoeverein/cds-${{ matrix.image.name }}"
+          ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
           docker build -f "$dockerfile" -t "$ref:$tag" -t "$ref:latest" "$context"
           docker push "$ref:$tag"
