@@ -6,7 +6,7 @@ This document tracks near-term priorities for Composable Data Stack (CDS). Miles
 
 ## Stable Components
 
-These are considered production-ready in the current release (v0.1.1):
+These are considered production-ready in the current release (v0.3.0-beta-1):
 
 - `cds validate` — module and contract validation
 - `cds plan` — dependency resolution and execution planning
@@ -15,8 +15,10 @@ These are considered production-ready in the current release (v0.1.1):
 - Module: Dagster (`modules/orchestration/dagster/`)
 - Module: Postgres (`modules/warehouse/postgres/`)
 - Module: Superset (`modules/bi/superset/`)
+- Module: KeyDB (`modules/cache/keydb/`)
 - Module: Vault (`modules/secrets/vault/`)
 - Profile: `local-dagster-postgres-superset`
+- Profile: `local-dagster-postgres-superset-vault`
 
 ---
 
@@ -25,20 +27,27 @@ These are considered production-ready in the current release (v0.1.1):
 These work but may have breaking changes in upcoming releases:
 
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
-- `cds up` — implemented; not yet validated against a real Docker Compose run
-- `cds test` — implemented; not yet exercised in real contributor/CI usage
+- `cds up` — implemented; not yet directly exercised in CI (the MVP proof workflow validates and renders separately, then delegates to `docker compose` directly)
+- `cds test` — implemented; not yet exercised in CI or real contributor usage
 
 ---
 
 ## Near-Term (Next 1–3 Releases)
 
-- 📋 **Docker runtime smoke test CI** — add CI workflow for Docker runtime smoke test (#26)
 - 📋 **Publish CLI to PyPI** — enable `pipx install composable-data-stack` and `pip install composable-data-stack` (#52)
-- 📋 **Windows and macOS CI** — expand CI coverage to include Windows and macOS host jobs (#58)
-- 📋 **Windows setup instructions** — add Windows setup guide to README and CONTRIBUTING (#56)
-- 📋 **PowerShell task runner** — PowerShell parity for all Makefile targets (#55)
-- 📋 **Pre-commit hooks** — enforce markdown and Python quality checks locally before push (#31)
-- 📋 **Release automation** — automate GitHub release creation on version tags (#32)
+
+---
+
+## Completed
+
+Items shipped in v0.1.1 through v0.3.0-beta-1:
+
+- ✅ **Docker runtime smoke test CI** — CI workflow for Docker runtime smoke test and MVP proof (#26)
+- ✅ **Windows and macOS CI** — expanded CI coverage to include Windows and macOS host jobs (#58)
+- ✅ **Windows setup instructions** — Windows setup guide added to README and CONTRIBUTING (#56)
+- ✅ **PowerShell task runner** — PowerShell parity for core Makefile targets (#55)
+- ✅ **Pre-commit hooks** — markdownlint, yamllint, and flake8 checks enforced locally before push (#31)
+- ✅ **Release automation** — automated GitHub release creation on version tags (#32)
 
 ---
 

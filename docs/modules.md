@@ -18,52 +18,43 @@ Each module should:
 
 ## Required structure
 
-Each module should follow this structure:
+A module is defined by a single `module.yaml` file. Everything the validator, planner, and renderer need (runtime service definition, configuration schema, contracts, and the Docker Compose implementation) lives inline in that one file.
 
 ```text
 modules/<category>/<name>/
-├── compose.yml
-├── README.md
-├── .env.example
-├── config/
-└── scripts/
+└── module.yaml
 ```
 
-## Minimal required files
-
-Each module must include the following files:
-
-| File | Required | Purpose |
-| --- | --- | --- |
-| `compose.yml` | yes | Defines the services, networks, volumes, and health checks for the module |
-| `README.md` | yes | Explains what the module does, how it is configured, and how it is used |
-| `.env.example` | yes | Documents the environment variables expected by the module |
-
-Optional directories:
-
-| Directory | Purpose |
-| --- | --- | --- |
-| `config/` | Static configuration files |
-| `scripts/` | Bootstrap, init, or helper scripts |
-| `data/` | Local development data or seeds, if intentionally included |
-
-A minimal module layout looks like this:
+Optional, module-local supporting files:
 
 ```text
 modules/<category>/<name>/
-├── compose.yml
-├── README.md
-├── .env.example
-├── config/           # optional
-└── scripts/          # optional
+├── module.yaml
+├── README.md         # optional — human-readable notes
+├── config/           # optional — static configuration files
+└── scripts/          # optional — bootstrap, init, or helper scripts
 ```
+
+## Module files
+
+| File/Directory | Required | Purpose |
+| --- | --- | --- |
+| `module.yaml` | yes | Source of truth: metadata, runtime service, config schema, contracts, and the inline Compose implementation |
+| `README.md` | no | Optional human-readable notes; not read by the validator |
+| `config/` | no | Static configuration files |
+| `scripts/` | no | Bootstrap, init, or helper scripts |
+| `data/` | no | Local development data or seeds, if intentionally included |
+
+There is no separate `compose.yml` or `.env.example` file. The Docker Compose definition lives inline at `spec.implementation.compose`, and configuration values are declared and validated through `spec.configSchema` rather than an example env file. See [Configuration](#configuration) below.
+
+A representative stable module (`modules/warehouse/postgres/`) and a representative experimental module (`modules-experimental/orchestration/airflow/`) both follow this same single-file structure; "experimental" is a directory convention (`modules-experimental/`), not a different schema.
 
 ## Responsibilities
 
 A module should own:
 
-- its service definitions
-- its module-specific configuration
+- its service definition and Compose implementation
+- its module-specific configuration schema
 - its container image definition, if needed
 - its own setup notes and runtime assumptions
 
@@ -74,22 +65,43 @@ A module should not own:
 - unrelated shared utilities
 - configuration for other modules
 
-## Compose requirements
+## Implementation
 
-Each module `compose.yml` should:
+Each module declares its Docker Compose implementation inline, under `spec.implementation`:
+
+```yaml
+spec:
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        postgres:
+          image: postgres:18@sha256:...
+          # ...
+      volumes:
+        postgres-data:
+          enabledFrom: spec.config.storage.enabled
+```
+
+`kind` is required; `docker-compose` is the only implementation kind in use today. `compose` is a normal Docker Compose service/volume/network definition, with two CDS-specific extensions:
+
+- `${config.<field>}` and `${service.host}` placeholders, resolved from `spec.configSchema` and the module's runtime service at render time
+- `enabledFrom` / `conditionallyEnabledFrom: <json-path>`, which include or drop a volume, service, or healthcheck based on a boolean resolved from the profile's config (see `postgres`'s `storage.enabled` and `healthcheck.enabled` above)
+
+When authoring `spec.implementation.compose`:
 
 - define only the services that belong to that module
 - use stable, descriptive service names
-- include health checks where practical
+- include health checks where practical, guarded with `enabledFrom` if optional
 - attach services to the shared profile network
-- expose only the ports needed for local use
+- expose only the ports needed for local use, bound to `127.0.0.1` unless the profile requires otherwise
 - use named volumes for persistent state where appropriate
 
 Prefer:
 
 - explicit environment variables
 - explicit dependencies
-    small, focused service definitions
+- small, focused service definitions
 
 Avoid:
 
@@ -99,9 +111,7 @@ Avoid:
 
 ## Custom images
 
-When a module requires a custom Docker image, the build context belongs in the `images/` directory at the repository root, not inside the module directory.
-
-Structure:
+When a module requires a custom Docker image, the build context belongs in the `images/` directory at the repository root, not inside the module directory. Reference it from `spec.implementation.compose.services.<name>`, the same place any other Compose service field goes:
 
 ```text
 images/<module-name>/
@@ -109,16 +119,19 @@ images/<module-name>/
 └── requirements.txt      # or other build context files
 ```
 
-Reference the image from `module.yaml` using a relative path:
-
 ```yaml
-build:
-  context: ../../../images/dagster
-  dockerfile: Dockerfile
-image: local/dagster:custom
+spec:
+  implementation:
+    compose:
+      services:
+        <service-name>:
+          build:
+            context: ../../../
+            dockerfile: images/<module-name>/Dockerfile
+          image: local/<module-name>:custom
 ```
 
-The `image` field assigns a local tag so Docker Compose can reference the built image consistently across services in the same module.
+`context` is relative to the module's own directory, so it points at the repository root (`../../../`) with `dockerfile` given as a root-relative path, not a path already inside `images/<module-name>/`. The `image` field assigns a local tag so Docker Compose can reference the built image consistently across services in the same module.
 
 ### Example: Dagster
 
@@ -133,32 +146,55 @@ images/dagster/
 Referenced in `modules/orchestration/dagster/module.yaml`:
 
 ```yaml
-build:
-  context: ../../../images/dagster
-  dockerfile: Dockerfile
-image: local/dagster:custom
+spec:
+  implementation:
+    compose:
+      services:
+        dagster-webserver:
+          build:
+            context: ../../../
+            dockerfile: images/dagster/Dockerfile
+          image: local/dagster:custom
 ```
 
-Modules that use a standard upstream image without customization do not need an entry in `images/` and should reference the image directly in `module.yaml`.
+Modules that use a standard upstream image without customization do not need an entry in `images/` and should reference the image directly in the service's `image` field.
 
-## Environment variables
+## Configuration
 
-Each module must document its expected environment variables in .env.example.
+Each module declares the configuration it accepts as a JSON Schema under `spec.configSchema`. This is the validated source of truth for module config; there is no `.env.example` file.
+
+```yaml
+spec:
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - database
+      - username
+      - passwordFrom
+      - port
+    properties:
+      database:
+        type: string
+        minLength: 1
+      passwordFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+      port:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 5432
+```
 
 Guidelines:
 
-- include defaults where safe for local development
-- clearly separate normal config from secrets
-- do not commit real credentials
-- keep module-local variables inside the module unless they are intentionally shared
+- set `additionalProperties: false` and list every accepted field explicitly
+- give safe local-development `default`s where possible
+- keep secret-bearing fields separate from plain config (see [Secrets](#secrets) below) and give them a `passwordFrom`/`tokenFrom`-style name so their purpose is obvious from the schema alone
+- add a `description` to non-obvious properties; it is the primary documentation a consumer of the module sees, since `README.md` is optional
 
-Example:
-```env
-POSTGRES_USER=dev
-POSTGRES_PASSWORD=dev
-POSTGRES_DB=app
-POSTGRES_PORT=5432
-```
+A profile supplies concrete values for these fields, and `cds init <profile>` generates a project-root `.env` template from the resolved config across all of a profile's modules. See [docs/installation.md](installation.md) for the end-to-end flow.
 
 ## Networking
 
@@ -189,21 +225,19 @@ Avoid committing runtime-generated data to the repository unless it is intention
 
 Modules must not require committed secrets.
 
-Secrets should be provided through one of these mechanisms:
+Secrets are declared in `spec.configSchema` as string fields matching the `^secrets\.[a-zA-Z0-9_-]+$` pattern (see `passwordFrom`, `tokenFrom` above), and resolved at render time from one of:
 
 - environment variables
-- local `.env` files excluded from version control
+- local `.env` files excluded from version control (generated via `cds init`)
 - a dedicated secrets module such as Vault
 
-### Secret Placeholders
+Do not give secret-bearing fields a `default` in `configSchema`, leaving them `required` with no default forces every consumer to supply a real value.
 
-When authoring a module that requires secrets, you should use standard placeholder behavior (e.g., `<SECRET_NAME_HERE>` or `${SECRET_NAME}`) within example configuration files or `.env.example`. Ensure that these placeholders are well-documented so users know exactly which values must be provided at runtime. Do not provide default values for sensitive fields.
-
-If a module depends on a secrets provider, that dependency must be documented in the module README and in any profile that uses it.
+If a module depends on a secrets provider, that dependency must be documented in `metadata.description` and, if present, the module's `README.md`, and in any profile that uses it.
 
 ## Health and readiness
 
-Modules with long-running services should define health checks where meaningful.
+Modules with long-running services should define health checks where meaningful, typically guarded with `enabledFrom`/`conditionallyEnabledFrom` so they can be disabled per-profile.
 
 Examples:
 
@@ -214,21 +248,19 @@ Examples:
 
 Health checks should reflect actual readiness, not just whether the process has started.
 
-## Documentation requirements
+## Documentation
 
-Each module `README.md` should describe:
+`README.md` is optional and, when present, is for human readers only; it is not read by the validator. The authoritative, machine-checked documentation of a module is `module.yaml` itself:
 
-- the module’s purpose
-- the services it runs
-- required environment variables
-- ports exposed
-- volumes used
-- dependencies on other modules
-- known limitations or assumptions
+- `metadata.description` — what the module does
+- `spec.configSchema` property `description`s — what each config field means
+- `spec.provides` / `spec.consumes` — what contracts the module offers or needs
+
+If you do add a `README.md` (see `modules/secrets/vault/README.md` for a short example), keep it to context that doesn't belong in YAML: rationale, known limitations, links to upstream docs.
 
 ## Dependency rules
 
-Modules may depend on other modules, but dependencies must be explicit.
+Modules may depend on other modules, but dependencies must be explicit through `spec.provides` / `spec.consumes` contracts (see [docs/architecture.md](architecture.md#secrets-and-contract-resolution)), not through hardcoded service names or hidden assumptions.
 
 Examples:
 
@@ -277,9 +309,10 @@ Avoid vague names such as:
 
 A module is considered complete when:
 
-- it contains a valid compose.yml
-- it contains a README.md
-- it contains a .env.example
-- its dependencies are documented
+- it contains a valid `module.yaml` that passes `cds validate` against `schemas/module.schema.json`
+- its `spec.configSchema` fully describes every accepted config field, with `additionalProperties: false`
+- its dependencies are declared through `spec.provides`/`spec.consumes`
 - it can be included in at least one profile
 - its services start successfully in that profile
+
+`README.md` is encouraged for anything not obvious from `module.yaml`, but is not required for a module to be considered complete.

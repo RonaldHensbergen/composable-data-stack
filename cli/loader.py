@@ -119,7 +119,7 @@ def _derive_allowed_module_root(profile_dir: Path, source_path: Path) -> Path | 
 
 def _is_within(candidate: Path, allowed_root: Path) -> bool:
     try:
-        candidate.relative_to(allowed_root)
+        candidate.resolve().relative_to(allowed_root.resolve())
         return True
     except ValueError:
         return False

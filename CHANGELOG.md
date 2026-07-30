@@ -6,9 +6,13 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.3.0-beta-1] - 2026-07-27
+
 ### Added
 
 - `cds up` now supports `--no-build` to skip Docker Compose image builds when images are already available.
+- `cds --version`/`-v` now reports the installed CLI version.
+- The release workflow now verifies that a pushed `vX.Y.Z` tag matches the version declared in `pyproject.toml` before publishing a GitHub release, failing fast on drift.
 
 ### Changed
 
@@ -19,6 +23,7 @@ The format is based on Keep a Changelog.
 
 ### Security
 
+- The Superset image now upgrades its inherited `uv` and `uvx` binaries to `uv 0.11.26`, which embeds the patched `quinn-proto 0.11.15`.
 - `images/dagster/Dockerfile` now pins its base image to a digest (not just the `python:3.14-slim` tag), runs as a non-root `dagster` user, contains only required application files, installs PostgreSQL support only for PostgreSQL builds, and no longer installs packages at startup. Dagster services now drop all Linux capabilities, prevent privilege escalation, use read-only root filesystems, and no longer expose the unused Docker socket.
 - The Superset image now pins `apache/superset:6.1.0` to a digest and installs its entrypoint with immutable permissions. Superset services also drop all Linux capabilities, prevent privilege escalation, and use a read-only root filesystem with restricted temporary filesystems.
 - PostgreSQL, KeyDB, and Vault images are now digest-pinned and run as their upstream non-root users with read-only roots, no Linux capabilities, no privilege escalation, bounded process counts, restricted temporary filesystems, and host ports bound to loopback only.

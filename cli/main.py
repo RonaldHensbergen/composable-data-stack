@@ -7,6 +7,7 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
+from importlib.metadata import PackageNotFoundError, version as _package_version
 from pathlib import Path
 
 try:
@@ -20,6 +21,7 @@ from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
 from .preflight import preflight_passed, run_preflight
 from .security import run_security_validation
+from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .loader import load_yaml_file
 
 
@@ -221,13 +223,21 @@ def _add_profile_arg(subparser: argparse.ArgumentParser) -> None:
         action.completer = profile_completer  # type: ignore[attr-defined]
 
 
-def _collect_profile_env_vars(profile_path: str) -> list[str]:
+def _collect_profile_env_vars(profile_path: str) -> tuple[list[str], set[str]]:
+    """Return (sorted env var names, subset that are true secrets).
+
+    Env vars declared under `spec.secrets.values` hold sensitive values (passwords,
+    keys) and always default to a placeholder. Env vars only referenced elsewhere in
+    the profile (e.g. `${CDS_ANALYTICS_DB_NAME}`) are typically non-sensitive
+    identifiers like database/user names, so callers can fill in friendlier defaults
+    for them instead of a placeholder.
+    """
     profile, diags = load_yaml_file(Path(profile_path))
     if profile is None:
         error_messages = [d.format() for d in diags if d.level == "error"]
         raise ValueError("Could not load profile: " + "; ".join(error_messages or ["unknown error"]))
 
-    env_vars: set[str] = set()
+    secret_env_vars: set[str] = set()
     spec = profile.get("spec", {})
     values = spec.get("secrets", {}).get("values", {})
     if isinstance(values, dict):
@@ -236,16 +246,16 @@ def _collect_profile_env_vars(profile_path: str) -> list[str]:
                 continue
             env_name = secret_def.get("env")
             if isinstance(env_name, str) and env_name:
-                env_vars.add(env_name)
+                secret_env_vars.add(env_name)
             else:
                 raise ValueError(f'Secret "{secret_name}" is missing a valid env name.')
 
-    env_vars.update(_find_profile_env_references(spec))
+    env_vars = set(secret_env_vars) | _find_profile_env_references(spec)
 
     if not env_vars:
         raise ValueError("No environment variables were found in the profile.")
 
-    return sorted(env_vars)
+    return sorted(env_vars), secret_env_vars
 
 
 def _find_profile_env_references(value) -> set[str]:
@@ -262,7 +272,23 @@ def _find_profile_env_references(value) -> set[str]:
     if isinstance(value, str):
         return set(re.findall(r"\$\{(CDS_[A-Z0-9_]+)\}", value))
     return set()
-def _write_env_file(output_path: Path, env_vars: list[str], profile_path: str, force: bool) -> None:
+def _default_env_value(env_name: str, is_secret: bool) -> str:
+    """Best-effort friendly default for a non-secret env var, else the change-me placeholder."""
+    if not is_secret:
+        # e.g. CDS_ANALYTICS_DB_NAME / CDS_ANALYTICS_DB_USER -> "analytics"
+        match = re.match(r"^CDS_([A-Z0-9]+)_DB_(?:NAME|USER)$", env_name)
+        if match:
+            return match.group(1).lower()
+    return "change-me"
+
+
+def _write_env_file(
+    output_path: Path,
+    env_vars: list[str],
+    secret_env_vars: set[str],
+    profile_path: str,
+    force: bool,
+) -> None:
     if output_path.exists() and not force:
         raise FileExistsError(f"Refusing to overwrite existing file: {output_path}. Use --force to overwrite.")
 
@@ -272,16 +298,40 @@ def _write_env_file(output_path: Path, env_vars: list[str], profile_path: str, f
         f"# Source profile: {profile_path}",
         "",
     ]
-    lines.extend([f"{env_name}=change-me" for env_name in env_vars])
+    lines.extend(
+        f"{env_name}={_default_env_value(env_name, env_name in secret_env_vars)}" for env_name in env_vars
+    )
     lines.append("")
     output_path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _cds_version() -> str:
+    """Resolve the installed CDS CLI version."""
+    try:
+        return _package_version("composable-data-stack")
+    except PackageNotFoundError:
+        return "unknown"
 
 
 def main() -> int:
     # Load .env file if it exists
     load_env_file()
     
-    parser = argparse.ArgumentParser(prog="cds")
+    parser = argparse.ArgumentParser(
+        prog="cds",
+        description=(
+            "Composable Data Stack (CDS): a compiler and CLI for declarative data "
+            "platforms. Define reusable modules (orchestrators, warehouses, BI tools, "
+            "caches, secrets providers) and wire them together in a profile; cds "
+            "validates, plans, and renders the stack to Docker Compose."
+        ),
+    )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {_cds_version()}",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     validate_parser = subparsers.add_parser("validate", help="Validate a profile")
@@ -339,6 +389,17 @@ def main() -> int:
         help="Check runtime prerequisites without starting the profile",
     )
     _add_profile_arg(preflight_parser)
+
+    state_parser = subparsers.add_parser(
+        "state",
+        help="Show running service status grouped by health",
+    )
+    _add_profile_arg(state_parser)
+    state_parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable colored health labels even on a color-capable terminal",
+    )
 
     init_parser = subparsers.add_parser(
         "init",
@@ -680,6 +741,35 @@ def main() -> int:
         print("\nPreflight failed.")
         return 1
 
+    if args.command == "state":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        compose_path = resolve_project_root(profile_path) / "docker-compose.yml"
+        if not compose_path.exists():
+            print(f"ERROR {compose_path} not found. Run 'cds up' first.")
+            return 1
+
+        ps_cmd = ["docker", "compose", "-f", str(compose_path), "ps", "-a", "--format", "json"]
+        try:
+            ps_result = subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603
+        except FileNotFoundError:
+            print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
+            return 1
+
+        if ps_result.returncode != 0:
+            print(ps_result.stderr or "ERROR docker compose ps failed.")
+            return ps_result.returncode
+
+        services = parse_compose_ps_json(ps_result.stdout)
+        grouped = group_services_by_health(services)
+        use_color = (not args.no_color) and sys.stdout.isatty()
+        print(format_state_output(grouped, use_color=use_color))
+        return 0
+
     if args.command == "init":
         try:
             profile_path = resolve_profile_path(args.profile)
@@ -688,14 +778,14 @@ def main() -> int:
             return 1
 
         try:
-            env_vars = _collect_profile_env_vars(profile_path)
+            env_vars, secret_env_vars = _collect_profile_env_vars(profile_path)
         except ValueError as exc:
             print(f"ERROR {exc}")
             return 1
 
         output_path = Path(args.output) if args.output else (resolve_project_root(profile_path) / ".env")
         try:
-            _write_env_file(output_path, env_vars, profile_path, args.force)
+            _write_env_file(output_path, env_vars, secret_env_vars, profile_path, args.force)
         except FileExistsError as exc:
             print(f"ERROR {exc}")
             return 1

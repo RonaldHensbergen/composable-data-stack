@@ -219,7 +219,19 @@ cds plan local-dagster-postgres-superset
 cds render local-dagster-postgres-superset
 ```
 
-## 7. Start The Stack
+## 7. Check Runtime Prerequisites
+
+```bash
+cds preflight local-dagster-postgres-superset
+```
+
+This checks the runtime CLI and daemon, Compose support, required
+environment values, and declared host ports without starting services.
+`cds init` only creates configuration; `cds validate` checks profile
+structure; this step checks whether your machine is actually ready to run
+containers.
+
+## 8. Start The Stack
 
 Build images and start the services:
 
@@ -240,7 +252,7 @@ Use `--no-build` only when the required local images already exist:
 cds up local-dagster-postgres-superset --detach --no-build
 ```
 
-## 8. Stop Or Remove The Stack
+## 9. Stop Or Remove The Stack
 
 Stop and remove containers while retaining named volumes:
 
