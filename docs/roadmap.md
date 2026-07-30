@@ -12,13 +12,13 @@ These are considered production-ready in the current release (v0.3.0-beta-1):
 - `cds plan` — dependency resolution and execution planning
 - `cds render` — Docker Compose configuration generation
 - `cds security` — configuration security checks
+- `cds up` — Spinning up the Docker Compose configuration
 - Module: Dagster (`modules/orchestration/dagster/`)
 - Module: Postgres (`modules/warehouse/postgres/`)
 - Module: Superset (`modules/bi/superset/`)
 - Module: KeyDB (`modules/cache/keydb/`)
 - Module: Vault (`modules/secrets/vault/`)
 - Profile: `local-dagster-postgres-superset`
-- Profile: `local-dagster-postgres-superset-vault`
 
 ---
 
@@ -35,6 +35,7 @@ These work but may have breaking changes in upcoming releases:
 ## Near-Term (Next 1–3 Releases)
 
 - 📋 **Publish CLI to PyPI** — enable `pipx install composable-data-stack` and `pip install composable-data-stack` (#52)
+- Profile: `local-dagster-postgres-superset-vault` - not tested thoroughly yet
 
 ---
 
