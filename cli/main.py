@@ -7,6 +7,8 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
+import time
+from datetime import datetime
 from importlib.metadata import PackageNotFoundError, version as _package_version
 from pathlib import Path
 
@@ -163,6 +165,86 @@ def resolve_env_file_path(profile_path: str) -> Path:
 
     project_env = resolve_project_root(profile_path) / ".env"
     return project_env
+
+
+# Buckets from cli/state.py that count as "started successfully" for the
+# `cds up` readiness poll: healthy/running services and clean one-shot exits.
+_UP_SUCCESS_BUCKETS = {"HEALTHY", "RUNNING", "HEALTHY EXIT"}
+_UP_FAILURE_BUCKETS = {"UNHEALTHY", "UNHEALTHY EXIT"}
+_UP_POLL_INTERVAL_SECONDS = 2.0
+
+
+def default_up_log_path(project_root: Path) -> Path:
+    """Default log file for `cds up` docker output: .cds/logs/up-<timestamp>.log."""
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return project_root / ".cds" / "logs" / f"up-{timestamp}.log"
+
+
+def run_docker_logged(cmd: list[str], log_handle, echo: bool = False) -> int:
+    """
+    Run a docker command, streaming its combined stdout/stderr into
+    log_handle (and optionally echoing to the terminal). Returns the exit code.
+    """
+    log_handle.write(f"$ {' '.join(cmd)}\n")
+    log_handle.flush()
+    # Fixed argv list, not a shell string; no user input concatenated in.
+    process = subprocess.Popen(  # nosec B603
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    assert process.stdout is not None
+    for line in process.stdout:
+        log_handle.write(line)
+        if echo:
+            print(line, end="")
+    log_handle.flush()
+    return process.wait()
+
+
+def watch_stack_until_ready(
+    compose_path: str,
+    log_path: Path,
+    timeout: float,
+    poll_interval: float = _UP_POLL_INTERVAL_SECONDS,
+) -> int:
+    """
+    Poll `docker compose ps -a --format json` and redraw the `cds state`
+    grouped view until every service is HEALTHY/RUNNING/exited cleanly, a
+    service settles in a failure bucket, or the timeout is hit.
+    """
+    ps_cmd = ["docker", "compose", "-f", compose_path, "ps", "-a", "--format", "json"]
+    is_tty = sys.stdout.isatty()
+    deadline = time.monotonic() + timeout
+
+    while True:
+        # Fixed argv list, not a shell string; no user input concatenated in.
+        ps_result = subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603
+        if ps_result.returncode != 0:
+            print(ps_result.stderr or "ERROR docker compose ps failed.")
+            return ps_result.returncode
+
+        grouped = group_services_by_health(parse_compose_ps_json(ps_result.stdout))
+
+        if is_tty:
+            # Clear the screen and move the cursor home before redrawing.
+            print("\033[2J\033[H", end="")
+        print(f"cds up: waiting for services (docker output logged to {log_path})\n")
+        print(format_state_output(grouped, use_color=is_tty))
+
+        buckets = set(grouped)
+        if grouped and buckets <= _UP_SUCCESS_BUCKETS:
+            print("\nAll services are up.")
+            return 0
+        if grouped and buckets <= (_UP_SUCCESS_BUCKETS | _UP_FAILURE_BUCKETS):
+            print(f"\nOne or more services are unhealthy or exited with an error. See {log_path}.")
+            return 1
+        if time.monotonic() >= deadline:
+            print(f"\nTimed out waiting for services after {timeout:g}s. See {log_path}.")
+            return 1
+
+        time.sleep(poll_interval)
 
 
 def list_profiles() -> list[str]:
@@ -370,12 +452,22 @@ def main() -> int:
         "--detach",
         "-d",
         action="store_true",
-        help="Run containers in the background (passed through to docker compose up)",
+        help="Exit as soon as containers are started instead of watching service state",
     )
     up_parser.add_argument(
         "--no-build",
         action="store_true",
         help="Skip docker compose build before starting services",
+    )
+    up_parser.add_argument(
+        "--log-file",
+        help="Path for the docker output log file (default: <project-root>/.cds/logs/up-<timestamp>.log)",
+    )
+    up_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=300.0,
+        help="Seconds to wait for services to become healthy before giving up (default: 300)",
     )
 
     test_parser = subparsers.add_parser(
@@ -607,27 +699,45 @@ def main() -> int:
 
         print(f"Rendered compose file written to {output_path}")
 
-        up_cmd = ["docker", "compose", "-f", output_path, "up"]
-        if args.detach:
-            up_cmd.append("--detach")
+        log_path = Path(args.log_file) if args.log_file else default_up_log_path(resolve_project_root(profile_path))
+        log_path.parent.mkdir(parents=True, exist_ok=True)
 
+        up_cmd = ["docker", "compose", "-f", output_path, "up", "--detach"]
+
+        logs_proc = None
         try:
-            if not args.no_build:
-                build_cmd = ["docker", "compose", "-f", output_path, "build"]
-                print(f"Running: {' '.join(build_cmd)}")
-                # Fixed argv list, not a shell string; no user input concatenated in.
-                build_result = subprocess.run(build_cmd)  # nosec B603
-                if build_result.returncode != 0:
-                    return build_result.returncode
+            with open(log_path, "a", encoding="utf-8") as log_handle:
+                if not args.no_build:
+                    build_cmd = ["docker", "compose", "-f", output_path, "build"]
+                    print(f"Running: {' '.join(build_cmd)} (output logged to {log_path})")
+                    build_returncode = run_docker_logged(build_cmd, log_handle, echo=True)
+                    if build_returncode != 0:
+                        return build_returncode
 
-            print(f"Running: {' '.join(up_cmd)}")
-            # Fixed argv list, not a shell string; no user input concatenated in.
-            up_result = subprocess.run(up_cmd)  # nosec B603
+                print(f"Running: {' '.join(up_cmd)} (output logged to {log_path})")
+                up_returncode = run_docker_logged(up_cmd, log_handle, echo=args.detach)
+                if up_returncode != 0 or args.detach:
+                    return up_returncode
+
+                # Follow container logs into the log file only; the terminal
+                # shows the live state view instead.
+                logs_cmd = ["docker", "compose", "-f", output_path, "logs", "--follow", "--no-color"]
+                # Fixed argv list, not a shell string; no user input concatenated in.
+                logs_proc = subprocess.Popen(  # nosec B603
+                    logs_cmd,
+                    stdout=log_handle,
+                    stderr=subprocess.STDOUT,
+                )
+                try:
+                    return watch_stack_until_ready(output_path, log_path, timeout=args.timeout)
+                except KeyboardInterrupt:
+                    print(f"\nStopped watching; the stack keeps running. Docker output logged to {log_path}")
+                    return 130
+                finally:
+                    logs_proc.terminate()
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
             return 1
-
-        return up_result.returncode
 
     if args.command == "test":
         try:

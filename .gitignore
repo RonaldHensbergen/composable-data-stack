@@ -208,6 +208,9 @@ tempCodeRunnerFile.py
 docker-compose.yml
 docker-compose.yaml
 
+# CDS runtime artifacts (e.g. `cds up` docker output logs)
+.cds/
+
 # Ruff stuff:
 .ruff_cache/
 

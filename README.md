@@ -415,7 +415,10 @@ cds up local-dagster-postgres-superset
 ```
 
 This runs `validate` → `plan` → `render` → `docker compose build` → `docker compose up` in one step.
-Add `--detach` (or `-d`) to run in the background:
+Docker output is written to a log file (default `.cds/logs/up-<timestamp>.log`, override with
+`--log-file`), while the terminal shows a live `cds state` view until every service is healthy,
+running, or exited cleanly (bounded by `--timeout`, default 300 seconds).
+Add `--detach` (or `-d`) to exit as soon as the containers are started instead of watching:
 
 ```bash
 cds up local-dagster-postgres-superset --detach
@@ -521,7 +524,7 @@ profiles/[profile]/
 |cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
 |cds render [profile]|Generate Docker Compose configuration from a resolved plan|
-|cds up [profile]|Validate, plan, render, build, and start services with docker compose (use `--no-build` to skip build)|
+|cds up [profile]|Validate, plan, render, build, and start services with docker compose; logs docker output to `.cds/logs/` (`--log-file` to override) and shows a live health view until services are ready (`--timeout` to bound the wait, `--no-build` to skip build, `--detach` to exit without watching)|
 |cds state [profile]|Show running service status grouped by health (use `--no-color` to disable colored labels)|
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 

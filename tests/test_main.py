@@ -11,7 +11,15 @@ from unittest.mock import patch
 
 from cli.diagnostics import Diagnostic
 from cli.image_updates import collect_module_images
-from cli.main import list_modules, list_profiles, resolve_profile_path, main
+from cli.main import (
+    default_up_log_path,
+    list_modules,
+    list_profiles,
+    main,
+    resolve_profile_path,
+    run_docker_logged,
+    watch_stack_until_ready,
+)
 from cli.preflight import PreflightCheck
 
 
@@ -282,95 +290,126 @@ class MainCLITest(unittest.TestCase):
         mock_render.assert_called_once()
         mock_preflight.assert_called_once()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.subprocess.Popen")
+    @patch("cli.main.watch_stack_until_ready")
+    @patch("cli.main.run_docker_logged")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_runs_docker_compose_up(self, mock_validate, mock_plan, mock_render, mock_run):
+    def test_up_command_runs_docker_compose_up(
+        self, mock_validate, mock_plan, mock_render, mock_docker, mock_watch, mock_popen
+    ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        mock_docker.return_value = 0
+        mock_watch.return_value = 0
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
-        ):
-            result = main()
+        with tempfile.TemporaryDirectory() as tmp:
+            log_file = str(Path(tmp) / "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_file]
+            ):
+                result = main()
 
-        self.assertEqual(result, 0)
-        self.assertEqual(mock_run.call_count, 2)
-        build_cmd = mock_run.call_args_list[0][0][0]
-        up_cmd = mock_run.call_args_list[1][0][0]
-        self.assertEqual(build_cmd[:4], ["docker", "compose", "-f", build_cmd[3]])
-        self.assertEqual(up_cmd[:4], ["docker", "compose", "-f", up_cmd[3]])
-        self.assertIn("build", build_cmd)
-        self.assertIn("up", up_cmd)
-        self.assertNotIn("--detach", up_cmd)
+            self.assertEqual(result, 0)
+            self.assertEqual(mock_docker.call_count, 2)
+            build_cmd = mock_docker.call_args_list[0][0][0]
+            up_cmd = mock_docker.call_args_list[1][0][0]
+            self.assertEqual(build_cmd[:4], ["docker", "compose", "-f", build_cmd[3]])
+            self.assertEqual(up_cmd[:4], ["docker", "compose", "-f", up_cmd[3]])
+            self.assertIn("build", build_cmd)
+            self.assertIn("up", up_cmd)
+            self.assertIn("--detach", up_cmd)
+            # Container logs are followed into the log file in the background.
+            logs_cmd = mock_popen.call_args[0][0]
+            self.assertIn("logs", logs_cmd)
+            self.assertIn("--follow", logs_cmd)
+            mock_watch.assert_called_once()
+            self.assertTrue(Path(log_file).exists())
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.subprocess.Popen")
+    @patch("cli.main.watch_stack_until_ready")
+    @patch("cli.main.run_docker_logged")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_detach_flag_passes_through(self, mock_validate, mock_plan, mock_render, mock_run):
+    def test_up_command_detach_flag_skips_state_watch(
+        self, mock_validate, mock_plan, mock_render, mock_docker, mock_watch, mock_popen
+    ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        mock_docker.return_value = 0
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--detach"]
-        ):
-            result = main()
+        with tempfile.TemporaryDirectory() as tmp:
+            log_file = str(Path(tmp) / "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--detach", "--log-file", log_file]
+            ):
+                result = main()
 
         self.assertEqual(result, 0)
-        up_cmd = mock_run.call_args_list[1][0][0]
+        up_cmd = mock_docker.call_args_list[1][0][0]
         self.assertIn("--detach", up_cmd)
+        mock_watch.assert_not_called()
+        mock_popen.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.subprocess.Popen")
+    @patch("cli.main.watch_stack_until_ready")
+    @patch("cli.main.run_docker_logged")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_short_detach_flag_passes_through(self, mock_validate, mock_plan, mock_render, mock_run):
+    def test_up_command_short_detach_flag_skips_state_watch(
+        self, mock_validate, mock_plan, mock_render, mock_docker, mock_watch, mock_popen
+    ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        mock_docker.return_value = 0
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "-d"]
-        ):
-            result = main()
+        with tempfile.TemporaryDirectory() as tmp:
+            log_file = str(Path(tmp) / "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "-d", "--log-file", log_file]
+            ):
+                result = main()
 
         self.assertEqual(result, 0)
-        up_cmd = mock_run.call_args_list[1][0][0]
+        up_cmd = mock_docker.call_args_list[1][0][0]
         self.assertIn("--detach", up_cmd)
+        mock_watch.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.watch_stack_until_ready")
+    @patch("cli.main.run_docker_logged")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_stops_when_build_fails(self, mock_validate, mock_plan, mock_render, mock_run):
+    def test_up_command_stops_when_build_fails(
+        self, mock_validate, mock_plan, mock_render, mock_docker, mock_watch
+    ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run.side_effect = [
-            subprocess.CompletedProcess(args=[], returncode=9),
-            subprocess.CompletedProcess(args=[], returncode=0),
-        ]
+        mock_docker.side_effect = [9, 0]
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
-        ):
-            result = main()
+        with tempfile.TemporaryDirectory() as tmp:
+            log_file = str(Path(tmp) / "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_file]
+            ):
+                result = main()
 
         self.assertEqual(result, 9)
-        self.assertEqual(mock_run.call_count, 1)
-        cmd = mock_run.call_args[0][0]
+        self.assertEqual(mock_docker.call_count, 1)
+        cmd = mock_docker.call_args[0][0]
         self.assertIn("build", cmd)
+        mock_watch.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.run_docker_logged")
     @patch("cli.main.validate_profile")
-    def test_up_command_stops_on_validation_failure_without_calling_docker(self, mock_validate, mock_run):
+    def test_up_command_stops_on_validation_failure_without_calling_docker(self, mock_validate, mock_docker):
         mock_validate.return_value = [Diagnostic("error", "E001", "bad profile", "spec")]
 
         with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
@@ -379,12 +418,12 @@ class MainCLITest(unittest.TestCase):
             result = main()
 
         self.assertEqual(result, 1)
-        mock_run.assert_not_called()
+        mock_docker.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.run_docker_logged")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_stops_on_plan_failure_without_calling_docker(self, mock_validate, mock_plan, mock_run):
+    def test_up_command_stops_on_plan_failure_without_calling_docker(self, mock_validate, mock_plan, mock_docker):
         mock_validate.return_value = []
         mock_plan.return_value = (None, [Diagnostic("error", "E041", "bad binding", "spec")])
 
@@ -394,14 +433,14 @@ class MainCLITest(unittest.TestCase):
             result = main()
 
         self.assertEqual(result, 1)
-        mock_run.assert_not_called()
+        mock_docker.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.run_docker_logged")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_stops_on_render_failure_without_calling_docker(
-        self, mock_validate, mock_plan, mock_render, mock_run
+        self, mock_validate, mock_plan, mock_render, mock_docker
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -413,90 +452,134 @@ class MainCLITest(unittest.TestCase):
             result = main()
 
         self.assertEqual(result, 1)
-        mock_run.assert_not_called()
+        mock_docker.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.run_docker_logged")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_reports_clear_error_when_docker_missing(self, mock_validate, mock_plan, mock_render, mock_run):
-        mock_validate.return_value = []
-        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
-        mock_render.return_value = ("services: {}", [])
-        mock_run.side_effect = FileNotFoundError()
-
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
-        ):
-            result = main()
-
-        self.assertEqual(result, 1)
-
-    @patch("cli.main.subprocess.run")
-    @patch("cli.main.render_compose")
-    @patch("cli.main.build_plan")
-    @patch("cli.main.validate_profile")
-    def test_up_command_propagates_docker_compose_exit_code(self, mock_validate, mock_plan, mock_render, mock_run):
-        mock_validate.return_value = []
-        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
-        mock_render.return_value = ("services: {}", [])
-        mock_run.side_effect = [
-            subprocess.CompletedProcess(args=[], returncode=0),
-            subprocess.CompletedProcess(args=[], returncode=17),
-        ]
-
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
-        ):
-            result = main()
-
-        self.assertEqual(result, 17)
-
-    @patch("cli.main.subprocess.run")
-    @patch("cli.main.render_compose")
-    @patch("cli.main.build_plan")
-    @patch("cli.main.validate_profile")
-    def test_up_command_no_build_skips_build_step(self, mock_validate, mock_plan, mock_render, mock_run):
-        mock_validate.return_value = []
-        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
-        mock_render.return_value = ("services: {}", [])
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
-
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--no-build"]
-        ):
-            result = main()
-
-        self.assertEqual(result, 0)
-        self.assertEqual(mock_run.call_count, 1)
-        cmd = mock_run.call_args[0][0]
-        self.assertIn("up", cmd)
-        self.assertNotIn("build", cmd)
-
-    @patch("cli.main.subprocess.run")
-    @patch("cli.main.render_compose")
-    @patch("cli.main.build_plan")
-    @patch("cli.main.validate_profile")
-    def test_up_command_no_build_and_detach_flags_both_pass_through(
-        self, mock_validate, mock_plan, mock_render, mock_run
+    def test_up_command_reports_clear_error_when_docker_missing(
+        self, mock_validate, mock_plan, mock_render, mock_docker
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        mock_docker.side_effect = FileNotFoundError()
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys,
-            "argv",
-            ["cds", "up", "local-dagster-postgres-superset", "--no-build", "--detach"],
-        ):
-            result = main()
+        with tempfile.TemporaryDirectory() as tmp:
+            log_file = str(Path(tmp) / "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_file]
+            ):
+                result = main()
+
+        self.assertEqual(result, 1)
+
+    @patch("cli.main.watch_stack_until_ready")
+    @patch("cli.main.run_docker_logged")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_propagates_docker_compose_exit_code(
+        self, mock_validate, mock_plan, mock_render, mock_docker, mock_watch
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_docker.side_effect = [0, 17]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_file = str(Path(tmp) / "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_file]
+            ):
+                result = main()
+
+        self.assertEqual(result, 17)
+        mock_watch.assert_not_called()
+
+    @patch("cli.main.subprocess.Popen")
+    @patch("cli.main.watch_stack_until_ready")
+    @patch("cli.main.run_docker_logged")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_no_build_skips_build_step(
+        self, mock_validate, mock_plan, mock_render, mock_docker, mock_watch, mock_popen
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_docker.return_value = 0
+        mock_watch.return_value = 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_file = str(Path(tmp) / "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--no-build", "--log-file", log_file]
+            ):
+                result = main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(mock_run.call_count, 1)
-        cmd = mock_run.call_args[0][0]
+        self.assertEqual(mock_docker.call_count, 1)
+        cmd = mock_docker.call_args[0][0]
+        self.assertIn("up", cmd)
+        self.assertNotIn("build", cmd)
+
+    @patch("cli.main.subprocess.Popen")
+    @patch("cli.main.watch_stack_until_ready")
+    @patch("cli.main.run_docker_logged")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_no_build_and_detach_flags_both_pass_through(
+        self, mock_validate, mock_plan, mock_render, mock_docker, mock_watch, mock_popen
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_docker.return_value = 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_file = str(Path(tmp) / "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--no-build", "--detach", "--log-file", log_file],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_docker.call_count, 1)
+        cmd = mock_docker.call_args[0][0]
         self.assertIn("up", cmd)
         self.assertIn("--detach", cmd)
+        mock_watch.assert_not_called()
+
+    @patch("cli.main.subprocess.Popen")
+    @patch("cli.main.watch_stack_until_ready")
+    @patch("cli.main.run_docker_logged")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_terminates_logs_follower_after_watch(
+        self, mock_validate, mock_plan, mock_render, mock_docker, mock_watch, mock_popen
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_docker.return_value = 0
+        mock_watch.return_value = 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_file = str(Path(tmp) / "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_file]
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        mock_popen.return_value.terminate.assert_called_once()
 
 
     @patch("cli.main.render_compose")
@@ -789,6 +872,133 @@ class StateCLITest(unittest.TestCase):
         result, output = self._run_state_with_tty([], isatty_return=True)
         self.assertEqual(result, 0)
         self.assertIn("\033", output)
+
+
+class UpHelpersTest(unittest.TestCase):
+    def test_default_up_log_path_is_under_cds_logs(self):
+        root = Path("/some/project")
+        log_path = default_up_log_path(root)
+        self.assertEqual(log_path.parent, root / ".cds" / "logs")
+        self.assertTrue(log_path.name.startswith("up-"))
+        self.assertTrue(log_path.name.endswith(".log"))
+
+    def test_run_docker_logged_writes_command_and_output_to_log(self):
+        cmd = [sys.executable, "-c", "print('hello from docker')"]
+        log_handle = io.StringIO()
+
+        returncode = run_docker_logged(cmd, log_handle)
+
+        self.assertEqual(returncode, 0)
+        logged = log_handle.getvalue()
+        self.assertIn("$ ", logged)
+        self.assertIn("hello from docker", logged)
+
+    def test_run_docker_logged_echoes_output_when_requested(self):
+        cmd = [sys.executable, "-c", "print('echoed line')"]
+        log_handle = io.StringIO()
+        captured = io.StringIO()
+
+        with contextlib.redirect_stdout(captured):
+            returncode = run_docker_logged(cmd, log_handle, echo=True)
+
+        self.assertEqual(returncode, 0)
+        self.assertIn("echoed line", captured.getvalue())
+        self.assertIn("echoed line", log_handle.getvalue())
+
+    def test_run_docker_logged_returns_nonzero_exit_code(self):
+        cmd = [sys.executable, "-c", "import sys; sys.exit(5)"]
+        returncode = run_docker_logged(cmd, io.StringIO())
+        self.assertEqual(returncode, 5)
+
+
+class WatchStackUntilReadyTest(unittest.TestCase):
+    def _ps_result(self, stdout: str, returncode: int = 0, stderr: str = ""):
+        return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+
+    @patch("cli.main.time.sleep")
+    @patch("cli.main.subprocess.run")
+    def test_returns_zero_when_all_services_healthy_or_running(self, mock_run, mock_sleep):
+        mock_run.return_value = self._ps_result(
+            '{"Service": "svc-a", "Health": "healthy"}\n{"Service": "svc-b", "State": "running"}\n'
+        )
+
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            result = watch_stack_until_ready("docker-compose.yml", Path("up.log"), timeout=60)
+
+        self.assertEqual(result, 0)
+        mock_sleep.assert_not_called()
+        self.assertIn("All services are up.", captured.getvalue())
+
+    @patch("cli.main.time.sleep")
+    @patch("cli.main.subprocess.run")
+    def test_polls_until_starting_service_becomes_healthy(self, mock_run, mock_sleep):
+        mock_run.side_effect = [
+            self._ps_result('{"Service": "svc-a", "Health": "starting"}\n'),
+            self._ps_result('{"Service": "svc-a", "Health": "healthy"}\n'),
+        ]
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = watch_stack_until_ready("docker-compose.yml", Path("up.log"), timeout=60)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_run.call_count, 2)
+        mock_sleep.assert_called_once()
+
+    @patch("cli.main.time.sleep")
+    @patch("cli.main.subprocess.run")
+    def test_returns_one_when_a_service_exits_unhealthily(self, mock_run, mock_sleep):
+        mock_run.return_value = self._ps_result(
+            '{"Service": "svc-a", "Health": "healthy"}\n'
+            '{"Service": "svc-b", "State": "exited", "ExitCode": 3}\n'
+        )
+
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            result = watch_stack_until_ready("docker-compose.yml", Path("up.log"), timeout=60)
+
+        self.assertEqual(result, 1)
+        self.assertIn("unhealthy or exited with an error", captured.getvalue())
+
+    @patch("cli.main.time.sleep")
+    @patch("cli.main.time.monotonic")
+    @patch("cli.main.subprocess.run")
+    def test_returns_one_on_timeout(self, mock_run, mock_monotonic, mock_sleep):
+        mock_run.return_value = self._ps_result('{"Service": "svc-a", "Health": "starting"}\n')
+        mock_monotonic.side_effect = [0.0, 301.0]
+
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            result = watch_stack_until_ready("docker-compose.yml", Path("up.log"), timeout=300)
+
+        self.assertEqual(result, 1)
+        self.assertIn("Timed out waiting for services", captured.getvalue())
+
+    @patch("cli.main.time.sleep")
+    @patch("cli.main.subprocess.run")
+    def test_keeps_polling_while_no_services_are_reported_yet(self, mock_run, mock_sleep):
+        mock_run.side_effect = [
+            self._ps_result(""),
+            self._ps_result('{"Service": "svc-a", "State": "running"}\n'),
+        ]
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            result = watch_stack_until_ready("docker-compose.yml", Path("up.log"), timeout=60)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_run.call_count, 2)
+
+    @patch("cli.main.time.sleep")
+    @patch("cli.main.subprocess.run")
+    def test_propagates_compose_ps_failure(self, mock_run, mock_sleep):
+        mock_run.return_value = self._ps_result("", returncode=14, stderr="compose ps failed")
+
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            result = watch_stack_until_ready("docker-compose.yml", Path("up.log"), timeout=60)
+
+        self.assertEqual(result, 14)
+        self.assertIn("compose ps failed", captured.getvalue())
 
 
 if __name__ == "__main__":

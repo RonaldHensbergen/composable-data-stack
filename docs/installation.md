@@ -239,8 +239,10 @@ Build images and start the services:
 cds up local-dagster-postgres-superset --detach
 ```
 
-The first build and image pull can take several minutes. Inspect service
-status with:
+The first build and image pull can take several minutes. Docker output is
+written to a log file under `.cds/logs/` (override with `--log-file`).
+Without `--detach`, `cds up` shows a live health view until every service is
+ready. Inspect service status afterwards with:
 
 ```bash
 docker compose ps
