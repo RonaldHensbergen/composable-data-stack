@@ -22,7 +22,16 @@ from .image_updates import collect_module_images, check_image_update
 from .preflight import preflight_passed, run_preflight
 from .security import run_security_validation
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
+from .up_runner import (
+    DEFAULT_TIMEOUT_SECONDS,
+    default_log_path,
+    poll_state_until_settled,
+    run_streamed,
+    start_log_tail,
+    stop_log_tail,
+)
 from .loader import load_yaml_file
+import yaml
 
 
 def load_env_file(env_file: str = ".env") -> None:
@@ -370,12 +379,30 @@ def main() -> int:
         "--detach",
         "-d",
         action="store_true",
-        help="Run containers in the background (passed through to docker compose up)",
+        help="Return as soon as the stack starts, skipping the live state view "
+        "(docker compose always runs detached internally)",
     )
     up_parser.add_argument(
         "--no-build",
         action="store_true",
         help="Skip docker compose build before starting services",
+    )
+    up_parser.add_argument(
+        "--log-file",
+        help="Path to write docker compose build/up/logs output to "
+        "(default: .cds/logs/up-<profile>-<timestamp>.log)",
+    )
+    up_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help=f"Seconds to wait for services to settle before giving up "
+        f"(default: {int(DEFAULT_TIMEOUT_SECONDS)}; ignored with --detach)",
+    )
+    up_parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable colored labels in the live state view",
     )
 
     test_parser = subparsers.add_parser(
@@ -607,27 +634,81 @@ def main() -> int:
 
         print(f"Rendered compose file written to {output_path}")
 
-        up_cmd = ["docker", "compose", "-f", output_path, "up"]
-        if args.detach:
-            up_cmd.append("--detach")
+        up_cmd = ["docker", "compose", "-f", output_path, "up", "--detach"]
 
+        resolved_profile_file = Path(profile_path)
+        if args.profile:
+            profile_label = args.profile
+        elif resolved_profile_file.stem == "profile":
+            profile_label = resolved_profile_file.parent.name
+        else:
+            profile_label = resolved_profile_file.stem
+        log_path = Path(args.log_file) if args.log_file else default_log_path(profile_label)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        print(f"Logging docker compose output to {log_path}")
+
+        expected_service_count = None
         try:
-            if not args.no_build:
-                build_cmd = ["docker", "compose", "-f", output_path, "build"]
-                print(f"Running: {' '.join(build_cmd)}")
-                # Fixed argv list, not a shell string; no user input concatenated in.
-                build_result = subprocess.run(build_cmd)  # nosec B603
-                if build_result.returncode != 0:
-                    return build_result.returncode
+            compose_doc = yaml.safe_load(compose_yaml) or {}
+            expected_service_count = len(compose_doc.get("services", {}))
+        except yaml.YAMLError:
+            pass
 
-            print(f"Running: {' '.join(up_cmd)}")
-            # Fixed argv list, not a shell string; no user input concatenated in.
-            up_result = subprocess.run(up_cmd)  # nosec B603
+        log_tail_process = None
+        settled = True
+        try:
+            with open(log_path, "a", encoding="utf-8") as log_file:
+                if not args.no_build:
+                    build_cmd = ["docker", "compose", "-f", output_path, "build"]
+                    print(f"Running: {' '.join(build_cmd)}")
+                    build_returncode = run_streamed(build_cmd, log_file)
+                    if build_returncode != 0:
+                        print(f"Build failed (exit {build_returncode}). See {log_path} for details.")
+                        return build_returncode
+
+                print(f"Running: {' '.join(up_cmd)}")
+                up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
+                if up_returncode != 0:
+                    print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                    return up_returncode
+
+                if args.detach:
+                    print(
+                        f"Stack starting in the background. Run 'cds state' to check status; "
+                        f"full output in {log_path}."
+                    )
+                    return 0
+
+                log_tail_process = start_log_tail(output_path, log_file)
+                try:
+                    settled, _grouped = poll_state_until_settled(
+                        output_path,
+                        expected_service_count=expected_service_count,
+                        timeout=args.timeout,
+                        use_color=(not args.no_color) and sys.stdout.isatty(),
+                    )
+                except KeyboardInterrupt:
+                    print(
+                        f"\nStopped watching; the stack keeps running. "
+                        f"Docker output logged to {log_path}."
+                    )
+                    return 130
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
             return 1
+        finally:
+            if log_tail_process is not None:
+                stop_log_tail(log_tail_process)
 
-        return up_result.returncode
+        if not settled:
+            print(
+                f"\nStack did not settle within {args.timeout:.0f}s, or a service is unhealthy. "
+                f"Run 'cds state' for the latest status; full output in {log_path}."
+            )
+            return 1
+
+        print(f"\nStack is up. Full output in {log_path}.")
+        return 0
 
     if args.command == "test":
         try:
