@@ -647,14 +647,9 @@ def main() -> int:
 
         security_ok = False
         if validate_ok:
-            repo_root = Path(__file__).resolve().parents[1]
-            rule_schema_path = repo_root / "security" / "rule-schema.json"
-            rule_set_path = repo_root / "security" / "rule-set.json"
             try:
                 findings, sec_diags = run_security_validation(
                     profile_path=Path(profile_path),
-                    rule_schema_path=rule_schema_path,
-                    rule_set_path=rule_set_path,
                     env_file=str(resolve_env_file_path(profile_path)),
                 )
                 for diag in sec_diags:
@@ -866,15 +861,9 @@ def main() -> int:
             print("Cannot run security validation because profile validation failed.")
             return 1
 
-        repo_root = Path(__file__).resolve().parents[1]
-        rule_schema_path = repo_root / "security" / "rule-schema.json"
-        rule_set_path = repo_root / "security" / "rule-set.json"
-
         try:
             findings, diagnostics = run_security_validation(
                 profile_path=Path(profile_path),
-                rule_schema_path=rule_schema_path,
-                rule_set_path=rule_set_path,
                 env_file=str(resolve_env_file_path(profile_path)),
             )
         except Exception as e:

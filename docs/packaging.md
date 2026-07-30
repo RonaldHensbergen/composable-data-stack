@@ -8,7 +8,11 @@ The repository is already set up as a Python package via `pyproject.toml` and ex
 
 - `cds = "cli.main:main"`
 
-That means the easiest install path is a Python wheel.
+The wheel contains the CLI and its built-in security rules. Profiles, modules,
+Docker image build contexts, and runtime workdirs remain project content and
+are not installed into the Python environment. Until registry-backed
+`cds pull` support exists, use a repository checkout or provide external roots
+through `CDS_PROFILE_PATH` and `CDS_MODULE_PATH`.
 
 ## Environment variables
 
@@ -69,7 +73,7 @@ make package
 Install it locally:
 
 ```bash
-python3 -m pip install dist/composable_data_stack-0.1.0-py3-none-any.whl
+python3 -m pip install dist/composable_data_stack-0.1.1-py3-none-any.whl
 ```
 
 Advantages:
@@ -129,6 +133,40 @@ Wrap the bundled executable in an MSI using WiX Toolset or another Windows insta
    - `cds list profiles`
    - `cds list modules`
    - `cds validate local-dagster-postgres-superset`
+
+## TestPyPI publishing
+
+`.github/workflows/testpypi.yml` builds, checks, installs, and exercises the
+wheel before publishing the same distributions to TestPyPI. It uses trusted
+publishing and does not require a stored API token.
+
+Repository setup:
+
+1. Create a GitHub environment named `testpypi`. Add required reviewers if
+   publication should require approval.
+2. On TestPyPI, create a pending trusted publisher for:
+   - owner: `RonaldHensbergen`
+   - repository: `composable-data-stack`
+   - workflow: `testpypi.yml`
+   - environment: `testpypi`
+3. Ensure the version in `pyproject.toml` has never been uploaded to TestPyPI.
+   Published files and versions are immutable.
+4. Run **Publish CLI to TestPyPI** through the Actions workflow-dispatch UI.
+
+To verify a TestPyPI artifact while resolving dependencies from PyPI, download
+the wheel without dependencies and install that local artifact:
+
+```bash
+python -m pip download \
+  --no-deps \
+  --index-url https://test.pypi.org/simple/ \
+  composable-data-stack
+pipx install ./composable_data_stack-*.whl
+cds --help
+```
+
+Publishing to production PyPI remains a separate release step. Do not reuse a
+TestPyPI-only workflow or repository URL for production.
 
 ## Notes for installer authors
 

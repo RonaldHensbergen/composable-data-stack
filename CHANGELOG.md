@@ -11,12 +11,15 @@ The format is based on Keep a Changelog.
 ### Added
 
 - `cds up` now supports `--no-build` to skip Docker Compose image builds when images are already available.
+- Python distributions now include the CLI security rules and complete PyPI metadata.
+- CI builds and smoke-tests the wheel outside the source tree, and maintainers can publish validated artifacts to TestPyPI through trusted publishing.
 - `cds --version`/`-v` now reports the installed CLI version.
 - The release workflow now verifies that a pushed `vX.Y.Z` tag matches the version declared in `pyproject.toml` before publishing a GitHub release, failing fast on drift.
 
 ### Changed
 
 - `cds up` now runs `docker compose build` before `docker compose up` by default.
+- Security validation loads its default rules from package resources instead of requiring a repository-root `security/` directory.
 - CI now measures test coverage on the Ubuntu leg of the test matrix and fails the build if `cli/` coverage drops below 65%.
 - Superset initialization now synchronizes roles and permissions after migrations and admin provisioning, preventing authenticated API requests from failing with `403` responses.
 - Dagster services now communicate with the user-code gRPC server through a shared Unix-domain socket volume instead of an internal TCP port.
