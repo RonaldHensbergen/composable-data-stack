@@ -132,6 +132,14 @@ CDS splits into two phases: **compile-time**, where `cds` itself validates, reso
 - **Render** generates the final `docker-compose.yaml`, with secret values as `${CDS_VAR}` placeholders; never the raw value.
 - **Runtime** (`cds up` only): `docker compose build` (skippable with `--no-build`), then `docker compose up`. Docker Compose, not CDS, resolves `${CDS_VAR}` placeholders from a `.env` file (see `cds init`) and starts the containers.
 
+Passing `validate → security → plan → render` proves the profile *compiles*
+correctly — it is not proof that the resulting stack *runs* correctly. For the
+broader success criteria used to certify a profile (booting the rendered
+stack, service health, an end-to-end pipeline run, and downstream data
+consumption in Superset), see
+[docs/profile-testing/test-plan.md](docs/profile-testing/test-plan.md) and
+[docs/profile-testing/failure-path-and-ci.md](docs/profile-testing/failure-path-and-ci.md).
+
 ```mermaid
 ---
 config:
