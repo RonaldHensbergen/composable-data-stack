@@ -14,13 +14,24 @@ from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_na
 
 
 def validate_profile(profile_path: str) -> list[Diagnostic]:
-    diagnostics: list[Diagnostic] = []
-
     profile_file = Path(profile_path)
-    profile, diags = load_yaml_file(profile_file)
-    diagnostics.extend(diags)
+    profile, diagnostics = load_yaml_file(profile_file)
     if profile is None:
         return diagnostics
+
+    return diagnostics + validate_loaded_profile(profile, profile_file)
+
+
+def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list[Diagnostic]:
+    """
+    Runs the full validation pipeline (shape, module configs, dependencies,
+    secret refs, contract bindings, outputs) against an already-loaded
+    profile dict. Split out from validate_profile so callers that produce a
+    profile dict some other way, e.g. the environment-overlay resolver's
+    merged result, get identical validation without re-implementing this
+    orchestration.
+    """
+    diagnostics: list[Diagnostic] = []
 
     diagnostics.extend(validate_profile_shape(profile))
     if has_errors(diagnostics):
