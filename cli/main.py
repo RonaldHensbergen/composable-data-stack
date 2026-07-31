@@ -669,6 +669,11 @@ def main() -> int:
                         return build_returncode
 
                 print(f"Running: {' '.join(up_cmd)}")
+                if not args.detach:
+                    print(
+                        "Switching to the live state view; full docker compose output "
+                        f"is being written to {log_path}."
+                    )
                 up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
                 if up_returncode != 0:
                     print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
