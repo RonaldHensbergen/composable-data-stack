@@ -1,11 +1,16 @@
 import fnmatch
+import json
+import os
+import tempfile
 import tomllib
 import unittest
 from pathlib import Path
 
-from cli.security import _eval_condition, _validate_rule_set
+from cli.security import _eval_condition, _validate_rule_set, run_security_validation
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
+_RULE_SCHEMA_PATH = _REPO_ROOT / "cli" / "resources" / "rule-schema.json"
+_RULE_SET_PATH = _REPO_ROOT / "cli" / "resources" / "rule-set.json"
 
 
 class BundledSecurityRulesTest(unittest.TestCase):
@@ -164,6 +169,84 @@ class ImageTagPolicyTest(unittest.TestCase):
             profile_class="prod",
         )
         self.assertFalse(matched, "an explicitly tagged image should not be flagged")
+
+
+class EnvFilePathRuleTest(unittest.TestCase):
+    def test_flags_a_profile_scoped_env_file_path(self):
+        profile_path = (
+            _REPO_ROOT / "tests" / "fixtures" / "security" / "profile-scoped-env" / "profile.yaml"
+        )
+        env_path = profile_path.parent / ".env"
+
+        findings, _diags = run_security_validation(
+            profile_path,
+            _RULE_SCHEMA_PATH,
+            _RULE_SET_PATH,
+            env_file=str(env_path),
+        )
+
+        hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
+        self.assertEqual(len(hits), 1)
+        self.assertTrue(hits[0]["path"].endswith("tests/fixtures/security/profile-scoped-env/.env"))
+        self.assertEqual(hits[0]["module"], "<env>")
+
+    def test_does_not_flag_the_conventional_project_root_env_file(self):
+        """
+        Regression guard for CDS-SEC-031 previously matching *every* env file
+        path (including the project-root `.env`, which is the expected,
+        already-`.gitignore`d default location per `resolve_env_file_path`'s
+        fallback). Only a *nested* env file (no `.gitignore` coverage) should
+        be flagged; a bare root `.env` must not produce a finding.
+        """
+        profile_path = (
+            _REPO_ROOT / "tests" / "fixtures" / "security" / "profile-scoped-env" / "profile.yaml"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            root_env = tmp_root / ".env"
+            root_env.write_text("SOME_VAR=value\n", encoding="utf-8")
+
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(tmp_root)
+                findings, _diags = run_security_validation(
+                    profile_path,
+                    _RULE_SCHEMA_PATH,
+                    _RULE_SET_PATH,
+                    env_file=str(root_env),
+                )
+            finally:
+                os.chdir(original_cwd)
+
+        hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
+        self.assertEqual(hits, [], "a bare project-root .env must not be flagged")
+
+
+class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
+    def test_each_remaining_none_scope_rule_declares_why_it_is_deferred(self):
+        rule_set = json.loads(_RULE_SET_PATH.read_text())
+
+        deferred_rules = [r for r in rule_set["rules"] if r["scope"] == ["none"]]
+        self.assertEqual(
+            {r["id"] for r in deferred_rules},
+            {
+                "CDS-SEC-006",
+                "CDS-SEC-030",
+                "CDS-SEC-032",
+                "CDS-SEC-050",
+                "CDS-SEC-051",
+                "CDS-SEC-052",
+                "CDS-SEC-053",
+                "CDS-SEC-054",
+                "CDS-SEC-070",
+                "CDS-SEC-071",
+            },
+        )
+        for rule in deferred_rules:
+            with self.subTest(rule=rule["id"]):
+                self.assertIn("$comment", rule)
+                self.assertTrue(rule["$comment"].strip())
 
 
 if __name__ == "__main__":
