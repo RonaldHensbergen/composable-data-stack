@@ -73,6 +73,20 @@ def build_plan(
     diagnostics.extend(secret_diags)
 
     modules = spec.get("modules", [])
+    if not isinstance(modules, list):
+        # Defensive guard: validate_profile() already rejects a non-list
+        # spec.modules (E010), but build_plan() is a public entry point that
+        # may be called directly (e.g. by tests/tools) without prior
+        # validation, so it must not crash with an unhandled TypeError from
+        # enumerate() on a non-iterable/scalar value.
+        diagnostics.append(Diagnostic(
+            level="error",
+            code="E010",
+            message="spec.modules must be a list.",
+            path="spec.modules",
+        ))
+        return None, diagnostics
+
     profile_dir = profile_file.parent
 
     loaded_modules: list[dict[str, Any]] = []

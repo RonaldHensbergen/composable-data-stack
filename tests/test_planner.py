@@ -516,6 +516,28 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertEqual(len(errors), 1)
             self.assertIn("Module entry must be an object.", errors[0].message)
 
+    def test_build_plan_reports_diagnostic_for_non_list_modules(self):
+        """build_plan() is a public entry point that may be called without
+        prior validate_profile() shape-checking; a non-list spec.modules
+        (e.g. a scalar or null) must produce a Diagnostic instead of raising
+        an unhandled TypeError from enumerate() on a non-iterable value."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "profile.yaml"
+            profile_path.write_text(
+                "apiVersion: cds/v1alpha1\n"
+                "kind: Profile\n"
+                "spec:\n"
+                "  modules: 42\n"
+            )
+
+            plan, diagnostics = planner.build_plan(str(profile_path))
+
+            self.assertIsNone(plan)
+            errors = [d for d in diagnostics if d.code == "E010"]
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0].path, "spec.modules")
+            self.assertIn("spec.modules must be a list.", errors[0].message)
+
     def test_apply_defaults_raises_max_nesting_depth_exceeded_on_deep_schema(self):
         """A pathologically deeply nested configSchema must not overflow the
         Python call stack; _apply_schema_defaults() should raise a bounded,
