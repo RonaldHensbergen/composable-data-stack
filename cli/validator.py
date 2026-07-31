@@ -13,7 +13,15 @@ from .loader import load_yaml_file, resolve_module_file
 from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
 
 
-def validate_profile(profile_path: str) -> list[Diagnostic]:
+def validate_profile(profile_path: str, environment: str | None = None) -> list[Diagnostic]:
+    if environment is not None:
+        # Local import: cli.overlay imports validate_loaded_profile from this
+        # module, so importing it back at module scope would be circular.
+        from .overlay import resolve_profile
+
+        _, _, diagnostics = resolve_profile(profile_path, environment)
+        return diagnostics
+
     profile_file = Path(profile_path)
     profile, diagnostics = load_yaml_file(profile_file)
     if profile is None:

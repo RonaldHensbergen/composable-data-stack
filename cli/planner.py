@@ -19,13 +19,22 @@ class SecretRef:
     """Signals that a value should be emitted as a runtime ${VAR} placeholder."""
     var_name: str
 
-def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
+def build_plan(
+    profile_path: str,
+    env_file: str | None = None,
+    environment: str | None = None,
+) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
     """
     Build a resolved plan from a profile.
 
     Args:
         profile_path: Path to profile.yaml
         env_file: Optional path to .env file for secrets
+        environment: Optional environment overlay name (e.g. "dev", "prod").
+            When set, profile_path's profiles/<name>/environments/<environment>.yaml
+            overlay is merged over the base profile before planning; see
+            cli.overlay.resolve_profile. Value provenance for the merge is
+            recorded on the returned plan under "provenance".
 
     Returns:
         Tuple of (plan, diagnostics)
@@ -33,7 +42,16 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
     diagnostics: list[Diagnostic] = []
 
     profile_file = Path(profile_path)
-    profile, diags = load_yaml_file(profile_file)
+    provenance: dict[str, str] = {}
+    if environment is not None:
+        # Local import: cli.overlay imports from cli.validator, which this
+        # module does not otherwise depend on; keep the dependency scoped to
+        # avoid pulling in an import cycle for callers that never use overlays.
+        from .overlay import resolve_profile
+
+        profile, provenance, diags = resolve_profile(profile_path, environment)
+    else:
+        profile, diags = load_yaml_file(profile_file)
     diagnostics.extend(diags)
 
     if profile is None:
@@ -141,6 +159,8 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
         "kind": "Plan",
         "metadata": deepcopy(profile.get("metadata", {})),
         "sourceProfile": str(profile_file),
+        "environment": environment,
+        "provenance": provenance,
         "runtime": spec.get("runtime", {}),
         "secrets": secrets,
         "outputs": resolve_outputs(spec.get("outputs", {}), resolved_contracts_by_module, diagnostics),
