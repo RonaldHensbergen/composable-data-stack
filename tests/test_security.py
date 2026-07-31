@@ -1,6 +1,11 @@
+import fnmatch
+import tomllib
 import unittest
+from pathlib import Path
 
 from cli.security import _eval_condition, _validate_rule_set
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class BundledSecurityRulesTest(unittest.TestCase):
@@ -9,6 +14,67 @@ class BundledSecurityRulesTest(unittest.TestCase):
 
         self.assertEqual(rule_set["version"], "1.0.0")
         self.assertGreater(len(rule_set["rules"]), 0)
+
+
+class PackageDataConfigurationTest(unittest.TestCase):
+    """
+    Regression guard for the packaging side of _validate_rule_set()'s default
+    importlib.resources loading path.
+
+    Every test that exercises _validate_rule_set() runs against an editable
+    install, where importlib.resources.files("cli.resources") resolves
+    straight to the repo's cli/resources/ directory and never consults
+    [tool.setuptools.package-data]. That means a regression that drops the
+    rule files from pyproject.toml's package-data configuration (so they are
+    missing from a real built wheel/sdist) would pass every other test in
+    this suite while breaking `cds` for anyone who installs the published
+    package. This test checks the declared package-data configuration
+    directly instead, independent of how the package happens to be installed
+    locally.
+    """
+
+    def test_package_data_covers_bundled_resource_files(self):
+        pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
+
+        packages = pyproject["tool"]["setuptools"]["packages"]
+        self.assertIn(
+            "cli.resources",
+            packages,
+            "cli.resources must be declared under [tool.setuptools].packages "
+            "or its contents will not be installed at all",
+        )
+
+        package_data = pyproject["tool"]["setuptools"]["package-data"]
+        patterns = package_data.get("cli.resources", [])
+        self.assertTrue(
+            patterns,
+            "[tool.setuptools.package-data] must declare at least one "
+            "pattern for cli.resources",
+        )
+
+        resources_dir = _REPO_ROOT / "cli" / "resources"
+        bundled_files = {
+            path.name
+            for path in resources_dir.iterdir()
+            if path.is_file() and path.name != "__init__.py"
+        }
+        self.assertTrue(
+            bundled_files,
+            "expected at least one bundled resource file under cli/resources/",
+        )
+
+        uncovered = [
+            name
+            for name in sorted(bundled_files)
+            if not any(fnmatch.fnmatch(name, pattern) for pattern in patterns)
+        ]
+        self.assertEqual(
+            uncovered,
+            [],
+            f"cli/resources/ files not covered by any package-data pattern "
+            f"{patterns}: {uncovered}. These files would be missing from a "
+            "built wheel/sdist even though editable-install tests pass.",
+        )
 
 
 class ImageTagPolicyTest(unittest.TestCase):
