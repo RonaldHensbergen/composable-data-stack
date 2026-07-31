@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import os
+import tempfile
 import yaml
 from copy import deepcopy
 from pathlib import Path
@@ -14,6 +15,23 @@ from typing import Any
 
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
+
+
+def _atomic_write_compose(path: Path, content: str) -> None:
+    """Write the rendered compose file atomically via a temp file + os.replace,
+    so a crash/kill mid-write can't leave a truncated docker-compose.yml behind.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+            tmp_file.write(content)
+        os.replace(tmp_name, path)
+    except OSError:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def render_compose(
@@ -132,7 +150,7 @@ def render_compose(
     if output_path:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(output, encoding="utf-8")
+        _atomic_write_compose(path, output)
 
     return output, diagnostics
 
