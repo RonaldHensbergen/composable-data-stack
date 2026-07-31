@@ -193,3 +193,11 @@ jobs:
           docker build -f "$dockerfile" -t "$ref:$tag" -t "$ref:latest" "$context"
           docker push "$ref:$tag"
           docker push "$ref:latest"
+
+      - name: Update Docker Hub overview
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ronaldsoeverein
+          password: ${{ secrets.RONALDSOEVEREIN_LOGIN }}
+          repository: ronaldsoeverein/${{ matrix.image.name }}
+          readme-filepath: images/${{ matrix.image.name }}/README.md
