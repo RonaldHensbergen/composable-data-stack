@@ -1,7 +1,6 @@
 .PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
-PYTHON_DEPRECATION_WARNINGS ?= error::DeprecationWarning:cli,error::DeprecationWarning:test_.*
 
 
 install:
@@ -10,8 +9,12 @@ install:
 lint: lint-markdown lint-yaml lint-deprecated lint-renovate
 
 test:
-	# Only fail repo-owned deprecations so third-party library warnings do not break the suite.
-	PYTHONWARNINGS="$(PYTHON_DEPRECATION_WARNINGS)" python -m unittest discover -s tests -p "test_*.py" -v
+	# Only fail repo-owned deprecations so third-party library warnings do not
+	# break the suite. This must be done via warnings.filterwarnings() in
+	# Python code, not the PYTHONWARNINGS env var: CPython's -W/PYTHONWARNINGS
+	# parser always re.escape()s the module field, so it cannot express
+	# "starts with" scoping (see scripts/run_tests_with_deprecation_gate.py).
+	python scripts/run_tests_with_deprecation_gate.py
 
 check: lint test
 
