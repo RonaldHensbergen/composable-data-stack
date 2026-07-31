@@ -661,7 +661,9 @@ def main() -> int:
                 if not args.no_build:
                     build_cmd = ["docker", "compose", "-f", output_path, "build"]
                     print(f"Running: {' '.join(build_cmd)}")
-                    build_returncode = run_streamed(build_cmd, log_file, group_by_image=True)
+                    build_returncode = run_streamed(
+                        build_cmd, log_file, group_by_image=True, service_to_image=service_to_image
+                    )
                     if build_returncode != 0:
                         print(f"Build failed (exit {build_returncode}). See {log_path} for details.")
                         return build_returncode
