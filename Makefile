@@ -1,14 +1,20 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml docker-build test check
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
+
 
 install:
 	pip install -e .
 
-lint: lint-markdown lint-yaml
+lint: lint-markdown lint-yaml lint-deprecated lint-renovate
 
 test:
-	python -m unittest discover -s tests -p "*.py"
+	# Only fail repo-owned deprecations so third-party library warnings do not
+	# break the suite. This must be done via warnings.filterwarnings() in
+	# Python code, not the PYTHONWARNINGS env var: CPython's -W/PYTHONWARNINGS
+	# parser always re.escape()s the module field, so it cannot express
+	# "starts with" scoping (see scripts/run_tests_with_deprecation_gate.py).
+	python scripts/run_tests_with_deprecation_gate.py
 
 check: lint test
 
@@ -17,6 +23,12 @@ lint-markdown:
 
 lint-yaml:
 	yamllint .
+
+lint-deprecated:
+	ruff check .
+
+lint-renovate:
+	npx --yes --package renovate -- renovate-config-validator --strict renovate.json
 
 validate:
 	cds validate $(PROFILE)

@@ -26,7 +26,7 @@ class ModuleIsolationTest(unittest.TestCase):
         
         for module_yaml in cls.modules_dir.rglob("module.yaml"):
             try:
-                with open(module_yaml, "r", encoding="utf-8") as f:
+                with open(module_yaml, encoding="utf-8") as f:
                     content = yaml.safe_load(f)
                 
                 if content and "metadata" in content and "name" in content["metadata"]:
@@ -55,7 +55,7 @@ class ModuleIsolationTest(unittest.TestCase):
         
         # Re-read for string content
         for module_name, module_info in cls.modules.items():
-            with open(module_info["module_path"], "r", encoding="utf-8") as f:
+            with open(module_info["module_path"], encoding="utf-8") as f:
                 module_info["content_str"] = f.read()
 
     def test_no_cross_module_service_references(self):
@@ -111,7 +111,7 @@ class ModuleIsolationTest(unittest.TestCase):
         
         for module_yaml in self.modules_dir.rglob("module.yaml"):
             try:
-                with open(module_yaml, "r", encoding="utf-8") as f:
+                with open(module_yaml, encoding="utf-8") as f:
                     content = yaml.safe_load(f)
                 
                 has_service_name = False

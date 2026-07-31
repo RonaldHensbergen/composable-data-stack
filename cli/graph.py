@@ -1,12 +1,10 @@
 # cli/graph.py
 from __future__ import annotations
 
-from typing import Dict, List, Set
-
 from .diagnostics import Diagnostic
 
 
-def validate_dependency_graph(module_ids: set[str], depends_on_map: Dict[str, List[str]]) -> list[Diagnostic]:
+def validate_dependency_graph(module_ids: set[str], depends_on_map: dict[str, list[str]]) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
     for module_id, deps in depends_on_map.items():
@@ -30,8 +28,8 @@ def validate_dependency_graph(module_ids: set[str], depends_on_map: Dict[str, Li
                     )
                 )
 
-    visited: Set[str] = set()
-    visiting: Set[str] = set()
+    visited: set[str] = set()
+    visiting: set[str] = set()
 
     def dfs(node: str) -> None:
         if node in visiting:

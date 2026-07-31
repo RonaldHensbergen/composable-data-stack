@@ -51,6 +51,7 @@ dev = [
   "coverage>=7.6",
   "bandit>=1.7",
   "pip-audit>=2.7",
+  "ruff==0.16.1",
 ]
 
 [project.scripts]
@@ -69,3 +70,11 @@ source = ["cli"]
 fail_under = 65
 show_missing = true
 skip_covered = false
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+# Keep Ruff narrowly scoped to pyupgrade/deprecation detection; Flake8 remains
+# the repository's general-purpose Python lint gate.
+select = ["UP"]

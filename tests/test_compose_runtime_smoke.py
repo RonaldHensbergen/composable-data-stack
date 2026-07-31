@@ -296,17 +296,13 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
                     continue
                 if "|" not in entry:
                     raise ValueError(
-                        "Invalid CDS_DOCKER_EXEC_CHECKS entry. Expected 'service|command'. Got: {entry}".format(
-                            entry=entry
-                        )
+                        f"Invalid CDS_DOCKER_EXEC_CHECKS entry. Expected 'service|command'. Got: {entry}"
                     )
                 service, command_text = entry.split("|", 1)
                 command = command_text.strip().split()
                 if not service.strip() or not command:
                     raise ValueError(
-                        "Invalid CDS_DOCKER_EXEC_CHECKS entry. Expected non-empty service and command. Got: {entry}".format(
-                            entry=entry
-                        )
+                        f"Invalid CDS_DOCKER_EXEC_CHECKS entry. Expected non-empty service and command. Got: {entry}"
                     )
                 parsed.append((service.strip(), command))
             return parsed

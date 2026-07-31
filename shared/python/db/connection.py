@@ -2,7 +2,7 @@ import importlib
 import json
 import os
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -213,7 +213,7 @@ def _write_local_event_snapshot(
     )
 
     entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "event_type": str(payload.get("event", asset_key)),
         "asset_key": asset_key,
         "file_name": payload.get("file_name"),
