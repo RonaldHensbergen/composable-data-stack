@@ -36,7 +36,9 @@ class PackageDataConfigurationTest(unittest.TestCase):
     def test_package_data_covers_bundled_resource_files(self):
         pyproject = tomllib.loads((_REPO_ROOT / "pyproject.toml").read_text())
 
-        packages = pyproject["tool"]["setuptools"]["packages"]
+        tool = pyproject.get("tool", {})
+        setuptools_cfg = tool.get("setuptools", {})
+        packages = setuptools_cfg.get("packages", [])
         self.assertIn(
             "cli.resources",
             packages,
@@ -44,8 +46,10 @@ class PackageDataConfigurationTest(unittest.TestCase):
             "or its contents will not be installed at all",
         )
 
-        package_data = pyproject["tool"]["setuptools"]["package-data"]
+        package_data = setuptools_cfg.get("package-data", {})
         patterns = package_data.get("cli.resources", [])
+        if isinstance(patterns, str):
+            patterns = [patterns]
         self.assertTrue(
             patterns,
             "[tool.setuptools.package-data] must declare at least one "
@@ -53,6 +57,10 @@ class PackageDataConfigurationTest(unittest.TestCase):
         )
 
         resources_dir = _REPO_ROOT / "cli" / "resources"
+        self.assertTrue(
+            resources_dir.is_dir(),
+            "cli/resources/ directory does not exist; bundled resource files are missing",
+        )
         bundled_files = {
             path.name
             for path in resources_dir.iterdir()
