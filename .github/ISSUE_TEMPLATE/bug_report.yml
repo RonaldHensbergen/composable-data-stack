@@ -63,7 +63,7 @@ body:
   attributes:
     label: Environment
     description: OS, Python version, and how CDS was installed.
-    placeholder: Linux, Python 3.11, pip install -e .
+    placeholder: Linux, Python 3.14, pip install -e .
   validations:
     required: true
 
