@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import os
 import re
+from importlib.resources import files
+from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +38,7 @@ _ENV_SCOPES = {
 # File I/O
 # ---------------------------------------------------------------------------
 
-def _load_json(path: Path) -> Any:
+def _load_json(path: Path | Traversable) -> Any:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -50,7 +52,13 @@ def _load_yaml(path: Path) -> Any:
 # Rule set loading
 # ---------------------------------------------------------------------------
 
-def _validate_rule_set(rule_schema_path: Path, rule_set_path: Path) -> dict[str, Any]:
+def _validate_rule_set(
+    rule_schema_path: Path | Traversable | None = None,
+    rule_set_path: Path | Traversable | None = None,
+) -> dict[str, Any]:
+    resources = files("cli.resources")
+    rule_schema_path = rule_schema_path or resources.joinpath("rule-schema.json")
+    rule_set_path = rule_set_path or resources.joinpath("rule-set.json")
     schema = _load_json(rule_schema_path)
     rule_set = _load_json(rule_set_path)
     validator = Draft202012Validator(schema)
@@ -422,8 +430,8 @@ _SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
 def run_security_validation(
     profile_path: Path,
-    rule_schema_path: Path,
-    rule_set_path: Path,
+    rule_schema_path: Path | Traversable | None = None,
+    rule_set_path: Path | Traversable | None = None,
     env_file: str | None = None,
     redact_values: bool = False,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
@@ -437,8 +445,8 @@ def run_security_validation(
 
     Args:
         profile_path:     Path to the profile YAML.
-        rule_schema_path: Path to the rule set JSON schema.
-        rule_set_path:    Path to the rule set JSON.
+        rule_schema_path: Optional custom rule set JSON schema path.
+        rule_set_path:    Optional custom rule set JSON path.
         env_file:         Optional path to .env file. Defaults to .env in cwd.
         redact_values:    If True, secret-like values are redacted in findings.
 

@@ -11,8 +11,8 @@ from cli.security import (
 )
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_RULE_SCHEMA_PATH = _REPO_ROOT / "security" / "rule-schema.json"
-_RULE_SET_PATH = _REPO_ROOT / "security" / "rule-set.json"
+_RULE_SCHEMA_PATH = _REPO_ROOT / "cli" / "resources" / "rule-schema.json"
+_RULE_SET_PATH = _REPO_ROOT / "cli" / "resources" / "rule-set.json"
 
 
 class InferProfileClassTest(unittest.TestCase):

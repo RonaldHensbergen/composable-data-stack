@@ -132,6 +132,14 @@ CDS splits into two phases: **compile-time**, where `cds` itself validates, reso
 - **Render** generates the final `docker-compose.yaml`, with secret values as `${CDS_VAR}` placeholders; never the raw value.
 - **Runtime** (`cds up` only): `docker compose build` (skippable with `--no-build`), then `docker compose up --detach`, then a live `cds state` view that polls until the stack settles (skippable with `--detach`). Build/up/log output is persisted to a log file (`.cds/logs/` by default). Docker Compose, not CDS, resolves `${CDS_VAR}` placeholders from a `.env` file (see `cds init`) and starts the containers.
 
+Passing `validate → security → plan → render` proves the profile *compiles*
+correctly — it is not proof that the resulting stack *runs* correctly. For the
+broader success criteria used to certify a profile (booting the rendered
+stack, service health, an end-to-end pipeline run, and downstream data
+consumption in Superset), see
+[docs/profile-testing/test-plan.md](docs/profile-testing/test-plan.md) and
+[docs/profile-testing/failure-path-and-ci.md](docs/profile-testing/failure-path-and-ci.md).
+
 ```mermaid
 ---
 config:
@@ -287,6 +295,22 @@ Tools such as `make`, Node.js, and `pre-commit` are contributor tooling and are
 not required to run CDS profiles.
 
 ## 🚀 Quickstart
+
+### CLI package preview
+
+The Python distribution contains the `cds` command and its built-in security
+rules. After production PyPI publishing is enabled, install the isolated CLI
+with:
+
+```bash
+pipx install composable-data-stack
+```
+
+The package does not yet download profiles, modules, image build contexts, or
+runtime workdirs. Continue with a repository checkout for the reference stack,
+or configure external project assets with `CDS_PROFILE_PATH` and
+`CDS_MODULE_PATH`. See [Packaging](docs/packaging.md) for the current TestPyPI
+flow.
 
 ### 1. Clone
 
