@@ -430,6 +430,7 @@
     },
     {
       "id": "CDS-SEC-031",
+      "$comment": "Only the project-root .env is covered by this repo's `/.env` .gitignore entry (leading slash pins it to the root). Any nested .env (profile-scoped, rendered/generated output, or otherwise) is NOT covered by that ignore rule and can be committed accidentally, so the pathPatterns below only flag paths with at least one directory component before the filename; a bare root '.env' is the expected, already-ignored location and must not fire here.",
       "title": "Env file path appears repository-managed or unmanaged",
       "severity": "medium",
       "category": "file-output-safety",
@@ -438,20 +439,17 @@
         "any": [
           {
             "pathPatterns": [
-              ".env",
-              "*.env",
-              "output/*.env",
-              "rendered/*.env",
-              "profiles/**/*.env"
+              "*/*.env"
             ]
           }
         ]
       },
       "message": "Environment file path may be stored or handled insecurely",
-      "whyItMatters": "Env files often accumulate sensitive data and are easily committed accidentally.",
+      "whyItMatters": "Env files often accumulate sensitive data and are easily committed accidentally. This repository's .gitignore only covers the project-root .env; nested .env files (e.g. per-profile or generated output) are not automatically ignored.",
       "recommendation": [
         "Keep secret env files out of generated output directories and version control.",
-        "Prefer secret injection over checked-in env files."
+        "Prefer secret injection over checked-in env files.",
+        "If a nested .env location is intentional, add it to .gitignore explicitly."
       ],
       "enabled": true
     },

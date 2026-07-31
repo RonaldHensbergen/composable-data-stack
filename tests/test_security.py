@@ -1,5 +1,7 @@
 import fnmatch
 import json
+import os
+import tempfile
 import tomllib
 import unittest
 from pathlib import Path
@@ -187,6 +189,38 @@ class EnvFilePathRuleTest(unittest.TestCase):
         self.assertEqual(len(hits), 1)
         self.assertTrue(hits[0]["path"].endswith("tests/fixtures/security/profile-scoped-env/.env"))
         self.assertEqual(hits[0]["module"], "<env>")
+
+    def test_does_not_flag_the_conventional_project_root_env_file(self):
+        """
+        Regression guard for CDS-SEC-031 previously matching *every* env file
+        path (including the project-root `.env`, which is the expected,
+        already-`.gitignore`d default location per `resolve_env_file_path`'s
+        fallback). Only a *nested* env file (no `.gitignore` coverage) should
+        be flagged; a bare root `.env` must not produce a finding.
+        """
+        profile_path = (
+            _REPO_ROOT / "tests" / "fixtures" / "security" / "profile-scoped-env" / "profile.yaml"
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_root = Path(tmp_dir)
+            root_env = tmp_root / ".env"
+            root_env.write_text("SOME_VAR=value\n", encoding="utf-8")
+
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(tmp_root)
+                findings, _diags = run_security_validation(
+                    profile_path,
+                    _RULE_SCHEMA_PATH,
+                    _RULE_SET_PATH,
+                    env_file=str(root_env),
+                )
+            finally:
+                os.chdir(original_cwd)
+
+        hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
+        self.assertEqual(hits, [], "a bare project-root .env must not be flagged")
 
 
 class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
