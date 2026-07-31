@@ -823,11 +823,12 @@ class UseCommandCLITest(unittest.TestCase):
         save_result, save_output = self._run(["local-dagster-postgres-superset"])
         self.assertEqual(save_result, 0)
         self.assertIn("Saved default profile: local-dagster-postgres-superset", save_output)
-        self.assertEqual(json.loads(self.config_path.read_text())["profile"], "local-dagster-postgres-superset")
+        expected_resolved = str((self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml").resolve())
+        self.assertEqual(json.loads(self.config_path.read_text())["profile"], expected_resolved)
 
         show_result, show_output = self._run([])
         self.assertEqual(show_result, 0)
-        self.assertEqual(show_output.strip(), "local-dagster-postgres-superset")
+        self.assertEqual(show_output.strip(), expected_resolved)
 
     def test_use_rejects_unresolvable_profile(self):
         result, output = self._run(["does-not-exist"])
@@ -849,6 +850,26 @@ class UseCommandCLITest(unittest.TestCase):
         result, output = self._run(["--clear"])
         self.assertEqual(result, 0)
         self.assertIn("No saved default profile to clear", output)
+
+    def test_use_rejects_clear_combined_with_profile_argument(self):
+        result, output = self._run(["--clear", "local-dagster-postgres-superset"])
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", output)
+        self.assertIn("--clear", output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_resolve_profile_path_rejects_stale_saved_profile(self):
+        save_result, _ = self._run(["local-dagster-postgres-superset"])
+        self.assertEqual(save_result, 0)
+
+        # Simulate the saved profile having been renamed/deleted since `cds use`.
+        stale_config = {"profile": str(self.profiles_root / "does-not-exist-anymore" / "profile.yaml")}
+        self.config_path.write_text(json.dumps(stale_config))
+
+        with self.assertRaises(ValueError) as ctx:
+            resolve_profile_path(None)
+        self.assertIn("no longer resolves to a file", str(ctx.exception))
+        self.assertIn("cds use --clear", str(ctx.exception))
 
     def test_saved_profile_used_by_other_commands_without_argument(self):
         self._run(["local-dagster-postgres-superset"])

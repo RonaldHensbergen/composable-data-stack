@@ -171,7 +171,14 @@ def resolve_profile_path(profile: str | None) -> str:
     # choice rather than an ambient root/name that may resolve ambiguously.
     saved_profile = load_saved_profile()
     if saved_profile:
-        return resolve_profile_path(saved_profile)
+        resolved_saved_profile = resolve_profile_path(saved_profile)
+        if not Path(resolved_saved_profile).is_file():
+            raise ValueError(
+                f"Saved default profile '{saved_profile}' no longer resolves to a file "
+                f"(looked for {resolved_saved_profile}). Run `cds use --clear` to remove it, "
+                "or `cds use <profile>` to save a new default."
+            )
+        return resolved_saved_profile
 
     # Use CDS_PROFILE_PATH
     if profile_root.is_file():
@@ -1024,6 +1031,10 @@ def main() -> int:
         return 1 if any(f["severity"] == "high" for f in findings) else 0
 
     if args.command == "use":
+        if args.clear and args.profile:
+            print(f"ERROR --clear cannot be combined with a profile argument ('{args.profile}').")
+            return 1
+
         if args.clear:
             if clear_saved_profile():
                 print(f"Cleared saved default profile ({get_config_path()}).")
@@ -1049,7 +1060,7 @@ def main() -> int:
             print(f"ERROR Profile '{args.profile}' could not be found (looked for {resolved}).")
             return 1
 
-        config_path = save_profile(args.profile)
+        config_path = save_profile(resolved)
         print(f"Saved default profile: {args.profile} (resolves to {resolved})")
         print(f"Stored in {config_path}")
         return 0

@@ -7,8 +7,10 @@ that argcomplete supports uniformly on Linux, macOS, and Windows (it is the
 same mechanism used by the PowerShell integration, see
 `register-python-argcomplete --shell powershell`). Driving the protocol
 directly via subprocess env vars means these tests don't depend on bash,
-zsh, or pwsh being installed on the host, so they run unconditionally on all
-three OSes in CI.
+zsh, or pwsh being installed on the host, so they run on all three OSes in
+CI, where the `completion` extra (and thus argcomplete) is installed;
+locally without that extra installed, `ShellCompletionProtocolTest` is
+skipped.
 """
 
 import importlib.util
