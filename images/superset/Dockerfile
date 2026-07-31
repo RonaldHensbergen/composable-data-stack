@@ -40,4 +40,7 @@ COPY --chown=superset:superset --chmod=0555 images/superset/init.sh /app/docker/
 
 USER superset
 
+HEALTHCHECK --interval=10s --timeout=5s --start-period=180s --retries=20 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8088/health')"
+
 ENTRYPOINT ["/app/docker/entrypoint-web.sh"]
