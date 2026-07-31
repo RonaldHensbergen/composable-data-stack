@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from cli.image_updates import fetch_dockerhub_tags
+from cli.image_updates import parse_image_reference
 
 
 class _FakeResponse:
@@ -17,6 +18,34 @@ class _FakeResponse:
 
     def __exit__(self, *exc):
         return False
+
+
+class ParseImageReferenceRegressionTest(unittest.TestCase):
+    def test_registry_with_port_and_single_repository_segment(self):
+        parsed = parse_image_reference("localhost:5000/app")
+
+        self.assertEqual(
+            parsed,
+            {
+                "registry": "localhost:5000",
+                "namespace": None,
+                "repository": "app",
+                "tag": "latest",
+            },
+        )
+
+    def test_registry_with_port_single_repository_segment_and_tag(self):
+        parsed = parse_image_reference("localhost:5000/app:1.2.3")
+
+        self.assertEqual(
+            parsed,
+            {
+                "registry": "localhost:5000",
+                "namespace": None,
+                "repository": "app",
+                "tag": "1.2.3",
+            },
+        )
 
 
 class FetchDockerhubTagsRegressionTest(unittest.TestCase):

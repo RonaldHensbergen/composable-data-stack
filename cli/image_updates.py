@@ -149,6 +149,10 @@ def parse_image_reference(image: str) -> dict[str, str | None]:
     elif len(parts) == 2 and "." not in parts[0] and ":" not in parts[0]:
         registry = "docker.io"
         namespace, repository = parts
+    elif len(parts) == 2:
+        registry = parts[0]
+        namespace = None
+        repository = parts[1]
     else:
         registry = parts[0]
         namespace = parts[1]
