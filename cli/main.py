@@ -345,10 +345,13 @@ def _diff_values(path: str, a: Any, b: Any, changes: list[tuple[str, str, Any, A
     Recursively compare two resolved profile values and append (path, kind, old,
     new) tuples to changes, kind is one of "added", "removed", "changed".
 
-    Dicts are compared key-by-key. Lists of mappings with a stable "id" (module
-    entries) are compared by id instead of position, matching cli.overlay's
-    merge semantics, so reordering module entries alone is not reported as a
-    change. Other lists and scalars are compared for equality as a whole.
+    Dicts are compared key-by-key. Lists are compared by id instead of position
+    (matching cli.overlay's merge semantics, so reordering module entries alone
+    is not reported as a change) only when *every* element on *both* sides is a
+    mapping with a stable "id" key (e.g. spec.modules). Any list where at least
+    one element on either side lacks an "id" falls back to whole-list equality
+    comparison, so a heterogeneous list (some entries with "id", some without)
+    is still reported in full instead of silently dropping the id-less entries.
     """
     if isinstance(a, dict) and isinstance(b, dict):
         for key in sorted(set(a) | set(b)):
@@ -361,7 +364,7 @@ def _diff_values(path: str, a: Any, b: Any, changes: list[tuple[str, str, Any, A
                 _diff_values(child_path, a[key], b[key], changes)
         return
 
-    if isinstance(a, list) and isinstance(b, list) and (_is_id_keyed_list(a) or _is_id_keyed_list(b)):
+    if isinstance(a, list) and isinstance(b, list) and _is_id_keyed_list(a) and _is_id_keyed_list(b):
         a_by_id = {item["id"]: item for item in a if isinstance(item, dict) and "id" in item}
         b_by_id = {item["id"]: item for item in b if isinstance(item, dict) and "id" in item}
         for module_id in sorted(set(a_by_id) | set(b_by_id)):

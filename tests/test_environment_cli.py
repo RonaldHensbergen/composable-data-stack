@@ -230,6 +230,57 @@ class DiffCommandTest(EnvironmentOverlayFixture):
         self.assertEqual(result, 1)
         self.assertIn("does-not-exist", output)
 
+    def test_diff_reports_full_list_change_for_heterogeneous_id_and_non_id_entries(self):
+        """Regression test: a nested config list where only some entries have
+        an "id" key (a plausible shape for open-schema module config, e.g.
+        dashboards/routes/connections) must not silently drop the id-less
+        entries from the diff. Since the list isn't uniformly id-keyed on
+        both sides, _diff_values() must fall back to whole-list comparison
+        instead of only diffing the subset of entries that happen to carry
+        an "id"."""
+        self._write_overlay(
+            "dev",
+            {
+                "spec": {
+                    "modules": [
+                        {
+                            "id": "db",
+                            "config": {
+                                "routes": [
+                                    {"id": "a", "path": "/old"},
+                                    {"id": "b", "path": "/secret-old"},
+                                ]
+                            },
+                        }
+                    ]
+                }
+            },
+        )
+        self._write_overlay(
+            "prod",
+            {
+                "spec": {
+                    "modules": [
+                        {
+                            "id": "db",
+                            "config": {
+                                "routes": [
+                                    {"id": "a", "path": "/old"},
+                                    {"path": "/secret-NEW-DIFFERENT"},
+                                ]
+                            },
+                        }
+                    ]
+                }
+            },
+        )
+        result, output = self._run(["cds", "diff", "--from", "dev", "--to", "prod"])
+        self.assertEqual(result, 0, output)
+        # The whole routes list must be reported as changed, not silently
+        # dropped -- the replaced id-less entry must be visible in the output.
+        self.assertIn("spec.modules[db].config.routes", output)
+        self.assertIn("secret-NEW-DIFFERENT", output)
+
 
 if __name__ == "__main__":
     unittest.main()
