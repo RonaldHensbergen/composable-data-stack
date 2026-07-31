@@ -22,6 +22,7 @@ Dagster orchestration image built for the [Composable Data Stack (CDS)](https://
   - [Health check](#health-check)
 - [Examples](#examples)
   - [Check the Dagster version](#check-the-dagster-version)
+  - [Zero-dependency run with sqlite storage](#zero-dependency-run-with-sqlite-storage)
   - [docker-compose with Postgres](#docker-compose-with-postgres)
 - [Troubleshooting](#troubleshooting)
 - [Source](#source)
@@ -65,8 +66,9 @@ docker pull ronaldsoeverein/dagster:1.13.16-20260730
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `DAGSTER_DB_CONNECTION_URI` | yes | Storage connection string; scheme (`postgresql://`, `sqlite://`) selects the backend at runtime |
-| `DAGSTER_IMAGE_DB_BACKEND` | baked in | Backend compiled into the image via the `DB_BACKEND` build arg (`postgres` by default); the container refuses to start if this doesn't match the runtime backend |
+| `DAGSTER_IMAGE_DB_BACKEND` | baked in | Backend compiled into the image via the `DB_BACKEND` build arg (`postgres` by default). `sqlite` runtime storage always works regardless of this value (it ships in Dagster core); `postgres` runtime storage requires an image actually built with `DB_BACKEND=postgres` |
 | `DAGSTER_HOME` | yes | Dagster instance home directory (default `/opt/dagster/dagster_home`) |
+| `DAGSTER_SQLITE_DIR` | no | Directory for sqlite run/event/schedule storage when `DB_BACKEND=sqlite`. Defaults to `$DAGSTER_HOME/storage` and is created automatically if missing |
 
 ### Volumes
 
@@ -101,6 +103,17 @@ docker run --rm ronaldsoeverein/dagster:latest dagster --version
 dagster, version 1.13.16
 ```
 
+### Zero-dependency run with sqlite storage
+
+The published image is built with `DB_BACKEND=postgres`, but sqlite run/event/schedule storage ships in Dagster core, so it also works out of the box — no Postgres container required for a quick local check:
+
+```bash
+docker run --rm -p 3000:3000 \
+  -e DB_BACKEND=sqlite \
+  ronaldsoeverein/dagster:latest \
+  dagster-webserver -h 0.0.0.0 -p 3000
+```
+
 ### docker-compose with Postgres
 
 ```yaml
@@ -128,7 +141,7 @@ services:
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| `Dagster backend '<x>' does not match image backend '<y>'` | `DAGSTER_DB_CONNECTION_URI` scheme doesn't match the backend the image was built with | Rebuild with the matching `DB_BACKEND` build arg, or point the connection URI at the backend baked into this tag |
+| `Dagster backend 'postgres' requires an image built with DB_BACKEND=postgres (...)` | You're pointing this image at a Postgres connection URI, but it was built with `DB_BACKEND=sqlite` | Use the default published tag (built with `DB_BACKEND=postgres`), or rebuild with `--build-arg DB_BACKEND=postgres` |
 | `MySQL storage is not supported by this Dagster image` | MySQL isn't a supported backend for this image | Use `postgres` or `sqlite` |
 | Container exits immediately with no logs | No `command` supplied | This image ships with no default `CMD` — pass an explicit command (`dagster-webserver ...`, `dagster code-server start ...`, `dagster-daemon run`) |
 | Health check never turns healthy | Unix socket path not shared between the code server and webserver/daemon containers | Mount the same volume at `/var/run/dagster` on every service that needs it |
