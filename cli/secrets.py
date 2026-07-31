@@ -67,7 +67,7 @@ def load_secrets_from_env(env_file: Path | None = None) -> tuple[dict[str, str],
                     if key and key.startswith("CDS_"):
                         secrets[key] = value
 
-        except (IOError, OSError) as e:
+        except (IOError, OSError, UnicodeDecodeError) as e:
             diagnostics.append(
                 Diagnostic(
                     level="error",
