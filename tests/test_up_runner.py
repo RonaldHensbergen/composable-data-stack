@@ -63,6 +63,52 @@ class RunStreamedTest(unittest.TestCase):
 
         self.assertEqual(returncode, 9)
 
+    @patch("cli.up_runner.sys.stdout")
+    @patch("cli.up_runner.subprocess.Popen")
+    def test_group_by_image_emits_section_headers(self, mock_popen, mock_stdout):
+        process = MagicMock()
+        process.stdout = MagicMock()
+        process.stdout.__iter__.return_value = iter([
+            "web: Building 0.5s\n",
+            "#1 [web 1/2] FROM node:18-alpine\n",
+            "#1 DONE 0.5s\n",
+            "db: Building 0.3s\n",
+            "#2 [db 1/1] FROM nginx:alpine\n",
+            "#2 DONE 0.3s\n",
+        ])
+        process.wait.return_value = 0
+        mock_popen.return_value = process
+
+        log_file = io.StringIO()
+        returncode = run_streamed(["docker", "compose", "build"], log_file, echo=True, group_by_image=True)
+
+        self.assertEqual(returncode, 0)
+        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list if "Building" in call.args[0])
+        self.assertIn("── Building web ", written)
+        self.assertIn("── Building db ", written)
+        self.assertIn("web: Building 0.5s\n", log_file.getvalue())
+        self.assertIn("db: Building 0.3s\n", log_file.getvalue())
+
+    @patch("cli.up_runner.sys.stdout")
+    @patch("cli.up_runner.subprocess.Popen")
+    def test_group_by_image_skips_headers_when_echo_is_off(self, mock_popen, mock_stdout):
+        process = MagicMock()
+        process.stdout = MagicMock()
+        process.stdout.__iter__.return_value = iter([
+            "web: Building 0.5s\n",
+            "#1 [web 1/2] FROM node:18-alpine\n",
+        ])
+        process.wait.return_value = 0
+        mock_popen.return_value = process
+
+        log_file = io.StringIO()
+        returncode = run_streamed(["docker", "compose", "build"], log_file, echo=False, group_by_image=True)
+
+        self.assertEqual(returncode, 0)
+        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list) if mock_stdout.write.call_args_list else ""
+        self.assertNotIn("── Building", written)
+        self.assertIn("web: Building 0.5s\n", log_file.getvalue())
+
 
 class LogTailTest(unittest.TestCase):
     @patch("cli.up_runner.subprocess.Popen")

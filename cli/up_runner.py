@@ -1,6 +1,7 @@
 # cli/up_runner.py
 from __future__ import annotations
 
+import re
 import subprocess  # nosec B404
 import sys
 import time
@@ -9,6 +10,8 @@ from pathlib import Path
 from typing import IO, Callable
 
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
+
+_BUILD_SERVICE_RE = re.compile(r"^([\w][\w.-]*?):\s+Building\b")
 
 DEFAULT_POLL_INTERVAL_SECONDS = 2.0
 DEFAULT_TIMEOUT_SECONDS = 180.0
@@ -33,12 +36,17 @@ def default_log_path(profile_name: str, logs_dir: Path | None = None) -> Path:
     return base / f"up-{safe_profile}-{timestamp}.log"
 
 
-def run_streamed(cmd: list[str], log_file: IO[str], echo: bool = True) -> int:
+def run_streamed(cmd: list[str], log_file: IO[str], echo: bool = True, group_by_image: bool = False) -> int:
     """
     Runs `cmd` with stdout+stderr merged, writing each line to
     `log_file` as it arrives (flushed immediately, so `tail -f` on the
     log file works while the command is still running) and, if `echo`,
     to this process's stdout too.
+
+    When `group_by_image` is True and `echo` is True, the output is
+    annotated with section headers that identify which Docker Compose
+    service each build phase belongs to.  The log file always receives
+    the raw, un-annotated output.
 
     Returns the command's exit code. Raises FileNotFoundError if
     `cmd[0]` isn't on PATH, same as subprocess.run.
@@ -47,10 +55,20 @@ def run_streamed(cmd: list[str], log_file: IO[str], echo: bool = True) -> int:
     if process.stdout is None:
         raise RuntimeError("subprocess.Popen returned no stdout despite stdout=PIPE")
     try:
+        current_service: str | None = None
         for line in process.stdout:
             log_file.write(line)
             log_file.flush()
             if echo:
+                if group_by_image:
+                    m = _BUILD_SERVICE_RE.match(line)
+                    if m:
+                        service = m.group(1)
+                        if service != current_service:
+                            current_service = service
+                            header = f"── Building {service} "
+                            header += "─" * max(1, 60 - len(header))
+                            sys.stdout.write(f"\n\033[36m{header}\033[0m\n")
                 sys.stdout.write(line)
                 sys.stdout.flush()
     finally:

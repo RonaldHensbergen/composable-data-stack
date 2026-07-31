@@ -661,7 +661,7 @@ def main() -> int:
                 if not args.no_build:
                     build_cmd = ["docker", "compose", "-f", output_path, "build"]
                     print(f"Running: {' '.join(build_cmd)}")
-                    build_returncode = run_streamed(build_cmd, log_file)
+                    build_returncode = run_streamed(build_cmd, log_file, group_by_image=True)
                     if build_returncode != 0:
                         print(f"Build failed (exit {build_returncode}). See {log_path} for details.")
                         return build_returncode
@@ -681,12 +681,28 @@ def main() -> int:
 
                 log_tail_process = start_log_tail(output_path, log_file)
                 try:
-                    settled, _grouped = poll_state_until_settled(
-                        output_path,
-                        expected_service_count=expected_service_count,
-                        timeout=args.timeout,
-                        use_color=(not args.no_color) and sys.stdout.isatty(),
-                    )
+                    use_rich = sys.stdout.isatty() and not args.no_color
+                    if use_rich:
+                        from rich.live import Live
+                        from rich.text import Text
+
+                        with Live(auto_refresh=True, refresh_per_second=4, vertical_overflow="visible") as live:
+                            settled, _grouped = poll_state_until_settled(
+                                output_path,
+                                expected_service_count=expected_service_count,
+                                timeout=args.timeout,
+                                use_color=True,
+                                redraw_fn=lambda text: live.update(
+                                    Text.from_ansi(text),
+                                ),
+                            )
+                    else:
+                        settled, _grouped = poll_state_until_settled(
+                            output_path,
+                            expected_service_count=expected_service_count,
+                            timeout=args.timeout,
+                            use_color=(not args.no_color) and sys.stdout.isatty(),
+                        )
                 except KeyboardInterrupt:
                     print(
                         f"\nStopped watching; the stack keeps running. "
