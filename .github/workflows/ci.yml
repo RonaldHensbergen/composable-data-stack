@@ -29,10 +29,10 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Install YAML linter
+      - name: Install lint dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install yamllint
+          pip install .[dev] yamllint
 
       - name: Run Markdown lint
         run: |
@@ -42,12 +42,24 @@ jobs:
         run: |
           yamllint .
 
+      - name: Run Python deprecation lint
+        run: |
+          ruff check .
+
+      - name: Validate Renovate config
+        run: |
+          npx --yes --package renovate -- renovate-config-validator --strict renovate.json
+
   # Core Python checks run on all three host OSes. This exercises unit tests
   # plus real `cds validate/plan/render` subprocess calls (see
   # tests/test_cds_workflow.py), catching cross-platform regressions in the
   # CLI itself, not just on Linux.
   test:
     runs-on: ${{ matrix.os }}
+    env:
+      # Only treat deprecations from repo-owned test or CLI modules as errors;
+      # third-party dependency warnings should not make the suite flaky.
+      PYTHONWARNINGS: error::DeprecationWarning:cli,error::DeprecationWarning:test_.*
     strategy:
       fail-fast: false
       matrix:

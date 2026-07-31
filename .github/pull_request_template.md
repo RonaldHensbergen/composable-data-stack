@@ -21,7 +21,7 @@ What should users notice after this change?
 List commands run and outcomes.
 
 ```bash
-python -m unittest discover -s tests -p "*.py"
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 ## Checklist

@@ -7,52 +7,58 @@
     {
       "customType": "regex",
       "description": "Track pip pins in Dagster entrypoint script",
-      "fileMatch": [
-        "^images/dagster/entrypoint\\.sh$"
-      ],
       "matchStrings": [
         "(?<depName>dagster-postgres)==(?<currentValue>\\S+)",
         "(?<depName>dagster-mysql)==(?<currentValue>\\S+)"
       ],
-      "datasourceTemplate": "pypi"
+      "datasourceTemplate": "pypi",
+      "managerFilePatterns": [
+        "/^images/dagster/entrypoint\\.sh$/"
+      ]
     },
     {
       "customType": "regex",
       "description": "Track Docker image tags in module definitions",
-      "fileMatch": [
-        "^modules/.+/module\\.yaml$"
-      ],
       "matchStrings": [
         "image:\\s*(?<depName>[\\w./-]+):(?<currentValue>[\\w.-]+)"
       ],
-      "datasourceTemplate": "docker"
+      "datasourceTemplate": "docker",
+      "managerFilePatterns": [
+        "/^modules/.+/module\\.yaml$/"
+      ]
     },
     {
       "customType": "regex",
       "description": "Keep the documented minimum Python version in docs/support-policy.md in sync with pyproject.toml's requires-python",
-      "fileMatch": [
-        "^pyproject\\.toml$",
-        "^docs/support-policy\\.md$"
-      ],
       "matchStrings": [
         "requires-python\\s*=\\s*\">=(?<currentValue>\\d+\\.\\d+)\"",
         "\\|\\s*Python\\s*\\|\\s*(?<currentValue>\\d+\\.\\d+)\\+\\s*\\|"
       ],
       "depNameTemplate": "python",
       "datasourceTemplate": "endoflife-date",
-      "versioningTemplate": "loose"
+      "versioningTemplate": "loose",
+      "managerFilePatterns": [
+        "/^pyproject\\.toml$/",
+        "/^docs/support-policy\\.md$/"
+      ]
     }
   ],
   "packageRules": [
     {
       "description": "Do not update local development image tags",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["local/dagster"],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "local/dagster"
+      ],
       "enabled": false
     },
     {
       "groupName": "all dependencies",
-      "matchPackagePatterns": [".*"]
+      "matchPackageNames": [
+        "/.*/"
+      ]
     }
   ]
 }

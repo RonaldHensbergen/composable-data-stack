@@ -6,7 +6,9 @@
   `python3 -m venv .venv && source .venv/bin/activate && python -m pip install -e .`.
   Install `.[dev]` when running coverage, Bandit, or `pip-audit`.
 - Run the local lint and test suite with `make check`. Its components are
-  `make lint` and `python -m unittest discover -s tests -p "test_*.py" -v`.
+  `make lint` and `python -m unittest discover -s tests -p "test_*.py" -v`
+  with `PYTHONWARNINGS=error::DeprecationWarning:cli,error::DeprecationWarning:test_.*`
+  so repo-owned deprecations fail the suite without inheriting third-party noise.
 - Run one test module with `python -m unittest tests.test_validator`, one test
   class with `python -m unittest tests.test_validator.ValidatorRegressionTest`,
   or one test method with
@@ -15,9 +17,12 @@
   `coverage run -m unittest discover -s tests -p "test_*.py" -v && coverage report -m`;
   coverage is scoped to `cli/` and must remain at least 65%.
 - Lint Markdown with
-  `npx --yes markdownlint-cli@0.49.0 "**/*.md" ".github/**/*.md"` and YAML with
-  `yamllint .`. `pre-commit run --all-files` additionally runs the repository's
-  selected Flake8 checks and file hygiene hooks.
+  `npx --yes markdownlint-cli@0.49.0 "**/*.md" ".github/**/*.md"`, YAML with
+  `yamllint .`, Python deprecations with `ruff check .` (configured for Ruff's
+  `UP` pyupgrade rules only), and Renovate config with
+  `npx --yes --package renovate -- renovate-config-validator --strict renovate.json`.
+  `pre-commit run --all-files` additionally runs the repository's selected
+  Flake8 checks and file hygiene hooks.
 - Validate a profile with `cds validate <profile-name-or-path>` or
   `make validate-profile P=profiles/.../profile.yaml`. Exercise the compile
   pipeline with `cds test <profile>`; use an explicit temporary `--output` when
