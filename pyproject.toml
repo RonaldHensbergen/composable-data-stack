@@ -45,7 +45,7 @@ Repository = "https://github.com/RonaldHensbergen/composable-data-stack"
 
 [project.optional-dependencies]
 completion = [
-  "argcomplete>=3.0.0",
+  "argcomplete>=3.0.0,<4",
 ]
 dev = [
   "coverage>=7.6",

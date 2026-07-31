@@ -105,7 +105,8 @@
               "default",
               "test",
               "superset"
-            ]
+            ],
+            "keyRegex": "(?i)(password|secret|token|key|credential|passwd|pwd)"
           }
         ]
       },
