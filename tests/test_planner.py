@@ -422,6 +422,76 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertIn("outside allowed module root", errors[0].message)
             self.assertEqual(plan["modules"], [])
 
+    def test_build_plan_reports_diagnostic_instead_of_crashing_on_missing_module_id(self):
+        """build_plan() is a public function that can be called directly
+        (as this test does) without first running validate_profile(), so a
+        module instance missing 'id' or 'source' must not raise a raw
+        KeyError -- it should be reported as an E010 error diagnostic and
+        skipped, mirroring the equivalent validator.py checks."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            profile_dir.mkdir(parents=True)
+
+            import yaml
+
+            profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "local-test"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {"source": "../../modules/whatever", "enabled": True, "config": {}},
+                        {"id": "missing-source", "enabled": True, "config": {}},
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+            plan, diagnostics = planner.build_plan(str(profile_file))
+
+            self.assertIsNotNone(plan)
+            self.assertEqual(plan["modules"], [])
+            errors = [d for d in diagnostics if d.level == "error" and d.code == "E010"]
+            self.assertEqual(len(errors), 2)
+            messages = {e.message for e in errors}
+            self.assertIn("Module id is required.", messages)
+            self.assertIn("Module source is required.", messages)
+
+    def test_apply_defaults_recurses_into_object_typed_default_with_own_nested_defaults(self):
+        """A nested object property with both its own top-level 'default'
+        (e.g. 'default: {}') and nested properties that have defaults of
+        their own must have those nested defaults filled in too, instead of
+        stopping at the raw literal top-level default."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "healthcheck": {
+                    "type": "object",
+                    "default": {},
+                    "properties": {
+                        "enabled": {"type": "boolean", "default": True},
+                        "timeout": {
+                            "type": "object",
+                            "default": {},
+                            "properties": {"seconds": {"type": "integer", "default": 30}},
+                        },
+                    },
+                }
+            },
+        }
+
+        result = planner.apply_defaults({}, schema)
+
+        self.assertEqual(
+            result,
+            {"healthcheck": {"enabled": True, "timeout": {"seconds": 30}}},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
