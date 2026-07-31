@@ -20,9 +20,18 @@ without escaping it.
 
 from __future__ import annotations
 
+import os
 import sys
 import unittest
 import warnings
+
+# Running this file directly (rather than via `python -m`) does not add the
+# current working directory to sys.path, so `import cli`/`import test_*`
+# would otherwise resolve to a pip-installed copy of the package (if any)
+# instead of this repository's own source tree -- silently breaking
+# coverage measurement (source = ["cli"] in pyproject.toml would then match
+# nothing). Insert the repo root (this script's parent directory) explicitly.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Match "cli" itself and any submodule ("cli.main", "cli.security", ...).
 warnings.filterwarnings("error", category=DeprecationWarning, module=r"cli(\..*)?$")
