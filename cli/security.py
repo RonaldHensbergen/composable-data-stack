@@ -162,9 +162,9 @@ def _flatten_env_secrets(secrets: dict[str, str]) -> list[tuple[str, str, Any]]:
 def _normalize_scan_path(path: Path) -> str:
     resolved = path.resolve()
     try:
-        return str(resolved.relative_to(Path.cwd().resolve()))
+        return resolved.relative_to(Path.cwd().resolve()).as_posix()
     except ValueError:
-        return str(resolved)
+        return resolved.as_posix()
 
 
 def _flatten_env_inputs(
