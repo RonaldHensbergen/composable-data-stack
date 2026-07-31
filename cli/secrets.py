@@ -37,7 +37,7 @@ def load_secrets_from_env(env_file: Path | None = None) -> tuple[dict[str, str],
 
     if env_file.exists():
         try:
-            with open(env_file, "r", encoding="utf-8") as f:
+            with open(env_file, "r", encoding="utf-8-sig") as f:
                 for line_num, line in enumerate(f, 1):
                     line = line.rstrip("\n\r")
 
