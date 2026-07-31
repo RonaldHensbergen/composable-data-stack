@@ -19,6 +19,7 @@ except ImportError:
     argcomplete = None
 
 from .validator import has_errors, validate_profile
+from .diagnostics import Diagnostic
 from .planner import build_plan
 from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
@@ -494,6 +495,14 @@ def main() -> int:
     )
     _add_profile_arg(test_parser)
     _add_environment_arg(test_parser)
+    test_parser.add_argument(
+        "--reveal-secrets",
+        action="store_true",
+        help=(
+            "Print full, unredacted values in security findings (e.g. secrets embedded in a DSN/URL). "
+            "By default, values are redacted to avoid echoing real secrets to stdout/CI logs."
+        ),
+    )
 
     preflight_parser = subparsers.add_parser(
         "preflight",
@@ -798,6 +807,7 @@ def main() -> int:
                     profile_path=Path(profile_path),
                     env_file=str(resolve_env_file_path(profile_path)),
                     environment=args.environment,
+                    redact_values=not args.reveal_secrets,
                 )
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)
@@ -805,7 +815,12 @@ def main() -> int:
                     print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
                 security_ok = not any(f["severity"] == "high" for f in findings)
             except Exception as e:
-                print(str(e), file=sys.stderr)
+                print(Diagnostic(
+                    level="error",
+                    code="E095",
+                    message=f"Security validation failed unexpectedly: {e}",
+                    path="spec.modules",
+                ).format(), file=sys.stderr)
                 security_ok = False
             stages.append(("security", "PASS" if security_ok else "FAIL"))
         else:
@@ -1016,7 +1031,12 @@ def main() -> int:
                 redact_values=not args.reveal_secrets,
             )
         except Exception as e:
-            print(str(e), file=sys.stderr)
+            print(Diagnostic(
+                level="error",
+                code="E095",
+                message=f"Security validation failed unexpectedly: {e}",
+                path="spec.modules",
+            ).format(), file=sys.stderr)
             return 2
 
         for diag in diagnostics:

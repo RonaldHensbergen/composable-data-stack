@@ -493,5 +493,118 @@ class PlannerRegressionTest(unittest.TestCase):
         )
 
 
+    def test_build_plan_reports_diagnostic_for_non_dict_module_entry(self):
+        """build_plan() is a public entry point that may be called without
+        prior validate_profile() shape-checking; a non-object module entry
+        (e.g. a bare string or list in spec.modules) must produce a
+        Diagnostic instead of raising AttributeError from `.get()`."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "profile.yaml"
+            profile_path.write_text(
+                "apiVersion: cds/v1alpha1\n"
+                "kind: Profile\n"
+                "spec:\n"
+                "  modules:\n"
+                "    - not-an-object\n"
+            )
+
+            plan, diagnostics = planner.build_plan(str(profile_path))
+
+            self.assertIsNotNone(plan)
+            self.assertEqual(plan["modules"], [])
+            errors = [d for d in diagnostics if d.code == "E010"]
+            self.assertEqual(len(errors), 1)
+            self.assertIn("Module entry must be an object.", errors[0].message)
+
+    def test_build_plan_reports_diagnostic_for_non_list_modules(self):
+        """build_plan() is a public entry point that may be called without
+        prior validate_profile() shape-checking; a non-list spec.modules
+        (e.g. a scalar or null) must produce a Diagnostic instead of raising
+        an unhandled TypeError from enumerate() on a non-iterable value."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_path = Path(tmpdir) / "profile.yaml"
+            profile_path.write_text(
+                "apiVersion: cds/v1alpha1\n"
+                "kind: Profile\n"
+                "spec:\n"
+                "  modules: 42\n"
+            )
+
+            plan, diagnostics = planner.build_plan(str(profile_path))
+
+            self.assertIsNone(plan)
+            errors = [d for d in diagnostics if d.code == "E010"]
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0].path, "spec.modules")
+            self.assertIn("spec.modules must be a list.", errors[0].message)
+
+    def test_apply_defaults_raises_max_nesting_depth_exceeded_on_deep_schema(self):
+        """A pathologically deeply nested configSchema must not overflow the
+        Python call stack; _apply_schema_defaults() should raise a bounded,
+        catchable error instead."""
+        schema: dict = {"type": "object", "properties": {}}
+        node = schema
+        for _ in range(planner.MAX_NESTING_DEPTH + 10):
+            child = {"type": "object", "properties": {}}
+            node["properties"]["x"] = child
+            node = child
+
+        with self.assertRaises(planner.MaxNestingDepthExceeded):
+            planner.apply_defaults({}, schema)
+
+    def test_build_plan_converts_deep_config_nesting_into_diagnostic(self):
+        """When apply_defaults() hits the nesting guard inside build_plan(),
+        the module is skipped and an E094 diagnostic is reported instead of
+        an unhandled exception propagating out of build_plan()."""
+        schema: dict = {"type": "object", "properties": {}}
+        node = schema
+        for _ in range(planner.MAX_NESTING_DEPTH + 10):
+            child = {"type": "object", "properties": {}}
+            node["properties"]["x"] = child
+            node = child
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            module_dir = root / "modules" / "deep"
+            module_dir.mkdir(parents=True)
+            module_file = module_dir / "module.yaml"
+            import yaml as _yaml
+            module_file.write_text(_yaml.safe_dump({
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Module",
+                "spec": {"configSchema": schema, "implementation": {"kind": "docker-compose"}},
+            }))
+
+            profile_dir = root / "profiles" / "local"
+            profile_dir.mkdir(parents=True)
+            profile_path = profile_dir / "profile.yaml"
+            profile_path.write_text(
+                "apiVersion: cds/v1alpha1\n"
+                "kind: Profile\n"
+                "spec:\n"
+                "  modules:\n"
+                "    - id: deep\n"
+                "      source: ../../modules/deep\n"
+                "      config: {}\n"
+            )
+
+            plan, diagnostics = planner.build_plan(str(profile_path))
+
+            self.assertIsNotNone(plan)
+            self.assertEqual(plan["modules"], [])
+            errors = [d for d in diagnostics if d.code == "E094"]
+            self.assertEqual(len(errors), 1)
+
+    def test_substitute_values_raises_max_nesting_depth_exceeded_on_deep_dict(self):
+        obj: dict = {}
+        node = obj
+        for _ in range(planner.MAX_NESTING_DEPTH + 10):
+            node["child"] = {}
+            node = node["child"]
+
+        with self.assertRaises(planner.MaxNestingDepthExceeded):
+            planner.substitute_values(obj, context={})
+
+
 if __name__ == "__main__":
     unittest.main()
