@@ -90,8 +90,14 @@ class TestResolveProfilePath(unittest.TestCase):
                 result = resolve_profile_path(None)
                 self.assertEqual(result, str(profile_file.resolve()))
 
-    def test_resolve_saved_profile_takes_precedence_over_env(self):
-        """A saved default (cds use) should win over CDS_PROFILE_PATH when both are present"""
+    def test_env_takes_precedence_over_saved_profile(self):
+        """CDS_PROFILE_PATH, if set, should win over a saved default (cds use).
+
+        Env vars are per-invocation and reflect the current session more
+        reliably than a persisted, gitignored default that's easy to forget
+        about -- matching common CLI precedence (env var overrides persisted
+        config, e.g. AWS CLI, Azure CLI).
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             env_profile = Path(tmpdir) / "env_profile.yaml"
             env_profile.write_text("apiVersion: cds/v1alpha1\n")
@@ -105,7 +111,7 @@ class TestResolveProfilePath(unittest.TestCase):
             env = {"CDS_PROFILE_PATH": str(env_profile), "CDS_CONFIG_PATH": str(config_path)}
             with patch.dict(os.environ, env, clear=True):
                 result = resolve_profile_path(None)
-                self.assertEqual(result, str(saved_profile_file.resolve()))
+                self.assertEqual(result, str(env_profile.resolve()))
 
 
 if __name__ == "__main__":

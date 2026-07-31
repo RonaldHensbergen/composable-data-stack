@@ -130,6 +130,39 @@ def clear_saved_profile() -> bool:
     return True
 
 
+def _resolve_profile_root(profile_root: Path) -> str | None:
+    """
+    Resolve an ambient profiles root (CDS_PROFILE_PATH, or the default
+    "profiles/" directory) with no explicit profile argument. Returns None if
+    `profile_root` doesn't unambiguously resolve to a single profile.
+    """
+    if profile_root.is_file():
+        return str(profile_root.resolve())
+
+    direct_profile = profile_root / "profile.yaml"
+    if direct_profile.exists():
+        return str(direct_profile.resolve())
+
+    if profile_root.is_dir():
+        subdirs = [
+            directory
+            for directory in sorted(profile_root.iterdir())
+            if directory.is_dir() and (directory / "profile.yaml").exists()
+        ]
+        if len(subdirs) == 1:
+            return str((subdirs[0] / "profile.yaml").resolve())
+
+    # profile_root may be set to a bare profile name rather than a path.
+    # Try resolving it as a name under the default profiles/ directory.
+    default_root = Path("profiles")
+    if default_root.resolve() != profile_root.resolve():
+        name_candidate = default_root / profile_root.name / "profile.yaml"
+        if name_candidate.exists():
+            return str(name_candidate.resolve())
+
+    return None
+
+
 def resolve_profile_path(profile: str | None) -> str:
     profile_root = get_profiles_root()
     
@@ -166,9 +199,23 @@ def resolve_profile_path(profile: str | None) -> str:
 
         return str(candidate_by_name.resolve())
 
-    # No profile argument provided. A saved default (set via `cds use`) takes
-    # precedence over CDS_PROFILE_PATH, since it reflects an explicit, persisted
-    # choice rather than an ambient root/name that may resolve ambiguously.
+    # No profile argument provided. Resolution order:
+    #   1. CDS_PROFILE_PATH, if explicitly set for this invocation. Env vars
+    #      are per-invocation and reflect the current session more reliably
+    #      than a persisted, gitignored default that's easy to forget about.
+    #      This matches common CLI precedence (env var overrides persisted
+    #      config, e.g. AWS CLI, Azure CLI) -- and was previously inverted
+    #      here, with the saved default silently winning over the env var.
+    #   2. The saved default from `cds use <profile>`.
+    #   3. The single profile under the default profiles/ directory, if
+    #      there is exactly one (also the fallback when CDS_PROFILE_PATH is
+    #      unset, since profile_root defaults to "profiles").
+    env_profile_path = os.getenv("CDS_PROFILE_PATH")
+    if env_profile_path:
+        resolved_from_env = _resolve_profile_root(Path(env_profile_path).expanduser())
+        if resolved_from_env:
+            return resolved_from_env
+
     saved_profile = load_saved_profile()
     if saved_profile:
         resolved_saved_profile = resolve_profile_path(saved_profile)
@@ -180,30 +227,9 @@ def resolve_profile_path(profile: str | None) -> str:
             )
         return resolved_saved_profile
 
-    # Use CDS_PROFILE_PATH
-    if profile_root.is_file():
-        return str(profile_root.resolve())
-
-    direct_profile = profile_root / "profile.yaml"
-    if direct_profile.exists():
-        return str(direct_profile.resolve())
-
-    if profile_root.is_dir():
-        subdirs = [
-            directory
-            for directory in sorted(profile_root.iterdir())
-            if directory.is_dir() and (directory / "profile.yaml").exists()
-        ]
-        if len(subdirs) == 1:
-            return str((subdirs[0] / "profile.yaml").resolve())
-
-    # CDS_PROFILE_PATH may be set to a bare profile name rather than a path.
-    # Try resolving it as a name under the default profiles/ directory.
-    default_root = Path("profiles")
-    if default_root.resolve() != profile_root.resolve():
-        name_candidate = default_root / profile_root.name / "profile.yaml"
-        if name_candidate.exists():
-            return str(name_candidate.resolve())
+    resolved_default = _resolve_profile_root(profile_root)
+    if resolved_default:
+        return resolved_default
 
     raise ValueError(
         "No profile specified. Either provide a profile argument, run `cds use <profile>` "
@@ -289,9 +315,9 @@ def _add_profile_arg(subparser: argparse.ArgumentParser) -> None:
         help=(
             "Profile to use. Accepts a profile name (e.g. local-dagster-postgres-superset), "
             "a path to a profile.yaml file, or a path to a profiles root directory. "
-            "When omitted, resolution falls back in order to: the default profile saved "
-            "via `cds use <profile>`, then CDS_PROFILE_PATH, then the single profile "
-            "under profiles/ if there is exactly one. "
+            "When omitted, resolution falls back in order to: CDS_PROFILE_PATH if set, "
+            "then the default profile saved via `cds use <profile>`, then the single "
+            "profile under profiles/ if there is exactly one. "
             "CDS_PROFILE_PATH accepts the same forms: a profile name, a profile file path, "
             "or a profiles root directory."
         ),

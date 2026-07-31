@@ -551,7 +551,7 @@ profiles/[profile]/
 | Path to a `profile.yaml` file | `profiles/local-dagster-postgres-superset/profile.yaml` |
 | Path to a profiles root directory | `profiles/` |
 
-When `[profile]` is omitted, resolution falls back in order to: the default profile saved via `cds use <profile>`, then `CDS_PROFILE_PATH` (accepts the same three forms), then the single profile under `profiles/` if there is exactly one.
+When `[profile]` is omitted, resolution falls back in order to: `CDS_PROFILE_PATH` if set (accepts the same three forms), then the default profile saved via `cds use <profile>`, then the single profile under `profiles/` if there is exactly one. An explicitly-set env var takes precedence over the persisted `cds use` default, matching common CLI convention (env vars are per-invocation and reflect the current session more reliably than a saved, gitignored default that's easy to forget about).
 
 To view the full list of options for any command, use the `--help` flag:
 

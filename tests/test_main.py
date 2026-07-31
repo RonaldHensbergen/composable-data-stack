@@ -871,6 +871,19 @@ class UseCommandCLITest(unittest.TestCase):
         self.assertIn("no longer resolves to a file", str(ctx.exception))
         self.assertIn("cds use --clear", str(ctx.exception))
 
+    def test_env_profile_path_overrides_saved_default(self):
+        # `cds use` saves one profile as the default...
+        save_result, _ = self._run(["local-dagster-postgres-superset"])
+        self.assertEqual(save_result, 0)
+
+        # ...but an explicit, more-current CDS_PROFILE_PATH pointing at a
+        # different single profile should win over the persisted default,
+        # matching common CLI precedence (env var overrides persisted config).
+        other_profile_dir = self.profiles_root / "local-dagster-postgres-superset-vault"
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(other_profile_dir)}, clear=False):
+            resolved = resolve_profile_path(None)
+        self.assertEqual(resolved, str((other_profile_dir / "profile.yaml").resolve()))
+
     def test_saved_profile_used_by_other_commands_without_argument(self):
         self._run(["local-dagster-postgres-superset"])
         captured = io.StringIO()
