@@ -7,6 +7,8 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
+import tempfile
+from contextlib import suppress
 from importlib.metadata import PackageNotFoundError, version as _package_version
 from pathlib import Path
 
@@ -89,13 +91,49 @@ def get_config_path() -> Path:
     return find_project_root() / ".cds" / "config.json"
 
 
+class ConfigIOError(RuntimeError):
+    """Raised when the `cds use` config file cannot be read or written."""
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write `content` to `path` atomically via a temp file + os.replace.
+
+    Raises ConfigIOError (instead of an uncaught traceback) if the parent
+    directory can't be created or the write/replace fails, e.g. because
+    CDS_CONFIG_PATH points at an unwritable location or a path segment is
+    actually a file.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    except OSError as exc:
+        raise ConfigIOError(f"Could not prepare {path} for writing: {exc}") from exc
+
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+            tmp_file.write(content)
+        os.replace(tmp_name, path)
+    except OSError as exc:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise ConfigIOError(f"Could not write config file {path}: {exc}") from exc
+
+
 def _read_config() -> dict:
     config_path = get_config_path()
     if not config_path.exists():
         return {}
     try:
         data = json.loads(config_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError:
+        print(
+            f"WARNING {config_path} is not valid JSON; treating it as empty. "
+            "It will be overwritten by the next `cds use` or `cds use --clear`.",
+            file=sys.stderr,
+        )
+        return {}
+    except OSError as exc:
+        print(f"WARNING Could not read {config_path}: {exc}", file=sys.stderr)
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -107,26 +145,34 @@ def load_saved_profile() -> str | None:
 
 
 def save_profile(profile: str) -> Path:
-    """Persist `profile` as the default for this project. Returns the config path."""
+    """Persist `profile` as the default for this project. Returns the config path.
+
+    Raises ConfigIOError if the config file cannot be written.
+    """
     config_path = get_config_path()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
     data = _read_config()
     data["profile"] = profile
-    config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _atomic_write_text(config_path, json.dumps(data, indent=2) + "\n")
     return config_path
 
 
 def clear_saved_profile() -> bool:
-    """Remove a previously saved default profile. Returns True if one was cleared."""
+    """Remove a previously saved default profile. Returns True if one was cleared.
+
+    Raises ConfigIOError if the config file cannot be updated/removed.
+    """
     config_path = get_config_path()
     data = _read_config()
     if "profile" not in data:
         return False
     del data["profile"]
-    if data:
-        config_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    else:
-        config_path.unlink()
+    try:
+        if data:
+            _atomic_write_text(config_path, json.dumps(data, indent=2) + "\n")
+        else:
+            config_path.unlink()
+    except OSError as exc:
+        raise ConfigIOError(f"Could not update config file {config_path}: {exc}") from exc
     return True
 
 
@@ -1062,7 +1108,12 @@ def main() -> int:
             return 1
 
         if args.clear:
-            if clear_saved_profile():
+            try:
+                cleared = clear_saved_profile()
+            except ConfigIOError as exc:
+                print(f"ERROR {exc}")
+                return 1
+            if cleared:
                 print(f"Cleared saved default profile ({get_config_path()}).")
             else:
                 print("No saved default profile to clear.")
@@ -1086,7 +1137,29 @@ def main() -> int:
             print(f"ERROR Profile '{args.profile}' could not be found (looked for {resolved}).")
             return 1
 
-        config_path = save_profile(resolved)
+        # When CDS_PROFILE_PATH points directly at a single profile.yaml
+        # file, resolve_profile_path() returns that file for *any* name
+        # argument (there's no profiles directory to look names up under),
+        # which would otherwise let `cds use <typo>` succeed silently and
+        # save a bogus name as if it had been validated. Require the given
+        # name to plausibly identify this profile before accepting it.
+        profile_root = get_profiles_root()
+        if profile_root.is_file() and Path(resolved).resolve() == profile_root.resolve():
+            expected_names = {profile_root.stem, profile_root.parent.name}
+            given_matches_file = Path(args.profile).resolve() == profile_root.resolve()
+            if args.profile not in expected_names and not given_matches_file:
+                print(
+                    f"ERROR CDS_PROFILE_PATH points to a single profile file ({profile_root}); "
+                    f"'{args.profile}' does not identify it. Pass the file path directly, "
+                    f"or use '{profile_root.stem}' or '{profile_root.parent.name}'."
+                )
+                return 1
+
+        try:
+            config_path = save_profile(resolved)
+        except ConfigIOError as exc:
+            print(f"ERROR {exc}")
+            return 1
         print(f"Saved default profile: {args.profile} (resolves to {resolved})")
         print(f"Stored in {config_path}")
         return 0
