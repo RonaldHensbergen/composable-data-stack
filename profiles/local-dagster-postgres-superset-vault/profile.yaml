@@ -29,6 +29,16 @@ spec:
         tokenFrom: secrets.vault_token
         mountPath: secret/data
 
+    - id: keydb
+      source: ../../modules/cache/keydb
+      version: "0.1.0"
+      enabled: true
+      config:
+        port: 6379
+        password: ""
+        healthcheck:
+          enabled: true
+
     - id: postgres
       source: ../../modules/warehouse/postgres
       version: "0.1.0"
@@ -103,6 +113,7 @@ spec:
       enabled: true
       dependsOn:
         - postgres
+        - keydb
       config:
         webPort: 8088
         secretKeyFrom: secrets.superset_secret_key
@@ -112,6 +123,8 @@ spec:
           email: admin@example.local
         metadataDatabase:
           contractRef: postgres.superset-database
+        cacheService:
+          contractRef: keydb.cache-service
         healthcheck:
           enabled: true
 
