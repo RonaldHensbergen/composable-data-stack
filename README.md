@@ -534,6 +534,75 @@ profiles/[profile]/
 └── README.md
 ```
 
+### Environment Overlays
+
+A profile can be promoted from local development through staging to
+production without duplicating its configuration. Add an `environments/`
+directory next to `profile.yaml` containing one YAML file per environment;
+each file is merged over the base profile when `--environment <name>` is
+passed to a profile-consuming command:
+
+```text
+profiles/[profile]/
+├── profile.yaml
+└── environments/
+    ├── dev.yaml
+    └── prod.yaml
+```
+
+An overlay only needs to declare the values that differ from the base
+profile. Module entries are merged by their stable `id` (not array
+position), so an overlay can override just one field of one module:
+
+```yaml
+# profiles/[profile]/environments/prod.yaml
+metadata:
+  environment: production   # promotes the profile's security classification
+
+spec:
+  modules:
+    - id: postgres
+      config:
+        storage:
+          size: 20Gi
+```
+
+```bash
+cds validate my-profile --environment prod
+cds plan my-profile --environment prod
+cds test my-profile --environment prod
+cds up my-profile --environment prod
+```
+
+`local-dagster-postgres-superset` ships a working `dev`/`prod` example under
+`profiles/local-dagster-postgres-superset/environments/` you can inspect or
+copy.
+
+Setting `metadata.environment` in an overlay also changes which security
+policy `cds security`/`cds test` applies (see [Security](#-security)) —
+promoting to `production` enables stricter checks, so a profile that passes
+locally may report new findings once resolved with `--environment prod`.
+That's expected: it surfaces settings that are fine for local development but
+unsafe to carry into production.
+
+Compare what an overlay actually changes with `cds diff`, without ever
+printing a secret value (profiles only ever hold secret *references*, never
+resolved values):
+
+```bash
+cds diff my-profile --from dev --to prod
+```
+
+```text
+Differences from 'dev' to 'prod':
+
+  ~ metadata.environment: "development" -> "production"
+  ~ spec.modules[postgres].config.storage.size: "2Gi" -> "20Gi"
+```
+
+Commands without `--environment` are unaffected — they behave exactly as
+before and never look for an `environments/` directory.
+
 ---
 
 ## ⚙️ CLI
@@ -548,6 +617,13 @@ profiles/[profile]/
 |cds up [profile]|Validate, plan, render, build, and start services with docker compose (use `--no-build` to skip build)|
 |cds state [profile]|Show running service status grouped by health (use `--no-color` to disable colored labels)|
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
+|cds security [profile]|Run rule-based security validation on a profile|
+|cds diff [profile] --from \<env\> --to \<env\>|Show effective configuration differences between two environment overlays, secrets never included|
+
+`init`, `validate`, `preflight`, `plan`, `render`, `up`, `test`, and `security`
+all accept `--environment <name>` (or `-e <name>`) to merge
+`environments/<name>.yaml` over the base profile before resolving; see
+[Environment Overlays](#environment-overlays).
 
 `[profile]` accepts:
 

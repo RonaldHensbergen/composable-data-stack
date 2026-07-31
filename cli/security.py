@@ -434,6 +434,7 @@ def run_security_validation(
     rule_set_path: Path | Traversable | None = None,
     env_file: str | None = None,
     redact_values: bool = False,
+    environment: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     """
     Validate a profile and its .env secrets against the rule set.
@@ -449,12 +450,27 @@ def run_security_validation(
         rule_set_path:    Optional custom rule set JSON path.
         env_file:         Optional path to .env file. Defaults to .env in cwd.
         redact_values:    If True, secret-like values are redacted in findings.
+        environment:      Optional environment overlay name. When set, the
+            profile's declared metadata.environment (and therefore the
+            production security policy applied below) reflects the overlay,
+            not just the base profile.
 
     Returns:
         Tuple of (findings, diagnostics). Findings are sorted by severity,
         then rule_id, module, and path.
     """
-    profile = _load_yaml(profile_path)
+    if environment is not None:
+        # Local import: cli.overlay imports cli.validator, not cli.security,
+        # so this doesn't introduce a cycle, but keep it scoped/consistent
+        # with the other call sites that gained overlay support.
+        from .overlay import resolve_profile
+
+        profile, _, overlay_diags = resolve_profile(str(profile_path), environment)
+        if profile is None:
+            return [], overlay_diags
+    else:
+        profile = _load_yaml(profile_path)
+        overlay_diags = []
     rule_set = _validate_rule_set(rule_schema_path, rule_set_path)
 
     profile_class = _infer_profile_class(profile)
@@ -491,4 +507,4 @@ def run_security_validation(
         x["path"],
     ))
 
-    return findings, secret_diags
+    return findings, overlay_diags + secret_diags

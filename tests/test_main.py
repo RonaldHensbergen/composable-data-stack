@@ -97,7 +97,7 @@ class MainCLITest(unittest.TestCase):
             result = main()
 
         self.assertEqual(result, 0)
-        mock_validate.assert_called_once_with(str(profile_file))
+        mock_validate.assert_called_once_with(str(profile_file), environment=None)
         mock_run_security.assert_called_once()
         self.assertEqual(mock_run_security.call_args.kwargs["profile_path"], Path(str(profile_file)))
 
@@ -128,7 +128,7 @@ class MainCLITest(unittest.TestCase):
                 result = main()
             
             self.assertEqual(result, 0)
-            mock_validate.assert_called_once_with(str(profile_file))
+            mock_validate.assert_called_once_with(str(profile_file), environment=None)
             mock_build_plan.assert_called_once()
             called_args, called_kwargs = mock_build_plan.call_args
             self.assertEqual(called_args[0], str(profile_file))
