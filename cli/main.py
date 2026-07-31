@@ -79,6 +79,19 @@ def resolve_profile_path(profile: str | None) -> str:
         if candidate.suffix == ".yaml":
             return str(candidate.resolve())
 
+        if candidate.is_dir():
+            direct_profile = candidate / "profile.yaml"
+            if direct_profile.exists():
+                return str(direct_profile.resolve())
+
+            subdirs = [
+                directory
+                for directory in sorted(candidate.iterdir())
+                if directory.is_dir() and (directory / "profile.yaml").exists()
+            ]
+            if len(subdirs) == 1:
+                return str((subdirs[0] / "profile.yaml").resolve())
+
         if profile_root.is_file():
             return str(profile_root.resolve())
 
