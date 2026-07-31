@@ -124,10 +124,10 @@ flowchart TD
 
 CDS splits into two phases: **compile-time**, where `cds` itself validates, resolves, and renders a plain `docker-compose.yaml`; and **runtime**, where the real `docker compose` binary builds and starts containers from that file. CDS never runs containers itself.
 
-`cds test` runs the full compile-time pipeline in order — **validate → security → plan → render** — stopping at the first stage that reports an error. `cds up` runs the same pipeline **minus security** (`validate → plan → render`), then hands off to `docker compose build`/`docker compose up`. See the [CLI table](#️-cli) below for exactly what each command runs.
+`cds test` runs the full compile-time pipeline in order — **validate → security → plan → render**. A `validate` (or `plan`) failure skips all downstream stages, but a **security** failure does not skip `plan`/`render`: those stages still run so `cds test` reports every stage's status in one pass, while the overall command still exits non-zero if any stage failed. `cds up` runs the same pipeline **minus security** (`validate → plan → render`), then hands off to `docker compose build`/`docker compose up`. See the [CLI table](#️-cli) below for exactly what each command runs.
 
 - **Validate** checks profile shape, module configs, dependencies, secret refs, contract bindings, and outputs.
-- **Security** (`cds test` only) runs rule-based checks against modules and resolved secrets.
+- **Security** (`cds test` only) runs rule-based checks against modules and resolved secrets; a failing check is reported but does not prevent `plan`/`render` from also running.
 - **Plan** resolves contract bindings and substitutes secrets and defaults.
 - **Render** generates the final `docker-compose.yaml`, with secret values as `${CDS_VAR}` placeholders; never the raw value.
 - **Runtime** (`cds up` only): `docker compose build` (skippable with `--no-build`), then `docker compose up`. Docker Compose, not CDS, resolves `${CDS_VAR}` placeholders from a `.env` file (see `cds init`) and starts the containers.
