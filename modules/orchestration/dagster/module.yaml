@@ -205,7 +205,7 @@ spec:
             - -f
             - "${config.definitionsFile.containerPath}"
           healthcheck:
-            conditionallyEnabledFrom: spec.config.healthcheck.enabled
+            conditionallyEnabledFrom: config.healthcheck.enabled
             test:
               - CMD
               - python
@@ -302,7 +302,7 @@ spec:
             ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
             ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
           healthcheck:
-            conditionallyEnabledFrom: spec.config.healthcheck.enabled
+            conditionallyEnabledFrom: config.healthcheck.enabled
             test:
               - CMD
               - python
@@ -314,7 +314,7 @@ spec:
             retries: 10
 
         dagster-daemon:
-          enabledFrom: spec.config.daemon.enabled
+          enabledFrom: config.daemon.enabled
           build:
             context: ../../../
             dockerfile: images/dagster/Dockerfile
@@ -338,7 +338,7 @@ spec:
             - dagster-daemon
             - run
           healthcheck:
-            conditionallyEnabledFrom: spec.config.healthcheck.enabled
+            conditionallyEnabledFrom: config.healthcheck.enabled
             test:
               - CMD
               - python

@@ -82,7 +82,7 @@ spec:
           environment:
             KEYDB_PASSWORD: "${config.password}"
           healthcheck:
-            conditionallyEnabledFrom: spec.config.healthcheck.enabled
+            conditionallyEnabledFrom: config.healthcheck.enabled
             test:
               - CMD
               - redis-cli
