@@ -159,6 +159,33 @@ def _flatten_env_secrets(secrets: dict[str, str]) -> list[tuple[str, str, Any]]:
     return [("<env>", f"secrets.{key}", value) for key, value in secrets.items()]
 
 
+def _normalize_scan_path(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(Path.cwd().resolve()))
+    except ValueError:
+        return str(resolved)
+
+
+def _flatten_env_inputs(
+    secrets: dict[str, str],
+    env_file: str | None,
+) -> list[tuple[str, str, Any]]:
+    """
+    Emit both loaded .env secrets and the env file path itself when present.
+
+    Some rules evaluate how a secret-bearing env file is located or managed
+    rather than inspecting individual secret values. Represent the file path as
+    a synthetic flat item so those rules can use the same matcher.
+    """
+    items = _flatten_env_secrets(secrets)
+    env_path = Path(env_file) if env_file is not None else Path(".env")
+    if env_path.exists():
+        scan_path = _normalize_scan_path(env_path)
+        items.append(("<env>", scan_path, scan_path))
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Secret reference detection
 # ---------------------------------------------------------------------------
@@ -478,7 +505,7 @@ def run_security_validation(
     secrets, secret_diags = load_secrets_from_env(env_file)
 
     flat_profile = _flatten_profile_by_module(profile, profile_dir=profile_path.parent)
-    flat_env = _flatten_env_secrets(secrets)
+    flat_env = _flatten_env_inputs(secrets, env_file)
 
     findings: list[dict[str, Any]] = []
     for rule in rule_set["rules"]:

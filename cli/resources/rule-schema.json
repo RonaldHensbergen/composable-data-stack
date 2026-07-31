@@ -194,6 +194,9 @@
           "type": "string",
           "pattern": "^CDS-SEC-\\d{3}$"
         },
+        "$comment": {
+          "type": "string"
+        },
         "title": {
           "type": "string"
         },
