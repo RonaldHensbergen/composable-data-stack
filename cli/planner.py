@@ -71,7 +71,26 @@ def build_plan(
         if module_instance.get("enabled", True) is False:
             continue
 
-        source = module_instance["source"]
+        module_id = module_instance.get("id")
+        if not module_id:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E010",
+                message="Module id is required.",
+                path=f"spec.modules[{i}].id",
+            ))
+            continue
+
+        source = module_instance.get("source")
+        if not source:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E010",
+                message="Module source is required.",
+                path=f"spec.modules[{i}].source",
+            ))
+            continue
+
         source_path = Path(source)
         if not source_path.is_absolute() and source_path.parts and source_path.parts[0] == ".":
             source_path = source_path.relative_to(".")
@@ -104,7 +123,7 @@ def build_plan(
 
         loaded = {
             "index": i,
-            "id": module_instance["id"],
+            "id": module_id,
             "source": source,
             "version": module_instance.get("version"),
             "dependsOn": module_instance.get("dependsOn", []),
@@ -201,7 +220,13 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any]) -> Any:
         for prop_name, prop_schema in props.items():
             if prop_name not in result:
                 if "default" in prop_schema:
-                    result[prop_name] = deepcopy(prop_schema["default"])
+                    # Recurse so nested properties of an object-typed default
+                    # (e.g. healthcheck: {type: object, default: {}, properties:
+                    # {enabled: {default: true}}}) get their own defaults filled
+                    # in too, instead of stopping at the raw literal default.
+                    result[prop_name] = _apply_schema_defaults(
+                        deepcopy(prop_schema["default"]), prop_schema
+                    )
                 elif prop_schema.get("type") == "object":
                     nested_default = _apply_schema_defaults({}, prop_schema)
                     if nested_default:

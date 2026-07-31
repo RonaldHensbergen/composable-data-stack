@@ -529,5 +529,77 @@ class RendererRegressionTest(unittest.TestCase):
             self.assertTrue(Path(source).is_absolute() or source.startswith("/"))
             self.assertTrue(source.endswith("init-db.sql"))
 
+    def test_render_compose_flags_unresolved_binding_expression_as_error(self):
+        """A module template that unconditionally references an optional,
+        unbound contract (e.g. ${bindings.cache-service.connectionUri} with
+        no cache-service module bound) must surface as an E071 error
+        instead of silently shipping the literal placeholder text in the
+        rendered Compose file."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "web",
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "web:latest",
+                                    "environment": {
+                                        "REDIS_URL": "${bindings.cache-service.connectionUri}",
+                                    },
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].code, "E071")
+        self.assertIn("bindings.cache-service.connectionUri", errors[0].message)
+        # The broken placeholder is still present in the output (render_compose
+        # does not fail closed), but the caller can now detect it via has_errors().
+        self.assertIn("${bindings.cache-service.connectionUri}", output)
+
+    def test_render_compose_does_not_flag_legitimate_compose_native_placeholders(self):
+        """${CDS_*} secret placeholders and bare ${VAR}/${VAR:-default} Docker
+        Compose native runtime placeholders must not trigger the unresolved
+        template expression check -- only CDS's own config/bindings/service
+        vocabulary should be flagged."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "web",
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "web:latest",
+                                    "environment": {
+                                        "HOST_TAG": "${TAG:-latest}",
+                                        "DB_PASSWORD": "${CDS_DB_PASSWORD}",
+                                    },
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        self.assertIn("${TAG:-latest}", output)
+        self.assertIn("${CDS_DB_PASSWORD}", output)
+
 if __name__ == "__main__":
     unittest.main()

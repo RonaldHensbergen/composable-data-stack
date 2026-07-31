@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import os
+import tempfile
 import yaml
 from copy import deepcopy
 from pathlib import Path
@@ -14,6 +15,23 @@ from typing import Any
 
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
+
+
+def _atomic_write_compose(path: Path, content: str) -> None:
+    """Write the rendered compose file atomically via a temp file + os.replace,
+    so a crash/kill mid-write can't leave a truncated docker-compose.yml behind.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+            tmp_file.write(content)
+        os.replace(tmp_name, path)
+    except OSError:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def render_compose(
@@ -127,13 +145,45 @@ def render_compose(
     _add_cross_module_dependencies(compose, plan, module_service_names)
 
     output = yaml.safe_dump(compose, sort_keys=False)
+    diagnostics.extend(_check_unresolved_expressions(output))
 
     if output_path:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(output, encoding="utf-8")
+        _atomic_write_compose(path, output)
 
     return output, diagnostics
+
+
+_UNRESOLVED_EXPRESSION_PATTERN = re.compile(
+    r"\$\{((?:config|bindings|service)\.[^}]*)\}"
+)
+
+
+def _check_unresolved_expressions(rendered_yaml: str) -> list[Diagnostic]:
+    """
+    Detect leftover ${config.*}/${bindings.*}/${service.*} template expressions
+    that survived rendering unresolved (e.g. an optional consumed contract that
+    was never bound, but is unconditionally referenced by the module's
+    template). These are always a rendering bug -- unlike ${CDS_*}/${VAR}
+    placeholders, CDS's own template vocabulary is meant to be fully resolved
+    by render time, so leaving one in place would silently ship a broken
+    Compose file instead of failing loudly.
+    """
+    unresolved = sorted(set(_UNRESOLVED_EXPRESSION_PATTERN.findall(rendered_yaml)))
+    return [
+        Diagnostic(
+            level="error",
+            code="E071",
+            message=(
+                f'Unresolved template expression "${{{expr}}}" remains in the rendered '
+                "output. This usually means an optional contract binding referenced by "
+                "a module's template was never satisfied by the profile."
+            ),
+            path=f"rendered.{expr}",
+        )
+        for expr in unresolved
+    ]
 
 
 # ---------------------------------------------------------------------------
