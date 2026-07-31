@@ -601,5 +601,42 @@ class RendererRegressionTest(unittest.TestCase):
         self.assertIn("${TAG:-latest}", output)
         self.assertIn("${CDS_DB_PASSWORD}", output)
 
+    def test_render_compose_reports_diagnostic_for_deeply_nested_service_definition(self):
+        """A pathologically deeply nested service field (e.g. a malformed or
+        malicious module template) must be reported as an E094 diagnostic
+        instead of raising an unhandled RecursionError inside
+        _substitute_values()."""
+        deep_value: dict = {}
+        node = deep_value
+        for _ in range(150):
+            node["child"] = {}
+            node = node["child"]
+
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "web",
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "web:latest",
+                                    "labels": deep_value,
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        errors = [d for d in diagnostics if d.code == "E094"]
+        self.assertEqual(len(errors), 1)
+        self.assertNotIn("web-app", output)
+
 if __name__ == "__main__":
     unittest.main()

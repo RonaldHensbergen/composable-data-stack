@@ -16,6 +16,15 @@ from typing import Any
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
 
+# Guards recursive interpolation of user-controlled service/volume templates
+# against maliciously or accidentally deeply nested documents that would
+# otherwise raise an unhandled RecursionError / stack overflow.
+MAX_NESTING_DEPTH = 100
+
+
+class MaxNestingDepthExceeded(Exception):
+    """Raised when a recursive structure exceeds MAX_NESTING_DEPTH."""
+
 
 def _atomic_write_compose(path: Path, content: str) -> None:
     """Write the rendered compose file atomically via a temp file + os.replace,
@@ -117,16 +126,28 @@ def render_compose(
         services = compose_impl.get("services", {})
         volumes = compose_impl.get("volumes", {})
 
-        rendered_services = _render_services(
-            module,
-            services,
-            secrets,
-            profile_dir=profile_dir,
-            project_root=project_root,
-            compose_dir=compose_dir,
-            network_name=default_network_name,
-        )
-        rendered_volumes = _render_volumes(module, volumes, secrets)
+        try:
+            rendered_services = _render_services(
+                module,
+                services,
+                secrets,
+                profile_dir=profile_dir,
+                project_root=project_root,
+                compose_dir=compose_dir,
+                network_name=default_network_name,
+            )
+            rendered_volumes = _render_volumes(module, volumes, secrets)
+        except MaxNestingDepthExceeded:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E094",
+                message=(
+                    f'Module "{module.get("id")}" service/volume templates exceed the '
+                    f"maximum supported nesting depth ({MAX_NESTING_DEPTH})."
+                ),
+                path=f'module:{module.get("id")}.implementation.compose',
+            ))
+            continue
 
         # Handle initDbEnv for postgres service (merge additional env vars)
         _merge_init_db_env(rendered_services, module, secrets)
@@ -327,12 +348,16 @@ def _build_context(
     }
 
 
-def _substitute_values(obj: Any, context: dict[str, Any]) -> Any:
+def _substitute_values(obj: Any, context: dict[str, Any], _depth: int = 0) -> Any:
     """Recursively substitute interpolation expressions in obj."""
+    if _depth > MAX_NESTING_DEPTH:
+        raise MaxNestingDepthExceeded(
+            f"Service/volume template nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})."
+        )
     if isinstance(obj, dict):
-        return {k: _substitute_values(v, context) for k, v in obj.items()}
+        return {k: _substitute_values(v, context, _depth + 1) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_substitute_values(v, context) for v in obj]
+        return [_substitute_values(v, context, _depth + 1) for v in obj]
     if isinstance(obj, str):
         return _substitute_string(obj, context)
     return obj

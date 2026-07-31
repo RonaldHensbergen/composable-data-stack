@@ -10,9 +10,20 @@ import re
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
-from .secrets import load_profile_secrets, load_secrets_from_env
+from .secrets import load_profile_secrets
 
 from dataclasses import dataclass
+
+# Guards recursive traversal of user-controlled YAML structures (schema
+# defaults, contract/config interpolation) against maliciously or accidentally
+# deeply nested documents that would otherwise raise an unhandled
+# RecursionError / stack overflow.
+MAX_NESTING_DEPTH = 100
+
+
+class MaxNestingDepthExceeded(Exception):
+    """Raised when a recursive structure exceeds MAX_NESTING_DEPTH."""
+
 
 @dataclass
 class SecretRef:
@@ -68,6 +79,19 @@ def build_plan(
     module_instances_by_id: dict[str, dict[str, Any]] = {}
 
     for i, module_instance in enumerate(modules):
+        if not isinstance(module_instance, dict):
+            # Defensive guard: validate_profile() already rejects non-object
+            # module entries (E010), but build_plan() is a public entry point
+            # that may be called directly (e.g. by tests/tools) without prior
+            # validation, so it must not crash on malformed-but-plausible YAML.
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E010",
+                message="Module entry must be an object.",
+                path=f"spec.modules[{i}]",
+            ))
+            continue
+
         if module_instance.get("enabled", True) is False:
             continue
 
@@ -113,10 +137,22 @@ def build_plan(
         if module_def is None:
             continue
 
-        normalized_config = apply_defaults(
-            module_instance.get("config", {}),
-            module_def.get("spec", {}).get("configSchema", {})
-        )
+        try:
+            normalized_config = apply_defaults(
+                module_instance.get("config", {}),
+                module_def.get("spec", {}).get("configSchema", {})
+            )
+        except MaxNestingDepthExceeded:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E094",
+                message=(
+                    f"Module config or schema nesting exceeds the maximum "
+                    f"supported depth ({MAX_NESTING_DEPTH})."
+                ),
+                path=f"spec.modules[{i}].config",
+            ))
+            continue
 
         # Validate secrets exist but leave "secrets.VAR" strings intact
         resolve_secret_refs(normalized_config, secrets, f"spec.modules[{i}].config", diagnostics)
@@ -137,7 +173,19 @@ def build_plan(
 
     resolved_contracts_by_module: dict[str, dict[str, Any]] = {}
     for inst in loaded_modules:
-        resolved_contracts_by_module[inst["id"]] = resolve_provided_contracts(inst, secrets)
+        try:
+            resolved_contracts_by_module[inst["id"]] = resolve_provided_contracts(inst, secrets)
+        except MaxNestingDepthExceeded:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E094",
+                message=(
+                    f"Provided contract nesting for module \"{inst['id']}\" exceeds the "
+                    f"maximum supported depth ({MAX_NESTING_DEPTH})."
+                ),
+                path=f"module:{inst['id']}.provides",
+            ))
+            resolved_contracts_by_module[inst["id"]] = {}
 
     planned_modules: list[dict[str, Any]] = []
     for inst in loaded_modules:
@@ -202,7 +250,12 @@ def apply_defaults(config: dict[str, Any], schema: dict[str, Any]) -> dict[str, 
     return _apply_schema_defaults(config_copy, schema)
 
 
-def _apply_schema_defaults(value: Any, schema: dict[str, Any]) -> Any:
+def _apply_schema_defaults(value: Any, schema: dict[str, Any], _depth: int = 0) -> Any:
+    if _depth > MAX_NESTING_DEPTH:
+        raise MaxNestingDepthExceeded(
+            f"Schema/config nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})."
+        )
+
     schema_type = schema.get("type")
 
     if value is None and "default" in schema:
@@ -225,14 +278,14 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any]) -> Any:
                     # {enabled: {default: true}}}) get their own defaults filled
                     # in too, instead of stopping at the raw literal default.
                     result[prop_name] = _apply_schema_defaults(
-                        deepcopy(prop_schema["default"]), prop_schema
+                        deepcopy(prop_schema["default"]), prop_schema, _depth + 1
                     )
                 elif prop_schema.get("type") == "object":
-                    nested_default = _apply_schema_defaults({}, prop_schema)
+                    nested_default = _apply_schema_defaults({}, prop_schema, _depth + 1)
                     if nested_default:
                         result[prop_name] = nested_default
             else:
-                result[prop_name] = _apply_schema_defaults(result[prop_name], prop_schema)
+                result[prop_name] = _apply_schema_defaults(result[prop_name], prop_schema, _depth + 1)
 
         return result
 
@@ -242,7 +295,7 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any]) -> Any:
         if not isinstance(value, list):
             return value
         item_schema = schema.get("items", {})
-        return [_apply_schema_defaults(item, item_schema) for item in value]
+        return [_apply_schema_defaults(item, item_schema, _depth + 1) for item in value]
 
     return value
 
@@ -452,15 +505,19 @@ def resolve_outputs(
     return resolved
 
 
-def substitute_values(obj: Any, context: dict[str, Any]) -> Any:
+def substitute_values(obj: Any, context: dict[str, Any], _depth: int = 0) -> Any:
     """
     Recursively substitute interpolations in object.
     Supports both pure ${...} and mixed ${...} interpolations.
     """
+    if _depth > MAX_NESTING_DEPTH:
+        raise MaxNestingDepthExceeded(
+            f"Contract/config nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})."
+        )
     if isinstance(obj, dict):
-        return {k: substitute_values(v, context) for k, v in obj.items()}
+        return {k: substitute_values(v, context, _depth + 1) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [substitute_values(v, context) for v in obj]
+        return [substitute_values(v, context, _depth + 1) for v in obj]
     if isinstance(obj, str):
         return substitute_string(obj, context)
     return obj
