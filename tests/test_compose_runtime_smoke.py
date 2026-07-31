@@ -28,6 +28,18 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
         r" - ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) "
         r"- \d+ - RUN_SUCCESS"
     )
+    # Transient container-registry error substrings seen in CI (e.g. Docker Hub
+    # pull rate limits/timeouts), used to distinguish infrastructure flakiness
+    # from a real build/up failure so we can retry only the former.
+    _TRANSIENT_REGISTRY_ERROR_MARKERS = (
+        "Client.Timeout exceeded while awaiting headers",
+        "TLS handshake timeout",
+        "connection reset by peer",
+        "i/o timeout",
+        "net/http: request canceled",
+        "toomanyrequests",
+        "unexpected EOF",
+    )
 
     @classmethod
     def setUpClass(cls):
@@ -90,7 +102,9 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
             )
             self.assertTrue(self.compose_file.exists(), "docker-compose.yml was not generated")
 
-            self._run(["docker", "compose", "-f", str(self.compose_file), "build"], env)
+            self._run_with_registry_retry(
+                ["docker", "compose", "-f", str(self.compose_file), "build"], env
+            )
             self._verify_forced_readiness_recovery(env)
 
             available_services = self._available_services_from_compose()
@@ -168,6 +182,49 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
                 )
             )
         return result
+
+    def _run_with_registry_retry(
+        self,
+        command: list[str],
+        env: dict[str, str],
+        timeout: int = 1200,
+        attempts: int = 3,
+        delay_seconds: int = 15,
+    ) -> subprocess.CompletedProcess:
+        """Like _run, but retries the whole command when it fails with output
+        matching a known-transient container registry error (e.g. Docker Hub
+        pull timeouts/rate limits in CI), instead of failing the test outright
+        on infrastructure flakiness unrelated to the code under test. Any
+        other failure still fails immediately on the first attempt.
+        """
+        last_result: subprocess.CompletedProcess | None = None
+        for attempt in range(1, attempts + 1):
+            result = subprocess.run(
+                command,
+                cwd=self.repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if result.returncode == 0:
+                return result
+            last_result = result
+            combined_output = result.stdout + result.stderr
+            is_transient = any(
+                marker in combined_output for marker in self._TRANSIENT_REGISTRY_ERROR_MARKERS
+            )
+            if not is_transient or attempt == attempts:
+                break
+            time.sleep(delay_seconds)
+        self.fail(
+            "Command failed after {attempts} attempt(s): {cmd}\nstdout:\n{stdout}\nstderr:\n{stderr}".format(
+                attempts=attempts,
+                cmd=" ".join(command),
+                stdout=self._redact(last_result.stdout, env),
+                stderr=self._redact(last_result.stderr, env),
+            )
+        )
 
     @staticmethod
     def _redact(value: str, env: dict[str, str]) -> str:
@@ -320,7 +377,7 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
     def _verify_forced_readiness_recovery(self, env: dict[str, str]) -> None:
         """Start a subset of services out of dependency order (--no-deps), confirm their dependencies stay down, then bring up the full stack and confirm it still reaches healthy state."""
         early_services = ["dagster-daemon", "dagster-webserver", "superset"]
-        self._run(
+        self._run_with_registry_retry(
             [
                 "docker",
                 "compose",
@@ -351,7 +408,7 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
         self.assertNotIn("dagster-user-code", started_services)
         self.assertNotIn("keydb", started_services)
 
-        self._run(
+        self._run_with_registry_retry(
             [
                 "docker",
                 "compose",
