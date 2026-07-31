@@ -73,7 +73,7 @@ make package
 Install it locally:
 
 ```bash
-python3 -m pip install dist/composable_data_stack-0.1.1-py3-none-any.whl
+python3 -m pip install dist/composable_data_stack-*-py3-none-any.whl
 ```
 
 Advantages:
