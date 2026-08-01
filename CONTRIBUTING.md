@@ -63,7 +63,7 @@ make check
 If you want to run the pieces individually:
 
 ```bash
-python -m unittest discover -s tests -p "*.py"
+python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 To verify that all Dockerfiles build:
@@ -81,7 +81,7 @@ python3 -m cli.main render local-dagster-postgres-superset
 ```
 ## Pre-commit Hooks
 
-This repo uses [pre-commit](https://pre-commit.com/) to catch formatting and lint issues before you open a PR. Most hooks mirror the checks that run in CI (`markdownlint`, `yamllint`); `flake8` is additional Python quality coverage that CI does not yet run.
+This repo uses [pre-commit](https://pre-commit.com/) to catch formatting and lint issues before you open a PR. Most hooks mirror the checks that run in CI (`markdownlint`, `yamllint`, and Ruff's pyupgrade-based deprecation check); Renovate config validation runs via `make lint` and CI, while `flake8` remains additional Python quality coverage that CI does not yet run.
 
 Install once per clone:
 

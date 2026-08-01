@@ -6,7 +6,7 @@ This document tracks near-term priorities for Composable Data Stack (CDS). Miles
 
 ## Stable Components
 
-These are considered production-ready in the current release (v0.3.0-beta-1):
+These are considered production-ready in the current release (v0.4.0-beta-1):
 
 - `cds validate` — module and contract validation
 - `cds plan` — dependency resolution and execution planning
@@ -41,7 +41,7 @@ These work but may have breaking changes in upcoming releases:
 
 ## Completed
 
-Items shipped in v0.1.1 through v0.3.0-beta-1:
+Items shipped in v0.1.1 through v0.4.0-beta-1:
 
 - ✅ **Docker runtime smoke test CI** — CI workflow for Docker runtime smoke test and MVP proof (#26)
 - ✅ **Windows and macOS CI** — expanded CI coverage to include Windows and macOS host jobs (#58)

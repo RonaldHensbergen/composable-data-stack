@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../../schemas/profile.schema.json
+# Example environment overlay: production. Merged over profile.yaml when
+# invoking with --environment prod, e.g. `cds plan local-dagster-postgres-superset --environment prod`.
+# Promoting metadata.environment to "production" also switches on CDS's
+# production security policy (see cli/security.py) for the resolved profile.
+metadata:
+  environment: production
+
+spec:
+  modules:
+    - id: postgres
+      config:
+        storage:
+          size: 20Gi

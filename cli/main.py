@@ -7,8 +7,11 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
+import tempfile
+from contextlib import suppress
 from importlib.metadata import PackageNotFoundError, version as _package_version
 from pathlib import Path
+from typing import Any
 
 try:
     import argcomplete  # type: ignore
@@ -16,9 +19,11 @@ except ImportError:
     argcomplete = None
 
 from .validator import has_errors, validate_profile
+from .diagnostics import Diagnostic
 from .planner import build_plan
 from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
+from .overlay import resolve_profile
 from .preflight import preflight_passed, run_preflight
 from .security import run_security_validation
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
@@ -39,22 +44,28 @@ def load_env_file(env_file: str = ".env") -> None:
     env_path = Path(env_file)
     if not env_path.exists():
         return
-    
-    with open(env_path) as f:
-        for line in f:
-            line = line.strip()
-            # Skip empty lines and comments
-            if not line or line.startswith("#"):
-                continue
-            
-            # Parse KEY=VALUE format
-            if "=" in line:
-                key, value = line.split("=", 1)
-                key = key.strip()
-                value = value.strip()
-                # Only set if not already in environment
-                if key and not os.environ.get(key):
-                    os.environ[key] = value
+
+    try:
+        with open(env_path, encoding="utf-8-sig") as f:
+            lines = f.readlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"WARNING Could not read {env_path}: {exc}", file=sys.stderr)
+        return
+
+    for line in lines:
+        line = line.strip()
+        # Skip empty lines and comments
+        if not line or line.startswith("#"):
+            continue
+        
+        # Parse KEY=VALUE format
+        if "=" in line:
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            # Only set if not already in environment
+            if key and not os.environ.get(key):
+                os.environ[key] = value
 
 
 def print_diagnostics(diagnostics) -> None:
@@ -68,12 +79,12 @@ def profile_completer(prefix, parsed_args, **kwargs):
 
 
 def get_profiles_root() -> Path:
-    root = os.getenv("CDS_PROFILE_PATH", "profiles")
+    root = os.getenv("CDS_PROFILE_PATH") or "profiles"
     return Path(root).expanduser()
 
 
 def get_modules_root() -> Path:
-    root = os.getenv("CDS_MODULE_PATH", "modules")
+    root = os.getenv("CDS_MODULE_PATH") or "modules"
     return Path(root).expanduser()
 
 
@@ -87,6 +98,19 @@ def resolve_profile_path(profile: str | None) -> str:
         
         if candidate.suffix == ".yaml":
             return str(candidate.resolve())
+
+        if candidate.is_dir():
+            direct_profile = candidate / "profile.yaml"
+            if direct_profile.exists():
+                return str(direct_profile.resolve())
+
+            subdirs = [
+                directory
+                for directory in sorted(candidate.iterdir())
+                if directory.is_dir() and (directory / "profile.yaml").exists()
+            ]
+            if len(subdirs) == 1:
+                return str((subdirs[0] / "profile.yaml").resolve())
 
         if profile_root.is_file():
             return str(profile_root.resolve())
@@ -232,7 +256,22 @@ def _add_profile_arg(subparser: argparse.ArgumentParser) -> None:
         action.completer = profile_completer  # type: ignore[attr-defined]
 
 
-def _collect_profile_env_vars(profile_path: str) -> tuple[list[str], set[str]]:
+def _add_environment_arg(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument(
+        "--environment",
+        "-e",
+        default=None,
+        help=(
+            "Environment overlay to apply, e.g. dev or prod. Merges "
+            "profiles/<name>/environments/<environment>.yaml over the base "
+            "profile before resolving. Omit to use the base profile unchanged."
+        ),
+    )
+
+
+def _collect_profile_env_vars(
+    profile_path: str, environment: str | None = None
+) -> tuple[list[str], set[str]]:
     """Return (sorted env var names, subset that are true secrets).
 
     Env vars declared under `spec.secrets.values` hold sensitive values (passwords,
@@ -241,7 +280,12 @@ def _collect_profile_env_vars(profile_path: str) -> tuple[list[str], set[str]]:
     identifiers like database/user names, so callers can fill in friendlier defaults
     for them instead of a placeholder.
     """
-    profile, diags = load_yaml_file(Path(profile_path))
+    if environment is not None:
+        from .overlay import resolve_profile
+
+        profile, _, diags = resolve_profile(profile_path, environment)
+    else:
+        profile, diags = load_yaml_file(Path(profile_path))
     if profile is None:
         error_messages = [d.format() for d in diags if d.level == "error"]
         raise ValueError("Could not load profile: " + "; ".join(error_messages or ["unknown error"]))
@@ -291,6 +335,24 @@ def _default_env_value(env_name: str, is_secret: bool) -> str:
     return "change-me"
 
 
+def _atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
+    """Write `content` to `path` atomically via a temp file + os.replace.
+
+    Avoids leaving a truncated/partial file behind if the process is
+    interrupted mid-write, and avoids races between concurrent writers.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding=encoding) as tmp_file:
+            tmp_file.write(content)
+        os.replace(tmp_name, path)
+    except OSError:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise
+
+
 def _write_env_file(
     output_path: Path,
     env_vars: list[str],
@@ -301,7 +363,6 @@ def _write_env_file(
     if output_path.exists() and not force:
         raise FileExistsError(f"Refusing to overwrite existing file: {output_path}. Use --force to overwrite.")
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
         "# Generated by cds init",
         f"# Source profile: {profile_path}",
@@ -311,7 +372,7 @@ def _write_env_file(
         f"{env_name}={_default_env_value(env_name, env_name in secret_env_vars)}" for env_name in env_vars
     )
     lines.append("")
-    output_path.write_text("\n".join(lines), encoding="utf-8")
+    _atomic_write_text(output_path, "\n".join(lines))
 
 
 def _cds_version() -> str:
@@ -320,6 +381,52 @@ def _cds_version() -> str:
         return _package_version("composable-data-stack")
     except PackageNotFoundError:
         return "unknown"
+
+
+def _is_id_keyed_list(value: Any) -> bool:
+    """True if every element is a mapping with a stable "id" key (e.g. spec.modules)."""
+    return bool(value) and all(isinstance(item, dict) and "id" in item for item in value)
+
+
+def _diff_values(path: str, a: Any, b: Any, changes: list[tuple[str, str, Any, Any]]) -> None:
+    """
+    Recursively compare two resolved profile values and append (path, kind, old,
+    new) tuples to changes, kind is one of "added", "removed", "changed".
+
+    Dicts are compared key-by-key. Lists are compared by id instead of position
+    (matching cli.overlay's merge semantics, so reordering module entries alone
+    is not reported as a change) only when *every* element on *both* sides is a
+    mapping with a stable "id" key (e.g. spec.modules). Any list where at least
+    one element on either side lacks an "id" falls back to whole-list equality
+    comparison, so a heterogeneous list (some entries with "id", some without)
+    is still reported in full instead of silently dropping the id-less entries.
+    """
+    if isinstance(a, dict) and isinstance(b, dict):
+        for key in sorted(set(a) | set(b)):
+            child_path = f"{path}.{key}" if path else key
+            if key not in a:
+                changes.append((child_path, "added", None, b[key]))
+            elif key not in b:
+                changes.append((child_path, "removed", a[key], None))
+            else:
+                _diff_values(child_path, a[key], b[key], changes)
+        return
+
+    if isinstance(a, list) and isinstance(b, list) and _is_id_keyed_list(a) and _is_id_keyed_list(b):
+        a_by_id = {item["id"]: item for item in a if isinstance(item, dict) and "id" in item}
+        b_by_id = {item["id"]: item for item in b if isinstance(item, dict) and "id" in item}
+        for module_id in sorted(set(a_by_id) | set(b_by_id)):
+            child_path = f"{path}[{module_id}]"
+            if module_id not in a_by_id:
+                changes.append((child_path, "added", None, b_by_id[module_id]))
+            elif module_id not in b_by_id:
+                changes.append((child_path, "removed", a_by_id[module_id], None))
+            else:
+                _diff_values(child_path, a_by_id[module_id], b_by_id[module_id], changes)
+        return
+
+    if a != b:
+        changes.append((path, "changed", a, b))
 
 
 def main() -> int:
@@ -345,9 +452,11 @@ def main() -> int:
 
     validate_parser = subparsers.add_parser("validate", help="Validate a profile")
     _add_profile_arg(validate_parser)
+    _add_environment_arg(validate_parser)
 
     plan_parser = subparsers.add_parser("plan", help="Build a resolved plan from a profile")
     _add_profile_arg(plan_parser)
+    _add_environment_arg(plan_parser)
     plan_parser.add_argument(
         "--output",
         "-o",
@@ -364,6 +473,7 @@ def main() -> int:
         nargs="?",
         help="Profile path/identifier or path to saved plan file. Uses CDS_PROFILE_PATH if set.",
     )
+    _add_environment_arg(render_parser)
     render_parser.add_argument(
         "--output",
         "-o",
@@ -375,6 +485,7 @@ def main() -> int:
         help="Validate, plan, render, build, and run the profile with docker compose",
     )
     _add_profile_arg(up_parser)
+    _add_environment_arg(up_parser)
     up_parser.add_argument(
         "--detach",
         "-d",
@@ -410,12 +521,22 @@ def main() -> int:
         help="One-shot smoke validation: validate, security, plan, and render",
     )
     _add_profile_arg(test_parser)
+    _add_environment_arg(test_parser)
+    test_parser.add_argument(
+        "--reveal-secrets",
+        action="store_true",
+        help=(
+            "Print full, unredacted values in security findings (e.g. secrets embedded in a DSN/URL). "
+            "By default, values are redacted to avoid echoing real secrets to stdout/CI logs."
+        ),
+    )
 
     preflight_parser = subparsers.add_parser(
         "preflight",
         help="Check runtime prerequisites without starting the profile",
     )
     _add_profile_arg(preflight_parser)
+    _add_environment_arg(preflight_parser)
 
     state_parser = subparsers.add_parser(
         "state",
@@ -433,6 +554,7 @@ def main() -> int:
         help="Initialize a .env file from profile secret definitions",
     )
     _add_profile_arg(init_parser)
+    _add_environment_arg(init_parser)
     init_parser.add_argument(
         "--output",
         "-o",
@@ -452,6 +574,33 @@ def main() -> int:
 
     security_parser = subparsers.add_parser("security", help="Run security validation on a profile")
     _add_profile_arg(security_parser)
+    _add_environment_arg(security_parser)
+    security_parser.add_argument(
+        "--reveal-secrets",
+        action="store_true",
+        help=(
+            "Print full, unredacted values in findings (e.g. secrets embedded in a DSN/URL). "
+            "By default, values are redacted to avoid echoing real secrets to stdout/CI logs."
+        ),
+    )
+
+    diff_parser = subparsers.add_parser(
+        "diff",
+        help="Show effective configuration differences between two environment overlays",
+    )
+    _add_profile_arg(diff_parser)
+    diff_parser.add_argument(
+        "--from",
+        dest="from_environment",
+        required=True,
+        help="Environment overlay to use as the baseline (e.g. dev).",
+    )
+    diff_parser.add_argument(
+        "--to",
+        dest="to_environment",
+        required=True,
+        help="Environment overlay to compare against the baseline (e.g. prod).",
+    )
 
     if argcomplete is not None:
         argcomplete.autocomplete(parser)
@@ -465,7 +614,7 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
 
-        diagnostics = validate_profile(profile_path)
+        diagnostics = validate_profile(profile_path, environment=args.environment)
 
         if diagnostics:
             error_count = sum(1 for d in diagnostics if d.level == "error")
@@ -488,14 +637,14 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
 
-        diagnostics = validate_profile(profile_path)
+        diagnostics = validate_profile(profile_path, environment=args.environment)
         if has_errors(diagnostics):
             print_diagnostics(diagnostics)
             print("Cannot build plan because validation failed.")
             return 1
 
         env_file = str(resolve_env_file_path(profile_path))
-        plan, plan_diags = build_plan(profile_path, env_file=env_file)
+        plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
         all_diags = diagnostics + plan_diags
 
         if has_errors(all_diags):
@@ -510,8 +659,7 @@ def main() -> int:
         if args.output:
             # Save plan to file
             output_file = Path(args.output)
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            output_file.write_text(plan_json)
+            _atomic_write_text(output_file, plan_json)
             print(f"Plan saved to {args.output}")
         else:
             # Output to stdout
@@ -534,15 +682,22 @@ def main() -> int:
             if candidate_path.exists() and candidate_path.is_file():
                 # Try to load as plan
                 try:
-                    plan_content = json.loads(candidate_path.read_text())
+                    plan_content = json.loads(candidate_path.read_text(encoding="utf-8"))
                     if isinstance(plan_content, dict) and plan_content.get("apiVersion") == "cds/v1alpha1":
                         is_plan_file = True
                         plan = plan_content
                         plan_path = candidate_path
-                except (json.JSONDecodeError, IOError):
+                except (json.JSONDecodeError, OSError, UnicodeDecodeError):
                     pass
 
         if is_plan_file:
+            if args.environment is not None:
+                print(
+                    "ERROR --environment is not supported when rendering a saved Plan file; "
+                    "the environment overlay was already applied when the Plan was built."
+                )
+                return 1
+
             # Render from saved plan file
             if plan is None:
                 print(f"ERROR Failed to load plan from {plan_path}")
@@ -573,14 +728,14 @@ def main() -> int:
                 print(f"ERROR {exc}")
                 return 1
 
-            diagnostics = validate_profile(profile_path)
+            diagnostics = validate_profile(profile_path, environment=args.environment)
             if has_errors(diagnostics):
                 print_diagnostics(diagnostics)
                 print("Cannot render because validation failed.")
                 return 1
 
             env_file = str(resolve_env_file_path(profile_path))
-            plan, plan_diags = build_plan(profile_path, env_file=env_file)
+            plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
             all_diags = diagnostics + plan_diags
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
@@ -610,14 +765,14 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
 
-        diagnostics = validate_profile(profile_path)
+        diagnostics = validate_profile(profile_path, environment=args.environment)
         if has_errors(diagnostics):
             print_diagnostics(diagnostics)
             print("Cannot start stack because validation failed.")
             return 1
 
         env_file = str(resolve_env_file_path(profile_path))
-        plan, plan_diags = build_plan(profile_path, env_file=env_file)
+        plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
         all_diags = diagnostics + plan_diags
         if has_errors(all_diags):
             print_diagnostics(all_diags)
@@ -739,7 +894,7 @@ def main() -> int:
         print(f"== cds test: {args.profile} ==\n")
         stages: list[tuple[str, str]] = []
 
-        diagnostics = validate_profile(profile_path)
+        diagnostics = validate_profile(profile_path, environment=args.environment)
         validate_ok = not has_errors(diagnostics)
         stages.append(("validate", "PASS" if validate_ok else "FAIL"))
         if not validate_ok:
@@ -751,6 +906,8 @@ def main() -> int:
                 findings, sec_diags = run_security_validation(
                     profile_path=Path(profile_path),
                     env_file=str(resolve_env_file_path(profile_path)),
+                    environment=args.environment,
+                    redact_values=not args.reveal_secrets,
                 )
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)
@@ -758,7 +915,12 @@ def main() -> int:
                     print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
                 security_ok = not any(f["severity"] == "high" for f in findings)
             except Exception as e:
-                print(str(e), file=sys.stderr)
+                print(Diagnostic(
+                    level="error",
+                    code="E095",
+                    message=f"Security validation failed unexpectedly: {e}",
+                    path="spec.modules",
+                ).format(), file=sys.stderr)
                 security_ok = False
             stages.append(("security", "PASS" if security_ok else "FAIL"))
         else:
@@ -768,7 +930,7 @@ def main() -> int:
         plan = None
         plan_ok = False
         if validate_ok:
-            plan, plan_diags = build_plan(profile_path, env_file=env_file)
+            plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
             plan_ok = not has_errors(diagnostics + plan_diags)
             if not plan_ok:
                 print_diagnostics(plan_diags)
@@ -801,14 +963,14 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
 
-        diagnostics = validate_profile(profile_path)
+        diagnostics = validate_profile(profile_path, environment=args.environment)
         if has_errors(diagnostics):
             print_diagnostics(diagnostics)
             print("Cannot run preflight because validation failed.")
             return 1
 
         env_file = resolve_env_file_path(profile_path)
-        plan, plan_diags = build_plan(profile_path, env_file=str(env_file))
+        plan, plan_diags = build_plan(profile_path, env_file=str(env_file), environment=args.environment)
         all_diags = diagnostics + plan_diags
         if has_errors(all_diags) or plan is None:
             print_diagnostics(all_diags)
@@ -873,7 +1035,7 @@ def main() -> int:
             return 1
 
         try:
-            env_vars, secret_env_vars = _collect_profile_env_vars(profile_path)
+            env_vars, secret_env_vars = _collect_profile_env_vars(profile_path, environment=args.environment)
         except ValueError as exc:
             print(f"ERROR {exc}")
             return 1
@@ -955,7 +1117,7 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
 
-        diagnostics = validate_profile(profile_path)
+        diagnostics = validate_profile(profile_path, environment=args.environment)
         if has_errors(diagnostics):
             print_diagnostics(diagnostics)
             print("Cannot run security validation because profile validation failed.")
@@ -965,9 +1127,16 @@ def main() -> int:
             findings, diagnostics = run_security_validation(
                 profile_path=Path(profile_path),
                 env_file=str(resolve_env_file_path(profile_path)),
+                environment=args.environment,
+                redact_values=not args.reveal_secrets,
             )
         except Exception as e:
-            print(str(e), file=sys.stderr)
+            print(Diagnostic(
+                level="error",
+                code="E095",
+                message=f"Security validation failed unexpectedly: {e}",
+                path="spec.modules",
+            ).format(), file=sys.stderr)
             return 2
 
         for diag in diagnostics:
@@ -988,6 +1157,45 @@ def main() -> int:
             print()
 
         return 1 if any(f["severity"] == "high" for f in findings) else 0
+
+    if args.command == "diff":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        from_profile, _, from_diags = resolve_profile(profile_path, args.from_environment)
+        to_profile, _, to_diags = resolve_profile(profile_path, args.to_environment)
+        all_diags = from_diags + to_diags
+
+        if from_profile is None or to_profile is None:
+            print_diagnostics(all_diags)
+            print("Cannot diff because one or both environments failed to resolve.")
+            return 1
+        if all_diags:
+            print_diagnostics(all_diags)
+
+        # Profiles only ever hold secret *references* (e.g. "secrets.db_password"),
+        # never resolved secret values, so diffing the resolved profile dicts
+        # directly cannot leak a secret value.
+        changes: list[tuple[str, str, Any, Any]] = []
+        _diff_values("", from_profile, to_profile, changes)
+
+        if not changes:
+            print(f"No differences between environment '{args.from_environment}' and '{args.to_environment}'.")
+            return 0
+
+        print(f"Differences from '{args.from_environment}' to '{args.to_environment}':\n")
+        for path, kind, old, new in sorted(changes, key=lambda c: c[0]):
+            if kind == "added":
+                print(f"  + {path}: {json.dumps(new)}")
+            elif kind == "removed":
+                print(f"  - {path}: {json.dumps(old)}")
+            else:
+                print(f"  ~ {path}: {json.dumps(old)} -> {json.dumps(new)}")
+
+        return 0
 
     print("Base validation not shown here.")
     return 0

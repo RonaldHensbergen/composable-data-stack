@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import os
+import tempfile
 import yaml
 from copy import deepcopy
 from pathlib import Path
@@ -14,6 +15,32 @@ from typing import Any
 
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
+
+# Guards recursive interpolation of user-controlled service/volume templates
+# against maliciously or accidentally deeply nested documents that would
+# otherwise raise an unhandled RecursionError / stack overflow.
+MAX_NESTING_DEPTH = 100
+
+
+class MaxNestingDepthExceeded(Exception):
+    """Raised when a recursive structure exceeds MAX_NESTING_DEPTH."""
+
+
+def _atomic_write_compose(path: Path, content: str) -> None:
+    """Write the rendered compose file atomically via a temp file + os.replace,
+    so a crash/kill mid-write can't leave a truncated docker-compose.yml behind.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+            tmp_file.write(content)
+        os.replace(tmp_name, path)
+    except OSError:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 
 def render_compose(
@@ -99,16 +126,28 @@ def render_compose(
         services = compose_impl.get("services", {})
         volumes = compose_impl.get("volumes", {})
 
-        rendered_services = _render_services(
-            module,
-            services,
-            secrets,
-            profile_dir=profile_dir,
-            project_root=project_root,
-            compose_dir=compose_dir,
-            network_name=default_network_name,
-        )
-        rendered_volumes = _render_volumes(module, volumes, secrets)
+        try:
+            rendered_services = _render_services(
+                module,
+                services,
+                secrets,
+                profile_dir=profile_dir,
+                project_root=project_root,
+                compose_dir=compose_dir,
+                network_name=default_network_name,
+            )
+            rendered_volumes = _render_volumes(module, volumes, secrets)
+        except MaxNestingDepthExceeded:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E094",
+                message=(
+                    f'Module "{module.get("id")}" service/volume templates exceed the '
+                    f"maximum supported nesting depth ({MAX_NESTING_DEPTH})."
+                ),
+                path=f'module:{module.get("id")}.implementation.compose',
+            ))
+            continue
 
         # Handle initDbEnv for postgres service (merge additional env vars)
         _merge_init_db_env(rendered_services, module, secrets)
@@ -127,13 +166,45 @@ def render_compose(
     _add_cross_module_dependencies(compose, plan, module_service_names)
 
     output = yaml.safe_dump(compose, sort_keys=False)
+    diagnostics.extend(_check_unresolved_expressions(output))
 
     if output_path:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(output, encoding="utf-8")
+        _atomic_write_compose(path, output)
 
     return output, diagnostics
+
+
+_UNRESOLVED_EXPRESSION_PATTERN = re.compile(
+    r"\$\{((?:config|bindings|service)\.[^}]*)\}"
+)
+
+
+def _check_unresolved_expressions(rendered_yaml: str) -> list[Diagnostic]:
+    """
+    Detect leftover ${config.*}/${bindings.*}/${service.*} template expressions
+    that survived rendering unresolved (e.g. an optional consumed contract that
+    was never bound, but is unconditionally referenced by the module's
+    template). These are always a rendering bug -- unlike ${CDS_*}/${VAR}
+    placeholders, CDS's own template vocabulary is meant to be fully resolved
+    by render time, so leaving one in place would silently ship a broken
+    Compose file instead of failing loudly.
+    """
+    unresolved = sorted(set(_UNRESOLVED_EXPRESSION_PATTERN.findall(rendered_yaml)))
+    return [
+        Diagnostic(
+            level="error",
+            code="E071",
+            message=(
+                f'Unresolved template expression "${{{expr}}}" remains in the rendered '
+                "output. This usually means an optional contract binding referenced by "
+                "a module's template was never satisfied by the profile."
+            ),
+            path=f"rendered.{expr}",
+        )
+        for expr in unresolved
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -277,12 +348,16 @@ def _build_context(
     }
 
 
-def _substitute_values(obj: Any, context: dict[str, Any]) -> Any:
+def _substitute_values(obj: Any, context: dict[str, Any], _depth: int = 0) -> Any:
     """Recursively substitute interpolation expressions in obj."""
+    if _depth > MAX_NESTING_DEPTH:
+        raise MaxNestingDepthExceeded(
+            f"Service/volume template nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})."
+        )
     if isinstance(obj, dict):
-        return {k: _substitute_values(v, context) for k, v in obj.items()}
+        return {k: _substitute_values(v, context, _depth + 1) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [_substitute_values(v, context) for v in obj]
+        return [_substitute_values(v, context, _depth + 1) for v in obj]
     if isinstance(obj, str):
         return _substitute_string(obj, context)
     return obj

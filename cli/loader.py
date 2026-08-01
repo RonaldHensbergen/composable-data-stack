@@ -26,6 +26,15 @@ def load_yaml_file(path: Path) -> tuple[dict[str, Any] | None, list[Diagnostic]]
     try:
         with path.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
+    except UnicodeDecodeError as e:
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E001",
+                message=f"File is not valid UTF-8 text: {e}",
+                path=str(path),
+            )
+        ]
     except yaml.YAMLError as e:
         return None, [
             Diagnostic(

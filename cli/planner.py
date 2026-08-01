@@ -10,22 +10,42 @@ import re
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
-from .secrets import load_profile_secrets, load_secrets_from_env
+from .secrets import load_profile_secrets
 
 from dataclasses import dataclass
+
+# Guards recursive traversal of user-controlled YAML structures (schema
+# defaults, contract/config interpolation) against maliciously or accidentally
+# deeply nested documents that would otherwise raise an unhandled
+# RecursionError / stack overflow.
+MAX_NESTING_DEPTH = 100
+
+
+class MaxNestingDepthExceeded(Exception):
+    """Raised when a recursive structure exceeds MAX_NESTING_DEPTH."""
+
 
 @dataclass
 class SecretRef:
     """Signals that a value should be emitted as a runtime ${VAR} placeholder."""
     var_name: str
 
-def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
+def build_plan(
+    profile_path: str,
+    env_file: str | None = None,
+    environment: str | None = None,
+) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
     """
     Build a resolved plan from a profile.
 
     Args:
         profile_path: Path to profile.yaml
         env_file: Optional path to .env file for secrets
+        environment: Optional environment overlay name (e.g. "dev", "prod").
+            When set, profile_path's profiles/<name>/environments/<environment>.yaml
+            overlay is merged over the base profile before planning; see
+            cli.overlay.resolve_profile. Value provenance for the merge is
+            recorded on the returned plan under "provenance".
 
     Returns:
         Tuple of (plan, diagnostics)
@@ -33,7 +53,16 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
     diagnostics: list[Diagnostic] = []
 
     profile_file = Path(profile_path)
-    profile, diags = load_yaml_file(profile_file)
+    provenance: dict[str, str] = {}
+    if environment is not None:
+        # Local import: cli.overlay imports from cli.validator, which this
+        # module does not otherwise depend on; keep the dependency scoped to
+        # avoid pulling in an import cycle for callers that never use overlays.
+        from .overlay import resolve_profile
+
+        profile, provenance, diags = resolve_profile(profile_path, environment)
+    else:
+        profile, diags = load_yaml_file(profile_file)
     diagnostics.extend(diags)
 
     if profile is None:
@@ -44,16 +73,62 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
     diagnostics.extend(secret_diags)
 
     modules = spec.get("modules", [])
+    if not isinstance(modules, list):
+        # Defensive guard: validate_profile() already rejects a non-list
+        # spec.modules (E010), but build_plan() is a public entry point that
+        # may be called directly (e.g. by tests/tools) without prior
+        # validation, so it must not crash with an unhandled TypeError from
+        # enumerate() on a non-iterable/scalar value.
+        diagnostics.append(Diagnostic(
+            level="error",
+            code="E010",
+            message="spec.modules must be a list.",
+            path="spec.modules",
+        ))
+        return None, diagnostics
+
     profile_dir = profile_file.parent
 
     loaded_modules: list[dict[str, Any]] = []
     module_instances_by_id: dict[str, dict[str, Any]] = {}
 
     for i, module_instance in enumerate(modules):
+        if not isinstance(module_instance, dict):
+            # Defensive guard: validate_profile() already rejects non-object
+            # module entries (E010), but build_plan() is a public entry point
+            # that may be called directly (e.g. by tests/tools) without prior
+            # validation, so it must not crash on malformed-but-plausible YAML.
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E010",
+                message="Module entry must be an object.",
+                path=f"spec.modules[{i}]",
+            ))
+            continue
+
         if module_instance.get("enabled", True) is False:
             continue
 
-        source = module_instance["source"]
+        module_id = module_instance.get("id")
+        if not module_id:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E010",
+                message="Module id is required.",
+                path=f"spec.modules[{i}].id",
+            ))
+            continue
+
+        source = module_instance.get("source")
+        if not source:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E010",
+                message="Module source is required.",
+                path=f"spec.modules[{i}].source",
+            ))
+            continue
+
         source_path = Path(source)
         if not source_path.is_absolute() and source_path.parts and source_path.parts[0] == ".":
             source_path = source_path.relative_to(".")
@@ -76,17 +151,29 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
         if module_def is None:
             continue
 
-        normalized_config = apply_defaults(
-            module_instance.get("config", {}),
-            module_def.get("spec", {}).get("configSchema", {})
-        )
+        try:
+            normalized_config = apply_defaults(
+                module_instance.get("config", {}),
+                module_def.get("spec", {}).get("configSchema", {})
+            )
+        except MaxNestingDepthExceeded:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E094",
+                message=(
+                    f"Module config or schema nesting exceeds the maximum "
+                    f"supported depth ({MAX_NESTING_DEPTH})."
+                ),
+                path=f"spec.modules[{i}].config",
+            ))
+            continue
 
         # Validate secrets exist but leave "secrets.VAR" strings intact
         resolve_secret_refs(normalized_config, secrets, f"spec.modules[{i}].config", diagnostics)
 
         loaded = {
             "index": i,
-            "id": module_instance["id"],
+            "id": module_id,
             "source": source,
             "version": module_instance.get("version"),
             "dependsOn": module_instance.get("dependsOn", []),
@@ -100,7 +187,19 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
 
     resolved_contracts_by_module: dict[str, dict[str, Any]] = {}
     for inst in loaded_modules:
-        resolved_contracts_by_module[inst["id"]] = resolve_provided_contracts(inst, secrets)
+        try:
+            resolved_contracts_by_module[inst["id"]] = resolve_provided_contracts(inst, secrets)
+        except MaxNestingDepthExceeded:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E094",
+                message=(
+                    f"Provided contract nesting for module \"{inst['id']}\" exceeds the "
+                    f"maximum supported depth ({MAX_NESTING_DEPTH})."
+                ),
+                path=f"module:{inst['id']}.provides",
+            ))
+            resolved_contracts_by_module[inst["id"]] = {}
 
     planned_modules: list[dict[str, Any]] = []
     for inst in loaded_modules:
@@ -122,6 +221,8 @@ def build_plan(profile_path: str, env_file: str | None = None) -> tuple[dict[str
         "kind": "Plan",
         "metadata": deepcopy(profile.get("metadata", {})),
         "sourceProfile": str(profile_file),
+        "environment": environment,
+        "provenance": provenance,
         "runtime": spec.get("runtime", {}),
         "secrets": secrets,
         "outputs": resolve_outputs(spec.get("outputs", {}), resolved_contracts_by_module, diagnostics),
@@ -163,7 +264,12 @@ def apply_defaults(config: dict[str, Any], schema: dict[str, Any]) -> dict[str, 
     return _apply_schema_defaults(config_copy, schema)
 
 
-def _apply_schema_defaults(value: Any, schema: dict[str, Any]) -> Any:
+def _apply_schema_defaults(value: Any, schema: dict[str, Any], _depth: int = 0) -> Any:
+    if _depth > MAX_NESTING_DEPTH:
+        raise MaxNestingDepthExceeded(
+            f"Schema/config nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})."
+        )
+
     schema_type = schema.get("type")
 
     if value is None and "default" in schema:
@@ -181,13 +287,19 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any]) -> Any:
         for prop_name, prop_schema in props.items():
             if prop_name not in result:
                 if "default" in prop_schema:
-                    result[prop_name] = deepcopy(prop_schema["default"])
+                    # Recurse so nested properties of an object-typed default
+                    # (e.g. healthcheck: {type: object, default: {}, properties:
+                    # {enabled: {default: true}}}) get their own defaults filled
+                    # in too, instead of stopping at the raw literal default.
+                    result[prop_name] = _apply_schema_defaults(
+                        deepcopy(prop_schema["default"]), prop_schema, _depth + 1
+                    )
                 elif prop_schema.get("type") == "object":
-                    nested_default = _apply_schema_defaults({}, prop_schema)
+                    nested_default = _apply_schema_defaults({}, prop_schema, _depth + 1)
                     if nested_default:
                         result[prop_name] = nested_default
             else:
-                result[prop_name] = _apply_schema_defaults(result[prop_name], prop_schema)
+                result[prop_name] = _apply_schema_defaults(result[prop_name], prop_schema, _depth + 1)
 
         return result
 
@@ -197,7 +309,7 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any]) -> Any:
         if not isinstance(value, list):
             return value
         item_schema = schema.get("items", {})
-        return [_apply_schema_defaults(item, item_schema) for item in value]
+        return [_apply_schema_defaults(item, item_schema, _depth + 1) for item in value]
 
     return value
 
@@ -407,15 +519,19 @@ def resolve_outputs(
     return resolved
 
 
-def substitute_values(obj: Any, context: dict[str, Any]) -> Any:
+def substitute_values(obj: Any, context: dict[str, Any], _depth: int = 0) -> Any:
     """
     Recursively substitute interpolations in object.
     Supports both pure ${...} and mixed ${...} interpolations.
     """
+    if _depth > MAX_NESTING_DEPTH:
+        raise MaxNestingDepthExceeded(
+            f"Contract/config nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})."
+        )
     if isinstance(obj, dict):
-        return {k: substitute_values(v, context) for k, v in obj.items()}
+        return {k: substitute_values(v, context, _depth + 1) for k, v in obj.items()}
     if isinstance(obj, list):
-        return [substitute_values(v, context) for v in obj]
+        return [substitute_values(v, context, _depth + 1) for v in obj]
     if isinstance(obj, str):
         return substitute_string(obj, context)
     return obj

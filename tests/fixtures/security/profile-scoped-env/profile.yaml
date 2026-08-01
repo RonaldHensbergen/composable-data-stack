@@ -1,0 +1,7 @@
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: profile-scoped-env
+  environment: local
+spec:
+  modules: []
