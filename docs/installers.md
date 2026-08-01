@@ -126,9 +126,9 @@ cds use                 # show the currently saved default (if any)
 cds use --clear         # remove the saved default
 ```
 
-Resolution order when no profile argument is given: saved default (`cds use`)
-> `CDS_PROFILE_PATH` > the single profile under `profiles/`, if there is
-exactly one. `.cds/` is project-local and gitignored by default.
+Resolution order when no profile argument is given: `CDS_PROFILE_PATH` (if
+set) > saved default (`cds use`) > the single profile under `profiles/`, if
+there is exactly one. `.cds/` is project-local and gitignored by default.
 
 The CLI also supports optional shell completion when `argcomplete` is installed.
 

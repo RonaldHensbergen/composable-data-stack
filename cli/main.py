@@ -146,14 +146,21 @@ def _read_config() -> dict:
     except json.JSONDecodeError:
         print(
             f"WARNING {config_path} is not valid JSON; treating it as empty. "
-            "It will be overwritten by the next `cds use` or `cds use --clear`.",
+            "It will be overwritten by the next `cds use <profile>`.",
             file=sys.stderr,
         )
         return {}
     except OSError as exc:
         print(f"WARNING Could not read {config_path}: {exc}", file=sys.stderr)
         return {}
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        print(
+            f"WARNING {config_path} contains valid JSON but not a mapping; treating it as empty. "
+            "It will be overwritten by the next `cds use <profile>`.",
+            file=sys.stderr,
+        )
+        return {}
+    return data
 
 
 def load_saved_profile() -> str | None:
@@ -292,6 +299,11 @@ def resolve_profile_path(profile: str | None) -> str:
         resolved_from_env = _resolve_profile_root(Path(env_profile_path).expanduser())
         if resolved_from_env:
             return resolved_from_env
+        print(
+            f"WARNING CDS_PROFILE_PATH={env_profile_path!r} did not resolve to a single profile; "
+            "falling back to saved default.",
+            file=sys.stderr,
+        )
 
     saved_profile = load_saved_profile()
     if saved_profile:

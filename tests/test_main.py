@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from cli.diagnostics import Diagnostic
 from cli.image_updates import collect_module_images
-from cli.main import list_modules, list_profiles, resolve_profile_path, main
+from cli.main import list_modules, list_profiles, load_saved_profile, resolve_profile_path, main
 from cli.preflight import PreflightCheck
 
 
@@ -1142,6 +1142,31 @@ class UseCommandCLITest(unittest.TestCase):
         with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(other_profile_dir)}, clear=False):
             resolved = resolve_profile_path(None)
         self.assertEqual(resolved, str((other_profile_dir / "profile.yaml").resolve()))
+
+    def test_env_profile_path_falls_back_with_warning_when_unresolvable(self):
+        # CDS_PROFILE_PATH that doesn't resolve to a single profile should
+        # emit a warning and fall back to the saved default.
+        self._run(["local-dagster-postgres-superset"])
+        captured_err = io.StringIO()
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": "nonexistent-path"}, clear=False
+        ), patch.object(sys, "stderr", captured_err):
+            resolved = resolve_profile_path(None)
+        expected = str((self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml").resolve())
+        self.assertEqual(resolved, expected)
+        self.assertIn("WARNING", captured_err.getvalue())
+        self.assertIn("CDS_PROFILE_PATH", captured_err.getvalue())
+        self.assertIn("falling back to saved default", captured_err.getvalue())
+
+    def test_read_config_warns_on_non_dict_json(self):
+        # Valid JSON that isn't a mapping should emit a warning and be treated as empty.
+        self.config_path.write_text("[1, 2, 3]")
+        captured_err = io.StringIO()
+        with patch.object(sys, "stderr", captured_err):
+            profile = load_saved_profile()
+        self.assertIsNone(profile)
+        self.assertIn("WARNING", captured_err.getvalue())
+        self.assertIn("not a mapping", captured_err.getvalue())
 
     def test_saved_profile_used_by_other_commands_without_argument(self):
         self._run(["local-dagster-postgres-superset"])
