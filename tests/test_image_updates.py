@@ -137,6 +137,7 @@ class RegistryClassificationTest(unittest.TestCase):
     def test_is_docker_hub_image_true_for_bare_and_namespaced(self):
         self.assertTrue(is_docker_hub_image("postgres"))
         self.assertTrue(is_docker_hub_image("bitnami/postgresql"))
+        self.assertTrue(is_docker_hub_image("registry-1.docker.io/library/postgres"))
 
     def test_is_docker_hub_image_false_for_other_registries(self):
         self.assertFalse(is_docker_hub_image("ghcr.io/acme/app"))
@@ -144,8 +145,8 @@ class RegistryClassificationTest(unittest.TestCase):
     def test_is_local_image_true_for_custom_tag(self):
         self.assertTrue(is_local_image("myapp:custom"))
 
-    def test_is_local_image_true_for_non_docker_hub_registry(self):
-        self.assertTrue(is_local_image("ghcr.io/acme/app"))
+    def test_is_local_image_false_for_non_docker_hub_registry(self):
+        self.assertFalse(is_local_image("ghcr.io/acme/app"))
 
     def test_is_local_image_false_for_docker_hub_image(self):
         self.assertFalse(is_local_image("postgres:16"))
@@ -380,19 +381,30 @@ class CheckImageUpdateTest(unittest.TestCase):
 
             self.assertEqual(result, {"image": "myapp:custom", "status": "local-no-base", "latest": None})
 
-    def test_non_docker_hub_registry_is_classified_local_not_unsupported(self):
-        # NOTE: is_local_image() returns True for any registry != "docker.io",
-        # so check_image_update() routes non-Docker-Hub images through the
-        # "local" branch before ever reaching the is_docker_hub_image() check.
-        # The "unsupported-registry" status therefore appears to be dead code
-        # under the current is_local_image/is_docker_hub_image logic (only
-        # "docker.io" and "registry-1.docker.io" are excluded from "local",
-        # and both are already handled as Docker Hub). This test documents
-        # actual current behavior rather than the (likely unreachable)
-        # "unsupported-registry" branch.
+    def test_build_image_with_third_party_registry_recurses_on_base_image(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dockerfile = Path(tmp) / "Dockerfile"
+            dockerfile.write_text("FROM postgres:16\n", encoding="utf-8")
+
+            with patch("cli.image_updates.fetch_dockerhub_tags", return_value=["16"]):
+                result = check_image_update("ghcr.io/acme/app:1.0", dockerfile=dockerfile)
+
+            self.assertEqual(result["image"], "ghcr.io/acme/app:1.0")
+            self.assertEqual(result["base_image"], "postgres:16")
+            self.assertEqual(result["status"], "up-to-date")
+
+    def test_non_docker_hub_registry_is_unsupported(self):
         result = check_image_update("ghcr.io/acme/app:1.0")
-        self.assertEqual(result["status"], "local")
-        self.assertIsNone(result["latest"])
+        self.assertEqual(
+            result,
+            {"image": "ghcr.io/acme/app:1.0", "status": "unsupported-registry", "latest": None},
+        )
+
+    def test_registry_one_docker_io_uses_docker_hub_lookup(self):
+        with patch("cli.image_updates.fetch_dockerhub_tags", return_value=["16"]):
+            result = check_image_update("registry-1.docker.io/library/postgres:16")
+
+        self.assertEqual(result["status"], "up-to-date")
 
     def test_lookup_failed_when_fetch_returns_none(self):
         with patch("cli.image_updates.fetch_dockerhub_tags", return_value=None):
