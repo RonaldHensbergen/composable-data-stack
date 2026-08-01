@@ -472,6 +472,7 @@ class PlannerRegressionTest(unittest.TestCase):
             errors = [d for d in diagnostics if d.level == "error" and d.code == "E010"]
             self.assertEqual(len(errors), 1)
             self.assertEqual(errors[0].message, "Module id is required.")
+            self.assertEqual(errors[0].path, "spec.modules[0].id")
 
     def test_build_plan_reports_diagnostic_instead_of_crashing_on_missing_module_source(
         self,
@@ -506,6 +507,7 @@ class PlannerRegressionTest(unittest.TestCase):
             errors = [d for d in diagnostics if d.level == "error" and d.code == "E010"]
             self.assertEqual(len(errors), 1)
             self.assertEqual(errors[0].message, "Module source is required.")
+            self.assertEqual(errors[0].path, "spec.modules[0].source")
 
     def test_apply_defaults_recurses_into_object_typed_default_with_own_nested_defaults(self):
         """A nested object property with both its own top-level 'default'
