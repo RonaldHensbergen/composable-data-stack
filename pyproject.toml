@@ -1,11 +1,11 @@
 # pyproject.toml
 [build-system]
-requires = ["setuptools>=77", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "composable-data-stack"
-version = "0.3.0b1"
+version = "0.4.0b1"
 description = "CLI for validating and composing composable data stack profiles"
 readme = "README.md"
 license = "Apache-2.0"
@@ -45,12 +45,13 @@ Repository = "https://github.com/RonaldHensbergen/composable-data-stack"
 
 [project.optional-dependencies]
 completion = [
-  "argcomplete>=3.0.0",
+  "argcomplete>=3.0.0,<4",
 ]
 dev = [
   "coverage>=7.6",
   "bandit>=1.7",
   "pip-audit>=2.7",
+  "ruff==0.16.1",
 ]
 
 [project.scripts]
@@ -69,3 +70,11 @@ source = ["cli"]
 fail_under = 65
 show_missing = true
 skip_covered = false
+
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+# Keep Ruff narrowly scoped to pyupgrade/deprecation detection; Flake8 remains
+# the repository's general-purpose Python lint gate.
+select = ["UP"]

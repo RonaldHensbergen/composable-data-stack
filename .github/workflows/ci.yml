@@ -17,22 +17,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14"
 
-      - name: Install YAML linter
+      - name: Install lint dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install yamllint
+          pip install .[dev] yamllint
 
       - name: Run Markdown lint
         run: |
@@ -41,6 +41,14 @@ jobs:
       - name: Run YAML lint
         run: |
           yamllint .
+
+      - name: Run Python deprecation lint
+        run: |
+          ruff check .
+
+      - name: Validate Renovate config
+        run: |
+          npx --yes --package renovate -- renovate-config-validator --strict renovate.json
 
   # Core Python checks run on all three host OSes. This exercises unit tests
   # plus real `cds validate/plan/render` subprocess calls (see
@@ -55,10 +63,10 @@ jobs:
         python-version: ["3.14"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -76,23 +84,29 @@ jobs:
       - name: Run tests
         if: matrix.os != 'ubuntu-latest'
         run: |
-          python -m unittest discover -s tests -p "test_*.py" -v
+          # Only treat deprecations from repo-owned cli/test_* modules as
+          # errors; third-party dependency warnings should not make the
+          # suite flaky. PYTHONWARNINGS cannot express this "starts with"
+          # module scoping (CPython always re.escape()s the module field),
+          # so the filters are registered via warnings.filterwarnings() in
+          # scripts/run_tests_with_deprecation_gate.py instead.
+          python scripts/run_tests_with_deprecation_gate.py
 
       - name: Run tests with coverage gate (Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         run: |
           pip install .[dev]
-          coverage run -m unittest discover -s tests -p "test_*.py" -v
+          coverage run scripts/run_tests_with_deprecation_gate.py
           coverage report -m
 
   package:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14"
 
@@ -141,10 +155,10 @@ jobs:
       CDS_SUPERSET_SECRET_KEY: ci-only-superset-secret-key
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14"
 
@@ -170,10 +184,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.14"
 

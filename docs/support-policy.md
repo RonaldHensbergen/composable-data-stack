@@ -22,7 +22,7 @@ This document defines the supported host operating systems for running and contr
 
 | Tool | Version | Notes |
 | --- | --- | --- |
-| Python | 3.11+ | Required for the CLI |
+| Python | 3.14+ | Required for the CLI |
 | Docker | Latest stable | Linux: native daemon; macOS/Windows: Docker Desktop |
 | Docker Compose | v2+ | Bundled with Docker Desktop |
 | Make | Any | Linux/macOS. Windows contributors can use `Makefile.ps1` instead (see below) |

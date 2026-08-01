@@ -159,6 +159,33 @@ def _flatten_env_secrets(secrets: dict[str, str]) -> list[tuple[str, str, Any]]:
     return [("<env>", f"secrets.{key}", value) for key, value in secrets.items()]
 
 
+def _normalize_scan_path(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        return resolved.as_posix()
+
+
+def _flatten_env_inputs(
+    secrets: dict[str, str],
+    env_file: str | None,
+) -> list[tuple[str, str, Any]]:
+    """
+    Emit both loaded .env secrets and the env file path itself when present.
+
+    Some rules evaluate how a secret-bearing env file is located or managed
+    rather than inspecting individual secret values. Represent the file path as
+    a synthetic flat item so those rules can use the same matcher.
+    """
+    items = _flatten_env_secrets(secrets)
+    env_path = Path(env_file) if env_file is not None else Path(".env")
+    if env_path.exists():
+        scan_path = _normalize_scan_path(env_path)
+        items.append(("<env>", scan_path, scan_path))
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Secret reference detection
 # ---------------------------------------------------------------------------
@@ -434,6 +461,7 @@ def run_security_validation(
     rule_set_path: Path | Traversable | None = None,
     env_file: str | None = None,
     redact_values: bool = False,
+    environment: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     """
     Validate a profile and its .env secrets against the rule set.
@@ -449,12 +477,27 @@ def run_security_validation(
         rule_set_path:    Optional custom rule set JSON path.
         env_file:         Optional path to .env file. Defaults to .env in cwd.
         redact_values:    If True, secret-like values are redacted in findings.
+        environment:      Optional environment overlay name. When set, the
+            profile's declared metadata.environment (and therefore the
+            production security policy applied below) reflects the overlay,
+            not just the base profile.
 
     Returns:
         Tuple of (findings, diagnostics). Findings are sorted by severity,
         then rule_id, module, and path.
     """
-    profile = _load_yaml(profile_path)
+    if environment is not None:
+        # Local import: cli.overlay imports cli.validator, not cli.security,
+        # so this doesn't introduce a cycle, but keep it scoped/consistent
+        # with the other call sites that gained overlay support.
+        from .overlay import resolve_profile
+
+        profile, _, overlay_diags = resolve_profile(str(profile_path), environment)
+        if profile is None:
+            return [], overlay_diags
+    else:
+        profile = _load_yaml(profile_path)
+        overlay_diags = []
     rule_set = _validate_rule_set(rule_schema_path, rule_set_path)
 
     profile_class = _infer_profile_class(profile)
@@ -462,7 +505,7 @@ def run_security_validation(
     secrets, secret_diags = load_secrets_from_env(env_file)
 
     flat_profile = _flatten_profile_by_module(profile, profile_dir=profile_path.parent)
-    flat_env = _flatten_env_secrets(secrets)
+    flat_env = _flatten_env_inputs(secrets, env_file)
 
     findings: list[dict[str, Any]] = []
     for rule in rule_set["rules"]:
@@ -491,4 +534,4 @@ def run_security_validation(
         x["path"],
     ))
 
-    return findings, secret_diags
+    return findings, overlay_diags + secret_diags

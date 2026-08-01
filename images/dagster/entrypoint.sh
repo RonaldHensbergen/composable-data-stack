@@ -13,9 +13,18 @@ if [ -z "$BACKEND" ]; then
 fi
 
 case "$BACKEND" in
-    postgres|sqlite)
-        if [ "$BACKEND" != "$DAGSTER_IMAGE_DB_BACKEND" ]; then
-            echo "Dagster backend '$BACKEND' does not match image backend '$DAGSTER_IMAGE_DB_BACKEND'" >&2
+    sqlite)
+        # Sqlite run/event/schedule storage ships in dagster core, so it works
+        # regardless of which backend this image was built for. Default the
+        # storage directory so sqlite mode needs zero extra configuration.
+        if [ -z "${DAGSTER_SQLITE_DIR:-}" ]; then
+            export DAGSTER_SQLITE_DIR="$DAGSTER_HOME/storage"
+        fi
+        mkdir -p "$DAGSTER_SQLITE_DIR"
+        ;;
+    postgres)
+        if [ "$DAGSTER_IMAGE_DB_BACKEND" != "postgres" ]; then
+            echo "Dagster backend 'postgres' requires an image built with DB_BACKEND=postgres (this image was built for '$DAGSTER_IMAGE_DB_BACKEND')" >&2
             exit 1
         fi
         ;;

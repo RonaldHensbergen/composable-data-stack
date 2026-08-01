@@ -105,7 +105,8 @@
               "default",
               "test",
               "superset"
-            ]
+            ],
+            "keyRegex": "(?i)(password|secret|token|key|credential|passwd|pwd)"
           }
         ]
       },
@@ -150,6 +151,7 @@
     },
     {
       "id": "CDS-SEC-006",
+      "$comment": "Deferred: this rule is about secrets leaking into rendered Compose, generated artifacts, or CLI text output after resolution. The current scanner only flattens profile inputs and loaded .env secrets, so enabling a non-'none' scope here would still never inspect the output surfaces this rule names.",
       "title": "Resolved secret present in generated or CLI output",
       "severity": "high",
       "category": "secrets",
@@ -402,6 +404,7 @@
     },
     {
       "id": "CDS-SEC-030",
+      "$comment": "Deferred: this rule needs an on-disk generated-file scan after render/write. The current matcher only sees profile values and loaded .env secrets, not file contents created by cds render or cds up.",
       "title": "Generated file contains resolved secrets",
       "severity": "high",
       "category": "file-output-safety",
@@ -427,33 +430,32 @@
     },
     {
       "id": "CDS-SEC-031",
+      "$comment": "Only the project-root .env is covered by this repo's `/.env` .gitignore entry (leading slash pins it to the root). Any nested .env (profile-scoped, rendered/generated output, or otherwise) is NOT covered by that ignore rule and can be committed accidentally, so the pathPatterns below only flag paths with at least one directory component before the filename; a bare root '.env' is the expected, already-ignored location and must not fire here.",
       "title": "Env file path appears repository-managed or unmanaged",
       "severity": "medium",
       "category": "file-output-safety",
-      "scope": ["none"],
+      "scope": ["service-env"],
       "match": {
         "any": [
           {
             "pathPatterns": [
-              ".env",
-              "*.env",
-              "output/*.env",
-              "rendered/*.env",
-              "profiles/**/*.env"
+              "*/*.env"
             ]
           }
         ]
       },
       "message": "Environment file path may be stored or handled insecurely",
-      "whyItMatters": "Env files often accumulate sensitive data and are easily committed accidentally.",
+      "whyItMatters": "Env files often accumulate sensitive data and are easily committed accidentally. This repository's .gitignore only covers the project-root .env; nested .env files (e.g. per-profile or generated output) are not automatically ignored.",
       "recommendation": [
         "Keep secret env files out of generated output directories and version control.",
-        "Prefer secret injection over checked-in env files."
+        "Prefer secret injection over checked-in env files.",
+        "If a nested .env location is intentional, add it to .gitignore explicitly."
       ],
       "enabled": true
     },
     {
       "id": "CDS-SEC-032",
+      "$comment": "Deferred: the rule schema exposes a permissions condition, but cli/security.py does not evaluate it and the scanner does not stat files on disk. Supporting this needs file metadata collection plus condition evaluation for actual mode bits.",
       "title": "Secret file permissions too broad",
       "severity": "medium",
       "category": "file-output-safety",
@@ -596,6 +598,7 @@
     },
     {
       "id": "CDS-SEC-050",
+      "$comment": "Deferred: this rule targets rendered Compose service image fields (services.*.image). _flatten_profile_by_module only emits profile config and metadata; it does not flatten module implementation compose services or rendered output, so a scope-only change would still never hit the intended data.",
       "title": "Container image uses latest tag",
       "severity": "medium",
       "category": "supply-chain",
@@ -617,6 +620,7 @@
     },
     {
       "id": "CDS-SEC-051",
+      "$comment": "Deferred: this rule needs rendered or implementation-level service image entries under services.*.image. The current security scan has no flattened Compose/service source, only profile inputs and loaded .env secrets.",
       "title": "Critical image missing digest pin",
       "severity": "medium",
       "category": "supply-chain",
@@ -638,6 +642,7 @@
     },
     {
       "id": "CDS-SEC-052",
+      "$comment": "Deferred: registry allowlist checks are written against services.*.image, but the current flatteners never produce Compose image paths. A follow-up needs a rendered-Compose or module-implementation scan source.",
       "title": "Image registry outside allowlist",
       "severity": "medium",
       "category": "supply-chain",
@@ -658,6 +663,7 @@
     },
     {
       "id": "CDS-SEC-053",
+      "$comment": "Deferred: minimum-version policy evaluation only makes sense against actual service image references. Today the scanner does not surface services.*.image values from rendered Compose or module implementations.",
       "title": "Image version below policy minimum",
       "severity": "medium",
       "category": "supply-chain",
@@ -679,6 +685,7 @@
     },
     {
       "id": "CDS-SEC-054",
+      "$comment": "Deferred: this rule is scoped to non-local rendered service images (services.*.image + forbid-latest). Current flattening never emits Compose service image paths, so it needs rendered/service data plumbing rather than only a scope change.",
       "title": "Unpinned image tag in non-local profile",
       "severity": "medium",
       "category": "supply-chain",
@@ -810,6 +817,7 @@
     },
     {
       "id": "CDS-SEC-070",
+      "$comment": "Deferred: command/args/logging leakage checks are defined against rendered Compose service paths such as services.*.command and services.*.logging.*. The existing scanner only sees profile config and env secrets, not rendered service definitions.",
       "title": "Secret appears in command args or log configuration",
       "severity": "high",
       "category": "observability-leakage",
@@ -839,6 +847,7 @@
     },
     {
       "id": "CDS-SEC-071",
+      "$comment": "Deferred: this rule is about literal CLI plan/validate output text, which is produced after formatting findings/diagnostics. The current matcher has no capture of stdout/stderr or rendered plan text to scan.",
       "title": "CLI plan or validate output prints secrets",
       "severity": "high",
       "category": "observability-leakage",

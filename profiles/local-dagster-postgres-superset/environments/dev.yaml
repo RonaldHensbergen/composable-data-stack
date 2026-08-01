@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../../schemas/profile.schema.json
+# Example environment overlay: development. Merged over profile.yaml when
+# invoking with --environment dev, e.g. `cds plan local-dagster-postgres-superset --environment dev`.
+# Only the fields that should differ between environments belong here; every
+# other value continues to come from the base profile.yaml.
+metadata:
+  environment: development
+
+spec:
+  modules:
+    - id: postgres
+      config:
+        storage:
+          size: 2Gi

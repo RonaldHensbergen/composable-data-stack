@@ -164,5 +164,61 @@ class RenderExampleProfileTest(unittest.TestCase):
             self.assertGreater(len(compose["services"]), 0)
 
 
+class RenderGuardRegressionTest(unittest.TestCase):
+    def _build_example_plan(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        profile_path = repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text(
+                "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser_testpass\n"
+                "CDS_ANALYTICS_DB_PASSWORD=analytics_testpass\n"
+                "CDS_DAGSTER_DB_PASSWORD=dagster_testpass\n"
+                "CDS_SUPERSET_DB_PASSWORD=superset_testpass\n"
+                "CDS_SUPERSET_SECRET_KEY=sekret\n"
+                "CDS_SUPERSET_ADMIN_PASSWORD=adminpass\n",
+                encoding="utf-8",
+            )
+            plan, diagnostics = build_plan(str(profile_path), env_file=str(env_file))
+
+        self.assertIsNotNone(plan)
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        return plan
+
+    def test_render_compose_skips_service_when_enabled_from_config_is_false(self):
+        plan = self._build_example_plan()
+        dagster = next(module for module in plan["modules"] if module["id"] == "dagster")
+        dagster["config"]["daemon"]["enabled"] = False
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        self.assertNotIn("dagster-daemon", compose["services"])
+
+    def test_render_compose_skips_volume_when_enabled_from_config_is_false(self):
+        plan = self._build_example_plan()
+        postgres = next(module for module in plan["modules"] if module["id"] == "postgres")
+        postgres["config"]["storage"]["enabled"] = False
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        self.assertNotIn("postgres-postgres-data", compose.get("volumes", {}))
+
+    def test_render_compose_drops_healthcheck_when_condition_is_false(self):
+        plan = self._build_example_plan()
+        postgres = next(module for module in plan["modules"] if module["id"] == "postgres")
+        postgres["config"]["healthcheck"]["enabled"] = False
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        self.assertNotIn("healthcheck", compose["services"]["postgres"])
+
+
 if __name__ == "__main__":
     unittest.main()
