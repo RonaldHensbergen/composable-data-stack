@@ -636,21 +636,17 @@ def main() -> int:
 
         up_cmd = ["docker", "compose", "-f", output_path, "up", "--detach"]
 
-        resolved_profile_file = Path(profile_path)
-        if args.profile:
-            profile_label = args.profile
-        elif resolved_profile_file.stem == "profile":
-            profile_label = resolved_profile_file.parent.name
-        else:
-            profile_label = resolved_profile_file.stem
-        log_path = Path(args.log_file) if args.log_file else default_log_path(profile_label)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"Logging docker compose output to {log_path}")
-
         expected_service_count = None
+        service_to_image: dict[str, str] = {}
         try:
             compose_doc = yaml.safe_load(compose_yaml) or {}
-            expected_service_count = len(compose_doc.get("services", {}))
+            services = compose_doc.get("services", {})
+            expected_service_count = len(services)
+            service_to_image = {
+                name: definition["image"]
+                for name, definition in services.items()
+                if isinstance(definition, dict) and definition.get("image")
+            }
         except yaml.YAMLError:
             pass
 
