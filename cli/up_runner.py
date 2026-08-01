@@ -5,9 +5,11 @@ import re
 import subprocess  # nosec B404
 import sys
 import time
-from datetime import datetime, timezone
+from collections import Counter
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Callable
+from typing import IO
 
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 
@@ -31,7 +33,7 @@ def default_log_path(profile_name: str, logs_dir: Path | None = None) -> Path:
     `.cds/logs` under the repo checkout.
     """
     base = logs_dir if logs_dir is not None else Path(".cds") / "logs"
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     safe_profile = profile_name.strip().replace("/", "-").replace("\\", "-").replace(" ", "-") or "profile"
     return base / f"up-{safe_profile}-{timestamp}.log"
 
@@ -146,8 +148,8 @@ def poll_state_until_settled(
     use_color: bool = False,
     sleep_fn: Callable[[float], None] = time.sleep,
     now_fn: Callable[[], float] = time.monotonic,
-    ps_fn: "Callable[[], subprocess.CompletedProcess] | None" = None,
-    redraw_fn: "Callable[[str], None] | None" = None,
+    ps_fn: Callable[[], subprocess.CompletedProcess] | None = None,
+    redraw_fn: Callable[[str], None] | None = None,
 ) -> tuple[bool, dict[str, list[str]]]:
     """
     Polls `docker compose ps -a --format json` every `poll_interval`

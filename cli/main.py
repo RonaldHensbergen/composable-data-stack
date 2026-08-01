@@ -805,6 +805,12 @@ def main() -> int:
         except yaml.YAMLError:
             pass
 
+        if args.log_file:
+            log_path = Path(args.log_file)
+        else:
+            log_path = default_log_path(Path(profile_path).parent.name)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
         log_tail_process = None
         settled = True
         try:
