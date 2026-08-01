@@ -1,9 +1,11 @@
+import json
 import re
 import unittest
 from pathlib import Path
 
 import yaml
 
+_OWNER = "ronaldhensbergen"
 _ON_KEY = True
 _STATIC_SECRET = re.compile(r"secrets\.(?!GITHUB_TOKEN)\w+")
 
@@ -55,6 +57,39 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         record_step = next(s for s in self.publish_steps if s.get("name") == "Record fixture data")
         condition = str(record_step.get("if", ""))
         self.assertNotIn("always()", condition)
+
+    def test_signed_images_fixture_covers_every_published_image(self) -> None:
+        repo_root = Path(__file__).resolve().parent.parent
+        fixture_path = repo_root / "tests" / "fixtures" / "signed-images.json"
+        self.assertTrue(
+            fixture_path.is_file(),
+            "tests/fixtures/signed-images.json is missing; refresh it from the "
+            "latest publish-images run (see docs/image-signing.md)",
+        )
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        self.assertFalse(
+            fixture.get("refreshRequired", True),
+            "tests/fixtures/signed-images.json still uses placeholder digests; "
+            "refresh it from the latest publish-images run (docs/image-signing.md)",
+        )
+        fixture_repos = {
+            entry["repository"]
+            for entry in fixture.get("images", {}).values()
+            if isinstance(entry, dict)
+        }
+        images_dir = repo_root / "images"
+        published = [
+            entry.name
+            for entry in sorted(images_dir.iterdir())
+            if entry.is_dir() and (entry / "Dockerfile").is_file()
+        ]
+        self.assertTrue(published, "expected at least one published runtime image")
+        for image in published:
+            self.assertIn(
+                f"ghcr.io/{_OWNER}/cds-{image}",
+                fixture_repos,
+                f"signed-images fixture is missing an entry for the published {image} image",
+            )
 
 
 if __name__ == "__main__":

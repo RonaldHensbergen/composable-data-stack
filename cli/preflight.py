@@ -11,6 +11,9 @@ from typing import Any
 
 import yaml
 
+from .image_verification import default_fixture_path, load_policy_from_env, verify_images
+from .security import _infer_profile_class
+
 
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}")
 # Docker publishes ports on every IPv4 interface when no host IP is specified.
@@ -34,6 +37,7 @@ def run_preflight(
     checks.extend(_check_runtime(plan.get("runtime", {})))
     checks.extend(_check_environment(compose_yaml, env_file))
     checks.extend(_check_ports(compose_yaml))
+    checks.extend(_check_images(plan, compose_yaml))
     return checks
 
 
@@ -167,6 +171,38 @@ def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck
 
 def _reference_is_required(suffix: str) -> bool:
     return not suffix or suffix.startswith(":?") or suffix.startswith("?")
+
+
+def _check_images(plan: dict[str, Any], compose_yaml: str) -> list[PreflightCheck]:
+    """
+    Enforce the CDS image policy (registry allowlist, digest pins, and, in
+    full mode, cosign-verified signatures and provenance attestations).
+
+    Disabled when the policy mode resolves to "off"; production profiles
+    default to "policy" so static supply-chain checks run by default.
+    """
+    policy = load_policy_from_env(_infer_profile_class(plan))
+    if policy.mode == "off":
+        return []
+
+    findings = verify_images(compose_yaml, policy, fixture=default_fixture_path())
+    if not findings:
+        return [
+            PreflightCheck(
+                "PASS",
+                "images",
+                "All service images comply with the image verification policy.",
+            )
+        ]
+
+    return [
+        PreflightCheck(
+            "FAIL",
+            f"images.{finding['path']}",
+            f"{finding['rule_id']}: {finding['message']}",
+        )
+        for finding in findings
+    ]
 
 
 def _load_env_values(env_file: Path) -> dict[str, str]:

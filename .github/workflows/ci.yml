@@ -138,6 +138,33 @@ jobs:
           test "$security_status" -eq 0 || test "$security_status" -eq 1
           grep -Eq "No security findings|CDS-SEC-" <<<"$security_output"
 
+      - name: Smoke test image verification on installed wheel
+        env:
+          CDS_ANALYTICS_DB_NAME: analytics
+          CDS_ANALYTICS_DB_PASSWORD: analytics_testpass
+          CDS_ANALYTICS_DB_USER: analytics
+          CDS_DAGSTER_DB_NAME: dagster
+          CDS_DAGSTER_DB_PASSWORD: dagster_testpass
+          CDS_DAGSTER_DB_USER: dagster
+          CDS_POSTGRES_SUPERUSER_PASSWORD: postgres_testpass
+          CDS_SUPERSET_ADMIN_PASSWORD: admin_testpass
+          CDS_SUPERSET_DB_NAME: superset
+          CDS_SUPERSET_DB_PASSWORD: superset_testpass
+          CDS_SUPERSET_DB_USER: superset
+          CDS_SUPERSET_SECRET_KEY: ci-only-superset-secret-key
+        run: |
+          export PIPX_BIN_DIR="$RUNNER_TEMP/pipx-bin"
+          set +e
+          verify_output="$(
+            "$PIPX_BIN_DIR/cds" security \
+              "$GITHUB_WORKSPACE/profiles/local-dagster-postgres-superset/profile.yaml" \
+              --verify-images 2>&1
+          )"
+          verify_status=$?
+          set -e
+          test "$verify_status" -eq 1
+          grep -Eq "CDS-VER-001" <<<"$verify_output"
+
   profile-compile:
     runs-on: ubuntu-latest
     env:
@@ -179,6 +206,15 @@ jobs:
           cds render local-dagster-postgres-superset --output /tmp/docker-compose.second.yml
           cmp /tmp/docker-compose.first.yml /tmp/docker-compose.second.yml
           docker compose -f /tmp/docker-compose.first.yml config --quiet
+
+      - name: Verify unverifiable images fail closed
+        run: |
+          set +e
+          verify_output="$(cds security local-dagster-postgres-superset --verify-images 2>&1)"
+          verify_status=$?
+          set -e
+          test "$verify_status" -eq 1
+          grep -Eq "CDS-VER-" <<<"$verify_output"
 
   security-scan:
     runs-on: ubuntu-latest

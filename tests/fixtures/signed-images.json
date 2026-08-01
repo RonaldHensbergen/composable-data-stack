@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "refreshRequired": false,
+  "refreshInstructions": "Copy the digest and identity values from the job summary of the latest .github/workflows/publish-images.yml run (see docs/image-signing.md) and set refreshRequired to false.",
+  "updated": "2026-08-01",
+  "source": "https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/publish-images.yml",
+  "trustRoot": {
+    "registries": ["ghcr.io", "docker.io", "registry-1.docker.io", "local"],
+    "oidcIssuer": "https://token.actions.githubusercontent.com",
+    "certificateIdentityRegexp": "^https://github.com/RonaldHensbergen/composable-data-stack/.github/workflows/publish-images.yml@refs/heads/main$",
+    "keyless": true
+  },
+  "images": {
+    "cds-dagster": {
+      "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
+      "digest": "sha256:3277690054d713bbb50252f558ec51c4fbda4848a62cd683a2a86402c78ee013",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
+    },
+    "cds-superset": {
+      "repository": "ghcr.io/ronaldhensbergen/cds-superset",
+      "digest": "sha256:d8d3613337b5a3a8547a576a251acb9d8ce668cc528aa47ff2902a8249fcb342",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
+    }
+  }
+}
