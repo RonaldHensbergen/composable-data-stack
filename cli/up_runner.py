@@ -55,7 +55,9 @@ def run_streamed(cmd: list[str], log_file: IO[str], echo: bool = True, group_by_
     if process.stdout is None:
         raise RuntimeError("subprocess.Popen returned no stdout despite stdout=PIPE")
     try:
-        current_service: str | None = None
+        current_group: str | None = None
+        seen_groups: set[str] = set()
+        image_container_counts = Counter((service_to_image or {}).values())
         for line in process.stdout:
             log_file.write(line)
             log_file.flush()
@@ -64,11 +66,18 @@ def run_streamed(cmd: list[str], log_file: IO[str], echo: bool = True, group_by_
                     m = _BUILD_SERVICE_RE.match(line)
                     if m:
                         service = m.group(1)
-                        if service != current_service:
-                            current_service = service
-                            header = f"── Building {service} "
-                            header += "─" * max(1, 60 - len(header))
-                            sys.stdout.write(f"\n\033[36m{header}\033[0m\n")
+                        image = (service_to_image or {}).get(service, service)
+                        if image != current_group:
+                            current_group = image
+                            if image not in seen_groups:
+                                seen_groups.add(image)
+                                count = image_container_counts.get(image, 1)
+                                label = f"Building {image}"
+                                if count > 1:
+                                    label += f" ({count} containers)"
+                                header = f"── {label} "
+                                header += "─" * max(1, 60 - len(header))
+                                sys.stdout.write(f"\n\033[36m{header}\033[0m\n")
                 sys.stdout.write(line)
                 sys.stdout.flush()
     finally:
