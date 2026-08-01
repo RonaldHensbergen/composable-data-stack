@@ -622,6 +622,8 @@ before and never look for an `environments/` directory.
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 |cds security [profile]|Run rule-based security validation on a profile|
 |cds diff [profile] --from \<env\> --to \<env\>|Show effective configuration differences between two environment overlays, secrets never included|
+|cds use [profile] [--clear]|Save (show/clear) a default profile so it doesn't have to be passed to other commands|
+|cds completion \<bash\|zsh\|powershell\>|Print shell setup instructions for tab-completion|
 
 `init`, `validate`, `preflight`, `plan`, `render`, `up`, `test`, and `security`
 all accept `--environment <name>` (or `-e <name>`) to merge
@@ -636,7 +638,7 @@ all accept `--environment <name>` (or `-e <name>`) to merge
 | Path to a `profile.yaml` file | `profiles/local-dagster-postgres-superset/profile.yaml` |
 | Path to a profiles root directory | `profiles/` |
 
-When `[profile]` is omitted, `CDS_PROFILE_PATH` is used instead and accepts the same three forms. If neither is provided and exactly one profile exists under `profiles/`, it is selected automatically.
+When `[profile]` is omitted, resolution falls back in order to: `CDS_PROFILE_PATH` if set (accepts the same three forms), then the default profile saved via `cds use <profile>`, then the single profile under `profiles/` if there is exactly one. An explicitly-set env var takes precedence over the persisted `cds use` default, matching common CLI convention (env vars are per-invocation and reflect the current session more reliably than a saved, gitignored default that's easy to forget about).
 
 To view the full list of options for any command, use the `--help` flag:
 

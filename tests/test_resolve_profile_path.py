@@ -1,5 +1,6 @@
 import unittest
 import tempfile
+import json
 from pathlib import Path
 from unittest.mock import patch
 import os
@@ -67,6 +68,50 @@ class TestResolveProfilePath(unittest.TestCase):
             with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(env_profile)}, clear=False):
                 result = resolve_profile_path(str(arg_profile))
                 self.assertEqual(result, str(arg_profile.resolve()))
+
+    def test_resolve_uses_saved_profile_even_when_env_root_is_ambiguous(self):
+        """A saved default (cds use) should disambiguate when CDS_PROFILE_PATH has multiple profiles"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profiles_root = Path(tmpdir) / "profiles"
+            local_dir = profiles_root / "local"
+            local_dir.mkdir(parents=True)
+            profile_file = local_dir / "profile.yaml"
+            profile_file.write_text("apiVersion: cds/v1alpha1\n")
+
+            other_dir = profiles_root / "other"
+            other_dir.mkdir()
+            (other_dir / "profile.yaml").write_text("apiVersion: cds/v1alpha1\n")
+
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps({"profile": "local"}))
+
+            env = {"CDS_PROFILE_PATH": str(profiles_root), "CDS_CONFIG_PATH": str(config_path)}
+            with patch.dict(os.environ, env, clear=True):
+                result = resolve_profile_path(None)
+                self.assertEqual(result, str(profile_file.resolve()))
+
+    def test_env_takes_precedence_over_saved_profile(self):
+        """CDS_PROFILE_PATH, if set, should win over a saved default (cds use).
+
+        Env vars are per-invocation and reflect the current session more
+        reliably than a persisted, gitignored default that's easy to forget
+        about -- matching common CLI precedence (env var overrides persisted
+        config, e.g. AWS CLI, Azure CLI).
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_profile = Path(tmpdir) / "env_profile.yaml"
+            env_profile.write_text("apiVersion: cds/v1alpha1\n")
+
+            saved_profile_file = Path(tmpdir) / "saved_profile.yaml"
+            saved_profile_file.write_text("apiVersion: cds/v1alpha1\n")
+
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps({"profile": str(saved_profile_file)}))
+
+            env = {"CDS_PROFILE_PATH": str(env_profile), "CDS_CONFIG_PATH": str(config_path)}
+            with patch.dict(os.environ, env, clear=True):
+                result = resolve_profile_path(None)
+                self.assertEqual(result, str(env_profile.resolve()))
 
 
 if __name__ == "__main__":

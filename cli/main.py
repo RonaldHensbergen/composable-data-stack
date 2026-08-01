@@ -88,6 +88,145 @@ def get_modules_root() -> Path:
     return Path(root).expanduser()
 
 
+def find_project_root(start: Path | None = None) -> Path:
+    """
+    Walk up from `start` (default: current working directory) looking for a
+    project root marker (pyproject.toml or .git). Falls back to `start` itself
+    if no marker is found.
+    """
+    current = (start or Path.cwd()).resolve()
+    for directory in [current, *current.parents]:
+        if (directory / "pyproject.toml").exists() or (directory / ".git").exists():
+            return directory
+    return current
+
+
+def get_config_path() -> Path:
+    """Location of the per-project CDS config file used by `cds use`."""
+    override = os.getenv("CDS_CONFIG_PATH")
+    if override:
+        return Path(override).expanduser()
+    return find_project_root() / ".cds" / "config.json"
+
+
+class ConfigIOError(RuntimeError):
+    """Raised when the `cds use` config file cannot be read or written."""
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write `content` to `path` atomically via a temp file + os.replace.
+
+    Raises ConfigIOError (instead of an uncaught traceback) if the parent
+    directory can't be created or the write/replace fails, e.g. because
+    CDS_CONFIG_PATH points at an unwritable location or a path segment is
+    actually a file.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    except OSError as exc:
+        raise ConfigIOError(f"Could not prepare {path} for writing: {exc}") from exc
+
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+            tmp_file.write(content)
+        os.replace(tmp_name, path)
+    except OSError as exc:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise ConfigIOError(f"Could not write config file {path}: {exc}") from exc
+
+
+def _read_config() -> dict:
+    config_path = get_config_path()
+    if not config_path.exists():
+        return {}
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print(
+            f"WARNING {config_path} is not valid JSON; treating it as empty. "
+            "It will be overwritten by the next `cds use` or `cds use --clear`.",
+            file=sys.stderr,
+        )
+        return {}
+    except OSError as exc:
+        print(f"WARNING Could not read {config_path}: {exc}", file=sys.stderr)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def load_saved_profile() -> str | None:
+    """Return the profile name saved via `cds use`, if any."""
+    profile = _read_config().get("profile")
+    return profile if isinstance(profile, str) and profile else None
+
+
+def save_profile(profile: str) -> Path:
+    """Persist `profile` as the default for this project. Returns the config path.
+
+    Raises ConfigIOError if the config file cannot be written.
+    """
+    config_path = get_config_path()
+    data = _read_config()
+    data["profile"] = profile
+    _atomic_write_text(config_path, json.dumps(data, indent=2) + "\n")
+    return config_path
+
+
+def clear_saved_profile() -> bool:
+    """Remove a previously saved default profile. Returns True if one was cleared.
+
+    Raises ConfigIOError if the config file cannot be updated/removed.
+    """
+    config_path = get_config_path()
+    data = _read_config()
+    if "profile" not in data:
+        return False
+    del data["profile"]
+    try:
+        if data:
+            _atomic_write_text(config_path, json.dumps(data, indent=2) + "\n")
+        else:
+            config_path.unlink()
+    except OSError as exc:
+        raise ConfigIOError(f"Could not update config file {config_path}: {exc}") from exc
+    return True
+
+
+def _resolve_profile_root(profile_root: Path) -> str | None:
+    """
+    Resolve an ambient profiles root (CDS_PROFILE_PATH, or the default
+    "profiles/" directory) with no explicit profile argument. Returns None if
+    `profile_root` doesn't unambiguously resolve to a single profile.
+    """
+    if profile_root.is_file():
+        return str(profile_root.resolve())
+
+    direct_profile = profile_root / "profile.yaml"
+    if direct_profile.exists():
+        return str(direct_profile.resolve())
+
+    if profile_root.is_dir():
+        subdirs = [
+            directory
+            for directory in sorted(profile_root.iterdir())
+            if directory.is_dir() and (directory / "profile.yaml").exists()
+        ]
+        if len(subdirs) == 1:
+            return str((subdirs[0] / "profile.yaml").resolve())
+
+    # profile_root may be set to a bare profile name rather than a path.
+    # Try resolving it as a name under the default profiles/ directory.
+    default_root = Path("profiles")
+    if default_root.resolve() != profile_root.resolve():
+        name_candidate = default_root / profile_root.name / "profile.yaml"
+        if name_candidate.exists():
+            return str(name_candidate.resolve())
+
+    return None
+
+
 def resolve_profile_path(profile: str | None) -> str:
     profile_root = get_profiles_root()
     
@@ -137,34 +276,42 @@ def resolve_profile_path(profile: str | None) -> str:
 
         return str(candidate_by_name.resolve())
 
-    # No profile argument provided, use CDS_PROFILE_PATH
-    if profile_root.is_file():
-        return str(profile_root.resolve())
+    # No profile argument provided. Resolution order:
+    #   1. CDS_PROFILE_PATH, if explicitly set for this invocation. Env vars
+    #      are per-invocation and reflect the current session more reliably
+    #      than a persisted, gitignored default that's easy to forget about.
+    #      This matches common CLI precedence (env var overrides persisted
+    #      config, e.g. AWS CLI, Azure CLI) -- and was previously inverted
+    #      here, with the saved default silently winning over the env var.
+    #   2. The saved default from `cds use <profile>`.
+    #   3. The single profile under the default profiles/ directory, if
+    #      there is exactly one (also the fallback when CDS_PROFILE_PATH is
+    #      unset, since profile_root defaults to "profiles").
+    env_profile_path = os.getenv("CDS_PROFILE_PATH")
+    if env_profile_path:
+        resolved_from_env = _resolve_profile_root(Path(env_profile_path).expanduser())
+        if resolved_from_env:
+            return resolved_from_env
 
-    direct_profile = profile_root / "profile.yaml"
-    if direct_profile.exists():
-        return str(direct_profile.resolve())
+    saved_profile = load_saved_profile()
+    if saved_profile:
+        resolved_saved_profile = resolve_profile_path(saved_profile)
+        if not Path(resolved_saved_profile).is_file():
+            raise ValueError(
+                f"Saved default profile '{saved_profile}' no longer resolves to a file "
+                f"(looked for {resolved_saved_profile}). Run `cds use --clear` to remove it, "
+                "or `cds use <profile>` to save a new default."
+            )
+        return resolved_saved_profile
 
-    if profile_root.is_dir():
-        subdirs = [
-            directory
-            for directory in sorted(profile_root.iterdir())
-            if directory.is_dir() and (directory / "profile.yaml").exists()
-        ]
-        if len(subdirs) == 1:
-            return str((subdirs[0] / "profile.yaml").resolve())
-
-    # CDS_PROFILE_PATH may be set to a bare profile name rather than a path.
-    # Try resolving it as a name under the default profiles/ directory.
-    default_root = Path("profiles")
-    if default_root.resolve() != profile_root.resolve():
-        name_candidate = default_root / profile_root.name / "profile.yaml"
-        if name_candidate.exists():
-            return str(name_candidate.resolve())
+    resolved_default = _resolve_profile_root(profile_root)
+    if resolved_default:
+        return resolved_default
 
     raise ValueError(
-        "No profile specified. Either provide a profile argument or set CDS_PROFILE_PATH "
-        "to a profile file or directory containing a single profile."
+        "No profile specified. Either provide a profile argument, run `cds use <profile>` "
+        "to save a default, or set CDS_PROFILE_PATH to a profile file or directory "
+        "containing a single profile."
     )
 
 
@@ -245,11 +392,11 @@ def _add_profile_arg(subparser: argparse.ArgumentParser) -> None:
         help=(
             "Profile to use. Accepts a profile name (e.g. local-dagster-postgres-superset), "
             "a path to a profile.yaml file, or a path to a profiles root directory. "
-            "When omitted, CDS_PROFILE_PATH is used. "
+            "When omitted, resolution falls back in order to: CDS_PROFILE_PATH if set, "
+            "then the default profile saved via `cds use <profile>`, then the single "
+            "profile under profiles/ if there is exactly one. "
             "CDS_PROFILE_PATH accepts the same forms: a profile name, a profile file path, "
-            "or a profiles root directory. "
-            "If neither is provided and only one profile exists under profiles/, "
-            "it is selected automatically."
+            "or a profiles root directory."
         ),
     )
     if argcomplete is not None:
@@ -381,6 +528,43 @@ def _cds_version() -> str:
         return _package_version("composable-data-stack")
     except PackageNotFoundError:
         return "unknown"
+
+
+def _completion_instructions(shell: str) -> str:
+    """Return copy-pasteable shell setup instructions for cds tab-completion."""
+    preamble = (
+        "# cds does not modify your shell config automatically (same as kubectl, docker,\n"
+        "# gh, and az completion). Copy the steps below into your shell yourself:"
+    )
+    if shell == "powershell":
+        install_step = (
+            "# 1. Install argcomplete (skip if already installed):\n"
+            "python -m pip install argcomplete"
+        )
+        setup_step = (
+            "# 2. Add to your PowerShell profile ($PROFILE), then restart your shell "
+            "(or `. $PROFILE`):\n"
+            "register-python-argcomplete --shell powershell cds | Out-String | Invoke-Expression"
+        )
+        return f"{preamble}\n\n{install_step}\n\n{setup_step}"
+
+    install_step = (
+        "# 1. Install argcomplete (skip if already installed):\n"
+        "python3 -m pip install argcomplete"
+    )
+    if shell == "zsh":
+        setup_step = (
+            "# 2. Add to ~/.zshrc, then restart your shell (or `source ~/.zshrc`):\n"
+            "autoload -U bashcompinit\n"
+            "bashcompinit\n"
+            'eval "$(register-python-argcomplete cds)"'
+        )
+    else:
+        setup_step = (
+            "# 2. Add to ~/.bashrc, then restart your shell (or `source ~/.bashrc`):\n"
+            'eval "$(register-python-argcomplete cds)"'
+        )
+    return f"{preamble}\n\n{install_step}\n\n{setup_step}"
 
 
 def _is_id_keyed_list(value: Any) -> bool:
@@ -600,6 +784,33 @@ def main() -> int:
         dest="to_environment",
         required=True,
         help="Environment overlay to compare against the baseline (e.g. prod).",
+    )
+
+    use_parser = subparsers.add_parser(
+        "use",
+        help="Save (or show/clear) a default profile so it doesn't have to be passed on every command",
+    )
+    use_action = use_parser.add_argument(
+        "profile",
+        nargs="?",
+        help="Profile name to save as the default. Omit to show the currently saved default.",
+    )
+    use_parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="Clear the saved default profile instead of setting one",
+    )
+    if argcomplete is not None:
+        use_action.completer = profile_completer  # type: ignore[attr-defined]
+
+    completion_parser = subparsers.add_parser(
+        "completion",
+        help="Print shell setup instructions for cds tab-completion",
+    )
+    completion_parser.add_argument(
+        "shell",
+        choices=["bash", "zsh", "powershell"],
+        help="Shell to print setup instructions for",
     )
 
     if argcomplete is not None:
@@ -1174,6 +1385,72 @@ def main() -> int:
 
         return 1 if any(f["severity"] == "high" for f in findings) else 0
 
+    if args.command == "use":
+        if args.clear and args.profile:
+            print(f"ERROR --clear cannot be combined with a profile argument ('{args.profile}').")
+            return 1
+
+        if args.clear:
+            try:
+                cleared = clear_saved_profile()
+            except ConfigIOError as exc:
+                print(f"ERROR {exc}")
+                return 1
+            if cleared:
+                print(f"Cleared saved default profile ({get_config_path()}).")
+            else:
+                print("No saved default profile to clear.")
+            return 0
+
+        if not args.profile:
+            saved_profile = load_saved_profile()
+            if saved_profile:
+                print(saved_profile)
+            else:
+                print("No default profile saved. Run `cds use <profile>` to set one.")
+            return 0
+
+        try:
+            resolved = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        if not Path(resolved).is_file():
+            print(f"ERROR Profile '{args.profile}' could not be found (looked for {resolved}).")
+            return 1
+
+        # When CDS_PROFILE_PATH points directly at a single profile.yaml
+        # file, resolve_profile_path() returns that file for *any* name
+        # argument (there's no profiles directory to look names up under),
+        # which would otherwise let `cds use <typo>` succeed silently and
+        # save a bogus name as if it had been validated. Require the given
+        # name to plausibly identify this profile before accepting it.
+        profile_root = get_profiles_root()
+        if profile_root.is_file() and Path(resolved).resolve() == profile_root.resolve():
+            expected_names = {profile_root.stem, profile_root.parent.name}
+            given_matches_file = Path(args.profile).resolve() == profile_root.resolve()
+            if args.profile not in expected_names and not given_matches_file:
+                print(
+                    f"ERROR CDS_PROFILE_PATH points to a single profile file ({profile_root}); "
+                    f"'{args.profile}' does not identify it. Pass the file path directly, "
+                    f"or use '{profile_root.stem}' or '{profile_root.parent.name}'."
+                )
+                return 1
+
+        try:
+            config_path = save_profile(resolved)
+        except ConfigIOError as exc:
+            print(f"ERROR {exc}")
+            return 1
+        print(f"Saved default profile: {args.profile} (resolves to {resolved})")
+        print(f"Stored in {config_path}")
+        return 0
+
+    if args.command == "completion":
+        print(_completion_instructions(args.shell))
+        return 0
+
     if args.command == "diff":
         try:
             profile_path = resolve_profile_path(args.profile)
@@ -1213,8 +1490,10 @@ def main() -> int:
 
         return 0
 
+
     print("Base validation not shown here.")
     return 0
+
 
 
 if __name__ == "__main__":

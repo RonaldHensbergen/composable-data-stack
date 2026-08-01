@@ -1050,5 +1050,144 @@ class StateCLITest(unittest.TestCase):
         self.assertIn("\033", output)
 
 
+class UseCommandCLITest(unittest.TestCase):
+    def setUp(self):
+        self.repo_root = Path(__file__).resolve().parent.parent
+        self.profiles_root = self.repo_root / "profiles"
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.config_path = Path(self.tmpdir.name) / "config.json"
+        self.env_patch = patch.dict(
+            os.environ,
+            {"CDS_PROFILE_PATH": str(self.profiles_root), "CDS_CONFIG_PATH": str(self.config_path)},
+            clear=False,
+        )
+        self.env_patch.start()
+
+    def tearDown(self):
+        self.env_patch.stop()
+        self.tmpdir.cleanup()
+
+    def _run(self, argv_extra):
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["cds", "use"] + argv_extra), contextlib.redirect_stdout(captured):
+            result = main()
+        return result, captured.getvalue()
+
+    def test_use_with_no_saved_profile_reports_none(self):
+        result, output = self._run([])
+        self.assertEqual(result, 0)
+        self.assertIn("No default profile saved", output)
+
+    def test_use_saves_and_shows_default_profile(self):
+        save_result, save_output = self._run(["local-dagster-postgres-superset"])
+        self.assertEqual(save_result, 0)
+        self.assertIn("Saved default profile: local-dagster-postgres-superset", save_output)
+        expected_resolved = str((self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml").resolve())
+        self.assertEqual(json.loads(self.config_path.read_text())["profile"], expected_resolved)
+
+        show_result, show_output = self._run([])
+        self.assertEqual(show_result, 0)
+        self.assertEqual(show_output.strip(), expected_resolved)
+
+    def test_use_rejects_unresolvable_profile(self):
+        result, output = self._run(["does-not-exist"])
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_use_clear_removes_saved_profile(self):
+        self._run(["local-dagster-postgres-superset"])
+        clear_result, clear_output = self._run(["--clear"])
+        self.assertEqual(clear_result, 0)
+        self.assertIn("Cleared saved default profile", clear_output)
+
+        show_result, show_output = self._run([])
+        self.assertEqual(show_result, 0)
+        self.assertIn("No default profile saved", show_output)
+
+    def test_use_clear_with_nothing_saved_reports_none_cleared(self):
+        result, output = self._run(["--clear"])
+        self.assertEqual(result, 0)
+        self.assertIn("No saved default profile to clear", output)
+
+    def test_use_rejects_clear_combined_with_profile_argument(self):
+        result, output = self._run(["--clear", "local-dagster-postgres-superset"])
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", output)
+        self.assertIn("--clear", output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_resolve_profile_path_rejects_stale_saved_profile(self):
+        save_result, _ = self._run(["local-dagster-postgres-superset"])
+        self.assertEqual(save_result, 0)
+
+        # Simulate the saved profile having been renamed/deleted since `cds use`.
+        stale_config = {"profile": str(self.profiles_root / "does-not-exist-anymore" / "profile.yaml")}
+        self.config_path.write_text(json.dumps(stale_config))
+
+        with self.assertRaises(ValueError) as ctx:
+            resolve_profile_path(None)
+        self.assertIn("no longer resolves to a file", str(ctx.exception))
+        self.assertIn("cds use --clear", str(ctx.exception))
+
+    def test_env_profile_path_overrides_saved_default(self):
+        # `cds use` saves one profile as the default...
+        save_result, _ = self._run(["local-dagster-postgres-superset"])
+        self.assertEqual(save_result, 0)
+
+        # ...but an explicit, more-current CDS_PROFILE_PATH pointing at a
+        # different single profile should win over the persisted default,
+        # matching common CLI precedence (env var overrides persisted config).
+        other_profile_dir = self.profiles_root / "local-dagster-postgres-superset-vault"
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(other_profile_dir)}, clear=False):
+            resolved = resolve_profile_path(None)
+        self.assertEqual(resolved, str((other_profile_dir / "profile.yaml").resolve()))
+
+    def test_saved_profile_used_by_other_commands_without_argument(self):
+        self._run(["local-dagster-postgres-superset"])
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["cds", "validate"]), contextlib.redirect_stdout(captured):
+            result = main()
+        self.assertEqual(result, 0)
+        self.assertIn("Profile is valid", captured.getvalue())
+
+
+class CompletionCommandCLITest(unittest.TestCase):
+    def _run(self, shell):
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["cds", "completion", shell]), contextlib.redirect_stdout(captured):
+            result = main()
+        return result, captured.getvalue()
+
+    def test_completion_bash_prints_bashrc_instructions(self):
+        result, output = self._run("bash")
+        self.assertEqual(result, 0)
+        self.assertIn("~/.bashrc", output)
+        self.assertIn('eval "$(register-python-argcomplete cds)"', output)
+        self.assertIn("pip install argcomplete", output)
+        self.assertIn("does not modify your shell config automatically", output)
+
+    def test_completion_zsh_prints_zshrc_instructions(self):
+        result, output = self._run("zsh")
+        self.assertEqual(result, 0)
+        self.assertIn("~/.zshrc", output)
+        self.assertIn("bashcompinit", output)
+        self.assertIn('eval "$(register-python-argcomplete cds)"', output)
+        self.assertIn("does not modify your shell config automatically", output)
+
+    def test_completion_powershell_prints_profile_instructions(self):
+        result, output = self._run("powershell")
+        self.assertEqual(result, 0)
+        self.assertIn("$PROFILE", output)
+        self.assertIn("register-python-argcomplete --shell powershell cds", output)
+        self.assertIn("pip install argcomplete", output)
+        self.assertIn("does not modify your shell config automatically", output)
+
+    def test_completion_rejects_unsupported_shell(self):
+        with patch.object(sys, "argv", ["cds", "completion", "fish"]), self.assertRaises(SystemExit) as ctx:
+            main()
+        self.assertEqual(ctx.exception.code, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
