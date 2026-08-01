@@ -57,7 +57,7 @@
     {
       "description": "Only bump Python minimum version at cycle level (minor/major), not on patch releases — requires-python tracks supported cycles, not specific patches",
       "matchManagers": [
-        "regex"
+        "custom.regex"
       ],
       "matchDepNames": [
         "python"
