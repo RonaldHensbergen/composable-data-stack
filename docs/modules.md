@@ -229,11 +229,9 @@ Avoid committing runtime-generated data to the repository unless it is intention
 
 Modules must not require committed secrets.
 
-Secrets are declared in `spec.configSchema` as string fields matching the `^secrets\.[a-zA-Z0-9_-]+$` pattern (see `passwordFrom`, `tokenFrom` above), and resolved at render time from one of:
+Secrets are declared in `spec.configSchema` as string fields matching the `^secrets\.[a-zA-Z0-9_-]+$` pattern (see `passwordFrom`, `tokenFrom` above). CDS resolves these references to `${CDS_VAR}` placeholders using environment variables or local `.env` files excluded from version control (generated via `cds init`).
 
-- environment variables
-- local `.env` files excluded from version control (generated via `cds init`)
-- a dedicated secrets module such as Vault
+A profile can also compose a secrets module such as Vault. That module runs as an ordinary service and handles its own runtime integration; it is not a separate secret-loading backend used by the CDS renderer.
 
 Do not give secret-bearing fields a `default` in `configSchema`, leaving them `required` with no default forces every consumer to supply a real value.
 
