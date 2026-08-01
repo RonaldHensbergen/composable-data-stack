@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from cli.diagnostics import Diagnostic
 from cli.image_updates import collect_module_images
@@ -320,95 +320,175 @@ class MainCLITest(unittest.TestCase):
         mock_render.assert_called_once()
         mock_preflight.assert_called_once()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_runs_docker_compose_up(self, mock_validate, mock_plan, mock_render, mock_run):
+    def test_up_command_builds_then_starts_detached_and_polls(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+    ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
-        mock_render.return_value = ("services: {}", [])
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        mock_render.return_value = ("services: {app: {}}", [])
+        mock_run_streamed.return_value = 0
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.return_value = (True, {"RUNNING": ["app"]})
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
-        ):
-            result = main()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(mock_run.call_count, 2)
-        build_cmd = mock_run.call_args_list[0][0][0]
-        up_cmd = mock_run.call_args_list[1][0][0]
+        self.assertEqual(mock_run_streamed.call_count, 2)
+        build_cmd = mock_run_streamed.call_args_list[0][0][0]
+        up_cmd = mock_run_streamed.call_args_list[1][0][0]
         self.assertEqual(build_cmd[:4], ["docker", "compose", "-f", build_cmd[3]])
         self.assertEqual(up_cmd[:4], ["docker", "compose", "-f", up_cmd[3]])
         self.assertIn("build", build_cmd)
         self.assertIn("up", up_cmd)
-        self.assertNotIn("--detach", up_cmd)
+        self.assertIn("--detach", up_cmd)
+        mock_poll.assert_called_once()
+        self.assertEqual(mock_poll.call_args.kwargs["expected_service_count"], 1)
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_detach_flag_passes_through(self, mock_validate, mock_plan, mock_render, mock_run):
+    def test_up_command_detach_flag_skips_poll_loop(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+    ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        mock_run_streamed.return_value = 0
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--detach"]
-        ):
-            result = main()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--detach", "--log-file", log_path],
+            ):
+                result = main()
 
         self.assertEqual(result, 0)
-        up_cmd = mock_run.call_args_list[1][0][0]
+        up_cmd = mock_run_streamed.call_args_list[1][0][0]
         self.assertIn("--detach", up_cmd)
+        mock_start_tail.assert_not_called()
+        mock_poll.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_short_detach_flag_passes_through(self, mock_validate, mock_plan, mock_render, mock_run):
+    def test_up_command_short_detach_flag_skips_poll_loop(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+    ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        mock_run_streamed.return_value = 0
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "-d"]
-        ):
-            result = main()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "-d", "--log-file", log_path],
+            ):
+                result = main()
 
         self.assertEqual(result, 0)
-        up_cmd = mock_run.call_args_list[1][0][0]
+        up_cmd = mock_run_streamed.call_args_list[1][0][0]
         self.assertIn("--detach", up_cmd)
+        mock_poll.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_stops_when_build_fails(self, mock_validate, mock_plan, mock_render, mock_run):
+    def test_up_command_stops_when_build_fails(self, mock_validate, mock_plan, mock_render, mock_run_streamed):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run.side_effect = [
-            subprocess.CompletedProcess(args=[], returncode=9),
-            subprocess.CompletedProcess(args=[], returncode=0),
-        ]
+        mock_run_streamed.return_value = 9
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
-        ):
-            result = main()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
 
         self.assertEqual(result, 9)
-        self.assertEqual(mock_run.call_count, 1)
-        cmd = mock_run.call_args[0][0]
+        self.assertEqual(mock_run_streamed.call_count, 1)
+        cmd = mock_run_streamed.call_args[0][0]
         self.assertIn("build", cmd)
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_stops_on_validation_failure_without_calling_docker(self, mock_validate, mock_run):
+    def test_up_command_interrupt_during_build_exits_130_cleanly(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.side_effect = KeyboardInterrupt()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
+
+        self.assertEqual(result, 130)
+
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_interrupt_during_up_exits_130_cleanly(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.side_effect = [0, KeyboardInterrupt()]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
+
+        self.assertEqual(result, 130)
+
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.validate_profile")
+    def test_up_command_stops_on_validation_failure_without_calling_docker(
+        self, mock_validate, mock_run_streamed
+    ):
         mock_validate.return_value = [Diagnostic("error", "E001", "bad profile", "spec")]
 
         with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
@@ -417,12 +497,14 @@ class MainCLITest(unittest.TestCase):
             result = main()
 
         self.assertEqual(result, 1)
-        mock_run.assert_not_called()
+        mock_run_streamed.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.run_streamed")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_stops_on_plan_failure_without_calling_docker(self, mock_validate, mock_plan, mock_run):
+    def test_up_command_stops_on_plan_failure_without_calling_docker(
+        self, mock_validate, mock_plan, mock_run_streamed
+    ):
         mock_validate.return_value = []
         mock_plan.return_value = (None, [Diagnostic("error", "E041", "bad binding", "spec")])
 
@@ -432,14 +514,14 @@ class MainCLITest(unittest.TestCase):
             result = main()
 
         self.assertEqual(result, 1)
-        mock_run.assert_not_called()
+        mock_run_streamed.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_stops_on_render_failure_without_calling_docker(
-        self, mock_validate, mock_plan, mock_render, mock_run
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -451,91 +533,268 @@ class MainCLITest(unittest.TestCase):
             result = main()
 
         self.assertEqual(result, 1)
-        mock_run.assert_not_called()
+        mock_run_streamed.assert_not_called()
 
-    @patch("cli.main.subprocess.run")
+    @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_reports_clear_error_when_docker_missing(self, mock_validate, mock_plan, mock_render, mock_run):
-        mock_validate.return_value = []
-        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
-        mock_render.return_value = ("services: {}", [])
-        mock_run.side_effect = FileNotFoundError()
-
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
-        ):
-            result = main()
-
-        self.assertEqual(result, 1)
-
-    @patch("cli.main.subprocess.run")
-    @patch("cli.main.render_compose")
-    @patch("cli.main.build_plan")
-    @patch("cli.main.validate_profile")
-    def test_up_command_propagates_docker_compose_exit_code(self, mock_validate, mock_plan, mock_render, mock_run):
-        mock_validate.return_value = []
-        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
-        mock_render.return_value = ("services: {}", [])
-        mock_run.side_effect = [
-            subprocess.CompletedProcess(args=[], returncode=0),
-            subprocess.CompletedProcess(args=[], returncode=17),
-        ]
-
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
-        ):
-            result = main()
-
-        self.assertEqual(result, 17)
-
-    @patch("cli.main.subprocess.run")
-    @patch("cli.main.render_compose")
-    @patch("cli.main.build_plan")
-    @patch("cli.main.validate_profile")
-    def test_up_command_no_build_skips_build_step(self, mock_validate, mock_plan, mock_render, mock_run):
-        mock_validate.return_value = []
-        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
-        mock_render.return_value = ("services: {}", [])
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
-
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset", "--no-build"]
-        ):
-            result = main()
-
-        self.assertEqual(result, 0)
-        self.assertEqual(mock_run.call_count, 1)
-        cmd = mock_run.call_args[0][0]
-        self.assertIn("up", cmd)
-        self.assertNotIn("build", cmd)
-
-    @patch("cli.main.subprocess.run")
-    @patch("cli.main.render_compose")
-    @patch("cli.main.build_plan")
-    @patch("cli.main.validate_profile")
-    def test_up_command_no_build_and_detach_flags_both_pass_through(
-        self, mock_validate, mock_plan, mock_render, mock_run
+    def test_up_command_reports_clear_error_when_docker_missing(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0)
+        mock_run_streamed.side_effect = FileNotFoundError()
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys,
-            "argv",
-            ["cds", "up", "local-dagster-postgres-superset", "--no-build", "--detach"],
-        ):
-            result = main()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
+
+        self.assertEqual(result, 1)
+
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_propagates_docker_compose_up_exit_code(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.side_effect = [0, 17]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
+
+        self.assertEqual(result, 17)
+
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_returns_1_when_stack_does_not_settle(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {app: {}}", [])
+        mock_run_streamed.return_value = 0
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.return_value = (False, {"UNHEALTHY": ["app"]})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
+
+        self.assertEqual(result, 1)
+
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_no_build_skips_build_step(self, mock_validate, mock_plan, mock_render, mock_run_streamed):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.return_value = 0
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--no-build", "--detach", "--log-file", log_path],
+            ):
+                result = main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(mock_run.call_count, 1)
-        cmd = mock_run.call_args[0][0]
+        self.assertEqual(mock_run_streamed.call_count, 1)
+        cmd = mock_run_streamed.call_args[0][0]
+        self.assertIn("up", cmd)
+        self.assertNotIn("build", cmd)
+
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_no_build_and_detach_flags_both_pass_through(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.return_value = 0
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "up",
+                    "local-dagster-postgres-superset",
+                    "--no-build",
+                    "--detach",
+                    "--log-file",
+                    log_path,
+                ],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_run_streamed.call_count, 1)
+        cmd = mock_run_streamed.call_args[0][0]
         self.assertIn("up", cmd)
         self.assertIn("--detach", cmd)
 
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_uses_default_log_path_when_not_given(
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_tail,
+        mock_poll,
+        mock_default_log_path,
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.return_value = 0
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.return_value = (True, {})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            fake_log_path = Path(tmpdir) / "up-fake.log"
+            mock_default_log_path.return_value = fake_log_path
+
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        mock_default_log_path.assert_called_once_with("local-dagster-postgres-superset")
+
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_default_log_path_uses_profile_directory_name_not_literal_profile(
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_tail,
+        mock_poll,
+        mock_default_log_path,
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.return_value = 0
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.return_value = (True, {})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_default_log_path.return_value = Path(tmpdir) / "up-fake.log"
+            profile_dir = self.profiles_root / "local-dagster-postgres-superset"
+
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profile_dir)}, clear=False), patch.object(
+                sys, "argv", ["cds", "up"]
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        mock_default_log_path.assert_called_once_with("local-dagster-postgres-superset")
+
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_no_color_flag_disables_color_in_live_view(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.return_value = 0
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.return_value = (True, {})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--no-color", "--log-file", log_path],
+            ), patch("sys.stdout.isatty", return_value=True):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertFalse(mock_poll.call_args.kwargs["use_color"])
+
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_uses_color_on_a_tty_without_no_color_flag(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.return_value = 0
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.return_value = (True, {})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ), patch("sys.stdout.isatty", return_value=True):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertTrue(mock_poll.call_args.kwargs["use_color"])
 
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
@@ -827,6 +1086,145 @@ class StateCLITest(unittest.TestCase):
         result, output = self._run_state_with_tty([], isatty_return=True)
         self.assertEqual(result, 0)
         self.assertIn("\033", output)
+
+
+class UseCommandCLITest(unittest.TestCase):
+    def setUp(self):
+        self.repo_root = Path(__file__).resolve().parent.parent
+        self.profiles_root = self.repo_root / "profiles"
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.config_path = Path(self.tmpdir.name) / "config.json"
+        self.env_patch = patch.dict(
+            os.environ,
+            {"CDS_PROFILE_PATH": str(self.profiles_root), "CDS_CONFIG_PATH": str(self.config_path)},
+            clear=False,
+        )
+        self.env_patch.start()
+
+    def tearDown(self):
+        self.env_patch.stop()
+        self.tmpdir.cleanup()
+
+    def _run(self, argv_extra):
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["cds", "use"] + argv_extra), contextlib.redirect_stdout(captured):
+            result = main()
+        return result, captured.getvalue()
+
+    def test_use_with_no_saved_profile_reports_none(self):
+        result, output = self._run([])
+        self.assertEqual(result, 0)
+        self.assertIn("No default profile saved", output)
+
+    def test_use_saves_and_shows_default_profile(self):
+        save_result, save_output = self._run(["local-dagster-postgres-superset"])
+        self.assertEqual(save_result, 0)
+        self.assertIn("Saved default profile: local-dagster-postgres-superset", save_output)
+        expected_resolved = str((self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml").resolve())
+        self.assertEqual(json.loads(self.config_path.read_text())["profile"], expected_resolved)
+
+        show_result, show_output = self._run([])
+        self.assertEqual(show_result, 0)
+        self.assertEqual(show_output.strip(), expected_resolved)
+
+    def test_use_rejects_unresolvable_profile(self):
+        result, output = self._run(["does-not-exist"])
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_use_clear_removes_saved_profile(self):
+        self._run(["local-dagster-postgres-superset"])
+        clear_result, clear_output = self._run(["--clear"])
+        self.assertEqual(clear_result, 0)
+        self.assertIn("Cleared saved default profile", clear_output)
+
+        show_result, show_output = self._run([])
+        self.assertEqual(show_result, 0)
+        self.assertIn("No default profile saved", show_output)
+
+    def test_use_clear_with_nothing_saved_reports_none_cleared(self):
+        result, output = self._run(["--clear"])
+        self.assertEqual(result, 0)
+        self.assertIn("No saved default profile to clear", output)
+
+    def test_use_rejects_clear_combined_with_profile_argument(self):
+        result, output = self._run(["--clear", "local-dagster-postgres-superset"])
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", output)
+        self.assertIn("--clear", output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_resolve_profile_path_rejects_stale_saved_profile(self):
+        save_result, _ = self._run(["local-dagster-postgres-superset"])
+        self.assertEqual(save_result, 0)
+
+        # Simulate the saved profile having been renamed/deleted since `cds use`.
+        stale_config = {"profile": str(self.profiles_root / "does-not-exist-anymore" / "profile.yaml")}
+        self.config_path.write_text(json.dumps(stale_config))
+
+        with self.assertRaises(ValueError) as ctx:
+            resolve_profile_path(None)
+        self.assertIn("no longer resolves to a file", str(ctx.exception))
+        self.assertIn("cds use --clear", str(ctx.exception))
+
+    def test_env_profile_path_overrides_saved_default(self):
+        # `cds use` saves one profile as the default...
+        save_result, _ = self._run(["local-dagster-postgres-superset"])
+        self.assertEqual(save_result, 0)
+
+        # ...but an explicit, more-current CDS_PROFILE_PATH pointing at a
+        # different single profile should win over the persisted default,
+        # matching common CLI precedence (env var overrides persisted config).
+        other_profile_dir = self.profiles_root / "local-dagster-postgres-superset-vault"
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(other_profile_dir)}, clear=False):
+            resolved = resolve_profile_path(None)
+        self.assertEqual(resolved, str((other_profile_dir / "profile.yaml").resolve()))
+
+    def test_saved_profile_used_by_other_commands_without_argument(self):
+        self._run(["local-dagster-postgres-superset"])
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["cds", "validate"]), contextlib.redirect_stdout(captured):
+            result = main()
+        self.assertEqual(result, 0)
+        self.assertIn("Profile is valid", captured.getvalue())
+
+
+class CompletionCommandCLITest(unittest.TestCase):
+    def _run(self, shell):
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["cds", "completion", shell]), contextlib.redirect_stdout(captured):
+            result = main()
+        return result, captured.getvalue()
+
+    def test_completion_bash_prints_bashrc_instructions(self):
+        result, output = self._run("bash")
+        self.assertEqual(result, 0)
+        self.assertIn("~/.bashrc", output)
+        self.assertIn('eval "$(register-python-argcomplete cds)"', output)
+        self.assertIn("pip install argcomplete", output)
+        self.assertIn("does not modify your shell config automatically", output)
+
+    def test_completion_zsh_prints_zshrc_instructions(self):
+        result, output = self._run("zsh")
+        self.assertEqual(result, 0)
+        self.assertIn("~/.zshrc", output)
+        self.assertIn("bashcompinit", output)
+        self.assertIn('eval "$(register-python-argcomplete cds)"', output)
+        self.assertIn("does not modify your shell config automatically", output)
+
+    def test_completion_powershell_prints_profile_instructions(self):
+        result, output = self._run("powershell")
+        self.assertEqual(result, 0)
+        self.assertIn("$PROFILE", output)
+        self.assertIn("register-python-argcomplete --shell powershell cds", output)
+        self.assertIn("pip install argcomplete", output)
+        self.assertIn("does not modify your shell config automatically", output)
+
+    def test_completion_rejects_unsupported_shell(self):
+        with patch.object(sys, "argv", ["cds", "completion", "fish"]), self.assertRaises(SystemExit) as ctx:
+            main()
+        self.assertEqual(ctx.exception.code, 2)
 
 
 if __name__ == "__main__":
