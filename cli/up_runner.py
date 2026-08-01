@@ -36,7 +36,13 @@ def default_log_path(profile_name: str, logs_dir: Path | None = None) -> Path:
     return base / f"up-{safe_profile}-{timestamp}.log"
 
 
-def run_streamed(cmd: list[str], log_file: IO[str], echo: bool = True, group_by_image: bool = False) -> int:
+def run_streamed(
+    cmd: list[str],
+    log_file: IO[str],
+    echo: bool = True,
+    group_by_image: bool = False,
+    service_to_image: dict[str, str] | None = None,
+) -> int:
     """
     Runs `cmd` with stdout+stderr merged, writing each line to
     `log_file` as it arrives (flushed immediately, so `tail -f` on the
