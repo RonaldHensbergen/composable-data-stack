@@ -35,6 +35,34 @@ class _FakeResponse:
         return False
 
 
+class ParseImageReferenceRegressionTest(unittest.TestCase):
+    def test_registry_with_port_and_single_repository_segment(self):
+        parsed = parse_image_reference("localhost:5000/app")
+
+        self.assertEqual(
+            parsed,
+            {
+                "registry": "localhost:5000",
+                "namespace": None,
+                "repository": "app",
+                "tag": "latest",
+            },
+        )
+
+    def test_registry_with_port_single_repository_segment_and_tag(self):
+        parsed = parse_image_reference("localhost:5000/app:1.2.3")
+
+        self.assertEqual(
+            parsed,
+            {
+                "registry": "localhost:5000",
+                "namespace": None,
+                "repository": "app",
+                "tag": "1.2.3",
+            },
+        )
+
+
 class FetchDockerhubTagsRegressionTest(unittest.TestCase):
     @patch("cli.image_updates.urlopen")
     def test_non_http_next_url_stops_pagination_instead_of_following_it(self, mock_urlopen):
@@ -119,18 +147,6 @@ class ParseImageReferenceTest(unittest.TestCase):
         self.assertEqual(info["namespace"], "acme")
         self.assertEqual(info["repository"], "app")
         self.assertEqual(info["tag"], "1.0")
-
-    def test_registry_with_port_and_two_path_segments(self):
-        # NOTE: with only two path segments after a host:port registry,
-        # parse_image_reference has no repository slot left (parts[2] only
-        # exists for 3+ segments), so repository ends up empty and the
-        # second segment is treated as the namespace instead of the repo.
-        # This documents actual (possibly surprising) current behavior.
-        info = parse_image_reference("localhost:5000/app")
-        self.assertEqual(info["registry"], "localhost:5000")
-        self.assertEqual(info["namespace"], "app")
-        self.assertEqual(info["repository"], "")
-        self.assertEqual(info["tag"], "latest")
 
 
 class RegistryClassificationTest(unittest.TestCase):
