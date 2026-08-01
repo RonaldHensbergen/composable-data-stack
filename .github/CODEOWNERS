@@ -5,28 +5,30 @@
 # that modifies code that they own.
 #
 # More info: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# @SemTiOne is a co-owner alongside @RonaldHensbergen.
 
 # Default owner for everything in the repo
-* @RonaldHensbergen
+* @RonaldHensbergen @SemTiOne
 
 # Core CLI and validation logic
-/cli/ @RonaldHensbergen
+/cli/ @RonaldHensbergen @SemTiOne
 
 # Module definitions
-/modules/ @RonaldHensbergen
+/modules/ @RonaldHensbergen @SemTiOne
 
 # Profile definitions
-/profiles/ @RonaldHensbergen
+/profiles/ @RonaldHensbergen @SemTiOne
 
 # Documentation
-/docs/ @RonaldHensbergen
-*.md @RonaldHensbergen
+/docs/ @RonaldHensbergen @SemTiOne
+*.md @RonaldHensbergen @SemTiOne
 
 # GitHub workflows and configuration
-/.github/ @RonaldHensbergen
+/.github/ @RonaldHensbergen @SemTiOne
 
 # Tests
-/tests/ @RonaldHensbergen
+/tests/ @RonaldHensbergen @SemTiOne
 
 # Security and validation rules
-/rules/ @RonaldHensbergen
+/rules/ @RonaldHensbergen @SemTiOne
