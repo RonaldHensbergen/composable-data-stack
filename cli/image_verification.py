@@ -70,12 +70,14 @@ def load_policy_from_env(
 
     Mode resolution order: explicit mode_override (CLI flag), then
     CDS_IMAGE_VERIFICATION, then "policy" for production profiles and
-    "off" everywhere else. Unknown values fall back to "off".
+    "off" everywhere else. Unknown values fall back to "policy" for
+    production profiles (so a typo can never silently disable the policy)
+    and "off" elsewhere.
     """
     env_mode = os.getenv("CDS_IMAGE_VERIFICATION", "").strip().lower()
     mode = mode_override or env_mode or ("policy" if profile_class == "prod" else "off")
     if mode not in ("off", "policy", "full"):
-        mode = "off"
+        mode = "policy" if profile_class == "prod" else "off"
 
     registries = tuple(
         part.strip()

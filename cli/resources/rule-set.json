@@ -685,7 +685,7 @@
     },
     {
       "id": "CDS-SEC-054",
-      "$comment": "Enforced by cli/image_verification.py against rendered Compose service images in non-local profiles (floating ':latest' tags are flagged in policy/full modes); kept as a scope-nothing rule-set entry for policy documentation.",
+      "$comment": "Documented policy intent; enforcement is merged into CDS-SEC-050 by cli/image_verification.py, which flags floating ':latest' tags in every profile class. No separate CDS-SEC-054 finding is emitted.",
       "title": "Unpinned image tag in non-local profile",
       "severity": "medium",
       "category": "supply-chain",

@@ -114,9 +114,13 @@ class ImagePolicyTest(unittest.TestCase):
         self.assertEqual(policy.cosign_bin, "/opt/cosign")
         self.assertEqual(policy.key_path, "/keys/cosign.pub")
 
-    def test_unknown_mode_falls_back_to_off(self) -> None:
+    def test_unknown_mode_fails_safe_to_policy_for_production(self) -> None:
         with patch.dict(os.environ, {"CDS_IMAGE_VERIFICATION": "bogus"}, clear=True):
-            self.assertEqual(load_policy_from_env("prod").mode, "off")
+            self.assertEqual(load_policy_from_env("prod").mode, "policy")
+
+    def test_unknown_mode_falls_back_to_off_for_non_production(self) -> None:
+        with patch.dict(os.environ, {"CDS_IMAGE_VERIFICATION": "bogus"}, clear=True):
+            self.assertEqual(load_policy_from_env("local").mode, "off")
 
 
 class StaticPolicyTest(unittest.TestCase):
