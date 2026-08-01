@@ -27,7 +27,16 @@ from .overlay import resolve_profile
 from .preflight import preflight_passed, run_preflight
 from .security import run_security_validation
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
+from .up_runner import (
+    DEFAULT_TIMEOUT_SECONDS,
+    default_log_path,
+    poll_state_until_settled,
+    run_streamed,
+    start_log_tail,
+    stop_log_tail,
+)
 from .loader import load_yaml_file
+import yaml
 
 
 def load_env_file(env_file: str = ".env") -> None:
@@ -481,12 +490,30 @@ def main() -> int:
         "--detach",
         "-d",
         action="store_true",
-        help="Run containers in the background (passed through to docker compose up)",
+        help="Return as soon as the stack starts, skipping the live state view "
+        "(docker compose always runs detached internally)",
     )
     up_parser.add_argument(
         "--no-build",
         action="store_true",
         help="Skip docker compose build before starting services",
+    )
+    up_parser.add_argument(
+        "--log-file",
+        help="Path to write docker compose build/up/logs output to "
+        "(default: .cds/logs/up-<profile>-<timestamp>.log)",
+    )
+    up_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        help=f"Seconds to wait for services to settle before giving up "
+        f"(default: {int(DEFAULT_TIMEOUT_SECONDS)}; ignored with --detach)",
+    )
+    up_parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable colored labels in the live state view",
     )
 
     test_parser = subparsers.add_parser(
@@ -762,27 +789,116 @@ def main() -> int:
 
         print(f"Rendered compose file written to {output_path}")
 
-        up_cmd = ["docker", "compose", "-f", output_path, "up"]
-        if args.detach:
-            up_cmd.append("--detach")
+        up_cmd = ["docker", "compose", "-f", output_path, "up", "--detach"]
 
+        expected_service_count = None
+        service_to_image: dict[str, str] = {}
         try:
-            if not args.no_build:
-                build_cmd = ["docker", "compose", "-f", output_path, "build"]
-                print(f"Running: {' '.join(build_cmd)}")
-                # Fixed argv list, not a shell string; no user input concatenated in.
-                build_result = subprocess.run(build_cmd)  # nosec B603
-                if build_result.returncode != 0:
-                    return build_result.returncode
+            compose_doc = yaml.safe_load(compose_yaml) or {}
+            services = compose_doc.get("services", {})
+            expected_service_count = len(services)
+            service_to_image = {
+                name: definition["image"]
+                for name, definition in services.items()
+                if isinstance(definition, dict) and definition.get("image")
+            }
+        except yaml.YAMLError:
+            pass
 
-            print(f"Running: {' '.join(up_cmd)}")
-            # Fixed argv list, not a shell string; no user input concatenated in.
-            up_result = subprocess.run(up_cmd)  # nosec B603
+        if args.log_file:
+            log_path = Path(args.log_file)
+        else:
+            log_path = default_log_path(Path(profile_path).parent.name)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        log_tail_process = None
+        settled = True
+        try:
+            with open(log_path, "a", encoding="utf-8") as log_file:
+                if not args.no_build:
+                    build_cmd = ["docker", "compose", "-f", output_path, "build"]
+                    print(f"Running: {' '.join(build_cmd)}")
+                    build_returncode = run_streamed(
+                        build_cmd,
+                        log_file,
+                        group_by_image=True,
+                        service_to_image=service_to_image,
+                        use_color=not args.no_color,
+                    )
+                    if build_returncode != 0:
+                        print(f"Build failed (exit {build_returncode}). See {log_path} for details.")
+                        return build_returncode
+
+                print(f"Running: {' '.join(up_cmd)}")
+                if not args.detach:
+                    print(
+                        "Switching to the live state view; full docker compose output "
+                        f"is being written to {log_path}."
+                    )
+                up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
+                if up_returncode != 0:
+                    print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                    return up_returncode
+
+                if args.detach:
+                    print(
+                        f"Stack starting in the background. Run 'cds state' to check status; "
+                        f"full output in {log_path}."
+                    )
+                    return 0
+
+                log_tail_process = start_log_tail(output_path, log_file)
+                try:
+                    use_rich = sys.stdout.isatty() and not args.no_color
+                    if use_rich:
+                        from rich.live import Live
+                        from rich.text import Text
+
+                        with Live(auto_refresh=True, refresh_per_second=4, vertical_overflow="visible") as live:
+                            settled, _grouped = poll_state_until_settled(
+                                output_path,
+                                expected_service_count=expected_service_count,
+                                timeout=args.timeout,
+                                use_color=True,
+                                redraw_fn=lambda text: live.update(
+                                    Text.from_ansi(text),
+                                ),
+                            )
+                    else:
+                        settled, _grouped = poll_state_until_settled(
+                            output_path,
+                            expected_service_count=expected_service_count,
+                            timeout=args.timeout,
+                            use_color=(not args.no_color) and sys.stdout.isatty(),
+                        )
+                except KeyboardInterrupt:
+                    print(
+                        f"\nStopped watching; the stack keeps running. "
+                        f"Docker output logged to {log_path}."
+                    )
+                    return 130
+        except KeyboardInterrupt:
+            print(
+                f"\nInterrupted. The stack keeps running; "
+                f"Docker output logged to {log_path}."
+            )
+            return 130
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
             return 1
+        finally:
+            if log_tail_process is not None:
+                stop_log_tail(log_tail_process)
 
-        return up_result.returncode
+        if not settled:
+            print(
+                f"\nStack did not settle within {args.timeout:.0f}s, or a service is unhealthy. "
+                f"Run 'cds state' for the latest status; full output in {log_path}."
+            )
+            return 1
+
+        print(f"\nStack is up. Full output in {log_path}.")
+        return 0
 
     if args.command == "test":
         try:

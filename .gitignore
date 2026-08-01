@@ -208,6 +208,9 @@ tempCodeRunnerFile.py
 docker-compose.yml
 docker-compose.yaml
 
+# cds up build/up/logs output (see .cds/logs/)
+.cds/
+
 # Ruff stuff:
 .ruff_cache/
 
@@ -224,10 +227,7 @@ __marimo__/
 .aider*
 
 # PR creation tools (helper scripts, not part of main tool)
-/tools/*
-!/tools/pr-cli/
-/tools/pr-cli/*
-!/tools/pr-cli/README.md
+/tools/
 
 # Generated PR documentation
 .github/pr-docs/

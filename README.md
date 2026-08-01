@@ -130,7 +130,7 @@ CDS splits into two phases: **compile-time**, where `cds` itself validates, reso
 - **Security** (`cds test` only) runs rule-based checks against modules and resolved secrets; a failing check is reported but does not prevent `plan`/`render` from also running.
 - **Plan** resolves contract bindings and substitutes secrets and defaults.
 - **Render** generates the final `docker-compose.yaml`, with secret values as `${CDS_VAR}` placeholders; never the raw value.
-- **Runtime** (`cds up` only): `docker compose build` (skippable with `--no-build`), then `docker compose up`. Docker Compose, not CDS, resolves `${CDS_VAR}` placeholders from a `.env` file (see `cds init`) and starts the containers.
+- **Runtime** (`cds up` only): `docker compose build` (skippable with `--no-build`), then `docker compose up --detach`, then a live `cds state` view that polls until the stack settles (skippable with `--detach`). Build/up/log output is persisted to a log file (`.cds/logs/` by default). Docker Compose, not CDS, resolves `${CDS_VAR}` placeholders from a `.env` file (see `cds init`) and starts the containers.
 
 Passing `validate → security → plan → render` proves the profile *compiles*
 correctly — it is not proof that the resulting stack *runs* correctly. For the
@@ -439,7 +439,10 @@ cds up local-dagster-postgres-superset
 ```
 
 This runs `validate` → `plan` → `render` → `docker compose build` → `docker compose up` in one step.
-Add `--detach` (or `-d`) to run in the background:
+
+`docker compose build` output is streamed to the terminal (grouped by image) and also persisted to a log file (default: `.cds/logs/up-<profile>-<timestamp>.log`; override with `--log-file`). `docker compose up` always runs detached: in the default mode its output goes only to the log file while the terminal shows the live state view; with `--detach` it is streamed to the terminal like the build output. Once the stack starts, `cds up` polls `docker compose ps` and redraws the same grouped/colored view as `cds state` until every service is healthy/running/exited or a timeout is hit (default 180s; override with `--timeout`; disable colored labels with `--no-color`). Container logs from that point on go only to the log file, not the terminal, since the terminal is showing the live state view. `cds up` exits `0` once the stack settles, or `1` on timeout or an unhealthy service.
+
+Add `--detach` (or `-d`) to skip the live state view and return as soon as the stack starts, e.g. for scripting or CI:
 
 ```bash
 cds up local-dagster-postgres-superset --detach
@@ -614,7 +617,7 @@ before and never look for an `environments/` directory.
 |cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
 |cds render [profile]|Generate Docker Compose configuration from a resolved plan|
-|cds up [profile]|Validate, plan, render, build, and start services with docker compose (use `--no-build` to skip build)|
+|cds up [profile]|Validate, plan, render, build, and start services with docker compose; logs output to a file and shows a live `cds state` view until the stack settles (use `--no-build` to skip build, `--detach` to skip the live view, `--log-file`/`--timeout`/`--no-color` to override defaults)|
 |cds state [profile]|Show running service status grouped by health (use `--no-color` to disable colored labels)|
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 |cds security [profile]|Run rule-based security validation on a profile|
