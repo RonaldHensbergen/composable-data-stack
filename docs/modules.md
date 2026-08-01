@@ -85,7 +85,11 @@ spec:
 
 `kind` is required; `docker-compose` is the only implementation kind in use today. `compose` is a normal Docker Compose service/volume/network definition, with two CDS-specific extensions:
 
-- `${config.<field>}` and `${service.host}` placeholders, resolved from `spec.configSchema` and the module's runtime service at render time
+- template placeholders, resolved at render time from four namespaces:
+  - `${config.<field>}` reads the module configuration validated by `spec.configSchema`
+  - `${service.host}` reads the module's runtime service host
+  - `${bindings.<contract>.<field>}` reads a field from a contract declared in `spec.consumes` and resolved by the profile
+  - `${secrets.<alias>}` resolves a profile secret alias to a Docker Compose runtime placeholder such as `${CDS_DB_PASSWORD}`; CDS never embeds the secret value
 - `enabledFrom` / `conditionallyEnabledFrom: <json-path>`, which include or drop a volume, service, or healthcheck based on a boolean resolved from the profile's config (see `postgres`'s `storage.enabled` and `healthcheck.enabled` above)
 
 When authoring `spec.implementation.compose`:
