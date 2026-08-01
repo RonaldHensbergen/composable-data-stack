@@ -91,6 +91,58 @@ class RunStreamedTest(unittest.TestCase):
 
     @patch("cli.up_runner.sys.stdout")
     @patch("cli.up_runner.subprocess.Popen")
+    def test_group_by_image_omits_ansi_codes_on_a_non_tty(self, mock_popen, mock_stdout):
+        mock_stdout.isatty.return_value = False
+        process = MagicMock()
+        process.stdout = MagicMock()
+        process.stdout.__iter__.return_value = iter(["web: Building 0.5s\n"])
+        process.wait.return_value = 0
+        mock_popen.return_value = process
+
+        log_file = io.StringIO()
+        run_streamed(["docker", "compose", "build"], log_file, echo=True, group_by_image=True)
+
+        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+        self.assertIn("── Building web ", written)
+        self.assertNotIn("\033[", written)
+
+    @patch("cli.up_runner.sys.stdout")
+    @patch("cli.up_runner.subprocess.Popen")
+    def test_group_by_image_omits_ansi_codes_when_color_disabled(self, mock_popen, mock_stdout):
+        mock_stdout.isatty.return_value = True
+        process = MagicMock()
+        process.stdout = MagicMock()
+        process.stdout.__iter__.return_value = iter(["web: Building 0.5s\n"])
+        process.wait.return_value = 0
+        mock_popen.return_value = process
+
+        log_file = io.StringIO()
+        run_streamed(
+            ["docker", "compose", "build"], log_file, echo=True, group_by_image=True, use_color=False
+        )
+
+        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+        self.assertIn("── Building web ", written)
+        self.assertNotIn("\033[", written)
+
+    @patch("cli.up_runner.sys.stdout")
+    @patch("cli.up_runner.subprocess.Popen")
+    def test_group_by_image_keeps_ansi_codes_on_a_tty_with_color(self, mock_popen, mock_stdout):
+        mock_stdout.isatty.return_value = True
+        process = MagicMock()
+        process.stdout = MagicMock()
+        process.stdout.__iter__.return_value = iter(["web: Building 0.5s\n"])
+        process.wait.return_value = 0
+        mock_popen.return_value = process
+
+        log_file = io.StringIO()
+        run_streamed(["docker", "compose", "build"], log_file, echo=True, group_by_image=True)
+
+        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+        self.assertIn("\033[36m── Building web ", written)
+
+    @patch("cli.up_runner.sys.stdout")
+    @patch("cli.up_runner.subprocess.Popen")
     def test_group_by_image_skips_headers_when_echo_is_off(self, mock_popen, mock_stdout):
         process = MagicMock()
         process.stdout = MagicMock()

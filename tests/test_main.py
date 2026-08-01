@@ -401,6 +401,52 @@ class MainCLITest(unittest.TestCase):
         self.assertIn("build", cmd)
 
     @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_interrupt_during_build_exits_130_cleanly(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.side_effect = KeyboardInterrupt()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
+
+        self.assertEqual(result, 130)
+
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_interrupt_during_up_exits_130_cleanly(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.side_effect = [0, KeyboardInterrupt()]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
+
+        self.assertEqual(result, 130)
+
+    @patch("cli.main.run_streamed")
     @patch("cli.main.validate_profile")
     def test_up_command_stops_on_validation_failure_without_calling_docker(
         self, mock_validate, mock_run_streamed

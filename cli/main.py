@@ -819,7 +819,11 @@ def main() -> int:
                     build_cmd = ["docker", "compose", "-f", output_path, "build"]
                     print(f"Running: {' '.join(build_cmd)}")
                     build_returncode = run_streamed(
-                        build_cmd, log_file, group_by_image=True, service_to_image=service_to_image
+                        build_cmd,
+                        log_file,
+                        group_by_image=True,
+                        service_to_image=service_to_image,
+                        use_color=not args.no_color,
                     )
                     if build_returncode != 0:
                         print(f"Build failed (exit {build_returncode}). See {log_path} for details.")
@@ -873,6 +877,12 @@ def main() -> int:
                         f"Docker output logged to {log_path}."
                     )
                     return 130
+        except KeyboardInterrupt:
+            print(
+                f"\nInterrupted. The stack keeps running; "
+                f"Docker output logged to {log_path}."
+            )
+            return 130
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
             return 1

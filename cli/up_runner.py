@@ -44,6 +44,7 @@ def run_streamed(
     echo: bool = True,
     group_by_image: bool = False,
     service_to_image: dict[str, str] | None = None,
+    use_color: bool = True,
 ) -> int:
     """
     Runs `cmd` with stdout+stderr merged, writing each line to
@@ -55,6 +56,10 @@ def run_streamed(
     annotated with section headers that identify which Docker Compose
     service each build phase belongs to.  The log file always receives
     the raw, un-annotated output.
+
+    Section headers are colored only when `use_color` is True and
+    stdout is a TTY, matching the ANSI handling in `_default_redraw`
+    (e.g. CI logs and redirected output stay plain).
 
     Returns the command's exit code. Raises FileNotFoundError if
     `cmd[0]` isn't on PATH, same as subprocess.run.
@@ -85,7 +90,10 @@ def run_streamed(
                                     label += f" ({count} containers)"
                                 header = f"── {label} "
                                 header += "─" * max(1, 60 - len(header))
-                                sys.stdout.write(f"\n\033[36m{header}\033[0m\n")
+                                if use_color and sys.stdout.isatty():
+                                    sys.stdout.write(f"\n\033[36m{header}\033[0m\n")
+                                else:
+                                    sys.stdout.write(f"\n{header}\n")
                 sys.stdout.write(line)
                 sys.stdout.flush()
     finally:
