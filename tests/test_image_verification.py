@@ -157,12 +157,18 @@ class StaticPolicyTest(unittest.TestCase):
         findings = verify_images(compose, _policy(mode="policy"))
         self.assertIn("CDS-SEC-051", {f["rule_id"] for f in findings})
 
-    def test_local_prefix_with_null_build_does_not_bypass_checks(self) -> None:
-        compose = yaml.safe_dump(
-            {"services": {"a": {"image": "local/evil:custom", "build": None}}}
-        )
-        findings = verify_images(compose, _policy(mode="policy"))
-        self.assertIn("CDS-SEC-051", {f["rule_id"] for f in findings})
+    def test_local_prefix_with_empty_build_does_not_bypass_checks(self) -> None:
+        for build in (None, "", "   ", {}, {"context": ""}):
+            with self.subTest(build=build):
+                compose = yaml.safe_dump(
+                    {
+                        "services": {
+                            "a": {"image": "local/evil:custom", "build": build}
+                        }
+                    }
+                )
+                findings = verify_images(compose, _policy(mode="policy"))
+                self.assertIn("CDS-SEC-051", {f["rule_id"] for f in findings})
 
     def test_custom_suffix_alone_does_not_bypass_checks(self) -> None:
         compose = yaml.safe_dump({"services": {"a": {"image": "quay.io/example/tool:custom"}}})
@@ -265,6 +271,17 @@ class FixtureVerificationTest(unittest.TestCase):
                 self.fixture,
             )
         self.assertEqual(findings[0]["rule_id"], "CDS-VER-001")
+
+    def test_fixture_repository_match_is_case_insensitive(self) -> None:
+        image = f"GHCR.IO/ronaldhensbergen/cds-dagster@{_DIGEST_A}"
+        with patch("cli.image_verification.shutil.which", return_value=None) as mock_which:
+            findings = _verification_findings(
+                [("app", image, False)],
+                _policy(trusted_registries=("ghcr.io",)),
+                self.fixture,
+            )
+        mock_which.assert_not_called()
+        self.assertEqual(findings, [])
 
 
 class CosignVerificationTest(unittest.TestCase):

@@ -120,17 +120,26 @@ def collect_compose_images(compose_yaml: str) -> list[tuple[str, str, bool]]:
         (
             str(name),
             service["image"],
-            service["image"].startswith("local/")
-            and isinstance(service.get("build"), (str, dict)),
+            service["image"].startswith("local/") and _has_local_build(service),
         )
         for name, service in services.items()
         if isinstance(service, dict) and isinstance(service.get("image"), str)
     ]
 
 
-def _registry_is_trusted(registry: str | None, policy: ImagePolicy) -> bool:
-    if registry is None:
+def _has_local_build(service: dict[str, Any]) -> bool:
+    build = service.get("build")
+    if isinstance(build, str):
+        return bool(build.strip())
+    if not isinstance(build, dict):
         return False
+    return any(
+        isinstance(build.get(key), str) and bool(build[key].strip())
+        for key in ("context", "dockerfile", "dockerfile_inline")
+    )
+
+
+def _registry_is_trusted(registry: str, policy: ImagePolicy) -> bool:
     trusted_registries = {trusted.casefold() for trusted in policy.trusted_registries}
     return registry.casefold() in trusted_registries
 
@@ -164,7 +173,9 @@ def _static_findings(
             continue
 
         ref = parse_image_reference(image)
-        if not _registry_is_trusted(ref["registry"], policy):
+        registry = ref["registry"]
+        assert registry is not None
+        if not _registry_is_trusted(registry, policy):
             findings.append(_finding(
                 "CDS-SEC-052",
                 "medium",
@@ -275,16 +286,16 @@ def _fixture_entry(
     images = fixture.get("images", {})
     if not isinstance(images, dict):
         return None
+    folded_image_ref = image_ref.casefold()
     for entry in images.values():
         if not isinstance(entry, dict):
             continue
         repository = entry.get("repository")
         if not isinstance(repository, str):
             continue
-        if (
-            image_ref == repository
-            or image_ref.startswith(repository + "@")
-            or image_ref.startswith(repository + ":")
+        folded_repository = repository.casefold()
+        if folded_image_ref == folded_repository or folded_image_ref.startswith(
+            (folded_repository + "@", folded_repository + ":")
         ):
             return entry
     return None
@@ -301,9 +312,9 @@ def _verification_findings(
             continue
 
         entry = _fixture_entry(fixture, image)
-        if entry is not None and _registry_is_trusted(
-            parse_image_reference(image)["registry"], policy
-        ):
+        registry = parse_image_reference(image)["registry"]
+        assert registry is not None
+        if entry is not None and _registry_is_trusted(registry, policy):
             ref_digest = image.rsplit("@", 1)[1] if "@sha256:" in image else None
             entry_digest = entry.get("digest")
             if ref_digest is None:
