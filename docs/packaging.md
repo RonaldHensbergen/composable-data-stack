@@ -168,6 +168,37 @@ cds --help
 Publishing to production PyPI remains a separate release step. Do not reuse a
 TestPyPI-only workflow or repository URL for production.
 
+## PyPI publishing (production)
+
+`.github/workflows/pypi.yml` mirrors the TestPyPI workflow's build, check,
+and wheel smoke-test steps, then publishes the same distributions to
+production PyPI using trusted publishing (no stored API token). It runs on
+`v*.*.*` tag pushes (the same tags `.github/workflows/release.yml` reacts to)
+or via manual workflow-dispatch, and re-checks that the pushed tag matches
+`project.version` in `pyproject.toml` using the shared
+`scripts/check_release_version.py` guard.
+
+Repository setup:
+
+1. Create a GitHub environment named `pypi`. Add required reviewers if
+   publication should require manual approval before release.
+2. On PyPI, create a pending trusted publisher for:
+   - owner: `RonaldHensbergen`
+   - repository: `composable-data-stack`
+   - workflow: `pypi.yml`
+   - environment: `pypi`
+3. Bump `project.version` in `pyproject.toml` to the release version, merge
+   that change to `main`, then push a matching `vX.Y.Z` tag (or run
+   **Publish CLI to PyPI** via workflow-dispatch for a manual publish).
+   Published files and versions are immutable; a version can never be
+   re-uploaded, so a mistaken publish requires a new version bump.
+4. Verify the release:
+
+   ```bash
+   pipx install composable-data-stack
+   cds --help
+   ```
+
 ## Notes for installer authors
 
 - Make sure the CLI script `cds` is installed into the user PATH.
