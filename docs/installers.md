@@ -67,7 +67,7 @@ Create a `.pkg` or `.dmg` if you need a native macOS installer.
 Install with pip in a Python 3 environment:
 
 ```powershell
-python -m pip install dist\composable_data_stack-*-py3-none-any.whl
+python -m pip install (Get-ChildItem dist\composable_data_stack-*-py3-none-any.whl).FullName
 ```
 
 ### Option B: PyInstaller bundle
@@ -159,7 +159,7 @@ $env:CDS_MODULE_PATH = 'C:\path\to\modules'
 ## 6. Using the CLI with defaults
 
 Once installed, commands can use shorthand profile names when the env vars are set:
-
+  
 ```bash
 cds list profiles
 cds list modules
