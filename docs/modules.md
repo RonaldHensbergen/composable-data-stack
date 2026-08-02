@@ -87,7 +87,7 @@ spec:
 
 - template placeholders, resolved at render time from four namespaces:
   - `${config.<field>}` reads the module configuration validated by `spec.configSchema`
-  - `${service.host}` reads the module's runtime service host
+  - `${service.host}` resolves to the module instance `id` declared in the profile, not to a service name under `spec.implementation.compose.services`; modules with multiple Compose services receive the same module `id` for this placeholder
   - `${bindings.<contract>.<field>}` reads a field from a contract declared in `spec.consumes` and resolved by the profile
   - `${secrets.<alias>}` resolves a profile secret alias to a Docker Compose runtime placeholder such as `${CDS_DB_PASSWORD}`; CDS never embeds the secret value
 - `enabledFrom` / `conditionallyEnabledFrom: <json-path>`, which include or drop a volume, service, or healthcheck based on a boolean resolved from the profile's config (see `postgres`'s `storage.enabled` and `healthcheck.enabled` above)
