@@ -143,6 +143,12 @@ class StaticPolicyTest(unittest.TestCase):
         compose = yaml.safe_dump({"services": {"a": {"image": "local/dagster:custom"}}})
         self.assertEqual(verify_images(compose, _policy(mode="policy")), [])
 
+    def test_custom_suffix_alone_does_not_bypass_checks(self) -> None:
+        self.assertFalse(_is_local_image("quay.io/example/tool:custom"))
+        compose = yaml.safe_dump({"services": {"a": {"image": "quay.io/example/tool:custom"}}})
+        findings = verify_images(compose, _policy(mode="policy"))
+        self.assertIn("CDS-SEC-052", {f["rule_id"] for f in findings})
+
     def test_untagged_image_reference_flagged_as_latest(self) -> None:
         compose = yaml.safe_dump({"services": {"cache": {"image": "redis"}}})
         findings = verify_images(compose, _policy(mode="policy"))
@@ -339,6 +345,19 @@ class SignedImagesFixtureTest(unittest.TestCase):
     def test_fixture_env_var_overrides_default_path(self) -> None:
         with patch.dict(os.environ, {"CDS_SIGNED_IMAGES_FIXTURE": "C:/custom/fixture.json"}, clear=True):
             self.assertEqual(default_fixture_path(), Path("C:/custom/fixture.json"))
+
+    @patch("cli.image_verification.subprocess.run")
+    def test_unreadable_explicit_fixture_fails_closed(self, mock_run) -> None:
+        compose = yaml.safe_dump({"services": {"a": {"image": f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"}}})
+        with patch.dict(
+            os.environ,
+            {"CDS_SIGNED_IMAGES_FIXTURE": "C:/missing/signed-images.json"},
+            clear=True,
+        ):
+            findings = verify_images(compose, _policy(), fixture=default_fixture_path())
+        mock_run.assert_not_called()
+        self.assertEqual(findings[0]["rule_id"], "CDS-VER-004")
+        self.assertIn("CDS_SIGNED_IMAGES_FIXTURE", findings[0]["recommendation"][0])
 
 
 class PreflightIntegrationTest(unittest.TestCase):

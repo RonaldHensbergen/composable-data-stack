@@ -138,7 +138,7 @@ jobs:
         run: |
           cosign verify \
             --certificate-identity-regexp \
-            '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@refs/heads/main$' \
+            '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "${{ steps.build.outputs.digest }}"
 

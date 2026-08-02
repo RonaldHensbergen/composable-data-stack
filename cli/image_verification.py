@@ -124,7 +124,7 @@ def collect_compose_images(compose_yaml: str) -> list[tuple[str, str]]:
 
 
 def _is_local_image(image: str) -> bool:
-    return image.startswith("local/") or image.endswith(":custom")
+    return image.startswith("local/")
 
 
 def _finding(
@@ -237,15 +237,24 @@ def _verify_with_cosign(
     return True, ""
 
 
-def _load_fixture(path: Path | None) -> dict[str, Any] | None:
+def _load_fixture(path: Path | None) -> tuple[dict[str, Any] | None, str | None]:
+    """
+    Load the signed-images fixture.
+
+    Returns (data, None) on success, (None, error) when a configured fixture
+    path could not be loaded, and (None, None) when no fixture was configured
+    (callers then fall back to live cosign verification).
+    """
     if path is None:
-        return None
+        return None, None
     try:
         with path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
-    except (OSError, ValueError):
-        return None
-    return data if isinstance(data, dict) else None
+    except (OSError, ValueError) as exc:
+        return None, f"could not be loaded: {exc}"
+    if not isinstance(data, dict):
+        return None, "does not contain a JSON object"
+    return data, None
 
 
 def _fixture_entry(
@@ -387,7 +396,23 @@ def verify_images(
     images = collect_compose_images(compose_yaml)
     findings: list[dict[str, Any]] = _static_findings(images, policy)
     if policy.mode == "full":
-        findings.extend(_verification_findings(images, policy, _load_fixture(fixture)))
+        fixture_data, fixture_error = _load_fixture(fixture)
+        if fixture_error is not None:
+            findings.append(_finding(
+                "CDS-VER-004",
+                "high",
+                "<profile>",
+                str(fixture),
+                f"Configured signed-images fixture '{fixture}' {fixture_error}; "
+                "failing closed instead of silently falling back to live cosign "
+                "verification with different trust constraints",
+                [
+                    "Fix the path in CDS_SIGNED_IMAGES_FIXTURE or unset it to use the bundled fixture.",
+                    "Restore tests/fixtures/signed-images.json if it was removed.",
+                ],
+            ))
+        else:
+            findings.extend(_verification_findings(images, policy, fixture_data))
 
     findings.sort(key=lambda x: (
         _SEVERITY_ORDER.get(x["severity"], 99),
