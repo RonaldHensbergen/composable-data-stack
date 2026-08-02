@@ -134,6 +134,14 @@ jobs:
       - name: Attest provenance
         run: cosign attest --yes --predicate provenance.json --type slsaprovenance "${{ steps.build.outputs.digest }}"
 
+      - name: Verify signed image (self-check)
+        run: |
+          cosign verify \
+            --certificate-identity-regexp \
+            '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${{ steps.build.outputs.digest }}"
+
       - name: Record fixture data
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF

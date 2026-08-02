@@ -34,4 +34,41 @@ The provenance attestation is a hand-built SLSA v0.2-shaped predicate from GitHu
 
 ## Fixtures for offline tests
 
-After a `publish-images` run, the job summary lists the digest and identity for each published image. Copy that into `tests/fixtures/signed-images.json` so tests (including #208's validator tests) can check against a known-good reference without rebuilding or re-signing anything. Not automated yet; see #232.
+`tests/fixtures/signed-images.json` records the trust root (registry allowlist, OIDC issuer, certificate identity) and the known-good digest plus attestation status for every image published by `publish-images.yml` (see #208). After a `publish-images` run, the job summary lists the digest and identity for each published image. Copy the digest values into that fixture and set `refreshRequired` to `false`; placeholder digests (`sha256:0000...`) are rejected by `cli.image_verification.validate_fixture`, and `tests/test_publish_images_workflow.py` fails until the fixture is refreshed. `cli.image_verification.validate_fixture` checks the structural shape, and offline verification treats a tag reference (no `@sha256:...`) as unverifiable (CDS-VER-003): only digest-pinned references can be matched against the fixture.
+
+## Verification policy
+
+`cli/image_verification.py` implements the CDS image policy used by `cds security --verify-images` and by `cds preflight` deployment checks.
+
+### Modes
+
+| Mode | Behavior |
+| --- | --- |
+| `off` | No image verification (default outside production profiles). |
+| `policy` | Static supply-chain checks: trusted registry allowlist, digest pinning for production, no floating `:latest` tags. Default for production profiles. |
+| `full` | Everything in `policy`, plus signature and build-provenance verification via cosign or the signed-images fixture. |
+
+Set the mode with `CDS_IMAGE_VERIFICATION=policy|full|off`, or pass `--verify-images` to `cds security` to force `full` mode. `cds preflight` turns verification on automatically for production profiles and fails deployment when any image violates the policy; unsigned, untrusted, or unverifiable images always produce high-severity findings that fail security validation.
+
+### Trust constraints
+
+- **Trusted registries:** `CDS_TRUSTED_REGISTRIES` (comma-separated; default `ghcr.io`, `docker.io`, `registry-1.docker.io`, `local`).
+- **Signer identity (keyless):** `CDS_TRUSTED_OIDC_ISSUER` and `CDS_TRUSTED_CERT_IDENTITY_REGEXP`, defaulting to the GitHub Actions OIDC values above.
+- **Key-managed:** set `CDS_COSIGN_KEY` to a public key path; verification then runs `cosign verify --key` instead of the certificate identity checks.
+- **Tooling:** the cosign-compatible binary is pluggable via `CDS_COSIGN_BIN` (default `cosign`). Any tool exposing the same CLI contract can be substituted.
+
+### Offline verification
+
+In `full` mode, images that match an entry in `tests/fixtures/signed-images.json` are verified against the fixture without a registry round trip or a cosign binary. Point `CDS_SIGNED_IMAGES_FIXTURE` at a custom fixture, or let `cds` resolve the bundled one from the repo checkout. Only digest-pinned references can be verified against the fixture; a tag reference, a digest that differs from the fixture, a missing entry, a fixture entry outside the trusted registries, or an absent cosign binary all fail closed. If `cds security --verify-images` cannot even plan or render the profile, it reports a high-severity CDS-VER-004 finding instead of silently passing. If a fixture path configured via `CDS_SIGNED_IMAGES_FIXTURE` is missing or malformed, verification also fails closed with a CDS-VER-004 finding rather than silently falling back to live cosign verification under different trust constraints. Images referenced as `local/<name>:custom` (built locally by the developer) are exempt from the policy; the `:custom` tag alone does not exempt an image from any other registry.
+
+### Verification commands
+
+```bash
+# Security validation with signature + provenance verification (keyless)
+cds security --verify-images profiles/<name>/profile.yaml --environment prod
+
+# Deployment checks including the image policy
+CDS_IMAGE_VERIFICATION=full cds preflight profiles/<name>/profile.yaml --environment prod
+```
+
+The rules behind the static checks are the previously deferred CDS-SEC-050/051/052/054 entries in `cli/resources/rule-set.json`; they are enforced by `cli/image_verification.py` against rendered Compose rather than by the rule engine, which has no Compose scan source.

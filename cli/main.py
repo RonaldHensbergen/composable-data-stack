@@ -25,7 +25,8 @@ from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
 from .overlay import resolve_profile
 from .preflight import preflight_passed, run_preflight
-from .security import run_security_validation
+from .security import run_security_validation, _infer_profile_class, _SEVERITY_ORDER
+from .image_verification import default_fixture_path, load_policy_from_env, verify_images
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .up_runner import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -625,6 +626,64 @@ def _diff_values(path: str, a: Any, b: Any, changes: list[tuple[str, str, Any, A
         changes.append((path, "changed", a, b))
 
 
+def _unverifiable_image_finding(message: str) -> dict[str, Any]:
+    return {
+        "rule_id": "CDS-VER-004",
+        "severity": "high",
+        "module": "<profile>",
+        "message": message,
+        "path": "spec.modules",
+        "value": None,
+        "recommendation": [
+            "Fix the plan/render errors so image verification can run.",
+            "Re-run cds security --verify-images after fixing the profile.",
+        ],
+    }
+
+
+def _run_image_verification(profile_path: str, environment: str | None) -> list[dict[str, Any]]:
+    """
+    Render the profile and verify service images against the CDS image policy.
+
+    Verification runs in "full" mode: static supply-chain checks plus
+    cosign-based signature/provenance verification (or the signed-images
+    fixture when available for offline verification). Fails closed with a
+    high-severity finding when verification was requested but cannot run.
+    """
+    try:
+        profile, _, _ = resolve_profile(profile_path, environment)
+        env_file = str(resolve_env_file_path(profile_path))
+        plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=environment)
+        if has_errors(plan_diags) or plan is None:
+            print_diagnostics(plan_diags)
+            print("Cannot verify images because plan generation failed.")
+            return [
+                _unverifiable_image_finding(
+                    "Image verification could not run because plan generation failed"
+                )
+            ]
+        compose_yaml, render_diags = render_compose(plan, env_file=env_file)
+        if has_errors(render_diags):
+            print_diagnostics(render_diags)
+            print("Cannot verify images because render failed.")
+            return [
+                _unverifiable_image_finding(
+                    "Image verification could not run because rendering failed"
+                )
+            ]
+        profile_class = _infer_profile_class(profile) if profile is not None else "local"
+        policy = load_policy_from_env(profile_class, mode_override="full")
+        return verify_images(compose_yaml, policy, fixture=default_fixture_path())
+    except Exception as e:
+        print(Diagnostic(
+            level="error",
+            code="E095",
+            message=f"Image verification failed unexpectedly: {e}",
+            path="spec.modules",
+        ).format(), file=sys.stderr)
+        return [_unverifiable_image_finding(f"Image verification failed unexpectedly: {e}")]
+
+
 def main() -> int:
     # Load .env file if it exists
     load_env_file()
@@ -777,6 +836,16 @@ def main() -> int:
         help=(
             "Print full, unredacted values in findings (e.g. secrets embedded in a DSN/URL). "
             "By default, values are redacted to avoid echoing real secrets to stdout/CI logs."
+        ),
+    )
+    security_parser.add_argument(
+        "--verify-images",
+        action="store_true",
+        help=(
+            "Also verify OCI image signatures and build provenance against the CDS "
+            "image policy. Uses cosign (keyless OIDC by default, CDS_COSIGN_KEY for "
+            "key-managed) or the signed-images fixture (CDS_SIGNED_IMAGES_FIXTURE / "
+            "tests/fixtures/signed-images.json) for offline verification."
         ),
     )
 
@@ -1380,6 +1449,15 @@ def main() -> int:
 
         for diag in diagnostics:
             print(diag.format(), file=sys.stderr)
+
+        if args.verify_images:
+            image_findings = _run_image_verification(profile_path, args.environment)
+            findings.extend(image_findings)
+            findings.sort(key=lambda f: (
+                _SEVERITY_ORDER.get(f["severity"], 99),
+                f["rule_id"],
+                f["path"],
+            ))
 
         if not findings:
             print("No security findings.")

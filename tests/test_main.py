@@ -101,6 +101,44 @@ class MainCLITest(unittest.TestCase):
         mock_run_security.assert_called_once()
         self.assertEqual(mock_run_security.call_args.kwargs["profile_path"], Path(str(profile_file)))
 
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_security_verify_images_fails_closed_when_plan_fails(
+        self, mock_validate, mock_build_plan, mock_run_security
+    ):
+        """--verify-images must fail closed (CDS-VER-004, exit 1) when plan
+        generation fails, so verification can never silently pass."""
+        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+        mock_validate.return_value = []
+        mock_run_security.return_value = ([], [])
+        mock_build_plan.return_value = (
+            None,
+            [
+                Diagnostic(
+                    level="error",
+                    code="E081",
+                    message="missing required environment variable",
+                    path="spec.modules",
+                )
+            ],
+        )
+
+        stdout = io.StringIO()
+        with (
+            patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False),
+            patch.object(
+                sys,
+                "argv",
+                ["cds", "security", "local-dagster-postgres-superset", "--verify-images"],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("CDS-VER-004", stdout.getvalue())
+
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_plan_saves_to_file_with_output_flag(self, mock_validate, mock_build_plan):
