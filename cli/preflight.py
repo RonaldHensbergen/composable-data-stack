@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from .image_verification import default_fixture_path, load_policy_from_env, verify_images
-from .security import _infer_profile_class
+from .security_common import infer_profile_class
 
 
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}")
@@ -181,7 +181,7 @@ def _check_images(plan: dict[str, Any], compose_yaml: str) -> list[PreflightChec
     Disabled when the policy mode resolves to "off"; production profiles
     default to "policy" so static supply-chain checks run by default.
     """
-    policy = load_policy_from_env(_infer_profile_class(plan))
+    policy = load_policy_from_env(infer_profile_class(plan))
     if policy.mode == "off":
         return []
 

@@ -25,7 +25,8 @@ from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
 from .overlay import resolve_profile
 from .preflight import preflight_passed, run_preflight
-from .security import run_security_validation, _infer_profile_class, _SEVERITY_ORDER
+from .security import run_security_validation
+from .security_common import SEVERITY_ORDER, infer_profile_class
 from .image_verification import default_fixture_path, load_policy_from_env, verify_images
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .up_runner import (
@@ -671,7 +672,7 @@ def _run_image_verification(profile_path: str, environment: str | None) -> list[
                     "Image verification could not run because rendering failed"
                 )
             ]
-        profile_class = _infer_profile_class(profile) if profile is not None else "local"
+        profile_class = infer_profile_class(profile) if profile is not None else "local"
         policy = load_policy_from_env(profile_class, mode_override="full")
         return verify_images(compose_yaml, policy, fixture=default_fixture_path())
     except Exception as e:
@@ -1454,7 +1455,7 @@ def main() -> int:
             image_findings = _run_image_verification(profile_path, args.environment)
             findings.extend(image_findings)
             findings.sort(key=lambda f: (
-                _SEVERITY_ORDER.get(f["severity"], 99),
+                SEVERITY_ORDER.get(f["severity"], 99),
                 f["rule_id"],
                 f["path"],
             ))

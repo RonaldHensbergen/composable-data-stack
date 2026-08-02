@@ -33,6 +33,7 @@ from typing import Any
 import yaml
 
 from .image_updates import parse_image_reference
+from .security_common import SEVERITY_ORDER
 
 DEFAULT_TRUSTED_REGISTRIES = ("ghcr.io", "docker.io", "registry-1.docker.io", "local")
 DEFAULT_TRUSTED_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
@@ -44,7 +45,6 @@ DEFAULT_COSIGN_BIN = "cosign"
 FIXTURE_RELATIVE_PATH = Path("tests/fixtures/signed-images.json")
 _FIXTURE_ENV_VAR = "CDS_SIGNED_IMAGES_FIXTURE"
 
-_SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 _DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
 
 
@@ -415,7 +415,7 @@ def verify_images(
             findings.extend(_verification_findings(images, policy, fixture_data))
 
     findings.sort(key=lambda x: (
-        _SEVERITY_ORDER.get(x["severity"], 99),
+        SEVERITY_ORDER.get(x["severity"], 99),
         x["rule_id"],
         x["path"],
     ))

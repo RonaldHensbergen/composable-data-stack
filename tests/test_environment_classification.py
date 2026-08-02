@@ -3,12 +3,11 @@ import unittest
 from pathlib import Path
 
 from cli.security import (
-    _ENVIRONMENT_TO_CLASS,
     _flatten_profile_by_module,
-    _infer_profile_class,
     _rule_matches,
     run_security_validation,
 )
+from cli.security_common import ENVIRONMENT_TO_CLASS, SEVERITY_ORDER, infer_profile_class
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _RULE_SCHEMA_PATH = _REPO_ROOT / "cli" / "resources" / "rule-schema.json"
@@ -24,21 +23,27 @@ class InferProfileClassTest(unittest.TestCase):
     """
 
     def test_reads_declared_metadata_environment(self):
-        for environment, expected_class in _ENVIRONMENT_TO_CLASS.items():
+        for environment, expected_class in ENVIRONMENT_TO_CLASS.items():
             with self.subTest(environment=environment):
                 profile = {"metadata": {"name": "anything", "environment": environment}}
-                self.assertEqual(_infer_profile_class(profile), expected_class)
+                self.assertEqual(infer_profile_class(profile), expected_class)
 
     def test_defaults_to_local_when_environment_is_missing(self):
         profile = {"metadata": {"name": "anything"}}
-        self.assertEqual(_infer_profile_class(profile), "local")
+        self.assertEqual(infer_profile_class(profile), "local")
 
     def test_ignores_a_nonexistent_top_level_name(self):
         profile = {
             "name": "production-sounding-name",
             "metadata": {"name": "anything", "environment": "local"},
         }
-        self.assertEqual(_infer_profile_class(profile), "local")
+        self.assertEqual(infer_profile_class(profile), "local")
+
+    def test_shared_severity_order_places_highest_severity_first(self):
+        self.assertEqual(
+            sorted(("low", "high", "medium"), key=SEVERITY_ORDER.__getitem__),
+            ["high", "medium", "low"],
+        )
 
 
 class FlattenModuleProductionSuitabilityTest(unittest.TestCase):
