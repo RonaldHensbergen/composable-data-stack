@@ -422,15 +422,64 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertIn("outside allowed module root", errors[0].message)
             self.assertEqual(plan["modules"], [])
 
-    def test_build_plan_reports_diagnostic_instead_of_crashing_on_missing_module_id(self):
-        """build_plan() is a public function that can be called directly
-        (as this test does) without first running validate_profile(), so a
-        module instance missing 'id' or 'source' must not raise a raw
-        KeyError -- it should be reported as an E010 error diagnostic and
-        skipped, mirroring the equivalent validator.py checks."""
+    def test_build_plan_reports_diagnostic_instead_of_crashing_on_missing_module_id(
+        self,
+    ):
+        """A valid module source must still surface its missing instance id."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             profile_dir = root / "profiles" / "local"
+            module_dir = profile_dir / "modules" / "valid"
+            module_dir.mkdir(parents=True)
+
+            import yaml
+
+            module = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Module",
+                "metadata": {"name": "valid"},
+                "spec": {
+                    "configSchema": {"type": "object", "additionalProperties": False},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {"services": {}},
+                    },
+                },
+            }
+            profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "local-test"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {"source": "./modules/valid", "enabled": True, "config": {}}
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+
+            (module_dir / "module.yaml").write_text(
+                yaml.safe_dump(module), encoding="utf-8"
+            )
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+            plan, diagnostics = planner.build_plan(str(profile_file))
+
+            self.assertIsNotNone(plan)
+            self.assertEqual(plan["modules"], [])
+            errors = [d for d in diagnostics if d.level == "error" and d.code == "E010"]
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0].message, "Module id is required.")
+            self.assertEqual(errors[0].path, "spec.modules[0].id")
+
+    def test_build_plan_reports_diagnostic_instead_of_crashing_on_missing_module_source(
+        self,
+    ):
+        """A module id without a source must produce its own E010 diagnostic."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profiles" / "local"
             profile_dir.mkdir(parents=True)
 
             import yaml
@@ -442,8 +491,7 @@ class PlannerRegressionTest(unittest.TestCase):
                 "spec": {
                     "runtime": {"type": "docker-compose"},
                     "modules": [
-                        {"source": "../../modules/whatever", "enabled": True, "config": {}},
-                        {"id": "missing-source", "enabled": True, "config": {}},
+                        {"id": "missing-source", "enabled": True, "config": {}}
                     ],
                     "secrets": {"provider": {"type": "env"}, "values": {}},
                 },
@@ -457,10 +505,9 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertIsNotNone(plan)
             self.assertEqual(plan["modules"], [])
             errors = [d for d in diagnostics if d.level == "error" and d.code == "E010"]
-            self.assertEqual(len(errors), 2)
-            messages = {e.message for e in errors}
-            self.assertIn("Module id is required.", messages)
-            self.assertIn("Module source is required.", messages)
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(errors[0].message, "Module source is required.")
+            self.assertEqual(errors[0].path, "spec.modules[0].source")
 
     def test_apply_defaults_recurses_into_object_typed_default_with_own_nested_defaults(self):
         """A nested object property with both its own top-level 'default'
