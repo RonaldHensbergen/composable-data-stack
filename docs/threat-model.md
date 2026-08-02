@@ -124,6 +124,36 @@ Named boundaries used throughout this document:
 - **Boundary B — inter-service network boundary.** Between containers on the
   Compose-rendered network. Contracts (`consumes`/`provides`) are the only
   sanctioned way one module's service reaches another's.
+
+  **Target production model (gap tracked as T9, owned by #70/#205/#207).**
+  Today every profile renders one flat network regardless of module mix, so
+  this boundary exists only in principle. A general production topology —
+  applicable to any combination of interchangeable modules, not a fixed set —
+  should instead partition module instances into at least three tiers,
+  independent of which module fills each role:
+
+  1. **Edge tier.** Instances that terminate operator- or public-facing
+     traffic (e.g. whichever module provides the profile's BI/admin UI or
+     external API). Only this tier may be reachable from outside Boundary A.
+  2. **Application/orchestration tier.** Instances that coordinate work and
+     call into the data tier on the edge tier's behalf (e.g. whichever module
+     provides orchestration or business logic). Reachable from the edge tier,
+     not directly from outside Boundary A.
+  3. **Data tier.** Instances holding persisted state (e.g. whichever modules
+     provide warehouse or cache contracts). Reachable only from the
+     application/orchestration tier that legitimately consumes their
+     contracts — never directly from the edge tier or from outside
+     Boundary A.
+
+  A secrets-providing module (e.g. Vault) sits alongside, not inside, these
+  tiers: any tier may reach it to resolve a secret reference, but it must
+  never be reachable from outside Boundary A. Tier membership is derived from
+  a module's declared contracts (what it `provides`/`consumes`), not from a
+  hardcoded module name, so this model holds as new module categories are
+  added. Network policy should deny cross-tier and cross-module traffic by
+  default and allow only the specific `consumes`/`provides` bindings a
+  profile actually declares — equivalent to a default-deny stance with
+  contract bindings as the allowlist.
 - **Boundary C — registry/supply-chain boundary.** Between the CI pipeline
   that builds/signs/publishes CDS images and the host that later pulls and
   verifies them via `cli/image_verification.py`.
@@ -168,7 +198,7 @@ more of the follow-up issues.
 | # | Attack path | Boundary | Current control | Residual risk / owning issue |
 | --- | --- | --- | --- | --- |
 | T8 | Admin UI (any `bi`/admin-facing module, e.g. Superset) or DB port bound to `0.0.0.0` and reachable externally | A/B | `CDS-SEC-020`, `CDS-SEC-021` | Covered by rule; no network segmentation/allowlist model exists yet. **Owning issue: #70 (integration), #205 (TLS-adjacent).** |
-| T9 | No internal/external network segmentation — all services on one flat network | B | None — current Compose renders one network per profile | **High** — flat network means a compromised low-value service (e.g. cache) can reach the warehouse directly. **Owning issue: #70.** |
+| T9 | No internal/external network segmentation — all module instances share one flat network | B | None — current Compose renders one network per profile | **High** — flat network means a compromised low-value instance (e.g. a cache-providing module) can reach a data-tier instance directly, regardless of which specific modules a profile selects. Target model: the edge/application/data tiering defined under Boundary B in §3. **Owning issue: #70.** |
 | T10 | Plaintext HTTP between services or to operator, credentials/session tokens sniffable on Boundary B | B | `CDS-SEC-023` (authenticated service uses plain HTTP) flags some cases; no TLS contract exists | **High** — no first-class TLS modeling. **Owning issue: #205.** |
 | T11 | Debug mode left enabled on a production-facing service (stack traces, admin endpoints) | B | `CDS-SEC-072` | Covered by rule; verify default profile values follow it. |
 
