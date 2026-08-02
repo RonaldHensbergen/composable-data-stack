@@ -172,7 +172,7 @@ def is_docker_hub_image(image: str) -> bool:
 
 
 def is_local_image(image: str) -> bool:
-    return image.endswith(":custom") or parse_image_reference(image)["registry"] != "docker.io"
+    return image.endswith(":custom")
 
 
 def normalize_semver(tag: str) -> str | None:
@@ -260,7 +260,7 @@ def find_newer_tag(current_tag: str, tags: list[str]) -> str | None:
 
 def check_image_update(image: str, dockerfile: Path | str | None = None) -> dict[str, Any]:
     info = parse_image_reference(image)
-    if is_local_image(image):
+    if is_local_image(image) or dockerfile is not None:
         if dockerfile is None:
             return {"image": image, "status": "local", "latest": None}
         # Resolve FROM line and recurse on the base image
