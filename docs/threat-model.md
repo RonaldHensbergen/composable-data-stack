@@ -80,11 +80,9 @@ flowchart TB
         dockerCompose["docker-compose<br>.yml"]
   end
  subgraph dockerDaemon["Docker host + daemon"]
-        postgres[("warehouse<br>(e.g. Postgres)")]
-        superset[("bi<br>(e.g. Superset)")]
-        keydb[("cache<br>(e.g. KeyDB)")]
-        dagster[("orchestration<br>(e.g. Dagster)")]
-        vault[("secrets<br>(e.g. Vault, optional)")]
+        moduleA["module instance A<br>(any category, e.g. warehouse)"]
+        moduleB["module instance B<br>(any category, e.g. BI)"]
+        moduleN["module instance N<br>(any category, per profile)"]
   end
  subgraph trustBoundaryA[" "]
         dockerDaemon
@@ -93,8 +91,8 @@ flowchart TB
     profileYaml -- "render/plan" --> cliProcess
     cliProcess -- "writes" --> dockerCompose
     dockerCompose -- "docker compose up" --> trustBoundaryA
-    postgres <-- "internal service network (example, trust boundary B)" --> superset
-    keydb <-- "internal service network (example)" --> dagster
+    moduleA <-- "contract-mediated connection<br>(trust boundary B, per profile)" --> moduleB
+    moduleB -.-> moduleN
     registries["Container registries<br>(ghcr.io, docker.io)<br>build → scan → sign (cosign)<br>→ SBOM → publish"] -- "trust boundary C<br>registry pull" --> trustBoundaryA
 
      workstation:::workstationStyle
@@ -105,13 +103,17 @@ flowchart TB
     classDef registryStyle fill:#f5f3ff,stroke:#a78bfa
 ```
 
-`vault` is drawn unconnected from the other modules to reflect that a secrets
-module is optional and, per trust boundary B below, no unqualified service
-mesh exists between modules today — the two illustrated links
-(`postgres ↔ superset`, `keydb ↔ dagster`) are examples of contract-mediated
-connections, not an exhaustive or fully-meshed topology. New module
-categories added under `modules/` extend this diagram as additional nodes
-inside `dockerDaemon` rather than requiring a new diagram.
+Each profile composes an arbitrary, interchangeable set of module instances
+(warehouse, BI, cache, orchestration, secrets, and any future category); the
+diagram deliberately does not name specific modules or a fixed number of
+them. `moduleA`/`moduleB`/`moduleN` represent any two connected instances and
+"any remaining instances a profile declares," not a fixed 1:1:1 topology.
+The only sanctioned way one module instance reaches another is through a
+`consumes`/`provides` contract binding — there is no unqualified service mesh
+between all instances in a profile, which is itself a tracked gap (see T9 in
+§5.2). A secrets module (e.g. Vault) is one such instance like any other; it
+has no special standing in this diagram beyond being optional in a given
+profile.
 
 Named boundaries used throughout this document:
 
