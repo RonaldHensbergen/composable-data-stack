@@ -28,7 +28,7 @@ import shutil
 import subprocess  # nosec B404
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -173,8 +173,7 @@ def _static_findings(
             continue
 
         ref = parse_image_reference(image)
-        registry = ref["registry"]
-        assert registry is not None
+        registry = cast(str, ref["registry"])
         if not _registry_is_trusted(registry, policy):
             findings.append(_finding(
                 "CDS-SEC-052",
@@ -312,8 +311,7 @@ def _verification_findings(
             continue
 
         entry = _fixture_entry(fixture, image)
-        registry = parse_image_reference(image)["registry"]
-        assert registry is not None
+        registry = cast(str, parse_image_reference(image)["registry"])
         if entry is not None and _registry_is_trusted(registry, policy):
             ref_digest = image.rsplit("@", 1)[1] if "@sha256:" in image else None
             entry_digest = entry.get("digest")
