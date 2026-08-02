@@ -20,6 +20,7 @@ from jsonschema import Draft202012Validator
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .secrets import load_secrets_from_env
+from .security_common import SEVERITY_ORDER, infer_profile_class
 
 _PROFILE_SCOPES = {
     "profile",
@@ -207,22 +208,6 @@ def _is_secret_reference(value: Any) -> bool:
 # ---------------------------------------------------------------------------
 # Profile class inference
 # ---------------------------------------------------------------------------
-
-# metadata.environment (schema-validated: local/development/staging/production)
-# maps to this short-form vocabulary because every existing rule's
-# profileClasses condition already uses local/dev/staging/prod.
-_ENVIRONMENT_TO_CLASS = {
-    "local": "local",
-    "development": "dev",
-    "staging": "staging",
-    "production": "prod",
-}
-
-
-def _infer_profile_class(profile: dict[str, Any]) -> str:
-    environment = (profile or {}).get("metadata", {}).get("environment", "local")
-    return _ENVIRONMENT_TO_CLASS.get(environment, "local")
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -452,9 +437,6 @@ def _rule_matches(
 # Public entry point
 # ---------------------------------------------------------------------------
 
-_SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
-
-
 def run_security_validation(
     profile_path: Path,
     rule_schema_path: Path | Traversable | None = None,
@@ -500,7 +482,7 @@ def run_security_validation(
         overlay_diags = []
     rule_set = _validate_rule_set(rule_schema_path, rule_set_path)
 
-    profile_class = _infer_profile_class(profile)
+    profile_class = infer_profile_class(profile)
 
     secrets, secret_diags = load_secrets_from_env(env_file)
 
@@ -528,7 +510,7 @@ def run_security_validation(
     findings.extend(_check_secret_reuse(flat_profile + flat_env))
     
     findings.sort(key=lambda x: (
-        _SEVERITY_ORDER.get(x["severity"], 99),
+        SEVERITY_ORDER.get(x["severity"], 99),
         x["rule_id"],
         x["module"],
         x["path"],
