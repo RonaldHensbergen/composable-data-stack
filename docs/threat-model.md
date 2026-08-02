@@ -67,43 +67,51 @@ issue inventing its own threat assumptions.
 
 ## 3. Trust boundaries
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│ Operator workstation / CI runner                                 │
-│                                                                   │
-│  ┌───────────┐   render/plan   ┌────────────────────┐            │
-│  │  Profile   │ ─────────────► │   CDS CLI process   │            │
-│  │  YAML repo │                │ (validate/plan/     │            │
-│  └───────────┘                 │  render/security)    │            │
-│        ▲                       └─────────┬────────────┘            │
-│        │ secret refs                     │ writes                  │
-│  ┌───────────┐                            ▼                        │
-│  │ .env /     │◄──── resolved at    ┌─────────────────┐            │
-│  │ environment│      compose time   │ docker-compose  │            │
-│  └───────────┘                      │     .yml        │            │
-└──────────────────────────────────────┴───────┬─────────┘────────────┘
-                                                │ docker compose up
-                          Trust boundary A (host/daemon) 
-┌───────────────────────────────────────────────▼─────────────────────┐
-│ Docker host + daemon                                                 │
-│                                                                       │
-│   ┌────────────┐   ┌────────────┐   ┌───────────┐   ┌─────────────┐ │
-│   │  warehouse  │   │     bi      │   │   cache   │   │orchestration│ │
-│   │  (Postgres, │◄─►│  (Superset, │   │ (KeyDB,   │◄─►│  (Dagster,  │ │
-│   │   etc.)     │   │   etc.)     │   │  etc.)    │   │   etc.)     │ │
-│   └────────────┘   └────────────┘   └───────────┘   └─────────────┘ │
-│         ▲ internal service network (trust boundary B, per-profile)  │
-│         │       + any future module category added under modules/    │
-│   ┌────────────┐                                                     │
-│   │  secrets    │  (e.g. Vault, optional)                             │
-│   └────────────┘                                                     │
-└───────────────────────────────────────────────────────────────────────┘
-                          Trust boundary C (registry pull)
-┌───────────────────────────────────────────────────────────────────────┐
-│ Container registries (ghcr.io, docker.io) + CI publish pipeline        │
-│   build → scan → sign (cosign) → SBOM → publish                        │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart TB
+ subgraph workstation["Operator workstation / CI runner"]
+        profileYaml["Profile<br>YAML repo"]
+        cliProcess["CDS CLI process<br>(validate/plan/<br>render/security)"]
+        envFile[".env /<br>environment"]
+        dockerCompose["docker-compose<br>.yml"]
+  end
+ subgraph dockerDaemon["Docker host + daemon"]
+        postgres[("warehouse<br>(e.g. Postgres)")]
+        superset[("bi<br>(e.g. Superset)")]
+        keydb[("cache<br>(e.g. KeyDB)")]
+        dagster[("orchestration<br>(e.g. Dagster)")]
+        vault[("secrets<br>(e.g. Vault, optional)")]
+  end
+ subgraph trustBoundaryA[" "]
+        dockerDaemon
+  end
+    envFile -- "resolved at compose time" --> dockerCompose
+    profileYaml -- "render/plan" --> cliProcess
+    cliProcess -- "writes" --> dockerCompose
+    dockerCompose -- "docker compose up" --> trustBoundaryA
+    postgres <-- "internal service network (example, trust boundary B)" --> superset
+    keydb <-- "internal service network (example)" --> dagster
+    registries["Container registries<br>(ghcr.io, docker.io)<br>build → scan → sign (cosign)<br>→ SBOM → publish"] -- "trust boundary C<br>registry pull" --> trustBoundaryA
+
+     workstation:::workstationStyle
+     dockerDaemon:::dockerStyle
+     registries:::registryStyle
+    classDef workstationStyle fill:#eef2ff,stroke:#818cf8
+    classDef dockerStyle fill:#f0fdfa,stroke:#2dd4bf
+    classDef registryStyle fill:#f5f3ff,stroke:#a78bfa
 ```
+
+`vault` is drawn unconnected from the other modules to reflect that a secrets
+module is optional and, per trust boundary B below, no unqualified service
+mesh exists between modules today — the two illustrated links
+(`postgres ↔ superset`, `keydb ↔ dagster`) are examples of contract-mediated
+connections, not an exhaustive or fully-meshed topology. New module
+categories added under `modules/` extend this diagram as additional nodes
+inside `dockerDaemon` rather than requiring a new diagram.
 
 Named boundaries used throughout this document:
 
