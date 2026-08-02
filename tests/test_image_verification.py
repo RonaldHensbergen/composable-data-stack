@@ -8,7 +8,6 @@ from unittest.mock import patch
 import yaml
 
 from cli.image_verification import (
-    _is_local_image,
     _verification_findings,
     collect_compose_images,
     default_fixture_path,
@@ -29,7 +28,7 @@ _COMPOSE = yaml.safe_dump(
             "app": {"image": f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"},
             "web": {"image": "ghcr.io/ronaldhensbergen/cds-superset:1.2.3"},
             "cache": {"image": "redis:latest"},
-            "custom": {"image": "local/dagster:custom"},
+            "custom": {"image": "local/dagster:custom", "build": {"context": "."}},
             "unknown": {"image": "quay.io/example/tool:1.0"},
         }
     },
@@ -40,7 +39,7 @@ _COMPOSE = yaml.safe_dump(
 def _policy(mode: str = "full", **overrides) -> dict:
     defaults = {
         "mode": mode,
-        "trusted_registries": ("ghcr.io", "docker.io", "local"),
+        "trusted_registries": ("ghcr.io", "docker.io"),
         "oidc_issuer": "https://token.actions.githubusercontent.com",
         "cert_identity_regexp": r"^https://github\.com/example/repo/.+$",
         "cosign_bin": "cosign",
@@ -58,11 +57,11 @@ class CollectComposeImagesTest(unittest.TestCase):
         self.assertEqual(
             collect_compose_images(_COMPOSE),
             [
-                ("app", f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"),
-                ("web", "ghcr.io/ronaldhensbergen/cds-superset:1.2.3"),
-                ("cache", "redis:latest"),
-                ("custom", "local/dagster:custom"),
-                ("unknown", "quay.io/example/tool:1.0"),
+                ("app", f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}", False),
+                ("web", "ghcr.io/ronaldhensbergen/cds-superset:1.2.3", False),
+                ("cache", "redis:latest", False),
+                ("custom", "local/dagster:custom", True),
+                ("unknown", "quay.io/example/tool:1.0", False),
             ],
         )
 
@@ -77,7 +76,9 @@ class CollectComposeImagesTest(unittest.TestCase):
 class ImagePolicyTest(unittest.TestCase):
     def test_default_mode_off_for_non_production(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(load_policy_from_env("local").mode, "off")
+            policy = load_policy_from_env("local")
+            self.assertEqual(policy.mode, "off")
+            self.assertNotIn("local", policy.trusted_registries)
             self.assertEqual(load_policy_from_env("dev").mode, "off")
 
     def test_default_mode_policy_for_production(self) -> None:
@@ -139,15 +140,47 @@ class StaticPolicyTest(unittest.TestCase):
         self.assertEqual(latest[0]["value"], "redis:latest")
 
     def test_local_images_are_not_flagged(self) -> None:
-        self.assertTrue(_is_local_image("local/dagster:custom"))
-        compose = yaml.safe_dump({"services": {"a": {"image": "local/dagster:custom"}}})
+        compose = yaml.safe_dump(
+            {
+                "services": {
+                    "a": {
+                        "image": "local/dagster:custom",
+                        "build": {"context": "."},
+                    }
+                }
+            }
+        )
         self.assertEqual(verify_images(compose, _policy(mode="policy")), [])
 
+    def test_local_prefix_without_build_does_not_bypass_checks(self) -> None:
+        compose = yaml.safe_dump({"services": {"a": {"image": "local/evil:custom"}}})
+        findings = verify_images(compose, _policy(mode="policy"))
+        self.assertIn("CDS-SEC-051", {f["rule_id"] for f in findings})
+
+    def test_local_prefix_with_empty_build_does_not_bypass_checks(self) -> None:
+        for build in (None, "", "   ", {}, {"context": ""}):
+            with self.subTest(build=build):
+                compose = yaml.safe_dump(
+                    {
+                        "services": {
+                            "a": {"image": "local/evil:custom", "build": build}
+                        }
+                    }
+                )
+                findings = verify_images(compose, _policy(mode="policy"))
+                self.assertIn("CDS-SEC-051", {f["rule_id"] for f in findings})
+
     def test_custom_suffix_alone_does_not_bypass_checks(self) -> None:
-        self.assertFalse(_is_local_image("quay.io/example/tool:custom"))
         compose = yaml.safe_dump({"services": {"a": {"image": "quay.io/example/tool:custom"}}})
         findings = verify_images(compose, _policy(mode="policy"))
         self.assertIn("CDS-SEC-052", {f["rule_id"] for f in findings})
+
+    def test_registry_allowlist_is_case_insensitive(self) -> None:
+        compose = yaml.safe_dump(
+            {"services": {"a": {"image": f"GHCR.IO/example/tool@{_DIGEST_A}"}}}
+        )
+        findings = verify_images(compose, _policy(mode="policy"))
+        self.assertNotIn("CDS-SEC-052", {f["rule_id"] for f in findings})
 
     def test_untagged_image_reference_flagged_as_latest(self) -> None:
         compose = yaml.safe_dump({"services": {"cache": {"image": "redis"}}})
@@ -206,18 +239,18 @@ class FixtureVerificationTest(unittest.TestCase):
 
     def test_unsigned_fixture_entry_is_flagged(self) -> None:
         self.fixture["images"]["cds-dagster"]["signed"] = False
-        images = [("app", f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}")]
+        images = [("app", f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}", False)]
         findings = _verification_findings(images, _policy(), self.fixture)
         self.assertIn("CDS-VER-001", {f["rule_id"] for f in findings})
 
     def test_missing_provenance_is_flagged(self) -> None:
         self.fixture["images"]["cds-dagster"]["provenanceAttested"] = False
-        images = [("app", f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}")]
+        images = [("app", f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}", False)]
         findings = _verification_findings(images, _policy(), self.fixture)
         self.assertIn("CDS-VER-002", {f["rule_id"] for f in findings})
 
     def test_tagged_reference_cannot_verify_against_fixture(self) -> None:
-        images = [("web", "ghcr.io/ronaldhensbergen/cds-dagster:latest")]
+        images = [("web", "ghcr.io/ronaldhensbergen/cds-dagster:latest", False)]
         findings = _verification_findings(images, _policy(), self.fixture)
         self.assertEqual(findings[0]["rule_id"], "CDS-VER-003")
         self.assertEqual(findings[0]["severity"], "high")
@@ -233,11 +266,22 @@ class FixtureVerificationTest(unittest.TestCase):
         image = f"evil.example.com/cds-dagster@{_DIGEST_A}"
         with patch("cli.image_verification.shutil.which", return_value=None):
             findings = _verification_findings(
-                [("app", image)],
+                [("app", image, False)],
                 _policy(trusted_registries=("ghcr.io",)),
                 self.fixture,
             )
         self.assertEqual(findings[0]["rule_id"], "CDS-VER-001")
+
+    def test_fixture_repository_match_is_case_insensitive(self) -> None:
+        image = f"GHCR.IO/ronaldhensbergen/cds-dagster@{_DIGEST_A}"
+        with patch("cli.image_verification.shutil.which", return_value=None) as mock_which:
+            findings = _verification_findings(
+                [("app", image, False)],
+                _policy(trusted_registries=("ghcr.io",)),
+                self.fixture,
+            )
+        mock_which.assert_not_called()
+        self.assertEqual(findings, [])
 
 
 class CosignVerificationTest(unittest.TestCase):

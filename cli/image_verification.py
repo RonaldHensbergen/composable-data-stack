@@ -28,14 +28,14 @@ import shutil
 import subprocess  # nosec B404
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
 from .image_updates import parse_image_reference
 from .security_common import SEVERITY_ORDER
 
-DEFAULT_TRUSTED_REGISTRIES = ("ghcr.io", "docker.io", "registry-1.docker.io", "local")
+DEFAULT_TRUSTED_REGISTRIES = ("ghcr.io", "docker.io", "registry-1.docker.io")
 DEFAULT_TRUSTED_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 DEFAULT_CERT_IDENTITY_REGEXP = (
     r"^https://github\.com/RonaldHensbergen/composable-data-stack/"
@@ -107,8 +107,8 @@ def default_fixture_path() -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def collect_compose_images(compose_yaml: str) -> list[tuple[str, str]]:
-    """Return (service_name, image_ref) pairs from a rendered compose file."""
+def collect_compose_images(compose_yaml: str) -> list[tuple[str, str, bool]]:
+    """Return service name, image reference, and local-build status."""
     try:
         compose = yaml.safe_load(compose_yaml) or {}
     except yaml.YAMLError:
@@ -117,14 +117,31 @@ def collect_compose_images(compose_yaml: str) -> list[tuple[str, str]]:
     if not isinstance(services, dict):
         return []
     return [
-        (str(name), service["image"])
+        (
+            str(name),
+            service["image"],
+            service["image"].startswith("local/") and _has_local_build(service),
+        )
         for name, service in services.items()
         if isinstance(service, dict) and isinstance(service.get("image"), str)
     ]
 
 
-def _is_local_image(image: str) -> bool:
-    return image.startswith("local/")
+def _has_local_build(service: dict[str, Any]) -> bool:
+    build = service.get("build")
+    if isinstance(build, str):
+        return bool(build.strip())
+    if not isinstance(build, dict):
+        return False
+    return any(
+        isinstance(build.get(key), str) and bool(build[key].strip())
+        for key in ("context", "dockerfile", "dockerfile_inline")
+    )
+
+
+def _registry_is_trusted(registry: str, policy: ImagePolicy) -> bool:
+    trusted_registries = {trusted.casefold() for trusted in policy.trusted_registries}
+    return registry.casefold() in trusted_registries
 
 
 def _finding(
@@ -147,16 +164,17 @@ def _finding(
 
 
 def _static_findings(
-    images: list[tuple[str, str]],
+    images: list[tuple[str, str, bool]],
     policy: ImagePolicy,
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
-    for service, image in images:
-        if _is_local_image(image):
+    for service, image, is_local_build in images:
+        if is_local_build:
             continue
 
         ref = parse_image_reference(image)
-        if ref["registry"] not in policy.trusted_registries:
+        registry = cast(str, ref["registry"])
+        if not _registry_is_trusted(registry, policy):
             findings.append(_finding(
                 "CDS-SEC-052",
                 "medium",
@@ -267,33 +285,34 @@ def _fixture_entry(
     images = fixture.get("images", {})
     if not isinstance(images, dict):
         return None
+    folded_image_ref = image_ref.casefold()
     for entry in images.values():
         if not isinstance(entry, dict):
             continue
         repository = entry.get("repository")
         if not isinstance(repository, str):
             continue
-        if (
-            image_ref == repository
-            or image_ref.startswith(repository + "@")
-            or image_ref.startswith(repository + ":")
+        folded_repository = repository.casefold()
+        if folded_image_ref == folded_repository or folded_image_ref.startswith(
+            (folded_repository + "@", folded_repository + ":")
         ):
             return entry
     return None
 
 
 def _verification_findings(
-    images: list[tuple[str, str]],
+    images: list[tuple[str, str, bool]],
     policy: ImagePolicy,
     fixture: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
-    for service, image in images:
-        if _is_local_image(image):
+    for service, image, is_local_build in images:
+        if is_local_build:
             continue
 
         entry = _fixture_entry(fixture, image)
-        if entry is not None and parse_image_reference(image)["registry"] in policy.trusted_registries:
+        registry = cast(str, parse_image_reference(image)["registry"])
+        if entry is not None and _registry_is_trusted(registry, policy):
             ref_digest = image.rsplit("@", 1)[1] if "@sha256:" in image else None
             entry_digest = entry.get("digest")
             if ref_digest is None:

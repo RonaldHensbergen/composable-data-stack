@@ -52,14 +52,14 @@ Set the mode with `CDS_IMAGE_VERIFICATION=policy|full|off`, or pass `--verify-im
 
 ### Trust constraints
 
-- **Trusted registries:** `CDS_TRUSTED_REGISTRIES` (comma-separated; default `ghcr.io`, `docker.io`, `registry-1.docker.io`, `local`).
+- **Trusted registries:** `CDS_TRUSTED_REGISTRIES` (comma-separated; default `ghcr.io`, `docker.io`, `registry-1.docker.io`).
 - **Signer identity (keyless):** `CDS_TRUSTED_OIDC_ISSUER` and `CDS_TRUSTED_CERT_IDENTITY_REGEXP`, defaulting to the GitHub Actions OIDC values above.
 - **Key-managed:** set `CDS_COSIGN_KEY` to a public key path; verification then runs `cosign verify --key` instead of the certificate identity checks.
 - **Tooling:** the cosign-compatible binary is pluggable via `CDS_COSIGN_BIN` (default `cosign`). Any tool exposing the same CLI contract can be substituted.
 
 ### Offline verification
 
-In `full` mode, images that match an entry in `tests/fixtures/signed-images.json` are verified against the fixture without a registry round trip or a cosign binary. Point `CDS_SIGNED_IMAGES_FIXTURE` at a custom fixture, or let `cds` resolve the bundled one from the repo checkout. Only digest-pinned references can be verified against the fixture; a tag reference, a digest that differs from the fixture, a missing entry, a fixture entry outside the trusted registries, or an absent cosign binary all fail closed. If `cds security --verify-images` cannot even plan or render the profile, it reports a high-severity CDS-VER-004 finding instead of silently passing. If a fixture path configured via `CDS_SIGNED_IMAGES_FIXTURE` is missing or malformed, verification also fails closed with a CDS-VER-004 finding rather than silently falling back to live cosign verification under different trust constraints. Images referenced as `local/<name>:custom` (built locally by the developer) are exempt from the policy; the `:custom` tag alone does not exempt an image from any other registry.
+In `full` mode, images that match an entry in `tests/fixtures/signed-images.json` are verified against the fixture without a registry round trip or a cosign binary. Point `CDS_SIGNED_IMAGES_FIXTURE` at a custom fixture, or let `cds` resolve the bundled one from the repo checkout. Only digest-pinned references can be verified against the fixture; a tag reference, a digest that differs from the fixture, a missing entry, a fixture entry outside the trusted registries, or an absent cosign binary all fail closed. If `cds security --verify-images` cannot even plan or render the profile, it reports a high-severity CDS-VER-004 finding instead of silently passing. If a fixture path configured via `CDS_SIGNED_IMAGES_FIXTURE` is missing or malformed, verification also fails closed with a CDS-VER-004 finding rather than silently falling back to live cosign verification under different trust constraints. Images referenced as `local/<name>:custom` are exempt only when the same Compose service declares a non-empty local build context, Dockerfile, or inline Dockerfile; the `local/` prefix or `:custom` tag alone does not exempt an image.
 
 ### Verification commands
 

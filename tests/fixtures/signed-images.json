@@ -5,7 +5,7 @@
   "updated": "2026-08-01",
   "source": "https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/publish-images.yml",
   "trustRoot": {
-    "registries": ["ghcr.io", "docker.io", "registry-1.docker.io", "local"],
+    "registries": ["ghcr.io", "docker.io", "registry-1.docker.io"],
     "oidcIssuer": "https://token.actions.githubusercontent.com",
     "certificateIdentityRegexp": "^https://github.com/RonaldHensbergen/composable-data-stack/.github/workflows/publish-images.yml@refs/heads/main$",
     "keyless": true
