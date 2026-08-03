@@ -252,7 +252,7 @@ postgres-postgres:
 **Transformation**:
 - `image: postgres:16` → stays as-is
 - `POSTGRES_DB: analytics` → becomes `${config.database}` (value moves to profile)
-- `POSTGRES_PASSWORD: ${CDS_ANALYTICS_POSTGRES_PASSWORD}` → becomes `${config.passwordFrom}` (secret reference)
+- `POSTGRES_PASSWORD: ${CDS_ANALYTICS_POSTGRES_PASSWORD}` → becomes `${config.superuserPasswordFrom}` (secret reference for the container's superuser password)
 - `ports: [5432:5432]` → host port becomes `${config.port}`; container port declared in `runtime.service.ports`
 - `volumes: postgres-postgres-data:…` → captured in `implementation.compose.volumes`
 - `healthcheck:` → captured with `conditionallyEnabledFrom` gate
@@ -286,7 +286,7 @@ spec:
     required:
       - database
       - username
-      - passwordFrom
+      - superuserPasswordFrom
       - port
     properties:
       database:
@@ -299,10 +299,10 @@ spec:
         minLength: 1
         description: Database user for authentication
 
-      passwordFrom:
+      superuserPasswordFrom:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
-        description: Reference to secret containing database password
+        description: Reference to secret containing the database superuser password (POSTGRES_PASSWORD)
 
       port:
         type: integer
@@ -352,7 +352,7 @@ spec:
           environment:
             POSTGRES_DB: "${config.database}"
             POSTGRES_USER: "${config.username}"
-            POSTGRES_PASSWORD: "${config.passwordFrom}"
+            POSTGRES_PASSWORD: "${config.superuserPasswordFrom}"
           volumes:
             - postgres-postgres-data:/var/lib/postgresql/data
           healthcheck:
