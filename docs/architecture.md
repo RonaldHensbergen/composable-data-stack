@@ -100,7 +100,6 @@ A profile is the unit that should eventually become installable, testable, and s
 
 Two mechanisms are core to how CDS wires a stack together without leaking credentials or coupling modules directly: **secret refs** and **contract refs**. Both resolve through the same `validate → plan → render` pipeline (see the [README Internal Flow diagram](../README.md#internal-flow)).
 
-
 ```mermaid
 flowchart TD
     subgraph secrets["Secret ref flow"]
@@ -138,7 +137,6 @@ flowchart TD
     class S4,C5 sink
     class C6 stop
 ```
-
 
 **End-to-end example** (from `profiles/local-dagster-postgres-superset/profile.yaml`):
 
