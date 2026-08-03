@@ -809,23 +809,27 @@
     },
     {
       "id": "CDS-SEC-070",
-      "$comment": "Deferred: command/args/logging leakage checks are defined against rendered Compose service paths such as services.*.command and services.*.logging.*. The existing scanner only sees profile config and env secrets, not rendered service definitions.",
+      "$comment": "Evaluated against the rendered Compose services.*.command/entrypoint/logging fields (the \"rendered-compose\" scope), not raw profile/env inputs -- see _flatten_rendered_leak_surfaces in cli/security.py. This is the check that would have caught the Vault dev-root-token-as-command-arg issue fixed in PR #290.",
       "title": "Secret appears in command args or log configuration",
       "severity": "high",
       "category": "observability-leakage",
-      "scope": ["none"],
+      "scope": ["rendered-compose"],
       "match": {
         "any": [
           {
             "pathPatterns": [
-              "services.*.command",
-              "services.*.args.*",
-              "services.*.logging.*"
+              "services.*.command*",
+              "services.*.entrypoint*",
+              "services.*.logging*"
             ],
             "keyRegex": "(?i)(password|secret|token|key)"
           },
           {
-            "valueRegex": "(?i)(--password=|--token=|--secret=|password=|token=|secret=)"
+            "pathPatterns": [
+              "services.*.command*",
+              "services.*.entrypoint*"
+            ],
+            "valueRegex": "(?i)-{1,2}[a-z][a-z-]*(password|secret|token|key)[a-z-]*=\\$\\{"
           }
         ]
       },

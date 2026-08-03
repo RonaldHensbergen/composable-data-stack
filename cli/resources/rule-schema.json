@@ -60,6 +60,7 @@
         "service",
         "service-env",
         "runtime",
+        "rendered-compose",
         "none"
       ]
     },

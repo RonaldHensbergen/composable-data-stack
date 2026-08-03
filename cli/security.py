@@ -19,6 +19,8 @@ from jsonschema import Draft202012Validator
 
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
+from .planner import build_plan
+from .renderer import render_compose
 from .secrets import load_secrets_from_env
 from .security_common import SEVERITY_ORDER, infer_profile_class
 
@@ -35,6 +37,22 @@ _ENV_SCOPES = {
     "service",
     "runtime",
 }
+
+# Rules in this scope are matched against the *rendered* Compose service
+# definitions (command/entrypoint/logging), not the profile or .env inputs.
+# This is the only way to see where a module's implementation template
+# actually places a secret-bearing value (e.g. a "${config.x}" reference
+# used inside a "command:" list becomes a Compose-time "${CDS_*}"
+# placeholder that leaks via /proc/<pid>/cmdline once docker compose
+# substitutes it) -- that placement is invisible in the unrendered profile.
+_RENDERED_COMPOSE_SCOPES = {
+    "rendered-compose",
+}
+
+# Compose service keys where a value is exposed via process listings
+# (command args / entrypoint) or captured in logging configuration, as
+# opposed to "environment", which is comparatively better protected.
+_LEAK_PRONE_SERVICE_KEYS = ("command", "entrypoint", "logging")
 # ---------------------------------------------------------------------------
 # File I/O
 # ---------------------------------------------------------------------------
@@ -185,6 +203,41 @@ def _flatten_env_inputs(
         scan_path = _normalize_scan_path(env_path)
         items.append(("<env>", scan_path, scan_path))
     return items
+
+
+def _flatten_rendered_leak_surfaces(
+    compose: dict[str, Any] | None,
+) -> list[tuple[str, str, Any]]:
+    """
+    Flatten only the leak-prone parts of a rendered Compose document:
+    each service's "command", "entrypoint", and "logging" fields.
+
+    Unlike the profile flattener, this operates on the fully rendered
+    Compose model, so "${config.x}" module template references have
+    already been resolved to their final "${CDS_*}" Compose-time
+    placeholders (or literal values) -- the actual shape a rule needs to
+    inspect to tell whether a secret-bearing value ends up somewhere that
+    leaks via process listings (command/entrypoint) or log configuration,
+    rather than the module.yaml source or profile config that produced it.
+    """
+    if not isinstance(compose, dict):
+        return []
+
+    services = compose.get("services", {})
+    if not isinstance(services, dict):
+        return []
+
+    results: list[tuple[str, str, Any]] = []
+    for service_name, service_def in services.items():
+        if not isinstance(service_def, dict):
+            continue
+        for key in _LEAK_PRONE_SERVICE_KEYS:
+            if key not in service_def:
+                continue
+            base_path = f"services.{service_name}.{key}"
+            for path, value in _flatten(service_def[key], base_path):
+                results.append((service_name, path, value))
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -433,6 +486,38 @@ def _rule_matches(
     return findings
 
 
+def _try_render_compose_for_scan(
+    profile_path: Path,
+    env_file: str | None,
+    environment: str | None,
+) -> dict[str, Any] | None:
+    """
+    Best-effort plan + render of the profile, for rules that need to see the
+    rendered Compose service definitions rather than profile/env inputs.
+
+    Returns None (never raises) if the profile fails to plan or render --
+    those failures are already surfaced with full diagnostics by the
+    separate "plan"/"render" stages in `cds test`; this scan is additive and
+    must not turn an unrelated plan/render failure into a security-stage
+    crash or a duplicate error report.
+    """
+    try:
+        plan, plan_diags = build_plan(
+            str(profile_path), env_file=env_file, environment=environment,
+        )
+        if plan is None or any(d.level == "error" for d in plan_diags):
+            return None
+
+        compose_yaml, render_diags = render_compose(plan, env_file=env_file)
+        if any(d.level == "error" for d in render_diags):
+            return None
+
+        rendered = yaml.safe_load(compose_yaml)
+        return rendered if isinstance(rendered, dict) else None
+    except Exception:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -488,6 +573,8 @@ def run_security_validation(
 
     flat_profile = _flatten_profile_by_module(profile, profile_dir=profile_path.parent)
     flat_env = _flatten_env_inputs(secrets, env_file)
+    rendered_compose = _try_render_compose_for_scan(profile_path, env_file, environment)
+    flat_rendered = _flatten_rendered_leak_surfaces(rendered_compose)
 
     findings: list[dict[str, Any]] = []
     for rule in rule_set["rules"]:
@@ -504,6 +591,12 @@ def run_security_validation(
         if rule_scopes & _ENV_SCOPES:
             findings.extend(_rule_matches(
                 rule, flat_env, profile_class,
+                redact_values=redact_values,
+            ))
+
+        if rule_scopes & _RENDERED_COMPOSE_SCOPES:
+            findings.extend(_rule_matches(
+                rule, flat_rendered, profile_class,
                 redact_values=redact_values,
             ))
 
