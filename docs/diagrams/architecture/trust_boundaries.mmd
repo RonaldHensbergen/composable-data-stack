@@ -10,10 +10,10 @@ flowchart TB
         moduleB["module instance B<br>(any category, e.g. BI)"]
         moduleN["module instance N<br>(any category, per profile)"]
   end
- subgraph trustBoundaryA[" "]
+ subgraph trustBoundaryA["Trust boundary A"]
         dockerDaemon
   end
-    envFile -- "resolved at compose time" --> dockerCompose
+    envFile -- "trust boundary D<br>resolved at compose time" --> dockerCompose
     profileYaml -- "render/plan" --> cliProcess
     cliProcess -- "writes" --> dockerCompose
     dockerCompose -- "docker compose up" --> trustBoundaryA
