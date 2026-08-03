@@ -68,10 +68,6 @@ issue inventing its own threat assumptions.
 ## 3. Trust boundaries
 
 ```mermaid
----
-config:
-  layout: elk
----
 flowchart TB
  subgraph workstation["Operator workstation / CI runner"]
         profileYaml["Profile<br>YAML repo"]
