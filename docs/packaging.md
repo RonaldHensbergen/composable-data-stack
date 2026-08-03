@@ -184,36 +184,43 @@ a manual dispatch run skips that check, since dispatch has no tag ref to
 verify against — always trigger a manual publish from the commit you intend
 to release.
 
-`v*.*.*` also matches pre-release tags (for example `v0.4.0b1`), so a
-pre-release version in `pyproject.toml` publishes to production PyPI just as
-readily as a stable one if that tag is pushed. `check_release_version.py`
-accepts pre-release versions intentionally, but be conscious that pushing
-such a tag is a real, irreversible publish.
+`v*.*.*` also matches pre-release tags (for example `v0.4.0b1`), but
+`check_release_version.py` is invoked here with `--block-prerelease`, so a
+tag whose version is a pre-release (alpha/beta/rc/dev, per PEP 440) fails
+the version check and the workflow stops before `build`/`publish` ever run.
+Bump `project.version` in `pyproject.toml` to a final version before tagging
+a production release. (`release.yml`'s own version check keeps allowing
+pre-release tags — it only opens a draft GitHub release, not a PyPI publish —
+so this restriction is specific to `pypi.yml`.)
 
-**A pushed tag publishes to production PyPI immediately, with no human
-approval gate by default.** Unlike `release.yml` (which opens a *draft*
-GitHub release for review before anyone hits publish), this workflow has no
-separate review step, and a published version can never be replaced or
-re-uploaded. GitHub auto-creates the `pypi` environment the first time the
-workflow references it, and a freshly auto-created environment has **no
-required reviewers** — the protection described below is opt-in, not the
-default.
+**A pushed tag publishes to production PyPI immediately unless you gate it
+with required reviewers — do this before the first release.** Unlike
+`release.yml` (which opens a *draft* GitHub release for review before anyone
+hits publish), this workflow has no separate review step of its own, and a
+published version can never be replaced or re-uploaded. GitHub auto-creates
+the `pypi` environment the first time the workflow references it, and a
+freshly auto-created environment has **no required reviewers** by default —
+you must add them explicitly (step 1 below) or every tag push publishes
+unattended.
 
 Repository setup:
 
-1. Create a GitHub environment named `pypi`. **Add required reviewers here
-   if you want a manual approval gate before publish** — without this step,
-   any push of a matching tag publishes to PyPI unattended.
+1. **Create a GitHub environment named `pypi` and add required reviewers.**
+   This is not optional here: without it, any push of a matching tag
+   publishes to PyPI with no human in the loop, and a bad publish can never
+   be undone. Settings → Environments → New environment → `pypi` →
+   "Required reviewers".
 2. On PyPI, create a pending trusted publisher for:
    - owner: `RonaldHensbergen`
    - repository: `composable-data-stack`
    - workflow: `pypi.yml`
    - environment: `pypi`
-3. Bump `project.version` in `pyproject.toml` to the release version, merge
-   that change to `main`, then push a matching `vX.Y.Z` tag (or run
-   **Publish CLI to PyPI** via workflow-dispatch for a manual publish).
-   Published files and versions are immutable; a version can never be
-   re-uploaded, so a mistaken publish requires a new version bump.
+3. Bump `project.version` in `pyproject.toml` to a final (non-pre-release)
+   version, merge that change to `main`, then push a matching `vX.Y.Z` tag
+   (or run **Publish CLI to PyPI** via workflow-dispatch for a manual
+   publish from that same commit). Published files and versions are
+   immutable; a version can never be re-uploaded, so a mistaken publish
+   requires a new version bump.
 4. Verify the release:
 
    ```bash
