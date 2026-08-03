@@ -266,7 +266,6 @@ class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
                 "CDS-SEC-052",
                 "CDS-SEC-053",
                 "CDS-SEC-054",
-                "CDS-SEC-070",
                 "CDS-SEC-071",
             },
         )
@@ -274,6 +273,62 @@ class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
             with self.subTest(rule=rule["id"]):
                 self.assertIn("$comment", rule)
                 self.assertTrue(rule["$comment"].strip())
+
+
+class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
+    """
+    Regression tests for CDS-SEC-070 (#297).
+
+    CDS-SEC-070 previously had `scope: ["none"]`, which meant it was never
+    dispatched by run_security_validation() regardless of its
+    `"enabled": true` flag -- and its `valueRegex` was also malformed
+    (`"(?i)(--******"`, an invalid/unbalanced regex) since nothing ever
+    compiled or exercised it. This is exactly the rule that should have
+    caught the Vault dev-root-token-as-command-arg issue fixed in PR #290.
+
+    The fixtures under tests/fixtures/security/rendered-command-secret/
+    mirror that real module.yaml bug (and its fix) in miniature: one module
+    passes a secret through a Compose "command:" list argument (vulnerable,
+    pre-#290 shape), the other passes the same secret through
+    "environment:" instead (safe, post-#290 shape).
+    """
+
+    _FIXTURE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "security" / "rendered-command-secret"
+
+    def test_flags_a_secret_passed_via_command_line_argument(self):
+        profile_path = self._FIXTURE_ROOT / "profile" / "profile.yaml"
+        env_path = profile_path.parent / ".env"
+
+        findings, _diags = run_security_validation(
+            profile_path,
+            _RULE_SCHEMA_PATH,
+            _RULE_SET_PATH,
+            env_file=str(env_path),
+        )
+
+        hits = [f for f in findings if f["rule_id"] == "CDS-SEC-070"]
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["module"], "fake-vault")
+        self.assertIn("command", hits[0]["path"])
+
+    def test_does_not_flag_the_same_secret_passed_via_environment(self):
+        profile_path = self._FIXTURE_ROOT / "profile-safe" / "profile.yaml"
+        env_path = profile_path.parent / ".env"
+
+        findings, _diags = run_security_validation(
+            profile_path,
+            _RULE_SCHEMA_PATH,
+            _RULE_SET_PATH,
+            env_file=str(env_path),
+        )
+
+        hits = [f for f in findings if f["rule_id"] == "CDS-SEC-070"]
+        self.assertEqual(hits, [], "a secret passed via environment must not be flagged")
+
+    def test_cds_sec_070_scope_is_no_longer_none(self):
+        rule = next(r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-070")
+        self.assertNotEqual(rule["scope"], ["none"])
+        self.assertTrue(rule["enabled"])
 
 
 if __name__ == "__main__":
