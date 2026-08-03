@@ -100,9 +100,6 @@ Below, `local-dagster-postgres-superset` wires Dagster to Postgres to Superset t
 
 ```mermaid
 ---
-config:
-  layout: elk
----
 flowchart TD
     Dagster[Dagster]
     Postgres[(Postgres)]
@@ -141,9 +138,6 @@ consumption in Superset), see
 [docs/profile-testing/failure-path-and-ci.md](docs/profile-testing/failure-path-and-ci.md).
 
 ```mermaid
----
-config:
-  layout: elk
 ---
 flowchart TD
     subgraph compile["Compile-time (cds)"]
