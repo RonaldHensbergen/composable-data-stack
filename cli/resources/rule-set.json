@@ -184,14 +184,6 @@
       "match": {
         "any": [
           {
-            "equalsAny": [
-              "admin:admin",
-              "admin:password",
-              "postgres:postgres",
-              "superset:superset"
-            ]
-          },
-          {
             "pathPatterns": [
               "services.*.environment.ADMIN_USERNAME",
               "services.*.environment.ADMIN_PASSWORD",

@@ -190,6 +190,33 @@ class EnvFilePathRuleTest(unittest.TestCase):
         self.assertTrue(hits[0]["path"].endswith("tests/fixtures/security/profile-scoped-env/.env"))
         self.assertEqual(hits[0]["module"], "<env>")
 
+    def test_cds_sec_010_has_no_unguarded_equalsany_branch(self):
+        """CDS-SEC-010's dead first branch stays removed.
+
+        That branch was an ``equalsAny`` on colon-joined ``user:password``
+        defaults with no path/key gate. It could never match: every flattened
+        value is a bare username or password (never a combined pair), and
+        ``equalsAny`` is exact whole-string equality, so the branch contributed
+        no detections while implying coverage it did not provide.
+        """
+        rule = next(r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-010")
+        for branch in rule["match"]["any"]:
+            if "equalsAny" in branch:
+                self.assertTrue(
+                    "pathPatterns" in branch or "keyRegex" in branch,
+                    "an unguarded equalsAny branch on 'user:password' values is dead code",
+                )
+
+    def test_cds_sec_010_still_flags_default_admin_password(self):
+        """Removing the dead branch must not weaken the working detection."""
+        rule = next(r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-010")
+        gated = next(b for b in rule["match"]["any"] if "pathPatterns" in b)
+        path = "services.superset.environment.ADMIN_PASSWORD"
+        self.assertTrue(_eval_condition(path, "ADMIN_PASSWORD", "password", gated, "prod"))
+        self.assertFalse(
+            _eval_condition(path, "ADMIN_PASSWORD", "s3cr3t-unique-value", gated, "prod")
+        )
+
     def test_does_not_flag_the_conventional_project_root_env_file(self):
         """
         Regression guard for CDS-SEC-031 previously matching *every* env file
