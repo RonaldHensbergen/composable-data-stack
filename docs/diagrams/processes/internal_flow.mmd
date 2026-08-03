@@ -1,0 +1,43 @@
+flowchart TD
+    subgraph compile["Compile-time (cds)"]
+        direction TB
+        Profile[/profile.yaml/]
+        Validate[Validate]
+        Security["Security checks<br/>(cds test only)"]
+        Plan[Plan]
+        Render[Render]
+        Compose[/docker-compose.yaml/]
+        Stop1((stops here))
+
+        Profile --> Validate
+        Validate -->|structural + contract checks| Security
+        Security -->|rule-based checks| Plan
+        Plan -->|resolve + substitute| Render
+        Render --> Compose
+
+        Validate -.->|E020, E041, E042, E081| Stop1
+    end
+
+    subgraph runtime["Runtime (docker compose, cds up only)"]
+        direction TB
+        Build["docker compose build<br/>(skip with --no-build)"]
+        Up["docker compose up"]
+        Env[(".env file")]
+        Containers["running containers,<br/>real secret values injected"]
+
+        Build --> Up
+        Env -.->|resolves CDS_VAR| Up
+        Up --> Containers
+    end
+
+    Compose --> Build
+
+    classDef stage stroke:#818cf8,fill:#eef2ff
+    classDef artifact stroke:#2dd4bf,fill:#f0fdfa
+    classDef stop stroke:#f87171,fill:#fef2f2,stroke-dasharray: 3 3
+    classDef runtimeNode stroke:#a78bfa,fill:#f5f3ff
+
+    class Validate,Security,Plan,Render stage
+    class Profile,Compose artifact
+    class Stop1 stop
+    class Build,Up,Env,Containers runtimeNode

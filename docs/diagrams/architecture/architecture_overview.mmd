@@ -1,0 +1,15 @@
+flowchart TD
+    Dagster[Dagster]
+    Postgres[(Postgres)]
+    Superset[Superset]
+
+    Dagster -->|transformation-runner| Postgres
+    Postgres -->|warehouse-query| Superset
+
+    classDef tool stroke:#818cf8,fill:#eef2ff
+    classDef database stroke:#2dd4bf,fill:#f0fdfa
+    classDef viz stroke:#a78bfa,fill:#f5f3ff
+
+    class Dagster tool
+    class Postgres database
+    class Superset viz
