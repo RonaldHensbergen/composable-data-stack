@@ -27,7 +27,6 @@ These are considered production-ready in the current release (v0.4.0-beta-1):
 These work but may have breaking changes in upcoming releases:
 
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
-- `cds up` — implemented; not yet directly exercised in CI (the MVP proof workflow validates and renders separately, then delegates to `docker compose` directly)
 - `cds test` — implemented; not yet exercised in CI or real contributor usage
 
 ---
@@ -36,6 +35,14 @@ These work but may have breaking changes in upcoming releases:
 
 - 📋 **Publish CLI to PyPI** — enable `pipx install composable-data-stack` and `pip install composable-data-stack` (#52)
 - Profile: `local-dagster-postgres-superset-vault` - not tested thoroughly yet
+- 📋 **Stabilize Vault-backed profile** — validate and harden `local-dagster-postgres-superset-vault` for regular use
+- 📋 **Profile Retrieval & Update milestone**
+  - add tracking metadata for fetched CDS configuration assets
+  - add `cds get` to fetch a profile and its dependencies from a repository
+  - add `cds update` to refresh tracked profiles, modules, and contracts
+- 📋 **Dynamic Composition follow-up**
+  - allow runtime-generated profiles for planning and composition
+  - strengthen compatibility validation beyond plain contract `kind` matching
 
 ---
 
