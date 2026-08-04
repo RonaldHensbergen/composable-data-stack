@@ -1,0 +1,28 @@
+name: CDS Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  cds-test:
+    name: CDS Test (Stable Profile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run CDS test against stable profile
+        run: |
+          cds test local-dagster-postgres-superset
