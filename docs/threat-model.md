@@ -196,7 +196,7 @@ more of the follow-up issues.
 | T1 | Hardcoded secret committed to a profile/module YAML | D | `CDS-SEC-001`–`004`, `CDS-SEC-033` | Detection only for known patterns; no repo-wide secret scanning in CI. Tracked outside this milestone. |
 | T2 | Resolved secret leaks into `cds plan`/`validate` stdout or a generated Compose file | D | Placeholder rendering (`cli/renderer.py`) + regression tests; `CDS-SEC-006`/`030`/`071` are policy intent, not evaluated (`scope: ["none"]`; `030`/`071` also `enabled: false`) | Covered by the placeholder-rendering control and its regression tests, not by the rule engine. Re-verify under #216 process-manager change (new log surfaces). |
 | T3 | Secret passed via container `command:` args, visible in `docker inspect`/process list | B/D | `CDS-SEC-070` scope bug (issue #297) | **High** — rule currently never fires (dead scope). Needs fix before #206/#216 can rely on it. |
-| T4 | Weak/default/reused credentials (DB, admin UI, cache) | B | `CDS-SEC-010`–`012` active; `CDS-SEC-010`'s first branch is dead code (#292), `CDS-SEC-013` is `enabled: false` | Partial coverage only — not all of 010–013 are active. **Owning issue: #206.** |
+| T4 | Weak/default/reused credentials (DB, admin UI, cache) | B | `CDS-SEC-010`–`012` active and fully functional (#292's dead branch was removed by #344); `CDS-SEC-013` is `enabled: false` | Partial coverage only — `CDS-SEC-013` is not active. **Owning issue: #206.** |
 | T5 | No authentication required on relational DB / cache in production | B | None enforced today; `keydb` password field exists but `connectionUri` doesn't embed it (#291) | **High** — no production-mode enforcement that auth is mandatory. **Owning issue: #206.** |
 | T6 | Env var falls back to an insecure default when unset (`${VAR:-admin}`) | D | `CDS-SEC-040`/`041`, but issue #295 notes `${VAR:-fallback}` with a hardcoded insecure default isn't flagged by `cds preflight` | Medium — partially covered by security rules, gap in preflight. |
 | T7 | Secret provider unreachable/misconfigured, workload silently runs with no secret | D | `CDS-SEC-011` (missing required auth secret) | Covered for known contract fields. |
@@ -226,8 +226,8 @@ more of the follow-up issues.
 
 | # | Attack path | Boundary | Current control | Residual risk / owning issue |
 | --- | --- | --- | --- | --- |
-| T19 | Image pulled by `:latest` or unpinned tag, silently changes underneath a deployment | C | `CDS-SEC-050`, `CDS-SEC-054` active; `CDS-SEC-053` is `scope: ["none"]` (deferred, not evaluated) — actual enforcement here comes from `cli/image_verification.py`'s digest-pin checks | Covered by rule plus `cli/image_verification.py`, not by `CDS-SEC-053` itself. |
-| T20 | Image pulled without a digest pin, tag can be repointed at the registry | C | `CDS-SEC-051` | Covered by rule. |
+| T19 | Image pulled by `:latest` or unpinned tag, silently changes underneath a deployment | C | `CDS-SEC-050`, `CDS-SEC-053`, and `CDS-SEC-054` are all `scope: ["none"]` (documented policy intent, not evaluated by the rule engine) — actual enforcement here comes entirely from `cli/image_verification.py`'s digest-pin checks | Covered by `cli/image_verification.py`, not by `CDS-SEC-050`/`053`/`054` themselves. |
+| T20 | Image pulled without a digest pin, tag can be repointed at the registry | C | `CDS-SEC-051` is `scope: ["none"]` (documented policy intent, not evaluated) — actual enforcement is `cli/image_verification.py`'s digest-pin check | Covered by `cli/image_verification.py`, not by `CDS-SEC-051` itself. |
 | T21 | Image pulled from an untrusted/typo-squatted registry | C | `CDS-SEC-052`, case-insensitive allowlist (PR #337) | Covered. |
 | T22 | Image signature/provenance not verified — a tampered image is deployed with a valid-looking tag/digest | C | `cli/image_verification.py` (CDS-VER-001/002), cosign + fixture fallback (PR #330) | Covered for `full` mode; **gap:** default policy mode may be `off`/`policy` outside production — verify defaults match #206/#216 auth requirements. |
 | T22a | `tests/fixtures/signed-images.json` is trusted as a substitute for an actual cosign check: any entry with a matching digest and `"signed": true` passes verification with no cosign call at all (`cli/image_verification.py` fixture-match path) | C | None — the fixture is an ordinary repo file | **High** — an insider with repo write access (§4) can flip one fixture entry to mark a backdoored digest as signed, and `cds security --verify-images` will accept it. Owning issue: none yet; flag for #209/#211 as a supply-chain control gap alongside CI rescanning. |
@@ -254,10 +254,11 @@ follow-up issue:
    single compromised or misconfigured service to fully compromise
    confidentiality or availability of the whole stack. Owners: #206, #70,
    #205, #211, #210.
-2. **T3 / T4** — dead/buggy security rules (`CDS-SEC-070` never fires,
-   `CDS-SEC-010`'s first branch is dead code) give false confidence that
-   credential-leak and default-credential classes are caught when they are
-   not. Owner: #206 (plus the standalone bug issues #297, #292).
+2. **T3 / T4** — `CDS-SEC-070` never fires (dead scope, #297) and
+   `CDS-SEC-013` is disabled, giving false confidence that credential-leak
+   and default-credential classes are fully caught when coverage is only
+   partial. Owner: #206 (plus the standalone bug issue #297; #292's dead
+   branch in `CDS-SEC-010` was already fixed by #344).
 3. **T15 / T18** — missing runtime confinement and production process
    managers increase the blast radius of a successful application-layer
    compromise but require an existing compromise to matter. Owners: #207,
@@ -316,7 +317,10 @@ follow-up issue:
 7. **Supply-chain verification testing.** Attempt to deploy a tampered image
    with a forged tag/digest and confirm `cds security --verify-images`
    rejects it; confirm a `latest`/unpinned tag is flagged before reaching
-   this phase (validates T19–T22, T22a, T24).
+   this phase; separately, attempt to tamper with
+   `tests/fixtures/signed-images.json` itself (e.g. marking a bad digest as
+   `"signed": true`) to confirm this is flagged as a supply-chain gap rather
+   than silently accepted (validates T19–T22, T22a, T24).
 8. **Backup/restore drill.** Trigger a full data-loss simulation (destroy the
    warehouse volume) and time the restore against the RPO/RTO targets defined
    once #210 lands (validates T26, T27).
