@@ -165,8 +165,71 @@ pipx install ./composable_data_stack-*.whl
 cds --help
 ```
 
-Publishing to production PyPI remains a separate release step. Do not reuse a
-TestPyPI-only workflow or repository URL for production.
+Publishing to production PyPI uses a separate workflow, environment, and
+trusted publisher, described next. Do not reuse the TestPyPI workflow or
+repository URL for production.
+
+## PyPI publishing (production)
+
+`.github/workflows/pypi.yml` reuses the same build/check/wheel-smoke-test
+job as TestPyPI (factored out into
+`.github/workflows/build-python-package.yml` as a reusable `workflow_call`
+so a fix to one flow can't accidentally be forgotten in the other), then
+publishes to production PyPI using trusted publishing (no stored API
+token). It runs on `v*.*.*` tag pushes (the same tags
+`.github/workflows/release.yml` reacts to) or via manual workflow-dispatch.
+Every run — tag push or manual dispatch — checks `project.version` in
+`pyproject.toml` against `scripts/check_release_version.py`'s
+`--block-prerelease` guard: a tag push checks the pushed tag against
+`pyproject.toml`; a manual dispatch has no tag ref to check, so it instead
+checks `pyproject.toml`'s own declared version against itself, which still
+enforces the pre-release block below. Always trigger a manual publish from
+the commit you intend to release, since dispatch never verifies the working
+tree against a tag.
+
+`v*.*.*` also matches pre-release tags (for example `v0.4.0b1`), but
+`check_release_version.py` is invoked here with `--block-prerelease`, so a
+tag whose version is a pre-release (alpha/beta/rc/dev, per PEP 440) fails
+the version check and the workflow stops before `build`/`publish` ever run.
+Bump `project.version` in `pyproject.toml` to a final version before tagging
+a production release. (`release.yml`'s own version check keeps allowing
+pre-release tags — it only opens a draft GitHub release, not a PyPI publish —
+so this restriction is specific to `pypi.yml`.)
+
+**A pushed tag publishes to production PyPI immediately unless you gate it
+with required reviewers — do this before the first release.** Unlike
+`release.yml` (which opens a *draft* GitHub release for review before anyone
+hits publish), this workflow has no separate review step of its own, and a
+published version can never be replaced or re-uploaded. GitHub auto-creates
+the `pypi` environment the first time the workflow references it, and a
+freshly auto-created environment has **no required reviewers** by default —
+you must add them explicitly (step 1 below) or every tag push publishes
+unattended.
+
+Repository setup:
+
+1. **Create a GitHub environment named `pypi` and add required reviewers.**
+   This is not optional here: without it, any push of a matching tag
+   publishes to PyPI with no human in the loop, and a bad publish can never
+   be undone. Settings → Environments → New environment → `pypi` →
+   "Required reviewers".
+2. On PyPI, create a pending trusted publisher for:
+   - owner: `RonaldHensbergen`
+   - repository: `composable-data-stack`
+   - workflow: `pypi.yml`
+   - environment: `pypi`
+3. Bump `project.version` in `pyproject.toml` to a final (non-pre-release)
+   version, merge that change to `main`, then push a matching `vX.Y.Z` tag
+   (or run **Publish CLI to PyPI** via workflow-dispatch for a manual
+   publish from that same commit). Published files and versions are
+   immutable; a version can never be re-uploaded, so a mistaken publish
+   requires a new version bump.
+4. Verify the release:
+
+   ```bash
+   pipx install composable-data-stack
+   cds --help
+   ```
 
 ## Notes for installer authors
 
