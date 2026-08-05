@@ -13,7 +13,7 @@ metadata:
     project's models/tests against a consumed sql-database contract as a
     one-shot job, and optionally serves generated dbt docs via a small nginx
     sidecar. See images/dbt/README.md for why this image is pinned to
-    Python 3.12 instead of the repo's usual 3.14 base.
+    Python 3.13 instead of the repo's usual 3.14 base.
 
 spec:
   runtime:

@@ -11,15 +11,17 @@ generates and serves static `dbt docs` output.
 > `images/dagster`/`images/superset`); it is experimental and only built
 > locally via the `build:` block in `module.yaml`.
 
-## Why Python 3.12, not 3.14?
+## Why Python 3.13, not 3.14?
 
 Every other CDS-owned image (`images/dagster`, `images/superset`) is built on
 `python:3.14-slim`. This one deliberately is not: `dbt-core` 1.9.x crashes on
 Python 3.14 at import time (`mashumaro.exceptions.UnserializableField: Field
 "schema" of type Optional[str] in JSONObjectSchema is not serializable`) due
 to a `mashumaro`/typing incompatibility upstream. Verified locally with
-`dbt-core==1.9.4` / `dbt-postgres==1.9.0`, both of which install and run
-correctly on `python:3.12-slim`. Revisit this pin once dbt Labs ships a
+`dbt-core==1.9.4` / `dbt-postgres==1.9.0`: it crashes on 3.14, but installs
+and runs cleanly on `python:3.13-slim` (confirmed with `dbt --version`
+exiting `0` with no traceback), which is the smallest possible downgrade
+from the repo's usual base. Revisit this pin once dbt Labs ships a
 3.14-compatible `dbt-core` release.
 
 ## Configuration
