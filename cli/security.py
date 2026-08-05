@@ -20,7 +20,7 @@ from jsonschema import Draft202012Validator
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .secrets import load_secrets_from_env
-from .security_common import SEVERITY_ORDER, infer_profile_class
+from .security_common import SECRET_KEY_RE, SEVERITY_ORDER, infer_profile_class
 
 _PROFILE_SCOPES = {
     "profile",
@@ -355,7 +355,7 @@ def _check_secret_reuse(
     Detect the same secret value appearing under different keys.
     Ignores empty values and non-string values.
     """
-    _SECRET_KEY_RE = re.compile(r"(?i)(password|secret|token|key|credential|passwd|pwd)")
+    _SECRET_KEY_RE = SECRET_KEY_RE
 
     # Collect all (path, value) pairs that look like secrets
     value_to_locations: dict[str, list[tuple[str, str]]] = {}

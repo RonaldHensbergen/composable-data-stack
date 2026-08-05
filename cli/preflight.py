@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from .image_verification import default_fixture_path, load_policy_from_env, verify_images
-from .security_common import infer_profile_class
+from .security_common import SECRET_KEY_RE, infer_profile_class
 
 
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}")
@@ -110,12 +110,15 @@ def _run_runtime_command(
 
 
 def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck]:
-    required_names = {
-        match.group(1)
-        for match in _ENV_REFERENCE.finditer(compose_yaml)
-        if _reference_is_required(match.group(2))
-    }
-    if not required_names:
+    matches = list(_ENV_REFERENCE.finditer(compose_yaml))
+    required_names = {m.group(1) for m in matches if _reference_is_required(m.group(2))}
+    insecure_defaults = sorted({
+        m.group(1)
+        for m in matches
+        if _reference_has_insecure_default(m.group(1), m.group(2))
+    })
+
+    if not required_names and not insecure_defaults:
         return [
             PreflightCheck(
                 "PASS",
@@ -124,46 +127,56 @@ def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck
             )
         ]
 
-    try:
-        values = _load_env_values(env_file)
-    except OSError:
-        return [
-            PreflightCheck(
-                "FAIL",
-                "environment",
-                f"Environment file could not be read: {env_file}.",
-            )
-        ]
-    missing = sorted(name for name in required_names if not values.get(name, "").strip())
-    if missing:
-        return [
-            PreflightCheck(
-                "FAIL",
-                f"environment.{name}",
-                f'Required environment value "{name}" is missing or empty.',
-            )
-            for name in missing
-        ]
+    checks: list[PreflightCheck] = []
+    if required_names:
+        try:
+            values = _load_env_values(env_file)
+        except OSError:
+            return [
+                PreflightCheck(
+                    "FAIL",
+                    "environment",
+                    f"Environment file could not be read: {env_file}.",
+                )
+            ]
+        missing = sorted(name for name in required_names if not values.get(name, "").strip())
+        if missing:
+            return [
+                PreflightCheck(
+                    "FAIL",
+                    f"environment.{name}",
+                    f'Required environment value "{name}" is missing or empty.',
+                )
+                for name in missing
+            ]
 
-    placeholders = sorted(
-        name
-        for name in required_names
-        if values[name].strip().lower() in {"change-me", "changeme"}
-        or values[name].strip().lower().startswith("change-me-")
-    )
-    checks = [
-        PreflightCheck(
-            "PASS",
-            "environment",
-            f"All {len(required_names)} required runtime environment values are set.",
+        placeholders = sorted(
+            name
+            for name in required_names
+            if values[name].strip().lower() in {"change-me", "changeme"}
+            or values[name].strip().lower().startswith("change-me-")
         )
-    ]
-    if placeholders:
+        checks.append(
+            PreflightCheck(
+                "PASS",
+                "environment",
+                f"All {len(required_names)} required runtime environment values are set.",
+            )
+        )
+        if placeholders:
+            checks.append(
+                PreflightCheck(
+                    "WARN",
+                    "environment.placeholders",
+                    "Replace placeholder values for: " + ", ".join(placeholders) + ".",
+                )
+            )
+    if insecure_defaults:
         checks.append(
             PreflightCheck(
                 "WARN",
-                "environment.placeholders",
-                "Replace placeholder values for: " + ", ".join(placeholders) + ".",
+                "environment.insecure-defaults",
+                "Replace insecure hardcoded defaults for: " + ", ".join(insecure_defaults) + ".",
             )
         )
     return checks
@@ -173,14 +186,21 @@ def _reference_is_required(suffix: str) -> bool:
     return not suffix or suffix.startswith(":?") or suffix.startswith("?")
 
 
-def _check_images(plan: dict[str, Any], compose_yaml: str) -> list[PreflightCheck]:
-    """
-    Enforce the CDS image policy (registry allowlist, digest pins, and, in
-    full mode, cosign-verified signatures and provenance attestations).
+def _reference_default_value(suffix: str) -> str | None:
+    if suffix.startswith(":-"):
+        default = suffix[2:]
+    elif suffix.startswith("-"):
+        default = suffix[1:]
+    else:
+        return None
+    return default or None
 
-    Disabled when the policy mode resolves to "off"; production profiles
-    default to "policy" so static supply-chain checks run by default.
-    """
+
+def _reference_has_insecure_default(name: str, suffix: str) -> bool:
+    return _reference_default_value(suffix) is not None and bool(SECRET_KEY_RE.search(name))
+
+
+def _check_images(plan: dict[str, Any], compose_yaml: str) -> list[PreflightCheck]:
     policy = load_policy_from_env(infer_profile_class(plan))
     if policy.mode == "off":
         return []
