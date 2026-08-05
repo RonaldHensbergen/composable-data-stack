@@ -540,6 +540,7 @@ def _try_render_compose_for_scan(
     environment: str | None,
     plan: dict[str, Any] | None = None,
     rendered_compose_yaml: str | None = None,
+    skip_self_plan_render: bool = False,
 ) -> tuple[dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
     """
     Resolve the rendered Compose document (and its service->module map) used
@@ -550,7 +551,12 @@ def _try_render_compose_for_scan(
     right after security validation) can pass `plan` and/or
     `rendered_compose_yaml` in directly, so this doesn't redundantly plan
     and render the same profile a second time. When neither is supplied,
-    this does a best-effort plan + render itself.
+    this does a best-effort plan + render itself -- unless
+    `skip_self_plan_render` is set, which tells this function that the
+    caller already tried to plan/render the profile itself and it failed,
+    so retrying here would just repeat the same failure for no benefit
+    (e.g. `cds test`'s own "plan"/"render" stages already planned/rendered
+    and reported the failure with full diagnostics before calling this).
 
     A profile that fails to plan or render is not itself a bug in this
     scan -- those failures are already surfaced with full diagnostics by
@@ -563,6 +569,8 @@ def _try_render_compose_for_scan(
     #297 was about.
     """
     diagnostics: list[Diagnostic] = []
+    if skip_self_plan_render and rendered_compose_yaml is None:
+        return None, {}, diagnostics
     try:
         if rendered_compose_yaml is None:
             if plan is None:
@@ -570,10 +578,30 @@ def _try_render_compose_for_scan(
                     str(profile_path), env_file=env_file, environment=environment,
                 )
                 if plan is None or any(d.level == "error" for d in plan_diags):
+                    diagnostics.append(Diagnostic(
+                        level="warning",
+                        code="W096",
+                        message=(
+                            "Rendered-compose security checks (e.g. CDS-SEC-070) "
+                            "were skipped because the profile could not be "
+                            "planned; run 'cds plan' for details."
+                        ),
+                        path="spec.modules",
+                    ))
                     return None, {}, diagnostics
 
             rendered_compose_yaml, render_diags = render_compose(plan, env_file=env_file)
             if any(d.level == "error" for d in render_diags):
+                diagnostics.append(Diagnostic(
+                    level="warning",
+                    code="W096",
+                    message=(
+                        "Rendered-compose security checks (e.g. CDS-SEC-070) "
+                        "were skipped because the profile could not be "
+                        "rendered; run 'cds render' for details."
+                    ),
+                    path="spec.modules",
+                ))
                 return None, {}, diagnostics
 
         rendered = yaml.safe_load(rendered_compose_yaml)
@@ -605,6 +633,7 @@ def run_security_validation(
     environment: str | None = None,
     plan: dict[str, Any] | None = None,
     rendered_compose_yaml: str | None = None,
+    skip_self_plan_render: bool = False,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     """
     Validate a profile and its .env secrets against the rule set.
@@ -633,6 +662,12 @@ def run_security_validation(
             to avoid rendering it again here. Ignored if `plan` is also
             None (there would be nothing to derive a service->module map
             from), unless it's supplied together with `plan`.
+        skip_self_plan_render: If True and no `rendered_compose_yaml` was
+            supplied, don't attempt a best-effort plan+render internally.
+            Set this when the caller already tried to plan and/or render
+            the profile itself and it failed (e.g. `cds test`'s own
+            "plan"/"render" stages), so this doesn't repeat the same
+            failing work for no benefit.
 
     Returns:
         Tuple of (findings, diagnostics). Findings are sorted by severity,
@@ -658,10 +693,23 @@ def run_security_validation(
 
     flat_profile = _flatten_profile_by_module(profile, profile_dir=profile_path.parent)
     flat_env = _flatten_env_inputs(secrets, env_file)
-    rendered_compose, service_to_module, render_scan_diags = _try_render_compose_for_scan(
-        profile_path, env_file, environment,
-        plan=plan, rendered_compose_yaml=rendered_compose_yaml,
+
+    # Planning and rendering the profile is only useful when some enabled
+    # rule actually declares the "rendered-compose" scope -- e.g. a custom
+    # rule set may omit CDS-SEC-070 entirely, in which case doing a full
+    # plan+render here would be wasted work on every security scan.
+    needs_rendered_compose = any(
+        rule.get("enabled", True) and set(rule.get("scope", [])) & _RENDERED_COMPOSE_SCOPES
+        for rule in rule_set["rules"]
     )
+    if needs_rendered_compose:
+        rendered_compose, service_to_module, render_scan_diags = _try_render_compose_for_scan(
+            profile_path, env_file, environment,
+            plan=plan, rendered_compose_yaml=rendered_compose_yaml,
+            skip_self_plan_render=skip_self_plan_render,
+        )
+    else:
+        rendered_compose, service_to_module, render_scan_diags = None, {}, []
     flat_rendered = _flatten_rendered_leak_surfaces(rendered_compose, service_to_module)
 
     findings: list[dict[str, Any]] = []
