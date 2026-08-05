@@ -1238,6 +1238,7 @@ def main() -> int:
                     redact_values=not args.reveal_secrets,
                     plan=plan if plan_ok else None,
                     rendered_compose_yaml=compose_yaml if render_ok else None,
+                    skip_self_plan_render=not (plan_ok and render_ok),
                 )
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)

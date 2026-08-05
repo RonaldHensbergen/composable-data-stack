@@ -809,7 +809,7 @@
     },
     {
       "id": "CDS-SEC-070",
-      "$comment": "Evaluated against the rendered Compose services.*.command/entrypoint/healthcheck/logging fields (the \"rendered-compose\" scope), not raw profile/env inputs -- see _flatten_rendered_leak_surfaces in cli/security.py. This is the check that would have caught the Vault dev-root-token-as-command-arg issue fixed in PR #290.",
+      "$comment": "Evaluated against the rendered Compose services.*.command/entrypoint/healthcheck/logging fields (the \"rendered-compose\" scope), not raw profile/env inputs -- see _flatten_rendered_leak_surfaces in cli/security.py. This is the check that would have caught the Vault dev-root-token-as-command-arg issue fixed in PR #290. Only the \"${CDS_\" arm below can ever fire against rendered output: keyRegex only tests the final path segment (cli/security.py's path.split(\".\")[-1]), which for rendered command/entrypoint/healthcheck items is a list index like \"command[2]\" and for logging is an ordinary leaf key like \"driver\" -- never a password/secret/token/key-shaped name. And \"${secrets.*}\" is always resolved to \"${CDS_*}\" by render time, while an unresolved \"${config.*}\" raises E071 and stops the render (see _try_render_compose_for_scan), so that alternative can never appear in a successfully rendered document either.",
       "title": "Secret appears in command args or log configuration",
       "severity": "high",
       "category": "observability-leakage",
@@ -823,25 +823,7 @@
               "services.*.healthcheck*",
               "services.*.logging*"
             ],
-            "keyRegex": "(?i)(password|secret|token|key)"
-          },
-          {
-            "pathPatterns": [
-              "services.*.command*",
-              "services.*.entrypoint*",
-              "services.*.healthcheck*",
-              "services.*.logging*"
-            ],
-            "valueRegex": "(?i)-{1,2}[a-z][a-z-]*(password|secret|token|key)[a-z-]*=\\$\\{"
-          },
-          {
-            "pathPatterns": [
-              "services.*.command*",
-              "services.*.entrypoint*",
-              "services.*.healthcheck*",
-              "services.*.logging*"
-            ],
-            "valueRegex": "\\$\\{(CDS_|config\\.|secrets\\.)"
+            "valueRegex": "\\$\\{CDS_"
           }
         ]
       },

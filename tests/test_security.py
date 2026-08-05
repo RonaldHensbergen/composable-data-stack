@@ -351,6 +351,27 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         self.assertNotEqual(rule["scope"], ["none"])
         self.assertTrue(rule["enabled"])
 
+    def test_cds_sec_070_has_no_dead_match_branches(self):
+        """
+        Regression guard: two of the original three `match.any` branches
+        could never fire against rendered output. `keyRegex` only tests
+        the final path segment (`path.split(".")[-1]`), which for
+        flattened command/entrypoint/healthcheck items is a list index
+        like "command[2]" and for logging is an ordinary leaf key like
+        "driver" -- never a password/secret/token/key-shaped name. And
+        "${secrets.*}" always resolves to "${CDS_*}" by render time, while
+        an unresolved "${config.*}" raises E071 and stops the render
+        before this rule ever sees it, so a "config." / "secrets."
+        alternative in the valueRegex is equally dead. Only a single
+        working branch should remain.
+        """
+        rule = next(r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-070")
+        branches = rule["match"]["any"]
+        self.assertEqual(len(branches), 1, f"expected exactly one live branch, got {branches}")
+        self.assertNotIn("keyRegex", branches[0])
+        self.assertNotIn("config\\.", branches[0].get("valueRegex", ""))
+        self.assertNotIn("secrets\\.", branches[0].get("valueRegex", ""))
+
     def test_findings_are_attributed_to_the_module_id_not_the_compose_service_name(self):
         """
         Regression guard: _flatten_rendered_leak_surfaces() previously used
@@ -450,6 +471,73 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         self.assertEqual(
             [f for f in findings if f["rule_id"] == "CDS-SEC-070"], [],
         )
+
+    def test_skip_self_plan_render_avoids_replanning_a_profile_known_to_fail(self):
+        """
+        Regression guard: `cds test` used to always pass `plan=None,
+        rendered_compose_yaml=None` when its own "plan"/"render" stages
+        failed, which made run_security_validation() silently retry (and
+        re-fail) the same build_plan()/render_compose() calls a caller had
+        already run and reported diagnostics for. `skip_self_plan_render`
+        lets a caller that already knows planning/rendering failed opt out
+        of that redundant retry.
+        """
+        profile_path = self._FIXTURE_ROOT / "profile" / "profile.yaml"
+        env_path = profile_path.parent / ".env"
+
+        with unittest.mock.patch(
+            "cli.security.build_plan",
+            side_effect=AssertionError("build_plan should not be retried"),
+        ):
+            findings, _diags = run_security_validation(
+                profile_path,
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                env_file=str(env_path),
+                skip_self_plan_render=True,
+            )
+
+        self.assertEqual(
+            [f for f in findings if f["rule_id"] == "CDS-SEC-070"], [],
+        )
+
+    def test_does_not_plan_or_render_when_no_enabled_rule_uses_rendered_compose_scope(self):
+        """
+        Planning and rendering a profile is pure overhead when the active
+        rule set has no enabled "rendered-compose"-scoped rule (e.g. a
+        custom rule set that omits CDS-SEC-070, or has it disabled). Guard
+        against doing that work unconditionally on every security scan.
+        """
+        profile_path = self._FIXTURE_ROOT / "profile" / "profile.yaml"
+        env_path = profile_path.parent / ".env"
+
+        rule_set = json.loads(_RULE_SET_PATH.read_text())
+        for rule in rule_set["rules"]:
+            if rule["id"] == "CDS-SEC-070":
+                rule["enabled"] = False
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False,
+        ) as tmp_rule_set:
+            json.dump(rule_set, tmp_rule_set)
+            tmp_rule_set_path = Path(tmp_rule_set.name)
+
+        try:
+            with unittest.mock.patch(
+                "cli.security.build_plan",
+                side_effect=AssertionError("build_plan should not be called"),
+            ):
+                findings, _diags = run_security_validation(
+                    profile_path,
+                    _RULE_SCHEMA_PATH,
+                    tmp_rule_set_path,
+                    env_file=str(env_path),
+                )
+            self.assertEqual(
+                [f for f in findings if f["rule_id"] == "CDS-SEC-070"], [],
+            )
+        finally:
+            tmp_rule_set_path.unlink()
 
 
 if __name__ == "__main__":
