@@ -178,11 +178,14 @@ so a fix to one flow can't accidentally be forgotten in the other), then
 publishes to production PyPI using trusted publishing (no stored API
 token). It runs on `v*.*.*` tag pushes (the same tags
 `.github/workflows/release.yml` reacts to) or via manual workflow-dispatch.
-A tag push re-checks that the tag matches `project.version` in
-`pyproject.toml` using the shared `scripts/check_release_version.py` guard;
-a manual dispatch run skips that check, since dispatch has no tag ref to
-verify against — always trigger a manual publish from the commit you intend
-to release.
+Every run — tag push or manual dispatch — checks `project.version` in
+`pyproject.toml` against `scripts/check_release_version.py`'s
+`--block-prerelease` guard: a tag push checks the pushed tag against
+`pyproject.toml`; a manual dispatch has no tag ref to check, so it instead
+checks `pyproject.toml`'s own declared version against itself, which still
+enforces the pre-release block below. Always trigger a manual publish from
+the commit you intend to release, since dispatch never verifies the working
+tree against a tag.
 
 `v*.*.*` also matches pre-release tags (for example `v0.4.0b1`), but
 `check_release_version.py` is invoked here with `--block-prerelease`, so a
