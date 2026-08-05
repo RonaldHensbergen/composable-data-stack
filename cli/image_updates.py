@@ -10,6 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .loader import load_yaml_file
+from .planner import MaxNestingDepthExceeded, apply_defaults, substitute_string
 
 DOCKER_HUB_API = "https://hub.docker.com/v2/repositories"
 SEMVER_PATTERN = re.compile(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?$")
@@ -23,6 +24,24 @@ def _read_max_pages() -> int:
         return 3
     return value if value > 0 else 3
 
+def _default_config_context(module_def: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Build a ${config.*}-only interpolation context from a module's configSchema
+    defaults, so build.dockerfile (and other compose template) expressions that
+    reference ${config.*} (e.g. a variant selector) can be statically resolved
+    without a profile. Bindings/secrets are intentionally left empty since
+    those require profile-time contract resolution this function doesn't have.
+    """
+    config_schema = module_def.get("spec", {}).get("configSchema")
+    if not isinstance(config_schema, dict) or not config_schema:
+        return None
+    try:
+        default_config = apply_defaults({}, config_schema)
+    except MaxNestingDepthExceeded:
+        return None
+    return {"config": default_config, "bindings": {}, "service": {}, "secrets": {}}
+
+
 def collect_module_images(module_root: Path) -> list[dict[str, Any]]:
     images: list[dict[str, Any]] = []
     for module_file in sorted(module_root.rglob("module.yaml")):
@@ -32,7 +51,10 @@ def collect_module_images(module_root: Path) -> list[dict[str, Any]]:
 
         module_name = str(module_file.parent.relative_to(module_root))
         compose = module_def.get("spec", {}).get("implementation", {}).get("compose", {})
-        module_images = find_images_in_compose(compose, module_dir=module_file.parent)
+        context = _default_config_context(module_def)
+        module_images = find_images_in_compose(
+            compose, module_dir=module_file.parent, context=context
+        )
         # ^^^ pass module_dir so build contexts can be resolved
 
         for service_name, image, dockerfile in module_images:
@@ -47,6 +69,7 @@ def find_images_in_compose(
     compose: Any,
     service_name: str | None = None,
     module_dir: Path | None = None,
+    context: dict[str, Any] | None = None,
 ) -> list[tuple[str, str, Path | None]]:
     images: list[tuple[str, str, Path | None]] = []
 
@@ -58,14 +81,21 @@ def find_images_in_compose(
                 build = compose["build"]
                 if isinstance(build, str):
                     # build: ./path  (shorthand)
-                    context = module_dir / build
-                    candidate = context / "Dockerfile"
+                    build_context = module_dir / build
+                    candidate = build_context / "Dockerfile"
                     dockerfile = candidate if candidate.is_file() else None
                 elif isinstance(build, dict):
                     context_str = build.get("context", ".")
                     df_name = build.get("dockerfile", "Dockerfile")
-                    context = module_dir / context_str
-                    candidate = context / df_name
+                    if context is not None and isinstance(df_name, str):
+                        # Resolve ${config.*} template expressions (e.g. a
+                        # variant selector) using configSchema defaults so the
+                        # default variant's Dockerfile can still be located.
+                        resolved = substitute_string(df_name, context)
+                        if isinstance(resolved, str):
+                            df_name = resolved
+                    build_context = module_dir / context_str
+                    candidate = build_context / df_name
                     dockerfile = candidate if candidate.is_file() else None
 
             images.append((service_name or "<root>", compose["image"], dockerfile))
@@ -74,16 +104,24 @@ def find_images_in_compose(
             if key == "services" and isinstance(value, dict):
                 for svc_name, svc_def in value.items():
                     images.extend(
-                        find_images_in_compose(svc_def, service_name=svc_name, module_dir=module_dir)
+                        find_images_in_compose(
+                            svc_def, service_name=svc_name, module_dir=module_dir, context=context
+                        )
                     )
             elif key != "build":  # don't recurse into build blocks
                 images.extend(
-                    find_images_in_compose(value, service_name=service_name, module_dir=module_dir)
+                    find_images_in_compose(
+                        value, service_name=service_name, module_dir=module_dir, context=context
+                    )
                 )
 
     elif isinstance(compose, list):
         for item in compose:
-            images.extend(find_images_in_compose(item, service_name=service_name, module_dir=module_dir))
+            images.extend(
+                find_images_in_compose(
+                    item, service_name=service_name, module_dir=module_dir, context=context
+                )
+            )
 
     return images
 
