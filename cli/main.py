@@ -1209,6 +1209,25 @@ def main() -> int:
         if not validate_ok:
             print_diagnostics(diagnostics)
 
+        # Plan and render are computed once here (rather than once more per
+        # stage) so the "security" stage's "rendered-compose"-scoped rules
+        # (e.g. CDS-SEC-070) can reuse the same plan/rendered Compose the
+        # later "plan"/"render" stages report on, instead of planning and
+        # rendering the same profile a second time internally.
+        env_file = str(resolve_env_file_path(profile_path))
+        plan = None
+        plan_diags: list[Diagnostic] = []
+        plan_ok = False
+        compose_yaml = None
+        render_diags: list[Diagnostic] = []
+        render_ok = False
+        if validate_ok:
+            plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
+            plan_ok = not has_errors(diagnostics + plan_diags)
+            if plan_ok:
+                compose_yaml, render_diags = render_compose(plan, env_file=env_file)
+                render_ok = not has_errors(render_diags)
+
         security_ok = False
         if validate_ok:
             try:
@@ -1217,6 +1236,8 @@ def main() -> int:
                     env_file=str(resolve_env_file_path(profile_path)),
                     environment=args.environment,
                     redact_values=not args.reveal_secrets,
+                    plan=plan if plan_ok else None,
+                    rendered_compose_yaml=compose_yaml if render_ok else None,
                 )
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)
@@ -1235,22 +1256,14 @@ def main() -> int:
         else:
             stages.append(("security", "SKIP"))
 
-        env_file = str(resolve_env_file_path(profile_path))
-        plan = None
-        plan_ok = False
         if validate_ok:
-            plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
-            plan_ok = not has_errors(diagnostics + plan_diags)
             if not plan_ok:
                 print_diagnostics(plan_diags)
             stages.append(("plan", "PASS" if plan_ok else "FAIL"))
         else:
             stages.append(("plan", "SKIP"))
 
-        render_ok = False
         if validate_ok and plan_ok:
-            _, render_diags = render_compose(plan, env_file=env_file)
-            render_ok = not has_errors(render_diags)
             if not render_ok:
                 print_diagnostics(render_diags)
             stages.append(("render", "PASS" if render_ok else "FAIL"))
