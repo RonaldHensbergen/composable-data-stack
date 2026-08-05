@@ -20,7 +20,7 @@ from jsonschema import Draft202012Validator
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .planner import build_plan
-from .renderer import render_compose
+from .renderer import _compose_service_name, render_compose
 from .secrets import load_secrets_from_env
 from .security_common import SEVERITY_ORDER, infer_profile_class
 
@@ -50,9 +50,10 @@ _RENDERED_COMPOSE_SCOPES = {
 }
 
 # Compose service keys where a value is exposed via process listings
-# (command args / entrypoint) or captured in logging configuration, as
-# opposed to "environment", which is comparatively better protected.
-_LEAK_PRONE_SERVICE_KEYS = ("command", "entrypoint", "logging")
+# (command args / entrypoint / healthcheck probe) or captured in logging
+# configuration, as opposed to "environment", which is comparatively
+# better protected.
+_LEAK_PRONE_SERVICE_KEYS = ("command", "entrypoint", "healthcheck", "logging")
 # ---------------------------------------------------------------------------
 # File I/O
 # ---------------------------------------------------------------------------
@@ -207,18 +208,29 @@ def _flatten_env_inputs(
 
 def _flatten_rendered_leak_surfaces(
     compose: dict[str, Any] | None,
+    service_to_module: dict[str, str] | None = None,
 ) -> list[tuple[str, str, Any]]:
     """
     Flatten only the leak-prone parts of a rendered Compose document:
-    each service's "command", "entrypoint", and "logging" fields.
+    each service's "command", "entrypoint", "healthcheck", and "logging"
+    fields.
 
     Unlike the profile flattener, this operates on the fully rendered
     Compose model, so "${config.x}" module template references have
     already been resolved to their final "${CDS_*}" Compose-time
     placeholders (or literal values) -- the actual shape a rule needs to
     inspect to tell whether a secret-bearing value ends up somewhere that
-    leaks via process listings (command/entrypoint) or log configuration,
-    rather than the module.yaml source or profile config that produced it.
+    leaks via process listings (command/entrypoint/healthcheck) or log
+    configuration, rather than the module.yaml source or profile config
+    that produced it.
+
+    `service_to_module` maps a rendered Compose service name (e.g.
+    "vault-vault") back to the profile module id that produced it (e.g.
+    "vault"), so findings attribute the same "module" identity other rules
+    use. Compose service names are namespaced by the renderer
+    (`_compose_service_name`) and don't always equal the module id; when no
+    mapping is supplied (or a service name has none), the raw Compose
+    service name is used as a documented fallback.
     """
     if not isinstance(compose, dict):
         return []
@@ -227,16 +239,18 @@ def _flatten_rendered_leak_surfaces(
     if not isinstance(services, dict):
         return []
 
+    service_to_module = service_to_module or {}
     results: list[tuple[str, str, Any]] = []
     for service_name, service_def in services.items():
         if not isinstance(service_def, dict):
             continue
+        module_id = service_to_module.get(service_name, service_name)
         for key in _LEAK_PRONE_SERVICE_KEYS:
             if key not in service_def:
                 continue
             base_path = f"services.{service_name}.{key}"
             for path, value in _flatten(service_def[key], base_path):
-                results.append((service_name, path, value))
+                results.append((module_id, path, value))
     return results
 
 
@@ -486,36 +500,96 @@ def _rule_matches(
     return findings
 
 
+def _map_service_to_module(plan: dict[str, Any] | None) -> dict[str, str]:
+    """
+    Build a rendered-Compose-service-name -> module-id map from a plan.
+
+    The renderer namespaces each module's Compose service keys via
+    `_compose_service_name(module_id, service_name)` (e.g. module "vault"'s
+    "vault" service key becomes the rendered "vault-vault" service name),
+    so a rendered service name doesn't always equal its owning module id.
+    Findings should attribute the same module identity every other rule
+    uses, so this recomputes the same namespacing the renderer applies
+    (reusing its private helper directly, rather than re-implementing the
+    naming rule and risking drift) against each module's pre-render
+    Compose service keys from the plan.
+    """
+    if not isinstance(plan, dict):
+        return {}
+
+    mapping: dict[str, str] = {}
+    for module in plan.get("modules", []):
+        if not isinstance(module, dict):
+            continue
+        module_id = module.get("id")
+        if not module_id:
+            continue
+        compose_services = (
+            module.get("implementation", {}).get("compose", {}).get("services", {})
+        )
+        if not isinstance(compose_services, dict):
+            continue
+        for service_name in compose_services:
+            mapping[_compose_service_name(module_id, service_name)] = module_id
+    return mapping
+
+
 def _try_render_compose_for_scan(
     profile_path: Path,
     env_file: str | None,
     environment: str | None,
-) -> dict[str, Any] | None:
+    plan: dict[str, Any] | None = None,
+    rendered_compose_yaml: str | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
     """
-    Best-effort plan + render of the profile, for rules that need to see the
-    rendered Compose service definitions rather than profile/env inputs.
+    Resolve the rendered Compose document (and its service->module map) used
+    by "rendered-compose"-scoped rules.
 
-    Returns None (never raises) if the profile fails to plan or render --
-    those failures are already surfaced with full diagnostics by the
-    separate "plan"/"render" stages in `cds test`; this scan is additive and
-    must not turn an unrelated plan/render failure into a security-stage
-    crash or a duplicate error report.
+    Callers that already planned and/or rendered the profile for their own
+    purposes (e.g. `cds test`, which runs its own "plan"/"render" stages
+    right after security validation) can pass `plan` and/or
+    `rendered_compose_yaml` in directly, so this doesn't redundantly plan
+    and render the same profile a second time. When neither is supplied,
+    this does a best-effort plan + render itself.
+
+    A profile that fails to plan or render is not itself a bug in this
+    scan -- those failures are already surfaced with full diagnostics by
+    the separate "plan"/"render" stages in `cds test` (or by the caller
+    that passed in its own plan/render results), so that expected case
+    returns `(None, {}, [])` quietly. Only a genuinely unexpected internal
+    error (not a normal plan/render diagnostic) is worth a warning: it
+    means the rendered-compose checks silently produced zero findings for
+    a reason nobody surfaced, which is exactly the kind of silent gap
+    #297 was about.
     """
+    diagnostics: list[Diagnostic] = []
     try:
-        plan, plan_diags = build_plan(
-            str(profile_path), env_file=env_file, environment=environment,
-        )
-        if plan is None or any(d.level == "error" for d in plan_diags):
-            return None
+        if rendered_compose_yaml is None:
+            if plan is None:
+                plan, plan_diags = build_plan(
+                    str(profile_path), env_file=env_file, environment=environment,
+                )
+                if plan is None or any(d.level == "error" for d in plan_diags):
+                    return None, {}, diagnostics
 
-        compose_yaml, render_diags = render_compose(plan, env_file=env_file)
-        if any(d.level == "error" for d in render_diags):
-            return None
+            rendered_compose_yaml, render_diags = render_compose(plan, env_file=env_file)
+            if any(d.level == "error" for d in render_diags):
+                return None, {}, diagnostics
 
-        rendered = yaml.safe_load(compose_yaml)
-        return rendered if isinstance(rendered, dict) else None
-    except Exception:
-        return None
+        rendered = yaml.safe_load(rendered_compose_yaml)
+        service_to_module = _map_service_to_module(plan)
+        return (rendered if isinstance(rendered, dict) else None), service_to_module, diagnostics
+    except Exception as exc:
+        diagnostics.append(Diagnostic(
+            level="warning",
+            code="W096",
+            message=(
+                "Rendered-compose security checks (e.g. CDS-SEC-070) were "
+                f"skipped due to an unexpected error: {exc!r}"
+            ),
+            path="spec.modules",
+        ))
+        return None, {}, diagnostics
 
 
 # ---------------------------------------------------------------------------
@@ -529,6 +603,8 @@ def run_security_validation(
     env_file: str | None = None,
     redact_values: bool = False,
     environment: str | None = None,
+    plan: dict[str, Any] | None = None,
+    rendered_compose_yaml: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     """
     Validate a profile and its .env secrets against the rule set.
@@ -548,6 +624,15 @@ def run_security_validation(
             profile's declared metadata.environment (and therefore the
             production security policy applied below) reflects the overlay,
             not just the base profile.
+        plan:             Optional pre-built plan (from `cli.planner.build_plan`)
+            for "rendered-compose"-scoped rules. Pass this in if the caller
+            already planned the profile, to avoid planning it again here.
+        rendered_compose_yaml: Optional pre-rendered Compose YAML (from
+            `cli.renderer.render_compose`) for "rendered-compose"-scoped
+            rules. Pass this in if the caller already rendered the profile,
+            to avoid rendering it again here. Ignored if `plan` is also
+            None (there would be nothing to derive a service->module map
+            from), unless it's supplied together with `plan`.
 
     Returns:
         Tuple of (findings, diagnostics). Findings are sorted by severity,
@@ -573,8 +658,11 @@ def run_security_validation(
 
     flat_profile = _flatten_profile_by_module(profile, profile_dir=profile_path.parent)
     flat_env = _flatten_env_inputs(secrets, env_file)
-    rendered_compose = _try_render_compose_for_scan(profile_path, env_file, environment)
-    flat_rendered = _flatten_rendered_leak_surfaces(rendered_compose)
+    rendered_compose, service_to_module, render_scan_diags = _try_render_compose_for_scan(
+        profile_path, env_file, environment,
+        plan=plan, rendered_compose_yaml=rendered_compose_yaml,
+    )
+    flat_rendered = _flatten_rendered_leak_surfaces(rendered_compose, service_to_module)
 
     findings: list[dict[str, Any]] = []
     for rule in rule_set["rules"]:
@@ -609,4 +697,4 @@ def run_security_validation(
         x["path"],
     ))
 
-    return findings, overlay_diags + secret_diags
+    return findings, overlay_diags + secret_diags + render_scan_diags

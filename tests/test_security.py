@@ -4,6 +4,7 @@ import os
 import tempfile
 import tomllib
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from cli.security import _eval_condition, _validate_rule_set, run_security_validation
@@ -277,7 +278,7 @@ class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
 
 class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
     """
-    Regression tests for CDS-SEC-070 (#297).
+    Regression tests for CDS-SEC-070 (#297, #353).
 
     CDS-SEC-070 previously had `scope: ["none"]`, which meant it was never
     dispatched by run_security_validation() regardless of its
@@ -288,9 +289,11 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
 
     The fixtures under tests/fixtures/security/rendered-command-secret/
     mirror that real module.yaml bug (and its fix) in miniature: one module
-    passes a secret through a Compose "command:" list argument (vulnerable,
-    pre-#290 shape), the other passes the same secret through
-    "environment:" instead (safe, post-#290 shape).
+    (id "fake-vault", rendered Compose service also named "fake-vault")
+    passes the same secret alias through three leak-prone surfaces --
+    a "--flag=" style command argument, a bare positional command
+    argument, and a healthcheck probe -- while the other module passes it
+    through "environment:" instead (safe, post-#290 shape).
     """
 
     _FIXTURE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "security" / "rendered-command-secret"
@@ -306,10 +309,28 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
             env_file=str(env_path),
         )
 
-        hits = [f for f in findings if f["rule_id"] == "CDS-SEC-070"]
-        self.assertEqual(len(hits), 1)
-        self.assertEqual(hits[0]["module"], "fake-vault")
-        self.assertIn("command", hits[0]["path"])
+        hits = {f["path"]: f for f in findings if f["rule_id"] == "CDS-SEC-070"}
+
+        # "--flag=${CDS_*}" style: command[2] is the "-dev-root-token-id=..."
+        # element the real PR #290 bug rendered.
+        flag_style = hits["services.fake-vault.command[2]"]
+        self.assertEqual(flag_style["module"], "fake-vault")
+        self.assertEqual(flag_style["value"], "-dev-root-token-id=${CDS_FAKE_TOKEN}")
+
+        # Bare positional argument (no "--flag=" prefix): command[3] is just
+        # the raw "${CDS_*}" placeholder, which the original valueRegex
+        # (anchored on a "--flag=" prefix) could never have matched.
+        bare_positional = hits["services.fake-vault.command[3]"]
+        self.assertEqual(bare_positional["module"], "fake-vault")
+        self.assertEqual(bare_positional["value"], "${CDS_FAKE_TOKEN}")
+
+        # Healthcheck probes run as a subprocess too, so they leak the same
+        # way as command/entrypoint.
+        healthcheck = hits["services.fake-vault.healthcheck.test[1]"]
+        self.assertEqual(healthcheck["module"], "fake-vault")
+        self.assertEqual(healthcheck["value"], "check-token ${CDS_FAKE_TOKEN}")
+
+        self.assertEqual(len(hits), 3, f"unexpected extra/missing findings: {hits}")
 
     def test_does_not_flag_the_same_secret_passed_via_environment(self):
         profile_path = self._FIXTURE_ROOT / "profile-safe" / "profile.yaml"
@@ -329,6 +350,106 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         rule = next(r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-070")
         self.assertNotEqual(rule["scope"], ["none"])
         self.assertTrue(rule["enabled"])
+
+    def test_findings_are_attributed_to_the_module_id_not_the_compose_service_name(self):
+        """
+        Regression guard: _flatten_rendered_leak_surfaces() previously used
+        the rendered Compose *service* name as the finding's "module",
+        which only happened to look right in the fixture because the
+        service name and module id coincided. Prove the mapping is actually
+        derived from the plan (via _compose_service_name), not a
+        pass-through of the service name, by checking a case where the
+        renderer namespaces the service name away from the module id.
+        """
+        from cli.security import _map_service_to_module
+
+        plan = {
+            "modules": [
+                {
+                    "id": "vault",
+                    "implementation": {
+                        "compose": {"services": {"secrets-vault": {}}},
+                    },
+                },
+            ],
+        }
+        self.assertEqual(
+            _map_service_to_module(plan),
+            {"vault-secrets-vault": "vault"},
+        )
+
+    def test_reuses_a_caller_supplied_plan_and_rendered_compose_without_replanning(self):
+        """
+        Callers such as `cds test` (cli/main.py) already run their own
+        "plan" and "render" stages. run_security_validation() should reuse
+        those results (via the `plan`/`rendered_compose_yaml` kwargs)
+        instead of silently planning/rendering the same profile a second
+        time internally.
+        """
+        from cli.planner import build_plan
+        from cli.renderer import render_compose
+
+        profile_path = self._FIXTURE_ROOT / "profile" / "profile.yaml"
+        env_path = profile_path.parent / ".env"
+
+        plan, plan_diags = build_plan(str(profile_path), env_file=str(env_path))
+        self.assertFalse(any(d.level == "error" for d in plan_diags))
+        rendered_compose_yaml, render_diags = render_compose(plan, env_file=str(env_path))
+        self.assertFalse(any(d.level == "error" for d in render_diags))
+
+        with (
+            unittest.mock.patch(
+                "cli.security.build_plan",
+                side_effect=AssertionError("build_plan should not be called again"),
+            ),
+            unittest.mock.patch(
+                "cli.security.render_compose",
+                side_effect=AssertionError("render_compose should not be called again"),
+            ),
+        ):
+            findings, _diags = run_security_validation(
+                profile_path,
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                env_file=str(env_path),
+                plan=plan,
+                rendered_compose_yaml=rendered_compose_yaml,
+            )
+
+        hits = [f for f in findings if f["rule_id"] == "CDS-SEC-070"]
+        self.assertEqual(len(hits), 3)
+
+    def test_unexpected_render_error_produces_a_warning_diagnostic_not_a_silent_failure(self):
+        """
+        _try_render_compose_for_scan() previously swallowed *any* exception
+        (including genuine bugs) with a bare `except Exception: return
+        None`. An unexpected internal error should now surface as a
+        warning diagnostic (W096) instead of silently vanishing, while
+        still letting the rest of security validation (profile/.env
+        scoped rules) complete normally.
+        """
+        profile_path = self._FIXTURE_ROOT / "profile" / "profile.yaml"
+        env_path = profile_path.parent / ".env"
+
+        with unittest.mock.patch(
+            "cli.security.build_plan",
+            side_effect=RuntimeError("boom"),
+        ):
+            findings, diags = run_security_validation(
+                profile_path,
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                env_file=str(env_path),
+            )
+
+        warning_codes = [d.code for d in diags if d.level == "warning"]
+        self.assertIn("W096", warning_codes)
+
+        # The rendered-compose scoped rule can't fire without a rendered
+        # document, but other scopes are unaffected.
+        self.assertEqual(
+            [f for f in findings if f["rule_id"] == "CDS-SEC-070"], [],
+        )
 
 
 if __name__ == "__main__":

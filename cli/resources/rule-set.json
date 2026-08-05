@@ -809,7 +809,7 @@
     },
     {
       "id": "CDS-SEC-070",
-      "$comment": "Evaluated against the rendered Compose services.*.command/entrypoint/logging fields (the \"rendered-compose\" scope), not raw profile/env inputs -- see _flatten_rendered_leak_surfaces in cli/security.py. This is the check that would have caught the Vault dev-root-token-as-command-arg issue fixed in PR #290.",
+      "$comment": "Evaluated against the rendered Compose services.*.command/entrypoint/healthcheck/logging fields (the \"rendered-compose\" scope), not raw profile/env inputs -- see _flatten_rendered_leak_surfaces in cli/security.py. This is the check that would have caught the Vault dev-root-token-as-command-arg issue fixed in PR #290.",
       "title": "Secret appears in command args or log configuration",
       "severity": "high",
       "category": "observability-leakage",
@@ -820,6 +820,7 @@
             "pathPatterns": [
               "services.*.command*",
               "services.*.entrypoint*",
+              "services.*.healthcheck*",
               "services.*.logging*"
             ],
             "keyRegex": "(?i)(password|secret|token|key)"
@@ -827,9 +828,20 @@
           {
             "pathPatterns": [
               "services.*.command*",
-              "services.*.entrypoint*"
+              "services.*.entrypoint*",
+              "services.*.healthcheck*",
+              "services.*.logging*"
             ],
             "valueRegex": "(?i)-{1,2}[a-z][a-z-]*(password|secret|token|key)[a-z-]*=\\$\\{"
+          },
+          {
+            "pathPatterns": [
+              "services.*.command*",
+              "services.*.entrypoint*",
+              "services.*.healthcheck*",
+              "services.*.logging*"
+            ],
+            "valueRegex": "\\$\\{(CDS_|config\\.|secrets\\.)"
           }
         ]
       },
