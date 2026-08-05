@@ -1,4 +1,4 @@
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS builder
+FROM python:3.14-slim@sha256:b0c4ec81396588a94b99052caf2f786e6e92e03111991d3d40c68762ee48d2ab AS builder
 
 ARG DB_BACKEND=postgres
 
@@ -17,7 +17,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt && \
       *) echo "Unsupported Dagster database backend: $DB_BACKEND" >&2; exit 1 ;; \
     esac
 
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
+FROM python:3.14-slim@sha256:b0c4ec81396588a94b99052caf2f786e6e92e03111991d3d40c68762ee48d2ab
 
 ARG DB_BACKEND=postgres
 
