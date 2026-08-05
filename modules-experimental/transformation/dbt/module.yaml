@@ -1,0 +1,202 @@
+# yaml-language-server: $schema=../../../schemas/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: dbt
+  category: transformation
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: dbt (experimental)
+  description: >
+    Experimental dbt-core transformation module. Runs a bind-mounted dbt
+    project's models/tests against a consumed sql-database contract as a
+    one-shot job, and optionally serves generated dbt docs via a small nginx
+    sidecar. See images/dbt/README.md for why this image is pinned to
+    Python 3.12 instead of the repo's usual 3.14 base.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: dbt
+      ports:
+        - name: docs
+          containerPort: 80
+          protocol: TCP
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - targetDatabase
+    properties:
+      project:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          hostPath:
+            type: string
+            minLength: 1
+            default: ./workdirs/dbt
+          containerPath:
+            type: string
+            minLength: 1
+            pattern: "^/"
+            default: /usr/app/dbt
+
+      targetDatabase:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
+      schema:
+        type: string
+        minLength: 1
+        default: public
+
+      threads:
+        type: integer
+        minimum: 1
+        default: 4
+
+      commands:
+        type: string
+        minLength: 1
+        default: |
+          run
+          test
+        description: >
+          Newline-separated dbt subcommands run in order by the entrypoint
+          (e.g. "run\ntest\ndocs generate"). Add "deps" as the first line if
+          the project has a packages.yml.
+
+      docs:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          port:
+            type: integer
+            minimum: 1
+            maximum: 65535
+            default: 8090
+
+      healthcheck:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+  consumes:
+    - name: target-database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.targetDatabase
+
+  provides:
+    - name: docs-service
+      contract:
+        kind: http-service
+        spec:
+          portFrom: spec.config.docs.port
+          healthPath: /
+          protocol: http
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        dbt-run:
+          build:
+            context: ../../../
+            dockerfile: images/dbt/Dockerfile
+          image: local/dbt:custom
+          restart: "no"
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 256
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=1777
+            - /home/dbt/.dbt:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700
+          hostname: "${service.host}"
+          healthcheck:
+            disable: true
+          volumes:
+            - type: bind
+              source: "${config.project.hostPath}"
+              target: "${config.project.containerPath}"
+              read_only: true
+            - dbt-target:/usr/app/dbt_target
+            - dbt-logs:/usr/app/dbt_logs
+          environment:
+            DBT_HOST: "${bindings.target-database.host}"
+            DBT_PORT: "${bindings.target-database.port}"
+            DBT_DBNAME: "${bindings.target-database.database}"
+            DBT_USER: "${bindings.target-database.username}"
+            DBT_PASSWORD: "${bindings.target-database.password}"
+            DBT_SCHEMA: "${config.schema}"
+            DBT_THREADS: "${config.threads}"
+            DBT_COMMANDS: "${config.commands}"
+
+        dbt-docs:
+          enabledFrom: config.docs.enabled
+          image: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+          user: nginx
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 64
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=101,gid=101,mode=1777
+          depends_on:
+            dbt-run:
+              condition: service_completed_successfully
+          ports:
+            - "127.0.0.1:${config.docs.port}:80"
+          volumes:
+            - type: bind
+              source: ./images/dbt/nginx.conf
+              target: /etc/nginx/nginx.conf
+              read_only: true
+            - type: volume
+              source: dbt-target
+              target: /usr/share/nginx/html
+              read_only: true
+          healthcheck:
+            conditionallyEnabledFrom: config.healthcheck.enabled
+            test:
+              - CMD
+              - wget
+              - -qO-
+              - http://127.0.0.1/
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+
+      volumes:
+        dbt-target: {}
+        dbt-logs: {}
