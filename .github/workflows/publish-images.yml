@@ -37,9 +37,15 @@ jobs:
           for entry in sorted(root.iterdir()) if root.is_dir() else []:
               if not entry.is_dir():
                   continue
+              # Flat layout: images/<name>/Dockerfile
               dockerfile = entry / "Dockerfile"
               if dockerfile.is_file():
                   items.append({"name": entry.name, "dockerfile": str(dockerfile)})
+                  continue
+              # Nested layout: images/<name>/base/Dockerfile
+              nested_dockerfile = entry / "base" / "Dockerfile"
+              if nested_dockerfile.is_file():
+                  items.append({"name": entry.name, "dockerfile": str(nested_dockerfile)})
           print(json.dumps(items))
           PY
           )
@@ -81,9 +87,9 @@ jobs:
         run: |
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
-          if [ "$dockerfile" = "images/dagster/Dockerfile" ] || [ "$dockerfile" = "images/superset/Dockerfile" ]; then
-            context="."
-          fi
+          case "$dockerfile" in
+            images/dagster/*|images/superset/*) context="." ;;
+          esac
           ref="${{ steps.name.outputs.ref }}"
           docker build -f "$dockerfile" -t "$ref:sha-${GITHUB_SHA::12}" -t "$ref:latest" "$context"
           docker push "$ref:sha-${GITHUB_SHA::12}"
@@ -175,7 +181,7 @@ jobs:
               base_version="$(grep -m1 '^dagster==' images/dagster/requirements.txt | cut -d= -f3)"
               ;;
             superset)
-              base_version="$(grep -m1 '^FROM apache/superset:' images/superset/Dockerfile | sed -E 's#^FROM apache/superset:([^@[:space:]]+).*#\1#')"
+              base_version="$(grep -m1 '^FROM apache/superset:' images/superset/base/Dockerfile | sed -E 's#^FROM apache/superset:([^@[:space:]]+).*#\1#')"
               ;;
             *)
               echo "No version scheme defined for image '${{ matrix.image.name }}'" >&2
@@ -197,9 +203,9 @@ jobs:
         run: |
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
-          if [ "$dockerfile" = "images/dagster/Dockerfile" ] || [ "$dockerfile" = "images/superset/Dockerfile" ]; then
-            context="."
-          fi
+          case "$dockerfile" in
+            images/dagster/*|images/superset/*) context="." ;;
+          esac
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
           docker build -f "$dockerfile" -t "$ref:$tag" -t "$ref:latest" "$context"

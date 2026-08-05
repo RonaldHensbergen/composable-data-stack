@@ -65,7 +65,7 @@ class RenderExampleProfileTest(unittest.TestCase):
             self.assertIn("dagster-user-code", compose["services"])
             self.assertEqual(
                 compose["services"]["dagster-user-code"]["build"]["dockerfile"],
-                "images/dagster/Dockerfile",
+                "images/dagster/base/Dockerfile",
             )
             self.assertEqual(
                 compose["services"]["dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],

@@ -32,9 +32,15 @@ jobs:
           for entry in sorted(root.iterdir()) if root.is_dir() else []:
               if not entry.is_dir():
                   continue
+              # Flat layout: images/<name>/Dockerfile
               dockerfile = entry / "Dockerfile"
               if dockerfile.is_file():
                   items.append({"name": entry.name, "dockerfile": str(dockerfile)})
+                  continue
+              # Nested layout: images/<name>/base/Dockerfile
+              nested_dockerfile = entry / "base" / "Dockerfile"
+              if nested_dockerfile.is_file():
+                  items.append({"name": entry.name, "dockerfile": str(nested_dockerfile)})
           print(json.dumps(items))
           PY
           )
@@ -61,9 +67,9 @@ jobs:
         run: |
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
-          if [ "$dockerfile" = "images/dagster/Dockerfile" ] || [ "$dockerfile" = "images/superset/Dockerfile" ]; then
-            context="."
-          fi
+          case "$dockerfile" in
+            images/dagster/*|images/superset/*) context="." ;;
+          esac
           docker build -f "$dockerfile" -t "cds/${{ matrix.image.name }}:scan" "$context"
 
       - name: Scan image for HIGH/CRITICAL vulnerabilities
