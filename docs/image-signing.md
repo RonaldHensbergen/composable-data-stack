@@ -6,7 +6,7 @@ Runtime images under `images/**` are published to GHCR and signed on every merge
 
 - Registry: `ghcr.io`
 - Name: `ghcr.io/ronaldhensbergen/cds-<image-name>` (e.g. `cds-superset`, `cds-dagster`); owner is lowercased, GHCR rejects uppercase.
-- Tags: `sha-<12-char-commit-sha>` and `latest`. Tags are mutable pointers for humans; they are **not** what gets signed or verified.
+- Tags: `sha-<12-char-commit-sha>` and `latest`. For images with multiple build variants (e.g. Dagster's `base`/`hardened`), the non-default variant's tags are prefixed with the variant name (e.g. `hardened-sha-<sha>`, `hardened-latest`); the image name/repository stays the same across variants. Tags are mutable pointers for humans; they are **not** what gets signed or verified.
 
 ## Verifying an image
 

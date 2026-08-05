@@ -82,7 +82,10 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         for entry in sorted(images_dir.iterdir()):
             if not entry.is_dir():
                 continue
-            if (entry / "Dockerfile").is_file() or (entry / "base" / "Dockerfile").is_file():
+            if (entry / "Dockerfile").is_file():
+                published.append(entry.name)
+                continue
+            if any((variant_dir / "Dockerfile").is_file() for variant_dir in entry.iterdir() if variant_dir.is_dir()):
                 published.append(entry.name)
         self.assertTrue(published, "expected at least one published runtime image")
         for image in published:

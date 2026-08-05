@@ -60,16 +60,16 @@ spec:
           variant:
             type: string
             enum:
-              - dagster
-              - alpine-dagster
-            default: dagster
+              - base
+              - hardened
+            default: base
             description: >
-              Selects the image build directory under images/ used for the
-              user-code, webserver, and daemon services. "dagster" builds the
-              default Debian-based (python:3.14-slim) image optimized for
-              compatibility. "alpine-dagster" builds the Alpine-based
-              hardened image optimized for a minimal attack surface and
-              fewer vulnerabilities.
+              Selects the image build directory under images/dagster/ used
+              for the user-code, webserver, and daemon services. "base"
+              builds the default Debian-based (python:3.14-slim) image
+              optimized for compatibility. "hardened" builds the Alpine-based
+              image optimized for a minimal attack surface and fewer
+              vulnerabilities.
 
       storage:
         type: object

@@ -35,12 +35,17 @@ jobs:
               # Flat layout: images/<name>/Dockerfile
               dockerfile = entry / "Dockerfile"
               if dockerfile.is_file():
-                  items.append({"name": entry.name, "dockerfile": str(dockerfile)})
+                  items.append({"name": entry.name, "variant": "", "dockerfile": str(dockerfile)})
                   continue
-              # Nested layout: images/<name>/base/Dockerfile
-              nested_dockerfile = entry / "base" / "Dockerfile"
-              if nested_dockerfile.is_file():
-                  items.append({"name": entry.name, "dockerfile": str(nested_dockerfile)})
+              # Variant layout: images/<name>/<variant>/Dockerfile
+              for variant_dir in sorted(entry.iterdir()):
+                  if not variant_dir.is_dir():
+                      continue
+                  variant_dockerfile = variant_dir / "Dockerfile"
+                  if variant_dockerfile.is_file():
+                      items.append(
+                          {"name": entry.name, "variant": variant_dir.name, "dockerfile": str(variant_dockerfile)}
+                      )
           print(json.dumps(items))
           PY
           )
@@ -70,12 +75,13 @@ jobs:
           case "$dockerfile" in
             images/dagster/*|images/superset/*) context="." ;;
           esac
-          docker build -f "$dockerfile" -t "cds/${{ matrix.image.name }}:scan" "$context"
+          tag="${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}"
+          docker build -f "$dockerfile" -t "cds/$tag:scan" "$context"
 
       - name: Scan image for HIGH/CRITICAL vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: "cds/${{ matrix.image.name }}:scan"
+          image-ref: "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan"
           format: table
           scanners: vuln
           severity: HIGH,CRITICAL
@@ -86,13 +92,13 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: "cds/${{ matrix.image.name }}:scan"
+          image-ref: "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan"
           format: cyclonedx
-          output: "sbom-${{ matrix.image.name }}.cdx.json"
+          output: "sbom-${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}.cdx.json"
 
       - name: Upload SBOM artifact
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: sbom-${{ matrix.image.name }}
-          path: sbom-${{ matrix.image.name }}.cdx.json
+          name: sbom-${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}
+          path: sbom-${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}.cdx.json
