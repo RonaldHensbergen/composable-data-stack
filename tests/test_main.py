@@ -43,7 +43,45 @@ class MainCLITest(unittest.TestCase):
             modules = list_modules()
             self.assertIn("bi/superset", modules)
             self.assertIn("orchestration/dagster", modules)
-            self.assertIn("warehouse/postgres", modules)
+
+    def test_resolve_profile_path_from_subdirectory_without_env_override(self):
+        # Regression test: without CDS_PROFILE_PATH set, the default
+        # "profiles/" root must resolve relative to the project root, not
+        # the current working directory, so invocations from subdirectories
+        # (e.g. `images/`) still find profiles at the repo root.
+        subdirectory = self.repo_root / "images"
+        env_without_overrides = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in ("CDS_PROFILE_PATH", "CDS_MODULE_PATH")
+        }
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(subdirectory)
+            with patch.dict(os.environ, env_without_overrides, clear=True):
+                resolved = resolve_profile_path("local-dagster-postgres-superset")
+        finally:
+            os.chdir(original_cwd)
+        expected = str(self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml")
+        self.assertEqual(resolved, expected)
+
+    def test_list_modules_from_subdirectory_without_env_override(self):
+        subdirectory = self.repo_root / "images"
+        env_without_overrides = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in ("CDS_PROFILE_PATH", "CDS_MODULE_PATH")
+        }
+        original_cwd = Path.cwd()
+        try:
+            os.chdir(subdirectory)
+            with patch.dict(os.environ, env_without_overrides, clear=True):
+                modules = list_modules()
+        finally:
+            os.chdir(original_cwd)
+        self.assertIn("bi/superset", modules)
+        self.assertIn("orchestration/dagster", modules)
+        self.assertIn("warehouse/postgres", modules)
 
     @patch("cli.main.collect_module_images")
     @patch("cli.main.check_image_update")

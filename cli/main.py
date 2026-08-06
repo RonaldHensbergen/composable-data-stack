@@ -81,13 +81,17 @@ def profile_completer(prefix, parsed_args, **kwargs):
 
 
 def get_profiles_root() -> Path:
-    root = os.getenv("CDS_PROFILE_PATH") or "profiles"
-    return Path(root).expanduser()
+    override = os.getenv("CDS_PROFILE_PATH")
+    if override:
+        return Path(override).expanduser()
+    return find_project_root() / "profiles"
 
 
 def get_modules_root() -> Path:
-    root = os.getenv("CDS_MODULE_PATH") or "modules"
-    return Path(root).expanduser()
+    override = os.getenv("CDS_MODULE_PATH")
+    if override:
+        return Path(override).expanduser()
+    return find_project_root() / "modules"
 
 
 def find_project_root(start: Path | None = None) -> Path:
@@ -227,7 +231,7 @@ def _resolve_profile_root(profile_root: Path) -> str | None:
 
     # profile_root may be set to a bare profile name rather than a path.
     # Try resolving it as a name under the default profiles/ directory.
-    default_root = Path("profiles")
+    default_root = find_project_root() / "profiles"
     if default_root.resolve() != profile_root.resolve():
         name_candidate = default_root / profile_root.name / "profile.yaml"
         if name_candidate.exists():
@@ -274,7 +278,7 @@ def resolve_profile_path(profile: str | None) -> str:
         # CDS_PROFILE_PATH may have been set to a profile name rather than a
         # profiles root directory. Fall back to the default "profiles/" root so
         # that an explicit profile name still resolves correctly.
-        default_root = Path("profiles")
+        default_root = find_project_root() / "profiles"
         if default_root.resolve() != profile_root.resolve():
             default_by_name = default_root / profile / "profile.yaml"
             default_by_file = default_root / f"{profile}.yaml"
