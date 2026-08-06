@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import yaml
 
-from cli.validator import validate_profile
+from cli.validator import validate_observability_config, validate_profile
 
 
 class ValidatorRegressionTest(unittest.TestCase):
@@ -117,6 +117,130 @@ class ValidatorRegressionTest(unittest.TestCase):
 
             errors = [d for d in diagnostics if d.level == "error"]
             self.assertEqual(errors, [])
+
+
+class ObservabilityConfigValidationTest(unittest.TestCase):
+    def test_absent_observability_block_is_valid(self):
+        profile = {"spec": {}}
+        self.assertEqual(validate_observability_config(profile, []), [])
+
+    def test_valid_log_shipping_without_sink_is_accepted(self):
+        profile = {
+            "spec": {
+                "observability": {
+                    "logShipping": {
+                        "enabled": True,
+                        "retention": {"rawDays": 7, "structuredDays": 90},
+                    }
+                }
+            }
+        }
+        self.assertEqual(validate_observability_config(profile, []), [])
+
+    def test_enabled_must_be_boolean(self):
+        profile = {"spec": {"observability": {"logShipping": {"enabled": "yes"}}}}
+        diagnostics = validate_observability_config(profile, [])
+        self.assertEqual([d.code for d in diagnostics], ["E100"])
+        self.assertEqual(diagnostics[0].path, "spec.observability.logShipping.enabled")
+
+    def test_retention_days_must_be_positive_integers(self):
+        profile = {
+            "spec": {
+                "observability": {
+                    "logShipping": {
+                        "enabled": True,
+                        "retention": {"rawDays": 0, "structuredDays": -1},
+                    }
+                }
+            }
+        }
+        diagnostics = validate_observability_config(profile, [])
+        self.assertEqual([d.code for d in diagnostics], ["E101", "E101"])
+
+    def test_structured_days_must_be_at_least_raw_days(self):
+        profile = {
+            "spec": {
+                "observability": {
+                    "logShipping": {
+                        "enabled": True,
+                        "retention": {"rawDays": 30, "structuredDays": 7},
+                    }
+                }
+            }
+        }
+        diagnostics = validate_observability_config(profile, [])
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual(diagnostics[0].code, "E101")
+        self.assertIn("structuredDays", diagnostics[0].message)
+
+    def test_sink_contract_ref_must_be_well_formed(self):
+        profile = {
+            "spec": {
+                "observability": {
+                    "logShipping": {"enabled": True, "sink": {"contractRef": "not-a-valid-ref"}}
+                }
+            }
+        }
+        diagnostics = validate_observability_config(profile, [])
+        self.assertEqual([d.code for d in diagnostics], ["E102"])
+
+    def test_sink_contract_ref_must_point_to_known_module(self):
+        profile = {
+            "spec": {
+                "observability": {
+                    "logShipping": {"enabled": True, "sink": {"contractRef": "missing-module.log-sink"}}
+                }
+            }
+        }
+        diagnostics = validate_observability_config(profile, [])
+        self.assertEqual([d.code for d in diagnostics], ["E102"])
+        self.assertIn("unknown module", diagnostics[0].message)
+
+    def test_sink_contract_ref_must_match_provided_contract_kind(self):
+        profile = {
+            "spec": {
+                "observability": {
+                    "logShipping": {"enabled": True, "sink": {"contractRef": "collector.log-sink"}}
+                }
+            }
+        }
+        module_instances = [
+            {
+                "id": "collector",
+                "module": {
+                    "spec": {
+                        "provides": [
+                            {"name": "log-sink", "contract": {"kind": "cache-service"}},
+                        ]
+                    }
+                },
+            }
+        ]
+        diagnostics = validate_observability_config(profile, module_instances)
+        self.assertEqual([d.code for d in diagnostics], ["E102"])
+        self.assertIn("expected", diagnostics[0].message)
+
+    def test_sink_contract_ref_resolves_when_kind_matches(self):
+        profile = {
+            "spec": {
+                "observability": {
+                    "logShipping": {"enabled": True, "sink": {"contractRef": "collector.log-sink"}}
+                }
+            }
+        }
+        module_instances = [
+            {
+                "id": "collector",
+                "module": {
+                    "spec": {
+                        "provides": [
+                            {"name": "log-sink", "contract": {"kind": "log-sink"}},
+                        ]
+                    }
+                },
+            }
+        ]
+        self.assertEqual(validate_observability_config(profile, module_instances), [])
 
 
 if __name__ == "__main__":
