@@ -17,6 +17,8 @@ from typing import Any
 import yaml
 from jsonschema import Draft202012Validator
 
+from dataclasses import dataclass
+
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .planner import build_plan
@@ -534,13 +536,34 @@ def _map_service_to_module(plan: dict[str, Any] | None) -> dict[str, str]:
     return mapping
 
 
+@dataclass(frozen=True)
+class PrecomputedRender:
+    """
+    Precomputed plan/render state a caller can hand to the security scan so
+    it doesn't redundantly plan/render the same profile a second time.
+
+    Replaces a three-argument `plan`/`rendered_compose_yaml`/
+    `skip_self_plan_render` matrix (where "is None okay?" depended on
+    combinations of the three) with a single object with two clear states:
+    - `PrecomputedRender(plan=..., rendered_compose_yaml=...)`: the caller
+      already has a successful plan and/or rendered Compose YAML to reuse.
+    - `PrecomputedRender(failed=True)`: the caller already tried to plan
+      and/or render the profile itself and it failed, so the scan
+      shouldn't retry the same failing work.
+    When no `PrecomputedRender` is passed at all, the scan does its own
+    best-effort plan+render.
+    """
+
+    plan: dict[str, Any] | None = None
+    rendered_compose_yaml: str | None = None
+    failed: bool = False
+
+
 def _try_render_compose_for_scan(
     profile_path: Path,
     env_file: str | None,
     environment: str | None,
-    plan: dict[str, Any] | None = None,
-    rendered_compose_yaml: str | None = None,
-    skip_self_plan_render: bool = False,
+    precomputed: PrecomputedRender | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
     """
     Resolve the rendered Compose document (and its service->module map) used
@@ -548,15 +571,15 @@ def _try_render_compose_for_scan(
 
     Callers that already planned and/or rendered the profile for their own
     purposes (e.g. `cds test`, which runs its own "plan"/"render" stages
-    right after security validation) can pass `plan` and/or
-    `rendered_compose_yaml` in directly, so this doesn't redundantly plan
-    and render the same profile a second time. When neither is supplied,
-    this does a best-effort plan + render itself -- unless
-    `skip_self_plan_render` is set, which tells this function that the
-    caller already tried to plan/render the profile itself and it failed,
-    so retrying here would just repeat the same failure for no benefit
-    (e.g. `cds test`'s own "plan"/"render" stages already planned/rendered
-    and reported the failure with full diagnostics before calling this).
+    right after security validation) can pass a `PrecomputedRender` in
+    directly, so this doesn't redundantly plan and render the same profile
+    a second time. When `precomputed` is None, this does a best-effort
+    plan + render itself -- unless `precomputed.failed` is set, which tells
+    this function that the caller already tried to plan/render the profile
+    itself and it failed, so retrying here would just repeat the same
+    failure for no benefit (e.g. `cds test`'s own "plan"/"render" stages
+    already planned/rendered and reported the failure with full
+    diagnostics before calling this).
 
     A profile that fails to plan or render is not itself a bug in this
     scan -- those failures are already surfaced with full diagnostics by
@@ -569,7 +592,10 @@ def _try_render_compose_for_scan(
     #297 was about.
     """
     diagnostics: list[Diagnostic] = []
-    if skip_self_plan_render and rendered_compose_yaml is None:
+    precomputed = precomputed or PrecomputedRender()
+    plan = precomputed.plan
+    rendered_compose_yaml = precomputed.rendered_compose_yaml
+    if precomputed.failed and rendered_compose_yaml is None:
         return None, {}, diagnostics
     try:
         if rendered_compose_yaml is None:
@@ -577,28 +603,32 @@ def _try_render_compose_for_scan(
                 plan, plan_diags = build_plan(
                     str(profile_path), env_file=env_file, environment=environment,
                 )
-                if plan is None or any(d.level == "error" for d in plan_diags):
+                plan_errors = [d for d in plan_diags if d.level == "error"]
+                if plan is None or plan_errors:
+                    first_code = plan_errors[0].code if plan_errors else "unknown"
                     diagnostics.append(Diagnostic(
                         level="warning",
                         code="W096",
                         message=(
                             "Rendered-compose security checks (e.g. CDS-SEC-070) "
                             "were skipped because the profile could not be "
-                            "planned; run 'cds plan' for details."
+                            f"planned ({first_code}); run 'cds plan' for details."
                         ),
                         path="spec.modules",
                     ))
                     return None, {}, diagnostics
 
             rendered_compose_yaml, render_diags = render_compose(plan, env_file=env_file)
-            if any(d.level == "error" for d in render_diags):
+            render_errors = [d for d in render_diags if d.level == "error"]
+            if render_errors:
+                first_code = render_errors[0].code
                 diagnostics.append(Diagnostic(
                     level="warning",
                     code="W096",
                     message=(
                         "Rendered-compose security checks (e.g. CDS-SEC-070) "
                         "were skipped because the profile could not be "
-                        "rendered; run 'cds render' for details."
+                        f"rendered ({first_code}); run 'cds render' for details."
                     ),
                     path="spec.modules",
                 ))
@@ -631,9 +661,7 @@ def run_security_validation(
     env_file: str | None = None,
     redact_values: bool = False,
     environment: str | None = None,
-    plan: dict[str, Any] | None = None,
-    rendered_compose_yaml: str | None = None,
-    skip_self_plan_render: bool = False,
+    precomputed_render: PrecomputedRender | None = None,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     """
     Validate a profile and its .env secrets against the rule set.
@@ -653,21 +681,15 @@ def run_security_validation(
             profile's declared metadata.environment (and therefore the
             production security policy applied below) reflects the overlay,
             not just the base profile.
-        plan:             Optional pre-built plan (from `cli.planner.build_plan`)
-            for "rendered-compose"-scoped rules. Pass this in if the caller
-            already planned the profile, to avoid planning it again here.
-        rendered_compose_yaml: Optional pre-rendered Compose YAML (from
-            `cli.renderer.render_compose`) for "rendered-compose"-scoped
-            rules. Pass this in if the caller already rendered the profile,
-            to avoid rendering it again here. Ignored if `plan` is also
-            None (there would be nothing to derive a service->module map
-            from), unless it's supplied together with `plan`.
-        skip_self_plan_render: If True and no `rendered_compose_yaml` was
-            supplied, don't attempt a best-effort plan+render internally.
-            Set this when the caller already tried to plan and/or render
-            the profile itself and it failed (e.g. `cds test`'s own
-            "plan"/"render" stages), so this doesn't repeat the same
-            failing work for no benefit.
+        precomputed_render: Optional `PrecomputedRender` used by
+            "rendered-compose"-scoped rules (e.g. CDS-SEC-070). Callers that
+            already planned and/or rendered the profile for their own
+            purposes (e.g. `cds test`) should pass their plan/rendered
+            Compose YAML in via `PrecomputedRender(plan=..., rendered_compose_yaml=...)`
+            to avoid planning/rendering the profile again here, or
+            `PrecomputedRender(failed=True)` if they already tried and it
+            failed, so this doesn't repeat the same failing work. When
+            omitted, this does its own best-effort plan+render.
 
     Returns:
         Tuple of (findings, diagnostics). Findings are sorted by severity,
@@ -705,8 +727,7 @@ def run_security_validation(
     if needs_rendered_compose:
         rendered_compose, service_to_module, render_scan_diags = _try_render_compose_for_scan(
             profile_path, env_file, environment,
-            plan=plan, rendered_compose_yaml=rendered_compose_yaml,
-            skip_self_plan_render=skip_self_plan_render,
+            precomputed=precomputed_render,
         )
     else:
         rendered_compose, service_to_module, render_scan_diags = None, {}, []
