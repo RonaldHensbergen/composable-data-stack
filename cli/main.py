@@ -35,6 +35,7 @@ from .up_runner import (
     poll_state_until_settled,
     run_streamed,
     start_log_tail,
+    start_up_in_background,
     stop_log_tail,
 )
 from .loader import load_yaml_file
@@ -1123,22 +1124,28 @@ def main() -> int:
                         return build_returncode
 
                 print(f"Running: {' '.join(up_cmd)}")
-                if not args.detach:
-                    print(
-                        "Switching to the live state view; full docker compose output "
-                        f"is being written to {log_path}."
-                    )
-                up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
-                if up_returncode != 0:
-                    print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
-                    return up_returncode
-
                 if args.detach:
+                    up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
+                    if up_returncode != 0:
+                        print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                        return up_returncode
                     print(
                         f"Stack starting in the background. Run 'cds state' to check status; "
                         f"full output in {log_path}."
                     )
                     return 0
+
+                print(
+                    "Switching to the live state view; full docker compose output "
+                    f"is being written to {log_path}."
+                )
+                # `docker compose up --detach` can itself block for a long time
+                # waiting on healthcheck-gated `depends_on` dependencies before
+                # it returns control, even with --detach. Run it in the
+                # background so the live state view (driven by `docker compose
+                # ps`, which is fast regardless) starts rendering immediately
+                # instead of appearing only after `up` finishes.
+                up_process = start_up_in_background(up_cmd, log_file)
 
                 log_tail_process = start_log_tail(output_path, log_file)
                 try:
@@ -1170,6 +1177,12 @@ def main() -> int:
                         f"Docker output logged to {log_path}."
                     )
                     return 130
+                finally:
+                    up_returncode = up_process.wait()
+
+                if up_returncode != 0:
+                    print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                    return up_returncode
         except KeyboardInterrupt:
             print(
                 f"\nInterrupted. The stack keeps running; "

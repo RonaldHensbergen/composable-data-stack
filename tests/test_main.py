@@ -322,17 +322,21 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_builds_then_starts_detached_and_polls(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {app: {}}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (True, {"RUNNING": ["app"]})
 
@@ -346,9 +350,10 @@ class MainCLITest(unittest.TestCase):
                 result = main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(mock_run_streamed.call_count, 2)
+        self.assertEqual(mock_run_streamed.call_count, 1)
         build_cmd = mock_run_streamed.call_args_list[0][0][0]
-        up_cmd = mock_run_streamed.call_args_list[1][0][0]
+        mock_start_up.assert_called_once()
+        up_cmd = mock_start_up.call_args[0][0]
         self.assertEqual(build_cmd[:4], ["docker", "compose", "-f", build_cmd[3]])
         self.assertEqual(up_cmd[:4], ["docker", "compose", "-f", up_cmd[3]])
         self.assertIn("build", build_cmd)
@@ -461,17 +466,25 @@ class MainCLITest(unittest.TestCase):
 
         self.assertEqual(result, 130)
 
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_interrupt_during_up_exits_130_cleanly(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run_streamed.side_effect = [0, KeyboardInterrupt()]
+        mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.side_effect = KeyboardInterrupt()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
@@ -535,17 +548,19 @@ class MainCLITest(unittest.TestCase):
         self.assertEqual(result, 1)
         mock_run_streamed.assert_not_called()
 
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_reports_clear_error_when_docker_missing(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run_streamed.side_effect = FileNotFoundError()
+        mock_run_streamed.return_value = 0
+        mock_start_up.side_effect = FileNotFoundError()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
@@ -558,17 +573,25 @@ class MainCLITest(unittest.TestCase):
 
         self.assertEqual(result, 1)
 
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_propagates_docker_compose_up_exit_code(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run_streamed.side_effect = [0, 17]
+        mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 17
+        mock_start_up.return_value = mock_up_process
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.return_value = (True, {})
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
@@ -583,17 +606,21 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_returns_1_when_stack_does_not_settle(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {app: {}}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (False, {"UNHEALTHY": ["app"]})
 
@@ -671,6 +698,7 @@ class MainCLITest(unittest.TestCase):
     @patch("cli.main.default_log_path")
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
@@ -681,6 +709,7 @@ class MainCLITest(unittest.TestCase):
         mock_plan,
         mock_render,
         mock_run_streamed,
+        mock_start_up,
         mock_start_tail,
         mock_poll,
         mock_default_log_path,
@@ -689,6 +718,9 @@ class MainCLITest(unittest.TestCase):
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (True, {})
 
@@ -707,6 +739,7 @@ class MainCLITest(unittest.TestCase):
     @patch("cli.main.default_log_path")
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
@@ -717,6 +750,7 @@ class MainCLITest(unittest.TestCase):
         mock_plan,
         mock_render,
         mock_run_streamed,
+        mock_start_up,
         mock_start_tail,
         mock_poll,
         mock_default_log_path,
@@ -725,6 +759,9 @@ class MainCLITest(unittest.TestCase):
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (True, {})
 
@@ -742,17 +779,21 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_no_color_flag_disables_color_in_live_view(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (True, {})
 
@@ -770,17 +811,21 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_uses_color_on_a_tty_without_no_color_flag(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (True, {})
 

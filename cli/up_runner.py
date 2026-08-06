@@ -112,6 +112,20 @@ def start_log_tail(compose_path: str, log_file: IO[str]) -> subprocess.Popen:
     return subprocess.Popen(logs_cmd, stdout=log_file, stderr=subprocess.STDOUT, text=True)  # nosec B603
 
 
+def start_up_in_background(cmd: list[str], log_file: IO[str]) -> subprocess.Popen:
+    """
+    Starts `docker compose up --detach` in the background, piped only to
+    `log_file`. Unlike `run_streamed`, this does not block: `docker
+    compose up` can itself block for a long time waiting on
+    healthcheck-gated `depends_on` dependencies to become healthy before
+    it returns, even though `--detach` is passed. Running it in the
+    background lets the live state view (which polls `docker compose ps`
+    directly) start rendering immediately instead of waiting for `up` to
+    finish. Caller is responsible for reaping it with `process.wait()`.
+    """
+    return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, text=True)  # nosec B603
+
+
 def stop_log_tail(process: subprocess.Popen, timeout: float = 5.0) -> None:
     """Terminates a background log-tail process started by start_log_tail."""
     if process.poll() is not None:
