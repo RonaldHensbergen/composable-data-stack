@@ -355,14 +355,13 @@ def _check_secret_reuse(
     Detect the same secret value appearing under different keys.
     Ignores empty values and non-string values.
     """
-    _SECRET_KEY_RE = SECRET_KEY_RE
 
     # Collect all (path, value) pairs that look like secrets
     value_to_locations: dict[str, list[tuple[str, str]]] = {}
     for module_id, path, value in flat_items:
         if not isinstance(value, str) or not value:
             continue
-        if not _SECRET_KEY_RE.search(path.split(".")[-1]):
+        if not SECRET_KEY_RE.search(path.split(".")[-1]):
             continue
         value_to_locations.setdefault(value, []).append((module_id, path))
 
