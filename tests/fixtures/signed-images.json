@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "refreshRequired": false,
-  "refreshInstructions": "Copy the digest and identity values from the job summary of the latest .github/workflows/publish-images.yml run (see docs/image-signing.md) and set refreshRequired to false.",
+  "refreshInstructions": "Refreshed automatically by the update-fixture job in .github/workflows/publish-images.yml after each successful publish (see docs/image-scanning.md).",
   "updated": "2026-08-01",
   "source": "https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/publish-images.yml",
   "trustRoot": {

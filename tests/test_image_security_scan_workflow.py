@@ -43,7 +43,9 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
 
     def test_vulnerability_scan_gates_on_high_and_critical(self) -> None:
         scan_step = next(
-            s for s in self._scan_steps() if "trivy-action" in str(s.get("uses", ""))
+            s
+            for s in self._scan_steps()
+            if "trivy-action" in str(s.get("uses", ""))
             and s.get("with", {}).get("format") == "table"
         )
         self.assertEqual(scan_step["with"]["severity"], "HIGH,CRITICAL")
@@ -52,7 +54,9 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         self.assertEqual(scan_step["with"]["scanners"], "vuln")
 
     def test_third_party_scan_action_is_pinned_to_a_commit_sha(self) -> None:
-        trivy_steps = [s for s in self._scan_steps() if "trivy-action" in str(s.get("uses", ""))]
+        trivy_steps = [
+            s for s in self._scan_steps() if "trivy-action" in str(s.get("uses", ""))
+        ]
         self.assertTrue(trivy_steps, "expected at least one trivy-action step")
         for step in trivy_steps:
             with self.subTest(step=step.get("name")):
@@ -60,22 +64,73 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
 
     def test_sbom_is_generated_and_uploaded_as_an_artifact(self) -> None:
         sbom_step = next(
-            s for s in self._scan_steps()
-            if "trivy-action" in str(s.get("uses", "")) and s.get("with", {}).get("format") == "cyclonedx"
+            s
+            for s in self._scan_steps()
+            if "trivy-action" in str(s.get("uses", ""))
+            and s.get("with", {}).get("format") == "cyclonedx"
         )
         self.assertTrue(str(sbom_step["with"]["output"]).endswith(".cdx.json"))
 
-        upload_step = next(s for s in self._scan_steps() if "upload-artifact" in str(s.get("uses", "")))
+        upload_step = next(
+            s for s in self._scan_steps() if "upload-artifact" in str(s.get("uses", ""))
+        )
         self.assertEqual(upload_step["with"]["path"], sbom_step["with"]["output"])
 
     def test_sbom_upload_survives_a_failed_vulnerability_gate(self) -> None:
         sbom_step = next(
-            s for s in self._scan_steps()
-            if "trivy-action" in str(s.get("uses", "")) and s.get("with", {}).get("format") == "cyclonedx"
+            s
+            for s in self._scan_steps()
+            if "trivy-action" in str(s.get("uses", ""))
+            and s.get("with", {}).get("format") == "cyclonedx"
         )
-        upload_step = next(s for s in self._scan_steps() if "upload-artifact" in str(s.get("uses", "")))
+        upload_step = next(
+            s for s in self._scan_steps() if "upload-artifact" in str(s.get("uses", ""))
+        )
         self.assertEqual(sbom_step.get("if"), "always()")
         self.assertEqual(upload_step.get("if"), "always()")
+
+    def test_scheduled_rescan_is_configured(self) -> None:
+        triggers = self.workflow[_ON_KEY]
+        self.assertIn("schedule", triggers)
+        cron = triggers["schedule"]
+        self.assertTrue(cron, "expected at least one scheduled cron entry")
+        self.assertEqual(len(cron), 1)
+
+    def test_scheduled_scan_targets_published_digests_from_fixture(self) -> None:
+        ref_step = next(s for s in self._scan_steps() if s.get("id") == "ref")
+        self.assertIn("tests/fixtures/signed-images.json", ref_step["run"])
+        self.assertIn("github.event_name", ref_step["run"])
+        self.assertIn("image-ref=cds/${{ matrix.image.name }}:scan", ref_step["run"])
+
+        scan_step = next(
+            s
+            for s in self._scan_steps()
+            if "trivy-action" in str(s.get("uses", ""))
+            and s.get("with", {}).get("format") == "table"
+        )
+        self.assertEqual(
+            scan_step["with"]["image-ref"], "${{ steps.ref.outputs.image-ref }}"
+        )
+        self.assertEqual(scan_step.get("id"), "scan")
+
+    def test_failing_scheduled_scan_files_a_deduped_issue(self) -> None:
+        job = self.jobs["scan"]
+        self.assertEqual(job["permissions"].get("issues"), "write")
+        issues_step = next(
+            s
+            for s in self._scan_steps()
+            if "issue" in (s.get("name") or "").lower()
+            and "gh issue" in s.get("run", "")
+        )
+        self.assertIn("github.event_name == 'schedule'", issues_step["if"])
+        self.assertIn("steps.scan.outcome == 'failure'", issues_step["if"])
+        run = issues_step["run"]
+        self.assertIn('label="vuln-scan"', run)
+        self.assertIn('--label "$label"', run)
+        self.assertIn("gh issue list", run)
+        self.assertIn("in:title", run)
+        self.assertIn("gh issue create", run)
+        self.assertIn("gh issue edit", run)
 
 
 if __name__ == "__main__":

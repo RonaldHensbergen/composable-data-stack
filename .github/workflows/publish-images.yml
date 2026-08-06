@@ -1,6 +1,11 @@
 name: Publish Signed Images
 
 on:
+  schedule:
+    # Weekly rebuild so base layers (OS packages, pip ranges) are refreshed
+    # even when nothing changed in the repo; republishing keeps the signed
+    # images up to date with the latest patches.
+    - cron: "17 4 * * 1"
   push:
     branches: [main]
     paths:
@@ -219,3 +224,83 @@ jobs:
           password: ${{ secrets.RONALDSOEVEREIN_LOGIN }}
           repository: ronaldsoeverein/${{ matrix.image.name }}
           readme-filepath: images/${{ matrix.image.name }}/README.md
+
+  update-fixture:
+    # Keep tests/fixtures/signed-images.json in sync with every successful
+    # publish, so digest verification in the repo never drifts from what was
+    # signed and attested. Committing only the fixture cannot re-trigger this
+    # workflow (the push paths do not include tests/fixtures).
+    needs: publish
+    if: ${{ always() && needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh signed-images fixture after successful publish
+        run: |
+          set -euo pipefail
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          tag="sha-${GITHUB_SHA::12}"
+          python3 - "$owner" "$tag" <<'PY'
+          import datetime as _dt
+          import json
+          import pathlib
+          import re
+          import subprocess
+          import sys
+
+          owner, tag = sys.argv[1], sys.argv[2]
+          fixture_path = pathlib.Path("tests/fixtures/signed-images.json")
+          fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+          digest_re = re.compile(r"^sha256:[0-9a-f]{64}$")
+          changed = {}
+          for name in sorted(fixture["images"]):
+              repo = f"ghcr.io/{owner}/{name}"
+              tagged = f"{repo}:{tag}"
+              subprocess.run(["docker", "pull", tagged], check=True, stdout=subprocess.DEVNULL)
+              digested = subprocess.check_output(
+                  ["docker", "inspect", "--format", "{{index .RepoDigests 0}}", tagged],
+                  text=True,
+              ).strip()
+              digest = digested.split("@")[-1]
+              if not digest_re.match(digest):
+                  raise SystemExit(f"unexpected digest for {name}: {digest}")
+              entry = fixture["images"][name]
+              if entry.get("digest") != digest:
+                  entry["digest"] = digest
+                  changed[name] = digest
+
+          if changed:
+              fixture["refreshRequired"] = False
+              fixture["updated"] = _dt.date.today().isoformat()
+              fixture["refreshInstructions"] = (
+                  "Refreshed automatically by the update-fixture job in "
+                  ".github/workflows/publish-images.yml after each successful publish."
+              )
+              fixture_path.write_text(json.dumps(fixture, indent=2) + "\n", encoding="utf-8")
+              print("changed:", changed)
+          else:
+              print("no digest changes")
+          PY
+
+      - name: Commit fixture refresh if digests changed
+        run: |
+          if git status --porcelain -- tests/fixtures/signed-images.json | grep -q .; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add tests/fixtures/signed-images.json
+            git commit -q -m "chore(images): refresh signed-images fixture"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            echo "fixture unchanged; nothing to commit"
+          fi
