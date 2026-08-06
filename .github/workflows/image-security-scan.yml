@@ -104,6 +104,11 @@ jobs:
 
       - name: Scan image for HIGH/CRITICAL vulnerabilities
         id: scan
+        # continue-on-error is required so the job status stays "success"
+        # after a scan failure; otherwise the implicit success() check that
+        # GitHub Actions ANDs onto the next step's `if:` (since it lacks its
+        # own status function) would always skip issue filing.
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ steps.ref.outputs.image-ref }}
@@ -173,3 +178,7 @@ jobs:
         with:
           name: sbom-${{ matrix.image.name }}
           path: sbom-${{ matrix.image.name }}.cdx.json
+
+      - name: Fail the job if vulnerabilities were found
+        if: steps.scan.outcome == 'failure'
+        run: exit 1

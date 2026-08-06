@@ -52,6 +52,18 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         # exit-code must actually fail the job on a match, not just report.
         self.assertEqual(str(scan_step["with"]["exit-code"]), "1")
         self.assertEqual(scan_step["with"]["scanners"], "vuln")
+        # continue-on-error keeps the job status "success" after a scan
+        # failure, so later steps whose `if:` lacks a status function (like
+        # the issue-filing step) aren't implicitly skipped by GitHub Actions.
+        self.assertTrue(scan_step.get("continue-on-error"))
+
+    def test_job_fails_when_the_scan_found_vulnerabilities(self) -> None:
+        gate_step = next(
+            s
+            for s in self._scan_steps()
+            if s.get("if") == "steps.scan.outcome == 'failure'"
+        )
+        self.assertIn("exit 1", gate_step["run"])
 
     def test_third_party_scan_action_is_pinned_to_a_commit_sha(self) -> None:
         trivy_steps = [
@@ -124,6 +136,13 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         )
         self.assertIn("github.event_name == 'schedule'", issues_step["if"])
         self.assertIn("steps.scan.outcome == 'failure'", issues_step["if"])
+        # Regression guard: since the scan step has continue-on-error, the
+        # job status stays "success" after a scan failure, so this step's
+        # `if:` does NOT need an explicit always()/failure() to run. But the
+        # scan step itself must have continue-on-error, or this condition
+        # would be implicitly ANDed with success() and never fire.
+        scan_step = next(s for s in self._scan_steps() if s.get("id") == "scan")
+        self.assertTrue(scan_step.get("continue-on-error"))
         run = issues_step["run"]
         self.assertIn('label="vuln-scan"', run)
         self.assertIn('--label "$label"', run)
