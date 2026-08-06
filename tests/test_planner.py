@@ -539,6 +539,81 @@ class PlannerRegressionTest(unittest.TestCase):
             {"healthcheck": {"enabled": True, "timeout": {"seconds": 30}}},
         )
 
+    def test_apply_defaults_materializes_string_nested_defaults(self):
+        """A non-boolean (string) nested default inside an object-typed
+        parent default must be materialized too. Boolean-true defaults are
+        masked in the renderer by a None-vs-False quirk, so a regression
+        here would be invisible in rendered output; string defaults are
+        not."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "sharedData": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "default": {},
+                    "properties": {
+                        "hostPath": {
+                            "type": "string",
+                            "minLength": 1,
+                            "default": "./workdirs/shared-data",
+                        },
+                        "containerPath": {
+                            "type": "string",
+                            "minLength": 1,
+                            "default": "/app/data/cds",
+                        },
+                    },
+                }
+            },
+        }
+
+        result = planner.apply_defaults({}, schema)
+
+        self.assertEqual(
+            result,
+            {
+                "sharedData": {
+                    "hostPath": "./workdirs/shared-data",
+                    "containerPath": "/app/data/cds",
+                }
+            },
+        )
+
+    def test_apply_defaults_real_postgres_schema_materializes_nested_defaults(self):
+        """The real postgres module schema has several object-typed blocks
+        with a top-level 'default: {}' and nested defaults (storage,
+        dagsterDatabase, supersetDatabase, healthcheck). All of them must
+        materialize their nested defaults when the profile omits the parent
+        key entirely (regression guard for the planner recursion fix, #299)."""
+        import yaml
+
+        repo_root = Path(__file__).resolve().parent.parent
+        module_path = repo_root / "modules" / "warehouse" / "postgres" / "module.yaml"
+        self.assertTrue(module_path.exists(), f"Real postgres module not found at {module_path}")
+
+        module_def = yaml.safe_load(module_path.read_text(encoding="utf-8"))
+        config_schema = module_def["spec"]["configSchema"]
+
+        result = planner.apply_defaults({}, config_schema)
+
+        self.assertEqual(
+            result.get("storage"),
+            {"enabled": True, "size": "5Gi"},
+        )
+        self.assertEqual(
+            result.get("dagsterDatabase"),
+            {"name": "dagster", "username": "dagster"},
+        )
+        self.assertEqual(
+            result.get("supersetDatabase"),
+            {"name": "superset", "username": "superset"},
+        )
+        self.assertEqual(
+            result.get("healthcheck"),
+            {"enabled": True},
+        )
+
 
     def test_build_plan_reports_diagnostic_for_non_dict_module_entry(self):
         """build_plan() is a public entry point that may be called without

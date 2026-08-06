@@ -9,7 +9,7 @@ from jsonschema import Draft202012Validator
 class DagsterHardeningTest(unittest.TestCase):
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parent.parent
-        self.dockerfile = (self.repo_root / "images" / "dagster" / "Dockerfile").read_text(encoding="utf-8")
+        self.dockerfile = (self.repo_root / "images" / "dagster" / "base" / "Dockerfile").read_text(encoding="utf-8")
         self.entrypoint = (self.repo_root / "images" / "dagster" / "entrypoint.sh").read_text(encoding="utf-8")
         self.requirements = (self.repo_root / "images" / "dagster" / "requirements.txt").read_text(encoding="utf-8")
         self.workspace = yaml.safe_load(

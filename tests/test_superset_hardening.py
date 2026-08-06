@@ -10,7 +10,7 @@ class SupersetHardeningTest(unittest.TestCase):
         self.repo_root = Path(__file__).resolve().parent.parent
 
     def test_image_uses_pinned_base_and_non_root_runtime(self) -> None:
-        dockerfile = (self.repo_root / "images" / "superset" / "Dockerfile").read_text(encoding="utf-8")
+        dockerfile = (self.repo_root / "images" / "superset" / "base" / "Dockerfile").read_text(encoding="utf-8")
 
         self.assertRegex(
             dockerfile,
@@ -20,13 +20,13 @@ class SupersetHardeningTest(unittest.TestCase):
         self.assertEqual(users[-1], "superset")
 
     def test_os_packages_are_upgraded_to_fix_cves(self) -> None:
-        dockerfile = (self.repo_root / "images" / "superset" / "Dockerfile").read_text(encoding="utf-8")
+        dockerfile = (self.repo_root / "images" / "superset" / "base" / "Dockerfile").read_text(encoding="utf-8")
 
         self.assertIn("apt-get upgrade", dockerfile)
         self.assertIn("apt-get clean", dockerfile)
 
     def test_vulnerable_python_packages_are_patched(self) -> None:
-        dockerfile = (self.repo_root / "images" / "superset" / "Dockerfile").read_text(encoding="utf-8")
+        dockerfile = (self.repo_root / "images" / "superset" / "base" / "Dockerfile").read_text(encoding="utf-8")
         requirements = (self.repo_root / "images" / "superset" / "requirements.txt").read_text(encoding="utf-8")
         self.assertIn("uv pip install --python /app/.venv/bin/python", dockerfile)
         self.assertNotIn("pip install --no-cache-dir -r /tmp/superset-requirements.txt", dockerfile)
@@ -67,7 +67,7 @@ class SupersetHardeningTest(unittest.TestCase):
                 )
 
     def test_inherited_uv_binaries_are_patched(self) -> None:
-        dockerfile = (self.repo_root / "images" / "superset" / "Dockerfile").read_text(encoding="utf-8")
+        dockerfile = (self.repo_root / "images" / "superset" / "base" / "Dockerfile").read_text(encoding="utf-8")
         version_match = re.search(r"(?m)^ARG UV_VERSION=(\d+)\.(\d+)\.(\d+)$", dockerfile)
 
         self.assertIsNotNone(version_match)

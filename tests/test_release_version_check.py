@@ -63,6 +63,34 @@ class ReleaseVersionCheckTest(unittest.TestCase):
         )
         self.assertIsNone(error)
 
+    def test_prerelease_tag_blocked_by_default_for_production_pypi(self) -> None:
+        self._write_pyproject("0.4.0b1")
+        error = check_release_version.check(
+            "v0.4.0b1",
+            self.pyproject_path,
+            allow_prerelease=False,
+        )
+        self.assertIsNotNone(error)
+        self.assertIn("pre-release", error)
+
+    def test_prerelease_tag_allowed_with_explicit_opt_in(self) -> None:
+        self._write_pyproject("0.4.0b1")
+        error = check_release_version.check(
+            "v0.4.0b1",
+            self.pyproject_path,
+            allow_prerelease=True,
+        )
+        self.assertIsNone(error)
+
+    def test_stable_tag_passes_even_with_prerelease_disallowed(self) -> None:
+        self._write_pyproject("1.4.2")
+        error = check_release_version.check(
+            "v1.4.2",
+            self.pyproject_path,
+            allow_prerelease=False,
+        )
+        self.assertIsNone(error)
+
 
 if __name__ == "__main__":
     unittest.main()
