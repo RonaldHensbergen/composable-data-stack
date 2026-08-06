@@ -78,11 +78,12 @@ class PublishImagesWorkflowTest(unittest.TestCase):
             if isinstance(entry, dict)
         }
         images_dir = repo_root / "images"
-        published = [
-            entry.name
-            for entry in sorted(images_dir.iterdir())
-            if entry.is_dir() and (entry / "Dockerfile").is_file()
-        ]
+        published = []
+        for entry in sorted(images_dir.iterdir()):
+            if not entry.is_dir():
+                continue
+            if (entry / "Dockerfile").is_file() or (entry / "base" / "Dockerfile").is_file():
+                published.append(entry.name)
         self.assertTrue(published, "expected at least one published runtime image")
         for image in published:
             self.assertIn(

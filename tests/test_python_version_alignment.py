@@ -8,7 +8,7 @@ import yaml
 class PythonVersionAlignmentTest(unittest.TestCase):
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parent.parent
-        self.dockerfile = self.repo_root / "images" / "dagster" / "Dockerfile"
+        self.dockerfile = self.repo_root / "images" / "dagster" / "base" / "Dockerfile"
         self.pyproject = self.repo_root / "pyproject.toml"
         self.ci_workflow = self.repo_root / ".github" / "workflows" / "ci.yml"
 
@@ -32,7 +32,7 @@ class PythonVersionAlignmentTest(unittest.TestCase):
     def _docker_python_version(self) -> str:
         content = self.dockerfile.read_text(encoding="utf-8")
         match = re.search(r"^FROM\s+python:(\d+\.\d+)(?:[.-].*)?$", content, flags=re.MULTILINE)
-        self.assertIsNotNone(match, "Could not parse Python version from images/dagster/Dockerfile")
+        self.assertIsNotNone(match, "Could not parse Python version from images/dagster/base/Dockerfile")
         return match.group(1)
 
     def _pyproject_min_python_version(self) -> str:

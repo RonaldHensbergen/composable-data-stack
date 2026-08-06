@@ -139,12 +139,22 @@ spec:
 
 ### Example: Dagster
 
-The Dagster module uses a custom image defined in `images/dagster/`:
+The Dagster module uses a custom image defined in `images/dagster/`. Shared
+build support files (config generation, entrypoint, healthcheck, workspace,
+requirements) live directly under `images/dagster/`, with the Dockerfile
+itself under a `base/` subfolder so future image variants (e.g. an
+Alpine-hardened build) can live alongside it without duplicating those
+shared files:
 
 ```text
 images/dagster/
-├── Dockerfile
-└── requirements.txt
+├── base/
+│   └── Dockerfile
+├── entrypoint.sh
+├── generate_config.py
+├── healthcheck.py
+├── requirements.txt
+└── workspace.yaml
 ```
 
 Referenced in `modules/orchestration/dagster/module.yaml`:
@@ -157,7 +167,7 @@ spec:
         dagster-webserver:
           build:
             context: ../../../
-            dockerfile: images/dagster/Dockerfile
+            dockerfile: images/dagster/base/Dockerfile
           image: local/dagster:custom
 ```
 
