@@ -1,39 +1,59 @@
-FROM alpine:3.19
+FROM python:3.14-alpine AS builder
 
-# Install Python and pip
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    && ln -sf python3 /usr/bin/python
+ARG DB_BACKEND=postgres
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONUNBUFFERED=1
+WORKDIR /app
+
+RUN apk add --no-cache gcc musl-dev libffi-dev
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY images/dagster/requirements*.txt ./
+RUN python -m pip install --no-cache-dir -r requirements.txt && \
+    case "$DB_BACKEND" in \
+      postgres) python -m pip install --no-cache-dir -r requirements-postgres.txt ;; \
+      sqlite|mysql) ;; \
+      *) echo "Unsupported Dagster database backend: $DB_BACKEND" >&2; exit 1 ;; \
+    esac && \
+    python -m pip uninstall --yes pip
+
+FROM python:3.14-alpine
+
+ARG DB_BACKEND=postgres
 
 ENV DAGSTER_HOME=/opt/dagster/dagster_home \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    DAGSTER_IMAGE_DB_BACKEND="$DB_BACKEND" \
+    HOME=/opt/dagster/dagster_home \
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-# Create necessary directories
-RUN mkdir -p $DAGSTER_HOME && \
-    addgroup -g 1001 dagster && \
-    adduser -D -u 1001 -G dagster dagster
+RUN addgroup -g 1001 dagster && \
+    adduser -D -H -u 1001 -G dagster dagster && \
+    install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage /var/run/dagster && \
+    python -m pip uninstall --yes pip 2>/dev/null || true
 
-WORKDIR /opt/dagster/app
+WORKDIR /app
 
-# Copy and install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir \
-    dagster \
-    dagster-postgres \
-    dagster-docker
-
-# Copy your Dagster definitions
-COPY your_definitions.py .
-
-# Set permissions
-RUN chown -R dagster:dagster /opt/dagster
+COPY --from=builder /opt/venv /opt/venv
+COPY shared/__init__.py /app/shared/__init__.py
+COPY shared/python /app/shared/python
+COPY workdirs/dagster /app/workdirs/dagster
+COPY images/dagster/generate_config.py images/dagster/healthcheck.py images/dagster/dagster.yaml.j2 /app/images/dagster/
+COPY --chmod=0444 images/dagster/workspace.yaml /app/images/dagster/workspace.yaml
+COPY --chmod=0555 images/dagster/entrypoint.sh /entrypoint.sh
 
 USER dagster
-EXPOSE 4000
 
-HEALTHCHECK --timeout=1s --start-period=3s --interval=3s --retries=20 \
-    CMD python -c "import sys; sys.exit(0)" || exit 1
+EXPOSE 3000
 
-ENTRYPOINT ["python", "-m", "dagster", "code-server", "start", "-h", "0.0.0.0", "-p", "4000"]
+HEALTHCHECK --interval=10s --timeout=10s --start-period=30s --retries=3 \
+  CMD python /app/images/dagster/healthcheck.py --unix /var/run/dagster/user-code.sock
+
+WORKDIR $DAGSTER_HOME
+
+ENTRYPOINT ["/entrypoint.sh"]
+# No CMD — let orchestration layer specify it
