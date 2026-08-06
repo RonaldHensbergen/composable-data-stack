@@ -58,6 +58,41 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         condition = str(record_step.get("if", ""))
         self.assertNotIn("always()", condition)
 
+    def test_has_scheduled_weekly_rebuild_trigger(self) -> None:
+        triggers = self.workflow[_ON_KEY]
+        self.assertIn("schedule", triggers)
+        cron = triggers["schedule"]
+        self.assertEqual(len(cron), 1)
+        self.assertRegex(cron[0]["cron"], r"^\d+ \d+ \* \* [0-7]$")
+
+    def test_update_fixture_job_refreshes_digests_after_publish(self) -> None:
+        self.assertIn("update-fixture", self.jobs)
+        job = self.jobs["update-fixture"]
+        self.assertEqual(job["permissions"].get("contents"), "write")
+        self.assertIn("publish", job["needs"])
+        refresh = next(
+            s for s in job["steps"]
+            if s.get("name") == "Refresh signed-images fixture after successful publish"
+        )
+        self.assertIn("tests/fixtures/signed-images.json", refresh["run"])
+        self.assertIn('["docker", "pull", tagged]', refresh["run"])
+        self.assertIn(".RepoDigests 0", refresh["run"])
+
+    def test_update_fixture_commits_only_when_digests_changed(self) -> None:
+        job = self.jobs["update-fixture"]
+        commit = next(
+            s for s in job["steps"]
+            if s.get("name") == "Commit fixture refresh if digests changed"
+        )
+        self.assertIn("fixture unchanged; nothing to commit", commit["run"])
+        self.assertIn("git push origin", commit["run"])
+
+    def test_update_fixture_cannot_retrigger_the_workflow(self) -> None:
+        paths = self.workflow[_ON_KEY]["push"]["paths"]
+        for path in paths:
+            self.assertNotIn("tests/fixtures", path)
+            self.assertNotIn("signed-images", path)
+
     def test_signed_images_fixture_covers_every_published_image(self) -> None:
         repo_root = Path(__file__).resolve().parent.parent
         fixture_path = repo_root / "tests" / "fixtures" / "signed-images.json"
