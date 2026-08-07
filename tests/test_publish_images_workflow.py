@@ -91,12 +91,28 @@ class PublishImagesWorkflowTest(unittest.TestCase):
 
     def test_update_fixture_commits_only_when_digests_changed(self) -> None:
         job = self.jobs["update-fixture"]
-        commit = next(
+        refresh = next(
             s for s in job["steps"]
-            if s.get("name") == "Commit fixture refresh if digests changed"
+            if s.get("name") == "Refresh signed-images fixture after successful publish"
         )
-        self.assertIn("fixture unchanged; nothing to commit", commit["run"])
-        self.assertIn("git push origin", commit["run"])
+        self.assertIn("no digest changes", refresh["run"])
+
+    def test_update_fixture_opens_a_pull_request_instead_of_pushing_to_main(self) -> None:
+        # main is a protected branch; a direct `git push` to it is rejected
+        # (GH006). The refresh must be routed through a pull request.
+        job = self.jobs["update-fixture"]
+        self.assertEqual(job["permissions"].get("pull-requests"), "write")
+        pr_step = next(
+            s for s in job["steps"]
+            if s.get("name") == "Open a pull request if digests changed"
+        )
+        self.assertTrue(str(pr_step.get("uses", "")).startswith("peter-evans/create-pull-request@"))
+        self.assertEqual(
+            pr_step["with"]["add-paths"], "tests/fixtures/signed-images.json"
+        )
+        self.assertNotEqual(pr_step["with"].get("branch"), "main")
+        for step in job["steps"]:
+            self.assertNotIn("git push origin", str(step.get("run", "")))
 
     def test_update_fixture_cannot_retrigger_the_workflow(self) -> None:
         paths = self.workflow[_ON_KEY]["push"]["paths"]
