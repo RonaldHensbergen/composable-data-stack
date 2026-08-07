@@ -24,7 +24,7 @@ from .loader import load_yaml_file, resolve_module_file
 from .planner import build_plan
 from .renderer import _compose_service_name, render_compose
 from .secrets import load_secrets_from_env
-from .security_common import SEVERITY_ORDER, infer_profile_class
+from .security_common import SECRET_KEY_RE, SEVERITY_ORDER, infer_profile_class
 
 _PROFILE_SCOPES = {
     "profile",
@@ -424,14 +424,13 @@ def _check_secret_reuse(
     Detect the same secret value appearing under different keys.
     Ignores empty values and non-string values.
     """
-    _SECRET_KEY_RE = re.compile(r"(?i)(password|secret|token|key|credential|passwd|pwd)")
 
     # Collect all (path, value) pairs that look like secrets
     value_to_locations: dict[str, list[tuple[str, str]]] = {}
     for module_id, path, value in flat_items:
         if not isinstance(value, str) or not value:
             continue
-        if not _SECRET_KEY_RE.search(path.split(".")[-1]):
+        if not SECRET_KEY_RE.search(path.split(".")[-1]):
             continue
         value_to_locations.setdefault(value, []).append((module_id, path))
 
