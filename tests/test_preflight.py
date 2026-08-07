@@ -410,6 +410,31 @@ class PreflightTest(unittest.TestCase):
             any(check.name == "ports.dns" and check.status == "FAIL" for check in checks)
         )
 
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_warns_for_insecure_default_on_concatenated_secret_variable(
+        self,
+        _mock_which,
+        mock_run,
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n"
+            "      PASSWORD: ${CDS_APIKEY:-abc123}\n"
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            checks = run_preflight(self.plan, compose_yaml, Path("missing.env"))
+
+        self.assertTrue(preflight_passed(checks))
+        self.assertTrue(
+            any(
+                check.name == "environment.insecure-defaults"
+                and "CDS_APIKEY" in check.message
+                for check in checks
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
