@@ -1,2 +1,11 @@
-dbt-core==1.9.4
-dbt-postgres==1.9.0
+# dbt-core 1.9.x/dbt-common<1.29 pin protobuf<6.0, which forces the
+# resolver onto dbt-common<=1.28.0, whose own deepdiff<8.0,>=7.0 constraint
+# leaves the vulnerable deepdiff==7.0.1 installed (CVE-2025-58367 CRITICAL,
+# CVE-2026-33155 HIGH; fixed in 8.6.1/8.6.2 respectively). dbt-core 1.11.x
+# raises the protobuf ceiling to <7.0 and requires dbt-common>=1.37.3, whose
+# deepdiff<9.0,>=7.0 constraint lets pip resolve a patched deepdiff. Bump
+# both dbt-core and dbt-postgres together (no compatible dbt-common exists
+# that relaxes deepdiff without also raising the protobuf floor).
+dbt-core==1.11.12
+dbt-postgres==1.11.0
+deepdiff>=8.6.2

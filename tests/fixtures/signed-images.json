@@ -28,6 +28,13 @@
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
+    },
+    "cds-dbt": {
+      "repository": "ghcr.io/ronaldhensbergen/cds-dbt",
+      "digest": "sha256:bbbc03e4a7e493b8cbe7a2163c8ea0225091a680fb3eb623c307af3f3f378a16",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
     }
   }
 }
