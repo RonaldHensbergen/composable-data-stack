@@ -1,11 +1,15 @@
 {
   "schemaVersion": 1,
   "refreshRequired": false,
-  "refreshInstructions": "Refreshed automatically by the update-fixture job in .github/workflows/publish-images.yml after each successful publish (see docs/image-scanning.md).",
-  "updated": "2026-08-01",
+  "refreshInstructions": "Refreshed automatically by the update-fixture job in .github/workflows/publish-images.yml after each successful publish.",
+  "updated": "2026-08-07",
   "source": "https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/publish-images.yml",
   "trustRoot": {
-    "registries": ["ghcr.io", "docker.io", "registry-1.docker.io"],
+    "registries": [
+      "ghcr.io",
+      "docker.io",
+      "registry-1.docker.io"
+    ],
     "oidcIssuer": "https://token.actions.githubusercontent.com",
     "certificateIdentityRegexp": "^https://github.com/RonaldHensbergen/composable-data-stack/.github/workflows/publish-images.yml@refs/heads/main$",
     "keyless": true
@@ -13,14 +17,14 @@
   "images": {
     "cds-dagster": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
-      "digest": "sha256:3277690054d713bbb50252f558ec51c4fbda4848a62cd683a2a86402c78ee013",
+      "digest": "sha256:a40af521b2f40494bfa0f33d219e3174c30e199bd861ea0fd866fa48e1f00a12",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-superset": {
       "repository": "ghcr.io/ronaldhensbergen/cds-superset",
-      "digest": "sha256:d8d3613337b5a3a8547a576a251acb9d8ce668cc528aa47ff2902a8249fcb342",
+      "digest": "sha256:665ba35763ed59b5978ec77e9e27a8262e77797a1034ff77fe5fee390ef065e3",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
