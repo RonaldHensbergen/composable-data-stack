@@ -241,6 +241,7 @@ jobs:
     permissions:
       contents: write
       packages: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -298,14 +299,18 @@ jobs:
               print("no digest changes")
           PY
 
-      - name: Commit fixture refresh if digests changed
-        run: |
-          if git status --porcelain -- tests/fixtures/signed-images.json | grep -q .; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add tests/fixtures/signed-images.json
-            git commit -q -m "chore(images): refresh signed-images fixture"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
-          else
-            echo "fixture unchanged; nothing to commit"
-          fi
+      - name: Open a pull request if digests changed
+        # main is a protected branch, so a direct `git push` here is rejected
+        # (GH006: Protected branch update failed). Route the refresh through
+        # a pull request instead.
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(images): refresh signed-images fixture"
+          title: "chore(images): refresh signed-images fixture"
+          body: >
+            Automated digest refresh by the update-fixture job in
+            .github/workflows/publish-images.yml after a successful publish.
+          branch: chore/update-signed-images-fixture
+          delete-branch: true
+          add-paths: tests/fixtures/signed-images.json
