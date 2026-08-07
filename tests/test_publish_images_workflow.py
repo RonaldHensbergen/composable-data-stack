@@ -53,6 +53,17 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         name_step = next(s for s in self.publish_steps if s.get("id") == "name")
         self.assertIn("tr '[:upper:]' '[:lower:]'", name_step["run"])
 
+    def test_trivy_cli_version_is_pinned_explicitly(self) -> None:
+        # trivy-action's own action.yaml bundles a default `version:` input
+        # that lags behind the latest Trivy CLI release, and Renovate cannot
+        # track that implicit default since it never appears in this repo's
+        # own files. Pin `version:` explicitly so the CLI stays current and
+        # future bumps are visible to dependency tooling.
+        sbom_step = next(s for s in self.publish_steps if s.get("name") == "Generate SBOM")
+        version = sbom_step.get("with", {}).get("version")
+        self.assertIsNotNone(version, "trivy-action step must pin `version:`")
+        self.assertRegex(str(version), r"^v\d+\.\d+\.\d+$")
+
     def test_fixture_recording_does_not_use_always(self) -> None:
         record_step = next(s for s in self.publish_steps if s.get("name") == "Record fixture data")
         condition = str(record_step.get("if", ""))

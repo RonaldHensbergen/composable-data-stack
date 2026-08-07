@@ -62,6 +62,25 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
             with self.subTest(step=step.get("name")):
                 self.assertRegex(step["uses"], _SHA_PINNED_ACTION)
 
+    def test_trivy_cli_version_is_pinned_explicitly(self) -> None:
+        # trivy-action's own action.yaml bundles a default `version:` input
+        # that lags behind the latest Trivy CLI release (e.g. v0.36.0 of the
+        # action defaults to Trivy v0.70.0, not the v0.73.0 CLI available at
+        # the same time). Renovate cannot track that implicit default since
+        # it never appears in this repo's own files, so every trivy-action
+        # step must pin `version:` explicitly to keep the CLI (and its
+        # vulnerability checks) current and to make future bumps visible to
+        # dependency tooling.
+        trivy_steps = [
+            s for s in self._scan_steps() if "trivy-action" in str(s.get("uses", ""))
+        ]
+        self.assertTrue(trivy_steps, "expected at least one trivy-action step")
+        for step in trivy_steps:
+            with self.subTest(step=step.get("name")):
+                version = step.get("with", {}).get("version")
+                self.assertIsNotNone(version, "trivy-action step must pin `version:`")
+                self.assertRegex(str(version), r"^v\d+\.\d+\.\d+$")
+
     def test_sbom_is_generated_and_uploaded_as_an_artifact(self) -> None:
         sbom_step = next(
             s
