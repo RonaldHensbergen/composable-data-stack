@@ -1,0 +1,18 @@
+flowchart LR
+    subgraph local["Local machine"]
+        odbc["ODBC driver / DSN<br>cds-postgres<br>Servername=127.0.0.1:5432"]
+        ssh["ssh -N -L 5432:127.0.0.1:5432<br>(manual, autossh, or service)"]
+    end
+    subgraph vm["VM (public IP)"]
+        sshd["sshd :22<br>key-only auth"]
+        pg["postgres :5432<br>bound to 127.0.0.1 only<br>(CDS module default)"]
+    end
+
+    odbc -- "loopback" --> ssh
+    ssh -- "encrypted SSH tunnel<br>over public internet" --> sshd
+    sshd -- "forwarded to loopback" --> pg
+
+    classDef localStyle fill:#eef2ff,stroke:#818cf8
+    classDef vmStyle fill:#f0fdfa,stroke:#2dd4bf
+    class local localStyle
+    class vm vmStyle
