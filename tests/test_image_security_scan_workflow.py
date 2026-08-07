@@ -57,13 +57,78 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         # the issue-filing step) aren't implicitly skipped by GitHub Actions.
         self.assertTrue(scan_step.get("continue-on-error"))
 
+    def _find_step(self, predicate, description: str):
+        # Prefer an explicit assertion failure over a StopIteration error so
+        # a missing/renamed step surfaces as a clear test failure.
+        step = next((s for s in self._scan_steps() if predicate(s)), None)
+        self.assertIsNotNone(step, f"expected to find {description}")
+        return step
+
     def test_job_fails_when_the_scan_found_vulnerabilities(self) -> None:
-        gate_step = next(
-            s
-            for s in self._scan_steps()
-            if s.get("if") == "steps.scan.outcome == 'failure'"
+        # Use assertIn on the bare condition fragments rather than an exact
+        # string match, so this survives the gate's `if:` growing a `${{ }}`
+        # wrapper (as the issue-filing step's `if:` already has).
+        gate_step = self._find_step(
+            lambda s: "steps.scan.outcome" in str(s.get("if", ""))
+            and "failure" in str(s.get("if", ""))
+            and "exit 1" in str(s.get("run", "")),
+            "the scan-outcome gate step",
         )
         self.assertIn("exit 1", gate_step["run"])
+
+    def test_gate_step_runs_after_issue_filing_and_sbom_steps(self) -> None:
+        # The gate step failing the job makes any later implicit success()
+        # check false, so it must stay last: a reorder would silently
+        # reintroduce bug #388 by skipping issue filing or SBOM upload.
+        steps = self._scan_steps()
+        gate_index = steps.index(
+            self._find_step(
+                lambda s: "steps.scan.outcome" in str(s.get("if", ""))
+                and "failure" in str(s.get("if", ""))
+                and "exit 1" in str(s.get("run", "")),
+                "the scan-outcome gate step",
+            )
+        )
+        issue_index = steps.index(
+            self._find_step(
+                lambda s: "gh issue create" in str(s.get("run", "")),
+                "the issue-filing step",
+            )
+        )
+        sbom_index = steps.index(
+            self._find_step(
+                lambda s: "upload-artifact" in str(s.get("uses", "")),
+                "the SBOM upload step",
+            )
+        )
+        self.assertGreater(gate_index, issue_index)
+        self.assertGreater(gate_index, sbom_index)
+
+    def test_issue_filing_skips_on_missing_or_inconclusive_report(self) -> None:
+        # steps.scan.outcome == 'failure' also fires on transient Trivy
+        # errors that never produce real findings; the step must bail out
+        # before filing unless the report exists and shows a non-zero total.
+        issue_step = self._find_step(
+            lambda s: "gh issue create" in str(s.get("run", "")),
+            "the issue-filing step",
+        )
+        run = str(issue_step["run"])
+        self.assertIn('[ ! -s "$report" ]', run)
+        self.assertIn("Total: [1-9]", run)
+        self.assertIn("exit 0", run)
+
+    def test_issue_filing_ensures_the_vuln_scan_label_exists(self) -> None:
+        issue_step = self._find_step(
+            lambda s: "gh issue create" in str(s.get("run", "")),
+            "the issue-filing step",
+        )
+        run = str(issue_step["run"])
+        self.assertIn("gh label create", run)
+        self.assertIn("vuln-scan", run)
+        self.assertIn("--force", run)
+        # The label must be created before it is used, otherwise the first
+        # scheduled failure still gets a 422 from a missing label.
+        self.assertLess(run.index("gh label create"), run.index("gh issue create"))
 
     def test_third_party_scan_action_is_pinned_to_a_commit_sha(self) -> None:
         trivy_steps = [

@@ -127,9 +127,23 @@ jobs:
           set -euo pipefail
           image="${{ matrix.image.name }}"
           image_ref="${{ steps.ref.outputs.image-ref }}"
+          report="scan-${image}.txt"
           label="vuln-scan"
           title="[vuln-scan] HIGH/CRITICAL findings in cds-${image}"
-          if grep -q "CRITICAL" "scan-${image}.txt" 2>/dev/null; then
+          # steps.scan.outcome == 'failure' also fires on transient Trivy/
+          # registry errors, not just real vulnerability matches. Only file
+          # an issue when the report exists and actually records a non-zero
+          # HIGH/CRITICAL total; otherwise let the final gate step still
+          # fail the job without creating a misleading issue.
+          if [ ! -s "$report" ] || ! grep -qE "Total: [1-9]" "$report"; then
+            echo "::notice::No confirmed HIGH/CRITICAL findings in ${report} (possible transient scan error); skipping issue filing."
+            exit 0
+          fi
+          gh label create "$label" --repo "$GITHUB_REPOSITORY" \
+            --color "B60205" \
+            --description "Scheduled image scan found HIGH/CRITICAL vulnerabilities" \
+            --force
+          if grep -q "CRITICAL" "$report" 2>/dev/null; then
             severities="HIGH and CRITICAL"
             deadline="$(date -u -d '+72 hours' +%Y-%m-%d)"
           else
@@ -149,7 +163,7 @@ jobs:
             echo "### Findings"
             echo
             echo '```'
-            cat "scan-${image}.txt"
+            cat "$report"
             echo '```'
           } > issue-body.md
           existing="$(
