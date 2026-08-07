@@ -77,7 +77,7 @@ jobs:
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
           case "$dockerfile" in
-            images/dagster/*|images/superset/*) context="." ;;
+            images/dagster/*|images/superset/*|images/dbt/*) context="." ;;
           esac
           docker build -f "$dockerfile" -t "cds/${{ matrix.image.name }}:scan" "$context"
 
