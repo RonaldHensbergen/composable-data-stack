@@ -108,6 +108,11 @@ jobs:
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          # trivy-action v0.36.0 defaults to Trivy CLI v0.70.0, not the
+          # latest release; pin the CLI version explicitly so it is a
+          # visible, Renovate-trackable dependency instead of a value
+          # hidden inside the action's own action.yaml default.
+          version: v0.73.0
           image-ref: ${{ steps.build.outputs.digest }}
           format: cyclonedx
           output: sbom.json
