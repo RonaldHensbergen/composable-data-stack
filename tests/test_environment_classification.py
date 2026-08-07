@@ -162,6 +162,64 @@ class RealVaultProfileEndToEndTest(unittest.TestCase):
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-073"]
         self.assertEqual(hits, [])
 
+    def test_no_false_positive_for_cds_sec_070_against_the_real_rendered_compose(self):
+        """
+        CDS-SEC-070 (#297, #353) is scoped to "rendered-compose", so
+        proving it doesn't false-positive requires an actual successful
+        plan+render of a real profile, not just the profile-input scan
+        above. The checked-in profile's minimal fixture-level `.env`
+        doesn't have every secret this profile declares as `required:
+        true`, so plan/render would fail without a fuller temp `.env`
+        here; build one from the profile's own `spec.secrets.values`
+        declarations so this stays in sync if the profile's secrets ever
+        change, then assert this real, successfully-rendered Compose
+        document produces zero CDS-SEC-070 findings.
+        """
+        import tempfile
+
+        import yaml
+
+        from cli.planner import build_plan
+        from cli.renderer import render_compose
+        from cli.security import PrecomputedRender
+
+        profile_path = _REPO_ROOT / "profiles" / "local-dagster-postgres-superset-vault" / "profile.yaml"
+        profile = yaml.safe_load(profile_path.read_text())
+        secret_values = profile["spec"]["secrets"]["values"]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / ".env"
+            env_path.write_text(
+                "".join(
+                    f"{decl['env']}=test-value-{alias}\n"
+                    for alias, decl in secret_values.items()
+                ),
+                encoding="utf-8",
+            )
+
+            plan, plan_diags = build_plan(str(profile_path), env_file=str(env_path))
+            self.assertFalse(
+                [d for d in plan_diags if d.level == "error"],
+                f"expected the real vault profile to plan cleanly, got: {plan_diags}",
+            )
+            rendered_compose_yaml, render_diags = render_compose(plan, env_file=str(env_path))
+            self.assertFalse(
+                [d for d in render_diags if d.level == "error"],
+                f"expected the real vault profile to render cleanly, got: {render_diags}",
+            )
+
+            findings, _diags = run_security_validation(
+                profile_path,
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                env_file=str(env_path),
+                precomputed_render=PrecomputedRender(
+                    plan=plan, rendered_compose_yaml=rendered_compose_yaml,
+                ),
+            )
+            hits = [f for f in findings if f["rule_id"] == "CDS-SEC-070"]
+            self.assertEqual(hits, [], f"unexpected CDS-SEC-070 false positive(s): {hits}")
+
 
 if __name__ == "__main__":
     unittest.main()

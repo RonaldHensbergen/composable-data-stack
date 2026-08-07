@@ -25,7 +25,7 @@ from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
 from .overlay import resolve_profile
 from .preflight import preflight_passed, run_preflight
-from .security import run_security_validation
+from .security import PrecomputedRender, run_security_validation
 from .security_common import SEVERITY_ORDER, infer_profile_class
 from .image_verification import default_fixture_path, load_policy_from_env, verify_images
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
@@ -1209,14 +1209,38 @@ def main() -> int:
         if not validate_ok:
             print_diagnostics(diagnostics)
 
+        # Plan and render are computed once here (rather than once more per
+        # stage) so the "security" stage's "rendered-compose"-scoped rules
+        # (e.g. CDS-SEC-070) can reuse the same plan/rendered Compose the
+        # later "plan"/"render" stages report on, instead of planning and
+        # rendering the same profile a second time internally.
+        env_file = str(resolve_env_file_path(profile_path))
+        plan = None
+        plan_diags: list[Diagnostic] = []
+        plan_ok = False
+        compose_yaml = None
+        render_diags: list[Diagnostic] = []
+        render_ok = False
+        if validate_ok:
+            plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
+            plan_ok = not has_errors(diagnostics + plan_diags)
+            if plan_ok:
+                compose_yaml, render_diags = render_compose(plan, env_file=env_file)
+                render_ok = not has_errors(render_diags)
+
         security_ok = False
         if validate_ok:
             try:
                 findings, sec_diags = run_security_validation(
                     profile_path=Path(profile_path),
-                    env_file=str(resolve_env_file_path(profile_path)),
+                    env_file=env_file,
                     environment=args.environment,
                     redact_values=not args.reveal_secrets,
+                    precomputed_render=PrecomputedRender(
+                        plan=plan if plan_ok else None,
+                        rendered_compose_yaml=compose_yaml if render_ok else None,
+                        failed=not (plan_ok and render_ok),
+                    ),
                 )
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)
@@ -1235,22 +1259,14 @@ def main() -> int:
         else:
             stages.append(("security", "SKIP"))
 
-        env_file = str(resolve_env_file_path(profile_path))
-        plan = None
-        plan_ok = False
         if validate_ok:
-            plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
-            plan_ok = not has_errors(diagnostics + plan_diags)
             if not plan_ok:
                 print_diagnostics(plan_diags)
             stages.append(("plan", "PASS" if plan_ok else "FAIL"))
         else:
             stages.append(("plan", "SKIP"))
 
-        render_ok = False
         if validate_ok and plan_ok:
-            _, render_diags = render_compose(plan, env_file=env_file)
-            render_ok = not has_errors(render_diags)
             if not render_ok:
                 print_diagnostics(render_diags)
             stages.append(("render", "PASS" if render_ok else "FAIL"))
@@ -1451,6 +1467,14 @@ def main() -> int:
         for diag in diagnostics:
             print(diag.format(), file=sys.stderr)
 
+        # A W096 warning means some rendered-compose-scoped rules (e.g.
+        # CDS-SEC-070) were silently skipped because the profile couldn't be
+        # planned/rendered. Unlike `cds test`, this command has no separate
+        # plan/render stage to surface that failure, so treat it as a
+        # non-zero exit rather than reporting "No security findings." as if
+        # the scan were complete.
+        render_scan_skipped = any(d.code == "W096" for d in diagnostics)
+
         if args.verify_images:
             image_findings = _run_image_verification(profile_path, args.environment)
             findings.extend(image_findings)
@@ -1461,6 +1485,9 @@ def main() -> int:
             ))
 
         if not findings:
+            if render_scan_skipped:
+                print("No security findings (some checks were skipped; see warnings above).")
+                return 1
             print("No security findings.")
             return 0
 

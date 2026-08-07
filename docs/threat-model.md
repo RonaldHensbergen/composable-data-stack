@@ -195,7 +195,7 @@ more of the follow-up issues.
 | --- | --- | --- | --- | --- |
 | T1 | Hardcoded secret committed to a profile/module YAML | D | `CDS-SEC-001`–`004`, `CDS-SEC-033` | Detection only for known patterns; no repo-wide secret scanning in CI. Tracked outside this milestone. |
 | T2 | Resolved secret leaks into `cds plan`/`validate` stdout or a generated Compose file | D | Placeholder rendering (`cli/renderer.py`) + regression tests; `CDS-SEC-006`/`030`/`071` are policy intent, not evaluated (`scope: ["none"]`; `030`/`071` also `enabled: false`) | Covered by the placeholder-rendering control and its regression tests, not by the rule engine. Re-verify under #216 process-manager change (new log surfaces). |
-| T3 | Secret passed via container `command:` args, visible in `docker inspect`/process list | B/D | `CDS-SEC-070` scope bug (issue #297) | **High** — rule currently never fires (dead scope). Needs fix before #206/#216 can rely on it. |
+| T3 | Secret passed via container `command:` args, visible in `docker inspect`/process list | B/D | `CDS-SEC-070` evaluated against rendered Compose `command`/`entrypoint`/`healthcheck`/`logging` fields (`"rendered-compose"` scope; fixed by #353, closing #297) | Covered for unresolved `${CDS_*}` placeholders leaking into these fields. Literal hardcoded secrets in those fields (not routed through `${CDS_*}`) remain out of scope — see the rule's `$comment` in `rule-set.json`. |
 | T4 | Weak/default/reused credentials (DB, admin UI, cache) | B | `CDS-SEC-010`–`012` active and fully functional (#292's dead branch was removed by #344); `CDS-SEC-013` is `enabled: false` | Partial coverage only — `CDS-SEC-013` is not active. **Owning issue: #206.** |
 | T5 | No authentication required on relational DB / cache in production | B | None enforced today; `keydb` password field exists but `connectionUri` doesn't embed it (#291) | **High** — no production-mode enforcement that auth is mandatory. **Owning issue: #206.** |
 | T6 | Env var falls back to an insecure default when unset (`${VAR:-admin}`) | D | `CDS-SEC-040`/`041`, but issue #295 notes `${VAR:-fallback}` with a hardcoded insecure default isn't flagged by `cds preflight` | Medium — partially covered by security rules, gap in preflight. |
@@ -254,11 +254,10 @@ follow-up issue:
    single compromised or misconfigured service to fully compromise
    confidentiality or availability of the whole stack. Owners: #206, #70,
    #205, #211, #210.
-2. **T3 / T4** — `CDS-SEC-070` never fires (dead scope, #297) and
-   `CDS-SEC-013` is disabled, giving false confidence that credential-leak
-   and default-credential classes are fully caught when coverage is only
-   partial. Owner: #206 (plus the standalone bug issue #297; #292's dead
-   branch in `CDS-SEC-010` was already fixed by #344).
+2. **T4** — `CDS-SEC-013` is disabled, giving false confidence that the
+   default-credential class is fully caught when coverage is only partial.
+   (`CDS-SEC-070`'s dead-scope bug, formerly listed alongside T3 here, was
+   fixed by #353, closing #297.) Owner: #206.
 3. **T15 / T18** — missing runtime confinement and production process
    managers increase the blast radius of a successful application-layer
    compromise but require an existing compromise to matter. Owners: #207,
