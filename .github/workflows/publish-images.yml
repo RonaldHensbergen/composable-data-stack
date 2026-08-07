@@ -87,7 +87,7 @@ jobs:
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
-      - name: Build and push
+      - name: Build image for publication
         id: build
         run: |
           dockerfile="${{ matrix.image.dockerfile }}"
@@ -96,14 +96,41 @@ jobs:
             images/dagster/*|images/superset/*) context="." ;;
           esac
           ref="${{ steps.name.outputs.ref }}"
-          docker build -f "$dockerfile" -t "$ref:sha-${GITHUB_SHA::12}" -t "$ref:latest" "$context"
+          # The :scan tag is local-only and never pushed; it exists so the
+          # vulnerability gate below can scan the exact image about to be
+          # published before anything reaches the registry.
+          docker build -f "$dockerfile" \
+            -t "$ref:sha-${GITHUB_SHA::12}" -t "$ref:latest" \
+            -t "cds/${{ matrix.image.name }}:scan" "$context"
+
+      - name: Gate on HIGH/CRITICAL vulnerabilities before push
+        # A CVE disclosed after the PR-time scan (image-security-scan.yml)
+        # must not be published; fail the job before push/sign so the image
+        # never reaches the registry. Honors the same .trivyignore exceptions
+        # as the scan workflow.
+        id: gate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.73.0
+          ignorefile: .trivyignore
+          image-ref: cds/${{ matrix.image.name }}:scan
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: "true"
+
+      - name: Push image
+        id: push
+        run: |
+          ref="${{ steps.name.outputs.ref }}"
           docker push "$ref:sha-${GITHUB_SHA::12}"
           docker push "$ref:latest"
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:sha-${GITHUB_SHA::12}")"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Sign image (keyless)
-        run: cosign sign --yes "${{ steps.build.outputs.digest }}"
+        run: cosign sign --yes "${{ steps.push.outputs.digest }}"
 
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -113,12 +140,12 @@ jobs:
           # visible, Renovate-trackable dependency instead of a value
           # hidden inside the action's own action.yaml default.
           version: v0.73.0
-          image-ref: ${{ steps.build.outputs.digest }}
+          image-ref: ${{ steps.push.outputs.digest }}
           format: cyclonedx
           output: sbom.json
 
       - name: Attest SBOM
-        run: cosign attest --yes --predicate sbom.json --type cyclonedx "${{ steps.build.outputs.digest }}"
+        run: cosign attest --yes --predicate sbom.json --type cyclonedx "${{ steps.push.outputs.digest }}"
 
       - name: Write provenance predicate
         run: |
@@ -148,7 +175,7 @@ jobs:
           EOF
 
       - name: Attest provenance
-        run: cosign attest --yes --predicate provenance.json --type slsaprovenance "${{ steps.build.outputs.digest }}"
+        run: cosign attest --yes --predicate provenance.json --type slsaprovenance "${{ steps.push.outputs.digest }}"
 
       - name: Verify signed image (self-check)
         run: |
@@ -156,13 +183,13 @@ jobs:
             --certificate-identity-regexp \
             '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            "${{ steps.build.outputs.digest }}"
+            "${{ steps.push.outputs.digest }}"
 
       - name: Record fixture data
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
           ### Signed image fixture: ${{ matrix.image.name }}
-          - digest: \`${{ steps.build.outputs.digest }}\`
+          - digest: \`${{ steps.push.outputs.digest }}\`
           - oidc_issuer: \`https://token.actions.githubusercontent.com\`
           - cert_identity: \`https://github.com/${{ github.repository }}/.github/workflows/publish-images.yml@${{ github.ref }}\`
           EOF
@@ -209,7 +236,7 @@ jobs:
           username: ronaldsoeverein
           password: ${{ secrets.RONALDSOEVEREIN_LOGIN }}
 
-      - name: Build and push
+      - name: Build image for publication
         run: |
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
@@ -218,7 +245,33 @@ jobs:
           esac
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
-          docker build -f "$dockerfile" -t "$ref:$tag" -t "$ref:latest" "$context"
+          # The :scan tag is local-only and never pushed; it exists so the
+          # vulnerability gate below can scan the exact image about to be
+          # published before anything reaches the registry.
+          docker build -f "$dockerfile" \
+            -t "$ref:$tag" -t "$ref:latest" \
+            -t "cds/${{ matrix.image.name }}:scan" "$context"
+
+      - name: Gate on HIGH/CRITICAL vulnerabilities before push
+        # A CVE disclosed after the PR-time scan (image-security-scan.yml)
+        # must not be published; fail the job before push so the image never
+        # reaches Docker Hub. Honors the same .trivyignore exceptions as the
+        # scan workflow.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.73.0
+          ignorefile: .trivyignore
+          image-ref: cds/${{ matrix.image.name }}:scan
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: "true"
+
+      - name: Push image
+        run: |
+          ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
+          tag="${{ steps.version.outputs.tag }}"
           docker push "$ref:$tag"
           docker push "$ref:latest"
 

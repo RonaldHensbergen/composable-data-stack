@@ -10,7 +10,7 @@ tracked by issue #209.
 | --- | --- | --- |
 | PR touching `images/**` | `image-security-scan.yml` | Builds the images and fails the PR when HIGH/CRITICAL vulnerabilities are found (trivy, `exit-code: 1`, `ignore-unfixed`). |
 | Daily (03:23 UTC) | `image-security-scan.yml` | Rescans the **published** digests recorded in `tests/fixtures/signed-images.json`. On HIGH/CRITICAL findings it fails the run and files or updates a `vuln-scan` issue per image with the CVE table and a remediation deadline. |
-| Push to `main` touching `images/**` / weekly (Monday 04:17 UTC) | `publish-images.yml` | Rebuilds, signs, and attests the images, then auto-refreshes `tests/fixtures/signed-images.json` with the new digests (job `update-fixture`, committed by `github-actions[bot]`). |
+| Push to `main` touching `images/**` / weekly (Monday 04:17 UTC) | `publish-images.yml` | Rebuilds the images, **fails before push when HIGH/CRITICAL vulnerabilities are found** (trivy gate, `exit-code: 1`, `ignore-unfixed`; same `.trivyignore` exceptions as the PR scan), then signs, attests, and pushes them, and auto-refreshes `tests/fixtures/signed-images.json` via a PR (job `update-fixture`). |
 | Base image digest available upstream | Renovate | Opens PRs bumping the digest-pinned base images (`renovate.json`), which are then gated by the PR scan above. |
 
 Because the images re-resolve pip ranges (`>=`) and OS packages at build
@@ -31,8 +31,11 @@ Remediation means one of:
    image digest (merged, then the weekly/triggered rebuild republishes), or
 2. an approved exception (below).
 
-The push-time vulnerability gate (issue #274) is planned as a follow-up so
-that an image with known HIGH/CRITICAL findings cannot be republished.
+Publishing is gated: `publish-images.yml` builds each image and runs the
+same HIGH/CRITICAL trivy gate before pushing or signing, so an image with
+known findings (e.g. a CVE disclosed after the PR-time scan) is never
+republished on `main` or Docker Hub. Exceptions in `.trivyignore` apply to
+both gates.
 
 ## Exceptions
 
