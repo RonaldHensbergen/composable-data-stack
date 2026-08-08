@@ -172,6 +172,8 @@ def poll_state_until_settled(
     now_fn: Callable[[], float] = time.monotonic,
     ps_fn: Callable[[], subprocess.CompletedProcess] | None = None,
     redraw_fn: Callable[[str], None] | None = None,
+    up_done_fn: Callable[[], int | None] | None = None,
+    on_up_finished: Callable[[int], None] | None = None,
 ) -> tuple[bool, dict[str, list[str]]]:
     """
     Polls `docker compose ps -a --format json` every `poll_interval`
@@ -186,6 +188,26 @@ def poll_state_until_settled(
     `ps_fn`, `sleep_fn`, `now_fn`, and `redraw_fn` are injectable so this
     can be unit tested with a fake clock and canned `ps` output instead
     of real Docker calls and real sleeping.
+
+    `up_done_fn`, if given, is polled once per iteration and must return
+    `None` while `docker compose up` is still running, or its exit code
+    once it has finished. This lets the caller run `up` in the
+    background while this loop redraws the live view immediately,
+    without either process blocking the other:
+
+    - If `up` exits non-zero, this returns `(False, grouped)` right
+      away instead of burning through the full `timeout`, since
+      services that `up` never started will never settle.
+    - The `timeout` clock only starts once `up` finishes successfully,
+      so a stack whose healthchecks legitimately outlast `timeout`
+      isn't penalized for time `up` itself spent blocked on
+      healthcheck-gated `depends_on` dependencies. Omitting `up_done_fn`
+      preserves the old behavior of starting the clock immediately.
+
+    `on_up_finished`, if given, is called exactly once, the first time
+    `up_done_fn` reports a result (with that exit code), so callers can
+    defer setup (e.g. starting a log tail) until `up` is done rather
+    than running it concurrently with `up`'s own output.
     """
     if ps_fn is None:
         def ps_fn() -> subprocess.CompletedProcess:
@@ -195,7 +217,15 @@ def poll_state_until_settled(
     if redraw_fn is None:
         redraw_fn = _default_redraw
 
-    start = now_fn()
+    if up_done_fn is None:
+        # No background `up` process to track: behave as if it had
+        # already finished successfully, so the timeout clock starts
+        # immediately (matches the pre-existing behavior).
+        def up_done_fn() -> int | None:
+            return 0
+
+    start: float | None = None
+    up_finished_seen = False
     grouped: dict[str, list[str]] = {}
     while True:
         ps_result = ps_fn()
@@ -207,7 +237,21 @@ def poll_state_until_settled(
             has_failure = any(bucket in _FAILURE_BUCKETS and names for bucket, names in grouped.items())
             return (not has_failure), grouped
 
-        if now_fn() - start >= timeout:
+        up_exit_code = up_done_fn()
+        if up_exit_code is not None:
+            if not up_finished_seen:
+                up_finished_seen = True
+                if on_up_finished is not None:
+                    on_up_finished(up_exit_code)
+            if up_exit_code != 0:
+                # `up` itself already failed; services it never started
+                # will never settle, so don't wait out the full timeout.
+                return False, grouped
+            if start is None:
+                start = now_fn()
+
+        if start is not None and now_fn() - start >= timeout:
             return False, grouped
 
         sleep_fn(poll_interval)
+

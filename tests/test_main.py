@@ -327,7 +327,7 @@ class MainCLITest(unittest.TestCase):
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_builds_then_starts_detached_and_polls(
+    def test_up_command_builds_then_starts_live_view_and_polls(
         self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
@@ -361,6 +361,49 @@ class MainCLITest(unittest.TestCase):
         self.assertIn("--detach", up_cmd)
         mock_poll.assert_called_once()
         self.assertEqual(mock_poll.call_args.kwargs["expected_service_count"], 1)
+
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_starts_log_tail_only_after_up_finishes(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {app: {}}", [])
+        mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
+        mock_start_tail.return_value = MagicMock()
+
+        def fake_poll(*args, **kwargs):
+            # Mirrors what the real poll loop does: invoke on_up_finished
+            # once `up` reports a result, before returning. Starting the
+            # log tail any earlier would have it write to the same log
+            # file `up` is still writing to, interleaving output mid-line.
+            on_up_finished = kwargs["on_up_finished"]
+            mock_start_tail.assert_not_called()
+            on_up_finished(0)
+            return (True, {"RUNNING": ["app"]})
+
+        mock_poll.side_effect = fake_poll
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        mock_start_tail.assert_called_once()
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
@@ -496,6 +539,9 @@ class MainCLITest(unittest.TestCase):
                 result = main()
 
         self.assertEqual(result, 130)
+        # On Ctrl+C, `up` returns immediately with 130 rather than blocking
+        # on a potentially long-running `up_process.wait()` call.
+        mock_up_process.wait.assert_not_called()
 
     @patch("cli.main.run_streamed")
     @patch("cli.main.validate_profile")
@@ -591,7 +637,12 @@ class MainCLITest(unittest.TestCase):
         mock_up_process.wait.return_value = 17
         mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
-        mock_poll.return_value = (True, {})
+        # A real poll_state_until_settled given a failing `up` would bail
+        # out with settled=False (services that never started can't
+        # settle), not settled=True; using (False, {}) here exercises the
+        # actual priority the command applies: `up`'s own exit code is
+        # reported over the generic "did not settle" message.
+        mock_poll.return_value = (False, {})
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
@@ -603,6 +654,10 @@ class MainCLITest(unittest.TestCase):
                 result = main()
 
         self.assertEqual(result, 17)
+        # `up_done_fn` must be wired to the background `up` process's own
+        # poll(), so poll_state_until_settled can bail out as soon as `up`
+        # fails instead of waiting out the full poll timeout.
+        self.assertEqual(mock_poll.call_args.kwargs.get("up_done_fn"), mock_up_process.poll)
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
