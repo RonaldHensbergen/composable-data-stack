@@ -45,12 +45,17 @@ jobs:
               # Flat layout: images/<name>/Dockerfile
               dockerfile = entry / "Dockerfile"
               if dockerfile.is_file():
-                  items.append({"name": entry.name, "dockerfile": str(dockerfile)})
+                  items.append({"name": entry.name, "variant": "", "dockerfile": str(dockerfile)})
                   continue
-              # Nested layout: images/<name>/base/Dockerfile
-              nested_dockerfile = entry / "base" / "Dockerfile"
-              if nested_dockerfile.is_file():
-                  items.append({"name": entry.name, "dockerfile": str(nested_dockerfile)})
+              # Variant layout: images/<name>/<variant>/Dockerfile
+              for variant_dir in sorted(entry.iterdir()):
+                  if not variant_dir.is_dir():
+                      continue
+                  variant_dockerfile = variant_dir / "Dockerfile"
+                  if variant_dockerfile.is_file():
+                      items.append(
+                          {"name": entry.name, "variant": variant_dir.name, "dockerfile": str(variant_dockerfile)}
+                      )
           print(json.dumps(items))
           PY
           )
@@ -95,13 +100,18 @@ jobs:
           case "$dockerfile" in
             images/dagster/*|images/superset/*) context="." ;;
           esac
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
           ref="${{ steps.name.outputs.ref }}"
           # The :scan tag is local-only and never pushed; it exists so the
           # vulnerability gate below can scan the exact image about to be
           # published before anything reaches the registry.
           docker build -f "$dockerfile" \
-            -t "$ref:sha-${GITHUB_SHA::12}" -t "$ref:latest" \
-            -t "cds/${{ matrix.image.name }}:scan" "$context"
+            -t "$ref:${prefix}sha-${GITHUB_SHA::12}" -t "$ref:${prefix}latest" \
+            -t "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan" "$context"
 
       - name: Gate on HIGH/CRITICAL vulnerabilities before push
         # A CVE disclosed after the PR-time scan (image-security-scan.yml)
@@ -113,7 +123,7 @@ jobs:
         with:
           version: v0.73.0
           ignorefile: .trivyignore
-          image-ref: cds/${{ matrix.image.name }}:scan
+          image-ref: cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan
           format: table
           scanners: vuln
           severity: HIGH,CRITICAL
@@ -124,9 +134,14 @@ jobs:
         id: push
         run: |
           ref="${{ steps.name.outputs.ref }}"
-          docker push "$ref:sha-${GITHUB_SHA::12}"
-          docker push "$ref:latest"
-          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:sha-${GITHUB_SHA::12}")"
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
+          docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
+          docker push "$ref:${prefix}latest"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Sign image (keyless)
@@ -188,7 +203,7 @@ jobs:
       - name: Record fixture data
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
-          ### Signed image fixture: ${{ matrix.image.name }}
+          ### Signed image fixture: ${{ matrix.image.name }}${{ matrix.image.variant != '' && format(' ({0})', matrix.image.variant) || '' }}
           - digest: \`${{ steps.push.outputs.digest }}\`
           - oidc_issuer: \`https://token.actions.githubusercontent.com\`
           - cert_identity: \`https://github.com/${{ github.repository }}/.github/workflows/publish-images.yml@${{ github.ref }}\`
@@ -228,7 +243,13 @@ jobs:
             echo "Failed to determine base version for '${{ matrix.image.name }}'" >&2
             exit 1
           fi
-          echo "tag=${base_version}" >> "$GITHUB_OUTPUT"
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
+          echo "tag=${prefix}${base_version}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${prefix}latest" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -244,12 +265,13 @@ jobs:
           esac
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
+          latest_tag="${{ steps.version.outputs.latest_tag }}"
           # The :scan tag is local-only and never pushed; it exists so the
           # vulnerability gate below can scan the exact image about to be
           # published before anything reaches the registry.
           docker build -f "$dockerfile" \
-            -t "$ref:$tag" -t "$ref:latest" \
-            -t "cds/${{ matrix.image.name }}:scan" "$context"
+            -t "$ref:$tag" -t "$ref:$latest_tag" \
+            -t "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan" "$context"
 
       - name: Gate on HIGH/CRITICAL vulnerabilities before push
         # A CVE disclosed after the PR-time scan (image-security-scan.yml)
@@ -260,7 +282,7 @@ jobs:
         with:
           version: v0.73.0
           ignorefile: .trivyignore
-          image-ref: cds/${{ matrix.image.name }}:scan
+          image-ref: cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan
           format: table
           scanners: vuln
           severity: HIGH,CRITICAL
@@ -271,10 +293,12 @@ jobs:
         run: |
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
+          latest_tag="${{ steps.version.outputs.latest_tag }}"
           docker push "$ref:$tag"
-          docker push "$ref:latest"
+          docker push "$ref:$latest_tag"
 
       - name: Update Docker Hub overview
+        if: matrix.image.variant == '' || matrix.image.variant == 'base'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
           username: ronaldsoeverein

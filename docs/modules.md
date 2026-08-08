@@ -141,15 +141,16 @@ spec:
 
 The Dagster module uses a custom image defined in `images/dagster/`. Shared
 build support files (config generation, entrypoint, healthcheck, workspace,
-requirements) live directly under `images/dagster/`, with the Dockerfile
-itself under a `base/` subfolder so future image variants (e.g. an
-Alpine-hardened build) can live alongside it without duplicating those
-shared files:
+requirements) live directly under `images/dagster/`, while each image variant
+has its own Dockerfile under a `base/` or `hardened/` subfolder so the two
+variants share everything except the Dockerfile itself:
 
 ```text
 images/dagster/
 ├── base/
-│   └── Dockerfile
+│   └── Dockerfile        # Debian/python:3.14-slim (default)
+├── hardened/
+│   └── Dockerfile        # Alpine-based, minimal attack surface
 ├── entrypoint.sh
 ├── generate_config.py
 ├── healthcheck.py
@@ -157,7 +158,9 @@ images/dagster/
 └── workspace.yaml
 ```
 
-Referenced in `modules/orchestration/dagster/module.yaml`:
+Referenced in `modules/orchestration/dagster/module.yaml`, where
+`config.image.variant` (`base` or `hardened`) selects which Dockerfile is
+built:
 
 ```yaml
 spec:
@@ -167,7 +170,7 @@ spec:
         dagster-webserver:
           build:
             context: ../../../
-            dockerfile: images/dagster/base/Dockerfile
+            dockerfile: images/dagster/${config.image.variant}/Dockerfile
           image: local/dagster:custom
 ```
 

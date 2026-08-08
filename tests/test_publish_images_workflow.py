@@ -79,7 +79,10 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         self.assertEqual(with_.get("exit-code"), "1")
         self.assertEqual(with_.get("ignore-unfixed"), "true")
         self.assertEqual(with_.get("scanners"), "vuln")
-        self.assertEqual(with_.get("image-ref"), "cds/${{ matrix.image.name }}:scan")
+        self.assertEqual(
+            with_.get("image-ref"),
+            "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan",
+        )
         self.assertEqual(with_.get("ignorefile"), ".trivyignore")
         self.assertNotIn("output", with_, "gate must stream findings to the run log")
         # Trivy CLI must be pinned the same way as the SBOM step.
@@ -91,7 +94,10 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         self.assertEqual(gate["with"]["severity"], "HIGH,CRITICAL")
         self.assertEqual(gate["with"]["exit-code"], "1")
         self.assertEqual(gate["with"]["ignore-unfixed"], "true")
-        self.assertEqual(gate["with"]["image-ref"], "cds/${{ matrix.image.name }}:scan")
+        self.assertEqual(
+            gate["with"]["image-ref"],
+            "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan",
+        )
         names = [s.get("name") for s in job["steps"]]
         self.assertLess(
             names.index("Gate on HIGH/CRITICAL vulnerabilities before push"),
@@ -217,9 +223,10 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         for entry in sorted(images_dir.iterdir()):
             if not entry.is_dir():
                 continue
-            if (entry / "Dockerfile").is_file() or (
-                entry / "base" / "Dockerfile"
-            ).is_file():
+            if (entry / "Dockerfile").is_file():
+                published.append(entry.name)
+                continue
+            if any((variant_dir / "Dockerfile").is_file() for variant_dir in entry.iterdir() if variant_dir.is_dir()):
                 published.append(entry.name)
         self.assertTrue(published, "expected at least one published runtime image")
         for image in published:
