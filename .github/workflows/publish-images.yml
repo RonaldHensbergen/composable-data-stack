@@ -212,7 +212,6 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          date_suffix="$(date -u +%Y%m%d)"
           case "${{ matrix.image.name }}" in
             dagster)
               base_version="$(grep -m1 '^dagster==' images/dagster/requirements.txt | cut -d= -f3)"
@@ -229,7 +228,7 @@ jobs:
             echo "Failed to determine base version for '${{ matrix.image.name }}'" >&2
             exit 1
           fi
-          echo "tag=${base_version}-${date_suffix}" >> "$GITHUB_OUTPUT"
+          echo "tag=${base_version}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
