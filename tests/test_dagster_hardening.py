@@ -102,5 +102,29 @@ class DagsterHardeningTest(unittest.TestCase):
         self.assertNotIn("port", grpc_server)
 
 
+class DagsterHardenedVariantTest(unittest.TestCase):
+    """Mirrors DagsterHardeningTest's key invariants for the Alpine-based
+    images/dagster/hardened/Dockerfile, so the hardened variant can't silently
+    regress (e.g. lose its digest pin) without a test failing."""
+
+    def setUp(self) -> None:
+        repo_root = Path(__file__).resolve().parent.parent
+        self.dockerfile = (repo_root / "images" / "dagster" / "hardened" / "Dockerfile").read_text(encoding="utf-8")
+
+    def test_base_image_is_digest_pinned(self) -> None:
+        from_lines = re.findall(r"^FROM\s+(\S+)", self.dockerfile, flags=re.MULTILINE)
+
+        self.assertTrue(from_lines, "expected at least one FROM line")
+        for image in from_lines:
+            with self.subTest(image=image):
+                self.assertRegex(image, r"^[^@]+@sha256:[0-9a-f]{64}$")
+
+    def test_image_has_minimal_immutable_runtime(self) -> None:
+        users = re.findall(r"^USER\s+(\S+)$", self.dockerfile, flags=re.MULTILINE)
+
+        self.assertEqual(users[-1], "dagster")
+        self.assertNotIn("COPY . /app", self.dockerfile)
+
+
 if __name__ == "__main__":
     unittest.main()
