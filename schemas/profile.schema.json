@@ -100,6 +100,51 @@
               }
             }
           }
+        },
+        "observability": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional, module-agnostic opt-in for tiered log retention and structured event shipping. See docs/observability.md.",
+          "properties": {
+            "logShipping": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["enabled"],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "retention": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "rawDays": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Short retention window for raw container logs."
+                    },
+                    "structuredDays": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Longer retention window for structured, high-value events (run status, failures, health transitions)."
+                    }
+                  }
+                },
+                "sink": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["contractRef"],
+                  "description": "Optional. Only set this to pin log shipping to a specific module's log-sink contract; omit to enable shipping without naming a provider.",
+                  "properties": {
+                    "contractRef": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9-]+\\.[a-z0-9-]+$"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

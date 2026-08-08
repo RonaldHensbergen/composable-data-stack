@@ -269,7 +269,9 @@ For this project, production readiness should eventually include:
 - secrets handling that does not rely on committed credentials
 - backup and restore support
 - health checks and service readiness guarantees
-- logging and monitoring integration points
+- logging and monitoring integration points — see
+  [`docs/observability.md`](observability.md) for the tiered log retention
+  and structured runtime event design (#174)
 - security hardening guidance
 - version compatibility documentation
 - operator documentation and runbooks
