@@ -5,11 +5,11 @@ from a local machine over ODBC, where CDS is already running the
 `local-dagster-postgres-superset` profile (PoC stack: Dagster + Postgres +
 Superset) on a VM reachable by a public IP address.
 
-The `postgres` module's Compose template binds the database port to
-`127.0.0.1` on the host (`modules/warehouse/postgres/module.yaml`) and
-`cds security` rule `CDS-SEC-021` (severity: high) flags any database port
-published to `0.0.0.0`. Rather than opening the database directly to the
-internet, this setup keeps Postgres on loopback and reaches it through an
+The `postgres` module's Compose template never declares a published host port
+(`modules/warehouse/postgres/module.yaml`), so `cds security` rule
+`CDS-SEC-021` (severity: high) — which matches `portExposure:
+host-published` — never triggers. Rather than opening the database directly to
+the internet, this setup keeps Postgres on loopback and reaches it through an
 SSH tunnel — so the VM's firewall never needs a `5432` ingress rule, traffic
 is encrypted, and the profile passes `cds test` with no security exceptions.
 
@@ -249,7 +249,7 @@ later run with the `prod.yaml` environment overlay
 what changes — the tunnel/ODBC steps above stay the same either way, but
 the following do not:
 
-- **Storage size increases.** `environments/prod.yaml` bumps the `postgres`
+- **Storage size increases.** `profiles/local-dagster-postgres-superset/environments/prod.yaml` bumps the `postgres`
   module's `storage.size` from the default `5Gi` to `20Gi`. Make sure the
   VM's disk has room before switching.
 - **`metadata.environment` becomes `production`**, which maps to the
@@ -302,4 +302,4 @@ the following do not:
   template and config schema
 - `cli/resources/rule-set.json` — `CDS-SEC-021` (database published
   externally)
-- `docs/threat-model.md` — T8/T21 network exposure threats
+- `docs/threat-model.md` — T8 (database port exposure)
