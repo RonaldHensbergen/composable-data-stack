@@ -148,6 +148,197 @@ class PreflightTest(unittest.TestCase):
 
     @patch("cli.preflight.subprocess.run")
     @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_warns_for_insecure_default_on_secret_like_variable(
+        self,
+        _mock_which,
+        mock_run,
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        compose_yaml = "services:\n  app:\n    environment:\n      PASSWORD: ${CDS_DB_PASSWORD:-postgres}\n"
+
+        with patch.dict(os.environ, {}, clear=True):
+            checks = run_preflight(self.plan, compose_yaml, Path("missing.env"))
+
+        self.assertTrue(preflight_passed(checks))
+        self.assertTrue(
+            any(
+                check.name == "environment.insecure-defaults"
+                and "CDS_DB_PASSWORD" in check.message
+                for check in checks
+            )
+        )
+        self.assertTrue(
+            any(check.name == "environment" and check.status == "PASS" for check in checks)
+        )
+
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_does_not_warn_for_insecure_default_on_non_secret_variable(
+        self,
+        _mock_which,
+        mock_run,
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        compose_yaml = "services:\n  app:\n    environment:\n      LOG_LEVEL: ${CDS_LOG_LEVEL:-info}\n"
+
+        with patch.dict(os.environ, {}, clear=True):
+            checks = run_preflight(self.plan, compose_yaml, Path("missing.env"))
+
+        self.assertTrue(preflight_passed(checks))
+        self.assertNotIn(
+            "environment.insecure-defaults", [check.name for check in checks]
+        )
+
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_does_not_warn_for_empty_default_on_secret_like_variable(
+        self,
+        _mock_which,
+        mock_run,
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        compose_yaml = "services:\n  app:\n    environment:\n      PASSWORD: ${CDS_TOKEN:-}\n"
+
+        with patch.dict(os.environ, {}, clear=True):
+            checks = run_preflight(self.plan, compose_yaml, Path("missing.env"))
+
+        self.assertTrue(preflight_passed(checks))
+        self.assertNotIn(
+            "environment.insecure-defaults", [check.name for check in checks]
+        )
+
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_reports_insecure_default_warn_alongside_missing_required_value(
+        self,
+        _mock_which,
+        mock_run,
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n"
+            "      REQUIRED: ${CDS_REQUIRED_VAR}\n"
+            "      PASSWORD: ${CDS_DB_PASSWORD:-postgres}\n"
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            checks = run_preflight(self.plan, compose_yaml, Path("missing.env"))
+
+        self.assertFalse(preflight_passed(checks))
+        self.assertTrue(
+            any(check.name == "environment.CDS_REQUIRED_VAR" for check in checks)
+        )
+        self.assertTrue(
+            any(
+                check.name == "environment.insecure-defaults"
+                and "CDS_DB_PASSWORD" in check.message
+                for check in checks
+            )
+        )
+
+    @patch("cli.preflight._load_env_values", side_effect=OSError("denied"))
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_reports_insecure_default_warn_when_env_file_unreadable(
+        self,
+        _mock_which,
+        mock_run,
+        _mock_load_env,
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n"
+            "      REQUIRED: ${CDS_REQUIRED_VAR}\n"
+            "      PASSWORD: ${CDS_DB_PASSWORD:-postgres}\n"
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            checks = run_preflight(self.plan, compose_yaml, Path(".env"))
+
+        self.assertFalse(preflight_passed(checks))
+        self.assertTrue(
+            any(
+                check.name == "environment" and check.status == "FAIL"
+                for check in checks
+            )
+        )
+        self.assertTrue(
+            any(
+                check.name == "environment.insecure-defaults"
+                and "CDS_DB_PASSWORD" in check.message
+                for check in checks
+            )
+        )
+
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_does_not_warn_for_nested_default_reference(
+        self,
+        _mock_which,
+        mock_run,
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n"
+            "      PASSWORD: ${CDS_DB_PASSWORD:-${CDS_FALLBACK}}\n"
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            checks = run_preflight(self.plan, compose_yaml, Path("missing.env"))
+
+        self.assertTrue(preflight_passed(checks))
+        self.assertNotIn(
+            "environment.insecure-defaults", [check.name for check in checks]
+        )
+
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_warns_for_insecure_default_on_pass_shorthand_variable(
+        self,
+        _mock_which,
+        mock_run,
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n"
+            "      PASSWORD: ${CDS_DB_PASS:-postgres}\n"
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            checks = run_preflight(self.plan, compose_yaml, Path("missing.env"))
+
+        self.assertTrue(preflight_passed(checks))
+        self.assertTrue(
+            any(
+                check.name == "environment.insecure-defaults"
+                and "CDS_DB_PASS" in check.message
+                for check in checks
+            )
+        )
+
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_does_not_warn_for_variable_name_containing_key_substring(
+        self,
+        _mock_which,
+        mock_run,
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n"
+            "      SECRET: ${CDS_TURKEY:-food}\n"
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            checks = run_preflight(self.plan, compose_yaml, Path("missing.env"))
+
+        self.assertTrue(preflight_passed(checks))
+        self.assertNotIn(
+            "environment.insecure-defaults", [check.name for check in checks]
+        )
+
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
     def test_fails_for_occupied_host_port(self, _mock_which, mock_run) -> None:
         mock_run.return_value = subprocess.CompletedProcess([], 0)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
@@ -217,6 +408,31 @@ class PreflightTest(unittest.TestCase):
         self.assertFalse(preflight_passed(checks))
         self.assertTrue(
             any(check.name == "ports.dns" and check.status == "FAIL" for check in checks)
+        )
+
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_warns_for_insecure_default_on_concatenated_secret_variable(
+        self,
+        _mock_which,
+        mock_run,
+    ) -> None:
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n"
+            "      PASSWORD: ${CDS_APIKEY:-abc123}\n"
+        )
+
+        with patch.dict(os.environ, {}, clear=True):
+            checks = run_preflight(self.plan, compose_yaml, Path("missing.env"))
+
+        self.assertTrue(preflight_passed(checks))
+        self.assertTrue(
+            any(
+                check.name == "environment.insecure-defaults"
+                and "CDS_APIKEY" in check.message
+                for check in checks
+            )
         )
 
 

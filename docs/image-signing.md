@@ -34,7 +34,7 @@ The provenance attestation is a hand-built SLSA v0.2-shaped predicate from GitHu
 
 ## Fixtures for offline tests
 
-`tests/fixtures/signed-images.json` records the trust root (registry allowlist, OIDC issuer, certificate identity) and the known-good digest plus attestation status for every image published by `publish-images.yml` (see #208). After a `publish-images` run, the job summary lists the digest and identity for each published image. Copy the digest values into that fixture and set `refreshRequired` to `false`; placeholder digests (`sha256:0000...`) are rejected by `cli.image_verification.validate_fixture`, and `tests/test_publish_images_workflow.py` fails until the fixture is refreshed. `cli.image_verification.validate_fixture` checks the structural shape, and offline verification treats a tag reference (no `@sha256:...`) as unverifiable (CDS-VER-003): only digest-pinned references can be matched against the fixture.
+`tests/fixtures/signed-images.json` records the trust root (registry allowlist, OIDC issuer, certificate identity) and the known-good digest plus attestation status for every image published by `publish-images.yml` (see #208). The fixture is refreshed automatically: the `update-fixture` job in `publish-images.yml` reads each published digest from the registry and commits the updated JSON after every successful publish. It no longer needs to be updated by hand. `cli.image_verification.validate_fixture` checks the structural shape, and offline verification treats a tag reference (no `@sha256:...`) as unverifiable (CDS-VER-003): only digest-pinned references can be matched against the fixture.
 
 ## Verification policy
 

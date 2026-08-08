@@ -195,7 +195,7 @@ more of the follow-up issues.
 | --- | --- | --- | --- | --- |
 | T1 | Hardcoded secret committed to a profile/module YAML | D | `CDS-SEC-001`–`004`, `CDS-SEC-033` | Detection only for known patterns; no repo-wide secret scanning in CI. Tracked outside this milestone. |
 | T2 | Resolved secret leaks into `cds plan`/`validate` stdout or a generated Compose file | D | Placeholder rendering (`cli/renderer.py`) + regression tests; `CDS-SEC-006`/`030`/`071` are policy intent, not evaluated (`scope: ["none"]`; `030`/`071` also `enabled: false`) | Covered by the placeholder-rendering control and its regression tests, not by the rule engine. Re-verify under #216 process-manager change (new log surfaces). |
-| T3 | Secret passed via container `command:` args, visible in `docker inspect`/process list | B/D | `CDS-SEC-070` scope bug (issue #297) | **High** — rule currently never fires (dead scope). Needs fix before #206/#216 can rely on it. |
+| T3 | Secret passed via container `command:` args, visible in `docker inspect`/process list | B/D | `CDS-SEC-070` evaluated against rendered Compose `command`/`entrypoint`/`healthcheck`/`logging` fields (`"rendered-compose"` scope; fixed by #353, closing #297) | Covered for unresolved `${CDS_*}` placeholders leaking into these fields. Literal hardcoded secrets in those fields (not routed through `${CDS_*}`) remain out of scope — see the rule's `$comment` in `rule-set.json`. |
 | T4 | Weak/default/reused credentials (DB, admin UI, cache) | B | `CDS-SEC-010`–`012` active and fully functional (#292's dead branch was removed by #344); `CDS-SEC-013` is `enabled: false` | Partial coverage only — `CDS-SEC-013` is not active. **Owning issue: #206.** |
 | T5 | No authentication required on relational DB / cache in production | B | None enforced today; `keydb` password field exists but `connectionUri` doesn't embed it (#291) | **High** — no production-mode enforcement that auth is mandatory. **Owning issue: #206.** |
 | T6 | Env var falls back to an insecure default when unset (`${VAR:-admin}`) | D | `CDS-SEC-040`/`041`, but issue #295 notes `${VAR:-fallback}` with a hardcoded insecure default isn't flagged by `cds preflight` | Medium — partially covered by security rules, gap in preflight. |
@@ -231,7 +231,7 @@ more of the follow-up issues.
 | T21 | Image pulled from an untrusted/typo-squatted registry | C | `CDS-SEC-052`, case-insensitive allowlist (PR #337) | Covered. |
 | T22 | Image signature/provenance not verified — a tampered image is deployed with a valid-looking tag/digest | C | `cli/image_verification.py` (CDS-VER-001/002), cosign + fixture fallback (PR #330) | Covered for `full` mode; **gap:** default policy mode may be `off`/`policy` outside production — verify defaults match #206/#216 auth requirements. |
 | T22a | `tests/fixtures/signed-images.json` is trusted as a substitute for an actual cosign check: any entry with a matching digest and `"signed": true` passes verification with no cosign call at all (`cli/image_verification.py` fixture-match path) | C | None — the fixture is an ordinary repo file | **High** — an insider with repo write access (§4) can flip one fixture entry to mark a backdoored digest as signed, and `cds security --verify-images` will accept it. Owning issue: none yet; flag for #209/#211 as a supply-chain control gap alongside CI rescanning. |
-| T23 | New CVE disclosed in an already-deployed base image; no rescanning after initial CI scan | C | One-time scan in CI (`image-security-scan.yml`, PR from #71); no scheduled rescanning | **High** — no continuous rescanning. **Owning issue: #209.** |
+| T23 | New CVE disclosed in an already-deployed base image; no rescanning after initial CI scan | C | Daily rescan of the published digests (`image-security-scan.yml`, schedule; issues filed on findings), weekly rebuild republish (`publish-images.yml`), and a push-time trivy gate that fails `publish-images.yml` before push when HIGH/CRITICAL findings exist (#274); SLA in `docs/image-scanning.md` | **Medium** — continuous rescanning, rebuild automation, and push-time gating active (#209, #274). **Owning issue: #209.** |
 | T24 | Compromised CI job forges a signature using the repo's OIDC identity | C | Keyless OIDC cert-identity regexp scoped to `publish-images.yml@refs/heads/main` (fixed in review of #330) | Covered, assuming branch protection prevents arbitrary workflow edits on `main`. |
 | T25 | SBOM/vulnerability report tampered with or not retained, hiding a known-bad image after the fact | C | SBOM generation exists (#71); retention/immutability not modeled here | Medium — out of explicit scope for this document, flag for #209. |
 
@@ -254,17 +254,18 @@ follow-up issue:
    single compromised or misconfigured service to fully compromise
    confidentiality or availability of the whole stack. Owners: #206, #70,
    #205, #211, #210.
-2. **T3 / T4** — `CDS-SEC-070` never fires (dead scope, #297) and
-   `CDS-SEC-013` is disabled, giving false confidence that credential-leak
-   and default-credential classes are fully caught when coverage is only
-   partial. Owner: #206 (plus the standalone bug issue #297; #292's dead
-   branch in `CDS-SEC-010` was already fixed by #344).
+2. **T4** — `CDS-SEC-013` is disabled, giving false confidence that the
+   default-credential class is fully caught when coverage is only partial.
+   (`CDS-SEC-070`'s dead-scope bug, formerly listed alongside T3 here, was
+   fixed by #353, closing #297.) Owner: #206.
 3. **T15 / T18** — missing runtime confinement and production process
    managers increase the blast radius of a successful application-layer
    compromise but require an existing compromise to matter. Owners: #207,
    #216.
-4. **T23** — no continuous rescanning means a newly disclosed CVE in an
-   already-running image goes undetected indefinitely. Owner: #209.
+4. **T23** — mitigated by the daily rescan of published digests, the weekly
+   rebuild/republish in #209, and the push-time vulnerability gate (#274,
+   active) that stops publishing an image with HIGH/CRITICAL findings.
+   Owner: #209.
 5. **T17** — host hardening baseline is undocumented; mitigated somewhat by
    T16's rootless requirement once implemented. Owner: #211.
 6. **T22a** — the signed-images fixture is trusted as-is with no independent

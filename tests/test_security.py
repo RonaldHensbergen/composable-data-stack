@@ -7,7 +7,7 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from cli.security import _eval_condition, _validate_rule_set, run_security_validation
+from cli.security import PrecomputedRender, _eval_condition, _validate_rule_set, run_security_validation
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _RULE_SCHEMA_PATH = _REPO_ROOT / "cli" / "resources" / "rule-schema.json"
@@ -433,8 +433,10 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
                 _RULE_SCHEMA_PATH,
                 _RULE_SET_PATH,
                 env_file=str(env_path),
-                plan=plan,
-                rendered_compose_yaml=rendered_compose_yaml,
+                precomputed_render=PrecomputedRender(
+                    plan=plan,
+                    rendered_compose_yaml=rendered_compose_yaml,
+                ),
             )
 
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-070"]
@@ -478,9 +480,9 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         rendered_compose_yaml=None` when its own "plan"/"render" stages
         failed, which made run_security_validation() silently retry (and
         re-fail) the same build_plan()/render_compose() calls a caller had
-        already run and reported diagnostics for. `skip_self_plan_render`
-        lets a caller that already knows planning/rendering failed opt out
-        of that redundant retry.
+        already run and reported diagnostics for.
+        `PrecomputedRender(failed=True)` lets a caller that already knows
+        planning/rendering failed opt out of that redundant retry.
         """
         profile_path = self._FIXTURE_ROOT / "profile" / "profile.yaml"
         env_path = profile_path.parent / ".env"
@@ -494,7 +496,7 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
                 _RULE_SCHEMA_PATH,
                 _RULE_SET_PATH,
                 env_file=str(env_path),
-                skip_self_plan_render=True,
+                precomputed_render=PrecomputedRender(failed=True),
             )
 
         self.assertEqual(

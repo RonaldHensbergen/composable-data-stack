@@ -41,6 +41,19 @@
         "/^pyproject\\.toml$/",
         "/^docs/support-policy\\.md$/"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "Track the Trivy CLI version pinned via trivy-action's version: input, since the action's own bundled default (which Renovate cannot see) lags behind the latest Trivy release",
+      "matchStrings": [
+        "version:\\s*(?<currentValue>v\\d+\\.\\d+\\.\\d+)\\s*\\n\\s*image-ref:"
+      ],
+      "depNameTemplate": "aquasecurity/trivy",
+      "datasourceTemplate": "github-releases",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/image-security-scan\\.yml$/",
+        "/^\\.github/workflows/publish-images\\.yml$/"
+      ]
     }
   ],
   "packageRules": [

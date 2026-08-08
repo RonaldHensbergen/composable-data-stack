@@ -1,6 +1,10 @@
 name: Image Security Scan
 
 on:
+  schedule:
+    # Daily rescan of the published images so newly disclosed HIGH/CRITICAL
+    # vulnerabilities are caught even when nothing in the repo changed.
+    - cron: "23 3 * * *"
   pull_request:
     branches: [main]
     paths:
@@ -57,6 +61,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      issues: write
     strategy:
       fail-fast: false
       matrix:
@@ -69,6 +74,10 @@ jobs:
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
       - name: Build image for scanning
+        # Scheduled runs scan the published digests recorded in the
+        # signed-images fixture instead of a freshly built image, so nothing
+        # needs to be rebuilt just to rescan what is already deployed.
+        if: github.event_name != 'schedule'
         run: |
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
@@ -78,21 +87,115 @@ jobs:
           tag="${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}"
           docker build -f "$dockerfile" -t "cds/$tag:scan" "$context"
 
+      - name: Select scan target
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+          python3 - "${{ matrix.image.name }}" <<'PY'
+          import json
+          import os
+          import sys
+
+          name = sys.argv[1]
+          fixture = json.load(open("tests/fixtures/signed-images.json", encoding="utf-8"))
+          entry = fixture["images"].get(f"cds-{name}")
+          if entry is None:
+              sys.exit(f"fixture has no entry for cds-{name}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"image-ref={entry['repository']}@{entry['digest']}\n")
+          PY
+          else
+            tag="${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}"
+            echo "image-ref=cds/$tag:scan" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Scan image for HIGH/CRITICAL vulnerabilities
+        id: scan
+        # continue-on-error is required so the job status stays "success"
+        # after a scan failure; otherwise the implicit success() check that
+        # GitHub Actions ANDs onto the next step's `if:` (since it lacks its
+        # own status function) would always skip issue filing.
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan"
+          # trivy-action v0.36.0 defaults to Trivy CLI v0.70.0, not the
+          # latest release; pin the CLI version explicitly so it is a
+          # visible, Renovate-trackable dependency instead of a value
+          # hidden inside the action's own action.yaml default.
+          version: v0.73.0
+          image-ref: ${{ steps.ref.outputs.image-ref }}
           format: table
+          output: scan-${{ matrix.image.name }}.txt
           scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: "1"
           ignore-unfixed: "true"
 
+      - name: File an issue for a failing scheduled scan
+        if: ${{ github.event_name == 'schedule' && steps.scan.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image="${{ matrix.image.name }}"
+          image_ref="${{ steps.ref.outputs.image-ref }}"
+          report="scan-${image}.txt"
+          label="vuln-scan"
+          title="[vuln-scan] HIGH/CRITICAL findings in cds-${image}"
+          # steps.scan.outcome == 'failure' also fires on transient Trivy/
+          # registry errors, not just real vulnerability matches. Only file
+          # an issue when the report exists and actually records a non-zero
+          # HIGH/CRITICAL total; otherwise let the final gate step still
+          # fail the job without creating a misleading issue.
+          if [ ! -s "$report" ] || ! grep -qE "Total: [1-9]" "$report"; then
+            echo "::notice::No confirmed HIGH/CRITICAL findings in ${report} (possible transient scan error); skipping issue filing."
+            exit 0
+          fi
+          gh label create "$label" --repo "$GITHUB_REPOSITORY" \
+            --color "B60205" \
+            --description "Scheduled image scan found HIGH/CRITICAL vulnerabilities" \
+            --force
+          if grep -q "CRITICAL" "$report" 2>/dev/null; then
+            severities="HIGH and CRITICAL"
+            deadline="$(date -u -d '+72 hours' +%Y-%m-%d)"
+          else
+            severities="HIGH"
+            deadline="$(date -u -d '+7 days' +%Y-%m-%d)"
+          fi
+          {
+            echo "## HIGH/CRITICAL vulnerabilities detected"
+            echo
+            echo "- Scanned target: \`${image_ref}\`"
+            echo "- Pipeline run: ${GITHUB_WORKFLOW}"
+            echo
+            echo "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "- SLA: ${severities} findings must be remediated by **${deadline}** (see docs/image-scanning.md). Open a Renovate/dependency bump or a rebuild PR, or file an exception per docs/image-scanning.md."
+            echo
+            echo "### Findings"
+            echo
+            echo '```'
+            cat "$report"
+            echo '```'
+          } > issue-body.md
+          existing="$(
+            gh issue list --repo "$GITHUB_REPOSITORY" --label "$label" \
+              --search "cds-${image} in:title" --state open --limit 1 \
+              --json number --jq '.number' 2>/dev/null || true
+          )"
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$GITHUB_REPOSITORY" --body-file issue-body.md
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+              --body-file issue-body.md --label "$label"
+          fi
+
       - name: Generate SBOM (CycloneDX)
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan"
+          version: v0.73.0
+          image-ref: ${{ steps.ref.outputs.image-ref }}
           format: cyclonedx
           output: "sbom-${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}.cdx.json"
 
@@ -102,3 +205,7 @@ jobs:
         with:
           name: sbom-${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}
           path: sbom-${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}.cdx.json
+
+      - name: Fail the job if vulnerabilities were found
+        if: steps.scan.outcome == 'failure'
+        run: exit 1

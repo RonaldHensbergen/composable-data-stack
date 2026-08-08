@@ -6,6 +6,13 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- `publish-images.yml` now runs a trivy HIGH/CRITICAL vulnerability gate on
+  the locally built images before pushing or signing, so a CVE disclosed
+  after the PR-time scan blocks publication to GitHub Container Registry and
+  Docker Hub (#274).
+
 ## [0.4.0-beta-1] - 2026-07-31
 
 ### Added

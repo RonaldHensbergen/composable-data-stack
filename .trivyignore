@@ -1,0 +1,16 @@
+# Container vulnerability scan exceptions.
+#
+# Native trivy ignore format, one entry per line:
+#
+#   CVE-YYYY-#### exp:YYYY-MM-DD
+#
+# The comment block directly above an entry records the remediation owner
+# and the justification (see docs/image-scanning.md):
+#
+#   # patched in the next upstream base image digest
+#   # owner:@alice
+#   CVE-2025-12345 exp:2026-08-01
+#
+# Rules: only IDs reported by the scan may be listed, each ID at most once,
+# and exp must be a valid date at most 90 days out. An expired exception
+# stops being ignored and fails the daily scan again.

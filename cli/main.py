@@ -25,7 +25,7 @@ from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
 from .overlay import resolve_profile
 from .preflight import preflight_passed, run_preflight
-from .security import run_security_validation
+from .security import PrecomputedRender, run_security_validation
 from .security_common import SEVERITY_ORDER, infer_profile_class
 from .image_verification import default_fixture_path, load_policy_from_env, verify_images
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
@@ -81,13 +81,17 @@ def profile_completer(prefix, parsed_args, **kwargs):
 
 
 def get_profiles_root() -> Path:
-    root = os.getenv("CDS_PROFILE_PATH") or "profiles"
-    return Path(root).expanduser()
+    override = os.getenv("CDS_PROFILE_PATH")
+    if override:
+        return Path(override).expanduser()
+    return find_project_root() / "profiles"
 
 
 def get_modules_root() -> Path:
-    root = os.getenv("CDS_MODULE_PATH") or "modules"
-    return Path(root).expanduser()
+    override = os.getenv("CDS_MODULE_PATH")
+    if override:
+        return Path(override).expanduser()
+    return find_project_root() / "modules"
 
 
 def find_project_root(start: Path | None = None) -> Path:
@@ -227,7 +231,7 @@ def _resolve_profile_root(profile_root: Path) -> str | None:
 
     # profile_root may be set to a bare profile name rather than a path.
     # Try resolving it as a name under the default profiles/ directory.
-    default_root = Path("profiles")
+    default_root = find_project_root() / "profiles"
     if default_root.resolve() != profile_root.resolve():
         name_candidate = default_root / profile_root.name / "profile.yaml"
         if name_candidate.exists():
@@ -274,7 +278,7 @@ def resolve_profile_path(profile: str | None) -> str:
         # CDS_PROFILE_PATH may have been set to a profile name rather than a
         # profiles root directory. Fall back to the default "profiles/" root so
         # that an explicit profile name still resolves correctly.
-        default_root = Path("profiles")
+        default_root = find_project_root() / "profiles"
         if default_root.resolve() != profile_root.resolve():
             default_by_name = default_root / profile / "profile.yaml"
             default_by_file = default_root / f"{profile}.yaml"
@@ -1233,12 +1237,14 @@ def main() -> int:
             try:
                 findings, sec_diags = run_security_validation(
                     profile_path=Path(profile_path),
-                    env_file=str(resolve_env_file_path(profile_path)),
+                    env_file=env_file,
                     environment=args.environment,
                     redact_values=not args.reveal_secrets,
-                    plan=plan if plan_ok else None,
-                    rendered_compose_yaml=compose_yaml if render_ok else None,
-                    skip_self_plan_render=not (plan_ok and render_ok),
+                    precomputed_render=PrecomputedRender(
+                        plan=plan if plan_ok else None,
+                        rendered_compose_yaml=compose_yaml if render_ok else None,
+                        failed=not (plan_ok and render_ok),
+                    ),
                 )
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)
@@ -1465,6 +1471,14 @@ def main() -> int:
         for diag in diagnostics:
             print(diag.format(), file=sys.stderr)
 
+        # A W096 warning means some rendered-compose-scoped rules (e.g.
+        # CDS-SEC-070) were silently skipped because the profile couldn't be
+        # planned/rendered. Unlike `cds test`, this command has no separate
+        # plan/render stage to surface that failure, so treat it as a
+        # non-zero exit rather than reporting "No security findings." as if
+        # the scan were complete.
+        render_scan_skipped = any(d.code == "W096" for d in diagnostics)
+
         if args.verify_images:
             image_findings = _run_image_verification(profile_path, args.environment)
             findings.extend(image_findings)
@@ -1475,6 +1489,9 @@ def main() -> int:
             ))
 
         if not findings:
+            if render_scan_skipped:
+                print("No security findings (some checks were skipped; see warnings above).")
+                return 1
             print("No security findings.")
             return 0
 
