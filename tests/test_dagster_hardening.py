@@ -40,6 +40,30 @@ class DagsterHardeningTest(unittest.TestCase):
                 self.assertEqual(service["build"]["args"]["DB_BACKEND"], "${config.storage.backend}")
                 self.assertEqual(service["environment"]["DB_BACKEND"], "${config.storage.backend}")
 
+    def test_vulnerable_python_packages_are_patched(self) -> None:
+        pinned: dict[str, tuple[int, ...]] = {}
+        for line in self.requirements.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                for op in (">=", "=="):
+                    if op in line:
+                        pkg, _, ver = line.partition(op)
+                        pinned[pkg.strip().lower()] = tuple(int(x) for x in ver.strip().split("."))
+                        break
+
+        min_versions = {
+            "msgpack": "1.2.1",
+            "setuptools": "78.1.1",
+        }
+        for pkg, min_ver in min_versions.items():
+            with self.subTest(package=pkg):
+                self.assertIn(pkg, pinned, msg=f"{pkg} must be pinned in images/dagster/requirements.txt")
+                self.assertGreaterEqual(
+                    pinned[pkg],
+                    tuple(int(x) for x in min_ver.split(".")),
+                    msg=f"{pkg} must be >={min_ver} to fix known CVEs",
+                )
+
     def test_services_have_restricted_runtime_without_docker_socket(self) -> None:
         for name in ("user-code", "dagster-webserver", "dagster-daemon"):
             with self.subTest(service=name):
