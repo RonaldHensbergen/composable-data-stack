@@ -31,8 +31,8 @@ ENV DAGSTER_HOME=/opt/dagster/dagster_home \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN addgroup -g 1001 dagster && \
-    adduser -D -H -u 1001 -G dagster dagster && \
+RUN addgroup -g 999 dagster && \
+    adduser -D -H -u 999 -G dagster dagster && \
     install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage /var/run/dagster && \
     python -m pip uninstall --yes pip 2>/dev/null || true
 
