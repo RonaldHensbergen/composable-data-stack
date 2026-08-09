@@ -54,8 +54,9 @@ class DagsterHardeningTest(unittest.TestCase):
             match = re.match(r"^([A-Za-z0-9._-]+)\s*(>=|==)\s*([0-9]+(?:\.[0-9]+)*)", line)
             if match:
                 pkg, _, ver = match.groups()
+                normalized_pkg = pkg.lower()
                 version = tuple(int(x) for x in ver.strip().split("."))
-                pinned[pkg.strip().lower()] = max(pinned.get(pkg.strip().lower(), (0,)), version)
+                pinned[normalized_pkg] = max(pinned.get(normalized_pkg, (0,)), version)
 
         for pkg, min_ver in MIN_SAFE_DAGSTER_IMAGE_DEPENDENCIES.items():
             with self.subTest(package=pkg):
