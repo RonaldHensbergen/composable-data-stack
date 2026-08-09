@@ -1195,7 +1195,12 @@ def main() -> int:
                     )
                     return 130
 
-                up_returncode = up_process.wait()
+                while True:
+                    try:
+                        up_returncode = up_process.wait(timeout=0.5)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
                 if up_returncode != 0:
                     print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
                     return up_returncode
