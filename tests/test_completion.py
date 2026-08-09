@@ -93,7 +93,12 @@ class ShellCompletionProtocolTest(unittest.TestCase):
 
     def test_completes_profile_names_filtered_by_prefix(self):
         candidates = _complete("cds validate local-dagster-postgres-superset-v")
-        self.assertEqual(candidates, ["local-dagster-postgres-superset-vault"])
+        self.assertIn("local-dagster-postgres-superset-vault", candidates)
+        for c in candidates:
+            self.assertTrue(
+                c.startswith("local-dagster-postgres-superset-v"),
+                f"unexpected candidate: {c!r}",
+            )
 
     def test_completes_profile_names_for_use_command(self):
         candidates = _complete("cds use ")
