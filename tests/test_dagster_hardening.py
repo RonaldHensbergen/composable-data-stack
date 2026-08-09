@@ -5,6 +5,11 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator
 
+MIN_SAFE_DAGSTER_IMAGE_DEPENDENCIES = {
+    "msgpack": (1, 2, 1),
+    "setuptools": (78, 1, 1),
+}
+
 
 class DagsterHardeningTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -44,24 +49,20 @@ class DagsterHardeningTest(unittest.TestCase):
         pinned: dict[str, tuple[int, ...]] = {}
         for line in self.requirements.splitlines():
             line = line.strip()
-            if line and not line.startswith("#"):
-                for op in (">=", "=="):
-                    if op in line:
-                        pkg, _, ver = line.partition(op)
-                        pinned[pkg.strip().lower()] = tuple(int(x) for x in ver.strip().split("."))
-                        break
+            if not line or line.startswith("#"):
+                continue
+            match = re.match(r"^([A-Za-z0-9._-]+)\s*(>=|==)\s*([0-9]+(?:\.[0-9]+)*)$", line)
+            if match:
+                pkg, _, ver = match.groups()
+                pinned[pkg.strip().lower()] = tuple(int(x) for x in ver.strip().split("."))
 
-        min_versions = {
-            "msgpack": "1.2.1",
-            "setuptools": "78.1.1",
-        }
-        for pkg, min_ver in min_versions.items():
+        for pkg, min_ver in MIN_SAFE_DAGSTER_IMAGE_DEPENDENCIES.items():
             with self.subTest(package=pkg):
                 self.assertIn(pkg, pinned, msg=f"{pkg} must be pinned in images/dagster/requirements.txt")
                 self.assertGreaterEqual(
                     pinned[pkg],
-                    tuple(int(x) for x in min_ver.split(".")),
-                    msg=f"{pkg} must be >={min_ver} to fix known CVEs",
+                    min_ver,
+                    msg=f"{pkg} must be >={'.'.join(str(part) for part in min_ver)} to fix known CVEs",
                 )
 
     def test_services_have_restricted_runtime_without_docker_socket(self) -> None:
