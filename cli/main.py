@@ -35,6 +35,7 @@ from .up_runner import (
     poll_state_until_settled,
     run_streamed,
     start_log_tail,
+    start_up_in_background,
     stop_log_tail,
 )
 from .loader import load_yaml_file
@@ -1127,24 +1128,38 @@ def main() -> int:
                         return build_returncode
 
                 print(f"Running: {' '.join(up_cmd)}")
-                if not args.detach:
-                    print(
-                        "Switching to the live state view; full docker compose output "
-                        f"is being written to {log_path}."
-                    )
-                up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
-                if up_returncode != 0:
-                    print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
-                    return up_returncode
-
                 if args.detach:
+                    up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
+                    if up_returncode != 0:
+                        print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                        return up_returncode
                     print(
                         f"Stack starting in the background. Run 'cds state' to check status; "
                         f"full output in {log_path}."
                     )
                     return 0
 
-                log_tail_process = start_log_tail(output_path, log_file)
+                print(
+                    "Switching to the live state view; full docker compose output "
+                    f"is being written to {log_path}."
+                )
+                # `docker compose up --detach` can itself block for a long time
+                # waiting on healthcheck-gated `depends_on` dependencies before
+                # it returns control, even with --detach. Run it in the
+                # background so the live state view (driven by `docker compose
+                # ps`, which is fast regardless) starts rendering immediately
+                # instead of appearing only after `up` finishes.
+                up_process = start_up_in_background(up_cmd, log_file)
+
+                # Deferred until `up` finishes (see on_up_finished below):
+                # starting this immediately would have it write container
+                # logs to log_file at the same time `up`'s own subprocess is
+                # still writing its transcript there, interleaving output
+                # mid-line.
+                def _begin_log_tail(_up_exit_code: int) -> None:
+                    nonlocal log_tail_process
+                    log_tail_process = start_log_tail(output_path, log_file)
+
                 try:
                     use_rich = sys.stdout.isatty() and not args.no_color
                     if use_rich:
@@ -1160,6 +1175,8 @@ def main() -> int:
                                 redraw_fn=lambda text: live.update(
                                     Text.from_ansi(text),
                                 ),
+                                up_done_fn=up_process.poll,
+                                on_up_finished=_begin_log_tail,
                             )
                     else:
                         settled, _grouped = poll_state_until_settled(
@@ -1167,13 +1184,30 @@ def main() -> int:
                             expected_service_count=expected_service_count,
                             timeout=args.timeout,
                             use_color=(not args.no_color) and sys.stdout.isatty(),
+                            up_done_fn=up_process.poll,
+                            on_up_finished=_begin_log_tail,
                         )
                 except KeyboardInterrupt:
+                    # Don't wait on `up` here: it may still be blocked on a
+                    # healthcheck for a long time, and we're no longer
+                    # watching it once we've stopped polling, so blocking
+                    # process exit on it would be surprising. The stack (and
+                    # `up`) keep running in the background regardless.
                     print(
                         f"\nStopped watching; the stack keeps running. "
                         f"Docker output logged to {log_path}."
                     )
                     return 130
+
+                while True:
+                    try:
+                        up_returncode = up_process.wait(timeout=0.5)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                if up_returncode != 0:
+                    print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                    return up_returncode
         except KeyboardInterrupt:
             print(
                 f"\nInterrupted. The stack keeps running; "

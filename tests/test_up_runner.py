@@ -341,6 +341,74 @@ class PollStateUntilSettledTest(unittest.TestCase):
         self.assertTrue(settled)
         self.assertEqual(ps_fn.call_count, 2)
 
+    def test_bails_out_immediately_when_up_fails_instead_of_waiting_out_timeout(self):
+        # Services never came up because `docker compose up` itself failed;
+        # this must return right away rather than polling until `timeout`.
+        stuck = _ps('{"Service": "web", "Health": "starting"}')
+        ps_fn = MagicMock(return_value=stuck)
+        sleep_fn = MagicMock()
+        up_done_fn = MagicMock(return_value=17)
+
+        settled, grouped = poll_state_until_settled(
+            "docker-compose.yml",
+            timeout=180,
+            ps_fn=ps_fn,
+            sleep_fn=sleep_fn,
+            now_fn=MagicMock(return_value=0.0),
+            redraw_fn=MagicMock(),
+            up_done_fn=up_done_fn,
+        )
+
+        self.assertFalse(settled)
+        self.assertEqual(grouped, {"STARTING": ["web"]})
+        sleep_fn.assert_not_called()
+        ps_fn.assert_called_once()
+
+    def test_settle_timeout_only_starts_once_up_finishes_successfully(self):
+        # `up` is still running (up_done_fn returns None) for the first two
+        # polls; the clock must not start until it reports success, so a
+        # stack whose healthchecks legitimately outlast `timeout` isn't
+        # penalized for time `up` itself spent blocked beforehand.
+        stuck = _ps('{"Service": "web", "Health": "starting"}')
+        ps_fn = MagicMock(return_value=stuck)
+        up_done_fn = MagicMock(side_effect=[None, None, 0, 0])
+
+        settled, grouped = poll_state_until_settled(
+            "docker-compose.yml",
+            timeout=10,
+            ps_fn=ps_fn,
+            sleep_fn=MagicMock(),
+            # Only consumed once `up_done_fn` reports success (3rd/4th
+            # poll): one call to start the clock, one to observe it hasn't
+            # expired yet, one to observe it has. The two `None` polls
+            # before that must not consume a `now_fn()` call at all.
+            now_fn=MagicMock(side_effect=[0.0, 0.0, 100.0]),
+            redraw_fn=MagicMock(),
+            up_done_fn=up_done_fn,
+        )
+
+        self.assertFalse(settled)
+        self.assertEqual(grouped, {"STARTING": ["web"]})
+
+    def test_on_up_finished_callback_fires_once_when_up_completes(self):
+        starting = _ps('{"Service": "web", "Health": "starting"}')
+        healthy = _ps('{"Service": "web", "Health": "healthy"}')
+        ps_fn = MagicMock(side_effect=[starting, healthy])
+        on_up_finished = MagicMock()
+
+        settled, _grouped = poll_state_until_settled(
+            "docker-compose.yml",
+            ps_fn=ps_fn,
+            sleep_fn=MagicMock(),
+            now_fn=MagicMock(side_effect=[0.0, 0.0, 1.0]),
+            redraw_fn=MagicMock(),
+            up_done_fn=MagicMock(return_value=0),
+            on_up_finished=on_up_finished,
+        )
+
+        self.assertTrue(settled)
+        on_up_finished.assert_called_once_with(0)
+
 
 if __name__ == "__main__":
     unittest.main()
