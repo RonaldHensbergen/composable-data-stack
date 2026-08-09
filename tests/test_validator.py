@@ -143,6 +143,12 @@ class ObservabilityConfigValidationTest(unittest.TestCase):
         self.assertEqual([d.code for d in diagnostics], ["E100"])
         self.assertEqual(diagnostics[0].path, "spec.observability.logShipping.enabled")
 
+    def test_enabled_is_required_when_log_shipping_is_present(self):
+        profile = {"spec": {"observability": {"logShipping": {}}}}
+        diagnostics = validate_observability_config(profile, [])
+        self.assertEqual([d.code for d in diagnostics], ["E100"])
+        self.assertEqual(diagnostics[0].path, "spec.observability.logShipping.enabled")
+
     def test_retention_days_must_be_positive_integers(self):
         profile = {
             "spec": {

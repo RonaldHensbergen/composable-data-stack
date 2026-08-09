@@ -43,6 +43,7 @@ class MainCLITest(unittest.TestCase):
             modules = list_modules()
             self.assertIn("bi/superset", modules)
             self.assertIn("orchestration/dagster", modules)
+            self.assertIn("warehouse/postgres", modules)
 
     def test_resolve_profile_path_from_subdirectory_without_env_override(self):
         # Regression test: without CDS_PROFILE_PATH set, the default

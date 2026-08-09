@@ -8,10 +8,20 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Provider-neutral observability architecture foundations for #174: `docs/observability.md`, the shared `log-sink` contract, the structured-event schema, and optional profile `spec.observability.logShipping` validation.
 - `publish-images.yml` now runs a trivy HIGH/CRITICAL vulnerability gate on
   the locally built images before pushing or signing, so a CVE disclosed
   after the PR-time scan blocks publication to GitHub Container Registry and
   Docker Hub (#274).
+- Image scanning/signing docs and workflow automation now cover scheduled
+  rescans of published image digests, `.trivyignore`-tracked exceptions, and
+  signed-image fixture refreshes for verification tests.
+
+### Changed
+
+- `cds preflight` now warns when secret-like environment defaults fall back to
+  insecure hardcoded values, and `CDS-SEC-070` now evaluates rendered Compose
+  `command`, `entrypoint`, `healthcheck`, and `logging` fields.
 
 ## [0.4.0-beta-1] - 2026-07-31
 

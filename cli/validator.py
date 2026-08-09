@@ -441,8 +441,16 @@ def validate_observability_config(profile: dict[str, Any], module_instances: lis
             )
         ]
 
-    enabled = log_shipping.get("enabled", False)
-    if not isinstance(enabled, bool):
+    if "enabled" not in log_shipping:
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E100",
+                "spec.observability.logShipping.enabled is required.",
+                "spec.observability.logShipping.enabled",
+            )
+        )
+    elif not isinstance(log_shipping["enabled"], bool):
         diagnostics.append(
             Diagnostic(
                 "error",
