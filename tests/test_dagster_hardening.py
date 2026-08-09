@@ -51,10 +51,11 @@ class DagsterHardeningTest(unittest.TestCase):
             line = line.split("#", 1)[0].strip()
             if not line:
                 continue
-            match = re.match(r"^([A-Za-z0-9._-]+)\s*(>=|==)\s*([0-9]+(?:\.[0-9]+)*)$", line)
+            match = re.match(r"^([A-Za-z0-9._-]+)\s*(>=|==)\s*([0-9]+(?:\.[0-9]+)*)", line)
             if match:
                 pkg, _, ver = match.groups()
-                pinned[pkg.strip().lower()] = tuple(int(x) for x in ver.strip().split("."))
+                version = tuple(int(x) for x in ver.strip().split("."))
+                pinned[pkg.strip().lower()] = max(pinned.get(pkg.strip().lower(), (0,)), version)
 
         for pkg, min_ver in MIN_SAFE_DAGSTER_IMAGE_DEPENDENCIES.items():
             with self.subTest(package=pkg):
