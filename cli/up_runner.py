@@ -241,7 +241,7 @@ def poll_state_until_settled(
         if up_exit_code is not None:
             if not up_finished_seen:
                 up_finished_seen = True
-                if on_up_finished is not None:
+                if up_exit_code == 0 and on_up_finished is not None:
                     on_up_finished(up_exit_code)
             if up_exit_code != 0:
                 # `up` itself already failed; services it never started
