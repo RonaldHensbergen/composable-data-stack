@@ -31,10 +31,25 @@ ENV DAGSTER_HOME=/opt/dagster/dagster_home \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN addgroup -g 999 dagster && \
-    adduser -D -H -u 999 -G dagster dagster && \
-    install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage /var/run/dagster && \
-    python -m pip uninstall --yes pip 2>/dev/null || true
+# python:3.14-alpine already reserves gid 999 for a built-in, memberless
+# "ping" group (from busybox/alpine-baselayout), so a plain
+# `addgroup -g 999 dagster` fails here. Because this RUN used `&&`
+# chaining, that failure previously short-circuited the whole line *before*
+# reaching `pip uninstall`, silently leaving pip (and its vendored
+# msgpack/setuptools copies) in the final image where Trivy flags them as
+# HIGH vulnerabilities. Reclaim gid 999 for "dagster" first so the uid/gid
+# matches the compose module's tmpfs uid=999,gid=999 mounts, and use `set -e`
+# (not `&&`/`|| true`) so any future step failure here fails the build loudly
+# instead of silently skipping the pip cleanup again.
+RUN set -e; \
+    existing_group="$(getent group 999 | cut -d: -f1 || true)"; \
+    if [ -n "$existing_group" ] && [ "$existing_group" != "dagster" ]; then \
+      delgroup "$existing_group"; \
+    fi; \
+    addgroup -g 999 dagster; \
+    adduser -D -H -u 999 -G dagster dagster; \
+    install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage /var/run/dagster; \
+    python -m pip uninstall --yes pip
 
 WORKDIR /app
 
