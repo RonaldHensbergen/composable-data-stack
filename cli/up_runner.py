@@ -205,7 +205,7 @@ def poll_state_until_settled(
       preserves the old behavior of starting the clock immediately.
 
     `on_up_finished`, if given, is called exactly once, the first time
-    `up_done_fn` reports a result (with that exit code), so callers can
+    `up_done_fn` reports a successful result (exit code 0), so callers can
     defer setup (e.g. starting a log tail) until `up` is done rather
     than running it concurrently with `up`'s own output.
     """
