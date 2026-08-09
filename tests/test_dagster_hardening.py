@@ -49,7 +49,7 @@ class DagsterHardeningTest(unittest.TestCase):
         pinned: dict[str, tuple[int, ...]] = {}
         for line in self.requirements.splitlines():
             line = line.split("#", 1)[0].strip()
-            if not line or line.startswith("#"):
+            if not line:
                 continue
             match = re.match(r"^([A-Za-z0-9._-]+)\s*(>=|==)\s*([0-9]+(?:\.[0-9]+)*)$", line)
             if match:
