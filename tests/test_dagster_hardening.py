@@ -48,7 +48,7 @@ class DagsterHardeningTest(unittest.TestCase):
     def test_vulnerable_python_packages_are_patched(self) -> None:
         pinned: dict[str, tuple[int, ...]] = {}
         for line in self.requirements.splitlines():
-            line = line.strip()
+            line = line.split("#", 1)[0].strip()
             if not line or line.startswith("#"):
                 continue
             match = re.match(r"^([A-Za-z0-9._-]+)\s*(>=|==)\s*([0-9]+(?:\.[0-9]+)*)$", line)
