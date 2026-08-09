@@ -74,6 +74,7 @@ spec:
         default: |
           run
           test
+          docs generate
         description: >
           Newline-separated dbt subcommands run in order by the entrypoint
           (e.g. "run\ntest\ndocs generate"). Add "deps" as the first line if
@@ -157,6 +158,7 @@ spec:
             DBT_SCHEMA: "${config.schema}"
             DBT_THREADS: "${config.threads}"
             DBT_COMMANDS: "${config.commands}"
+            DBT_PROJECT_DIR: "${config.project.containerPath}"
 
         dbt-docs:
           enabledFrom: config.docs.enabled

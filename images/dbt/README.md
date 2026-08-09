@@ -7,22 +7,24 @@ generates and serves static `dbt docs` output.
 
 > This image is built and wired automatically by `cds render`/`cds up` for
 > profiles that include the `dbt` module — you normally never invoke it
-> directly. It is **not** currently published to a registry (unlike
-> `images/dagster`/`images/superset`); it is experimental and only built
-> locally via the `build:` block in `module.yaml`.
+> directly. It is experimental, built locally via the `build:` block in
+> `module.yaml`, and (like `images/dagster`/`images/superset`) also built,
+> scanned, signed, and published to a registry by the repo's image
+> workflows.
 
 ## Why Python 3.13, not 3.14?
 
 Every other CDS-owned image (`images/dagster`, `images/superset`) is built on
-`python:3.14-slim`. This one deliberately is not: `dbt-core` 1.9.x crashes on
+`python:3.14-slim`. This one deliberately is not: `dbt-core` crashes on
 Python 3.14 at import time (`mashumaro.exceptions.UnserializableField: Field
 "schema" of type Optional[str] in JSONObjectSchema is not serializable`) due
-to a `mashumaro`/typing incompatibility upstream. Verified locally with
-`dbt-core==1.9.4` / `dbt-postgres==1.9.0`: it crashes on 3.14, but installs
-and runs cleanly on `python:3.13-slim` (confirmed with `dbt --version`
-exiting `0` with no traceback), which is the smallest possible downgrade
-from the repo's usual base. Revisit this pin once dbt Labs ships a
-3.14-compatible `dbt-core` release.
+to a `mashumaro`/typing incompatibility upstream. Verified locally with the
+currently pinned `dbt-core==1.11.12` / `dbt-postgres==1.11.0` (see
+`images/dbt/requirements.txt`): it crashes on 3.14, but installs and runs
+cleanly on `python:3.13-slim` (confirmed with `dbt --version` exiting `0`
+with no traceback), which is the smallest possible downgrade from the repo's
+usual base. Revisit this pin once dbt Labs ships a 3.14-compatible
+`dbt-core` release.
 
 ## Configuration
 

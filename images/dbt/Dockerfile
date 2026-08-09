@@ -1,11 +1,12 @@
-# dbt-core 1.9.x does not run on Python 3.14 yet: `dbt --version`/any command
+# dbt-core does not run on Python 3.14 yet: `dbt --version`/any command
 # crashes at import time with `mashumaro.exceptions.UnserializableField: Field
 # "schema" of type Optional[str] in JSONObjectSchema is not serializable`
 # (mashumaro's dataclass introspection breaks under 3.14's typing changes).
-# Verified locally on 2026-08-05 with dbt-core==1.9.4 / dbt-postgres==1.9.0:
-# it crashes on 3.14 but runs cleanly on 3.13, so pin this image to
-# 3.13-slim (the minimal downgrade from the repo's usual 3.14-slim base;
-# see images/dagster/Dockerfile, images/superset/Dockerfile) until dbt-core
+# Verified locally with the currently pinned dbt-core==1.11.12 /
+# dbt-postgres==1.11.0 (see images/dbt/requirements.txt): it crashes on 3.14
+# but runs cleanly on 3.13, so pin this image to 3.13-slim (the minimal
+# downgrade from the repo's usual 3.14-slim base; see
+# images/dagster/Dockerfile, images/superset/Dockerfile) until dbt-core
 # ships a 3.14-compatible release; this only affects this module's own
 # container image, not the CDS CLI's own Python requirement.
 FROM python:3.13-slim@sha256:bf503bb2243c5aad0aa951544dd60d165f992646441d35dea90893703fc26251 AS builder
