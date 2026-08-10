@@ -290,9 +290,8 @@ Profiles are runnable stack combinations built from modules.
 
 Examples of profiles:
 
-- Airflow + Postgres + dbt + Great Expectations + Superset
-- Dagster + Postgres + dbt + Superset
-- Airflow + Spark + dbt + Soda
+- Dagster + Postgres + KeyDB + Superset
+- Dagster + Postgres + KeyDB + Superset + Vault
 
 A profile is responsible for:
 
@@ -307,10 +306,11 @@ Use names based on role and implementation.
 
 Examples:
 
-- modules/orchestration/airflow
+- modules/orchestration/dagster
 - modules/warehouse/postgres
-- modules/quality/great-expectations
 - modules/bi/superset
+- modules/secrets/vault
+- modules/cache/keydb
 
 Avoid vague names such as:
 
