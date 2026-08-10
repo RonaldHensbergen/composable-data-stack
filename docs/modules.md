@@ -268,7 +268,7 @@ Health checks should reflect actual readiness, not just whether the process has 
 - `spec.configSchema` property `description`s — what each config field means
 - `spec.provides` / `spec.consumes` — what contracts the module offers or needs
 
-If you do add a `README.md` (see `modules/secrets/vault/README.md` for a short example), keep it to context that doesn't belong in YAML: rationale, known limitations, links to upstream docs.
+If you do add a `README.md`, follow the format guide in [docs/module-readme-template.md](module-readme-template.md). `modules/secrets/vault/README.md` is a completed example. Keep it to context that doesn't belong in YAML: rationale, known limitations, links to upstream docs.
 
 ## Dependency rules
 
