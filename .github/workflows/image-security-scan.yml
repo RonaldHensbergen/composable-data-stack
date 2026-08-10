@@ -105,7 +105,8 @@ jobs:
               fh.write(f"image-ref={entry['repository']}@{entry['digest']}\n")
           PY
           else
-            echo "image-ref=cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan" >> "$GITHUB_OUTPUT"
+            tag="${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}"
+            echo "image-ref=cds/$tag:scan" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Scan image for HIGH/CRITICAL vulnerabilities
