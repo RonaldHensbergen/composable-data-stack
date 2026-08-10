@@ -37,7 +37,7 @@ cds --help
 Then confirm the test suite runs:
 
 ```bash
-python -m unittest discover -s tests -p "*.py"
+python -m unittest discover -s tests -p "test_*.py"
 ```
 
 You should see all tests pass. If a test fails on something unrelated to your change (for example, a path-separator assertion that only breaks on Windows), that's a pre-existing issue, not something you broke, note it in your PR's Validation section instead of trying to fix it as a drive-by change.
@@ -72,7 +72,7 @@ Make your change. Keep the diff focused on the issue. If you spot an unrelated b
 Before opening the PR:
 
 ```bash
-python -m unittest discover -s tests -p "*.py"
+python -m unittest discover -s tests -p "test_*.py"
 ```
 
 If your change is code (not docs), also run the actual CLI workflow against a profile, this is the most realistic smoke test:
