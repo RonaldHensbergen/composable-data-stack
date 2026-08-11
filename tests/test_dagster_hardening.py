@@ -158,6 +158,26 @@ class DagsterHardenedVariantTest(unittest.TestCase):
         # packages have known CVEs and are not needed at runtime (the app uses
         # /opt/venv). The runtime stage must explicitly uninstall them alongside
         # pip so they do not appear in the Trivy vulnerability scan.
+        uninstall_lines = [
+            line.strip() for line in self.dockerfile.splitlines()
+            if "pip" in line and "uninstall" in line
+        ]
+        full_uninstall = " ".join(uninstall_lines)
+        for pkg in ("setuptools", "msgpack"):
+            with self.subTest(package=pkg):
+                self.assertIn(
+                    pkg,
+                    full_uninstall,
+                    msg=(
+                        f"'{pkg}' must be an argument to `pip uninstall` "
+                        "in the runtime stage to remove it from the system Python"
+                    ),
+                )
+        # python:3.14-alpine ships pip together with its transitive dependencies
+        # (CacheControl -> msgpack) and setuptools in the system Python. These
+        # packages have known CVEs and are not needed at runtime (the app uses
+        # /opt/venv). The runtime stage must explicitly uninstall them alongside
+        # pip so they do not appear in the Trivy vulnerability scan.
         for pkg in ("setuptools", "msgpack"):
             with self.subTest(package=pkg):
                 self.assertIn(
