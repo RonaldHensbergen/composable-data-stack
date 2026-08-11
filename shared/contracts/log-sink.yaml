@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=../../schemas/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: log-sink
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared, vendor-neutral contract describing the values a centralized log
+    collector exposes so any module can ship structured events to it without
+    the profile hardcoding a specific logging provider. See
+    docs/observability.md for the tiered retention design this contract
+    supports.
+
+spec:
+  fields:
+    host:
+      type: string
+      required: true
+      description: Hostname or service name clients use to ship events.
+    port:
+      type: integer
+      required: true
+      description: TCP port the collector listens on.
+    protocol:
+      type: string
+      required: true
+      description: Wire protocol expected by the collector, e.g. "http", "grpc", or "syslog".
+    ingestPath:
+      type: string
+      required: false
+      description: Optional path/endpoint suffix for HTTP-based collectors (e.g. a push API route).
+    rawRetentionDays:
+      type: integer
+      required: false
+      description: Short retention window the sink applies to raw, unstructured log lines.
+    structuredRetentionDays:
+      type: integer
+      required: false
+      description: Longer retention window the sink applies to structured, high-value events.
+  examples:
+    - host: log-collector
+      port: 3100
+      protocol: http
+      ingestPath: /loki/api/v1/push
+      rawRetentionDays: 7
+      structuredRetentionDays: 90
