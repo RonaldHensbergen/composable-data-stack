@@ -66,6 +66,15 @@ def load_env_file(env_file: str = ".env") -> None:
             key, value = line.split("=", 1)
             key = key.strip()
             value = value.strip()
+            if (
+                len(value) >= 2
+                and value[0] == value[-1]
+                and value[0] in {'"', "'"}
+            ):
+                value = value[1:-1]
+            # Only accept CDS_* keys - arbitrary .env keys are ignored
+            if not key.startswith("CDS_"):
+                continue
             # Only set if not already in environment
             if key and not os.environ.get(key):
                 os.environ[key] = value

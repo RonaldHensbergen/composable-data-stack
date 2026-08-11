@@ -148,7 +148,8 @@ activemq-data/
 *.sage.py
 
 # Environments
-/.env
+.env
+!tests/fixtures/**/.env
 .envrc
 .venv
 .tmp-yamllint/
