@@ -1,0 +1,17 @@
+name: cds_dbt_project
+version: "1.0.0"
+config-version: 2
+
+profile: cds_target
+
+model-paths:
+  - models
+target-path: "{{ env_var('DBT_TARGET_PATH', 'target') }}"
+log-path: "{{ env_var('DBT_LOG_PATH', 'logs') }}"
+clean-targets:
+  - "{{ env_var('DBT_TARGET_PATH', 'target') }}"
+
+models:
+  cds_dbt_project:
+    staging:
+      +materialized: view

@@ -98,7 +98,7 @@ jobs:
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
           case "$dockerfile" in
-            images/dagster/*|images/superset/*) context="." ;;
+            images/dagster/*|images/superset/*|images/dbt/*) context="." ;;
           esac
           variant="${{ matrix.image.variant }}"
           prefix=""
@@ -234,6 +234,9 @@ jobs:
             superset)
               base_version="$(grep -m1 '^FROM apache/superset:' images/superset/base/Dockerfile | sed -E 's#^FROM apache/superset:([^@[:space:]]+).*#\1#')"
               ;;
+            dbt)
+              base_version="$(grep -m1 '^dbt-core==' images/dbt/requirements.txt | cut -d= -f3)"
+              ;;
             *)
               echo "No version scheme defined for image '${{ matrix.image.name }}'" >&2
               exit 1
@@ -261,7 +264,7 @@ jobs:
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
           case "$dockerfile" in
-            images/dagster/*|images/superset/*) context="." ;;
+            images/dagster/*|images/superset/*|images/dbt/*) context="." ;;
           esac
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
