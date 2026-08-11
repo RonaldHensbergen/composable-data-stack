@@ -8,6 +8,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Provider-neutral observability architecture foundations for #174: `docs/observability.md`, the shared `log-sink` contract, the structured-event schema, and optional profile `spec.observability.logShipping` validation.
 - `publish-images.yml` now runs a trivy HIGH/CRITICAL vulnerability gate on
   the locally built images before pushing or signing, so a CVE disclosed
   after the PR-time scan blocks publication to GitHub Container Registry and
