@@ -331,7 +331,12 @@ jobs:
         run: |
           set -euo pipefail
           owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          tag="sha-${GITHUB_SHA::12}"
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
+          tag="${prefix}sha-${GITHUB_SHA::12}"
           python3 - "$owner" "$tag" <<'PY'
           import datetime as _dt
           import json
