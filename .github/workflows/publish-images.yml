@@ -139,11 +139,6 @@ jobs:
             prefix="${variant}-"
           fi
           ref="${{ steps.name.outputs.ref }}"
-          variant="${{ matrix.image.variant }}"
-          prefix=""
-          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
-            prefix="${variant}-"
-          fi
           docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
           docker push "$ref:${prefix}latest"
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
