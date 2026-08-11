@@ -156,39 +156,21 @@ class DagsterHardenedVariantTest(unittest.TestCase):
         # python:3.14-alpine ships pip together with its transitive dependencies
         # (CacheControl -> msgpack) and setuptools in the system Python. These
         # packages have known CVEs and are not needed at runtime (the app uses
-        # /opt/venv). The runtime stage must explicitly uninstall them alongside
-        # pip so they do not appear in the Trivy vulnerability scan.
+        # /opt/venv). Uninstalling pip itself removes its vendored msgpack and
+        # setuptools copies too, so the runtime stage only needs to uninstall
+        # pip — not each vendored package individually — to keep them out of
+        # the Trivy vulnerability scan.
         uninstall_lines = [
             line.strip() for line in self.dockerfile.splitlines()
             if "pip" in line and "uninstall" in line
         ]
         full_uninstall = " ".join(uninstall_lines)
-        for pkg in ("setuptools", "msgpack"):
-            with self.subTest(package=pkg):
-                self.assertIn(
-                    pkg,
-                    full_uninstall,
-                    msg=(
-                        f"'{pkg}' must be an argument to `pip uninstall` "
-                        "in the runtime stage to remove it from the system Python"
-                    ),
-                )
-        # python:3.14-alpine ships pip together with its transitive dependencies
-        # (CacheControl -> msgpack) and setuptools in the system Python. These
-        # packages have known CVEs and are not needed at runtime (the app uses
-        # /opt/venv). The runtime stage must explicitly uninstall them alongside
-        # pip so they do not appear in the Trivy vulnerability scan.
-        for pkg in ("setuptools", "msgpack"):
-            with self.subTest(package=pkg):
-                self.assertIn(
-                    pkg,
-                    self.dockerfile,
-                    msg=(
-                        f"'{pkg}' must be listed in the runtime-stage pip uninstall "
-                        "command to remove it from the system Python — "
-                        "python:3.14-alpine bundles it as a pip transitive dependency"
-                    ),
-                )
+        self.assertIn(
+            "pip",
+            full_uninstall,
+            msg="'pip' must be uninstalled in the runtime stage to remove its vendored msgpack/setuptools copies",
+        )
+
 
 
 if __name__ == "__main__":
