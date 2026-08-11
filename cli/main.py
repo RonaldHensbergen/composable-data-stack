@@ -1284,7 +1284,17 @@ def main() -> int:
                     print(diag.format(), file=sys.stderr)
                 for f in findings:
                     print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
-                security_ok = not any(f["severity"] == "high" for f in findings)
+                # A W096 warning means rendered-compose-scoped rules (e.g.
+                # CDS-SEC-070) were silently skipped due to an unexpected
+                # error during rendering. Treat that the same as a failed
+                # security stage rather than letting any non-high finding
+                # (or no finding at all) mask the fact that some checks
+                # never ran (GHSA-mx5p-cv63-6829).
+                render_scan_skipped = any(d.code == "W096" for d in sec_diags)
+                security_ok = (
+                    not render_scan_skipped
+                    and not any(f["severity"] == "high" for f in findings)
+                )
             except Exception as e:
                 print(Diagnostic(
                     level="error",
@@ -1539,7 +1549,10 @@ def main() -> int:
                 print(f"  fix: {rec}")
             print()
 
-        return 1 if any(f["severity"] == "high" for f in findings) else 0
+        # As above: a W096 warning means some rendered-compose-scoped rules
+        # were skipped, so even when only non-high findings are present the
+        # scan must not report success (GHSA-mx5p-cv63-6829).
+        return 1 if render_scan_skipped or any(f["severity"] == "high" for f in findings) else 0
 
     if args.command == "use":
         if args.clear and args.profile:
