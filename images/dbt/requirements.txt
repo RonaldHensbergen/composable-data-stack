@@ -6,6 +6,6 @@
 # deepdiff<9.0,>=7.0 constraint lets pip resolve a patched deepdiff. Bump
 # both dbt-core and dbt-postgres together (no compatible dbt-common exists
 # that relaxes deepdiff without also raising the protobuf floor).
-dbt-core==1.11.12
+dbt-core==1.12.0
 dbt-postgres==1.11.0
 deepdiff>=8.6.2
