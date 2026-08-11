@@ -40,7 +40,9 @@ ENV DAGSTER_HOME=/opt/dagster/dagster_home \
 # HIGH vulnerabilities. Reclaim gid 999 for "dagster" first so the uid/gid
 # matches the compose module's tmpfs uid=999,gid=999 mounts, and use `set -e`
 # (not `&&`/`|| true`) so any future step failure here fails the build loudly
-# instead of silently skipping the pip cleanup again.
+# instead of silently skipping the pip cleanup again. Uninstalling pip itself
+# also removes its vendored msgpack/setuptools copies, so there is no need to
+# uninstall those packages separately.
 RUN set -e; \
     existing_group="$(getent group 999 | cut -d: -f1 || true)"; \
     if [ -n "$existing_group" ] && [ "$existing_group" != "dagster" ]; then \

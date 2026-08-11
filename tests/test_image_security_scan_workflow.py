@@ -197,8 +197,12 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         self.assertIn("tests/fixtures/signed-images.json", ref_step["run"])
         self.assertIn("github.event_name", ref_step["run"])
         self.assertIn(
-            "image-ref=cds/${{ matrix.image.name }}"
-            "${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan",
+            "image-ref=cds/$tag:scan",
+            ref_step["run"],
+        )
+        self.assertIn(
+            "tag=\"${{ matrix.image.name }}${{ matrix.image.variant != '' && "
+            "format('-{0}', matrix.image.variant) || '' }}\"",
             ref_step["run"],
         )
 

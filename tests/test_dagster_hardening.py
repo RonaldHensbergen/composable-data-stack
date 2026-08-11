@@ -5,6 +5,11 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator
 
+MIN_SAFE_DAGSTER_IMAGE_DEPENDENCIES = {
+    "msgpack": (1, 2, 1),
+    "setuptools": (78, 1, 1),
+}
+
 
 class DagsterHardeningTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -39,6 +44,28 @@ class DagsterHardeningTest(unittest.TestCase):
                 service = self.services[name]
                 self.assertEqual(service["build"]["args"]["DB_BACKEND"], "${config.storage.backend}")
                 self.assertEqual(service["environment"]["DB_BACKEND"], "${config.storage.backend}")
+
+    def test_vulnerable_python_packages_are_patched(self) -> None:
+        pinned: dict[str, tuple[int, ...]] = {}
+        for line in self.requirements.splitlines():
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            match = re.match(r"^([A-Za-z0-9._-]+)\s*(>=|==)\s*([0-9]+(?:\.[0-9]+)*)", line)
+            if match:
+                pkg, _, ver = match.groups()
+                normalized_pkg = pkg.lower()
+                version = tuple(int(x) for x in ver.strip().split("."))
+                pinned[normalized_pkg] = max(pinned.get(normalized_pkg, (0,)), version)
+
+        for pkg, min_ver in MIN_SAFE_DAGSTER_IMAGE_DEPENDENCIES.items():
+            with self.subTest(package=pkg):
+                self.assertIn(pkg, pinned, msg=f"{pkg} must be pinned in images/dagster/requirements.txt")
+                self.assertGreaterEqual(
+                    pinned[pkg],
+                    min_ver,
+                    msg=f"{pkg} must be >={'.'.join(str(part) for part in min_ver)} to fix known CVEs",
+                )
 
     def test_services_have_restricted_runtime_without_docker_socket(self) -> None:
         for name in ("user-code", "dagster-webserver", "dagster-daemon"):
@@ -124,6 +151,26 @@ class DagsterHardenedVariantTest(unittest.TestCase):
 
         self.assertEqual(users[-1], "dagster")
         self.assertNotIn("COPY . /app", self.dockerfile)
+
+    def test_pip_bundled_packages_are_removed_from_runtime_stage(self) -> None:
+        # python:3.14-alpine ships pip together with its transitive dependencies
+        # (CacheControl -> msgpack) and setuptools in the system Python. These
+        # packages have known CVEs and are not needed at runtime (the app uses
+        # /opt/venv). Uninstalling pip itself removes its vendored msgpack and
+        # setuptools copies too, so the runtime stage only needs to uninstall
+        # pip — not each vendored package individually — to keep them out of
+        # the Trivy vulnerability scan.
+        uninstall_lines = [
+            line.strip() for line in self.dockerfile.splitlines()
+            if "pip" in line and "uninstall" in line
+        ]
+        full_uninstall = " ".join(uninstall_lines)
+        self.assertIn(
+            "pip",
+            full_uninstall,
+            msg="'pip' must be uninstalled in the runtime stage to remove its vendored msgpack/setuptools copies",
+        )
+
 
 
 if __name__ == "__main__":
