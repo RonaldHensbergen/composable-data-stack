@@ -9,7 +9,7 @@
 # images/dagster/Dockerfile, images/superset/Dockerfile) until dbt-core
 # ships a 3.14-compatible release; this only affects this module's own
 # container image, not the CDS CLI's own Python requirement.
-FROM python:3.13-slim@sha256:bf503bb2243c5aad0aa951544dd60d165f992646441d35dea90893703fc26251 AS builder
+FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1
@@ -21,7 +21,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY images/dbt/requirements.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt
 
-FROM python:3.13-slim@sha256:bf503bb2243c5aad0aa951544dd60d165f992646441d35dea90893703fc26251
+FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc
 
 ENV HOME=/home/dbt \
     PATH="/opt/venv/bin:$PATH" \
