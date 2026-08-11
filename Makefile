@@ -50,9 +50,9 @@ docker-build:
 		dir=$$(dirname "$$dockerfile"); \
 		echo "Building $$dockerfile in directory $$dir..."; \
 		context="$$dir"; \
-		if [ "$$dockerfile" = "./images/dagster/Dockerfile" ] || [ "$$dockerfile" = "./images/dagster/Dockerfile.user-code" ] || [ "$$dockerfile" = "./images/superset/Dockerfile" ]; then \
-			context="."; \
-		fi; \
+		case "$$dockerfile" in \
+			./images/dagster/*|./images/superset/*) context="." ;; \
+		esac; \
 		docker build -f "$$dockerfile" "$$context" || exit 1; \
 	done
 	@echo "All Dockerfiles built successfully!"

@@ -1,0 +1,7 @@
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: foo-alpha
+spec:
+  runtime:
+    type: docker-compose

@@ -55,6 +55,7 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_secret_refs(profile, module_instances))
     diagnostics.extend(validate_contract_bindings(module_instances))
     diagnostics.extend(validate_outputs(profile, module_instances))
+    diagnostics.extend(validate_observability_config(profile, module_instances))
 
     return diagnostics
 
@@ -407,5 +408,163 @@ def validate_outputs(profile: dict[str, Any], module_instances: list[dict[str, A
                     path=f"spec.outputs.contracts.{output_name}.from",
                 )
             )
+
+    return diagnostics
+
+
+def validate_observability_config(profile: dict[str, Any], module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+    """
+    Validates the optional spec.observability block (see #174 / docs/observability.md).
+
+    This block is intentionally module-agnostic: a profile can opt into log
+    shipping and declare retention tiers without naming which module collects
+    logs. `sink.contractRef` is only required when the profile wants to pin
+    a specific provider of the shared `log-sink` contract.
+    """
+    diagnostics: list[Diagnostic] = []
+
+    observability = profile.get("spec", {}).get("observability")
+    if observability is None:
+        return diagnostics
+
+    if not isinstance(observability, dict):
+        return [Diagnostic("error", "E100", "spec.observability must be an object.", "spec.observability")]
+
+    log_shipping = observability.get("logShipping")
+    if log_shipping is None:
+        return diagnostics
+
+    if not isinstance(log_shipping, dict):
+        return [
+            Diagnostic(
+                "error", "E100", "spec.observability.logShipping must be an object.", "spec.observability.logShipping"
+            )
+        ]
+
+    if "enabled" not in log_shipping:
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E100",
+                "spec.observability.logShipping.enabled is required.",
+                "spec.observability.logShipping.enabled",
+            )
+        )
+    elif not isinstance(log_shipping["enabled"], bool):
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E100",
+                "spec.observability.logShipping.enabled must be a boolean.",
+                "spec.observability.logShipping.enabled",
+            )
+        )
+
+    retention = log_shipping.get("retention")
+    if retention is not None:
+        if not isinstance(retention, dict):
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E100",
+                    "spec.observability.logShipping.retention must be an object.",
+                    "spec.observability.logShipping.retention",
+                )
+            )
+        else:
+            raw_days = retention.get("rawDays")
+            structured_days = retention.get("structuredDays")
+
+            def _is_positive_int(value: Any) -> bool:
+                return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+            for field_name, value in (("rawDays", raw_days), ("structuredDays", structured_days)):
+                if value is not None and not _is_positive_int(value):
+                    diagnostics.append(
+                        Diagnostic(
+                            "error",
+                            "E101",
+                            f"spec.observability.logShipping.retention.{field_name} must be a positive integer.",
+                            f"spec.observability.logShipping.retention.{field_name}",
+                        )
+                    )
+
+            if _is_positive_int(raw_days) and _is_positive_int(structured_days) and structured_days < raw_days:
+                diagnostics.append(
+                    Diagnostic(
+                        "error",
+                        "E101",
+                        "spec.observability.logShipping.retention.structuredDays must be >= rawDays "
+                        "(structured events are the long-retention tier; raw logs are short-retention).",
+                        "spec.observability.logShipping.retention.structuredDays",
+                    )
+                )
+
+    sink = log_shipping.get("sink")
+    if sink is None:
+        return diagnostics
+
+    if not isinstance(sink, dict) or not isinstance(sink.get("contractRef"), str):
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E100",
+                "spec.observability.logShipping.sink must be an object with a string contractRef.",
+                "spec.observability.logShipping.sink",
+            )
+        )
+        return diagnostics
+
+    contract_ref = sink["contractRef"]
+    parsed = parse_contract_ref(contract_ref)
+    if parsed is None:
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E102",
+                f'Invalid sink contractRef "{contract_ref}". Expected "<module-id>.<contract-name>".',
+                "spec.observability.logShipping.sink.contractRef",
+            )
+        )
+        return diagnostics
+
+    module_id, provide_name = parsed
+    by_id = {m["id"]: m for m in module_instances}
+    producer = by_id.get(module_id)
+    if producer is None:
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E102",
+                f'Sink contractRef "{contract_ref}" points to unknown module "{module_id}".',
+                "spec.observability.logShipping.sink.contractRef",
+            )
+        )
+        return diagnostics
+
+    provides = producer["module"].get("spec", {}).get("provides", [])
+    matched = next((p for p in provides if p.get("name") == provide_name), None)
+    if matched is None:
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E102",
+                f'Sink contractRef "{contract_ref}" points to module "{module_id}", '
+                f'but it does not provide "{provide_name}".',
+                "spec.observability.logShipping.sink.contractRef",
+            )
+        )
+        return diagnostics
+
+    actual_kind = matched.get("contract", {}).get("kind")
+    if actual_kind != "log-sink":
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E102",
+                f'Sink contractRef "{contract_ref}" resolves to contract kind "{actual_kind}", expected "log-sink".',
+                "spec.observability.logShipping.sink.contractRef",
+            )
+        )
 
     return diagnostics

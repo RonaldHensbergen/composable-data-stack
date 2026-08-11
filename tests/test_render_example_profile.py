@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -64,7 +65,7 @@ class RenderExampleProfileTest(unittest.TestCase):
             self.assertIn("dagster-user-code", compose["services"])
             self.assertEqual(
                 compose["services"]["dagster-user-code"]["build"]["dockerfile"],
-                "images/dagster/Dockerfile",
+                "images/dagster/base/Dockerfile",
             )
             self.assertEqual(
                 compose["services"]["dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],
@@ -218,6 +219,146 @@ class RenderGuardRegressionTest(unittest.TestCase):
         self.assertEqual([d for d in diagnostics if d.level == "error"], [])
         compose = yaml.safe_load(output)
         self.assertNotIn("healthcheck", compose["services"]["postgres"])
+
+
+class MaterializedDefaultsRenderTest(unittest.TestCase):
+    def test_omitted_nested_config_renders_with_materialized_defaults(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        modules_root = repo_root / "modules"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
+
+            profile_dir = root / "profiles" / "local"
+            profile_dir.mkdir(parents=True)
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text(
+                f"""apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: materialized-defaults
+  environment: local
+spec:
+  runtime:
+    type: docker-compose
+    namespace: cds-test
+    networks:
+      - name: cds-test
+        driver: bridge
+
+  modules:
+    - id: postgres
+      source: warehouse/postgres
+      version: "0.1.0"
+      enabled: true
+      config:
+        database: appdb
+        username: app
+        passwordFrom: secrets.analytics_db_password
+        superuserPasswordFrom: secrets.postgres_superuser_password
+        port: 5432
+        dagsterDatabase:
+          name: dagster
+          username: dagster
+          passwordFrom: secrets.dagster_db_password
+
+    - id: dagster
+      source: orchestration/dagster
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+      config:
+        webPort: 3000
+        homeDir: /opt/dagster/dagster_home
+        analyticsDatabase:
+          contractRef: postgres.sql-database
+        storage:
+          backend: postgres
+          runStorage:
+            contractRef: postgres.dagster-database
+          eventLogStorage:
+            contractRef: postgres.dagster-database
+          scheduleStorage:
+            contractRef: postgres.dagster-database
+
+  secrets:
+    provider:
+      type: env
+    values:
+      postgres_superuser_password:
+        env: CDS_POSTGRES_SUPERUSER_PASSWORD
+        required: true
+      db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
+        required: true
+      dagster_db_password:
+        env: CDS_DAGSTER_DB_PASSWORD
+        required: true
+      analytics_db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
+        required: true
+""",
+                encoding="utf-8",
+            )
+
+            env_file = root / ".env"
+            env_file.write_text(
+                "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser_testpass\n"
+                "CDS_ANALYTICS_DB_PASSWORD=analytics_testpass\n"
+                "CDS_DAGSTER_DB_PASSWORD=dagster_testpass\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict("os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False):
+                plan, plan_diags = build_plan(str(profile_file), env_file=str(env_file))
+
+            self.assertIsNotNone(plan)
+            error_diags = [d for d in plan_diags if d.level == "error"]
+            self.assertEqual(error_diags, [], f"plan errors: {error_diags}")
+
+            dagster = next(module for module in plan["modules"] if module["id"] == "dagster")
+            self.assertEqual(
+                dagster["config"]["sharedData"],
+                {"hostPath": "./workdirs/shared-data", "containerPath": "/app/data/cds"},
+            )
+            self.assertEqual(
+                dagster["config"]["definitionsFile"],
+                {
+                    "hostPath": "./workdirs/dagster/definitions.py",
+                    "containerPath": "/app/workdirs/dagster/definitions.py",
+                },
+            )
+            self.assertEqual(dagster["config"]["daemon"], {"enabled": True})
+
+            output, render_diags = render_compose(plan, env_file=str(env_file))
+
+            render_errors = [d for d in render_diags if d.level == "error"]
+            self.assertEqual(render_errors, [], f"render errors: {render_errors}")
+
+            compose = yaml.safe_load(output)
+            dagster_user_code = compose["services"]["dagster-user-code"]
+            volumes = dagster_user_code["volumes"]
+            self.assertIn("dagster-daemon", compose["services"])
+
+            shared_data_mount = next(
+                item
+                for item in volumes
+                if isinstance(item, dict)
+                and item.get("type") == "bind"
+                and str(item.get("target", "")).rstrip("/") == "/app/data/cds"
+            )
+            self.assertEqual(shared_data_mount["source"], "workdirs/shared-data")
+
+            definitions_mount = next(
+                item
+                for item in volumes
+                if isinstance(item, dict)
+                and item.get("target") == "/app/workdirs/dagster/definitions.py"
+            )
+            self.assertEqual(definitions_mount["source"], "workdirs/dagster/definitions.py")
+            self.assertTrue(definitions_mount["read_only"])
 
 
 if __name__ == "__main__":

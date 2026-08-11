@@ -1,0 +1,29 @@
+flowchart TB
+ subgraph workstation["Operator workstation / CI runner"]
+        profileYaml["Profile<br>YAML repo"]
+        cliProcess["CDS CLI process<br>(validate/plan/<br>render/security)"]
+        envFile[".env /<br>environment"]
+        dockerCompose["docker-compose<br>.yml"]
+  end
+ subgraph dockerDaemon["Docker host + daemon"]
+        moduleA["module instance A<br>(any category, e.g. warehouse)"]
+        moduleB["module instance B<br>(any category, e.g. BI)"]
+        moduleN["module instance N<br>(any category, per profile)"]
+  end
+ subgraph trustBoundaryA["Trust boundary A"]
+        dockerDaemon
+  end
+    envFile -- "trust boundary D<br>resolved at compose time" --> dockerCompose
+    profileYaml -- "render/plan" --> cliProcess
+    cliProcess -- "writes" --> dockerCompose
+    dockerCompose -- "docker compose up" --> trustBoundaryA
+    moduleA <-- "contract-mediated connection<br>(trust boundary B, per profile)" --> moduleB
+    moduleB -.-> moduleN
+    registries["Container registries<br>(ghcr.io, docker.io)<br>build → scan → sign (cosign)<br>→ SBOM → publish"] -- "trust boundary C<br>registry pull" --> trustBoundaryA
+
+     workstation:::workstationStyle
+     dockerDaemon:::dockerStyle
+     registries:::registryStyle
+    classDef workstationStyle fill:#eef2ff,stroke:#818cf8
+    classDef dockerStyle fill:#f0fdfa,stroke:#2dd4bf
+    classDef registryStyle fill:#f5f3ff,stroke:#a78bfa

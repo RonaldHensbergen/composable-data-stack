@@ -1,6 +1,11 @@
 name: Publish Signed Images
 
 on:
+  schedule:
+    # Weekly rebuild so base layers (OS packages, pip ranges) are refreshed
+    # even when nothing changed in the repo; republishing keeps the signed
+    # images up to date with the latest patches.
+    - cron: "17 4 * * 1"
   push:
     branches: [main]
     paths:
@@ -37,9 +42,20 @@ jobs:
           for entry in sorted(root.iterdir()) if root.is_dir() else []:
               if not entry.is_dir():
                   continue
+              # Flat layout: images/<name>/Dockerfile
               dockerfile = entry / "Dockerfile"
               if dockerfile.is_file():
-                  items.append({"name": entry.name, "dockerfile": str(dockerfile)})
+                  items.append({"name": entry.name, "variant": "", "dockerfile": str(dockerfile)})
+                  continue
+              # Variant layout: images/<name>/<variant>/Dockerfile
+              for variant_dir in sorted(entry.iterdir()):
+                  if not variant_dir.is_dir():
+                      continue
+                  variant_dockerfile = variant_dir / "Dockerfile"
+                  if variant_dockerfile.is_file():
+                      items.append(
+                          {"name": entry.name, "variant": variant_dir.name, "dockerfile": str(variant_dockerfile)}
+                      )
           print(json.dumps(items))
           PY
           )
@@ -76,33 +92,75 @@ jobs:
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
-      - name: Build and push
+      - name: Build image for publication
         id: build
         run: |
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
-          if [ "$dockerfile" = "images/dagster/Dockerfile" ] || [ "$dockerfile" = "images/superset/Dockerfile" ]; then
-            context="."
+          case "$dockerfile" in
+            images/dagster/*|images/superset/*|images/dbt/*) context="." ;;
+          esac
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
           fi
           ref="${{ steps.name.outputs.ref }}"
-          docker build -f "$dockerfile" -t "$ref:sha-${GITHUB_SHA::12}" -t "$ref:latest" "$context"
-          docker push "$ref:sha-${GITHUB_SHA::12}"
-          docker push "$ref:latest"
-          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:sha-${GITHUB_SHA::12}")"
+          # The :scan tag is local-only and never pushed; it exists so the
+          # vulnerability gate below can scan the exact image about to be
+          # published before anything reaches the registry.
+          docker build -f "$dockerfile" \
+            -t "$ref:${prefix}sha-${GITHUB_SHA::12}" -t "$ref:${prefix}latest" \
+            -t "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan" "$context"
+
+      - name: Gate on HIGH/CRITICAL vulnerabilities before push
+        # A CVE disclosed after the PR-time scan (image-security-scan.yml)
+        # must not be published; fail the job before push/sign so the image
+        # never reaches the registry. Honors the same .trivyignore exceptions
+        # as the scan workflow.
+        id: gate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.73.0
+          ignorefile: .trivyignore
+          image-ref: cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: "true"
+
+      - name: Push image
+        id: push
+        run: |
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
+          ref="${{ steps.name.outputs.ref }}"
+          docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
+          docker push "$ref:${prefix}latest"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Sign image (keyless)
-        run: cosign sign --yes "${{ steps.build.outputs.digest }}"
+        run: cosign sign --yes "${{ steps.push.outputs.digest }}"
 
       - name: Generate SBOM
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ steps.build.outputs.digest }}
+          # trivy-action v0.36.0 defaults to Trivy CLI v0.70.0, not the
+          # latest release; pin the CLI version explicitly so it is a
+          # visible, Renovate-trackable dependency instead of a value
+          # hidden inside the action's own action.yaml default.
+          version: v0.73.0
+          image-ref: ${{ steps.push.outputs.digest }}
           format: cyclonedx
           output: sbom.json
 
       - name: Attest SBOM
-        run: cosign attest --yes --predicate sbom.json --type cyclonedx "${{ steps.build.outputs.digest }}"
+        run: cosign attest --yes --predicate sbom.json --type cyclonedx "${{ steps.push.outputs.digest }}"
 
       - name: Write provenance predicate
         run: |
@@ -132,7 +190,7 @@ jobs:
           EOF
 
       - name: Attest provenance
-        run: cosign attest --yes --predicate provenance.json --type slsaprovenance "${{ steps.build.outputs.digest }}"
+        run: cosign attest --yes --predicate provenance.json --type slsaprovenance "${{ steps.push.outputs.digest }}"
 
       - name: Verify signed image (self-check)
         run: |
@@ -140,13 +198,13 @@ jobs:
             --certificate-identity-regexp \
             '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            "${{ steps.build.outputs.digest }}"
+            "${{ steps.push.outputs.digest }}"
 
       - name: Record fixture data
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<EOF
-          ### Signed image fixture: ${{ matrix.image.name }}
-          - digest: \`${{ steps.build.outputs.digest }}\`
+          ### Signed image fixture: ${{ matrix.image.name }}${{ matrix.image.variant != '' && format(' ({0})', matrix.image.variant) || '' }}
+          - digest: \`${{ steps.push.outputs.digest }}\`
           - oidc_issuer: \`https://token.actions.githubusercontent.com\`
           - cert_identity: \`https://github.com/${{ github.repository }}/.github/workflows/publish-images.yml@${{ github.ref }}\`
           EOF
@@ -169,13 +227,15 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          date_suffix="$(date -u +%Y%m%d)"
           case "${{ matrix.image.name }}" in
             dagster)
               base_version="$(grep -m1 '^dagster==' images/dagster/requirements.txt | cut -d= -f3)"
               ;;
             superset)
-              base_version="$(grep -m1 '^FROM apache/superset:' images/superset/Dockerfile | sed -E 's#^FROM apache/superset:([^@[:space:]]+).*#\1#')"
+              base_version="$(grep -m1 '^FROM apache/superset:' images/superset/base/Dockerfile | sed -E 's#^FROM apache/superset:([^@[:space:]]+).*#\1#')"
+              ;;
+            dbt)
+              base_version="$(grep -m1 '^dbt-core==' images/dbt/requirements.txt | cut -d= -f3)"
               ;;
             *)
               echo "No version scheme defined for image '${{ matrix.image.name }}'" >&2
@@ -186,30 +246,155 @@ jobs:
             echo "Failed to determine base version for '${{ matrix.image.name }}'" >&2
             exit 1
           fi
-          echo "tag=${base_version}-${date_suffix}" >> "$GITHUB_OUTPUT"
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
+          echo "tag=${prefix}${base_version}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${prefix}latest" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ronaldsoeverein
           password: ${{ secrets.RONALDSOEVEREIN_LOGIN }}
 
-      - name: Build and push
+      - name: Build image for publication
         run: |
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
-          if [ "$dockerfile" = "images/dagster/Dockerfile" ] || [ "$dockerfile" = "images/superset/Dockerfile" ]; then
-            context="."
-          fi
+          case "$dockerfile" in
+            images/dagster/*|images/superset/*|images/dbt/*) context="." ;;
+          esac
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
-          docker build -f "$dockerfile" -t "$ref:$tag" -t "$ref:latest" "$context"
+          latest_tag="${{ steps.version.outputs.latest_tag }}"
+          # The :scan tag is local-only and never pushed; it exists so the
+          # vulnerability gate below can scan the exact image about to be
+          # published before anything reaches the registry.
+          docker build -f "$dockerfile" \
+            -t "$ref:$tag" -t "$ref:$latest_tag" \
+            -t "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan" "$context"
+
+      - name: Gate on HIGH/CRITICAL vulnerabilities before push
+        # A CVE disclosed after the PR-time scan (image-security-scan.yml)
+        # must not be published; fail the job before push so the image never
+        # reaches Docker Hub. Honors the same .trivyignore exceptions as the
+        # scan workflow.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.73.0
+          ignorefile: .trivyignore
+          image-ref: cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: "true"
+
+      - name: Push image
+        run: |
+          ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
+          tag="${{ steps.version.outputs.tag }}"
+          latest_tag="${{ steps.version.outputs.latest_tag }}"
           docker push "$ref:$tag"
-          docker push "$ref:latest"
+          docker push "$ref:$latest_tag"
 
       - name: Update Docker Hub overview
+        if: matrix.image.variant == '' || matrix.image.variant == 'base'
         uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
         with:
           username: ronaldsoeverein
           password: ${{ secrets.RONALDSOEVEREIN_LOGIN }}
           repository: ronaldsoeverein/${{ matrix.image.name }}
           readme-filepath: images/${{ matrix.image.name }}/README.md
+
+  update-fixture:
+    # Keep tests/fixtures/signed-images.json in sync with every successful
+    # publish, so digest verification in the repo never drifts from what was
+    # signed and attested. Committing only the fixture cannot re-trigger this
+    # workflow (the push paths do not include tests/fixtures).
+    needs: publish
+    if: ${{ always() && needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refresh signed-images fixture after successful publish
+        run: |
+          set -euo pipefail
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
+          tag="${prefix}sha-${GITHUB_SHA::12}"
+          python3 - "$owner" "$tag" <<'PY'
+          import datetime as _dt
+          import json
+          import pathlib
+          import re
+          import subprocess
+          import sys
+
+          owner, tag = sys.argv[1], sys.argv[2]
+          fixture_path = pathlib.Path("tests/fixtures/signed-images.json")
+          fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+          digest_re = re.compile(r"^sha256:[0-9a-f]{64}$")
+          changed = {}
+          for name in sorted(fixture["images"]):
+              repo = f"ghcr.io/{owner}/{name}"
+              tagged = f"{repo}:{tag}"
+              subprocess.run(["docker", "pull", tagged], check=True, stdout=subprocess.DEVNULL)
+              digested = subprocess.check_output(
+                  ["docker", "inspect", "--format", "{{index .RepoDigests 0}}", tagged],
+                  text=True,
+              ).strip()
+              digest = digested.split("@")[-1]
+              if not digest_re.match(digest):
+                  raise SystemExit(f"unexpected digest for {name}: {digest}")
+              entry = fixture["images"][name]
+              if entry.get("digest") != digest:
+                  entry["digest"] = digest
+                  changed[name] = digest
+
+          if changed:
+              fixture["refreshRequired"] = False
+              fixture["updated"] = _dt.date.today().isoformat()
+              fixture["refreshInstructions"] = (
+                  "Refreshed automatically by the update-fixture job in "
+                  ".github/workflows/publish-images.yml after each successful publish."
+              )
+              fixture_path.write_text(json.dumps(fixture, indent=2) + "\n", encoding="utf-8")
+              print("changed:", changed)
+          else:
+              print("no digest changes")
+          PY
+
+      - name: Open a pull request if digests changed
+        # main is a protected branch, so a direct `git push` here is rejected
+        # (GH006: Protected branch update failed). Route the refresh through
+        # a pull request instead.
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(images): refresh signed-images fixture"
+          title: "chore(images): refresh signed-images fixture"
+          body: >
+            Automated digest refresh by the update-fixture job in
+            .github/workflows/publish-images.yml after a successful publish.
+          branch: chore/update-signed-images-fixture
+          delete-branch: true
+          add-paths: tests/fixtures/signed-images.json

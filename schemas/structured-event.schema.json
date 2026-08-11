@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "./structured-event.schema.json",
+  "title": "Composable Data Stack Structured Runtime Event",
+  "description": "Provider-neutral shape for the high-value, long-retention events referenced in docs/observability.md. Raw/unstructured container logs are not required to match this schema; this schema only governs the structured tier (run status, record counts, failures, retries, health transitions).",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["service", "profile", "environment", "timestamp", "severity"],
+  "properties": {
+    "service": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Module instance id (spec.modules[].id) that emitted the event."
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1,
+      "description": "metadata.name of the profile the emitting module instance belongs to."
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["local", "development", "staging", "production"],
+      "description": "metadata.environment of the profile, matching cli/security.py's profile classification."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Event time in RFC 3339 / ISO 8601, UTC recommended."
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["debug", "info", "warning", "error", "critical"],
+      "description": "Normalized severity, independent of any module-native log level naming."
+    },
+    "correlationId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional identifier tying related events together across services (e.g. a run id or request id)."
+    },
+    "workloadId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional identifier for the specific job/run/asset/query the event describes."
+    },
+    "resource": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional name of the resource the event is about (table, asset, pipeline, endpoint, etc.)."
+    },
+    "recordCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional count of records processed/affected, when applicable."
+    },
+    "retryCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Optional number of retries attempted for the described operation."
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable summary. Must not contain secrets; see docs/observability.md redaction guidance."
+    }
+  }
+}

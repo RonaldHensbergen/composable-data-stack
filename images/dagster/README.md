@@ -31,10 +31,12 @@ Dagster orchestration image built for the [Composable Data Stack (CDS)](https://
 
 | Tag | Meaning |
 | --- | --- |
-| `latest` | Most recent build from `main`; moves as `images/dagster` changes |
-| `<dagster-version>-<yyyymmdd>` | Immutable, pinned to the bundled Dagster Python package version and the build date, e.g. `1.13.16-20260730` |
+| `latest` | Most recent `base` (Debian) build from `main`; moves as `images/dagster` changes |
+| `<dagster-version>-<yyyymmdd>` | Immutable `base` build, pinned to the bundled Dagster Python package version and the build date, e.g. `1.13.16-20260730` |
+| `hardened-latest` | Most recent `hardened` (Alpine) build from `main` |
+| `hardened-<dagster-version>-<yyyymmdd>` | Immutable `hardened` build, pinned the same way as the `base` variant |
 
-Prefer the pinned `<version>-<yyyymmdd>` tag for anything beyond local experimentation — `latest` will change underneath you.
+Prefer the pinned `<version>-<yyyymmdd>` (or `hardened-<version>-<yyyymmdd>`) tag for anything beyond local experimentation — the `latest`/`hardened-latest` tags will change underneath you. See `spec.configSchema.image.variant` in `modules/orchestration/dagster/module.yaml` to select which variant CDS builds.
 
 ## Quick Start
 

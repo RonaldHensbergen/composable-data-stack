@@ -23,6 +23,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PROFILES_ROOT = _REPO_ROOT / "profiles"
+_FIXTURE_PROFILES_ROOT = _REPO_ROOT / "tests" / "fixtures" / "completion-profiles"
 
 _ARGCOMPLETE_AVAILABLE = importlib.util.find_spec("argcomplete") is not None
 
@@ -40,13 +41,13 @@ def _find_cds() -> list[str]:
     return [sys.executable, "-m", "cli.main"]
 
 
-def _complete(comp_line: str) -> list[str]:
+def _complete(comp_line: str, profiles_root: Path | None = None) -> list[str]:
     """Drive the argcomplete tempfile protocol against a real `cds` subprocess.
 
     Returns the list of completion candidates cds would offer for `comp_line`.
     """
     env = os.environ.copy()
-    env["CDS_PROFILE_PATH"] = str(_PROFILES_ROOT)
+    env["CDS_PROFILE_PATH"] = str(profiles_root or _PROFILES_ROOT)
     env.pop("CDS_CONFIG_PATH", None)
 
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
@@ -93,7 +94,22 @@ class ShellCompletionProtocolTest(unittest.TestCase):
 
     def test_completes_profile_names_filtered_by_prefix(self):
         candidates = _complete("cds validate local-dagster-postgres-superset-v")
-        self.assertEqual(candidates, ["local-dagster-postgres-superset-vault"])
+        self.assertIn("local-dagster-postgres-superset-vault", candidates)
+        for c in candidates:
+            self.assertTrue(
+                c.startswith("local-dagster-postgres-superset-v"),
+                f"unexpected candidate: {c!r}",
+            )
+
+    def test_prefix_filter_matches_multiple_profiles_and_excludes_others(self):
+        candidates = _complete("cds validate foo-", profiles_root=_FIXTURE_PROFILES_ROOT)
+        self.assertEqual(set(candidates), {"foo-alpha", "foo-beta"})
+
+    def test_prefix_filter_excludes_non_matching_profiles(self):
+        candidates = _complete("cds validate b", profiles_root=_FIXTURE_PROFILES_ROOT)
+        self.assertEqual(candidates, ["bar"])
+        self.assertNotIn("foo-alpha", candidates)
+        self.assertNotIn("foo-beta", candidates)
 
     def test_completes_profile_names_for_use_command(self):
         candidates = _complete("cds use ")

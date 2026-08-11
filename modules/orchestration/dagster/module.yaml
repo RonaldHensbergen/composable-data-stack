@@ -52,6 +52,25 @@ spec:
             type: boolean
             default: true
 
+      image:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          variant:
+            type: string
+            enum:
+              - base
+              - hardened
+            default: base
+            description: >
+              Selects the image build directory under images/dagster/ used
+              for the user-code, webserver, and daemon services. "base"
+              builds the default Debian-based (python:3.14-slim) image
+              optimized for compatibility. "hardened" builds the Alpine-based
+              image optimized for a minimal attack surface and fewer
+              vulnerabilities.
+
       storage:
         type: object
         additionalProperties: false
@@ -181,7 +200,7 @@ spec:
         user-code:
           build:
             context: ../../../
-            dockerfile: images/dagster/Dockerfile
+            dockerfile: images/dagster/${config.image.variant}/Dockerfile
             args:
               DB_BACKEND: "${config.storage.backend}"
           image: local/dagster:custom
@@ -250,7 +269,7 @@ spec:
         dagster-webserver:
           build:
             context: ../../../
-            dockerfile: images/dagster/Dockerfile
+            dockerfile: images/dagster/${config.image.variant}/Dockerfile
             args:
               DB_BACKEND: "${config.storage.backend}"
           image: local/dagster:custom
@@ -317,7 +336,7 @@ spec:
           enabledFrom: config.daemon.enabled
           build:
             context: ../../../
-            dockerfile: images/dagster/Dockerfile
+            dockerfile: images/dagster/${config.image.variant}/Dockerfile
             args:
               DB_BACKEND: "${config.storage.backend}"
           image: local/dagster:custom

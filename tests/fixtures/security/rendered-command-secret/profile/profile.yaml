@@ -1,0 +1,25 @@
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: rendered-command-secret
+  environment: local
+
+spec:
+  runtime:
+    type: docker-compose
+
+  modules:
+    - id: fake-vault
+      source: ../modules/secrets/fake-vault
+      enabled: true
+      config:
+        tokenFrom: secrets.fake_token
+        bareTokenFrom: secrets.fake_token
+
+  secrets:
+    provider:
+      type: env
+    values:
+      fake_token:
+        env: CDS_FAKE_TOKEN
+        required: true

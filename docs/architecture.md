@@ -38,13 +38,15 @@ The platform is divided into logical layers.
 | Layer | Responsibility | Example modules |
 | --- | --- | --- |
 | **Secrets** | credentials, secret injection, key management | Vault |
-| **Infrastructure services** | service coordination backends and support systems | KeyDB, nginx |
-| **Storage / compute** | databases, warehouses, and processing engines | Postgres, MariaDB, Spark |
-| **Orchestration** | workflow scheduling and task execution | Airflow, Dagster |
-| **Transformation** | data modeling and transformation | dbt |
-| **Quality** | data validation and testing | Great Expectations, Soda |
-| **BI / access** | dashboards, semantic access, and exploration | Superset, Metabase |
+| **Infrastructure services** | service coordination backends and support systems | KeyDB |
+| **Storage / compute** | databases, warehouses, and processing engines | Postgres |
+| **Orchestration** | workflow scheduling and task execution | Dagster |
+| **Transformation** | data modeling and transformation | (planned) |
+| **Quality** | data validation and testing | (planned) |
+| **BI / access** | dashboards, semantic access, and exploration | Superset |
 | **Platform tooling** | bootstrap, diagnostics, deployment helpers | shared scripts, templates |
+
+Modules marked *(planned)* are not yet implemented. See the [roadmap](roadmap.md) for planned modules.
 
 Not every profile will contain every layer, but this layered model makes module responsibilities explicit and supports future production hardening.
 
@@ -54,15 +56,11 @@ A module represents one implementation of a platform capability.
 
 Examples:
 
-- `modules/orchestration/airflow`
 - `modules/orchestration/dagster`
 - `modules/warehouse/postgres`
-- `modules/warehouse/mariadb`
-- `modules/warehouse/spark`
-- `modules/transform/dbt`
-- `modules/quality/great-expectations`
 - `modules/bi/superset`
 - `modules/secrets/vault`
+- `modules/cache/keydb`
 
 Each module owns:
 
@@ -269,7 +267,9 @@ For this project, production readiness should eventually include:
 - secrets handling that does not rely on committed credentials
 - backup and restore support
 - health checks and service readiness guarantees
-- logging and monitoring integration points
+- logging and monitoring integration points — see
+  [`docs/observability.md`](observability.md) for the tiered log retention
+  and structured runtime event design (#174)
 - security hardening guidance
 - version compatibility documentation
 - operator documentation and runbooks

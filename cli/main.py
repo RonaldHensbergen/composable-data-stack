@@ -25,7 +25,7 @@ from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
 from .overlay import resolve_profile
 from .preflight import preflight_passed, run_preflight
-from .security import run_security_validation
+from .security import PrecomputedRender, run_security_validation
 from .security_common import SEVERITY_ORDER, infer_profile_class
 from .image_verification import default_fixture_path, load_policy_from_env, verify_images
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
@@ -35,6 +35,7 @@ from .up_runner import (
     poll_state_until_settled,
     run_streamed,
     start_log_tail,
+    start_up_in_background,
     stop_log_tail,
 )
 from .loader import load_yaml_file
@@ -81,13 +82,17 @@ def profile_completer(prefix, parsed_args, **kwargs):
 
 
 def get_profiles_root() -> Path:
-    root = os.getenv("CDS_PROFILE_PATH") or "profiles"
-    return Path(root).expanduser()
+    override = os.getenv("CDS_PROFILE_PATH")
+    if override:
+        return Path(override).expanduser()
+    return find_project_root() / "profiles"
 
 
 def get_modules_root() -> Path:
-    root = os.getenv("CDS_MODULE_PATH") or "modules"
-    return Path(root).expanduser()
+    override = os.getenv("CDS_MODULE_PATH")
+    if override:
+        return Path(override).expanduser()
+    return find_project_root() / "modules"
 
 
 def find_project_root(start: Path | None = None) -> Path:
@@ -227,7 +232,7 @@ def _resolve_profile_root(profile_root: Path) -> str | None:
 
     # profile_root may be set to a bare profile name rather than a path.
     # Try resolving it as a name under the default profiles/ directory.
-    default_root = Path("profiles")
+    default_root = find_project_root() / "profiles"
     if default_root.resolve() != profile_root.resolve():
         name_candidate = default_root / profile_root.name / "profile.yaml"
         if name_candidate.exists():
@@ -274,7 +279,7 @@ def resolve_profile_path(profile: str | None) -> str:
         # CDS_PROFILE_PATH may have been set to a profile name rather than a
         # profiles root directory. Fall back to the default "profiles/" root so
         # that an explicit profile name still resolves correctly.
-        default_root = Path("profiles")
+        default_root = find_project_root() / "profiles"
         if default_root.resolve() != profile_root.resolve():
             default_by_name = default_root / profile / "profile.yaml"
             default_by_file = default_root / f"{profile}.yaml"
@@ -1123,24 +1128,38 @@ def main() -> int:
                         return build_returncode
 
                 print(f"Running: {' '.join(up_cmd)}")
-                if not args.detach:
-                    print(
-                        "Switching to the live state view; full docker compose output "
-                        f"is being written to {log_path}."
-                    )
-                up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
-                if up_returncode != 0:
-                    print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
-                    return up_returncode
-
                 if args.detach:
+                    up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
+                    if up_returncode != 0:
+                        print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                        return up_returncode
                     print(
                         f"Stack starting in the background. Run 'cds state' to check status; "
                         f"full output in {log_path}."
                     )
                     return 0
 
-                log_tail_process = start_log_tail(output_path, log_file)
+                print(
+                    "Switching to the live state view; full docker compose output "
+                    f"is being written to {log_path}."
+                )
+                # `docker compose up --detach` can itself block for a long time
+                # waiting on healthcheck-gated `depends_on` dependencies before
+                # it returns control, even with --detach. Run it in the
+                # background so the live state view (driven by `docker compose
+                # ps`, which is fast regardless) starts rendering immediately
+                # instead of appearing only after `up` finishes.
+                up_process = start_up_in_background(up_cmd, log_file)
+
+                # Deferred until `up` finishes (see on_up_finished below):
+                # starting this immediately would have it write container
+                # logs to log_file at the same time `up`'s own subprocess is
+                # still writing its transcript there, interleaving output
+                # mid-line.
+                def _begin_log_tail(_up_exit_code: int) -> None:
+                    nonlocal log_tail_process
+                    log_tail_process = start_log_tail(output_path, log_file)
+
                 try:
                     use_rich = sys.stdout.isatty() and not args.no_color
                     if use_rich:
@@ -1156,6 +1175,8 @@ def main() -> int:
                                 redraw_fn=lambda text: live.update(
                                     Text.from_ansi(text),
                                 ),
+                                up_done_fn=up_process.poll,
+                                on_up_finished=_begin_log_tail,
                             )
                     else:
                         settled, _grouped = poll_state_until_settled(
@@ -1163,13 +1184,30 @@ def main() -> int:
                             expected_service_count=expected_service_count,
                             timeout=args.timeout,
                             use_color=(not args.no_color) and sys.stdout.isatty(),
+                            up_done_fn=up_process.poll,
+                            on_up_finished=_begin_log_tail,
                         )
                 except KeyboardInterrupt:
+                    # Don't wait on `up` here: it may still be blocked on a
+                    # healthcheck for a long time, and we're no longer
+                    # watching it once we've stopped polling, so blocking
+                    # process exit on it would be surprising. The stack (and
+                    # `up`) keep running in the background regardless.
                     print(
                         f"\nStopped watching; the stack keeps running. "
                         f"Docker output logged to {log_path}."
                     )
                     return 130
+
+                while True:
+                    try:
+                        up_returncode = up_process.wait(timeout=0.5)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                if up_returncode != 0:
+                    print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                    return up_returncode
         except KeyboardInterrupt:
             print(
                 f"\nInterrupted. The stack keeps running; "
@@ -1209,14 +1247,38 @@ def main() -> int:
         if not validate_ok:
             print_diagnostics(diagnostics)
 
+        # Plan and render are computed once here (rather than once more per
+        # stage) so the "security" stage's "rendered-compose"-scoped rules
+        # (e.g. CDS-SEC-070) can reuse the same plan/rendered Compose the
+        # later "plan"/"render" stages report on, instead of planning and
+        # rendering the same profile a second time internally.
+        env_file = str(resolve_env_file_path(profile_path))
+        plan = None
+        plan_diags: list[Diagnostic] = []
+        plan_ok = False
+        compose_yaml = None
+        render_diags: list[Diagnostic] = []
+        render_ok = False
+        if validate_ok:
+            plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
+            plan_ok = not has_errors(diagnostics + plan_diags)
+            if plan_ok:
+                compose_yaml, render_diags = render_compose(plan, env_file=env_file)
+                render_ok = not has_errors(render_diags)
+
         security_ok = False
         if validate_ok:
             try:
                 findings, sec_diags = run_security_validation(
                     profile_path=Path(profile_path),
-                    env_file=str(resolve_env_file_path(profile_path)),
+                    env_file=env_file,
                     environment=args.environment,
                     redact_values=not args.reveal_secrets,
+                    precomputed_render=PrecomputedRender(
+                        plan=plan if plan_ok else None,
+                        rendered_compose_yaml=compose_yaml if render_ok else None,
+                        failed=not (plan_ok and render_ok),
+                    ),
                 )
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)
@@ -1235,22 +1297,14 @@ def main() -> int:
         else:
             stages.append(("security", "SKIP"))
 
-        env_file = str(resolve_env_file_path(profile_path))
-        plan = None
-        plan_ok = False
         if validate_ok:
-            plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
-            plan_ok = not has_errors(diagnostics + plan_diags)
             if not plan_ok:
                 print_diagnostics(plan_diags)
             stages.append(("plan", "PASS" if plan_ok else "FAIL"))
         else:
             stages.append(("plan", "SKIP"))
 
-        render_ok = False
         if validate_ok and plan_ok:
-            _, render_diags = render_compose(plan, env_file=env_file)
-            render_ok = not has_errors(render_diags)
             if not render_ok:
                 print_diagnostics(render_diags)
             stages.append(("render", "PASS" if render_ok else "FAIL"))
@@ -1451,6 +1505,14 @@ def main() -> int:
         for diag in diagnostics:
             print(diag.format(), file=sys.stderr)
 
+        # A W096 warning means some rendered-compose-scoped rules (e.g.
+        # CDS-SEC-070) were silently skipped because the profile couldn't be
+        # planned/rendered. Unlike `cds test`, this command has no separate
+        # plan/render stage to surface that failure, so treat it as a
+        # non-zero exit rather than reporting "No security findings." as if
+        # the scan were complete.
+        render_scan_skipped = any(d.code == "W096" for d in diagnostics)
+
         if args.verify_images:
             image_findings = _run_image_verification(profile_path, args.environment)
             findings.extend(image_findings)
@@ -1461,6 +1523,9 @@ def main() -> int:
             ))
 
         if not findings:
+            if render_scan_skipped:
+                print("No security findings (some checks were skipped; see warnings above).")
+                return 1
             print("No security findings.")
             return 0
 

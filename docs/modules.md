@@ -139,15 +139,28 @@ spec:
 
 ### Example: Dagster
 
-The Dagster module uses a custom image defined in `images/dagster/`:
+The Dagster module uses a custom image defined in `images/dagster/`. Shared
+build support files (config generation, entrypoint, healthcheck, workspace,
+requirements) live directly under `images/dagster/`, while each image variant
+has its own Dockerfile under a `base/` or `hardened/` subfolder so the two
+variants share everything except the Dockerfile itself:
 
 ```text
 images/dagster/
-├── Dockerfile
-└── requirements.txt
+├── base/
+│   └── Dockerfile        # Debian/python:3.14-slim (default)
+├── hardened/
+│   └── Dockerfile        # Alpine-based, minimal attack surface
+├── entrypoint.sh
+├── generate_config.py
+├── healthcheck.py
+├── requirements.txt
+└── workspace.yaml
 ```
 
-Referenced in `modules/orchestration/dagster/module.yaml`:
+Referenced in `modules/orchestration/dagster/module.yaml`, where
+`config.image.variant` (`base` or `hardened`) selects which Dockerfile is
+built:
 
 ```yaml
 spec:
@@ -157,7 +170,7 @@ spec:
         dagster-webserver:
           build:
             context: ../../../
-            dockerfile: images/dagster/Dockerfile
+            dockerfile: images/dagster/${config.image.variant}/Dockerfile
           image: local/dagster:custom
 ```
 
@@ -258,7 +271,7 @@ Health checks should reflect actual readiness, not just whether the process has 
 - `spec.configSchema` property `description`s — what each config field means
 - `spec.provides` / `spec.consumes` — what contracts the module offers or needs
 
-If you do add a `README.md` (see `modules/secrets/vault/README.md` for a short example), keep it to context that doesn't belong in YAML: rationale, known limitations, links to upstream docs.
+If you do add a `README.md`, follow the format guide in [docs/module-readme-template.md](module-readme-template.md). `modules/secrets/vault/README.md` is a completed example. Keep it to context that doesn't belong in YAML: rationale, known limitations, links to upstream docs.
 
 ## Dependency rules
 
@@ -280,9 +293,8 @@ Profiles are runnable stack combinations built from modules.
 
 Examples of profiles:
 
-- Airflow + Postgres + dbt + Great Expectations + Superset
-- Dagster + Postgres + dbt + Superset
-- Airflow + Spark + dbt + Soda
+- Dagster + Postgres + KeyDB + Superset
+- Dagster + Postgres + KeyDB + Superset + Vault
 
 A profile is responsible for:
 
@@ -297,10 +309,11 @@ Use names based on role and implementation.
 
 Examples:
 
-- modules/orchestration/airflow
+- modules/orchestration/dagster
 - modules/warehouse/postgres
-- modules/quality/great-expectations
 - modules/bi/superset
+- modules/secrets/vault
+- modules/cache/keydb
 
 Avoid vague names such as:
 

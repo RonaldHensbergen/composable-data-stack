@@ -11,8 +11,30 @@ from unittest.mock import MagicMock, patch
 
 from cli.diagnostics import Diagnostic
 from cli.image_updates import collect_module_images
-from cli.main import list_modules, list_profiles, load_saved_profile, resolve_profile_path, main
+from cli.main import (
+    _resolve_profile_root,
+    list_modules,
+    list_profiles,
+    load_saved_profile,
+    resolve_profile_path,
+    main,
+)
 from cli.preflight import PreflightCheck
+
+
+@contextlib.contextmanager
+def _subdirectory_without_overrides(repo_root: Path, *keys: str):
+    """Run a test body from the `images/` subdirectory with the given env
+    overrides removed, restoring the original cwd afterwards."""
+    subdirectory = repo_root / "images"
+    cleaned = {key: value for key, value in os.environ.items() if key not in keys}
+    original_cwd = Path.cwd()
+    try:
+        os.chdir(subdirectory)
+        with patch.dict(os.environ, cleaned, clear=True):
+            yield
+    finally:
+        os.chdir(original_cwd)
 
 
 class MainCLITest(unittest.TestCase):
@@ -44,6 +66,35 @@ class MainCLITest(unittest.TestCase):
             self.assertIn("bi/superset", modules)
             self.assertIn("orchestration/dagster", modules)
             self.assertIn("warehouse/postgres", modules)
+
+    def test_resolve_profile_path_from_subdirectory_without_env_override(self):
+        # Regression test: without CDS_PROFILE_PATH set, the default
+        # "profiles/" root must resolve relative to the project root, not
+        # the current working directory, so invocations from subdirectories
+        # (e.g. `images/`) still find profiles at the repo root.
+        with _subdirectory_without_overrides(
+            self.repo_root, "CDS_PROFILE_PATH", "CDS_MODULE_PATH"
+        ):
+            resolved = resolve_profile_path("local-dagster-postgres-superset")
+        expected = str(self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml")
+        self.assertEqual(resolved, expected)
+
+    def test_list_modules_from_subdirectory_without_env_override(self):
+        with _subdirectory_without_overrides(
+            self.repo_root, "CDS_PROFILE_PATH", "CDS_MODULE_PATH"
+        ):
+            modules = list_modules()
+        self.assertIn("bi/superset", modules)
+        self.assertIn("orchestration/dagster", modules)
+        self.assertIn("warehouse/postgres", modules)
+
+    def test_resolve_profile_root_bare_name_fallback_from_subdirectory(self):
+        with _subdirectory_without_overrides(
+            self.repo_root, "CDS_PROFILE_PATH", "CDS_MODULE_PATH"
+        ):
+            resolved = _resolve_profile_root(Path("local-dagster-postgres-superset"))
+        expected = str(self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml")
+        self.assertEqual(resolved, expected)
 
     @patch("cli.main.collect_module_images")
     @patch("cli.main.check_image_update")
@@ -322,17 +373,21 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_builds_then_starts_detached_and_polls(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+    def test_up_command_builds_then_starts_live_view_and_polls(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {app: {}}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (True, {"RUNNING": ["app"]})
 
@@ -346,9 +401,10 @@ class MainCLITest(unittest.TestCase):
                 result = main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(mock_run_streamed.call_count, 2)
+        self.assertEqual(mock_run_streamed.call_count, 1)
         build_cmd = mock_run_streamed.call_args_list[0][0][0]
-        up_cmd = mock_run_streamed.call_args_list[1][0][0]
+        mock_start_up.assert_called_once()
+        up_cmd = mock_start_up.call_args[0][0]
         self.assertEqual(build_cmd[:4], ["docker", "compose", "-f", build_cmd[3]])
         self.assertEqual(up_cmd[:4], ["docker", "compose", "-f", up_cmd[3]])
         self.assertIn("build", build_cmd)
@@ -356,6 +412,49 @@ class MainCLITest(unittest.TestCase):
         self.assertIn("--detach", up_cmd)
         mock_poll.assert_called_once()
         self.assertEqual(mock_poll.call_args.kwargs["expected_service_count"], 1)
+
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_starts_log_tail_only_after_up_finishes(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {app: {}}", [])
+        mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
+        mock_start_tail.return_value = MagicMock()
+
+        def fake_poll(*args, **kwargs):
+            # Mirrors what the real poll loop does: invoke on_up_finished
+            # once `up` reports a result, before returning. Starting the
+            # log tail any earlier would have it write to the same log
+            # file `up` is still writing to, interleaving output mid-line.
+            on_up_finished = kwargs["on_up_finished"]
+            mock_start_tail.assert_not_called()
+            on_up_finished(0)
+            return (True, {"RUNNING": ["app"]})
+
+        mock_poll.side_effect = fake_poll
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        mock_start_tail.assert_called_once()
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
@@ -461,17 +560,25 @@ class MainCLITest(unittest.TestCase):
 
         self.assertEqual(result, 130)
 
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_interrupt_during_up_exits_130_cleanly(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run_streamed.side_effect = [0, KeyboardInterrupt()]
+        mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.side_effect = KeyboardInterrupt()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
@@ -483,6 +590,9 @@ class MainCLITest(unittest.TestCase):
                 result = main()
 
         self.assertEqual(result, 130)
+        # On Ctrl+C, `up` returns immediately with 130 rather than blocking
+        # on a potentially long-running `up_process.wait()` call.
+        mock_up_process.wait.assert_not_called()
 
     @patch("cli.main.run_streamed")
     @patch("cli.main.validate_profile")
@@ -535,17 +645,19 @@ class MainCLITest(unittest.TestCase):
         self.assertEqual(result, 1)
         mock_run_streamed.assert_not_called()
 
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_reports_clear_error_when_docker_missing(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run_streamed.side_effect = FileNotFoundError()
+        mock_run_streamed.return_value = 0
+        mock_start_up.side_effect = FileNotFoundError()
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
@@ -558,17 +670,30 @@ class MainCLITest(unittest.TestCase):
 
         self.assertEqual(result, 1)
 
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_propagates_docker_compose_up_exit_code(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
-        mock_run_streamed.side_effect = [0, 17]
+        mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 17
+        mock_start_up.return_value = mock_up_process
+        mock_start_tail.return_value = MagicMock()
+        # A real poll_state_until_settled given a failing `up` would bail
+        # out with settled=False (services that never started can't
+        # settle), not settled=True; using (False, {}) here exercises the
+        # actual priority the command applies: `up`'s own exit code is
+        # reported over the generic "did not settle" message.
+        mock_poll.return_value = (False, {})
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
@@ -580,20 +705,28 @@ class MainCLITest(unittest.TestCase):
                 result = main()
 
         self.assertEqual(result, 17)
+        # `up_done_fn` must be wired to the background `up` process's own
+        # poll(), so poll_state_until_settled can bail out as soon as `up`
+        # fails instead of waiting out the full poll timeout.
+        self.assertEqual(mock_poll.call_args.kwargs.get("up_done_fn"), mock_up_process.poll)
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_returns_1_when_stack_does_not_settle(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {app: {}}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (False, {"UNHEALTHY": ["app"]})
 
@@ -671,6 +804,7 @@ class MainCLITest(unittest.TestCase):
     @patch("cli.main.default_log_path")
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
@@ -681,6 +815,7 @@ class MainCLITest(unittest.TestCase):
         mock_plan,
         mock_render,
         mock_run_streamed,
+        mock_start_up,
         mock_start_tail,
         mock_poll,
         mock_default_log_path,
@@ -689,6 +824,9 @@ class MainCLITest(unittest.TestCase):
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (True, {})
 
@@ -707,6 +845,7 @@ class MainCLITest(unittest.TestCase):
     @patch("cli.main.default_log_path")
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
@@ -717,6 +856,7 @@ class MainCLITest(unittest.TestCase):
         mock_plan,
         mock_render,
         mock_run_streamed,
+        mock_start_up,
         mock_start_tail,
         mock_poll,
         mock_default_log_path,
@@ -725,6 +865,9 @@ class MainCLITest(unittest.TestCase):
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (True, {})
 
@@ -742,17 +885,21 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_no_color_flag_disables_color_in_live_view(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (True, {})
 
@@ -770,17 +917,21 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
     @patch("cli.main.run_streamed")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_uses_color_on_a_tty_without_no_color_flag(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
         mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
         mock_start_tail.return_value = MagicMock()
         mock_poll.return_value = (True, {})
 
@@ -905,7 +1056,7 @@ class CollectModuleImagesTest(unittest.TestCase):
 
     _ROOT = Path(__file__).parent.parent
     _MODULES = _ROOT / "modules"
-    _DOCKERFILE = _ROOT / "images" / "dagster" / "Dockerfile"
+    _DOCKERFILE = _ROOT / "images" / "dagster" / "base" / "Dockerfile"
 
     def test_collects_images_from_real_modules(self):
         if not self._MODULES.exists():
@@ -917,7 +1068,7 @@ class CollectModuleImagesTest(unittest.TestCase):
 
     _ROOT = Path(__file__).parent.parent
     _MODULES = _ROOT / "modules"
-    _DOCKERFILE = _ROOT / "images" / "dagster" / "Dockerfile"
+    _DOCKERFILE = _ROOT / "images" / "dagster" / "base" / "Dockerfile"
 
     def test_collects_images_from_real_modules(self):
         if not self._MODULES.exists():
