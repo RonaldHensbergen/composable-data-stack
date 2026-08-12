@@ -112,6 +112,9 @@ def load_module_instances(profile_file: Path, profile: dict[str, Any]) -> tuple[
     profile_dir = profile_file.parent
     modules = profile["spec"]["modules"]
 
+    module_schema = _load_schema("module.schema.json")
+    module_validator = Draft202012Validator(module_schema)
+
     for i, module_instance in enumerate(modules):
         if module_instance.get("enabled", True) is False:
             continue
@@ -145,8 +148,6 @@ def load_module_instances(profile_file: Path, profile: dict[str, Any]) -> tuple[
             )
             continue
 
-        module_schema = _load_schema("module.schema.json")
-        module_validator = Draft202012Validator(module_schema)
         module_errors = sorted(
             module_validator.iter_errors(module_def), key=lambda e: list(e.path)
         )

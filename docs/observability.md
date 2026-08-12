@@ -62,7 +62,7 @@ Required fields:
 
 - `service` — the emitting module instance id (`spec.modules[].id`)
 - `profile` — the profile's `metadata.name`
-- `environment` — the profile's `metadata.environment` (enum defined in `schemas/profile.schema.json` (../schemas/profile.schema.json): `local`, `development`, `staging`, or `production`; read by `cli/security.py` for profile classification)
+- `environment` — the profile's `metadata.environment` (enum defined in `cli/resources/profile.schema.json` (../cli/resources/profile.schema.json): `local`, `development`, `staging`, or `production`; read by `cli/security.py` for profile classification)
 - `timestamp` — RFC 3339 / ISO 8601, UTC recommended
 - `severity` — normalized to `debug` / `info` / `warning` / `error` /
   `critical`, independent of any module-native log-level naming

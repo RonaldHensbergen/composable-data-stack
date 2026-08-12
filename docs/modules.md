@@ -324,7 +324,7 @@ Avoid vague names such as:
 
 A module is considered complete when:
 
-- it contains a valid `module.yaml` that passes `cds validate` against `schemas/module.schema.json`
+- it contains a valid `module.yaml` that passes `cds validate` against `cli/resources/module.schema.json`
 - its `spec.configSchema` fully describes every accepted config field, with `additionalProperties: false`
 - its dependencies are declared through `spec.provides`/`spec.consumes`
 - it can be included in at least one profile
