@@ -7,6 +7,7 @@ import json
 import os
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 import psycopg2
 from psycopg2 import sql
@@ -96,9 +97,12 @@ def _resolve_target_db_uri() -> str:
     analytics_port = os.getenv("CDS_ANALYTICS_DB_PORT", os.getenv("DAGSTER_DB_PORT", "5432"))
 
     if analytics_name and analytics_user and analytics_password:
+        quoted_user = quote(analytics_user, safe="")
+        quoted_password = quote(analytics_password, safe="")
+        quoted_name = quote(analytics_name, safe="")
         return (
-            f"postgresql://{analytics_user}:{analytics_password}"
-            f"@{analytics_host}:{analytics_port}/{analytics_name}"
+            f"postgresql://{quoted_user}:{quoted_password}"
+            f"@{analytics_host}:{analytics_port}/{quoted_name}"
         )
 
     dagster_uri = os.getenv("DAGSTER_DB_CONNECTION_URI")
