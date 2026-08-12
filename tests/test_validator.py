@@ -35,13 +35,14 @@ class ValidatorRegressionTest(unittest.TestCase):
             profile = {
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
-                "metadata": {"name": "local-test"},
+                "metadata": {"name": "local-test", "environment": "local"},
                 "spec": {
                     "runtime": {"type": "docker-compose"},
                     "modules": [
                         {
                             "id": "outside",
                             "source": "modules/../../../outside_zone",
+                            "version": "0.1.0",
                             "enabled": True,
                             "config": {},
                         }
@@ -94,13 +95,14 @@ class ValidatorRegressionTest(unittest.TestCase):
             profile = {
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
-                "metadata": {"name": "local-test"},
+                "metadata": {"name": "local-test", "environment": "local"},
                 "spec": {
                     "runtime": {"type": "docker-compose"},
                     "modules": [
                         {
                             "id": "postgres",
                             "source": "warehouse/postgres",
+                            "version": "0.1.0",
                             "enabled": True,
                             "config": {},
                         }
@@ -247,6 +249,85 @@ class ObservabilityConfigValidationTest(unittest.TestCase):
             }
         ]
         self.assertEqual(validate_observability_config(profile, module_instances), [])
+
+
+class ProfileSchemaValidationTest(unittest.TestCase):
+    def _valid_profile(self) -> dict:
+        return {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "local-test", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "postgres",
+                        "source": "warehouse/postgres",
+                        "version": "0.1.0",
+                        "enabled": True,
+                        "config": {},
+                    }
+                ],
+                "secrets": {"provider": {"type": "env"}, "values": {}},
+            },
+        }
+
+    def test_valid_profile_passes_schema(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        self.assertEqual(validate_profile_shape(self._valid_profile()), [])
+
+    def test_wrong_api_version_is_rejected(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        profile = self._valid_profile()
+        profile["apiVersion"] = "cds/v2beta1"
+        diagnostics = validate_profile_shape(profile)
+        self.assertEqual([d.code for d in diagnostics], ["E010"])
+        self.assertIn("cds/v1alpha1", diagnostics[0].message)
+
+    def test_extra_top_level_key_is_rejected(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        profile = self._valid_profile()
+        profile["unexpectedKey"] = "value"
+        diagnostics = validate_profile_shape(profile)
+        self.assertEqual([d.code for d in diagnostics], ["E010"])
+        self.assertIn("unexpectedKey", diagnostics[0].message)
+
+    def test_missing_metadata_environment_is_rejected(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        profile = self._valid_profile()
+        del profile["metadata"]["environment"]
+        diagnostics = validate_profile_shape(profile)
+        self.assertEqual([d.code for d in diagnostics], ["E010"])
+        self.assertIn("environment", diagnostics[0].message)
+
+    def test_invalid_module_id_pattern_is_rejected(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        profile = self._valid_profile()
+        profile["spec"]["modules"][0]["id"] = "UPPERCASE"
+        diagnostics = validate_profile_shape(profile)
+        self.assertEqual([d.code for d in diagnostics], ["E010"])
+        self.assertIn("UPPERCASE", diagnostics[0].message)
+
+    def test_duplicate_module_ids_are_rejected(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        profile = self._valid_profile()
+        profile["spec"]["modules"].append(
+            {
+                "id": "postgres",
+                "source": "warehouse/postgres",
+                "version": "0.1.0",
+                "enabled": True,
+                "config": {},
+            }
+        )
+        diagnostics = validate_profile_shape(profile)
+        self.assertEqual([d.code for d in diagnostics], ["E011"])
 
 
 if __name__ == "__main__":

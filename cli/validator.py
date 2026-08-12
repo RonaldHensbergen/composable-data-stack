@@ -1,6 +1,7 @@
 # cli/validator.py
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,11 @@ from .diagnostics import Diagnostic
 from .graph import validate_dependency_graph
 from .loader import load_yaml_file, resolve_module_file
 from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
+
+
+def _load_schema(name: str) -> dict[str, Any]:
+    schema_path = Path(__file__).parent / "resources" / name
+    return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
 def validate_profile(profile_path: str, environment: str | None = None) -> list[Diagnostic]:
@@ -67,41 +73,34 @@ def has_errors(diagnostics: list[Diagnostic]) -> bool:
 def validate_profile_shape(profile: dict[str, Any]) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
-    if profile.get("kind") != "Profile":
-        diagnostics.append(Diagnostic("error", "E010", 'Expected kind: "Profile".', "kind"))
+    schema = _load_schema("profile.schema.json")
+    validator = Draft202012Validator(schema)
+    for err in sorted(validator.iter_errors(profile), key=lambda e: list(e.path)):
+        subpath = ".".join(str(p) for p in err.path)
+        diagnostics.append(
+            Diagnostic("error", "E010", err.message, subpath or "profile")
+        )
 
     spec = profile.get("spec")
-    if not isinstance(spec, dict):
-        diagnostics.append(Diagnostic("error", "E010", "Missing or invalid spec object.", "spec"))
-        return diagnostics
-
-    modules = spec.get("modules")
-    if not isinstance(modules, list):
-        diagnostics.append(Diagnostic("error", "E010", "spec.modules must be a list.", "spec.modules"))
-        return diagnostics
-
-    seen_ids = set()
-    for i, module in enumerate(modules):
-        if not isinstance(module, dict):
-            diagnostics.append(Diagnostic("error", "E010", "Module entry must be an object.", f"spec.modules[{i}]"))
-            continue
-
-        module_id = module.get("id")
-        source = module.get("source")
-        config = module.get("config")
-
-        if not isinstance(module_id, str) or not module_id:
-            diagnostics.append(Diagnostic("error", "E010", "Module id is required.", f"spec.modules[{i}].id"))
-        elif module_id in seen_ids:
-            diagnostics.append(Diagnostic("error", "E011", f'Duplicate module id "{module_id}".', f"spec.modules[{i}].id"))
-        else:
-            seen_ids.add(module_id)
-
-        if not isinstance(source, str) or not source:
-            diagnostics.append(Diagnostic("error", "E010", "Module source is required.", f"spec.modules[{i}].source"))
-
-        if config is None or not isinstance(config, dict):
-            diagnostics.append(Diagnostic("error", "E010", "Module config must be an object.", f"spec.modules[{i}].config"))
+    if isinstance(spec, dict):
+        modules = spec.get("modules")
+        if isinstance(modules, list):
+            seen_ids = set()
+            for i, module in enumerate(modules):
+                if not isinstance(module, dict):
+                    continue
+                module_id = module.get("id")
+                if isinstance(module_id, str) and module_id in seen_ids:
+                    diagnostics.append(
+                        Diagnostic(
+                            "error",
+                            "E011",
+                            f'Duplicate module id "{module_id}".',
+                            f"spec.modules[{i}].id",
+                        )
+                    )
+                elif isinstance(module_id, str):
+                    seen_ids.add(module_id)
 
     return diagnostics
 
@@ -144,6 +143,27 @@ def load_module_instances(profile_file: Path, profile: dict[str, Any]) -> tuple[
                     path=f"spec.modules[{i}].source",
                 )
             )
+            continue
+
+        module_schema = _load_schema("module.schema.json")
+        module_validator = Draft202012Validator(module_schema)
+        module_errors = sorted(
+            module_validator.iter_errors(module_def), key=lambda e: list(e.path)
+        )
+        if module_errors:
+            for err in module_errors:
+                subpath = ".".join(str(p) for p in err.path)
+                full_path = f"spec.modules[{i}]"
+                if subpath:
+                    full_path += f".{subpath}"
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E021",
+                        message=err.message,
+                        path=full_path,
+                    )
+                )
             continue
 
         instances.append(
