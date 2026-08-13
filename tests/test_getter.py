@@ -1,0 +1,116 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from cli.getter import GetError, fetch_profile
+
+
+def _write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def _make_source_repo(root: Path) -> None:
+    _write(
+        root / "profiles" / "demo" / "profile.yaml",
+        """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+      config:
+        sharedDataPath: ./workdirs/shared-data
+""",
+    )
+    _write(root / "profiles" / "demo" / "workdirs" / "shared-data" / "README.txt", "profile data\n")
+    _write(root / "profiles" / "demo" / ".env", "SHOULD_NOT_COPY=true\n")
+    _write(
+        root / "modules" / "apps" / "demo" / "module.yaml",
+        """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: demo
+spec:
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          build:
+            context: ../../../
+            dockerfile: images/demo/Dockerfile
+""",
+    )
+    _write(
+        root / "images" / "demo" / "Dockerfile",
+        """FROM python:3.14-slim
+COPY shared/python /app/shared/python
+COPY workdirs/demo /app/workdirs/demo
+COPY images/demo/entrypoint.sh /entrypoint.sh
+""",
+    )
+    _write(root / "images" / "demo" / "entrypoint.sh", "#!/bin/sh\n")
+    _write(root / "shared" / "python" / "__init__.py", "")
+    _write(root / "workdirs" / "demo" / "definitions.py", "defs = []\n")
+
+
+class GetterTest(unittest.TestCase):
+    def test_fetch_profile_copies_profile_module_and_build_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            actions, manifest_path = fetch_profile(
+                "demo",
+                remote=str(source_root),
+                destination_root=destination_root,
+            )
+
+            self.assertGreater(len(actions), 0)
+            self.assertTrue((destination_root / "profiles" / "demo" / "profile.yaml").exists())
+            self.assertTrue((destination_root / "profiles" / "demo" / "workdirs" / "shared-data" / "README.txt").exists())
+            self.assertTrue((destination_root / "modules" / "apps" / "demo" / "module.yaml").exists())
+            self.assertTrue((destination_root / "images" / "demo" / "Dockerfile").exists())
+            self.assertTrue((destination_root / "images" / "demo" / "entrypoint.sh").exists())
+            self.assertTrue((destination_root / "shared" / "python" / "__init__.py").exists())
+            self.assertTrue((destination_root / "workdirs" / "demo" / "definitions.py").exists())
+            self.assertFalse((destination_root / "profiles" / "demo" / ".env").exists())
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = manifest["profiles"]["demo"]
+            self.assertEqual(entry["requestedProfile"], "demo")
+            self.assertEqual(entry["sourceProfile"], "profiles/demo/profile.yaml")
+            self.assertIn("modules/apps/demo", entry["assetRoots"])
+            self.assertIn("images/demo/Dockerfile", entry["assetRoots"])
+
+    def test_fetch_profile_requires_force_for_conflicting_files(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+            profile_file = destination_root / "profiles" / "demo" / "profile.yaml"
+            profile_file.write_text("changed\n", encoding="utf-8")
+
+            with self.assertRaises(GetError):
+                fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+
+            fetch_profile(
+                "demo",
+                remote=str(source_root),
+                destination_root=destination_root,
+                force=True,
+            )
+            self.assertIn("kind: Profile", profile_file.read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()

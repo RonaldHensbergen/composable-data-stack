@@ -338,6 +338,68 @@ class MainCLITest(unittest.TestCase):
         finally:
             output_file.unlink(missing_ok=True)
 
+    def test_get_command_dry_run_reports_planned_files_without_writing(self):
+        import tempfile
+
+        def write(path: Path, content: str) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            write(
+                source_root / "profiles" / "demo" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+""",
+            )
+            write(
+                source_root / "modules" / "apps" / "demo" / "module.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: demo
+spec:
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          image: demo:latest
+""",
+            )
+
+            stdout = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "get",
+                    "demo",
+                    "--remote",
+                    str(source_root),
+                    "--into",
+                    str(destination_root),
+                    "--dry-run",
+                ],
+            ), contextlib.redirect_stdout(stdout):
+                result = main()
+
+            self.assertEqual(result, 0)
+            self.assertIn("Planned", stdout.getvalue())
+            self.assertFalse((destination_root / "profiles" / "demo" / "profile.yaml").exists())
+            self.assertFalse((destination_root / ".cds" / "get-manifest.json").exists())
+
     @patch("cli.main.run_preflight")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
