@@ -58,6 +58,9 @@ def fetch_profile(
     asset_roots = _collect_asset_roots(source_repo, profile_path)
 
     actions = _build_copy_plan(source_repo, asset_roots, target_root)
+    if dry_run:
+        return actions, target_root / _TRACKING_FILE
+
     conflicts = _find_conflicts(actions)
     if conflicts and not force:
         rendered = ", ".join(conflicts[:5])
@@ -66,9 +69,6 @@ def fetch_profile(
             "Refusing to overwrite existing files without --force: "
             f"{rendered}{extra}"
         )
-
-    if dry_run:
-        return actions, target_root / _TRACKING_FILE
 
     for action in actions:
         action.destination.parent.mkdir(parents=True, exist_ok=True)
@@ -291,12 +291,18 @@ def _parse_dockerfile_assets(context_path: Path, dockerfile_path: Path) -> set[P
         upper = line.upper()
         if not (upper.startswith("COPY ") or upper.startswith("ADD ")):
             continue
-        assets.update(_extract_dockerfile_instruction_sources(context_path, line))
+        assets.update(
+            _extract_dockerfile_instruction_sources(context_path, dockerfile_path, line)
+        )
 
     return assets
 
 
-def _extract_dockerfile_instruction_sources(context_path: Path, line: str) -> set[Path]:
+def _extract_dockerfile_instruction_sources(
+    context_path: Path,
+    dockerfile_path: Path,
+    line: str,
+) -> set[Path]:
     instruction, remainder = line.split(None, 1)
     remainder = remainder.strip()
     while remainder.startswith("--"):
@@ -307,7 +313,12 @@ def _extract_dockerfile_instruction_sources(context_path: Path, line: str) -> se
 
     assets: set[Path] = set()
     if remainder.startswith("["):
-        values = json.loads(remainder)
+        try:
+            values = json.loads(remainder)
+        except json.JSONDecodeError as exc:
+            raise GetError(
+                f"Could not parse {instruction.upper()} sources in {dockerfile_path}: {exc}"
+            ) from exc
         if not isinstance(values, list) or len(values) < 2:
             return assets
         source_items = [value for value in values[:-1] if isinstance(value, str)]

@@ -113,6 +113,27 @@ class GetterTest(unittest.TestCase):
             )
             self.assertIn("kind: Profile", profile_file.read_text(encoding="utf-8"))
 
+    def test_fetch_profile_dry_run_ignores_conflicting_files(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+            profile_file = destination_root / "profiles" / "demo" / "profile.yaml"
+            profile_file.write_text("changed\n", encoding="utf-8")
+
+            actions, manifest_path = fetch_profile(
+                "demo",
+                remote=str(source_root),
+                destination_root=destination_root,
+                dry_run=True,
+            )
+
+            self.assertGreater(len(actions), 0)
+            self.assertEqual(manifest_path, destination_root / ".cds" / "get-manifest.json")
+            self.assertEqual(profile_file.read_text(encoding="utf-8"), "changed\n")
+
     def test_fetch_profile_resolves_templated_dockerfile_from_module_config_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             source_root = Path(source_dir)
@@ -226,6 +247,53 @@ spec:
             self.assertTrue((destination_root / "profiles" / "demo.yaml").exists())
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertEqual(manifest["profiles"]["demo"]["sourceProfile"], "profiles/demo.yaml")
+
+    def test_fetch_profile_reports_invalid_json_copy_instruction_as_get_error(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _write(
+                source_root / "profiles" / "demo" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+""",
+            )
+            _write(
+                source_root / "modules" / "apps" / "demo" / "module.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: demo
+spec:
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          build:
+            context: ../../../
+            dockerfile: images/demo/Dockerfile
+""",
+            )
+            _write(
+                source_root / "images" / "demo" / "Dockerfile",
+                """FROM python:3.14-slim
+COPY ["shared/python", dest]
+""",
+            )
+
+            with self.assertRaises(GetError) as ctx:
+                fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+
+            self.assertIn("Could not parse COPY sources", str(ctx.exception))
 
 
 if __name__ == "__main__":
