@@ -7,7 +7,8 @@ publication and attestation flow in .github/workflows/publish-images.yml:
 
 - Static policy checks over rendered Compose service images: trusted
   registry allowlist, digest pinning for production, and no floating
-  ":latest" tags (the intent of the deferred CDS-SEC-050/051/052/054 rules).
+  ":latest" tags (reported as CDS-SEC-050/051/052 findings; these are not
+  rule-engine rules).
 - Cosign-compatible signature and provenance verification, pluggable via
   CDS_COSIGN_BIN. Keyless by default (OIDC issuer + certificate identity
   constraints); key-managed when CDS_COSIGN_KEY points at a key file.

@@ -71,4 +71,4 @@ cds security --verify-images profiles/<name>/profile.yaml --environment prod
 CDS_IMAGE_VERIFICATION=full cds preflight profiles/<name>/profile.yaml --environment prod
 ```
 
-The rules behind the static checks are the previously deferred CDS-SEC-050/051/052/054 entries in `cli/resources/rule-set.json`; they are enforced by `cli/image_verification.py` against rendered Compose rather than by the rule engine, which has no Compose scan source.
+The static checks are enforced by `cli/image_verification.py` against rendered Compose (reported as CDS-SEC-050/051/052 findings) rather than by the rule engine, which has no Compose scan source; the corresponding rules are intentionally not defined in `cli/resources/rule-set.json`.
