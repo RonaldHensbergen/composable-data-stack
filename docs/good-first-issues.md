@@ -75,14 +75,24 @@ Before opening the PR:
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-If your change is code (not docs), also run the actual CLI workflow against a profile, this is the most realistic smoke test:
+If your change is code (not docs), run the CLI smoke test against a profile to validate the full pipeline:
 
 ```bash
 cds test local-dagster-postgres-superset
 ```
 
-This runs `validate` → `security` → `plan` → `render` in sequence and prints a
-pass/fail summary for each stage.
+This runs four stages in sequence (`validate` → `security` → `plan` → `render`) and prints a pass/fail summary for each. All stages are pure Python; Docker is **not** required for `cds test`.
+
+If you prefer to run individual stages (or want finer-grained output), the equivalent is:
+
+```bash
+cds validate local-dagster-postgres-superset
+cds security local-dagster-postgres-superset
+cds plan local-dagster-postgres-superset
+cds render local-dagster-postgres-superset --output build/docker-compose.yml
+```
+
+Docker is only needed if you want to actually start the stack with `cds up`.
 
 If you cite specific CLI output, error codes, or messages in docs (like a troubleshooting table), don't guess the wording, grep the actual source (`cli/*.py`) or trigger the error live and copy the real output. Diagnostics in this codebase follow a consistent format, check `cli/diagnostics.py` for the exact pattern rather than assuming, since the wording changes between versions.
 
