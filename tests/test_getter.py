@@ -446,7 +446,7 @@ COPY shared/python /app/shared/python
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
-            outside_root = destination_root / "outside"
+            outside_root = source_root.parent / "outside"
             outside_root.mkdir(parents=True, exist_ok=True)
             _write(
                 outside_root / "evil.yaml",
