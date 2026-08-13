@@ -15,6 +15,7 @@ from cli.main import (
     _resolve_profile_root,
     list_modules,
     list_profiles,
+    load_env_file,
     load_saved_profile,
     resolve_profile_path,
     main,
@@ -1484,6 +1485,46 @@ class CompletionCommandCLITest(unittest.TestCase):
         with patch.object(sys, "argv", ["cds", "completion", "fish"]), self.assertRaises(SystemExit) as ctx:
             main()
         self.assertEqual(ctx.exception.code, 2)
+
+
+class LoadEnvFileTest(unittest.TestCase):
+    def test_strips_double_quotes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text('CDS_TOKEN="value"\n', encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                load_env_file(str(env_file))
+                self.assertEqual(os.environ.get("CDS_TOKEN"), "value")
+
+    def test_strips_single_quotes(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("CDS_TOKEN='value'\n", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                load_env_file(str(env_file))
+                self.assertEqual(os.environ.get("CDS_TOKEN"), "value")
+
+    def test_ignores_non_cds_keys(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("PATH=/malicious\nCDS_TOKEN=ok\n", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                load_env_file(str(env_file))
+                self.assertNotIn("PATH", os.environ)
+                self.assertEqual(os.environ.get("CDS_TOKEN"), "ok")
+
+    def test_does_not_override_existing_environment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("CDS_TOKEN=from-file\n", encoding="utf-8")
+            with patch.dict(os.environ, {"CDS_TOKEN": "from-env"}, clear=True):
+                load_env_file(str(env_file))
+                self.assertEqual(os.environ.get("CDS_TOKEN"), "from-env")
+
+    def test_missing_file_is_noop(self):
+        with patch.dict(os.environ, {}, clear=True):
+            load_env_file("does-not-exist.env")
+            self.assertNotIn("CDS_TOKEN", os.environ)
 
 
 if __name__ == "__main__":
