@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -388,6 +390,142 @@ COPY "shared/file#1.txt" /app/
             fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
 
             self.assertTrue((destination_root / "shared" / "file#1.txt").exists())
+
+    def test_fetch_profile_skips_copy_from_stage_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _write(
+                source_root / "profiles" / "demo" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+""",
+            )
+            _write(
+                source_root / "modules" / "apps" / "demo" / "module.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: demo
+spec:
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          build:
+            context: ../../../
+            dockerfile: images/demo/Dockerfile
+""",
+            )
+            _write(
+                source_root / "images" / "demo" / "Dockerfile",
+                """FROM python:3.14-slim AS builder
+RUN mkdir -p /opt/venv
+FROM python:3.14-slim
+COPY --from=builder /opt/venv /opt/venv
+COPY shared/python /app/shared/python
+""",
+            )
+            _write(source_root / "shared" / "python" / "__init__.py", "")
+
+            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+
+            self.assertTrue((destination_root / "images" / "demo" / "Dockerfile").exists())
+            self.assertTrue((destination_root / "shared" / "python" / "__init__.py").exists())
+
+    def test_fetch_profile_rejects_profile_paths_outside_source_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            outside_root = destination_root / "outside"
+            outside_root.mkdir(parents=True, exist_ok=True)
+            _write(
+                outside_root / "evil.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: evil
+spec:
+  runtime:
+    type: docker-compose
+  modules: []
+""",
+            )
+            (source_root / "profiles").mkdir(parents=True, exist_ok=True)
+
+            with self.assertRaises(GetError) as ctx:
+                fetch_profile(
+                    f"../{outside_root.name}/evil.yaml",
+                    remote=str(source_root),
+                    destination_root=destination_root,
+                )
+
+            self.assertIn('profile "../outside/evil.yaml" resolves outside the source repository', str(ctx.exception))
+
+    def test_fetch_profile_rejects_absolute_dockerfile_outside_source_repo(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _write(
+                source_root / "profiles" / "demo" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+""",
+            )
+            _write(
+                source_root / "modules" / "apps" / "demo" / "module.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: demo
+spec:
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          build:
+            context: ../../../
+            dockerfile: /etc/passwd
+""",
+            )
+
+            with self.assertRaises(GetError) as ctx:
+                fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+
+            self.assertIn('build.dockerfile "/etc/passwd" resolves outside the source repository', str(ctx.exception))
+
+    def test_fetch_profile_preserves_executable_permissions(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            entrypoint = source_root / "images" / "demo" / "entrypoint.sh"
+            os.chmod(entrypoint, 0o755)
+
+            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+
+            destination_entrypoint = destination_root / "images" / "demo" / "entrypoint.sh"
+            mode = stat.S_IMODE(destination_entrypoint.stat().st_mode)
+            self.assertEqual(mode, 0o755)
 
 
 if __name__ == "__main__":

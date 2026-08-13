@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -72,7 +73,7 @@ def fetch_profile(
 
     for action in actions:
         action.destination.parent.mkdir(parents=True, exist_ok=True)
-        action.destination.write_bytes(action.source.read_bytes())
+        shutil.copy2(action.source, action.destination)
 
     _write_tracking_manifest(
         target_root=target_root,
@@ -131,9 +132,13 @@ def _resolve_source_profile_path(source_repo: Path, profile: str) -> Path:
 
     for candidate in candidates:
         if candidate.is_dir() and (candidate / "profile.yaml").is_file():
-            return (candidate / "profile.yaml").resolve()
+            resolved = (candidate / "profile.yaml").resolve()
+            _require_within_repo(resolved, source_repo, f'profile "{profile}"')
+            return resolved
         if candidate.is_file() and candidate.suffix == ".yaml":
-            return candidate.resolve()
+            resolved = candidate.resolve()
+            _require_within_repo(resolved, source_repo, f'profile "{profile}"')
+            return resolved
 
     raise GetError(
         f'Could not resolve profile "{profile}" under {source_repo / "profiles"}'
@@ -253,7 +258,12 @@ def _collect_build_assets(
         return set()
     _require_within_repo(context_path, source_repo, f'build context "{context_value}"')
 
-    dockerfile_path = context_path / dockerfile_name
+    dockerfile_path = (
+        Path(dockerfile_name).resolve()
+        if Path(dockerfile_name).is_absolute()
+        else (context_path / dockerfile_name).resolve()
+    )
+    _require_within_repo(dockerfile_path, source_repo, f'build.dockerfile "{dockerfile_name}"')
     if not dockerfile_path.exists():
         return {context_path}
 
@@ -304,12 +314,9 @@ def _extract_dockerfile_instruction_sources(
     line: str,
 ) -> set[Path]:
     instruction, remainder = line.split(None, 1)
-    remainder = remainder.strip()
-    while remainder.startswith("--"):
-        parts = remainder.split(None, 1)
-        if len(parts) == 1:
-            return set()
-        remainder = parts[1].strip()
+    remainder, copy_from_stage = _strip_dockerfile_instruction_options(remainder.strip())
+    if copy_from_stage or not remainder:
+        return set()
 
     assets: set[Path] = set()
     if remainder.startswith("["):
@@ -343,6 +350,8 @@ def _extract_dockerfile_instruction_sources(
             continue
         if _contains_template(source):
             continue
+        if Path(source).is_absolute():
+            continue
         matches = list(context_path.glob(source))
         if not matches and "*" not in source and "?" not in source and "[" not in source:
             matches = [context_path / source]
@@ -351,6 +360,28 @@ def _extract_dockerfile_instruction_sources(
                 assets.add(match.resolve())
 
     return assets
+
+
+def _strip_dockerfile_instruction_options(remainder: str) -> tuple[str, bool]:
+    copy_from_stage = False
+    while remainder.startswith("--"):
+        parts = remainder.split(None, 1)
+        option = parts[0]
+        if option == "--from":
+            if len(parts) == 1:
+                return "", True
+            from_parts = parts[1].split(None, 1)
+            if not from_parts:
+                return "", True
+            copy_from_stage = True
+            remainder = from_parts[1].strip() if len(from_parts) > 1 else ""
+            continue
+        if option.startswith("--from="):
+            copy_from_stage = True
+        if len(parts) == 1:
+            return "", copy_from_stage
+        remainder = parts[1].strip()
+    return remainder, copy_from_stage
 
 
 def _contains_template(value: str) -> bool:
