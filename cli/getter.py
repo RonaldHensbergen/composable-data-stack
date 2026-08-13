@@ -323,7 +323,12 @@ def _extract_dockerfile_instruction_sources(
             return assets
         source_items = [value for value in values[:-1] if isinstance(value, str)]
     else:
-        parts = shlex.split(remainder)
+        try:
+            parts = shlex.split(remainder)
+        except ValueError as exc:
+            raise GetError(
+                f"Could not parse {instruction.upper()} sources in {dockerfile_path}: {exc}"
+            ) from exc
         if len(parts) < 2:
             return assets
         source_items = parts[:-1]

@@ -1278,7 +1278,7 @@ def main() -> int:
                 dry_run=args.dry_run,
             )
         except GetError as exc:
-            print(f"ERROR {exc}")
+            print(f"ERROR {exc}", file=sys.stderr)
             return 1
 
         destination_root = (Path(args.into) if args.into else Path.cwd()).expanduser().resolve()

@@ -400,6 +400,21 @@ spec:
             self.assertFalse((destination_root / "profiles" / "demo" / "profile.yaml").exists())
             self.assertFalse((destination_root / ".cds" / "get-manifest.json").exists())
 
+    def test_get_command_reports_errors_on_stderr(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with patch.object(
+            sys,
+            "argv",
+            ["cds", "get", "missing-profile", "--remote", "/tmp/does-not-exist"],
+        ), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("ERROR Source repository does not exist", stderr.getvalue())
+
     @patch("cli.main.run_preflight")
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
