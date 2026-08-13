@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .loader import load_yaml_file, resolve_module_dir
+from .planner import MaxNestingDepthExceeded, apply_defaults, substitute_string
 
 
 _TRACKING_FILE = Path(".cds") / "get-manifest.json"
@@ -53,8 +54,8 @@ def fetch_profile(
 ) -> tuple[list[CopyAction], Path]:
     source_repo = _resolve_source_repository(remote)
     target_root = (destination_root or Path.cwd()).expanduser().resolve()
-    profile_dir = _resolve_source_profile_dir(source_repo, profile)
-    asset_roots = _collect_asset_roots(source_repo, profile_dir)
+    profile_path = _resolve_source_profile_path(source_repo, profile)
+    asset_roots = _collect_asset_roots(source_repo, profile_path)
 
     actions = _build_copy_plan(source_repo, asset_roots, target_root)
     conflicts = _find_conflicts(actions)
@@ -77,7 +78,7 @@ def fetch_profile(
         target_root=target_root,
         requested_profile=profile,
         source_repo=source_repo,
-        profile_dir=profile_dir,
+        profile_path=profile_path,
         remote=remote,
         actions=actions,
         asset_roots=asset_roots,
@@ -119,7 +120,7 @@ def _find_project_root(start: Path | None = None) -> Path:
     return current
 
 
-def _resolve_source_profile_dir(source_repo: Path, profile: str) -> Path:
+def _resolve_source_profile_path(source_repo: Path, profile: str) -> Path:
     profile_selector = Path(profile)
     candidates = [
         source_repo / profile_selector,
@@ -130,25 +131,26 @@ def _resolve_source_profile_dir(source_repo: Path, profile: str) -> Path:
 
     for candidate in candidates:
         if candidate.is_dir() and (candidate / "profile.yaml").is_file():
+            return (candidate / "profile.yaml").resolve()
+        if candidate.is_file() and candidate.suffix == ".yaml":
             return candidate.resolve()
-        if candidate.is_file() and candidate.name == "profile.yaml":
-            return candidate.resolve().parent
 
     raise GetError(
         f'Could not resolve profile "{profile}" under {source_repo / "profiles"}'
     )
 
 
-def _collect_asset_roots(source_repo: Path, profile_dir: Path) -> list[Path]:
-    asset_roots: set[Path] = {profile_dir}
-    profile_doc, profile_diags = load_yaml_file(profile_dir / "profile.yaml")
+def _collect_asset_roots(source_repo: Path, profile_path: Path) -> list[Path]:
+    profile_dir = profile_path.parent
+    asset_roots: set[Path] = {profile_path}
+    profile_doc, profile_diags = load_yaml_file(profile_path)
     if profile_diags or profile_doc is None:
-        raise GetError(f"Could not load source profile {profile_dir / 'profile.yaml'}")
+        raise GetError(f"Could not load source profile {profile_path}")
 
     spec = profile_doc.get("spec")
     modules = spec.get("modules", []) if isinstance(spec, dict) else []
     if not isinstance(modules, list):
-        raise GetError(f"Profile modules must be a list in {profile_dir / 'profile.yaml'}")
+        raise GetError(f"Profile modules must be a list in {profile_path}")
 
     for index, module in enumerate(modules):
         if not isinstance(module, dict):
@@ -162,12 +164,18 @@ def _collect_asset_roots(source_repo: Path, profile_dir: Path) -> list[Path]:
             raise GetError(f'Could not resolve module source "{source}" from {profile_dir}')
         _require_within_repo(module_dir, source_repo, f'module source "{source}"')
         asset_roots.add(module_dir.resolve())
-        asset_roots.update(_collect_module_runtime_assets(source_repo, module_dir.resolve()))
+        asset_roots.update(
+            _collect_module_runtime_assets(source_repo, module_dir.resolve(), module)
+        )
 
     return sorted(asset_roots)
 
 
-def _collect_module_runtime_assets(source_repo: Path, module_dir: Path) -> set[Path]:
+def _collect_module_runtime_assets(
+    source_repo: Path,
+    module_dir: Path,
+    module_instance: dict[str, Any],
+) -> set[Path]:
     module_doc, module_diags = load_yaml_file(module_dir / "module.yaml")
     if module_diags or module_doc is None:
         raise GetError(f"Could not load module {module_dir / 'module.yaml'}")
@@ -185,10 +193,19 @@ def _collect_module_runtime_assets(source_repo: Path, module_dir: Path) -> set[P
     if not isinstance(services, dict):
         return assets
 
+    context = _module_interpolation_context(module_doc, module_instance)
+
     for service in services.values():
         if not isinstance(service, dict):
             continue
-        assets.update(_collect_build_assets(source_repo, module_dir, service.get("build")))
+        assets.update(
+            _collect_build_assets(
+                source_repo,
+                module_dir,
+                service.get("build"),
+                interpolation_context=context,
+            )
+        )
 
     return assets
 
@@ -197,28 +214,42 @@ def _collect_build_assets(
     source_repo: Path,
     module_dir: Path,
     build: Any,
+    *,
+    interpolation_context: dict[str, Any] | None,
 ) -> set[Path]:
     if build is None:
         return set()
 
     if isinstance(build, str):
-        context = build
+        context_value = build
         dockerfile_name = "Dockerfile"
     elif isinstance(build, dict):
-        context = build.get("context")
+        context_value = build.get("context")
         dockerfile_name = build.get("dockerfile", "Dockerfile")
     else:
         return set()
 
-    if not isinstance(context, str) or not context or _contains_template(context):
+    if isinstance(context_value, str):
+        context_value = _resolve_template_value(context_value, interpolation_context)
+    if (
+        not isinstance(context_value, str)
+        or not context_value
+        or _contains_template(context_value)
+    ):
         return set()
-    if not isinstance(dockerfile_name, str) or not dockerfile_name:
+    if isinstance(dockerfile_name, str):
+        dockerfile_name = _resolve_template_value(dockerfile_name, interpolation_context)
+    if (
+        not isinstance(dockerfile_name, str)
+        or not dockerfile_name
+        or _contains_template(dockerfile_name)
+    ):
         return set()
 
-    context_path = _resolve_existing_local_path(context, [module_dir, source_repo])
+    context_path = _resolve_existing_local_path(context_value, [module_dir, source_repo])
     if context_path is None:
         return set()
-    _require_within_repo(context_path, source_repo, f'build context "{context}"')
+    _require_within_repo(context_path, source_repo, f'build context "{context_value}"')
 
     dockerfile_path = context_path / dockerfile_name
     if not dockerfile_path.exists():
@@ -306,6 +337,42 @@ def _extract_dockerfile_instruction_sources(context_path: Path, line: str) -> se
 
 def _contains_template(value: str) -> bool:
     return "${" in value
+
+
+def _module_interpolation_context(
+    module_doc: dict[str, Any],
+    module_instance: dict[str, Any],
+) -> dict[str, Any] | None:
+    config_schema = module_doc.get("spec", {}).get("configSchema")
+    if not isinstance(config_schema, dict):
+        return None
+
+    raw_config = module_instance.get("config", {})
+    if raw_config is None:
+        raw_config = {}
+    if not isinstance(raw_config, dict):
+        return None
+
+    try:
+        normalized_config = apply_defaults(raw_config, config_schema)
+    except MaxNestingDepthExceeded:
+        return None
+
+    return {
+        "config": normalized_config,
+        "bindings": {},
+        "service": {},
+        "secrets": {},
+    }
+
+
+def _resolve_template_value(
+    value: str,
+    interpolation_context: dict[str, Any] | None,
+) -> Any:
+    if interpolation_context is None or not _contains_template(value):
+        return value
+    return substitute_string(value, interpolation_context)
 
 
 def _resolve_existing_local_path(path_value: str, bases: list[Path]) -> Path | None:
@@ -406,7 +473,7 @@ def _write_tracking_manifest(
     target_root: Path,
     requested_profile: str,
     source_repo: Path,
-    profile_dir: Path,
+    profile_path: Path,
     remote: str | None,
     actions: list[CopyAction],
     asset_roots: list[Path],
@@ -416,7 +483,7 @@ def _write_tracking_manifest(
 
     entry = {
         "requestedProfile": requested_profile,
-        "sourceProfile": profile_dir.relative_to(source_repo).as_posix() + "/profile.yaml",
+        "sourceProfile": profile_path.relative_to(source_repo).as_posix(),
         "remote": remote or str(source_repo),
         "fetchedAt": datetime.now(UTC).isoformat(),
         "assetRoots": [
