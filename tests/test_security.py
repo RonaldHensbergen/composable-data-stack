@@ -262,11 +262,6 @@ class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
                 "CDS-SEC-006",
                 "CDS-SEC-030",
                 "CDS-SEC-032",
-                "CDS-SEC-050",
-                "CDS-SEC-051",
-                "CDS-SEC-052",
-                "CDS-SEC-053",
-                "CDS-SEC-054",
                 "CDS-SEC-071",
             },
         )
@@ -274,6 +269,24 @@ class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
             with self.subTest(rule=rule["id"]):
                 self.assertIn("$comment", rule)
                 self.assertTrue(rule["$comment"].strip())
+
+    def test_no_scope_none_rule_is_enabled(self):
+        """A rule with scope: ["none"] can never produce a finding, so
+        marking it enabled: true implies coverage that doesn't exist. Every
+        scope-none rule must be disabled (honest "off"). Regression guard
+        for #355: fails loudly if anyone reintroduces enabled: true on a
+        scope-none rule."""
+        rule_set = json.loads(_RULE_SET_PATH.read_text())
+
+        for rule in rule_set["rules"]:
+            with self.subTest(rule=rule["id"]):
+                if rule["scope"] == ["none"]:
+                    self.assertFalse(
+                        rule.get("enabled", True),
+                        f"{rule['id']} is enabled but has scope: ['none'] "
+                        "and can never produce a finding -- disable it or "
+                        "give it a real scope",
+                    )
 
 
 class RenderedCommandSecretLeakRuleTest(unittest.TestCase):

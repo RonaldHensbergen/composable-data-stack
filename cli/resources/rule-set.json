@@ -173,7 +173,7 @@
         "Redact secrets in plan and render output.",
         "Avoid writing resolved secret values to generated files."
       ],
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "CDS-SEC-010",
@@ -468,7 +468,7 @@
         "Set permissions to owner-only for files containing secrets.",
         "Tighten file creation umask for generated secret artifacts."
       ],
-      "enabled": true
+      "enabled": false
     },
     {
       "id": "CDS-SEC-033",
@@ -588,115 +588,6 @@
       ],
       "enabled": false
     },
-    {
-      "id": "CDS-SEC-050",
-      "$comment": "Enforced by cli/image_verification.py against rendered Compose service image fields (services.*.image); the rule engine itself does not flatten compose output, so this entry stays scope-nothing as a documented policy intent.",
-      "title": "Container image uses latest tag",
-      "severity": "medium",
-      "category": "supply-chain",
-      "scope": ["none"],
-      "match": {
-        "any": [
-          { "pathPatterns": ["services.*.image"] },
-          { "valueRegex": "^[^@]+:latest$" },
-          { "notValueRegex": "^local/" }
-        ]
-      },
-      "message": "Container image uses the latest tag",
-      "whyItMatters": "Floating tags reduce reproducibility and can introduce unexpected changes.",
-      "recommendation": [
-        "Pin images to explicit versions.",
-        "Prefer immutable digests for critical services."
-      ],
-      "enabled": true
-    },
-    {
-      "id": "CDS-SEC-051",
-      "$comment": "Enforced by cli/image_verification.py against rendered Compose service image entries (services.*.image) when the production policy requires digest pins; kept as a scope-nothing rule-set entry for policy documentation.",
-      "title": "Critical image missing digest pin",
-      "severity": "medium",
-      "category": "supply-chain",
-      "scope": ["none"],
-      "match": {
-        "all": [
-          { "serviceTypes": ["admin-ui", "database", "api"] },
-          { "pathPatterns": ["services.*.image"] },
-          { "notValueRegex": "@sha256:[a-f0-9]{64}" }
-        ]
-      },
-      "message": "Critical service image is not pinned by digest",
-      "whyItMatters": "Digest pinning helps ensure integrity and repeatable deployments.",
-      "recommendation": [
-        "Use image digests for critical services.",
-        "Define policy exceptions only when necessary."
-      ],
-      "enabled": true
-    },
-    {
-      "id": "CDS-SEC-052",
-      "$comment": "Enforced by cli/image_verification.py against rendered Compose service image fields using the CDS_TRUSTED_REGISTRIES allowlist; the rule engine itself has no rendered-compose scan source, so this entry stays scope-nothing as policy documentation.",
-      "title": "Image registry outside allowlist",
-      "severity": "medium",
-      "category": "supply-chain",
-      "scope": ["none"],
-      "match": {
-        "all": [
-          { "pathPatterns": ["services.*.image"] },
-          { "notValueRegex": "^(docker\\.io/|ghcr\\.io/|local/)" }
-        ]
-      },
-      "message": "Image registry does not match the configured allowlist",
-      "whyItMatters": "Unreviewed registries increase supply-chain risk and reduce provenance confidence.",
-      "recommendation": [
-        "Restrict images to trusted registries.",
-        "Maintain an explicit allowlist per environment."
-      ],
-      "enabled": true
-    },
-    {
-      "id": "CDS-SEC-053",
-      "$comment": "Deferred: minimum-version policy evaluation only makes sense against actual service image references. Today the scanner does not surface services.*.image values from rendered Compose or module implementations.",
-      "title": "Image version below policy minimum",
-      "severity": "medium",
-      "category": "supply-chain",
-      "scope": ["none"],
-      "match": {
-        "any": [
-          {
-            "imageTagPolicy": "require-tag"
-          }
-        ]
-      },
-      "message": "Image tag may violate minimum supported version policy",
-      "whyItMatters": "Older images are more likely to contain known vulnerabilities or unsupported components.",
-      "recommendation": [
-        "Define minimum supported versions for critical services.",
-        "Fail validation when image tags fall below policy."
-      ],
-      "enabled": true
-    },
-    {
-      "id": "CDS-SEC-054",
-      "$comment": "Documented policy intent; enforcement is merged into CDS-SEC-050 by cli/image_verification.py, which flags floating ':latest' tags in every profile class. No separate CDS-SEC-054 finding is emitted.",
-      "title": "Unpinned image tag in non-local profile",
-      "severity": "medium",
-      "category": "supply-chain",
-      "scope": ["none"],
-      "match": {
-        "all": [
-          { "profileClasses": ["dev", "staging", "prod"] },
-          { "pathPatterns": ["services.*.image"] },
-          { "imageTagPolicy": "forbid-latest" }
-        ]
-      },
-      "message": "Service image uses the ':latest' tag in a non-local profile",
-      "whyItMatters": "Unpinned images can silently introduce breaking changes or vulnerabilities.",
-      "recommendation": [
-        "Pin images to a specific version tag or digest.",
-        "Use digest pinning (@sha256:...) for production environments."
-      ],
-      "enabled": true
-    }, 
     {
       "id": "CDS-SEC-060",
       "title": "Container runs as root",
