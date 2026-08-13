@@ -570,6 +570,10 @@ class PlannerRegressionTest(unittest.TestCase):
 
         result = planner.apply_defaults({}, schema)
 
+        self.assertIsInstance(result.get("sharedData"), dict)
+        self.assertIn("hostPath", result["sharedData"])
+        self.assertIn("containerPath", result["sharedData"])
+
         self.assertEqual(
             result,
             {
@@ -596,6 +600,18 @@ class PlannerRegressionTest(unittest.TestCase):
         config_schema = module_def["spec"]["configSchema"]
 
         result = planner.apply_defaults({}, config_schema)
+
+        self.assertIsInstance(result.get("storage"), dict)
+        self.assertIn("enabled", result["storage"])
+        self.assertIn("size", result["storage"])
+        self.assertIsInstance(result.get("dagsterDatabase"), dict)
+        self.assertIn("name", result["dagsterDatabase"])
+        self.assertIn("username", result["dagsterDatabase"])
+        self.assertIsInstance(result.get("supersetDatabase"), dict)
+        self.assertIn("name", result["supersetDatabase"])
+        self.assertIn("username", result["supersetDatabase"])
+        self.assertIsInstance(result.get("healthcheck"), dict)
+        self.assertIn("enabled", result["healthcheck"])
 
         self.assertEqual(
             result.get("storage"),

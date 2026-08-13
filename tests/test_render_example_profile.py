@@ -319,6 +319,15 @@ spec:
             self.assertEqual(error_diags, [], f"plan errors: {error_diags}")
 
             dagster = next(module for module in plan["modules"] if module["id"] == "dagster")
+            self.assertIsInstance(dagster["config"].get("sharedData"), dict)
+            self.assertIn("hostPath", dagster["config"]["sharedData"])
+            self.assertIn("containerPath", dagster["config"]["sharedData"])
+            self.assertIsInstance(dagster["config"].get("definitionsFile"), dict)
+            self.assertIn("hostPath", dagster["config"]["definitionsFile"])
+            self.assertIn("containerPath", dagster["config"]["definitionsFile"])
+            self.assertIsInstance(dagster["config"].get("daemon"), dict)
+            self.assertIn("enabled", dagster["config"]["daemon"])
+
             self.assertEqual(
                 dagster["config"]["sharedData"],
                 {"hostPath": "./workdirs/shared-data", "containerPath": "/app/data/cds"},
