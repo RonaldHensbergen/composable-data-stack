@@ -407,7 +407,13 @@ spec:
         with patch.object(
             sys,
             "argv",
-            ["cds", "get", "missing-profile", "--remote", "/tmp/does-not-exist"],
+            [
+                "cds",
+                "get",
+                "missing-profile",
+                "--remote",
+                str(Path(tempfile.gettempdir()) / "cds-missing-source-repo"),
+            ],
         ), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             result = main()
 

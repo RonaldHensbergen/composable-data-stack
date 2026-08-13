@@ -367,15 +367,6 @@ def _strip_dockerfile_instruction_options(remainder: str) -> tuple[str, bool]:
     while remainder.startswith("--"):
         parts = remainder.split(None, 1)
         option = parts[0]
-        if option == "--from":
-            if len(parts) == 1:
-                return "", True
-            from_parts = parts[1].split(None, 1)
-            if not from_parts:
-                return "", True
-            copy_from_stage = True
-            remainder = from_parts[1].strip() if len(from_parts) > 1 else ""
-            continue
         if option.startswith("--from="):
             copy_from_stage = True
         if len(parts) == 1:
@@ -410,7 +401,7 @@ def _strip_dockerfile_comment(line: str) -> str:
             char == "#"
             and not in_single_quote
             and not in_double_quote
-            and (index == 0 or line[index - 1].isspace())
+            and not line[:index].strip()
         ):
             return line[:index]
 
