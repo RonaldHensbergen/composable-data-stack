@@ -142,7 +142,9 @@ def _resolve_source_profile_path(source_repo: Path, profile: str) -> Path:
 
 def _collect_asset_roots(source_repo: Path, profile_path: Path) -> list[Path]:
     profile_dir = profile_path.parent
-    asset_roots: set[Path] = {profile_path}
+    asset_roots: set[Path] = {
+        profile_dir if profile_path.name == "profile.yaml" else profile_path
+    }
     profile_doc, profile_diags = load_yaml_file(profile_path)
     if profile_diags or profile_doc is None:
         raise GetError(f"Could not load source profile {profile_path}")
