@@ -295,6 +295,53 @@ COPY ["shared/python", dest]
 
             self.assertIn("Could not parse COPY sources", str(ctx.exception))
 
+    def test_fetch_profile_preserves_hash_characters_inside_quoted_copy_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _write(
+                source_root / "profiles" / "demo" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+""",
+            )
+            _write(
+                source_root / "modules" / "apps" / "demo" / "module.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: demo
+spec:
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          build:
+            context: ../../../
+            dockerfile: images/demo/Dockerfile
+""",
+            )
+            _write(
+                source_root / "images" / "demo" / "Dockerfile",
+                """FROM python:3.14-slim
+COPY "shared/file#1.txt" /app/
+""",
+            )
+            _write(source_root / "shared" / "file#1.txt", "ok\n")
+
+            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+
+            self.assertTrue((destination_root / "shared" / "file#1.txt").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

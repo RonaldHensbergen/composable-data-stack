@@ -272,7 +272,7 @@ def _parse_dockerfile_assets(context_path: Path, dockerfile_path: Path) -> set[P
     logical_lines: list[str] = []
     current = ""
     for raw_line in content.splitlines():
-        stripped = raw_line.split("#", 1)[0].rstrip()
+        stripped = _strip_dockerfile_comment(raw_line).rstrip()
         if not stripped:
             if current:
                 logical_lines.append(current.strip())
@@ -350,6 +350,35 @@ def _extract_dockerfile_instruction_sources(
 
 def _contains_template(value: str) -> bool:
     return "${" in value
+
+
+def _strip_dockerfile_comment(line: str) -> str:
+    in_single_quote = False
+    in_double_quote = False
+    escaped = False
+
+    for index, char in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+            continue
+        if char == '"' and not in_single_quote:
+            in_double_quote = not in_double_quote
+            continue
+        if (
+            char == "#"
+            and not in_single_quote
+            and not in_double_quote
+            and (index == 0 or line[index - 1].isspace())
+        ):
+            return line[:index]
+
+    return line
 
 
 def _module_interpolation_context(
