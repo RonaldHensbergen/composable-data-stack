@@ -58,9 +58,10 @@ def fetch_profile(
     profile_path = _resolve_source_profile_path(source_repo, profile)
     asset_roots = _collect_asset_roots(source_repo, profile_path)
 
+    manifest_path = (target_root / _TRACKING_FILE).resolve()
     actions = _build_copy_plan(source_repo, asset_roots, target_root)
     if dry_run:
-        return actions, target_root / _TRACKING_FILE
+        return actions, manifest_path
 
     conflicts = _find_conflicts(actions)
     if conflicts and not force:
@@ -84,7 +85,7 @@ def fetch_profile(
         actions=actions,
         asset_roots=asset_roots,
     )
-    return actions, target_root / _TRACKING_FILE
+    return actions, manifest_path
 
 
 def format_get_plan(actions: list[CopyAction], *, destination_root: Path) -> str:
