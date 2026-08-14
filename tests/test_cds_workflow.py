@@ -111,6 +111,43 @@ class TestCDSWorkflow(unittest.TestCase):
                     f"stdout: {result.stdout}\nstderr: {result.stderr}",
                 )
 
+    def test_test_command(self):
+        """`cds test` bundles validate/security/plan/render into one exit code.
+
+        This profile's committed secret values (from `cds init`) are the
+        same kind of low-entropy, non-external-reference values CI supplies
+        via env vars, so the security stage always reports HIGH findings
+        (CDS-SEC-001/003) here -- the same reason CI's "Run end-to-end smoke
+        test" step (see .github/workflows/ci.yml) asserts this specific
+        per-stage outcome instead of requiring `cds test` to exit 0.
+        """
+        env_with_profile = {"CDS_PROFILE_PATH": _PROFILE_FILE}
+
+        for extra_args, use_profile_arg in (([], False), ([_PROFILE_NAME], True)):
+            label = f"test {'with' if use_profile_arg else 'without'} profile arg"
+            with self.subTest(label=label):
+                env = env_with_profile if not use_profile_arg else None
+                result = self._run("test", *extra_args, extra_env=env)
+                self.assertEqual(
+                    result.returncode, 1,
+                    f"cds test {' '.join(extra_args)} exited "
+                    f"{result.returncode}, expected 1 (security stage is "
+                    f"expected to fail against this profile's committed "
+                    f"secret values):\nstdout: {result.stdout}\n"
+                    f"stderr: {result.stderr}",
+                )
+                for stage, status in (
+                    ("validate", "PASS"),
+                    ("security", "FAIL"),
+                    ("plan", "PASS"),
+                    ("render", "PASS"),
+                ):
+                    self.assertIn(
+                        f"[{status}] {stage}", result.stdout,
+                        f"cds test {' '.join(extra_args)} did not report "
+                        f"[{status}] {stage}:\nstdout: {result.stdout}",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

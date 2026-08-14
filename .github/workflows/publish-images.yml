@@ -121,7 +121,7 @@ jobs:
         id: gate
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          version: v0.73.0
+          version: v0.74.0
           ignorefile: .trivyignore
           image-ref: cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan
           format: table
@@ -154,7 +154,7 @@ jobs:
           # latest release; pin the CLI version explicitly so it is a
           # visible, Renovate-trackable dependency instead of a value
           # hidden inside the action's own action.yaml default.
-          version: v0.73.0
+          version: v0.74.0
           image-ref: ${{ steps.push.outputs.digest }}
           format: cyclonedx
           output: sbom.json
@@ -283,7 +283,7 @@ jobs:
         # scan workflow.
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          version: v0.73.0
+          version: v0.74.0
           ignorefile: .trivyignore
           image-ref: cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan
           format: table
