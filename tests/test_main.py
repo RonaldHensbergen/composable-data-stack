@@ -191,6 +191,46 @@ class MainCLITest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("CDS-VER-004", stdout.getvalue())
 
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_security_command_fails_closed_when_render_scan_skipped(self, mock_validate, mock_run_security):
+        """GHSA-mx5p-cv63-6829: a W096 warning means rendered-compose-scoped
+        rules (e.g. CDS-SEC-070) were silently skipped. Even when the
+        remaining findings are only medium/low severity (or there are none
+        at all), `cds security` must not report success -- otherwise an
+        attacker-supplied module that trips an unexpected render error can
+        evade CDS-SEC-070 entirely while the scan still exits 0."""
+        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+        mock_validate.return_value = []
+        mock_run_security.return_value = (
+            [
+                {
+                    "severity": "medium",
+                    "rule_id": "CDS-SEC-022",
+                    "message": "meh",
+                    "path": "x",
+                    "module": "x",
+                    "value": None,
+                    "recommendation": [],
+                }
+            ],
+            [
+                Diagnostic(
+                    level="warning",
+                    code="W096",
+                    message="Rendered-compose security checks were skipped due to an unexpected error",
+                    path="spec.modules",
+                )
+            ],
+        )
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "security", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_plan_saves_to_file_with_output_flag(self, mock_validate, mock_build_plan):
@@ -1051,6 +1091,49 @@ class MainCLITest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         mock_render.assert_not_called()
+
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_test_command_fails_security_stage_when_render_scan_skipped(
+        self, mock_validate, mock_security, mock_plan, mock_render
+    ):
+        """GHSA-mx5p-cv63-6829: `cds test`'s security stage must FAIL when
+        rendered-compose-scoped rules (e.g. CDS-SEC-070) were silently
+        skipped (W096), even if the only findings present are non-high
+        severity (or there are none at all)."""
+        mock_validate.return_value = []
+        mock_security.return_value = (
+            [
+                {
+                    "severity": "medium",
+                    "rule_id": "CDS-SEC-022",
+                    "message": "meh",
+                    "path": "x",
+                    "module": "x",
+                    "value": None,
+                    "recommendation": [],
+                }
+            ],
+            [
+                Diagnostic(
+                    level="warning",
+                    code="W096",
+                    message="Rendered-compose security checks were skipped due to an unexpected error",
+                    path="spec.modules",
+                )
+            ],
+        )
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
 
 
 class CollectModuleImagesTest(unittest.TestCase):
