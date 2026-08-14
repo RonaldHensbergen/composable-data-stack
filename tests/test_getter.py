@@ -133,7 +133,10 @@ class GetterTest(unittest.TestCase):
             )
 
             self.assertGreater(len(actions), 0)
-            self.assertEqual(manifest_path, destination_root / ".cds" / "get-manifest.json")
+            self.assertEqual(
+                manifest_path,
+                (destination_root / ".cds" / "get-manifest.json").resolve(),
+            )
             self.assertEqual(profile_file.read_text(encoding="utf-8"), "changed\n")
 
     def test_fetch_profile_resolves_templated_dockerfile_from_module_config_defaults(self) -> None:
@@ -523,9 +526,12 @@ spec:
 
             fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
 
+            source_mode = stat.S_IMODE(entrypoint.stat().st_mode)
             destination_entrypoint = destination_root / "images" / "demo" / "entrypoint.sh"
             mode = stat.S_IMODE(destination_entrypoint.stat().st_mode)
-            self.assertEqual(mode, 0o755)
+            self.assertEqual(mode, source_mode)
+            if os.name != "nt":
+                self.assertEqual(mode, 0o755)
 
 
 if __name__ == "__main__":
