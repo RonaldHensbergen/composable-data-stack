@@ -1,6 +1,7 @@
 import json
 import os
 import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -133,7 +134,7 @@ class GetterTest(unittest.TestCase):
             )
 
             self.assertGreater(len(actions), 0)
-            self.assertEqual(manifest_path, destination_root / ".cds" / "get-manifest.json")
+            self.assertEqual(manifest_path, destination_root.resolve() / ".cds" / "get-manifest.json")
             self.assertEqual(profile_file.read_text(encoding="utf-8"), "changed\n")
 
     def test_fetch_profile_resolves_templated_dockerfile_from_module_config_defaults(self) -> None:
@@ -512,6 +513,7 @@ spec:
 
             self.assertIn('build.dockerfile "/etc/passwd" resolves outside the source repository', str(ctx.exception))
 
+    @unittest.skipIf(sys.platform == "win32", "Windows does not preserve Unix executable permissions")
     def test_fetch_profile_preserves_executable_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             source_root = Path(source_dir)
