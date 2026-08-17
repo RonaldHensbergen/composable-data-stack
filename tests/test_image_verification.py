@@ -206,6 +206,37 @@ class StaticPolicyTest(unittest.TestCase):
         self.assertEqual(findings[0]["rule_id"], "CDS-SEC-050")
 
 
+class DeferredImagePolicyFindingIdsTest(unittest.TestCase):
+    """
+    Regression tests for #354.
+
+    CDS-SEC-050/051/052/053/054 were deleted from cli/resources/rule-set.json
+    because enforcement lives solely in cli/image_verification.py, which has
+    no rule-set dependency and reports findings under the CDS-SEC-050/051/052
+    IDs that remain in use. These tests pin that deleting the rule-set
+    entries never silently disabled the image policy: a non-compliant Compose
+    fixture still produces exactly the expected finding IDs from the
+    verification path, not from the rule engine.
+    """
+
+    def test_image_policy_finding_ids_are_not_deleted_from_the_rule_set_scope(self):
+        from cli.security import _validate_rule_set
+
+        rule_ids = {r["id"] for r in _validate_rule_set()["rules"]}
+        self.assertNotIn("CDS-SEC-050", rule_ids)
+        self.assertNotIn("CDS-SEC-051", rule_ids)
+        self.assertNotIn("CDS-SEC-052", rule_ids)
+        self.assertNotIn("CDS-SEC-053", rule_ids)
+        self.assertNotIn("CDS-SEC-054", rule_ids)
+
+    def test_non_compliant_compose_still_emits_exactly_the_image_policy_finding_ids(self):
+        findings = verify_images(_COMPOSE, _policy(mode="policy"))
+        self.assertEqual(
+            {f["rule_id"] for f in findings},
+            {"CDS-SEC-050", "CDS-SEC-051", "CDS-SEC-052"},
+        )
+
+
 class FixtureVerificationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.fixture = {

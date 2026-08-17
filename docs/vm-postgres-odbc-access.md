@@ -265,8 +265,8 @@ the following do not:
     `cds test` will fail.
   - `CDS-SEC-011` — required auth secrets (all four `*_password` values)
     must actually be set; missing ones fail the security stage.
-  - `CDS-SEC-054` — image tags must be pinned (no `latest`/floating tags)
-    outside `local`.
+  - `cli/image_verification.py` — image tags must be pinned (no `latest`/floating
+    tags) outside `local`.
   - `CDS-SEC-073` — any module explicitly marked
     `metadata.productionSuitable: false` is flagged if used under `staging`
     or `prod`.
