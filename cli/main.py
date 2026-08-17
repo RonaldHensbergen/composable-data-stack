@@ -27,7 +27,12 @@ from .overlay import resolve_profile
 from .preflight import preflight_passed, run_preflight
 from .security import PrecomputedRender, run_security_validation
 from .security_common import SEVERITY_ORDER, infer_profile_class
-from .image_verification import default_fixture_path, load_policy_from_env, verify_images
+from .image_verification import (
+    ImagePolicy,
+    default_fixture_path,
+    load_policy_from_env,
+    verify_images,
+)
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .up_runner import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -657,15 +662,50 @@ def _unverifiable_image_finding(message: str) -> dict[str, Any]:
     }
 
 
-def _run_image_verification(profile_path: str, environment: str | None) -> list[dict[str, Any]]:
+def _run_image_verification(
+    profile_path: str,
+    environment: str | None,
+    compose_yaml: str | None = None,
+    profile_class: str | None = None,
+    policy: ImagePolicy | None = None,
+    render_failed: bool = False,
+) -> list[dict[str, Any]]:
     """
-    Render the profile and verify service images against the CDS image policy.
+    Verify service images against the CDS image policy.
+
+    When the caller has already planned and rendered the profile (e.g. the
+    `cds security` stage), pass the rendered `compose_yaml` (and the
+    matching `profile_class`/`policy`) so this skips the redundant
+    plan/render (#336). When the caller already tried and failed to render,
+    pass `render_failed=True` to fail closed without re-rendering. Without
+    either, this does its own best-effort plan+render.
 
     Verification runs in "full" mode: static supply-chain checks plus
     cosign-based signature/provenance verification (or the signed-images
     fixture when available for offline verification). Fails closed with a
     high-severity finding when verification was requested but cannot run.
     """
+    if render_failed:
+        return [
+            _unverifiable_image_finding(
+                "Image verification could not run because rendering failed"
+            )
+        ]
+
+    if compose_yaml is not None:
+        if policy is None:
+            policy = load_policy_from_env(profile_class or "local", mode_override="full")
+        try:
+            return verify_images(compose_yaml, policy, fixture=default_fixture_path())
+        except Exception as e:
+            print(Diagnostic(
+                level="error",
+                code="E095",
+                message=f"Image verification failed unexpectedly: {e}",
+                path="spec.modules",
+            ).format(), file=sys.stderr)
+            return [_unverifiable_image_finding(f"Image verification failed unexpectedly: {e}")]
+
     try:
         profile, _, _ = resolve_profile(profile_path, environment)
         env_file = str(resolve_env_file_path(profile_path))
@@ -1556,12 +1596,57 @@ def main() -> int:
             print("Cannot run security validation because profile validation failed.")
             return 1
 
+        precomputed_render: PrecomputedRender | None = None
+        image_verification_kwargs: dict[str, Any] = {}
+        if args.verify_images:
+            try:
+                profile, _, _ = resolve_profile(profile_path, args.environment)
+            except Exception as e:
+                print(Diagnostic(
+                    level="error",
+                    code="E095",
+                    message=f"Image verification failed unexpectedly: {e}",
+                    path="spec.modules",
+                ).format(), file=sys.stderr)
+                precomputed_render = PrecomputedRender(failed=True)
+                image_verification_kwargs = {"render_failed": True}
+            else:
+                env_file = str(resolve_env_file_path(profile_path))
+                plan, plan_diags = build_plan(
+                    profile_path, env_file=env_file, environment=args.environment
+                )
+                if has_errors(plan_diags) or plan is None:
+                    print_diagnostics(plan_diags)
+                    print("Cannot verify images because plan generation failed.")
+                    precomputed_render = PrecomputedRender(failed=True)
+                    image_verification_kwargs = {"render_failed": True}
+                else:
+                    compose_yaml, render_diags = render_compose(plan, env_file=env_file)
+                    if has_errors(render_diags):
+                        print_diagnostics(render_diags)
+                        print("Cannot verify images because render failed.")
+                        precomputed_render = PrecomputedRender(failed=True)
+                        image_verification_kwargs = {"render_failed": True}
+                    else:
+                        precomputed_render = PrecomputedRender(
+                            plan=plan, rendered_compose_yaml=compose_yaml
+                        )
+                        profile_class = (
+                            infer_profile_class(profile) if profile is not None else "local"
+                        )
+                        image_verification_kwargs = {
+                            "compose_yaml": compose_yaml,
+                            "profile_class": profile_class,
+                            "policy": load_policy_from_env(profile_class, mode_override="full"),
+                        }
+
         try:
             findings, diagnostics = run_security_validation(
                 profile_path=Path(profile_path),
                 env_file=str(resolve_env_file_path(profile_path)),
                 environment=args.environment,
                 redact_values=not args.reveal_secrets,
+                precomputed_render=precomputed_render,
             )
         except Exception as e:
             print(Diagnostic(
@@ -1584,7 +1669,9 @@ def main() -> int:
         render_scan_skipped = any(d.code == "W096" for d in diagnostics)
 
         if args.verify_images:
-            image_findings = _run_image_verification(profile_path, args.environment)
+            image_findings = _run_image_verification(
+                profile_path, args.environment, **image_verification_kwargs
+            )
             findings.extend(image_findings)
             findings.sort(key=lambda f: (
                 SEVERITY_ORDER.get(f["severity"], 99),
