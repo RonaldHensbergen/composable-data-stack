@@ -191,6 +191,55 @@ class MainCLITest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("CDS-VER-004", stdout.getvalue())
 
+    @patch("cli.main.verify_images")
+    @patch("cli.main.render_compose")
+    @patch("cli.security.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.security.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_security_verify_images_plans_and_renders_profile_exactly_once(
+        self,
+        mock_validate,
+        mock_sec_build_plan,
+        mock_main_build_plan,
+        mock_sec_render,
+        mock_main_render,
+        mock_verify_images,
+    ):
+        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+        canned_plan = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Plan",
+            "metadata": {"name": "local-dagster-postgres-superset"},
+            "modules": [],
+        }
+        canned_compose = "services:\n  app:\n    image: ghcr.io/example/app:1.0\n"
+        mock_validate.return_value = []
+        mock_sec_build_plan.return_value = (canned_plan, [])
+        mock_main_build_plan.return_value = (canned_plan, [])
+        mock_sec_render.return_value = (canned_compose, [])
+        mock_main_render.return_value = (canned_compose, [])
+        mock_verify_images.return_value = []
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "security", "local-dagster-postgres-superset", "--verify-images"]
+        ):
+            result = main()
+
+        self.assertIn(result, (0, 1))
+        self.assertEqual(
+            mock_main_build_plan.call_count + mock_sec_build_plan.call_count,
+            1,
+            "the profile must be planned exactly once across cds security "
+            "and image verification",
+        )
+        self.assertEqual(
+            mock_main_render.call_count + mock_sec_render.call_count,
+            1,
+            "the profile must be rendered exactly once across cds security "
+            "and image verification",
+        )
+
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
     def test_security_command_fails_closed_when_render_scan_skipped(self, mock_validate, mock_run_security):
