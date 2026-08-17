@@ -191,6 +191,46 @@ class MainCLITest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("CDS-VER-004", stdout.getvalue())
 
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_security_command_fails_closed_when_render_scan_skipped(self, mock_validate, mock_run_security):
+        """GHSA-mx5p-cv63-6829: a W096 warning means rendered-compose-scoped
+        rules (e.g. CDS-SEC-070) were silently skipped. Even when the
+        remaining findings are only medium/low severity (or there are none
+        at all), `cds security` must not report success -- otherwise an
+        attacker-supplied module that trips an unexpected render error can
+        evade CDS-SEC-070 entirely while the scan still exits 0."""
+        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+        mock_validate.return_value = []
+        mock_run_security.return_value = (
+            [
+                {
+                    "severity": "medium",
+                    "rule_id": "CDS-SEC-022",
+                    "message": "meh",
+                    "path": "x",
+                    "module": "x",
+                    "value": None,
+                    "recommendation": [],
+                }
+            ],
+            [
+                Diagnostic(
+                    level="warning",
+                    code="W096",
+                    message="Rendered-compose security checks were skipped due to an unexpected error",
+                    path="spec.modules",
+                )
+            ],
+        )
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "security", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_plan_saves_to_file_with_output_flag(self, mock_validate, mock_build_plan):
@@ -337,6 +377,89 @@ class MainCLITest(unittest.TestCase):
             self.assertIn("CDS_SUPERSET_ADMIN_PASSWORD=change-me", content)
         finally:
             output_file.unlink(missing_ok=True)
+
+    def test_get_command_dry_run_reports_planned_files_without_writing(self):
+        import tempfile
+
+        def write(path: Path, content: str) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            write(
+                source_root / "profiles" / "demo" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+""",
+            )
+            write(
+                source_root / "modules" / "apps" / "demo" / "module.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: demo
+spec:
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          image: demo:latest
+""",
+            )
+
+            stdout = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "get",
+                    "demo",
+                    "--remote",
+                    str(source_root),
+                    "--into",
+                    str(destination_root),
+                    "--dry-run",
+                ],
+            ), contextlib.redirect_stdout(stdout):
+                result = main()
+
+            self.assertEqual(result, 0)
+            self.assertIn("Planned", stdout.getvalue())
+            self.assertFalse((destination_root / "profiles" / "demo" / "profile.yaml").exists())
+            self.assertFalse((destination_root / ".cds" / "get-manifest.json").exists())
+
+    def test_get_command_reports_errors_on_stderr(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+
+        with patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "get",
+                "missing-profile",
+                "--remote",
+                str(Path(tempfile.gettempdir()) / "cds-missing-source-repo"),
+            ],
+        ), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertEqual(stdout.getvalue(), "")
+        self.assertIn("ERROR Source repository does not exist", stderr.getvalue())
 
     @patch("cli.main.run_preflight")
     @patch("cli.main.render_compose")
@@ -1051,6 +1174,49 @@ class MainCLITest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         mock_render.assert_not_called()
+
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_test_command_fails_security_stage_when_render_scan_skipped(
+        self, mock_validate, mock_security, mock_plan, mock_render
+    ):
+        """GHSA-mx5p-cv63-6829: `cds test`'s security stage must FAIL when
+        rendered-compose-scoped rules (e.g. CDS-SEC-070) were silently
+        skipped (W096), even if the only findings present are non-high
+        severity (or there are none at all)."""
+        mock_validate.return_value = []
+        mock_security.return_value = (
+            [
+                {
+                    "severity": "medium",
+                    "rule_id": "CDS-SEC-022",
+                    "message": "meh",
+                    "path": "x",
+                    "module": "x",
+                    "value": None,
+                    "recommendation": [],
+                }
+            ],
+            [
+                Diagnostic(
+                    level="warning",
+                    code="W096",
+                    message="Rendered-compose security checks were skipped due to an unexpected error",
+                    path="spec.modules",
+                )
+            ],
+        )
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
 
 
 class CollectModuleImagesTest(unittest.TestCase):

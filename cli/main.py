@@ -39,6 +39,7 @@ from .up_runner import (
     stop_log_tail,
 )
 from .loader import load_yaml_file
+from .getter import GetError, fetch_profile, format_get_plan
 import yaml
 
 
@@ -836,6 +837,33 @@ def main() -> int:
         help="Overwrite output file if it already exists",
     )
 
+    get_parser = subparsers.add_parser(
+        "get",
+        help="Fetch a profile and its dependent assets from a source repository",
+    )
+    get_parser.add_argument(
+        "profile",
+        help="Profile name or path under the source repository's profiles/ tree",
+    )
+    get_parser.add_argument(
+        "--remote",
+        help="Path to the source repository root (default: current repository)",
+    )
+    get_parser.add_argument(
+        "--into",
+        help="Destination directory for the fetched CDS layout (default: current directory)",
+    )
+    get_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show which files would be fetched without writing them",
+    )
+    get_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing fetched files when their contents differ",
+    )
+
     list_parser = subparsers.add_parser("list", help="List available profiles or modules")
     list_subparsers = list_parser.add_subparsers(dest="list_command", required=True)
     list_subparsers.add_parser("profiles", help="List available profiles")
@@ -1240,6 +1268,29 @@ def main() -> int:
         print(f"\nStack is up. Full output in {log_path}.")
         return 0
 
+    if args.command == "get":
+        try:
+            actions, manifest_path = fetch_profile(
+                args.profile,
+                remote=args.remote,
+                destination_root=Path(args.into) if args.into else None,
+                force=args.force,
+                dry_run=args.dry_run,
+            )
+        except GetError as exc:
+            print(f"ERROR {exc}", file=sys.stderr)
+            return 1
+
+        destination_root = (Path(args.into) if args.into else Path.cwd()).expanduser().resolve()
+        if args.dry_run:
+            print(format_get_plan(actions, destination_root=destination_root))
+            print(f"Tracking metadata would be written to {manifest_path}")
+            return 0
+
+        print(f"Fetched {len(actions)} file(s) into {destination_root}")
+        print(f"Tracking metadata written to {manifest_path}")
+        return 0
+
     if args.command == "test":
         try:
             profile_path = resolve_profile_path(args.profile)
@@ -1293,7 +1344,17 @@ def main() -> int:
                     print(diag.format(), file=sys.stderr)
                 for f in findings:
                     print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
-                security_ok = not any(f["severity"] == "high" for f in findings)
+                # A W096 warning means rendered-compose-scoped rules (e.g.
+                # CDS-SEC-070) were silently skipped due to an unexpected
+                # error during rendering. Treat that the same as a failed
+                # security stage rather than letting any non-high finding
+                # (or no finding at all) mask the fact that some checks
+                # never ran (GHSA-mx5p-cv63-6829).
+                render_scan_skipped = any(d.code == "W096" for d in sec_diags)
+                security_ok = (
+                    not render_scan_skipped
+                    and not any(f["severity"] == "high" for f in findings)
+                )
             except Exception as e:
                 print(Diagnostic(
                     level="error",
@@ -1548,7 +1609,10 @@ def main() -> int:
                 print(f"  fix: {rec}")
             print()
 
-        return 1 if any(f["severity"] == "high" for f in findings) else 0
+        # As above: a W096 warning means some rendered-compose-scoped rules
+        # were skipped, so even when only non-high findings are present the
+        # scan must not report success (GHSA-mx5p-cv63-6829).
+        return 1 if render_scan_skipped or any(f["severity"] == "high" for f in findings) else 0
 
     if args.command == "use":
         if args.clear and args.profile:
