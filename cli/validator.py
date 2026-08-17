@@ -105,6 +105,39 @@ def validate_profile_shape(profile: dict[str, Any]) -> list[Diagnostic]:
     return diagnostics
 
 
+def validate_contract_document(contract: dict[str, Any]) -> list[Diagnostic]:
+    """
+    Validates a standalone shared-contract document (kind: Contract) against
+    contract.schema.json. Contract definition files live in shared/contracts/
+    and are not part of the profile pipeline, so this is exposed as a
+    standalone helper rather than wired into validate_loaded_profile.
+    """
+    diagnostics: list[Diagnostic] = []
+
+    schema = _load_schema("contract.schema.json")
+    validator = Draft202012Validator(schema)
+    for err in sorted(validator.iter_errors(contract), key=lambda e: list(e.path)):
+        subpath = ".".join(str(p) for p in err.path)
+        diagnostics.append(
+            Diagnostic("error", "E023", err.message, subpath or "contract")
+        )
+
+    return diagnostics
+
+
+def validate_contract_file(contract_path: str | Path) -> list[Diagnostic]:
+    """
+    Loads a shared-contract YAML file and validates it against
+    contract.schema.json. Returns load diagnostics plus schema violations.
+    """
+    contract_file = Path(contract_path)
+    contract, diagnostics = load_yaml_file(contract_file)
+    if contract is None:
+        return diagnostics
+
+    return diagnostics + validate_contract_document(contract)
+
+
 def load_module_instances(profile_file: Path, profile: dict[str, Any]) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     diagnostics: list[Diagnostic] = []
     instances: list[dict[str, Any]] = []
