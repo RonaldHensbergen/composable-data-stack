@@ -1,5 +1,5 @@
 # profiles/local-dagster-postgres-superset/profile.yaml
-# yaml-language-server: $schema=../../schemas/profile.schema.json
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
 apiVersion: cds/v1alpha1
 kind: Profile
 

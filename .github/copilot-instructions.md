@@ -40,7 +40,7 @@
   `profiles/` select module instances and topology; reusable `module.yaml`
   definitions under `modules/` own configuration schemas, provided/consumed
   contracts, and Docker Compose implementation templates; `shared/contracts/`
-  documents the interfaces between modules. The JSON schemas in `schemas/`
+  documents the interfaces between modules. The JSON schemas in `cli/resources/`
   describe these YAML document formats.
 - The compile-time path is `load -> validate -> plan -> render`.
   `cli/validator.py` checks profile/module shape, module roots, dependency

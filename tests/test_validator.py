@@ -5,7 +5,15 @@ from unittest.mock import patch
 
 import yaml
 
-from cli.validator import validate_observability_config, validate_profile
+from cli.validator import (
+    validate_contract_document,
+    validate_contract_file,
+    validate_observability_config,
+    validate_profile,
+)
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_CONTRACTS_ROOT = _REPO_ROOT / "shared" / "contracts"
 
 
 class ValidatorRegressionTest(unittest.TestCase):
@@ -35,13 +43,14 @@ class ValidatorRegressionTest(unittest.TestCase):
             profile = {
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
-                "metadata": {"name": "local-test"},
+                "metadata": {"name": "local-test", "environment": "local"},
                 "spec": {
                     "runtime": {"type": "docker-compose"},
                     "modules": [
                         {
                             "id": "outside",
                             "source": "modules/../../../outside_zone",
+                            "version": "0.1.0",
                             "enabled": True,
                             "config": {},
                         }
@@ -94,13 +103,14 @@ class ValidatorRegressionTest(unittest.TestCase):
             profile = {
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
-                "metadata": {"name": "local-test"},
+                "metadata": {"name": "local-test", "environment": "local"},
                 "spec": {
                     "runtime": {"type": "docker-compose"},
                     "modules": [
                         {
                             "id": "postgres",
                             "source": "warehouse/postgres",
+                            "version": "0.1.0",
                             "enabled": True,
                             "config": {},
                         }
@@ -247,6 +257,239 @@ class ObservabilityConfigValidationTest(unittest.TestCase):
             }
         ]
         self.assertEqual(validate_observability_config(profile, module_instances), [])
+
+
+class ContractSchemaValidationTest(unittest.TestCase):
+    def test_all_repo_contract_files_are_schema_valid(self):
+        contract_files = sorted(_CONTRACTS_ROOT.glob("*.yaml"))
+        self.assertGreaterEqual(len(contract_files), 1)
+        for contract_file in contract_files:
+            with self.subTest(contract_file=contract_file.name):
+                self.assertEqual(validate_contract_file(contract_file), [])
+
+    def test_valid_contract_document_passes(self):
+        contract = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Contract",
+            "metadata": {"name": "example", "version": "0.1.0"},
+            "spec": {
+                "fields": {
+                    "host": {"type": "string", "required": True},
+                }
+            },
+        }
+        self.assertEqual(validate_contract_document(contract), [])
+
+    def test_wrong_kind_is_rejected(self):
+        contract = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Module",
+            "metadata": {"name": "example", "version": "0.1.0"},
+            "spec": {"fields": {}},
+        }
+        diagnostics = validate_contract_document(contract)
+        self.assertEqual([d.code for d in diagnostics], ["E023"])
+        self.assertIn("Contract", diagnostics[0].message)
+
+    def test_missing_spec_fields_is_rejected(self):
+        contract = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Contract",
+            "metadata": {"name": "example", "version": "0.1.0"},
+            "spec": {},
+        }
+        diagnostics = validate_contract_document(contract)
+        self.assertEqual([d.code for d in diagnostics], ["E023"])
+        self.assertIn("fields", diagnostics[0].message)
+
+    def test_field_entry_missing_required_flag_is_rejected(self):
+        contract = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Contract",
+            "metadata": {"name": "example", "version": "0.1.0"},
+            "spec": {"fields": {"host": {"type": "string"}}},
+        }
+        diagnostics = validate_contract_document(contract)
+        self.assertEqual([d.code for d in diagnostics], ["E023"])
+        self.assertIn("required", diagnostics[0].message)
+
+    def test_unknown_top_level_key_is_rejected(self):
+        contract = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Contract",
+            "metadata": {"name": "example", "version": "0.1.0"},
+            "spec": {"fields": {}},
+            "unexpectedKey": "value",
+        }
+        diagnostics = validate_contract_document(contract)
+        self.assertEqual([d.code for d in diagnostics], ["E023"])
+        self.assertIn("unexpectedKey", diagnostics[0].message)
+
+
+class ProfileSchemaValidationTest(unittest.TestCase):
+    def _valid_profile(self) -> dict:
+        return {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "local-test", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "postgres",
+                        "source": "warehouse/postgres",
+                        "version": "0.1.0",
+                        "enabled": True,
+                        "config": {},
+                    }
+                ],
+                "secrets": {"provider": {"type": "env"}, "values": {}},
+            },
+        }
+
+    def test_valid_profile_passes_schema(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        self.assertEqual(validate_profile_shape(self._valid_profile()), [])
+
+    def test_wrong_api_version_is_rejected(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        profile = self._valid_profile()
+        profile["apiVersion"] = "cds/v2beta1"
+        diagnostics = validate_profile_shape(profile)
+        self.assertEqual([d.code for d in diagnostics], ["E010"])
+        self.assertIn("cds/v1alpha1", diagnostics[0].message)
+
+    def test_extra_top_level_key_is_rejected(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        profile = self._valid_profile()
+        profile["unexpectedKey"] = "value"
+        diagnostics = validate_profile_shape(profile)
+        self.assertEqual([d.code for d in diagnostics], ["E010"])
+        self.assertIn("unexpectedKey", diagnostics[0].message)
+
+    def test_missing_metadata_environment_is_rejected(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        profile = self._valid_profile()
+        del profile["metadata"]["environment"]
+        diagnostics = validate_profile_shape(profile)
+        self.assertEqual([d.code for d in diagnostics], ["E010"])
+        self.assertIn("environment", diagnostics[0].message)
+
+    def test_invalid_module_id_pattern_is_rejected(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        profile = self._valid_profile()
+        profile["spec"]["modules"][0]["id"] = "UPPERCASE"
+        diagnostics = validate_profile_shape(profile)
+        self.assertEqual([d.code for d in diagnostics], ["E010"])
+        self.assertIn("UPPERCASE", diagnostics[0].message)
+
+    def test_duplicate_module_ids_are_rejected(self) -> None:
+        from cli.validator import validate_profile_shape
+
+        profile = self._valid_profile()
+        profile["spec"]["modules"].append(
+            {
+                "id": "postgres",
+                "source": "warehouse/postgres",
+                "version": "0.1.0",
+                "enabled": True,
+                "config": {},
+            }
+        )
+        diagnostics = validate_profile_shape(profile)
+        self.assertEqual([d.code for d in diagnostics], ["E011"])
+
+
+class ModuleSchemaValidationTest(unittest.TestCase):
+    def _write_module(self, root: Path, module_yaml: dict) -> Path:
+        module_dir = root / "modules" / "warehouse" / "postgres"
+        module_dir.mkdir(parents=True)
+        module_file = module_dir / "module.yaml"
+        module_file.write_text(yaml.safe_dump(module_yaml), encoding="utf-8")
+        return module_file
+
+    def _valid_module(self) -> dict:
+        return {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Module",
+            "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+            "spec": {
+                "runtime": {
+                    "type": "container",
+                    "service": {
+                        "name": "postgres",
+                        "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                    },
+                },
+                "configSchema": {"type": "object", "additionalProperties": False},
+                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+            },
+        }
+
+    def _valid_profile(self) -> dict:
+        return {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "local-test", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "postgres",
+                        "source": "warehouse/postgres",
+                        "version": "0.1.0",
+                        "enabled": True,
+                        "config": {},
+                    }
+                ],
+                "secrets": {"provider": {"type": "env"}, "values": {}},
+            },
+        }
+
+    def _validate(self, root: Path, module_yaml: dict) -> list:
+        self._write_module(root, module_yaml)
+        profile_file = root / "profiles" / "local" / "profile.yaml"
+        profile_file.parent.mkdir(parents=True)
+        profile_file.write_text(yaml.safe_dump(self._valid_profile()), encoding="utf-8")
+        with patch.dict("os.environ", {"CDS_MODULE_PATH": str(root / "modules")}, clear=False):
+            return validate_profile(str(profile_file))
+
+    def test_valid_module_passes_schema(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            diagnostics = self._validate(Path(tmpdir), self._valid_module())
+            self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+
+    def test_module_missing_runtime_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module = self._valid_module()
+            del module["spec"]["runtime"]
+            errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
+            self.assertEqual([d.code for d in errors], ["E021"])
+            self.assertIn("runtime", errors[0].message)
+            self.assertIn("spec.modules[0]", errors[0].path)
+
+    def test_module_with_unknown_top_level_key_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module = self._valid_module()
+            module["unexpectedKey"] = "value"
+            errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
+            self.assertEqual([d.code for d in errors], ["E021"])
+            self.assertIn("unexpectedKey", errors[0].message)
+
+    def test_module_schema_validation_rejects_invalid_contract_provide(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module = self._valid_module()
+            module["spec"]["provides"] = [
+                {"name": "sql-database", "contract": {"kind": 42}},
+            ]
+            errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
+            self.assertEqual([d.code for d in errors], ["E021"])
+            self.assertIn("not of type", errors[0].message)
 
 
 if __name__ == "__main__":

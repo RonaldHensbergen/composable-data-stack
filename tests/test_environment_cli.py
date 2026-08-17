@@ -36,6 +36,13 @@ class EnvironmentOverlayFixture(unittest.TestCase):
                     "kind": "Module",
                     "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
                     "spec": {
+                        "runtime": {
+                            "type": "container",
+                            "service": {
+                                "name": "postgres",
+                                "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                            },
+                        },
                         "configSchema": {"type": "object", "additionalProperties": True},
                         "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
                     },
@@ -214,11 +221,11 @@ class DiffCommandTest(EnvironmentOverlayFixture):
         # so a diff of resolved profiles cannot leak one.
         self._write_overlay(
             "dev",
-            {"spec": {"secrets": {"values": {"db_password": {"env": "CDS_DB_PASSWORD"}}}}},
+            {"spec": {"secrets": {"values": {"db_password": {"env": "CDS_DB_PASSWORD", "required": True}}}}},
         )
         self._write_overlay(
             "prod",
-            {"spec": {"secrets": {"values": {"db_password": {"env": "CDS_DB_PASSWORD_PROD"}}}}},
+            {"spec": {"secrets": {"values": {"db_password": {"env": "CDS_DB_PASSWORD_PROD", "required": True}}}}},
         )
         result, output = self._run(["cds", "diff", "--from", "dev", "--to", "prod"])
         self.assertEqual(result, 0, output)

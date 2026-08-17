@@ -134,6 +134,13 @@ class ResolveProfileFixtureTest(unittest.TestCase):
                     "kind": "Module",
                     "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
                     "spec": {
+                        "runtime": {
+                            "type": "container",
+                            "service": {
+                                "name": "postgres",
+                                "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                            },
+                        },
                         "configSchema": {"type": "object", "additionalProperties": True},
                         "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
                     },
@@ -146,10 +153,12 @@ class ResolveProfileFixtureTest(unittest.TestCase):
             "kind": "Profile",
             "metadata": {"name": "analytics", "environment": "local"},
             "spec": {
+                "runtime": {"type": "docker-compose"},
                 "modules": [
                     {
                         "id": "db",
                         "source": "../../modules/warehouse/postgres",
+                        "version": "0.1.0",
                         "enabled": True,
                         "config": {"replicas": 1},
                     }

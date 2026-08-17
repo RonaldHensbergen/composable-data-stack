@@ -1,5 +1,5 @@
 # modules/warehouse/postgres/module.yaml
-# yaml-language-server: $schema=../../../schemas/module.schema.json
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
 apiVersion: cds/v1alpha1
 kind: Module
 
