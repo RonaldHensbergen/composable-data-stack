@@ -17,7 +17,7 @@ The format is based on Keep a Changelog.
 ### Fixed
 
 - `cds security --verify-images` no longer plans and renders the profile a second time for image verification; it reuses the compose the security scan already rendered (#336).
-- `cds-dagster` and `cds-dbt` images now pin the patched `python:3.14-slim` digest (Debian 13/trixie base), closing CVE-2026-53615 (integer overflow in `util-linux`'s `libblkid` partition parser) reported for both published images (#455, #457).
+- `cds-dagster` and `cds-dbt` images now pin the `python:3.14-slim` (Debian 13/trixie) base and apply pending trixie-security updates at build time, closing CVE-2026-53615 (integer overflow in `util-linux`'s `libblkid` partition parser) reported for both published images (#455, #457).
 
 ## [0.4.0] - 2026-08-11
 
