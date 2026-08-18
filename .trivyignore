@@ -14,3 +14,22 @@
 # Rules: only IDs reported by the scan may be listed, each ID at most once,
 # and exp must be a valid date at most 90 days out. An expired exception
 # stops being ignored and fails the daily scan again.
+
+# CVE-2026-53615: util-linux libblkid overflow. Fixed by
+# 2.41.5-0+deb13u1 in trixie-security; no python:3.14-slim digest
+# ships it yet (checked 2026-08-18). Renovate bumps the digest when
+# upstream rebuilds; drop this entry then.
+# owner:@RonaldHensbergen
+CVE-2026-53615 exp:2026-11-15
+
+# sqlparse < 0.6.0 (pulled via dbt-core 1.12.2, which pins
+# sqlparse<0.6.0,>=0.5.5). Advisories published 2026-08-17, fixed
+# in 0.6.0: ReDoS and quadratic DoS in SQL parsing.
+# owner:@RonaldHensbergen
+CVE-2026-54284 exp:2026-11-15
+# owner:@RonaldHensbergen — ReDoS, same cause as CVE-2026-54284
+CVE-2026-59893 exp:2026-11-15
+# owner:@RonaldHensbergen — tokenization DoS, same root cause
+CVE-2026-59894 exp:2026-11-15
+# owner:@RonaldHensbergen — group_comments quadratic DoS
+CVE-2026-71491 exp:2026-11-15
