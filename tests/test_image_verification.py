@@ -219,7 +219,7 @@ class DeferredImagePolicyFindingIdsTest(unittest.TestCase):
     verification path, not from the rule engine.
     """
 
-    def test_image_policy_finding_ids_are_not_deleted_from_the_rule_set_scope(self):
+    def test_image_policy_finding_ids_are_absent_from_the_rule_set(self):
         from cli.security import _validate_rule_set
 
         rule_ids = {r["id"] for r in _validate_rule_set()["rules"]}
