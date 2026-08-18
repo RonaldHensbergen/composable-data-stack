@@ -113,6 +113,61 @@ Avoid:
 - hardcoded paths outside the repo unless clearly documented
 - broad coupling to one specific profile
 
+## Interpolation placeholders
+
+CDS resolves module placeholders while rendering a profile. Each namespace has a
+specific source and availability:
+
+| Placeholder | Source | Available when |
+| --- | --- | --- |
+| `${config.<field>}` | The module configuration, after schema validation | The module is being rendered |
+| `${bindings.<contract>.<field>}` | A consumed contract resolved by the profile | The contract is declared in `spec.consumes` and has been bound |
+| `${service.host}` | The module instance `id` from the profile | The module is being rendered |
+| `${secrets.<alias>}` | A profile secret alias | The alias is declared in `spec.secrets` |
+
+For example, a cache module can publish a contract and consume it from another
+module without hard-coding either module's host or port:
+
+```yaml
+# modules/cache/module.yaml
+spec:
+  provides:
+    - name: cache-service
+      contract:
+        kind: cache-service
+        spec:
+          host: ${service.host}
+          port: ${config.port}
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        cache:
+          ports:
+            - "127.0.0.1:${config.port}:6379"
+
+# modules/worker/module.yaml
+spec:
+  consumes:
+    - name: cache
+      contract: cache-service
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        worker:
+          environment:
+            CACHE_HOST: ${bindings.cache.host}
+            CACHE_PORT: ${bindings.cache.port}
+```
+
+With a profile instance such as `id: cache` and `port: 6380`, the first module
+publishes `host: cache` and `port: 6380`; the worker receives those values when
+its `cache` binding is resolved. `${secrets.<alias>}` is different: it remains
+a Docker Compose runtime variable (for example `${CDS_DB_PASSWORD}`), so CDS
+never embeds the secret value in generated output. See the
+[profile guide](from-docker-to-cds-profile.md) for a complete stack example.
+
 ## Custom images
 
 When a module requires a custom Docker image, the build context belongs in the `images/` directory at the repository root, not inside the module directory. Reference it from `spec.implementation.compose.services.<name>`, the same place any other Compose service field goes:
