@@ -76,6 +76,7 @@ skip_covered = false
 target-version = "py314"
 
 [tool.ruff.lint]
-# Keep Ruff narrowly scoped to pyupgrade/deprecation detection; Flake8 remains
-# the repository's general-purpose Python lint gate.
-select = ["UP"]
+# Expanded beyond pyupgrade: F (pyflakes), B (bugbear), S (bandit security),
+# I (isort). Flake8 pre-commit hook retained as a secondary gate during the
+# transition, but Ruff now covers the same surface.
+select = ["UP", "F", "B", "S", "I"]
