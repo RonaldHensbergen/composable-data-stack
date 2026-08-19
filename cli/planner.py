@@ -7,6 +7,7 @@ from typing import Any
 import os
 import re
 
+from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
@@ -14,15 +15,8 @@ from .secrets import load_profile_secrets
 
 from dataclasses import dataclass
 
-# Guards recursive traversal of user-controlled YAML structures (schema
-# defaults, contract/config interpolation) against maliciously or accidentally
-# deeply nested documents that would otherwise raise an unhandled
-# RecursionError / stack overflow.
-MAX_NESTING_DEPTH = 100
 
 
-class MaxNestingDepthExceeded(Exception):
-    """Raised when a recursive structure exceeds MAX_NESTING_DEPTH."""
 
 
 @dataclass
