@@ -13,34 +13,14 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
+from .utils import _atomic_write
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
 
-# Guards recursive interpolation of user-controlled service/volume templates
-# against maliciously or accidentally deeply nested documents that would
-# otherwise raise an unhandled RecursionError / stack overflow.
-MAX_NESTING_DEPTH = 100
 
 
-class MaxNestingDepthExceeded(Exception):
-    """Raised when a recursive structure exceeds MAX_NESTING_DEPTH."""
 
-
-def _atomic_write_compose(path: Path, content: str) -> None:
-    """Write the rendered compose file atomically via a temp file + os.replace,
-    so a crash/kill mid-write can't leave a truncated docker-compose.yml behind.
-    """
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
-            tmp_file.write(content)
-        os.replace(tmp_name, path)
-    except OSError:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
 
 
 def render_compose(
@@ -171,7 +151,7 @@ def render_compose(
     if output_path:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write_compose(path, output)
+        _atomic_write(path, output)
 
     return output, diagnostics
 
