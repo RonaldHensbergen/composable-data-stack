@@ -22,14 +22,13 @@
 # owner:@RonaldHensbergen
 CVE-2026-53615 exp:2026-11-15
 
-# sqlparse < 0.6.0 (pulled via dbt-core 1.12.2, which pins
-# sqlparse<0.6.0,>=0.5.5). Advisories published 2026-08-17, fixed
-# in 0.6.0: ReDoS and quadratic DoS in SQL parsing.
+# CVE-2026-53612/53613/53614: util-linux mount TOCTOU and nosuid/noexec
+# bypass. Fixed by 2.41.5-0+deb13u1 in trixie-security; no
+# python:3.14-slim digest ships it yet (checked 2026-08-21). Renovate
+# bumps the digest when upstream rebuilds; drop these entries then.
 # owner:@RonaldHensbergen
-CVE-2026-54284 exp:2026-11-15
-# owner:@RonaldHensbergen — ReDoS, same cause as CVE-2026-54284
-CVE-2026-59893 exp:2026-11-15
-# owner:@RonaldHensbergen — tokenization DoS, same root cause
-CVE-2026-59894 exp:2026-11-15
-# owner:@RonaldHensbergen — group_comments quadratic DoS
-CVE-2026-71491 exp:2026-11-15
+CVE-2026-53612 exp:2026-11-15
+# owner:@RonaldHensbergen — TOCTOU ancestor directory swap, same fix
+CVE-2026-53613 exp:2026-11-15
+# owner:@RonaldHensbergen — SUID mount nosuid/noexec bypass, same fix
+CVE-2026-53614 exp:2026-11-15
