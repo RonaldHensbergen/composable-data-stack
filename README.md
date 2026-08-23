@@ -606,7 +606,7 @@ before and never look for an `environments/` directory.
 
 |Command|Description|
 |---|---|
-|cds get \<profile\> [--remote \<repo\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets into a local CDS layout|
+|cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|
 |cds init [profile]|Generate a project `.env` template from profile secret definitions|
 |cds validate [profile]|Validate modules and contracts|
 |cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
@@ -627,12 +627,16 @@ all accept `--environment <name>` (or `-e <name>`) to merge
 
 `cds get` copies the selected `profiles/<name>/` tree, every referenced module
 directory, and any local build-context assets referenced by those modules'
-Dockerfiles. By default it reads from the current repository and writes into the
-current working directory; use `--remote` to point at another checked-out
-repository, `--into` to choose a destination root, `--dry-run` to inspect the
-copy plan first, and `--force` to replace conflicting local files. Successful
-fetches record tracking metadata in `.cds/get-manifest.json` for future update
-workflows.
+Dockerfiles. By design it downloads from GitHub rather than a local checkout:
+by default it fetches this project's upstream repository at the `main` branch,
+downloading a tarball via the GitHub API (no `git` binary required). Use
+`--remote <owner/repo>` (or a `github.com/...` URL) to fetch a fork, and
+`--ref <branch|tag|sha>` to select a specific revision. Pass `--local <dir>`
+to use an existing local directory instead of downloading (mutually exclusive
+with `--remote`/`--ref`) for offline/dev workflows. Use `--into` to choose a
+destination root, `--dry-run` to inspect the copy plan first, and `--force` to
+replace conflicting local files. Successful fetches record tracking metadata
+in `.cds/get-manifest.json` for future update workflows.
 
 `[profile]` accepts:
 

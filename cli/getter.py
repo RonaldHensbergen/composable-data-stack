@@ -2,16 +2,33 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import shutil
+import tarfile
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from .loader import load_yaml_file, resolve_module_dir
 from .planner import MaxNestingDepthExceeded, apply_defaults, substitute_string
 
+
+# The upstream repository `cds get` downloads from when no `--remote` is
+# given. Keep in sync with the `Repository` URL in pyproject.toml.
+DEFAULT_REMOTE = "RonaldHensbergen/composable-data-stack"
+DEFAULT_REF = "main"
+
+_GITHUB_URL_PATTERN = re.compile(
+    r"^(?:https?://|git@)?(?:www\.)?github\.com[/:](?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
+)
+_GITHUB_SHORTHAND_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 _TRACKING_FILE = Path(".cds") / "get-manifest.json"
 _SKIP_DIRS = {
@@ -49,41 +66,46 @@ def fetch_profile(
     profile: str,
     *,
     remote: str | None = None,
+    ref: str = DEFAULT_REF,
+    local: str | None = None,
     destination_root: Path | None = None,
     force: bool = False,
     dry_run: bool = False,
 ) -> tuple[list[CopyAction], Path]:
-    source_repo = _resolve_source_repository(remote)
     target_root = (destination_root or Path.cwd()).expanduser().resolve()
-    profile_path = _resolve_source_profile_path(source_repo, profile)
-    asset_roots = _collect_asset_roots(source_repo, profile_path)
 
-    actions = _build_copy_plan(source_repo, asset_roots, target_root)
-    if dry_run:
-        return actions, target_root / _TRACKING_FILE
+    with _prepare_source_repository(remote, ref, local) as source_repo:
+        profile_path = _resolve_source_profile_path(source_repo, profile)
+        asset_roots = _collect_asset_roots(source_repo, profile_path)
 
-    conflicts = _find_conflicts(actions)
-    if conflicts and not force:
-        rendered = ", ".join(conflicts[:5])
-        extra = "" if len(conflicts) <= 5 else f" (+{len(conflicts) - 5} more)"
-        raise GetError(
-            "Refusing to overwrite existing files without --force: "
-            f"{rendered}{extra}"
+        actions = _build_copy_plan(source_repo, asset_roots, target_root)
+        if dry_run:
+            return actions, target_root / _TRACKING_FILE
+
+        conflicts = _find_conflicts(actions)
+        if conflicts and not force:
+            rendered = ", ".join(conflicts[:5])
+            extra = "" if len(conflicts) <= 5 else f" (+{len(conflicts) - 5} more)"
+            raise GetError(
+                "Refusing to overwrite existing files without --force: "
+                f"{rendered}{extra}"
+            )
+
+        for action in actions:
+            action.destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(action.source, action.destination)
+
+        _write_tracking_manifest(
+            target_root=target_root,
+            requested_profile=profile,
+            source_repo=source_repo,
+            profile_path=profile_path,
+            remote=remote,
+            ref=ref,
+            local=local,
+            actions=actions,
+            asset_roots=asset_roots,
         )
-
-    for action in actions:
-        action.destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(action.source, action.destination)
-
-    _write_tracking_manifest(
-        target_root=target_root,
-        requested_profile=profile,
-        source_repo=source_repo,
-        profile_path=profile_path,
-        remote=remote,
-        actions=actions,
-        asset_roots=asset_roots,
-    )
     return actions, target_root / _TRACKING_FILE
 
 
@@ -99,8 +121,84 @@ def format_get_plan(actions: list[CopyAction], *, destination_root: Path) -> str
     return "\n".join(lines)
 
 
-def _resolve_source_repository(remote: str | None) -> Path:
-    candidate = Path(remote).expanduser() if remote else _find_project_root()
+@contextmanager
+def _prepare_source_repository(
+    remote: str | None, ref: str, local: str | None
+) -> Iterator[Path]:
+    """Resolve the source repository containing a `profiles/` tree.
+
+    By design, `cds get` downloads its source from GitHub: a bare `remote`
+    defaults to this project's upstream repository, and any `owner/repo` or
+    `github.com/...` value is fetched as a tarball for `ref`. Pass `local` to
+    explicitly use an existing local directory instead (e.g. an offline/dev
+    checkout) -- `remote`/`ref` are ignored in that case.
+    """
+    if local is not None:
+        if remote is not None:
+            raise GetError("Specify only one of --remote and --local")
+        yield _validate_source_repository(Path(local).expanduser())
+        return
+
+    candidate = remote or DEFAULT_REMOTE
+    parsed = _parse_github_remote(candidate)
+    if parsed is None:
+        raise GetError(
+            f'Could not resolve remote "{candidate}": expected an "owner/repo" '
+            'GitHub reference or a github.com URL. Use --local for an existing '
+            "local directory instead."
+        )
+    owner, repo = parsed
+    with tempfile.TemporaryDirectory(prefix="cds-get-") as tmp_dir:
+        extracted = _download_github_repository(owner, repo, ref, Path(tmp_dir))
+        yield _validate_source_repository(extracted)
+
+
+def _parse_github_remote(remote: str) -> tuple[str, str] | None:
+    candidate = remote.strip()
+    match = _GITHUB_URL_PATTERN.match(candidate)
+    if match:
+        return match.group("owner"), match.group("repo")
+    if _GITHUB_SHORTHAND_PATTERN.match(candidate):
+        owner, repo = candidate.split("/", 1)
+        return owner, repo
+    return None
+
+
+def _download_github_repository(owner: str, repo: str, ref: str, work_dir: Path) -> Path:
+    url = f"https://api.github.com/repos/{owner}/{repo}/tarball/{ref}"
+    request = Request(url, headers={"User-Agent": "composable-data-stack-cds-get"})
+    try:
+        with urlopen(request, timeout=30) as response:  # noqa: S310 - fixed https GitHub API host
+            archive_bytes = response.read()
+    except HTTPError as exc:
+        raise GetError(
+            f"Could not download {owner}/{repo}@{ref} from GitHub: HTTP {exc.code}"
+        ) from exc
+    except URLError as exc:
+        raise GetError(
+            f"Could not download {owner}/{repo}@{ref} from GitHub: {exc.reason}"
+        ) from exc
+
+    archive_path = work_dir / "repository.tar.gz"
+    archive_path.write_bytes(archive_bytes)
+
+    extract_root = work_dir / "extracted"
+    extract_root.mkdir(parents=True, exist_ok=True)
+    try:
+        with tarfile.open(archive_path) as archive:
+            archive.extractall(extract_root, filter="data")
+    except tarfile.TarError as exc:
+        raise GetError(
+            f"Could not extract archive for {owner}/{repo}@{ref}: {exc}"
+        ) from exc
+
+    extracted_entries = [entry for entry in extract_root.iterdir() if entry.is_dir()]
+    if len(extracted_entries) != 1:
+        raise GetError(f"Unexpected archive layout for {owner}/{repo}@{ref}")
+    return extracted_entries[0]
+
+
+def _validate_source_repository(candidate: Path) -> Path:
     resolved = candidate.resolve()
     if not resolved.exists():
         raise GetError(f"Source repository does not exist: {resolved}")
@@ -111,14 +209,6 @@ def _resolve_source_repository(remote: str | None) -> Path:
             f"Source repository must contain a profiles/ directory: {resolved}"
         )
     return resolved
-
-
-def _find_project_root(start: Path | None = None) -> Path:
-    current = (start or Path.cwd()).resolve()
-    for directory in [current, *current.parents]:
-        if (directory / "pyproject.toml").exists() or (directory / ".git").exists():
-            return directory
-    return current
 
 
 def _resolve_source_profile_path(source_repo: Path, profile: str) -> Path:
@@ -544,6 +634,8 @@ def _write_tracking_manifest(
     source_repo: Path,
     profile_path: Path,
     remote: str | None,
+    ref: str,
+    local: str | None,
     actions: list[CopyAction],
     asset_roots: list[Path],
 ) -> None:
@@ -553,7 +645,8 @@ def _write_tracking_manifest(
     entry = {
         "requestedProfile": requested_profile,
         "sourceProfile": profile_path.relative_to(source_repo).as_posix(),
-        "remote": remote or str(source_repo),
+        "remote": local or remote or DEFAULT_REMOTE,
+        "ref": None if local else ref,
         "fetchedAt": datetime.now(UTC).isoformat(),
         "assetRoots": [
             _asset_root_relative_path(asset_root, source_repo) for asset_root in asset_roots
