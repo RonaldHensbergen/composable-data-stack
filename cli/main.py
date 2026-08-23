@@ -20,6 +20,7 @@ except ImportError:
 
 from .validator import has_errors, validate_profile
 from .diagnostics import Diagnostic
+from .utils import _atomic_write
 from .planner import build_plan
 from .renderer import render_compose
 from .image_updates import collect_module_images, check_image_update
@@ -135,28 +136,6 @@ class ConfigIOError(RuntimeError):
     """Raised when the `cds use` config file cannot be read or written."""
 
 
-def _atomic_write_text(path: Path, content: str) -> None:
-    """Write `content` to `path` atomically via a temp file + os.replace.
-
-    Raises ConfigIOError (instead of an uncaught traceback) if the parent
-    directory can't be created or the write/replace fails, e.g. because
-    CDS_CONFIG_PATH points at an unwritable location or a path segment is
-    actually a file.
-    """
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
-    except OSError as exc:
-        raise ConfigIOError(f"Could not prepare {path} for writing: {exc}") from exc
-
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
-            tmp_file.write(content)
-        os.replace(tmp_name, path)
-    except OSError as exc:
-        with suppress(OSError):
-            os.unlink(tmp_name)
-        raise ConfigIOError(f"Could not write config file {path}: {exc}") from exc
 
 
 def _read_config() -> dict:
@@ -199,7 +178,10 @@ def save_profile(profile: str) -> Path:
     config_path = get_config_path()
     data = _read_config()
     data["profile"] = profile
-    _atomic_write_text(config_path, json.dumps(data, indent=2) + "\n")
+    try:
+        _atomic_write(config_path, json.dumps(data, indent=2) + "\n")
+    except OSError as exc:
+        raise ConfigIOError(f"Could not update config file {config_path}: {exc}") from exc
     return config_path
 
 
@@ -215,7 +197,7 @@ def clear_saved_profile() -> bool:
     del data["profile"]
     try:
         if data:
-            _atomic_write_text(config_path, json.dumps(data, indent=2) + "\n")
+            _atomic_write(config_path, json.dumps(data, indent=2) + "\n")
         else:
             config_path.unlink()
     except OSError as exc:
@@ -516,22 +498,6 @@ def _default_env_value(env_name: str, is_secret: bool) -> str:
     return "change-me"
 
 
-def _atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None:
-    """Write `content` to `path` atomically via a temp file + os.replace.
-
-    Avoids leaving a truncated/partial file behind if the process is
-    interrupted mid-write, and avoids races between concurrent writers.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding=encoding) as tmp_file:
-            tmp_file.write(content)
-        os.replace(tmp_name, path)
-    except OSError:
-        with suppress(OSError):
-            os.unlink(tmp_name)
-        raise
 
 
 def _write_env_file(
@@ -553,7 +519,7 @@ def _write_env_file(
         f"{env_name}={_default_env_value(env_name, env_name in secret_env_vars)}" for env_name in env_vars
     )
     lines.append("")
-    _atomic_write_text(output_path, "\n".join(lines))
+    _atomic_write(output_path, "\n".join(lines))
 
 
 def _cds_version() -> str:
@@ -1034,7 +1000,7 @@ def main() -> int:
         if args.output:
             # Save plan to file
             output_file = Path(args.output)
-            _atomic_write_text(output_file, plan_json)
+            _atomic_write(output_file, plan_json)
             print(f"Plan saved to {args.output}")
         else:
             # Output to stdout
