@@ -123,6 +123,12 @@ jobs:
           # visible, Renovate-trackable dependency instead of a value
           # hidden inside the action's own action.yaml default.
           version: v0.74.0
+          # Without this, documented .trivyignore exceptions (see
+          # docs/image-scanning.md) are silently never applied here: this
+          # step previously omitted the input entirely, so approved,
+          # unexpired exceptions kept re-triggering duplicate scheduled-scan
+          # issues for the same already-tracked CVE.
+          trivyignores: .trivyignore
           image-ref: ${{ steps.ref.outputs.image-ref }}
           format: table
           output: scan-${{ matrix.image.name }}.txt
