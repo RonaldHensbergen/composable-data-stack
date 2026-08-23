@@ -52,6 +52,10 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         # exit-code must actually fail the job on a match, not just report.
         self.assertEqual(str(scan_step["with"]["exit-code"]), "1")
         self.assertEqual(scan_step["with"]["scanners"], "vuln")
+        # Without this, documented .trivyignore exceptions are silently
+        # never applied to the scheduled rescan (this input was previously
+        # missing entirely, see #481/#482/#483/#485/#486/#487).
+        self.assertEqual(scan_step["with"]["trivyignores"], ".trivyignore")
         # continue-on-error keeps the job status "success" after a scan
         # failure, so later steps whose `if:` lacks a status function (like
         # the issue-filing step) aren't implicitly skipped by GitHub Actions.

@@ -83,7 +83,7 @@ class PublishImagesWorkflowTest(unittest.TestCase):
             with_.get("image-ref"),
             "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan",
         )
-        self.assertEqual(with_.get("ignorefile"), ".trivyignore")
+        self.assertEqual(with_.get("trivyignores"), ".trivyignore")
         self.assertNotIn("output", with_, "gate must stream findings to the run log")
         # Trivy CLI must be pinned the same way as the SBOM step.
         self.assertRegex(str(with_.get("version")), r"^v\d+\.\d+\.\d+$")
