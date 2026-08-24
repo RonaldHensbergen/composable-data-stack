@@ -9,6 +9,7 @@ import yaml
 from cli.validator import has_errors
 from cli.renderer import render_compose
 
+
 class RendererRegressionTest(unittest.TestCase):
     def test_render_compose_namespaces_long_form_named_volume(self):
         plan = {

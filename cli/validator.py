@@ -11,7 +11,12 @@ from jsonschema import Draft202012Validator
 from .diagnostics import Diagnostic
 from .graph import validate_dependency_graph
 from .loader import load_yaml_file, resolve_module_file
-from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
+from .resolver import (
+    is_secret_ref,
+    parse_contract_ref,
+    resolve_path,
+    secret_name_from_ref,
+)
 
 
 def _load_schema(name: str) -> dict[str, Any]:

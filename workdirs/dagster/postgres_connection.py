@@ -2,7 +2,6 @@ import importlib
 import importlib.util
 from pathlib import Path
 
-
 try:
     _db_connection = importlib.import_module("shared.python.db.connection")
 except ModuleNotFoundError:

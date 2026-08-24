@@ -1,6 +1,10 @@
 import unittest
 
-from cli.state import format_state_output, group_services_by_health, parse_compose_ps_json
+from cli.state import (
+    format_state_output,
+    group_services_by_health,
+    parse_compose_ps_json,
+)
 
 
 class ParseComposePsJsonTest(unittest.TestCase):

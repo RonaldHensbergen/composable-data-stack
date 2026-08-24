@@ -17,8 +17,8 @@ from cli.main import (
     list_profiles,
     load_env_file,
     load_saved_profile,
-    resolve_profile_path,
     main,
+    resolve_profile_path,
 )
 from cli.preflight import PreflightCheck
 
@@ -382,6 +382,7 @@ class MainCLITest(unittest.TestCase):
 
     def test_resolve_project_root_fallback_to_cwd(self):
         import tempfile
+
         from cli.main import resolve_project_root
 
         with tempfile.TemporaryDirectory() as td:

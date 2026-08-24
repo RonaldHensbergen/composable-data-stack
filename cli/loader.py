@@ -8,7 +8,6 @@ import yaml
 
 from .diagnostics import Diagnostic
 
-
 _MODULE_ROOT_MARKERS = {"modules", "modules-experimental"}
 
 

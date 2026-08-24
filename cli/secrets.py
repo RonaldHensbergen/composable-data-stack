@@ -9,6 +9,7 @@ from typing import Any
 
 from .diagnostics import Diagnostic
 
+
 def load_secrets_from_env(env_file: Path | None = None) -> tuple[dict[str, str], list[Diagnostic]]:
     """
     Load CDS_* secrets from .env file and environment variables.

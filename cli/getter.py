@@ -20,7 +20,6 @@ from urllib.request import Request, urlopen
 from .loader import load_yaml_file, resolve_module_dir
 from .planner import MaxNestingDepthExceeded, apply_defaults, substitute_string
 
-
 # The upstream repository `cds get` downloads from when no `--remote` is
 # given. Keep in sync with the `Repository` URL in pyproject.toml.
 DEFAULT_REMOTE = "RonaldHensbergen/composable-data-stack"
