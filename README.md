@@ -19,6 +19,10 @@ Composable Data Stack (CDS) is a framework for defining and assembling data plat
 
 > **Note:** Development helper tools are located in the `tools/` directory (git-ignored). See `tools/pr-cli/README.md` for PR creation scripts.
 
+---
+
+## ⚡ Why CDS
+
 Instead of hardcoding integrations or relying on fragile pipelines, CDS introduces:
 
 - 🔧 **Modules**: reusable components (Dagster, Postgres, Superset)
@@ -26,10 +30,6 @@ Instead of hardcoding integrations or relying on fragile pipelines, CDS introduc
 - 🧩 **Profiles**: fully composed, runnable stacks
 
 Think of it as Infrastructure as Code, but for data platforms.
-
----
-
-## ⚡ Why CDS
 
 Modern data platforms force a trade-off:
 
