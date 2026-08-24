@@ -853,7 +853,22 @@ def main() -> int:
     )
     get_parser.add_argument(
         "--remote",
-        help="Path to the source repository root (default: current repository)",
+        help=(
+            "GitHub repository to fetch from, as 'owner/repo' or a github.com URL "
+            "(default: the upstream composable-data-stack repository)"
+        ),
+    )
+    get_parser.add_argument(
+        "--ref",
+        default="main",
+        help="Branch, tag, or commit to fetch from --remote (default: main)",
+    )
+    get_parser.add_argument(
+        "--local",
+        help=(
+            "Use an existing local directory as the source repository instead of "
+            "downloading from GitHub (mutually exclusive with --remote/--ref)"
+        ),
     )
     get_parser.add_argument(
         "--into",
@@ -1279,6 +1294,8 @@ def main() -> int:
             actions, manifest_path = fetch_profile(
                 args.profile,
                 remote=args.remote,
+                ref=args.ref,
+                local=args.local,
                 destination_root=Path(args.into) if args.into else None,
                 force=args.force,
                 dry_run=args.dry_run,
