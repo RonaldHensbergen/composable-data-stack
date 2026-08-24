@@ -335,10 +335,13 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any], _depth: int = 0) 
 
     return value
 
-def resolve_provided_contracts(inst: dict[str, Any], secrets: dict[str, str] = {}) -> dict[str, Any]:
+def resolve_provided_contracts(
+    inst: dict[str, Any], secrets: dict[str, str] | None = None
+) -> dict[str, Any]:
     """
     Resolve contracts provided by a module instance.
     """
+    secrets = secrets if secrets is not None else {}
     provides = inst["module"].get("spec", {}).get("provides", [])
     resolved: dict[str, Any] = {}
     service_name = inst["id"]
@@ -368,8 +371,9 @@ def resolve_consumed_contracts(
     modules_by_id: dict[str, dict[str, Any]],
     resolved_contracts_by_module: dict[str, dict[str, Any]],
     diagnostics: list[Diagnostic],
-    secrets: dict[str, str] = {},
+    secrets: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    secrets = secrets if secrets is not None else {}
     consumes = inst["module"].get("spec", {}).get("consumes", [])
     resolved: dict[str, Any] = {}
 

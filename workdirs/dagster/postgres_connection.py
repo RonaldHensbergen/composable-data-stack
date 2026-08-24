@@ -8,7 +8,7 @@ except ModuleNotFoundError:
     shared_connection_path = Path(__file__).resolve().parents[2] / "shared" / "python" / "db" / "connection.py"
     spec = importlib.util.spec_from_file_location("cds_shared_db_connection", shared_connection_path)
     if spec is None or spec.loader is None:
-        raise ModuleNotFoundError(f"Unable to load module from {shared_connection_path}")
+        raise ModuleNotFoundError(f"Unable to load module from {shared_connection_path}") from None
     _db_connection = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(_db_connection)
 
