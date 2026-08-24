@@ -596,7 +596,14 @@ def _add_copy_action(
     actions_by_destination: dict[Path, CopyAction],
 ) -> None:
     repo_relative = source_file.resolve().relative_to(source_repo.resolve())
-    destination = (destination_root / repo_relative).resolve()
+    # Deliberately do NOT call .resolve() on the combined destination path:
+    # destination_root is already an absolute, resolved path (see
+    # fetch_profile()), and resolving the full path here would follow a
+    # symlink planted at the destination leaf, silently swapping the
+    # CopyAction's destination for the symlink's target instead of the
+    # symlink path itself. That would defeat the is_symlink() conflict/
+    # write-through guards in _find_conflicts()/_write_actions() (#474).
+    destination = destination_root / repo_relative
     existing = actions_by_destination.get(destination)
     if existing is None:
         actions_by_destination[destination] = CopyAction(
