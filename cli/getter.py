@@ -91,9 +91,7 @@ def fetch_profile(
                 f"{rendered}{extra}"
             )
 
-        for action in actions:
-            action.destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(action.source, action.destination)
+        _write_actions(actions)
 
         _write_tracking_manifest(
             target_root=target_root,
@@ -617,6 +615,14 @@ def _find_conflicts(actions: list[CopyAction]) -> list[str]:
     conflicts: list[str] = []
     for action in actions:
         destination = action.destination
+        if destination.is_symlink():
+            # A symlink destination is always a conflict, even if it's
+            # dangling (Path.exists() follows symlinks and returns False for
+            # a broken link, which would otherwise let a pre-planted symlink
+            # silently bypass this check). Never write through a symlink:
+            # see _write_actions().
+            conflicts.append(action.repo_relative_path)
+            continue
         if not destination.exists():
             continue
         if destination.is_dir():
@@ -625,6 +631,21 @@ def _find_conflicts(actions: list[CopyAction]) -> list[str]:
         if destination.read_bytes() != action.source.read_bytes():
             conflicts.append(action.repo_relative_path)
     return conflicts
+
+
+def _write_actions(actions: list[CopyAction]) -> None:
+    """Copy planned actions to their destinations, refusing to write through
+    a symlinked destination even when --force allowed the conflict check to
+    pass. Any pre-existing symlink at a destination path (dangling or not)
+    is removed first so shutil.copy2() always creates/overwrites a regular
+    file there instead of following the link to some other location on disk
+    (e.g. a symlink planted at profiles/foo/profile.yaml pointing outside
+    the destination tree)."""
+    for action in actions:
+        action.destination.parent.mkdir(parents=True, exist_ok=True)
+        if action.destination.is_symlink():
+            action.destination.unlink()
+        shutil.copy2(action.source, action.destination)
 
 
 def _write_tracking_manifest(
@@ -661,6 +682,10 @@ def _write_tracking_manifest(
     profiles[requested_profile] = entry
 
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    if manifest_path.is_symlink():
+        # Same write-through-symlink guard as _write_actions(): never follow
+        # a symlink planted at the tracking manifest's path.
+        manifest_path.unlink()
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 

@@ -119,6 +119,81 @@ class GetterTest(unittest.TestCase):
             )
             self.assertIn("kind: Profile", profile_file.read_text(encoding="utf-8"))
 
+    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
+    def test_fetch_profile_rejects_symlinked_destination_without_force(self) -> None:
+        """A pre-planted symlink at a destination path (dangling or not) must be
+        treated as a conflict -- Path.exists() follows symlinks and returns
+        False for a dangling link, which would otherwise let it silently bypass
+        the conflict check (#474)."""
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            profile_dest = destination_root / "profiles" / "demo" / "profile.yaml"
+            profile_dest.parent.mkdir(parents=True, exist_ok=True)
+            attack_target = destination_root / "outside-target.txt"
+            attack_target.write_text("do not overwrite me\n", encoding="utf-8")
+            profile_dest.symlink_to(attack_target)
+
+            with self.assertRaises(GetError):
+                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+
+            # The symlink and its target must be untouched by the rejected attempt.
+            self.assertTrue(profile_dest.is_symlink())
+            self.assertEqual(attack_target.read_text(encoding="utf-8"), "do not overwrite me\n")
+
+    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
+    def test_fetch_profile_never_writes_through_symlinked_destination_even_with_force(self) -> None:
+        """Even with --force, a symlinked destination must be replaced with a
+        regular file rather than written-through, so a symlink can never be
+        used to redirect fetched content onto an arbitrary path (#474)."""
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            profile_dest = destination_root / "profiles" / "demo" / "profile.yaml"
+            profile_dest.parent.mkdir(parents=True, exist_ok=True)
+            attack_target = destination_root / "outside-target.txt"
+            attack_target.write_text("do not overwrite me\n", encoding="utf-8")
+            profile_dest.symlink_to(attack_target)
+
+            fetch_profile(
+                "demo",
+                local=str(source_root),
+                destination_root=destination_root,
+                force=True,
+            )
+
+            # The destination is now a regular file containing the fetched
+            # profile, and the symlink's former target is untouched.
+            self.assertFalse(profile_dest.is_symlink())
+            self.assertIn("kind: Profile", profile_dest.read_text(encoding="utf-8"))
+            self.assertEqual(attack_target.read_text(encoding="utf-8"), "do not overwrite me\n")
+
+    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
+    def test_fetch_profile_never_writes_manifest_through_symlinked_path(self) -> None:
+        """The tracking manifest must not be written through a pre-planted
+        symlink at its path either (#474)."""
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            manifest_path = destination_root / ".cds" / "get-manifest.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            attack_target = destination_root / "outside-manifest-target.json"
+            attack_target.write_text("do not overwrite me\n", encoding="utf-8")
+            manifest_path.symlink_to(attack_target)
+
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+
+            self.assertFalse(manifest_path.is_symlink())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertIn("demo", manifest["profiles"])
+            self.assertEqual(attack_target.read_text(encoding="utf-8"), "do not overwrite me\n")
+
     def test_fetch_profile_dry_run_ignores_conflicting_files(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             source_root = Path(source_dir)

@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- `cds get` no longer writes fetched files or the tracking manifest through a pre-planted symlink at the destination path. `_find_conflicts` now treats any symlink destination (including a dangling one, which `Path.exists()` reports as absent) as a conflict, and the copy/manifest-write steps unlink any symlink at the destination before writing, so a symlink can no longer be used to redirect fetched content onto an arbitrary path outside the destination tree (#474).
+
 ## [0.5.0] - 2026-08-24
 
 ### Added
