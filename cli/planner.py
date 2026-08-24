@@ -1,22 +1,23 @@
 # cli/planner.py
 from __future__ import annotations
 
-from copy import deepcopy
-from pathlib import Path
-from typing import Any
 import os
 import re
+from copy import deepcopy
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
-from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
+from .resolver import (
+    is_secret_ref,
+    parse_contract_ref,
+    resolve_path,
+    secret_name_from_ref,
+)
 from .secrets import load_profile_secrets
-
-from dataclasses import dataclass
-
-
-
 
 
 @dataclass

@@ -2,10 +2,9 @@ import importlib
 import json
 import os
 from collections.abc import Mapping
-from datetime import datetime, timezone, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote_plus
-
 
 DEFAULT_PORTS = {
     "postgres": "5432",

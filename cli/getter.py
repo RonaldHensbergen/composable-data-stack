@@ -12,7 +12,6 @@ from typing import Any
 from .loader import load_yaml_file, resolve_module_dir
 from .planner import MaxNestingDepthExceeded, apply_defaults, substitute_string
 
-
 _TRACKING_FILE = Path(".cds") / "get-manifest.json"
 _SKIP_DIRS = {
     ".cds",

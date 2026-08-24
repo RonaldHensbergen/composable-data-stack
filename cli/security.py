@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from dataclasses import dataclass
 from importlib.resources import files
 from importlib.resources.abc import Traversable
 from pathlib import Path
@@ -16,8 +17,6 @@ from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
-
-from dataclasses import dataclass
 
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file

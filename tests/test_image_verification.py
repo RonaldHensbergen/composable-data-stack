@@ -15,7 +15,7 @@ from cli.image_verification import (
     validate_fixture,
     verify_images,
 )
-from cli.preflight import PreflightCheck, run_preflight
+from cli.preflight import run_preflight
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIXTURE_PATH = _REPO_ROOT / "tests" / "fixtures" / "signed-images.json"

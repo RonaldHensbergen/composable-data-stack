@@ -4,7 +4,12 @@ from pathlib import Path
 
 import yaml
 
-from cli.overlay import _duplicate_module_ids, _merge_modules, _merge_value, resolve_profile
+from cli.overlay import (
+    _duplicate_module_ids,
+    _merge_modules,
+    _merge_value,
+    resolve_profile,
+)
 
 
 class MergeValueTest(unittest.TestCase):

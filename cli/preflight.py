@@ -11,9 +11,12 @@ from typing import Any
 
 import yaml
 
-from .image_verification import default_fixture_path, load_policy_from_env, verify_images
+from .image_verification import (
+    default_fixture_path,
+    load_policy_from_env,
+    verify_images,
+)
 from .security_common import SECRET_KEY_SEGMENT_RE, infer_profile_class
-
 
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}")
 # Docker publishes ports on every IPv4 interface when no host IP is specified.

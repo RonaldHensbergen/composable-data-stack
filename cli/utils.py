@@ -3,6 +3,7 @@ import tempfile
 from contextlib import suppress
 from pathlib import Path
 
+
 def _atomic_write(path: Path, content: str, encoding: str = "utf-8") -> None:
     """Write `content` to `path` atomically via a temp file + os.replace.
     
