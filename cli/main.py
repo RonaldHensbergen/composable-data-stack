@@ -1503,7 +1503,7 @@ def main() -> int:
 
         ps_cmd = ["docker", "compose", "-f", str(compose_path), "ps", "-a", "--format", "json"]
         try:
-            ps_result = subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603
+            ps_result = subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603  # noqa: S603
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
             return 1
