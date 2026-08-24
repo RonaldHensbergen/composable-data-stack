@@ -374,7 +374,7 @@ def _eval_condition(
     if "portExposure" in cond:
         exposure = cond["portExposure"]
         # Comparing a scanned config's string, not binding to an interface.
-        if exposure == "0.0.0.0" and "0.0.0.0:" not in sval:  # nosec B104
+        if exposure == "0.0.0.0" and "0.0.0.0:" not in sval:  # nosec B104  # noqa: S104
             return False
         if exposure == "host-published" and ":" not in sval:
             return False

@@ -64,7 +64,7 @@ def run_streamed(
     Returns the command's exit code. Raises FileNotFoundError if
     `cmd[0]` isn't on PATH, same as subprocess.run.
     """
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)  # nosec B603
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)  # nosec B603  # noqa: S603
     if process.stdout is None:
         raise RuntimeError("subprocess.Popen returned no stdout despite stdout=PIPE")
     try:
@@ -109,7 +109,7 @@ def start_log_tail(compose_path: str, log_file: IO[str]) -> subprocess.Popen:
     with `stop_log_tail` once the stack settles or `cds up` exits.
     """
     logs_cmd = ["docker", "compose", "-f", compose_path, "logs", "-f", "--no-color"]
-    return subprocess.Popen(logs_cmd, stdout=log_file, stderr=subprocess.STDOUT, text=True)  # nosec B603
+    return subprocess.Popen(logs_cmd, stdout=log_file, stderr=subprocess.STDOUT, text=True)  # nosec B603  # noqa: S603
 
 
 def start_up_in_background(cmd: list[str], log_file: IO[str]) -> subprocess.Popen:
@@ -123,7 +123,7 @@ def start_up_in_background(cmd: list[str], log_file: IO[str]) -> subprocess.Pope
     directly) start rendering immediately instead of waiting for `up` to
     finish. Caller is responsible for reaping it with `process.wait()`.
     """
-    return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, text=True)  # nosec B603
+    return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, text=True)  # nosec B603  # noqa: S603
 
 
 def stop_log_tail(process: subprocess.Popen, timeout: float = 5.0) -> None:
@@ -212,7 +212,7 @@ def poll_state_until_settled(
     if ps_fn is None:
         def ps_fn() -> subprocess.CompletedProcess:
             ps_cmd = ["docker", "compose", "-f", compose_path, "ps", "-a", "--format", "json"]
-            return subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603
+            return subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603  # noqa: S603
 
     if redraw_fn is None:
         redraw_fn = _default_redraw

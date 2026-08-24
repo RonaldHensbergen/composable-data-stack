@@ -246,7 +246,7 @@ def _verify_with_cosign(
     command.append(image_ref)
 
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=120)  # nosec B603
+        result = subprocess.run(command, capture_output=True, text=True, timeout=120)  # nosec B603  # noqa: S603
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, f"cosign invocation failed: {exc}"
 
