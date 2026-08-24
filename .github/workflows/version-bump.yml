@@ -1,0 +1,106 @@
+name: Version Bump
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: version-bump-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version-bump:
+    # Skip when the triggering commit is itself a version-bump PR merge, to
+    # avoid this workflow endlessly proposing bumps on top of its own PRs.
+    if: "${{ !contains(github.event.head_commit.message, 'chore(release): bump version to') }}"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calculate next semantic version from Conventional Commits
+        id: calculate-version
+        uses: bitshifted/git-auto-semver@c4e8f005e839f822325356f141939cf6c76b5701 # v2.0.11
+        with:
+          main_branch: main
+          tag_prefix: "v"
+          # Only used if the repo has no semver-formatted vX.Y.Z tags yet;
+          # this repo already has v0.5.0+ tags, so this is effectively a
+          # documented no-op safety net rather than the active starting point.
+          initial_version: "0.1.0"
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Update pyproject.toml if a newer version was calculated
+        id: bump
+        run: |
+          set -euo pipefail
+          calculated="${{ steps.calculate-version.outputs.version-string }}"
+          current="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+
+          if [ "$calculated" = "$current" ]; then
+            echo "No version change: pyproject.toml is already at ${current}."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          python - "$current" "$calculated" <<'PY'
+          import pathlib
+          import sys
+
+          current, calculated = sys.argv[1], sys.argv[2]
+          path = pathlib.Path("pyproject.toml")
+          text = path.read_text(encoding="utf-8")
+          needle = f'version = "{current}"'
+          replacement = f'version = "{calculated}"'
+          if needle not in text:
+              raise SystemExit(f"Could not find {needle!r} in pyproject.toml")
+          path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+          PY
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "current_version=${current}" >> "$GITHUB_OUTPUT"
+          echo "next_version=${calculated}" >> "$GITHUB_OUTPUT"
+
+      - name: Open a pull request to bump the version
+        # main is a protected branch, so a direct `git push` here is
+        # rejected. Route the bump through a PR instead, mirroring the
+        # signed-images-fixture refresh job in publish-images.yml. This
+        # deliberately does NOT touch CHANGELOG.md or create a release tag:
+        # changelog entries stay hand-curated, and cutting a `vX.Y.Z` tag
+        # (which triggers release.yml/pypi.yml) remains a maintainer action
+        # once they're happy with the CHANGELOG for that version.
+        if: steps.bump.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(release): bump version to ${{ steps.bump.outputs.next_version }}"
+          title: "chore(release): bump version to ${{ steps.bump.outputs.next_version }}"
+          body: >
+            Automated version bump calculated from Conventional Commits since
+            the last `v${{ steps.bump.outputs.current_version }}` tag, via
+            [bitshifted/git-auto-semver](https://github.com/bitshifted/git-auto-semver).
+
+
+            Before merging, add a dated `## [${{ steps.bump.outputs.next_version }}] - YYYY-MM-DD`
+            section to `CHANGELOG.md` (moving the relevant `[Unreleased]`
+            entries beneath it); this workflow intentionally leaves the
+            changelog untouched. Merging this PR does not publish a release
+            by itself -- tag the merge commit `v${{ steps.bump.outputs.next_version }}`
+            and push the tag to trigger `release.yml`/`pypi.yml`.
+          branch: chore/version-bump-${{ steps.bump.outputs.next_version }}
+          delete-branch: true
+          add-paths: pyproject.toml
