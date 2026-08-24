@@ -4,6 +4,7 @@ import json
 import os
 import shlex
 import shutil
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -574,15 +575,43 @@ def _write_tracking_manifest(
 def _read_tracking_manifest(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"version": 1, "profiles": {}}
+
+    malformed_reason: str | None = None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {"version": 1, "profiles": {}}
-    if not isinstance(data, dict):
-        return {"version": 1, "profiles": {}}
-    data.setdefault("version", 1)
-    data.setdefault("profiles", {})
-    return data
+        raw_text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        malformed_reason = f"could not read file: {exc}"
+    else:
+        try:
+            data = json.loads(raw_text)
+        except json.JSONDecodeError as exc:
+            malformed_reason = f"invalid JSON: {exc}"
+        else:
+            if not isinstance(data, dict):
+                malformed_reason = "manifest root must be a JSON object"
+            else:
+                data.setdefault("version", 1)
+                data.setdefault("profiles", {})
+                return data
+
+    _backup_malformed_manifest(path, malformed_reason)
+    return {"version": 1, "profiles": {}}
+
+
+def _backup_malformed_manifest(path: Path, reason: str | None) -> None:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = path.with_name(f"{path.name}.corrupt-{timestamp}")
+    try:
+        shutil.copy2(path, backup_path)
+        backup_message = f"backed up to {backup_path}"
+    except OSError as exc:
+        backup_message = f"backup failed: {exc}"
+
+    print(
+        f"WARNING {path} is malformed ({reason}); resetting tracking manifest "
+        f"({backup_message}).",
+        file=sys.stderr,
+    )
 
 
 def _asset_root_relative_path(asset_root: Path, source_repo: Path) -> str:

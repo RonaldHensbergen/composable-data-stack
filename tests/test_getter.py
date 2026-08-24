@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import stat
@@ -115,6 +117,35 @@ class GetterTest(unittest.TestCase):
                 force=True,
             )
             self.assertIn("kind: Profile", profile_file.read_text(encoding="utf-8"))
+
+    def test_fetch_profile_backs_up_and_warns_on_malformed_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            manifest_path = destination_root / ".cds" / "get-manifest.json"
+            _write(manifest_path, "{not valid json")
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                _, returned_manifest_path = fetch_profile(
+                    "demo",
+                    remote=str(source_root),
+                    destination_root=destination_root,
+                )
+
+            self.assertEqual(returned_manifest_path.resolve(), manifest_path.resolve())
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["profiles"]["demo"]["requestedProfile"], "demo")
+
+            warning_output = stderr.getvalue()
+            self.assertIn("WARNING", warning_output)
+            self.assertIn("malformed", warning_output)
+
+            backups = list(manifest_path.parent.glob("get-manifest.json.corrupt-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_text(encoding="utf-8"), "{not valid json")
 
     def test_fetch_profile_dry_run_ignores_conflicting_files(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
