@@ -432,6 +432,19 @@ def _add_environment_arg(subparser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_hardened_arg(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument(
+        "--hardened",
+        action="store_true",
+        help=(
+            "Override config.image.variant to the Alpine-hardened build for any "
+            "module whose configSchema exposes an image.variant option (currently "
+            "only modules/orchestration/dagster), without editing the profile YAML. "
+            "Modules without that config option are left unchanged."
+        ),
+    )
+
+
 def _collect_profile_env_vars(
     profile_path: str, environment: str | None = None
 ) -> tuple[list[str], set[str]]:
@@ -756,6 +769,7 @@ def main() -> int:
         "-o",
         help="Output file path for rendered output (default: <project-root>/docker-compose.yml)",
     )
+    _add_hardened_arg(render_parser)
 
     up_parser = subparsers.add_parser(
         "up",
@@ -792,6 +806,7 @@ def main() -> int:
         action="store_true",
         help="Disable colored labels in the live state view",
     )
+    _add_hardened_arg(up_parser)
 
     test_parser = subparsers.add_parser(
         "test",
@@ -807,6 +822,7 @@ def main() -> int:
             "By default, values are redacted to avoid echoing real secrets to stdout/CI logs."
         ),
     )
+    _add_hardened_arg(test_parser)
 
     preflight_parser = subparsers.add_parser(
         "preflight",
@@ -1076,7 +1092,9 @@ def main() -> int:
                 return 1
 
             env_file = str(resolve_env_file_path(profile_path))
-            plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
+            plan, plan_diags = build_plan(
+                profile_path, env_file=env_file, environment=args.environment, hardened=args.hardened
+            )
             all_diags = diagnostics + plan_diags
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
@@ -1113,7 +1131,9 @@ def main() -> int:
             return 1
 
         env_file = str(resolve_env_file_path(profile_path))
-        plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
+        plan, plan_diags = build_plan(
+            profile_path, env_file=env_file, environment=args.environment, hardened=args.hardened
+        )
         all_diags = diagnostics + plan_diags
         if has_errors(all_diags):
             print_diagnostics(all_diags)
@@ -1326,7 +1346,9 @@ def main() -> int:
         render_diags: list[Diagnostic] = []
         render_ok = False
         if validate_ok:
-            plan, plan_diags = build_plan(profile_path, env_file=env_file, environment=args.environment)
+            plan, plan_diags = build_plan(
+                profile_path, env_file=env_file, environment=args.environment, hardened=args.hardened
+            )
             plan_ok = not has_errors(diagnostics + plan_diags)
             if plan_ok:
                 compose_yaml, render_diags = render_compose(plan, env_file=env_file)
