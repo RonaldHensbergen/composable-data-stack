@@ -140,6 +140,19 @@ Wrap the bundled executable in an MSI using WiX Toolset or another Windows insta
 wheel before publishing the same distributions to TestPyPI. It uses trusted
 publishing and does not require a stored API token.
 
+Both `testpypi.yml` and `pypi.yml` reuse `build-python-package.yml`, which
+smoke-tests the built wheel two ways before it's ever uploaded:
+
+1. Installs the wheel into an isolated venv and runs `cds --help`, `cds
+   validate`, and a rule-set sanity check.
+2. Runs the full end-user flow with no source checkout on
+   `CDS_PROFILE_PATH`/`CDS_MODULE_PATH`: `cds get` a profile into an empty
+   directory, `cds init` it, then `cds up` the real docker compose stack and
+   confirm every service reports healthy. This is what catches packaging bugs
+   that only affect the `cds get`-fetched layout (missing bundled assets,
+   project-root resolution regressions, etc.) rather than a plain `pip
+   install .` from the repo checkout.
+
 Repository setup:
 
 1. Create a GitHub environment named `testpypi`. Add required reviewers if
