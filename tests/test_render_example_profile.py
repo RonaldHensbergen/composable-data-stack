@@ -45,10 +45,7 @@ class RenderExampleProfileTest(unittest.TestCase):
                     print(f"  Diagnostic object: {diag}")
                     print(f"  Dir: {[attr for attr in dir(diag) if not attr.startswith('_')]}")
                     print(f"  Repr: {repr(diag)}")
-                    try:
-                        print(f"  Str: {str(diag)}")
-                    except Exception:
-                        pass
+                    print(f"  Str: {diag!s}")
                 print("="*60 + "\n")
             
             self.assertEqual(len(error_diags), 0)
@@ -147,10 +144,7 @@ class RenderExampleProfileTest(unittest.TestCase):
                     print(f"  Diagnostic object: {diag}")
                     print(f"  Dir: {[attr for attr in dir(diag) if not attr.startswith('_')]}")
                     print(f"  Repr: {repr(diag)}")
-                    try:
-                        print(f"  Str: {str(diag)}")
-                    except Exception:
-                        pass
+                    print(f"  Str: {diag!s}")
                 print("="*60 + "\n")
             
             self.assertEqual(len(error_diags), 0)
@@ -234,7 +228,7 @@ class MaterializedDefaultsRenderTest(unittest.TestCase):
             profile_dir.mkdir(parents=True)
             profile_file = profile_dir / "profile.yaml"
             profile_file.write_text(
-                f"""apiVersion: cds/v1alpha1
+                """apiVersion: cds/v1alpha1
 kind: Profile
 metadata:
   name: materialized-defaults

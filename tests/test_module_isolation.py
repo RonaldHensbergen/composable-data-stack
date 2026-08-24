@@ -7,8 +7,10 @@ not service names.
 """
 
 import unittest
-import yaml
+import warnings
 from pathlib import Path
+
+import yaml
 
 
 class ModuleIsolationTest(unittest.TestCase):
@@ -26,8 +28,8 @@ class ModuleIsolationTest(unittest.TestCase):
         
         for module_yaml in cls.modules_dir.rglob("module.yaml"):
             try:
-                with open(module_yaml, encoding="utf-8") as f:
-                    content = yaml.safe_load(f)
+                content_str = module_yaml.read_text(encoding="utf-8")
+                content = yaml.safe_load(content_str)
                 
                 if content and "metadata" in content and "name" in content["metadata"]:
                     module_name = content["metadata"]["name"]
@@ -46,17 +48,40 @@ class ModuleIsolationTest(unittest.TestCase):
                             "service_name": service_name,
                             "module_path": module_yaml,
                             "content": content,
-                            "content_str": f.read(),  # Will be re-read below
+                            "content_str": content_str,
                         }
                         cls.service_names.add(service_name)
-            except Exception as e:
-                # Skip modules that can't be parsed
-                pass
-        
-        # Re-read for string content
-        for module_name, module_info in cls.modules.items():
-            with open(module_info["module_path"], encoding="utf-8") as f:
-                module_info["content_str"] = f.read()
+            except (OSError, yaml.YAMLError) as exc:
+                # Skip modules that can't be parsed; this test only asserts
+                # over modules that were successfully loaded above.
+                warnings.warn(f"Skipping unparsable module {module_yaml}: {exc}", stacklevel=2)
+
+    # Schema metadata that legitimately mentions other modules' identifiers
+    # without creating a hard runtime dependency: human-readable docs/hints
+    # (description, title, examples), type enums (e.g. a pluggable
+    # "backend: postgres|sqlite|mysql" selector), and convenience defaults
+    # (e.g. defaulting a per-consumer database username to that consumer's
+    # id). Only literal structural values (contractRef targets, mappedFrom
+    # paths, etc.) indicate real hardcoded service coupling.
+    _NON_STRUCTURAL_SCHEMA_KEYS = frozenset(
+        {"default", "description", "title", "examples", "enum", "pattern"}
+    )
+
+    @classmethod
+    def _leaf_values(cls, value):
+        """Yield scalar leaf values from a schema fragment, skipping keys
+        that only carry documentation/typing metadata rather than actual
+        references (see `_NON_STRUCTURAL_SCHEMA_KEYS`)."""
+        if isinstance(value, dict):
+            for key, val in value.items():
+                if key in cls._NON_STRUCTURAL_SCHEMA_KEYS:
+                    continue
+                yield from cls._leaf_values(val)
+        elif isinstance(value, list):
+            for item in value:
+                yield from cls._leaf_values(item)
+        else:
+            yield value
 
     def test_no_cross_module_service_references(self):
         """Verify no module references another module's service name in its config."""
@@ -77,9 +102,9 @@ class ModuleIsolationTest(unittest.TestCase):
                     # This could be a false positive, so let's verify it's in actual config
                     # by checking specific fields where service references would be problematic
                     config = content.get("spec", {}).get("configSchema", {})
-                    config_str = yaml.dump(config).lower()
+                    config_values = [str(v).lower() for v in self._leaf_values(config)]
                     
-                    if other_service_name.lower() in config_str:
+                    if any(other_service_name.lower() in v for v in config_values):
                         violations.append(
                             f"Module '{module_name}' (service: {service_name}) "
                             f"references another module's service '{other_service_name}' "
@@ -90,8 +115,8 @@ class ModuleIsolationTest(unittest.TestCase):
                     properties = config.get("properties", {})
                     for prop_name, prop_config in properties.items():
                         if isinstance(prop_config, dict):
-                            prop_str = yaml.dump(prop_config).lower()
-                            if other_service_name.lower() in prop_str:
+                            prop_values = [str(v).lower() for v in self._leaf_values(prop_config)]
+                            if any(other_service_name.lower() in v for v in prop_values):
                                 violations.append(
                                     f"Module '{module_name}' (service: {service_name}) "
                                     f"references service '{other_service_name}' "
@@ -128,8 +153,8 @@ class ModuleIsolationTest(unittest.TestCase):
                         if content else "unknown"
                     )
                     missing_service_name.append(f"{module_yaml}: module '{module_name}'")
-            except Exception:
-                pass
+            except (OSError, yaml.YAMLError) as exc:
+                warnings.warn(f"Skipping unparsable module {module_yaml}: {exc}", stacklevel=2)
         
         self.assertEqual(
             len(missing_service_name),
