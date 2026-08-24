@@ -107,7 +107,7 @@ def render_compose(
         volumes = compose_impl.get("volumes", {})
 
         try:
-            rendered_services = _render_services(
+            rendered_services, unsafe_diags = _render_services(
                 module,
                 services,
                 secrets,
@@ -116,6 +116,7 @@ def render_compose(
                 compose_dir=compose_dir,
                 network_name=default_network_name,
             )
+            diagnostics.extend(unsafe_diags)
             rendered_volumes = _render_volumes(module, volumes, secrets)
         except MaxNestingDepthExceeded:
             diagnostics.append(Diagnostic(
@@ -199,8 +200,9 @@ def _render_services(
     project_root: Path | None,
     compose_dir: Path,
     network_name: str | None = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], list[Diagnostic]]:
     rendered: dict[str, Any] = {}
+    diagnostics: list[Diagnostic] = []
     context = _build_context(module, secrets)
 
     for service_name, service_def in services.items():
@@ -227,6 +229,9 @@ def _render_services(
                 else:
                     service_copy["healthcheck"] = _substitute_values(hc_copy, context)
 
+        diagnostics.extend(
+            _check_unsafe_field_type_substitutions(service_copy, module.get("id"), service_name, context)
+        )
         service_copy = _substitute_values(service_copy, context)
         service_copy = _rewrite_service_volumes(
             service_copy,
@@ -250,7 +255,7 @@ def _render_services(
         
         rendered[service_name] = service_copy
 
-    return rendered
+    return rendered, diagnostics
 
 
 def _render_volumes(
@@ -369,6 +374,80 @@ def _substitute_string(value: str, context: dict[str, Any]) -> Any:
         return str(resolved) if resolved is not None else match.group(0)
 
     return _PATTERN.sub(_replace, value)
+
+
+# Compose service fields where a module template's pure `${config.*}` /
+# `${bindings.*}` substitution resolving to a non-scalar type (dict/list) is
+# always attacker-relevant: they control what docker-compose executes, sets
+# as environment, or bind-mounts on the host, regardless of the module
+# author's intent. See GHSA-gmc4-jw3j-mqcf.
+_UNSAFE_TYPED_SUBSTITUTION_FIELDS = frozenset({
+    "command",
+    "entrypoint",
+    "environment",
+    "volumes",
+    "cap_add",
+    "cap_drop",
+    "devices",
+    "security_opt",
+    "privileged",
+    "network_mode",
+    "pid",
+    "ports",
+    "labels",
+    "tmpfs",
+    "dns",
+    "extra_hosts",
+})
+
+
+def _check_unsafe_field_type_substitutions(
+    service_def: dict[str, Any],
+    module_id: str | None,
+    service_name: str,
+    context: dict[str, Any],
+) -> list[Diagnostic]:
+    """
+    Detect a module template that uses a *pure* `${config.*}`/`${bindings.*}`
+    substitution (i.e. the entire field value is a single expression, not
+    string-concatenated) in a compose field position where docker-compose
+    expects a fixed shape (list/dict/scalar). Pure substitution preserves the
+    resolved value's original Python type, so a profile can inject arbitrary
+    lists/dicts (e.g. a `command` list, `environment` map, or `volumes` bind
+    mounts) through module config, bypassing the field's intended shape.
+
+    This does not affect mixed substitution (e.g. "db://${bindings.db.host}"),
+    which is always string-concatenated back into a str.
+    """
+    diagnostics: list[Diagnostic] = []
+    pure_pattern = re.compile(r"^\$\{([^}]+)\}$")
+
+    for field in _UNSAFE_TYPED_SUBSTITUTION_FIELDS:
+        raw_value = service_def.get(field)
+        if not isinstance(raw_value, str):
+            continue
+        match = pure_pattern.match(raw_value)
+        if not match:
+            continue
+
+        resolved = _resolve_expr(match.group(1), context)
+        if isinstance(resolved, (dict, list)):
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E072",
+                message=(
+                    f'Module "{module_id}" service "{service_name}" field "{field}" resolves '
+                    f'"${{{match.group(1)}}}" to a {type(resolved).__name__}, but pure '
+                    "substitution in this field position is not permitted: a profile-supplied "
+                    "config value would be spliced verbatim into the rendered Compose file, "
+                    "letting an untrusted profile inject arbitrary command/environment/volumes "
+                    "entries. Restructure the module template to interpolate scalar leaf values "
+                    "individually instead of substituting the whole field."
+                ),
+                path=f"module:{module_id}.implementation.compose.services.{service_name}.{field}",
+            ))
+
+    return diagnostics
 
 
 def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:

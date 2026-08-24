@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- `cli/renderer.py` no longer allows a module template's pure `${config.*}`/`${bindings.*}` substitution to splice a profile-supplied dict/list verbatim into compose-dangerous service fields (`command`, `entrypoint`, `environment`, `volumes`, `cap_add`, `security_opt`, `ports`, and similar). This closes a compose-injection path where an untrusted profile could smuggle arbitrary command args, environment variables, or host bind mounts through module config; such templates now fail rendering with a new `E072` diagnostic.
+
 ## [0.5.0] - 2026-08-24
 
 ### Added
