@@ -8,6 +8,10 @@ The format is based on Keep a Changelog.
 
 ## [0.5.1] - 2026-08-24
 
+### Changed
+
+- `cds get` now downloads a profile and its module/runtime assets from GitHub by default (via the tarball API) instead of copying from a local checkout. Use `--local <dir>` to opt back into the previous local-directory behavior; `--remote <owner/repo>` and `--ref <branch|tag|sha>` select a specific fork/revision to download (#493).
+
 ## [0.5.0] - 2026-08-24
 
 ### Added
