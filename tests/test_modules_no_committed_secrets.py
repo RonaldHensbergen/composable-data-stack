@@ -1,5 +1,6 @@
 import glob
 import unittest
+import warnings
 from pathlib import Path
 
 
@@ -12,7 +13,8 @@ class TestModulesNoCommittedSecrets(unittest.TestCase):
                 p = Path(path)
                 try:
                     text = p.read_text(encoding="utf-8")
-                except Exception:
+                except OSError as exc:
+                    warnings.warn(f"Skipping unreadable module template {p}: {exc}", stacklevel=2)
                     continue
                 if "secrets." in text:
                     offenders.append(str(p))
