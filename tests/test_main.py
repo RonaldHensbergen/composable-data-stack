@@ -396,6 +396,7 @@ class MainCLITest(unittest.TestCase):
         its own `.cds` marker must not be shadowed by an unrelated `.git`
         repository further up the tree (e.g. a dotfiles repo at $HOME)."""
         import tempfile
+
         from cli.main import find_project_root
 
         with tempfile.TemporaryDirectory() as td:
@@ -413,6 +414,7 @@ class MainCLITest(unittest.TestCase):
         """A fresh checkout of the CDS repo itself (no `.cds` yet) should
         still resolve to the repo root via `.git`/`pyproject.toml`."""
         import tempfile
+
         from cli.main import find_project_root
 
         with tempfile.TemporaryDirectory() as td:
@@ -429,6 +431,7 @@ class MainCLITest(unittest.TestCase):
         """Same regression as find_project_root, but for the resolver used
         to place rendered docker-compose.yml output for `cds up`/`render`."""
         import tempfile
+
         from cli.main import resolve_project_root
 
         with tempfile.TemporaryDirectory() as td:
