@@ -602,6 +602,45 @@ before and never look for an `environments/` directory.
 
 ---
 
+### Profile Composition (`extends`)
+
+A profile can also factor out shared configuration into one or more parent
+profiles instead of duplicating it, using a top-level `extends` field:
+
+```yaml
+# profiles/analytics-prod/profile.yaml
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: analytics-prod
+  environment: production
+extends:
+  - analytics-base   # a bare name resolves to profiles/analytics-base/profile.yaml
+spec:
+  modules:
+    - id: postgres
+      config:
+        storage:
+          size: 20Gi
+```
+
+`extends` accepts a non-empty list of parent references, each either a bare
+profile name (resolved under the profiles root) or a path relative to the
+child profile's directory (e.g. `../shared/profile.yaml`). Parents are
+resolved and merged left-to-right — later parents win over earlier ones —
+and then the child profile's own document is merged on top of all parents.
+Composition uses the exact same deep-merge/module-merge-by-id engine as
+environment overlays: mappings merge recursively, `spec.modules` entries
+merge by stable `id`, and any other array is replaced wholesale rather than
+concatenated. Parent profiles may themselves use `extends` (chains are
+resolved transitively); cycles, missing parents, and parents that resolve
+outside the profiles root are rejected with a diagnostic before anything
+else runs. `extends` and `--environment` compose together: parents are
+merged first, then the child, then the selected environment overlay is
+applied on top of that fully-composed result.
+
+---
+
 ## ⚙️ CLI
 
 |Command|Description|

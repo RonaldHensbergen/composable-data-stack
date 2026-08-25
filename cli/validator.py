@@ -25,20 +25,15 @@ def _load_schema(name: str) -> dict[str, Any]:
 
 
 def validate_profile(profile_path: str, environment: str | None = None) -> list[Diagnostic]:
-    if environment is not None:
-        # Local import: cli.overlay imports validate_loaded_profile from this
-        # module, so importing it back at module scope would be circular.
-        from .overlay import resolve_profile
+    # Local import: cli.overlay imports validate_loaded_profile from this
+    # module, so importing it back at module scope would be circular.
+    # resolve_profile() is called unconditionally (not just when environment
+    # is set) because it also resolves a profile's own `extends` chain, which
+    # must apply even when no --environment overlay is selected.
+    from .overlay import resolve_profile
 
-        _, _, diagnostics = resolve_profile(profile_path, environment)
-        return diagnostics
-
-    profile_file = Path(profile_path)
-    profile, diagnostics = load_yaml_file(profile_file)
-    if profile is None:
-        return diagnostics
-
-    return diagnostics + validate_loaded_profile(profile, profile_file)
+    _, _, diagnostics = resolve_profile(profile_path, environment)
+    return diagnostics
 
 
 def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list[Diagnostic]:

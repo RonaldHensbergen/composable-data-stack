@@ -276,5 +276,305 @@ class ResolveProfileFixtureTest(unittest.TestCase):
         self.assertTrue(any("source" in d.message.lower() for d in diagnostics), diagnostics)
 
 
+class ExtendsCompositionTest(unittest.TestCase):
+    """resolve_profile() honoring `extends` (issue #175)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.profiles_dir = self.root / "profiles"
+        self.profiles_dir.mkdir(parents=True)
+        self.modules_dir = self.root / "modules" / "warehouse" / "postgres"
+        self.modules_dir.mkdir(parents=True)
+
+        (self.modules_dir / "module.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Module",
+                    "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                    "spec": {
+                        "runtime": {
+                            "type": "container",
+                            "service": {
+                                "name": "postgres",
+                                "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                            },
+                        },
+                        "configSchema": {"type": "object", "additionalProperties": True},
+                        "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                    },
+                }
+            )
+        )
+
+    def _write_profile(self, name, content):
+        profile_dir = self.profiles_dir / name
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        (profile_dir / "profile.yaml").write_text(yaml.safe_dump(content))
+        return profile_dir / "profile.yaml"
+
+    def _base_module(self, replicas=1):
+        return {
+            "id": "db",
+            "source": "../../modules/warehouse/postgres",
+            "version": "0.1.0",
+            "enabled": True,
+            "config": {"replicas": replicas},
+        }
+
+    def test_single_parent_child_wins_over_parent(self):
+        self._write_profile(
+            "base",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "base", "environment": "local"},
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+            },
+        )
+        child = self._write_profile(
+            "child",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "child", "environment": "local"},
+                "extends": ["base"],
+                "spec": {"modules": [{"id": "db", "config": {"replicas": 5}}]},
+            },
+        )
+        resolved, provenance, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 5)
+        self.assertEqual(provenance["spec.modules[db]"], str(child))
+
+    def test_multiple_parents_resolve_left_to_right_later_wins(self):
+        self._write_profile(
+            "p1",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "p1", "environment": "local"},
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+            },
+        )
+        self._write_profile(
+            "p2",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "p2", "environment": "local"},
+                "spec": {"modules": [{"id": "db", "config": {"replicas": 2}}]},
+            },
+        )
+        child = self._write_profile(
+            "child",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "child", "environment": "local"},
+                "extends": ["p1", "p2"],
+                "spec": {},
+            },
+        )
+        resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 2)
+
+    def test_relative_path_parent_reference_is_supported(self):
+        self._write_profile(
+            "base",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "base", "environment": "local"},
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+            },
+        )
+        child = self._write_profile(
+            "child",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "child", "environment": "local"},
+                "extends": ["../base/profile.yaml"],
+                "spec": {},
+            },
+        )
+        resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(resolved["spec"]["modules"][0]["id"], "db")
+
+    def test_transitive_extends_chain_is_supported(self):
+        self._write_profile(
+            "grandparent",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "grandparent", "environment": "local"},
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+            },
+        )
+        self._write_profile(
+            "parent",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "parent", "environment": "local"},
+                "extends": ["grandparent"],
+                "spec": {"modules": [{"id": "db", "config": {"replicas": 7}}]},
+            },
+        )
+        child = self._write_profile(
+            "child",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "child", "environment": "local"},
+                "extends": ["parent"],
+                "spec": {},
+            },
+        )
+        resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 7)
+
+    def test_direct_cycle_is_rejected(self):
+        a = self.profiles_dir / "a"
+        a.mkdir(parents=True)
+        b = self.profiles_dir / "b"
+        b.mkdir(parents=True)
+        (a / "profile.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "a", "environment": "local"},
+                    "extends": ["b"],
+                    "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                }
+            )
+        )
+        (b / "profile.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "b", "environment": "local"},
+                    "extends": ["a"],
+                    "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                }
+            )
+        )
+        resolved, _prov, diagnostics = resolve_profile(str(a / "profile.yaml"), environment=None)
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E106" for d in diagnostics), diagnostics)
+
+    def test_missing_parent_profile_is_rejected(self):
+        child = self._write_profile(
+            "child",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "child", "environment": "local"},
+                "extends": ["does-not-exist"],
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+            },
+        )
+        resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E105" for d in diagnostics), diagnostics)
+
+    def test_extends_outside_profiles_root_is_rejected(self):
+        outside_dir = self.root / "outside"
+        outside_dir.mkdir()
+        (outside_dir / "profile.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "outside", "environment": "local"},
+                    "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                }
+            )
+        )
+        child = self._write_profile(
+            "child",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "child", "environment": "local"},
+                "extends": ["../../outside/profile.yaml"],
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+            },
+        )
+        resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E104" for d in diagnostics), diagnostics)
+
+    def test_extends_not_a_list_is_rejected(self):
+        child = self._write_profile(
+            "child",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "child", "environment": "local"},
+                "extends": "base",
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+            },
+        )
+        resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E103" for d in diagnostics), diagnostics)
+
+    def test_extends_combined_with_environment_overlay_applies_on_top(self):
+        self._write_profile(
+            "base",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "base", "environment": "local"},
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+            },
+        )
+        child_dir = self.profiles_dir / "child"
+        child_dir.mkdir(parents=True, exist_ok=True)
+        (child_dir / "profile.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "child", "environment": "local"},
+                    "extends": ["base"],
+                    "spec": {},
+                }
+            )
+        )
+        env_dir = child_dir / "environments"
+        env_dir.mkdir()
+        (env_dir / "prod.yaml").write_text(
+            yaml.safe_dump({"spec": {"modules": [{"id": "db", "config": {"replicas": 9}}]}})
+        )
+        resolved, _prov, diagnostics = resolve_profile(str(child_dir / "profile.yaml"), environment="prod")
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 9)
+
+    def test_no_extends_field_behaves_exactly_as_before(self):
+        child = self._write_profile(
+            "child",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "child", "environment": "local"},
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+            },
+        )
+        resolved, provenance, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(provenance, {})
+        self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
