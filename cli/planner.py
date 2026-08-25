@@ -28,6 +28,7 @@ def build_plan(
     profile_path: str,
     env_file: str | None = None,
     environment: str | None = None,
+    hardened: bool = False,
 ) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
     """
     Build a resolved plan from a profile.
@@ -40,6 +41,14 @@ def build_plan(
             overlay is merged over the base profile before planning; see
             cli.overlay.resolve_profile. Value provenance for the merge is
             recorded on the returned plan under "provenance".
+        hardened: When True, overrides `config.image.variant` to "hardened"
+            for any module instance whose configSchema exposes an
+            `image.variant` property (currently only
+            modules/orchestration/dagster), leaving modules without that
+            config option untouched. This is the CLI-level `--hardened`
+            convenience flag (see cli/main.py's up/render/test subcommands)
+            for switching to the Alpine-hardened image variant without
+            hand-editing the profile YAML.
 
     Returns:
         Tuple of (plan, diagnostics)
@@ -150,6 +159,8 @@ def build_plan(
                 module_instance.get("config", {}),
                 module_def.get("spec", {}).get("configSchema", {})
             )
+            if hardened and _supports_image_variant(module_def):
+                normalized_config.setdefault("image", {})["variant"] = "hardened"
         except MaxNestingDepthExceeded:
             diagnostics.append(Diagnostic(
                 level="error",
@@ -252,6 +263,22 @@ def _substitute_config_env_vars(
             return raw_env[var]
         return _CDS_VAR_PATTERN.sub(_replace, obj)
     return obj
+
+def _supports_image_variant(module_def: dict[str, Any]) -> bool:
+    """
+    True if a module's configSchema exposes a `image.variant` property
+    (currently only modules/orchestration/dagster), which is what the
+    `--hardened` CLI flag overrides. Modules without this config option
+    (e.g. warehouse/postgres, bi/superset) are left untouched.
+    """
+    image_schema = (
+        module_def.get("spec", {})
+        .get("configSchema", {})
+        .get("properties", {})
+        .get("image", {})
+    )
+    return "variant" in image_schema.get("properties", {})
+
 
 def apply_defaults(config: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     config_copy = deepcopy(config)
