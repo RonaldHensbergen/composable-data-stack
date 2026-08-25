@@ -1,4 +1,4 @@
-FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4 AS builder
+FROM python:3.14-slim@sha256:8a14a31f4bf634c04722154f30eb33998b4068de8b83b6b2800ec1b7238555d0 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1
@@ -19,7 +19,7 @@ COPY images/dbt/requirements.txt ./
 RUN python -m pip install --no-cache-dir -r requirements.txt && \
     python -m pip uninstall --yes pip
 
-FROM python:3.14-slim@sha256:ce40764625a4ff50df3548277632e7f96c4e77fe75fa848aae9885476e7df5a4
+FROM python:3.14-slim@sha256:8a14a31f4bf634c04722154f30eb33998b4068de8b83b6b2800ec1b7238555d0
 
 ENV HOME=/home/dbt \
     PATH="/opt/venv/bin:$PATH" \
