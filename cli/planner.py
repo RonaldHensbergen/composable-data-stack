@@ -1,22 +1,23 @@
 # cli/planner.py
 from __future__ import annotations
 
-from copy import deepcopy
-from pathlib import Path
-from typing import Any
 import os
 import re
+from copy import deepcopy
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
-from .resolver import is_secret_ref, parse_contract_ref, resolve_path, secret_name_from_ref
+from .resolver import (
+    is_secret_ref,
+    parse_contract_ref,
+    resolve_path,
+    secret_name_from_ref,
+)
 from .secrets import load_profile_secrets
-
-from dataclasses import dataclass
-
-
-
 
 
 @dataclass
@@ -334,10 +335,13 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any], _depth: int = 0) 
 
     return value
 
-def resolve_provided_contracts(inst: dict[str, Any], secrets: dict[str, str] = {}) -> dict[str, Any]:
+def resolve_provided_contracts(
+    inst: dict[str, Any], secrets: dict[str, str] | None = None
+) -> dict[str, Any]:
     """
     Resolve contracts provided by a module instance.
     """
+    secrets = secrets if secrets is not None else {}
     provides = inst["module"].get("spec", {}).get("provides", [])
     resolved: dict[str, Any] = {}
     service_name = inst["id"]
@@ -367,8 +371,9 @@ def resolve_consumed_contracts(
     modules_by_id: dict[str, dict[str, Any]],
     resolved_contracts_by_module: dict[str, dict[str, Any]],
     diagnostics: list[Diagnostic],
-    secrets: dict[str, str] = {},
+    secrets: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    secrets = secrets if secrets is not None else {}
     consumes = inst["module"].get("spec", {}).get("consumes", [])
     resolved: dict[str, Any] = {}
 

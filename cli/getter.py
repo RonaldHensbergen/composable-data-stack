@@ -20,7 +20,6 @@ from urllib.request import Request, urlopen
 from .loader import load_yaml_file, resolve_module_dir
 from .planner import MaxNestingDepthExceeded, apply_defaults, substitute_string
 
-
 # The upstream repository `cds get` downloads from when no `--remote` is
 # given. Keep in sync with the `Repository` URL in pyproject.toml.
 DEFAULT_REMOTE = "RonaldHensbergen/composable-data-stack"
@@ -167,7 +166,7 @@ def _download_github_repository(owner: str, repo: str, ref: str, work_dir: Path)
     url = f"https://api.github.com/repos/{owner}/{repo}/tarball/{ref}"
     request = Request(url, headers={"User-Agent": "composable-data-stack-cds-get"})
     try:
-        with urlopen(request, timeout=30) as response:  # nosec B310 - fixed https GitHub API host
+        with urlopen(request, timeout=30) as response:  # nosec B310 - fixed https GitHub API host  # noqa: S310
             archive_bytes = response.read()
     except HTTPError as exc:
         raise GetError(

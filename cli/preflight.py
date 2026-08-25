@@ -11,14 +11,17 @@ from typing import Any
 
 import yaml
 
-from .image_verification import default_fixture_path, load_policy_from_env, verify_images
+from .image_verification import (
+    default_fixture_path,
+    load_policy_from_env,
+    verify_images,
+)
 from .security_common import SECRET_KEY_SEGMENT_RE, infer_profile_class
-
 
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}")
 # Docker publishes ports on every IPv4 interface when no host IP is specified.
 # Preflight uses this only for a short-lived availability probe.
-_DOCKER_WILDCARD_IPV4 = "0.0.0.0"  # nosec B104
+_DOCKER_WILDCARD_IPV4 = "0.0.0.0"  # nosec B104  # noqa: S104
 
 
 @dataclass(frozen=True)
@@ -95,7 +98,7 @@ def _run_runtime_command(
     failure_message: str,
 ) -> PreflightCheck:
     try:
-        result = subprocess.run(  # nosec B603
+        result = subprocess.run(  # nosec B603  # noqa: S603
             command,
             capture_output=True,
             text=True,
@@ -171,7 +174,7 @@ def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck
                         PreflightCheck(
                             "WARN",
                             "environment.placeholders",
-                            "Replace placeholder values for: "
+                            "Replace placeholder values for: "  # noqa: S608
                             + ", ".join(placeholders)
                             + ".",
                         )

@@ -6,8 +6,9 @@ from unittest import mock
 
 import yaml
 
-from cli.validator import has_errors
 from cli.renderer import render_compose
+from cli.validator import has_errors
+
 
 class RendererRegressionTest(unittest.TestCase):
     def test_render_compose_namespaces_long_form_named_volume(self):

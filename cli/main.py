@@ -7,9 +7,8 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
-import tempfile
-from contextlib import suppress
-from importlib.metadata import PackageNotFoundError, version as _package_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
 from pathlib import Path
 from typing import Any
 
@@ -18,22 +17,24 @@ try:
 except ImportError:
     argcomplete = None
 
-from .validator import has_errors, validate_profile
+import yaml
+
 from .diagnostics import Diagnostic
-from .utils import _atomic_write
-from .planner import build_plan
-from .renderer import render_compose
-from .image_updates import collect_module_images, check_image_update
-from .overlay import resolve_profile
-from .preflight import preflight_passed, run_preflight
-from .security import PrecomputedRender, run_security_validation
-from .security_common import SEVERITY_ORDER, infer_profile_class
+from .getter import GetError, fetch_profile, format_get_plan
+from .image_updates import check_image_update, collect_module_images
 from .image_verification import (
     ImagePolicy,
     default_fixture_path,
     load_policy_from_env,
     verify_images,
 )
+from .loader import load_yaml_file
+from .overlay import resolve_profile
+from .planner import build_plan
+from .preflight import preflight_passed, run_preflight
+from .renderer import render_compose
+from .security import PrecomputedRender, run_security_validation
+from .security_common import SEVERITY_ORDER, infer_profile_class
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .up_runner import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -44,9 +45,8 @@ from .up_runner import (
     start_up_in_background,
     stop_log_tail,
 )
-from .loader import load_yaml_file
-from .getter import GetError, fetch_profile, format_get_plan
-import yaml
+from .utils import _atomic_write
+from .validator import has_errors, validate_profile
 
 
 def load_env_file(env_file: str = ".env") -> None:
@@ -1503,7 +1503,7 @@ def main() -> int:
 
         ps_cmd = ["docker", "compose", "-f", str(compose_path), "ps", "-a", "--format", "json"]
         try:
-            ps_result = subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603
+            ps_result = subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603  # noqa: S603
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
             return 1

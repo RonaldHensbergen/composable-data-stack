@@ -1,9 +1,9 @@
-import unittest
-import tempfile
 import json
+import os
+import tempfile
+import unittest
 from pathlib import Path
 from unittest.mock import patch
-import os
 
 from cli.main import resolve_profile_path
 

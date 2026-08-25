@@ -1,9 +1,10 @@
 import tempfile
 import unittest
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
 
 from cli import planner
+
 
 class PlannerRegressionTest(unittest.TestCase):
     def test_build_plan_resolves_consumed_contracts(self):

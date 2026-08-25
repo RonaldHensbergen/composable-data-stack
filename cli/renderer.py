@@ -5,22 +5,18 @@ Render docker-compose YAML from a composition plan.
 """
 from __future__ import annotations
 
-import re
 import os
-import tempfile
-import yaml
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
-from .utils import _atomic_write
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
-
-
-
-
+from .utils import _atomic_write
 
 
 def render_compose(

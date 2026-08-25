@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from dataclasses import dataclass
 from importlib.resources import files
 from importlib.resources.abc import Traversable
 from pathlib import Path
@@ -16,8 +17,6 @@ from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
-
-from dataclasses import dataclass
 
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
@@ -375,7 +374,7 @@ def _eval_condition(
     if "portExposure" in cond:
         exposure = cond["portExposure"]
         # Comparing a scanned config's string, not binding to an interface.
-        if exposure == "0.0.0.0" and "0.0.0.0:" not in sval:  # nosec B104
+        if exposure == "0.0.0.0" and "0.0.0.0:" not in sval:  # nosec B104  # noqa: S104
             return False
         if exposure == "host-published" and ":" not in sval:
             return False

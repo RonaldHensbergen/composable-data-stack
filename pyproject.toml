@@ -76,6 +76,18 @@ skip_covered = false
 target-version = "py314"
 
 [tool.ruff.lint]
-# Keep Ruff narrowly scoped to pyupgrade/deprecation detection; Flake8 remains
-# the repository's general-purpose Python lint gate.
-select = ["UP"]
+# Expanded beyond pyupgrade: F (pyflakes), B (bugbear), S (bandit security),
+# I (isort). Flake8 pre-commit hook retained as a secondary gate during the
+# transition, but Ruff now covers the same surface.
+select = ["UP", "F", "B", "S", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# Bandit's CI job already scopes its scan to cli/, shared/, images/, and
+# workdirs/ (see .github/workflows/ci.yml), deliberately excluding tests/.
+# Mirror that boundary here: test code legitimately uses assert (S101),
+# invokes trusted CLI tools like docker/git with static argument lists
+# (S603/S607), asserts on hardcoded tmp paths/permissions used only in
+# fixtures and rendered-output checks (S103/S108), and opens local/loopback
+# URLs to poll test fixtures (S310).
+"tests/*" = ["S101", "S103", "S108", "S310", "S603", "S607"]
+

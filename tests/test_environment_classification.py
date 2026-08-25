@@ -7,7 +7,11 @@ from cli.security import (
     _rule_matches,
     run_security_validation,
 )
-from cli.security_common import ENVIRONMENT_TO_CLASS, SEVERITY_ORDER, infer_profile_class
+from cli.security_common import (
+    ENVIRONMENT_TO_CLASS,
+    SEVERITY_ORDER,
+    infer_profile_class,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _RULE_SCHEMA_PATH = _REPO_ROOT / "cli" / "resources" / "rule-schema.json"

@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+
 from jinja2 import Environment, FileSystemLoader
 
 
@@ -20,7 +21,7 @@ def generate_dagster_yaml():
         backend = detect_backend(connection_uri)
 
     script_dir = Path(__file__).parent
-    env = Environment(loader=FileSystemLoader(str(script_dir)))  # nosec B701
+    env = Environment(loader=FileSystemLoader(str(script_dir)))  # nosec B701  # noqa: S701
     template = env.get_template("dagster.yaml.j2")
 
     rendered = template.render(backend=backend)

@@ -7,7 +7,12 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
-from cli.security import PrecomputedRender, _eval_condition, _validate_rule_set, run_security_validation
+from cli.security import (
+    PrecomputedRender,
+    _eval_condition,
+    _validate_rule_set,
+    run_security_validation,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _RULE_SCHEMA_PATH = _REPO_ROOT / "cli" / "resources" / "rule-schema.json"

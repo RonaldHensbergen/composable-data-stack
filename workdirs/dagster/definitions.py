@@ -1,7 +1,7 @@
+import csv
 import hashlib
 import importlib
 import importlib.util
-import csv
 import io
 import json
 import os
@@ -27,6 +27,7 @@ from dagster import (
     op,
     sensor,
 )
+
 
 def _load_module_from_path(module_name: str, file_path: Path):
     spec = importlib.util.spec_from_file_location(module_name, file_path)

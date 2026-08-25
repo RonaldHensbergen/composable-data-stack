@@ -17,8 +17,8 @@ from cli.main import (
     list_profiles,
     load_env_file,
     load_saved_profile,
-    resolve_profile_path,
     main,
+    resolve_profile_path,
 )
 from cli.preflight import PreflightCheck
 
@@ -161,7 +161,6 @@ class MainCLITest(unittest.TestCase):
     ):
         """--verify-images must fail closed (CDS-VER-004, exit 1) when plan
         generation fails, so verification can never silently pass."""
-        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
         mock_validate.return_value = []
         mock_run_security.return_value = ([], [])
         mock_build_plan.return_value = (
@@ -206,7 +205,6 @@ class MainCLITest(unittest.TestCase):
         mock_main_render,
         mock_verify_images,
     ):
-        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
         canned_plan = {
             "apiVersion": "cds/v1alpha1",
             "kind": "Plan",
@@ -249,7 +247,6 @@ class MainCLITest(unittest.TestCase):
         at all), `cds security` must not report success -- otherwise an
         attacker-supplied module that trips an unexpected render error can
         evade CDS-SEC-070 entirely while the scan still exits 0."""
-        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
         mock_validate.return_value = []
         mock_run_security.return_value = (
             [
@@ -329,8 +326,6 @@ class MainCLITest(unittest.TestCase):
         mock_build_plan,
         mock_render,
     ):
-        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
-
         mock_validate.return_value = []
         mock_build_plan.return_value = ({"metadata": {"name": "cds-test"}, "modules": []}, [])
         mock_render.return_value = ("name: cds-test\nservices: {}\n", [])
@@ -382,6 +377,7 @@ class MainCLITest(unittest.TestCase):
 
     def test_resolve_project_root_fallback_to_cwd(self):
         import tempfile
+
         from cli.main import resolve_project_root
 
         with tempfile.TemporaryDirectory() as td:
@@ -400,6 +396,7 @@ class MainCLITest(unittest.TestCase):
         its own `.cds` marker must not be shadowed by an unrelated `.git`
         repository further up the tree (e.g. a dotfiles repo at $HOME)."""
         import tempfile
+
         from cli.main import find_project_root
 
         with tempfile.TemporaryDirectory() as td:
@@ -417,6 +414,7 @@ class MainCLITest(unittest.TestCase):
         """A fresh checkout of the CDS repo itself (no `.cds` yet) should
         still resolve to the repo root via `.git`/`pyproject.toml`."""
         import tempfile
+
         from cli.main import find_project_root
 
         with tempfile.TemporaryDirectory() as td:
@@ -433,6 +431,7 @@ class MainCLITest(unittest.TestCase):
         """Same regression as find_project_root, but for the resolver used
         to place rendered docker-compose.yml output for `cds up`/`render`."""
         import tempfile
+
         from cli.main import resolve_project_root
 
         with tempfile.TemporaryDirectory() as td:
@@ -1409,18 +1408,6 @@ spec:
         self.assertIn("E072", output)
         self.assertIn("[FAIL] render", output)
 
-
-class CollectModuleImagesTest(unittest.TestCase):
-
-    _ROOT = Path(__file__).parent.parent
-    _MODULES = _ROOT / "modules"
-    _DOCKERFILE = _ROOT / "images" / "dagster" / "base" / "Dockerfile"
-
-    def test_collects_images_from_real_modules(self):
-        if not self._MODULES.exists():
-            self.skipTest("modules directory not available")
-
-        images = collect_module_images(self._MODULES)
 
 class CollectModuleImagesTest(unittest.TestCase):
 
