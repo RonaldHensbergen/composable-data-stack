@@ -56,3 +56,24 @@ jobs:
           body_path: release_notes.md
           generate_release_notes: true
           draft: true
+
+      - name: Verify the release was published, not left as a draft
+        # softprops/action-gh-release@v3 has consistently published the
+        # release outright (not left it in draft state) for every tag this
+        # repo has pushed so far, despite `draft: true` above -- this is
+        # believed to be a quirk of the action reusing/finalizing the
+        # release record for an existing tag rather than intentional
+        # behavior we can rely on long-term. Fail loudly instead of
+        # silently leaving an unpublished draft if that ever changes, since
+        # PyPI publishing in pypi.yml is a separate, independent workflow
+        # and does not depend on this GitHub release existing/being public.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          is_draft="$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft)"
+          if [ "${is_draft}" = "true" ]; then
+            echo "::error::Release ${GITHUB_REF_NAME} was created as a draft and needs to be published manually: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          echo "OK: release ${GITHUB_REF_NAME} is published."
