@@ -475,7 +475,7 @@ spec:
                     "cds",
                     "get",
                     "demo",
-                    "--remote",
+                    "--local",
                     str(source_root),
                     "--into",
                     str(destination_root),
@@ -500,7 +500,7 @@ spec:
                 "cds",
                 "get",
                 "missing-profile",
-                "--remote",
+                "--local",
                 str(Path(tempfile.gettempdir()) / "cds-missing-source-repo"),
             ],
         ), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):

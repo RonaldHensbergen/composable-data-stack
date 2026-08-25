@@ -4,11 +4,13 @@ import json
 import os
 import stat
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from cli.getter import GetError, fetch_profile
+from cli.getter import DEFAULT_REMOTE, GetError, _parse_github_remote, fetch_profile
 
 
 def _write(path: Path, content: str) -> None:
@@ -76,7 +78,7 @@ class GetterTest(unittest.TestCase):
 
             actions, manifest_path = fetch_profile(
                 "demo",
-                remote=str(source_root),
+                local=str(source_root),
                 destination_root=destination_root,
             )
 
@@ -103,16 +105,16 @@ class GetterTest(unittest.TestCase):
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
 
-            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
             profile_file = destination_root / "profiles" / "demo" / "profile.yaml"
             profile_file.write_text("changed\n", encoding="utf-8")
 
             with self.assertRaises(GetError):
-                fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
 
             fetch_profile(
                 "demo",
-                remote=str(source_root),
+                local=str(source_root),
                 destination_root=destination_root,
                 force=True,
             )
@@ -131,7 +133,7 @@ class GetterTest(unittest.TestCase):
             with contextlib.redirect_stderr(stderr):
                 _, returned_manifest_path = fetch_profile(
                     "demo",
-                    remote=str(source_root),
+                    local=str(source_root),
                     destination_root=destination_root,
                 )
 
@@ -153,13 +155,13 @@ class GetterTest(unittest.TestCase):
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
 
-            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
             profile_file = destination_root / "profiles" / "demo" / "profile.yaml"
             profile_file.write_text("changed\n", encoding="utf-8")
 
             actions, manifest_path = fetch_profile(
                 "demo",
-                remote=str(source_root),
+                local=str(source_root),
                 destination_root=destination_root,
                 dry_run=True,
             )
@@ -229,7 +231,7 @@ COPY shared/python /app/shared/python
             _write(source_root / ".github" / "workflows" / "ci.yml", "name: CI\n")
             _write(source_root / ".env.example", "EXAMPLE=true\n")
 
-            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
 
             self.assertTrue(
                 (destination_root / "images" / "demo" / "hardened" / "Dockerfile").exists()
@@ -274,7 +276,7 @@ spec:
 
             _, manifest_path = fetch_profile(
                 "demo",
-                remote=str(source_root),
+                local=str(source_root),
                 destination_root=destination_root,
             )
 
@@ -325,7 +327,7 @@ COPY ["shared/python", dest]
             )
 
             with self.assertRaises(GetError) as ctx:
-                fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
 
             self.assertIn("Could not parse COPY sources", str(ctx.exception))
 
@@ -372,7 +374,7 @@ COPY "shared/python /app/
             )
 
             with self.assertRaises(GetError) as ctx:
-                fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
 
             self.assertIn("Could not parse COPY sources", str(ctx.exception))
 
@@ -419,7 +421,7 @@ COPY "shared/file#1.txt" /app/
             )
             _write(source_root / "shared" / "file#1.txt", "ok\n")
 
-            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
 
             self.assertTrue((destination_root / "shared" / "file#1.txt").exists())
 
@@ -469,7 +471,7 @@ COPY shared/python /app/shared/python
             )
             _write(source_root / "shared" / "python" / "__init__.py", "")
 
-            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
 
             self.assertTrue((destination_root / "images" / "demo" / "Dockerfile").exists())
             self.assertTrue((destination_root / "shared" / "python" / "__init__.py").exists())
@@ -497,7 +499,7 @@ spec:
             with self.assertRaises(GetError) as ctx:
                 fetch_profile(
                     f"../{outside_root.name}/evil.yaml",
-                    remote=str(source_root),
+                    local=str(source_root),
                     destination_root=destination_root,
                 )
 
@@ -540,7 +542,7 @@ spec:
             )
 
             with self.assertRaises(GetError) as ctx:
-                fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
 
             self.assertIn('build.dockerfile "/etc/passwd" resolves outside the source repository', str(ctx.exception))
 
@@ -554,11 +556,143 @@ spec:
             entrypoint = source_root / "images" / "demo" / "entrypoint.sh"
             os.chmod(entrypoint, 0o755)
 
-            fetch_profile("demo", remote=str(source_root), destination_root=destination_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
 
             destination_entrypoint = destination_root / "images" / "demo" / "entrypoint.sh"
             mode = stat.S_IMODE(destination_entrypoint.stat().st_mode)
             self.assertEqual(mode, 0o755)
+
+
+class GitHubRemoteTest(unittest.TestCase):
+    def _make_tarball(self, root: Path) -> bytes:
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            archive.add(root, arcname="owner-demo-repo-abcdef1")
+        return buffer.getvalue()
+
+    def test_parse_github_remote_accepts_shorthand_and_urls(self) -> None:
+        self.assertEqual(_parse_github_remote("owner/repo"), ("owner", "repo"))
+        self.assertEqual(
+            _parse_github_remote("https://github.com/owner/repo"), ("owner", "repo")
+        )
+        self.assertEqual(
+            _parse_github_remote("https://github.com/owner/repo.git"), ("owner", "repo")
+        )
+        self.assertEqual(
+            _parse_github_remote("git@github.com:owner/repo.git"), ("owner", "repo")
+        )
+        self.assertIsNone(_parse_github_remote("not a remote at all"))
+
+    def test_fetch_profile_downloads_default_remote_when_no_remote_given(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            archive_bytes = self._make_tarball(source_root)
+
+            class _FakeResponse:
+                def __enter__(self_inner):
+                    return self_inner
+
+                def __exit__(self_inner, *exc_info):
+                    return False
+
+                def read(self_inner):
+                    return archive_bytes
+
+            captured_urls: list[str] = []
+
+            def _fake_urlopen(request, timeout=30):
+                captured_urls.append(request.full_url)
+                return _FakeResponse()
+
+            with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
+                actions, manifest_path = fetch_profile(
+                    "demo",
+                    destination_root=destination_root,
+                )
+
+            self.assertEqual(
+                captured_urls,
+                [f"https://api.github.com/repos/{DEFAULT_REMOTE}/tarball/main"],
+            )
+            self.assertGreater(len(actions), 0)
+            self.assertTrue((destination_root / "profiles" / "demo" / "profile.yaml").exists())
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = manifest["profiles"]["demo"]
+            self.assertEqual(entry["remote"], DEFAULT_REMOTE)
+            self.assertEqual(entry["ref"], "main")
+
+    def test_fetch_profile_downloads_explicit_owner_repo_and_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            archive_bytes = self._make_tarball(source_root)
+
+            class _FakeResponse:
+                def __enter__(self_inner):
+                    return self_inner
+
+                def __exit__(self_inner, *exc_info):
+                    return False
+
+                def read(self_inner):
+                    return archive_bytes
+
+            def _fake_urlopen(request, timeout=30):
+                return _FakeResponse()
+
+            with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
+                actions, _ = fetch_profile(
+                    "demo",
+                    remote="RonaldHensbergen/composable-data-stack",
+                    ref="v1.2.3",
+                    destination_root=destination_root,
+                )
+
+            self.assertGreater(len(actions), 0)
+            self.assertTrue((destination_root / "modules" / "apps" / "demo" / "module.yaml").exists())
+
+    def test_fetch_profile_raises_get_error_on_download_failure(self) -> None:
+        from urllib.error import URLError
+
+        def _fake_urlopen(request, timeout=30):
+            raise URLError("network unreachable")
+
+        with tempfile.TemporaryDirectory() as dest_dir:
+            with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
+                with self.assertRaises(GetError) as ctx:
+                    fetch_profile("demo", destination_root=Path(dest_dir))
+
+            self.assertIn("Could not download", str(ctx.exception))
+
+    def test_fetch_profile_rejects_unresolvable_remote(self) -> None:
+        with tempfile.TemporaryDirectory() as dest_dir:
+            with self.assertRaises(GetError) as ctx:
+                fetch_profile(
+                    "demo",
+                    remote="this is not a remote",
+                    destination_root=Path(dest_dir),
+                )
+            self.assertIn("Could not resolve remote", str(ctx.exception))
+
+
+    def test_fetch_profile_rejects_both_remote_and_local(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            with self.assertRaises(GetError) as ctx:
+                fetch_profile(
+                    "demo",
+                    remote="owner/repo",
+                    local=str(source_root),
+                    destination_root=destination_root,
+                )
+            self.assertIn("Specify only one of --remote and --local", str(ctx.exception))
 
 
 if __name__ == "__main__":
