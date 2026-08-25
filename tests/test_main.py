@@ -395,6 +395,60 @@ class MainCLITest(unittest.TestCase):
                 
                 self.assertEqual(resolved, Path("/mock/cwd").resolve())
 
+    def test_find_project_root_prefers_nearby_cds_over_ancestor_git(self):
+        """Regression test: a `cds get`/`cds use` working directory that has
+        its own `.cds` marker must not be shadowed by an unrelated `.git`
+        repository further up the tree (e.g. a dotfiles repo at $HOME)."""
+        import tempfile
+        from cli.main import find_project_root
+
+        with tempfile.TemporaryDirectory() as td:
+            home_like_root = Path(td)
+            (home_like_root / ".git").mkdir()
+            work_dir = home_like_root / "tmp"
+            work_dir.mkdir()
+            (work_dir / ".cds").mkdir()
+
+            resolved = find_project_root(work_dir)
+
+            self.assertEqual(resolved, work_dir.resolve())
+
+    def test_find_project_root_falls_back_to_git_when_no_cds_marker(self):
+        """A fresh checkout of the CDS repo itself (no `.cds` yet) should
+        still resolve to the repo root via `.git`/`pyproject.toml`."""
+        import tempfile
+        from cli.main import find_project_root
+
+        with tempfile.TemporaryDirectory() as td:
+            repo_root = Path(td)
+            (repo_root / ".git").mkdir()
+            sub_dir = repo_root / "profiles" / "some-profile"
+            sub_dir.mkdir(parents=True)
+
+            resolved = find_project_root(sub_dir)
+
+            self.assertEqual(resolved, repo_root.resolve())
+
+    def test_resolve_project_root_prefers_nearby_cds_over_ancestor_git(self):
+        """Same regression as find_project_root, but for the resolver used
+        to place rendered docker-compose.yml output for `cds up`/`render`."""
+        import tempfile
+        from cli.main import resolve_project_root
+
+        with tempfile.TemporaryDirectory() as td:
+            home_like_root = Path(td)
+            (home_like_root / ".git").mkdir()
+            work_dir = home_like_root / "tmp"
+            work_dir.mkdir()
+            (work_dir / ".cds").mkdir()
+            profile_path = work_dir / "profiles" / "some-profile" / "profile.yaml"
+            profile_path.parent.mkdir(parents=True)
+            profile_path.touch()
+
+            resolved = resolve_project_root(str(profile_path))
+
+            self.assertEqual(resolved, work_dir.resolve())
+
     def test_init_generates_env_file_from_profile_secrets(self):
         import tempfile
 
