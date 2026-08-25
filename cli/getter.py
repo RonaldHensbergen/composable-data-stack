@@ -669,30 +669,36 @@ def _read_tracking_manifest(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"version": 1, "profiles": {}}
 
-    malformed_reason: str | None = None
     try:
         raw_text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        malformed_reason = f"could not read file: {exc}"
+        # The file could not be read at all, so it cannot be backed up either;
+        # skip the doomed copy attempt and report the read failure directly.
+        print(
+            f"WARNING {path} could not be read ({exc}); resetting tracking manifest.",
+            file=sys.stderr,
+        )
+        return {"version": 1, "profiles": {}}
+
+    malformed_reason: str
+    try:
+        data = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        malformed_reason = f"invalid JSON: {exc}"
     else:
-        try:
-            data = json.loads(raw_text)
-        except json.JSONDecodeError as exc:
-            malformed_reason = f"invalid JSON: {exc}"
+        if not isinstance(data, dict):
+            malformed_reason = "manifest root must be a JSON object"
         else:
-            if not isinstance(data, dict):
-                malformed_reason = "manifest root must be a JSON object"
-            else:
-                data.setdefault("version", 1)
-                data.setdefault("profiles", {})
-                return data
+            data.setdefault("version", 1)
+            data.setdefault("profiles", {})
+            return data
 
     _backup_malformed_manifest(path, malformed_reason)
     return {"version": 1, "profiles": {}}
 
 
-def _backup_malformed_manifest(path: Path, reason: str | None) -> None:
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+def _backup_malformed_manifest(path: Path, reason: str) -> None:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     backup_path = path.with_name(f"{path.name}.corrupt-{timestamp}")
     try:
         shutil.copy2(path, backup_path)

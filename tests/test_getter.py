@@ -143,11 +143,115 @@ class GetterTest(unittest.TestCase):
 
             warning_output = stderr.getvalue()
             self.assertIn("WARNING", warning_output)
-            self.assertIn("malformed", warning_output)
+            self.assertIn("is malformed", warning_output)
+            self.assertIn("invalid JSON", warning_output)
 
             backups = list(manifest_path.parent.glob("get-manifest.json.corrupt-*"))
             self.assertEqual(len(backups), 1)
             self.assertEqual(backups[0].read_text(encoding="utf-8"), "{not valid json")
+            self.assertIn(backups[0].name, warning_output)
+
+    def test_fetch_profile_backs_up_and_warns_on_non_dict_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            manifest_path = destination_root / ".cds" / "get-manifest.json"
+            _write(manifest_path, "[1, 2, 3]")
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                fetch_profile(
+                    "demo",
+                    local=str(source_root),
+                    destination_root=destination_root,
+                )
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["profiles"]["demo"]["requestedProfile"], "demo")
+
+            warning_output = stderr.getvalue()
+            self.assertIn("WARNING", warning_output)
+            self.assertIn("is malformed", warning_output)
+            self.assertIn("manifest root must be a JSON object", warning_output)
+
+            backups = list(manifest_path.parent.glob("get-manifest.json.corrupt-*"))
+            self.assertEqual(len(backups), 1)
+            self.assertIn(backups[0].name, warning_output)
+
+    def test_fetch_profile_warns_without_backup_when_manifest_unreadable(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            manifest_path = destination_root / ".cds" / "get-manifest.json"
+            _write(manifest_path, "{}")
+
+            original_read_text = Path.read_text
+
+            def _raising_read_text(self: Path, *args: object, **kwargs: object) -> str:
+                if self.resolve() == manifest_path.resolve():
+                    raise OSError("permission denied")
+                return original_read_text(self, *args, **kwargs)
+
+            stderr = io.StringIO()
+            with patch.object(Path, "read_text", _raising_read_text):
+                with contextlib.redirect_stderr(stderr):
+                    fetch_profile(
+                        "demo",
+                        local=str(source_root),
+                        destination_root=destination_root,
+                    )
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertEqual(manifest["profiles"]["demo"]["requestedProfile"], "demo")
+
+            warning_output = stderr.getvalue()
+            self.assertIn("WARNING", warning_output)
+            self.assertIn("could not be read", warning_output)
+            self.assertIn("permission denied", warning_output)
+            self.assertNotIn("is malformed", warning_output)
+
+            backups = list(manifest_path.parent.glob("get-manifest.json.corrupt-*"))
+            self.assertEqual(len(backups), 0)
+
+    def test_fetch_profile_loads_valid_manifest_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            manifest_path = destination_root / ".cds" / "get-manifest.json"
+            _write(
+                manifest_path,
+                json.dumps(
+                    {
+                        "version": 1,
+                        "profiles": {
+                            "other": {"requestedProfile": "other", "files": []},
+                        },
+                    }
+                ),
+            )
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                fetch_profile(
+                    "demo",
+                    local=str(source_root),
+                    destination_root=destination_root,
+                )
+
+            self.assertEqual(stderr.getvalue(), "")
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertIn("other", manifest["profiles"])
+            self.assertEqual(manifest["profiles"]["demo"]["requestedProfile"], "demo")
+
+            backups = list(manifest_path.parent.glob("get-manifest.json.corrupt-*"))
+            self.assertEqual(len(backups), 0)
 
     def test_fetch_profile_dry_run_ignores_conflicting_files(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
