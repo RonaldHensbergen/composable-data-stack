@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "composable-data-stack"
-version = "0.5.1"
+version = "0.5.2"
 description = "CLI for validating and composing composable data stack profiles"
 readme = "README.md"
 license = "Apache-2.0"
