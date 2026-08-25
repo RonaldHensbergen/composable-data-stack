@@ -1321,6 +1321,94 @@ spec:
 
         self.assertEqual(result, 1)
 
+    def test_test_command_fails_closed_end_to_end_on_typed_substitution_injection_poc(self):
+        """End-to-end regression for GHSA-gmc4-jw3j-mqcf / E072: a profile
+        that drives a module's `command` field via a pure `${config.*}`
+        substitution resolving to a list must fail `cds test` overall, not
+        just the isolated renderer unit check. This exercises the real
+        validate -> security -> plan -> render pipeline (no mocks): the
+        renderer's E072 diagnostic must cause the "render" stage to fail
+        and the overall `cds test` exit code to be non-zero, locking in the
+        end-to-end behavior rather than only unit-testing render_compose()
+        in isolation."""
+
+        def write(path: Path, content: str) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            profiles_root = root / "profiles"
+            modules_root = root / "modules"
+
+            write(
+                modules_root / "apps" / "evil" / "module.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: evil
+  category: apps
+  version: "0.1.0"
+spec:
+  runtime:
+    type: container
+    service:
+      name: evil
+      ports:
+        - name: app
+          containerPort: 8080
+          protocol: TCP
+  configSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      cmd:
+        type: array
+        default: []
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          image: alpine:3.19
+          command: "${config.cmd}"
+""",
+            )
+            write(
+                profiles_root / "poc" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: poc
+  environment: local
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: evil
+      source: apps/evil
+      version: "0.1.0"
+      enabled: true
+      config:
+        cmd:
+          - /bin/sh
+          - -c
+          - cat /etc/shadow > /host/tmp/shadow.txt
+""",
+            )
+
+            with patch.dict(
+                os.environ,
+                {"CDS_PROFILE_PATH": str(profiles_root), "CDS_MODULE_PATH": str(modules_root)},
+                clear=False,
+            ), patch.object(sys, "argv", ["cds", "test", "poc"]), contextlib.redirect_stdout(io.StringIO()) as stdout:
+                result = main()
+
+        self.assertEqual(result, 1)
+        output = stdout.getvalue()
+        self.assertIn("E072", output)
+        self.assertIn("[FAIL] render", output)
+
 
 class CollectModuleImagesTest(unittest.TestCase):
 

@@ -6,6 +6,7 @@ from unittest import mock
 
 import yaml
 
+from cli.validator import has_errors
 from cli.renderer import render_compose
 
 class RendererRegressionTest(unittest.TestCase):
@@ -566,6 +567,218 @@ class RendererRegressionTest(unittest.TestCase):
         # The broken placeholder is still present in the output (render_compose
         # does not fail closed), but the caller can now detect it via has_errors().
         self.assertIn("${bindings.cache-service.connectionUri}", output)
+
+    def test_render_compose_rejects_typed_pure_substitution_in_command_field(self):
+        """A module template that uses a pure ${config.*} substitution in the
+        `command` field position must not splice a profile-supplied list
+        verbatim into the rendered Compose output: this would let an
+        untrusted profile inject arbitrary command-line arguments through
+        module config (GHSA-gmc4-jw3j-mqcf)."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "evil2",
+                    "config": {
+                        "cmd": ["/bin/sh", "-c", "cat /etc/shadow > /host/tmp/shadow.txt"],
+                    },
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "alpine:3.19",
+                                    "command": "${config.cmd}",
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].code, "E072")
+        self.assertIn("command", errors[0].message)
+        # render_compose does not fail closed (same convention as E071); the
+        # caller is expected to check has_errors() and abort before using
+        # `output` -- verified here via has_errors() rather than asserting
+        # the attacker payload is absent from the raw render.
+        self.assertTrue(has_errors(diagnostics))
+
+    def test_render_compose_rejects_typed_pure_substitution_in_environment_and_volumes(self):
+        """Same as above for `environment` (dict injection) and `volumes`
+        (host bind mount injection) field positions."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "evil2",
+                    "config": {
+                        "envmap": {"ATTACKER_KEY": "injected"},
+                        "vols": ["/:/host:rw"],
+                    },
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "alpine:3.19",
+                                    "environment": "${config.envmap}",
+                                    "volumes": "${config.vols}",
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        errors = {d.code: d for d in diagnostics if d.level == "error"}
+        self.assertIn("E072", errors)
+        error_messages = [d.message for d in diagnostics if d.code == "E072"]
+        self.assertTrue(any("environment" in m for m in error_messages))
+        self.assertTrue(any("volumes" in m for m in error_messages))
+        self.assertTrue(has_errors(diagnostics))
+
+    def test_render_compose_rejects_typed_pure_substitution_for_scalar_escalation_fields(self):
+        """`privileged`, `network_mode`, and `pid` are already scalar fields,
+        so a dict/list check alone would miss a profile-supplied scalar that
+        resolves to a host-escalating value (privileged: true, or
+        network_mode/pid: "host"). These must still be flagged."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "evil3",
+                    "config": {
+                        "priv": True,
+                        "netmode": "host",
+                        "pidmode": "host",
+                    },
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "alpine:3.19",
+                                    "privileged": "${config.priv}",
+                                    "network_mode": "${config.netmode}",
+                                    "pid": "${config.pidmode}",
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        error_messages = [d.message for d in diagnostics if d.code == "E072"]
+        self.assertTrue(any("privileged" in m for m in error_messages))
+        self.assertTrue(any("network_mode" in m for m in error_messages))
+        self.assertTrue(any(
+            "pid" in m and "network_mode" not in m for m in error_messages
+        ))
+        self.assertTrue(has_errors(diagnostics))
+
+    def test_render_compose_allows_safe_scalar_values_for_escalation_fields(self):
+        """A profile-supplied scalar that does NOT match a known dangerous
+        value (e.g. privileged: false, network_mode: "bridge") must not be
+        flagged: only the specific escalating values are unsafe."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "web",
+                    "config": {"priv": False, "netmode": "bridge"},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "web:latest",
+                                    "privileged": "${config.priv}",
+                                    "network_mode": "${config.netmode}",
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+
+    def test_render_compose_allows_mixed_substitution_in_unsafe_fields(self):
+        """Mixed substitution (string-concatenated) always yields a str, so
+        it remains safe/allowed in these field positions -- only a *pure*
+        (whole-field) substitution can smuggle in a non-scalar type."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "web",
+                    "config": {"level": "debug"},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "web:latest",
+                                    "command": "run --log-level=${config.level}",
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        self.assertIn("run --log-level=debug", output)
+
+    def test_render_compose_does_not_flag_typed_pure_substitution_outside_unsafe_fields(self):
+        """Pure substitution to a dict/list value in a field position that
+        isn't compose-dangerous (e.g. a custom `labels`-adjacent field this
+        module happens to name `metadata`) must not be flagged; only the
+        known dangerous compose field names are checked."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "web",
+                    "config": {"extra": {"team": "data"}},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "web:latest",
+                                    "x-metadata": "${config.extra}",
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        self.assertEqual(compose["services"]["web-app"]["x-metadata"], {"team": "data"})
 
     def test_render_compose_does_not_flag_legitimate_compose_native_placeholders(self):
         """${CDS_*} secret placeholders and bare ${VAR}/${VAR:-default} Docker
