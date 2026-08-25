@@ -6,9 +6,16 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-25
+
 ### Added
 
 - Added a `--hardened` CLI flag to `cds up`, `cds render`, and `cds test`, which overrides `config.image.variant` to `hardened` for any module whose configSchema exposes an `image.variant` property (currently only `modules/orchestration/dagster`) before planning, so users no longer need to hand-edit their profile YAML to select the Alpine-hardened Dagster image build (#373).
+
+### Changed
+
+- Expanded the `ruff` lint scope in `pyproject.toml` from pyupgrade-only (`UP`) to also include pyflakes, bugbear, bandit, and isort (`F`, `B`, `S`, `I`), and fixed or annotated (`# noqa`) every finding surfaced by the wider scope across `cli/`, `tests/`, and `workdirs/`. This also uncovered and fixed a dormant bug in `tests/test_module_isolation.py`: `setUpClass` read a module file handle after it had already been closed, so `cls.modules` was always empty and `test_no_cross_module_service_references` silently never executed its assertions (#497, #498, #499).
+
 ### Fixed
 
 - `cli/renderer.py` no longer allows a module template's pure `${config.*}`/`${bindings.*}` substitution to splice a profile-supplied dict/list verbatim into compose-dangerous service fields (`command`, `entrypoint`, `environment`, `volumes`, `cap_add`, `security_opt`, `ports`, and similar). This closes a compose-injection path where an untrusted profile could smuggle arbitrary command args, environment variables, or host bind mounts through module config; such templates now fail rendering with a new `E072` diagnostic.
