@@ -680,7 +680,7 @@ def _read_tracking_manifest(path: Path) -> dict[str, Any]:
         )
         return {"version": 1, "profiles": {}}
 
-    malformed_reason: str
+    malformed_reason: str = ""
     try:
         data = json.loads(raw_text)
     except json.JSONDecodeError as exc:
