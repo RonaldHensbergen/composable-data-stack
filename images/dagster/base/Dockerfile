@@ -1,4 +1,4 @@
-FROM python:3.14-slim@sha256:8a14a31f4bf634c04722154f30eb33998b4068de8b83b6b2800ec1b7238555d0 AS builder
+FROM python:3.14-slim@sha256:83ff1d245a3d57d04152252d3ef9cb361494d0b3395abd65a5ebe91c401c8e83 AS builder
 
 ARG DB_BACKEND=postgres
 
@@ -18,7 +18,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt && \
     esac && \
     python -m pip uninstall --yes pip
 
-FROM python:3.14-slim@sha256:8a14a31f4bf634c04722154f30eb33998b4068de8b83b6b2800ec1b7238555d0
+FROM python:3.14-slim@sha256:83ff1d245a3d57d04152252d3ef9cb361494d0b3395abd65a5ebe91c401c8e83
 
 ARG DB_BACKEND=postgres
 
