@@ -646,6 +646,78 @@ class RendererRegressionTest(unittest.TestCase):
         self.assertTrue(any("volumes" in m for m in error_messages))
         self.assertTrue(has_errors(diagnostics))
 
+    def test_render_compose_rejects_typed_pure_substitution_for_scalar_escalation_fields(self):
+        """`privileged`, `network_mode`, and `pid` are already scalar fields,
+        so a dict/list check alone would miss a profile-supplied scalar that
+        resolves to a host-escalating value (privileged: true, or
+        network_mode/pid: "host"). These must still be flagged."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "evil3",
+                    "config": {
+                        "priv": True,
+                        "netmode": "host",
+                        "pidmode": "host",
+                    },
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "alpine:3.19",
+                                    "privileged": "${config.priv}",
+                                    "network_mode": "${config.netmode}",
+                                    "pid": "${config.pidmode}",
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        error_messages = [d.message for d in diagnostics if d.code == "E072"]
+        self.assertTrue(any("privileged" in m for m in error_messages))
+        self.assertTrue(any("network_mode" in m for m in error_messages))
+        self.assertTrue(any(
+            "pid" in m and "network_mode" not in m for m in error_messages
+        ))
+        self.assertTrue(has_errors(diagnostics))
+
+    def test_render_compose_allows_safe_scalar_values_for_escalation_fields(self):
+        """A profile-supplied scalar that does NOT match a known dangerous
+        value (e.g. privileged: false, network_mode: "bridge") must not be
+        flagged: only the specific escalating values are unsafe."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "web",
+                    "config": {"priv": False, "netmode": "bridge"},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "web:latest",
+                                    "privileged": "${config.priv}",
+                                    "network_mode": "${config.netmode}",
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+
     def test_render_compose_allows_mixed_substitution_in_unsafe_fields(self):
         """Mixed substitution (string-concatenated) always yields a str, so
         it remains safe/allowed in these field positions -- only a *pure*

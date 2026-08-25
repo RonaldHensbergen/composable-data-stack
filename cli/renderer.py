@@ -398,7 +398,24 @@ _UNSAFE_TYPED_SUBSTITUTION_FIELDS = frozenset({
     "tmpfs",
     "dns",
     "extra_hosts",
+    "logging",
+    "expose",
+    "depends_on",
+    "build",
 })
+
+# Fields where the field itself is already scalar (bool/str), so a dict/list
+# resolution is not the only attacker-relevant outcome: a profile-controlled
+# scalar value can *also* grant host-level escalation without ever changing
+# the field's expected shape (e.g. `privileged: "${config.priv}"` resolving
+# to `True`, or `network_mode`/`pid` resolving to `"host"`). These are
+# checked against specific dangerous scalar values, in addition to the
+# dict/list check above.
+_UNSAFE_SCALAR_SUBSTITUTION_VALUES: dict[str, frozenset[Any]] = {
+    "privileged": frozenset({True}),
+    "network_mode": frozenset({"host"}),
+    "pid": frozenset({"host"}),
+}
 
 
 def _check_unsafe_field_type_substitutions(
@@ -418,6 +435,13 @@ def _check_unsafe_field_type_substitutions(
 
     This does not affect mixed substitution (e.g. "db://${bindings.db.host}"),
     which is always string-concatenated back into a str.
+
+    Beyond the dict/list check, a small set of fields (`privileged`,
+    `network_mode`, `pid`) are already scalar by design, so a resolved value
+    is also flagged if it matches a known dangerous scalar (e.g.
+    `privileged` resolving to `True`, or `network_mode`/`pid` resolving to
+    `"host"`), since a profile can drive host-level escalation through
+    module config without ever changing the field's shape.
     """
     diagnostics: list[Diagnostic] = []
     pure_pattern = re.compile(r"^\$\{([^}]+)\}$")
@@ -431,6 +455,7 @@ def _check_unsafe_field_type_substitutions(
             continue
 
         resolved = _resolve_expr(match.group(1), context)
+        unsafe_scalars = _UNSAFE_SCALAR_SUBSTITUTION_VALUES.get(field, frozenset())
         if isinstance(resolved, (dict, list)):
             diagnostics.append(Diagnostic(
                 level="error",
@@ -443,6 +468,20 @@ def _check_unsafe_field_type_substitutions(
                     "letting an untrusted profile inject arbitrary command/environment/volumes "
                     "entries. Restructure the module template to interpolate scalar leaf values "
                     "individually instead of substituting the whole field."
+                ),
+                path=f"module:{module_id}.implementation.compose.services.{service_name}.{field}",
+            ))
+        elif resolved in unsafe_scalars:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E072",
+                message=(
+                    f'Module "{module_id}" service "{service_name}" field "{field}" resolves '
+                    f'"${{{match.group(1)}}}" to {resolved!r}, a host-escalating value for this '
+                    "field. A profile-supplied config value would grant host-level privileges "
+                    "(privileged mode, or host network/PID namespace sharing) through what "
+                    "should be module-controlled configuration. Do not let profile-controlled "
+                    "config drive this field."
                 ),
                 path=f"module:{module_id}.implementation.compose.services.{service_name}.{field}",
             ))
