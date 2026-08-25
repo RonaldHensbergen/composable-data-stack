@@ -633,11 +633,42 @@ Composition uses the exact same deep-merge/module-merge-by-id engine as
 environment overlays: mappings merge recursively, `spec.modules` entries
 merge by stable `id`, and any other array is replaced wholesale rather than
 concatenated. Parent profiles may themselves use `extends` (chains are
-resolved transitively); cycles, missing parents, and parents that resolve
-outside the profiles root are rejected with a diagnostic before anything
-else runs. `extends` and `--environment` compose together: parents are
-merged first, then the child, then the selected environment overlay is
-applied on top of that fully-composed result.
+resolved transitively).
+
+`extends` is not a CLI flag — it's read directly from `profile.yaml`, so
+every profile-consuming command resolves it automatically, with no new
+syntax to learn:
+
+```bash
+cds validate analytics-prod
+cds plan analytics-prod
+cds up analytics-prod
+```
+
+A profile can extend more than one parent, which is merged in the order
+listed (later entries win over earlier ones):
+
+```yaml
+extends:
+  - networking-base
+  - observability-base
+```
+
+`extends` and `--environment` compose together: parents are merged first,
+then the child, then the selected environment overlay is applied on top of
+that fully-composed result — so a shared base profile and environment
+promotion can both be used without duplicating configuration in either
+dimension.
+
+A malformed `extends` chain fails validation/planning before anything else
+runs, with a dedicated diagnostic code:
+
+|Code|Meaning|
+|---|---|
+|E103|`extends` is missing, not a list, empty, or contains a non-string/empty entry|
+|E104|A parent reference resolves outside the profiles root|
+|E105|A referenced parent profile does not exist|
+|E106|A cycle was detected in the `extends` chain|
 
 ---
 
