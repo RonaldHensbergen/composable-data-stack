@@ -131,6 +131,105 @@ class PlannerRegressionTest(unittest.TestCase):
                 "postgres://localhost:5432/test",
             )
 
+    def _write_module_with_image_variant(self, module_dir: Path, supports_variant: bool) -> None:
+        import yaml
+
+        config_schema: dict = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+        }
+        if supports_variant:
+            config_schema["properties"]["image"] = {
+                "type": "object",
+                "additionalProperties": False,
+                "default": {},
+                "properties": {
+                    "variant": {
+                        "type": "string",
+                        "enum": ["base", "hardened"],
+                        "default": "base",
+                    }
+                },
+            }
+        module_def = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Module",
+            "metadata": {"name": module_dir.name},
+            "spec": {
+                "configSchema": config_schema,
+                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+            },
+        }
+        module_dir.mkdir(parents=True)
+        (module_dir / "module.yaml").write_text(yaml.safe_dump(module_def), encoding="utf-8")
+
+    def test_build_plan_hardened_flag_overrides_image_variant_for_supporting_modules(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            self._write_module_with_image_variant(profile_dir / "modules" / "dagster", supports_variant=True)
+            self._write_module_with_image_variant(profile_dir / "modules" / "postgres", supports_variant=False)
+
+            profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "local-test"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {"id": "dagster", "source": "./modules/dagster", "enabled": True, "config": {}},
+                        {"id": "postgres", "source": "./modules/postgres", "enabled": True, "config": {}},
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+
+            import yaml
+
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+            plan, diagnostics = planner.build_plan(str(profile_file), hardened=True)
+
+            self.assertIsNotNone(plan)
+            self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+
+            dagster_entry = next(m for m in plan["modules"] if m["id"] == "dagster")
+            postgres_entry = next(m for m in plan["modules"] if m["id"] == "postgres")
+            self.assertEqual(dagster_entry["config"]["image"]["variant"], "hardened")
+            self.assertNotIn("image", postgres_entry["config"])
+
+    def test_build_plan_without_hardened_flag_leaves_default_variant(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            self._write_module_with_image_variant(profile_dir / "modules" / "dagster", supports_variant=True)
+
+            profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "local-test"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {"id": "dagster", "source": "./modules/dagster", "enabled": True, "config": {}},
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+
+            import yaml
+
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+            plan, diagnostics = planner.build_plan(str(profile_file))
+
+            self.assertIsNotNone(plan)
+            dagster_entry = next(m for m in plan["modules"] if m["id"] == "dagster")
+            self.assertEqual(dagster_entry["config"]["image"]["variant"], "base")
+
     def test_build_plan_resolves_provider_contract_placeholders_for_consumers(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
