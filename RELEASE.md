@@ -35,7 +35,8 @@ This document describes how to create a release.
    git tag vX.Y.Z
    git push origin main --tags
    ```
-7. Pushing the tag triggers `.github/workflows/release.yml`, which creates a draft GitHub release automatically. The release body is populated from the matching `CHANGELOG.md` section (falling back to a note if no entry is found), plus GitHub's auto-generated commit comparison. Review the draft and publish it manually. The workflow intentionally leaves it as a draft so breaking changes and contributor credit can be verified against the Release Checklist below first.
+7. Pushing the tag triggers `.github/workflows/release.yml`, which creates a GitHub release automatically. The release body is populated from the matching `CHANGELOG.md` section (falling back to a note if no entry is found), plus GitHub's auto-generated commit comparison. In practice `action-gh-release` has published every release outright on creation, but the workflow still passes `draft: true` and then verifies the result was actually published, failing the job if a release is ever left as an unpublished draft -- check the workflow run (or the release page) if that happens.
+8. If you forget to tag: `.github/workflows/release-tag-reminder.yml` runs on every push to `main` (plus a daily backstop) and opens/updates a tracking issue titled "Release vX.Y.Z is untagged on main" whenever `pyproject.toml`'s version has no matching git tag yet. It auto-closes once the tag exists. Don't rely on it as your only signal -- tag promptly after merging a `chore(release): bump version to X.Y.Z` PR.
 
 ## TestPyPI validation
 
