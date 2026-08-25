@@ -9,6 +9,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -37,6 +38,36 @@ jobs:
             "$GITHUB_WORKSPACE/profiles/local-dagster-postgres-superset/profile.yaml"
           "$RUNNER_TEMP/cds-wheel/bin/python" -c \
             "from cli.security import _validate_rule_set; assert _validate_rule_set()['rules']"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - name: Smoke test full stack via cds get/init/up
+        # Exercises the real end-user flow: install the built wheel with no
+        # source checkout on CDS_PROFILE_PATH/CDS_MODULE_PATH, `cds get` a
+        # profile and its assets into an empty directory, `cds init` it, and
+        # bring the full docker compose stack up. This is the only check
+        # that would have caught bugs limited to the packaged/get-fetched
+        # layout (e.g. missing bundled assets, or project-root resolution
+        # regressions) rather than the source-checkout install exercised
+        # above.
+        run: |
+          stack_dir="$RUNNER_TEMP/cds-stack-smoke"
+          rm -rf "$stack_dir"
+          mkdir -p "$stack_dir"
+          cd "$stack_dir"
+          "$RUNNER_TEMP/cds-wheel/bin/cds" get local-dagster-postgres-superset \
+            --local "$GITHUB_WORKSPACE"
+          "$RUNNER_TEMP/cds-wheel/bin/cds" init local-dagster-postgres-superset
+          "$RUNNER_TEMP/cds-wheel/bin/cds" up local-dagster-postgres-superset --timeout 600
+
+      - name: Tear down full stack smoke test
+        if: always()
+        run: |
+          stack_dir="$RUNNER_TEMP/cds-stack-smoke"
+          if [ -f "$stack_dir/docker-compose.yml" ]; then
+            docker compose -f "$stack_dir/docker-compose.yml" down -v --remove-orphans || true
+          fi
 
       - name: Upload immutable distributions
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

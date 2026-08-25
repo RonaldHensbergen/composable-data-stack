@@ -9,6 +9,26 @@ The format is based on Keep a Changelog.
 ### Added
 
 - Added a `--hardened` CLI flag to `cds up`, `cds render`, and `cds test`, which overrides `config.image.variant` to `hardened` for any module whose configSchema exposes an `image.variant` property (currently only `modules/orchestration/dagster`) before planning, so users no longer need to hand-edit their profile YAML to select the Alpine-hardened Dagster image build (#373).
+### Fixed
+
+- `cds get` no longer writes fetched files or the tracking manifest through a pre-planted symlink at the destination path. `_find_conflicts` now treats any symlink destination (including a dangling one, which `Path.exists()` reports as absent) as a conflict, and the copy/manifest-write steps unlink any symlink at the destination before writing, so a symlink can no longer be used to redirect fetched content onto an arbitrary path outside the destination tree (#474).
+
+## [0.5.2] - 2026-08-25
+
+### Changed
+
+- `find_project_root()`/`resolve_project_root()` in `cli/main.py` now check for a `.cds` directory (CDS's own state marker, created by `cds get`/`cds use`) at each ancestor level, alongside the existing `pyproject.toml`/`.git` markers. A `.cds`-marked working directory is recognized as the project root immediately, instead of being shadowed by an unrelated ancestor repository (e.g. a dotfiles repo at `$HOME`) further up the tree (#512).
+- `build-python-package.yml` (reused by `testpypi.yml`/`pypi.yml`) now also runs a full-stack install smoke test: it installs the built wheel with no source checkout on `CDS_PROFILE_PATH`/`CDS_MODULE_PATH`, fetches a profile via `cds get --local`, initializes it with `cds init`, and brings the full docker compose stack up, confirming every service reports healthy before the package is published (#512).
+
+### Fixed
+
+- `cds get` no longer discards a malformed or unreadable `.cds/get-manifest.json` tracking manifest silently. Invalid JSON or a non-object root is backed up alongside the original file and reported with a `WARNING` naming the reason and the backup path; a manifest that cannot even be read is reported without attempting a doomed backup copy (#495).
+
+## [0.5.1] - 2026-08-24
+
+### Changed
+
+- `cds get` now downloads a profile and its module/runtime assets from GitHub by default (via the tarball API) instead of copying from a local checkout. Use `--local <dir>` to opt back into the previous local-directory behavior; `--remote <owner/repo>` and `--ref <branch|tag|sha>` select a specific fork/revision to download (#493).
 
 ## [0.5.0] - 2026-08-24
 
