@@ -49,6 +49,13 @@ through `.github/workflows/testpypi.yml`:
 4. Install the uploaded wheel using the commands in `docs/packaging.md`.
 5. Confirm `cds --help` and security validation work outside a source checkout.
 
+Steps 4-5 are also exercised automatically pre-publish: the shared
+`build-python-package.yml` job installs the built wheel and runs a full `cds
+get` -> `cds init` -> `cds up` cycle from an empty directory with no
+`CDS_PROFILE_PATH`/`CDS_MODULE_PATH` pointing at a source checkout, so any
+break in that flow fails CI before publishing rather than only surfacing on
+manual post-install testing.
+
 The workflow uses GitHub OIDC (`id-token: write`) and must not be given a PyPI
 API token. TestPyPI publication does not publish or reserve the version on
 production PyPI.

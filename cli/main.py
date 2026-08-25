@@ -114,12 +114,19 @@ def get_modules_root() -> Path:
 def find_project_root(start: Path | None = None) -> Path:
     """
     Walk up from `start` (default: current working directory) looking for a
-    project root marker (pyproject.toml or .git). Falls back to `start` itself
-    if no marker is found.
+    project root marker: `.cds` (CDS's own state directory, created by
+    `cds get`/`cds use`), `pyproject.toml`, or `.git`. `.cds` is checked first
+    at each level so a CDS working directory takes priority over an unrelated
+    ancestor repository (e.g. a dotfiles repo at $HOME) that happens to sit
+    further up the tree. Falls back to `start` itself if no marker is found.
     """
     current = (start or Path.cwd()).resolve()
     for directory in [current, *current.parents]:
-        if (directory / "pyproject.toml").exists() or (directory / ".git").exists():
+        if (
+            (directory / ".cds").exists()
+            or (directory / "pyproject.toml").exists()
+            or (directory / ".git").exists()
+        ):
             return directory
     return current
 
@@ -335,13 +342,19 @@ def resolve_project_root(profile_path: str) -> Path:
     """
     Resolve a project root for output artifacts.
 
-    The resolver walks up from the selected profile location and picks the first
-    directory containing either pyproject.toml or .git. If no marker is found,
-    it falls back to the current working directory.
+    The resolver walks up from the selected profile location and picks the
+    first directory containing `.cds` (CDS's own state directory, checked
+    first so it takes priority over an unrelated ancestor repository),
+    `pyproject.toml`, or `.git`. If no marker is found, it falls back to the
+    current working directory.
     """
     start = Path(profile_path).resolve().parent
     for directory in [start, *start.parents]:
-        if (directory / "pyproject.toml").exists() or (directory / ".git").exists():
+        if (
+            (directory / ".cds").exists()
+            or (directory / "pyproject.toml").exists()
+            or (directory / ".git").exists()
+        ):
             return directory
     return Path.cwd().resolve()
 
