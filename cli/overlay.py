@@ -160,9 +160,15 @@ def _merge_profile_docs(
 
 
 def _derive_profiles_root(profile_dir: Path) -> Path | None:
+    # Use the innermost (last, i.e. closest to profile_dir) "profiles"
+    # segment, not the first/outermost one. A path can contain more than one
+    # segment literally named "profiles" (e.g. a checkout at
+    # ".../profiles/<repo>/profiles/prod"); picking the outermost match would
+    # derive an overly broad root and let `extends` escape the profile's own
+    # repo-local profiles/ tree into an unrelated sibling project.
     parts = profile_dir.parts
-    for index, part in enumerate(parts):
-        if part == "profiles":
+    for index in range(len(parts) - 1, -1, -1):
+        if parts[index] == "profiles":
             return Path(*parts[: index + 1])
     return None
 

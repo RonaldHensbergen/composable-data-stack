@@ -583,6 +583,59 @@ class ExtendsCompositionTest(unittest.TestCase):
         self.assertIsNone(resolved)
         self.assertTrue(any(d.code == "E104" for d in diagnostics), diagnostics)
 
+    def test_extends_root_derivation_uses_innermost_profiles_segment(self):
+        # Regression test: _derive_profiles_root() must anchor on the
+        # innermost "profiles" path segment (closest to the profile), not
+        # the outermost one, or an extends ref could escape a nested repo
+        # checkout (e.g. ".../profiles/<repo>/profiles/prod") into an
+        # unrelated sibling project that also happens to sit under an outer
+        # directory literally named "profiles".
+        outer_profiles = self.root / "profiles"
+        nested_repo_dir = outer_profiles / "myrepo" / "profiles"
+        nested_repo_dir.mkdir(parents=True)
+        (nested_repo_dir / "base").mkdir()
+        (nested_repo_dir / "base" / "profile.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "base", "environment": "local"},
+                    "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                }
+            )
+        )
+        # A sibling project several directories up, still nominally "under"
+        # the outer "profiles" directory, but outside the nested repo's own
+        # profiles/ tree.
+        (outer_profiles / "other-project" / "secret").mkdir(parents=True)
+        (outer_profiles / "other-project" / "secret" / "profile.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "secret", "environment": "local"},
+                    "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                }
+            )
+        )
+        (nested_repo_dir / "child").mkdir()
+        child = nested_repo_dir / "child" / "profile.yaml"
+        child.write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "child", "environment": "local"},
+                    "extends": ["../../../other-project/secret"],
+                    "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                }
+            )
+        )
+
+        resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E104" for d in diagnostics), diagnostics)
+
     def test_no_extends_field_behaves_exactly_as_before(self):
         child = self._write_profile(
             "child",
