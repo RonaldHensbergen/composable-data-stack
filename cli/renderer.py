@@ -244,7 +244,8 @@ def _render_services(
             project_root=project_root,
             compose_dir=compose_dir,
         )
-        
+        service_copy = _apply_image_source(service_copy, module)
+
         # Attach to the network if network_name is provided
         if network_name:
             service_copy["networks"] = [network_name]
@@ -659,6 +660,40 @@ def _rewrite_depends_on(
         return service_def
 
     return {**service_def, "depends_on": rewritten}
+
+
+def _apply_image_source(
+    service_def: dict[str, Any],
+    module: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Swap a rendered service's build: block for a registry image: reference
+    when the module's config.image.source is "registry".
+
+    Services that have no "build" block are left untouched (this is a no-op
+    for services that never build a local image). When config.image.source
+    is "registry", the "build" key is dropped and "image" is rewritten to
+    "docker.io/ronaldsoeverein/cds-<module id>:<config.image.tag>". Emitting
+    a registry reference without a tag would silently produce an untagged
+    image, so the service is left unchanged (with the build: block intact)
+    if no tag is configured; validator enforcement of a required tag is
+    tracked separately (issue #533).
+    """
+    if "build" not in service_def:
+        return service_def
+
+    image_config = module.get("config", {}).get("image", {})
+    if not isinstance(image_config, dict) or image_config.get("source") != "registry":
+        return service_def
+
+    tag = image_config.get("tag")
+    if not tag:
+        return service_def
+
+    service_copy = dict(service_def)
+    service_copy.pop("build", None)
+    service_copy["image"] = f"docker.io/ronaldsoeverein/cds-{module.get('id')}:{tag}"
+    return service_copy
 
 
 def _rewrite_build_context(
