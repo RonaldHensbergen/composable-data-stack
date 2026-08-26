@@ -104,6 +104,47 @@ class PublishImagesWorkflowTest(unittest.TestCase):
             names.index("Push image"),
         )
 
+    def test_dockerhub_job_has_id_token_permission_for_keyless_signing(self) -> None:
+        perms = self.jobs["publish-dockerhub"]["permissions"]
+        self.assertEqual(perms.get("id-token"), "write")
+
+    def test_dockerhub_job_signs_and_attests_by_digest(self) -> None:
+        job = self.jobs["publish-dockerhub"]
+        push_step = next(s for s in job["steps"] if s.get("id") == "push")
+        self.assertIn("$(docker inspect", push_step["run"])
+        self.assertIn('echo "digest=$digest" >> "$GITHUB_OUTPUT"', push_step["run"])
+
+        for step_name in ("Sign image (keyless)", "Attest SBOM", "Attest provenance"):
+            with self.subTest(step=step_name):
+                step = next(s for s in job["steps"] if s.get("name") == step_name)
+                self.assertIn("steps.push.outputs.digest", step["run"])
+
+    def test_dockerhub_job_sbom_and_provenance_are_both_attested(self) -> None:
+        job = self.jobs["publish-dockerhub"]
+        names = {s.get("name") for s in job["steps"]}
+        self.assertIn("Attest SBOM", names)
+        self.assertIn("Attest provenance", names)
+        sbom_attest = next(s for s in job["steps"] if s.get("name") == "Attest SBOM")
+        self.assertIn("--type cyclonedx", sbom_attest["run"])
+        provenance_attest = next(
+            s for s in job["steps"] if s.get("name") == "Attest provenance"
+        )
+        self.assertIn("--type slsaprovenance", provenance_attest["run"])
+
+    def test_dockerhub_job_uses_cosign_installer(self) -> None:
+        job = self.jobs["publish-dockerhub"]
+        uses = [str(s.get("uses", "")) for s in job["steps"]]
+        self.assertTrue(any(u.startswith("sigstore/cosign-installer@") for u in uses))
+
+    def test_dockerhub_gate_runs_before_sign_and_push(self) -> None:
+        job = self.jobs["publish-dockerhub"]
+        names = [s.get("name") for s in job["steps"]]
+        gate_idx = names.index("Gate on HIGH/CRITICAL vulnerabilities before push")
+        push_idx = names.index("Push image")
+        sign_idx = names.index("Sign image (keyless)")
+        self.assertLess(gate_idx, push_idx)
+        self.assertLess(push_idx, sign_idx)
+
     def test_sbom_and_provenance_are_both_attested(self) -> None:
         names = {s.get("name") for s in self.publish_steps}
         self.assertIn("Attest SBOM", names)
