@@ -597,8 +597,9 @@ Differences from 'dev' to 'prod':
   ~ spec.modules[postgres].config.storage.size: "2Gi" -> "20Gi"
 ```
 
-Commands without `--environment` are unaffected — they behave exactly as
-before and never look for an `environments/` directory.
+Persist an environment default for a project with `cds config set environment
+prod`; commands without `--environment` then use that overlay. An explicit
+`--environment` always takes precedence.
 
 ---
 
@@ -618,6 +619,7 @@ before and never look for an `environments/` directory.
 |cds security [profile]|Run rule-based security validation on a profile|
 |cds diff [profile] --from \<env\> --to \<env\>|Show effective configuration differences between two environment overlays, secrets never included|
 |cds use [profile] [--clear]|Save (show/clear) a default profile so it doesn't have to be passed to other commands|
+|cds config get\|set\|unset\|list|Manage persisted project defaults in `.cds/config.json`|
 |cds completion \<bash\|zsh\|powershell\>|Print shell setup instructions for tab-completion|
 
 `init`, `validate`, `preflight`, `plan`, `render`, `up`, `test`, and `security`
@@ -638,6 +640,29 @@ destination root, `--dry-run` to inspect the copy plan first, and `--force` to
 replace conflicting local files. Successful fetches record tracking metadata
 in `.cds/get-manifest.json` for future update workflows.
 
+### Project defaults
+
+`cds config` manages the gitignored `.cds/config.json` file (or the path in
+`CDS_CONFIG_PATH`). Supported settings are `profile`, `environment`, and
+`security.strict`:
+
+```bash
+cds config set profile my-profile
+cds config set environment prod
+cds config set security.strict true
+cds config list
+```
+
+`profile` is stored as its resolved path, and `environment` is validated
+against that profile's `environments/` directory. `security.strict true`
+applies the existing production security rules even if the profile declares a
+local environment. `cds use` remains a shortcut for setting, showing, or
+clearing `profile`.
+
+CLI flags take precedence over these defaults. In particular,
+`--environment` overrides `config environment`; `CDS_PROFILE_PATH` continues
+to override the saved profile.
+
 `[profile]` accepts:
 
 | Form | Example |
@@ -646,7 +671,7 @@ in `.cds/get-manifest.json` for future update workflows.
 | Path to a `profile.yaml` file | `profiles/local-dagster-postgres-superset/profile.yaml` |
 | Path to a profiles root directory | `profiles/` |
 
-When `[profile]` is omitted, resolution falls back in order to: `CDS_PROFILE_PATH` if set (accepts the same three forms), then the default profile saved via `cds use <profile>`, then the single profile under `profiles/` if there is exactly one. An explicitly-set env var takes precedence over the persisted `cds use` default, matching common CLI convention (env vars are per-invocation and reflect the current session more reliably than a saved, gitignored default that's easy to forget about).
+When `[profile]` is omitted, resolution falls back in order to: `CDS_PROFILE_PATH` if set (accepts the same three forms), then the default profile saved via `cds config set profile` (or `cds use <profile>`), then the single profile under `profiles/` if there is exactly one. An explicitly-set env var takes precedence over the persisted project default, matching common CLI convention (env vars are per-invocation and reflect the current session more reliably than a saved, gitignored default that's easy to forget about).
 
 To view the full list of options for any command, use the `--help` flag:
 
