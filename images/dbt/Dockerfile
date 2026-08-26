@@ -30,6 +30,15 @@ ENV HOME=/home/dbt \
     DBT_TARGET_PATH=/usr/app/dbt_target \
     DBT_LOG_PATH=/usr/app/dbt_logs
 
+# Pull in trixie-security fixes (e.g. libssl3t64) not yet baked into the
+# pinned python:3.14-slim digest, matching images/superset/base/Dockerfile's
+# apt-get upgrade pattern.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+
 RUN groupadd --system --gid 999 dbt && \
     useradd --system --uid 999 --no-create-home --gid dbt dbt && \
     install -d -o dbt -g dbt "$HOME" "$HOME/.dbt" "$DBT_PROJECT_DIR" "$DBT_TARGET_PATH" "$DBT_LOG_PATH" && \
