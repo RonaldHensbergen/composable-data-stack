@@ -32,3 +32,15 @@ CVE-2026-53612 exp:2026-11-15
 CVE-2026-53613 exp:2026-11-15
 # owner:@RonaldHensbergen — SUID mount nosuid/noexec bypass, same fix
 CVE-2026-53614 exp:2026-11-15
+
+# CVE-2026-14456: OpenSSL DoS via unbounded memory growth in QUIC server
+# handling (libssl3t64). Fixed by 3.5.7-1~deb13u2 in trixie-security; no
+# python:3.14-slim digest ships it yet (checked 2026-08-26). Already
+# remediated in images/dbt/Dockerfile and images/superset/base/Dockerfile
+# via their apt-get upgrade step; images/dagster/base/Dockerfile
+# deliberately omits apt-get to keep its runtime minimal/immutable (see
+# tests/test_dagster_hardening.py), so it waits on the Renovate-driven
+# base image digest bump instead. SLA target per issue #526: 2026-08-29;
+# revisit sooner if no digest bump has landed by then.
+# owner:@RonaldHensbergen
+CVE-2026-14456 exp:2026-11-15
