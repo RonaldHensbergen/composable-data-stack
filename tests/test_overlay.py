@@ -560,6 +560,29 @@ class ExtendsCompositionTest(unittest.TestCase):
         self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
         self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 9)
 
+    def test_extends_rejected_when_profile_not_under_a_profiles_root(self):
+        # Regression test: _derive_profiles_root() must fail closed (reject
+        # with a diagnostic) rather than silently widen the security
+        # boundary to the profile's parent directory when the profile isn't
+        # conventionally located under a "profiles/" directory.
+        outside_root = self.root / "not-profiles" / "child"
+        outside_root.mkdir(parents=True)
+        child = outside_root / "profile.yaml"
+        child.write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "child", "environment": "local"},
+                    "extends": ["../sibling/profile.yaml"],
+                    "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                }
+            )
+        )
+        resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E104" for d in diagnostics), diagnostics)
+
     def test_no_extends_field_behaves_exactly_as_before(self):
         child = self._write_profile(
             "child",

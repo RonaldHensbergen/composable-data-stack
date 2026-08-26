@@ -159,12 +159,12 @@ def _merge_profile_docs(
     return merged, diagnostics
 
 
-def _derive_profiles_root(profile_dir: Path) -> Path:
+def _derive_profiles_root(profile_dir: Path) -> Path | None:
     parts = profile_dir.parts
     for index, part in enumerate(parts):
         if part == "profiles":
             return Path(*parts[: index + 1])
-    return profile_dir.parent
+    return None
 
 
 def _resolve_extends_ref(ref: str, profile_dir: Path, profiles_root: Path) -> Path:
@@ -222,6 +222,20 @@ def _compose_extends(
 
     profile_dir = profile_file.parent.resolve()
     profiles_root = _derive_profiles_root(profile_dir)
+    if profiles_root is None:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E104",
+                message=(
+                    f'Cannot resolve "extends" for {profile_file}: its directory does not '
+                    'reside under a "profiles/" root.'
+                ),
+                path="extends",
+            )
+        )
+        return None, {}, diagnostics
+
     new_stack = (*stack, resolved_file)
 
     merged: dict[str, Any] | None = None
