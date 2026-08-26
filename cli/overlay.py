@@ -153,6 +153,13 @@ def _merge_profile_docs(
         base_without_modules, overlay_without_modules, base_source, overlay_source, "", provenance
     )
     merged.setdefault("spec", {})
+    if not isinstance(merged["spec"], dict):
+        # An overlay/parent that sets `spec: null` (or any non-mapping) wins
+        # the deep-merge in _merge_value since it's a full-value override,
+        # not a sub-key merge. Normalize back to a dict here so the
+        # spec.modules assignment below doesn't crash; the profile will
+        # still fail downstream shape/schema validation as expected.
+        merged["spec"] = {}
     merged["spec"]["modules"] = _merge_modules(
         base_modules, overlay_modules, base_source, overlay_source, provenance
     )

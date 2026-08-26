@@ -1,0 +1,9 @@
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: child
+  environment: local
+extends:
+  - base
+spec:
+  modules: []

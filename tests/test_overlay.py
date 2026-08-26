@@ -8,6 +8,7 @@ from cli.overlay import (
     _duplicate_module_ids,
     _merge_modules,
     _merge_value,
+    resolve_extends,
     resolve_profile,
 )
 
@@ -650,6 +651,81 @@ class ExtendsCompositionTest(unittest.TestCase):
         self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
         self.assertEqual(provenance, {})
         self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 1)
+
+    def test_diamond_shaped_extends_is_not_treated_as_a_cycle(self):
+        # A (child) extends B and C; both B and C extend D. D is reached
+        # twice via two different paths but this is NOT a cycle -- it's a
+        # legitimate diamond-shaped extends graph and must resolve cleanly.
+        self._write_profile(
+            "shared-base",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "shared-base", "environment": "local"},
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+            },
+        )
+        self._write_profile(
+            "left",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "left", "environment": "local"},
+                "extends": ["shared-base"],
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+            },
+        )
+        self._write_profile(
+            "right",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "right", "environment": "local"},
+                "extends": ["shared-base"],
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+            },
+        )
+        child = self._write_profile(
+            "diamond-child",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "diamond-child", "environment": "local"},
+                "extends": ["left", "right"],
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+            },
+        )
+        resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(resolved["spec"]["modules"][0]["id"], "db")
+
+    def test_merge_profile_docs_does_not_crash_when_overlay_spec_is_null(self):
+        # Regression test: a parent profile or environment overlay with an
+        # explicit `spec: null` (YAML `~`) must not crash resolve_profile()
+        # with a TypeError; it should fail cleanly with diagnostics instead.
+        self._write_profile(
+            "base-null-spec",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "base-null-spec", "environment": "local"},
+                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+            },
+        )
+        child = self._write_profile(
+            "child-null-spec",
+            {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "child-null-spec", "environment": "local"},
+                "extends": ["base-null-spec"],
+                "spec": None,
+            },
+        )
+        # Must not raise; diagnostics may report errors, but resolution
+        # itself must complete without an unhandled exception.
+        resolve_profile(str(child), environment=None)
+        resolve_extends(str(child))
 
 
 if __name__ == "__main__":

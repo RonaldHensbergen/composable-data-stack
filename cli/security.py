@@ -64,11 +64,6 @@ def _load_json(path: Path | Traversable) -> Any:
         return json.load(f)
 
 
-def _load_yaml(path: Path) -> Any:
-    with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
 # ---------------------------------------------------------------------------
 # Rule set loading
 # ---------------------------------------------------------------------------
@@ -703,8 +698,15 @@ def run_security_validation(
         if profile is None:
             return [], overlay_diags
     else:
-        profile = _load_yaml(profile_path)
-        overlay_diags = []
+        # Resolve extends even without --environment so security scanning
+        # sees the fully composed profile, not just the child document;
+        # otherwise config/modules/secrets introduced only by a parent
+        # profile would silently escape scanning (see cli.overlay.resolve_extends).
+        from .overlay import resolve_extends
+
+        profile, _, overlay_diags = resolve_extends(str(profile_path))
+        if profile is None:
+            return [], overlay_diags
     rule_set = _validate_rule_set(rule_schema_path, rule_set_path)
 
     profile_class = infer_profile_class(profile)

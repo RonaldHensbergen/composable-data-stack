@@ -234,14 +234,26 @@ def _resolve_source_profile_path(source_repo: Path, profile: str) -> Path:
     )
 
 
-def _collect_extends_profile_dirs(source_repo: Path, profile_path: Path) -> set[Path]:
+def _collect_extends_profile_dirs(
+    source_repo: Path, profile_path: Path, _visited: frozenset[Path] = frozenset()
+) -> set[Path]:
     """
     Returns every parent profile directory reachable via `extends`, so
     `cds get` copies parent profile.yaml files (and, via
     _collect_asset_roots's module walk, their modules) too instead of
     silently omitting anything only declared in a parent profile. Reuses
     cli.overlay's own extends-ref resolution rather than re-implementing it.
+
+    `_visited` tracks resolved profile paths already seen along the current
+    extends chain so a cyclic `extends` graph raises a clean GetError
+    instead of recursing until Python's recursion limit is hit; this
+    mirrors cli.overlay._compose_extends's own cycle-detection stack.
     """
+    resolved_profile_path = profile_path.resolve()
+    if resolved_profile_path in _visited:
+        raise GetError(f"Cycle detected in extends chain at {profile_path}")
+    _visited = _visited | {resolved_profile_path}
+
     doc, _diagnostics = load_yaml_file(profile_path)
     if doc is None:
         raise GetError(f"Could not load source profile {profile_path}")
@@ -262,7 +274,7 @@ def _collect_extends_profile_dirs(source_repo: Path, profile_path: Path) -> set[
             raise GetError(f'Could not resolve extends parent "{ref}" for {profile_path}')
         _require_within_repo(parent_path, source_repo, f'extends parent "{ref}"')
         dirs.add(parent_path.parent)
-        dirs.update(_collect_extends_profile_dirs(source_repo, parent_path))
+        dirs.update(_collect_extends_profile_dirs(source_repo, parent_path, _visited))
 
     return dirs
 
