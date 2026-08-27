@@ -70,6 +70,27 @@ spec:
               optimized for compatibility. "hardened" builds the Alpine-based
               image optimized for a minimal attack surface and fewer
               vulnerabilities.
+          source:
+            type: string
+            enum:
+              - build
+              - registry
+            default: build
+            description: >
+              Selects how the user-code, webserver, and daemon services
+              obtain their image. "build" (default) builds the image locally
+              from images/dagster/${config.image.variant}/Dockerfile.
+              "registry" pulls the already published, scanned, and signed
+              image from docker.io/ronaldsoeverein/dagster instead of
+              building it, avoiding a local rebuild. Requires image.tag to
+              be set.
+          tag:
+            type: string
+            description: >
+              Registry tag to pull when image.source is "registry", e.g. a
+              version published by .github/workflows/publish-images.yml
+              (optionally prefixed with the variant, such as
+              "hardened-1.8.0"). Ignored when image.source is "build".
 
       storage:
         type: object
