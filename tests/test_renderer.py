@@ -852,5 +852,91 @@ class RendererRegressionTest(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertNotIn("web-app", output)
 
+
+class ImageSourceRenderingTest(unittest.TestCase):
+    def _plan(self, image_config):
+        return {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "dagster",
+                    "config": {"image": image_config},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "user-code": {
+                                    "build": {
+                                        "context": ".",
+                                        "dockerfile": "images/dagster/${config.image.variant}/Dockerfile",
+                                    },
+                                    "image": "local/dagster:custom",
+                                },
+                                "webserver": {
+                                    "image": "local/dagster:custom",
+                                },
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+    def test_default_source_build_leaves_build_block_intact(self):
+        plan = self._plan({"variant": "base", "source": "build"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["dagster-user-code"]
+        self.assertIn("build", service)
+        self.assertEqual(service["image"], "local/dagster:custom")
+
+    def test_source_registry_with_tag_drops_build_and_rewrites_image(self):
+        plan = self._plan({"variant": "base", "source": "registry", "tag": "1.8.0"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["dagster-user-code"]
+        self.assertNotIn("build", service)
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:1.8.0")
+
+    def test_source_registry_without_tag_falls_back_to_build(self):
+        plan = self._plan({"variant": "base", "source": "registry"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["dagster-user-code"]
+        self.assertIn("build", service)
+        self.assertEqual(service["image"], "local/dagster:custom")
+
+    def test_source_registry_rewrites_services_without_build(self):
+        plan = self._plan({"variant": "base", "source": "registry", "tag": "1.8.0"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["dagster-webserver"]
+        self.assertNotIn("build", service)
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:1.8.0")
+
+    def test_source_registry_with_variant_prefixed_tag(self):
+        plan = self._plan({"variant": "hardened", "source": "registry", "tag": "hardened-1.8.0"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["dagster-user-code"]
+        self.assertNotIn("build", service)
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:hardened-1.8.0")
+
+
 if __name__ == "__main__":
     unittest.main()
