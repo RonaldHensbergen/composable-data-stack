@@ -670,18 +670,14 @@ def _apply_image_source(
     Swap a rendered service's build: block for a registry image: reference
     when the module's config.image.source is "registry".
 
-    Services that have no "build" block are left untouched (this is a no-op
-    for services that never build a local image). When config.image.source
-    is "registry", the "build" key is dropped and "image" is rewritten to
+    When config.image.source is "registry", any "build" key is dropped and
+    "image" is rewritten to
     "docker.io/ronaldsoeverein/<module id>:<config.image.tag>". Emitting
     a registry reference without a tag would silently produce an untagged
     image, so the service is left unchanged (with the build: block intact)
     if no tag is configured; validator enforcement of a required tag is
     tracked separately (issue #533).
     """
-    if "build" not in service_def:
-        return service_def
-
     image_config = module.get("config", {}).get("image", {})
     if not isinstance(image_config, dict) or image_config.get("source") != "registry":
         return service_def

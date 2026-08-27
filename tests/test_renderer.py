@@ -915,7 +915,7 @@ class ImageSourceRenderingTest(unittest.TestCase):
         self.assertIn("build", service)
         self.assertEqual(service["image"], "local/dagster:custom")
 
-    def test_source_registry_leaves_services_without_build_untouched(self):
+    def test_source_registry_rewrites_services_without_build(self):
         plan = self._plan({"variant": "base", "source": "registry", "tag": "1.8.0"})
 
         output, diagnostics = render_compose(plan)
@@ -924,7 +924,7 @@ class ImageSourceRenderingTest(unittest.TestCase):
         compose = yaml.safe_load(output)
         service = compose["services"]["dagster-webserver"]
         self.assertNotIn("build", service)
-        self.assertEqual(service["image"], "local/dagster:custom")
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:1.8.0")
 
     def test_source_registry_with_variant_prefixed_tag(self):
         plan = self._plan({"variant": "hardened", "source": "registry", "tag": "hardened-1.8.0"})
