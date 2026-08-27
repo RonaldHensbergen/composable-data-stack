@@ -902,7 +902,7 @@ class ImageSourceRenderingTest(unittest.TestCase):
         compose = yaml.safe_load(output)
         service = compose["services"]["dagster-user-code"]
         self.assertNotIn("build", service)
-        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/cds-dagster:1.8.0")
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:1.8.0")
 
     def test_source_registry_without_tag_falls_back_to_build(self):
         plan = self._plan({"variant": "base", "source": "registry"})
@@ -935,7 +935,7 @@ class ImageSourceRenderingTest(unittest.TestCase):
         compose = yaml.safe_load(output)
         service = compose["services"]["dagster-user-code"]
         self.assertNotIn("build", service)
-        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/cds-dagster:hardened-1.8.0")
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:hardened-1.8.0")
 
 
 if __name__ == "__main__":

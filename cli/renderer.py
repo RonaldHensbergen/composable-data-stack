@@ -673,7 +673,7 @@ def _apply_image_source(
     Services that have no "build" block are left untouched (this is a no-op
     for services that never build a local image). When config.image.source
     is "registry", the "build" key is dropped and "image" is rewritten to
-    "docker.io/ronaldsoeverein/cds-<module id>:<config.image.tag>". Emitting
+    "docker.io/ronaldsoeverein/<module id>:<config.image.tag>". Emitting
     a registry reference without a tag would silently produce an untagged
     image, so the service is left unchanged (with the build: block intact)
     if no tag is configured; validator enforcement of a required tag is
@@ -692,7 +692,7 @@ def _apply_image_source(
 
     service_copy = dict(service_def)
     service_copy.pop("build", None)
-    service_copy["image"] = f"docker.io/ronaldsoeverein/cds-{module.get('id')}:{tag}"
+    service_copy["image"] = f"docker.io/ronaldsoeverein/{module.get('id')}:{tag}"
     return service_copy
 
 

@@ -81,7 +81,7 @@ spec:
               obtain their image. "build" (default) builds the image locally
               from images/dagster/${config.image.variant}/Dockerfile.
               "registry" pulls the already published, scanned, and signed
-              image from docker.io/ronaldsoeverein/cds-dagster instead of
+              image from docker.io/ronaldsoeverein/dagster instead of
               building it, avoiding a local rebuild. Requires image.tag to
               be set.
           tag:
