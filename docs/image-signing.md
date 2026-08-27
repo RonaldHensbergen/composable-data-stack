@@ -1,22 +1,43 @@
 # Signed image publication
 
-Runtime images under `images/**` are published to GHCR and signed on every merge to `main` that touches them, by `.github/workflows/publish-images.yml`.
+Runtime images under `images/**` are published to GHCR and Docker Hub and
+signed on every merge to `main` that touches them, by
+`.github/workflows/publish-images.yml` (`publish` job for GHCR,
+`publish-dockerhub` job for Docker Hub). Both jobs use the same keyless
+cosign signing, CycloneDX SBOM attestation, and SLSA provenance attestation
+steps; only the registry, image naming/tagging scheme, and credentials
+differ (see below).
 
 ## Registry and naming
+
+### GHCR
 
 - Registry: `ghcr.io`
 - Name: `ghcr.io/ronaldhensbergen/cds-<image-name>` (e.g. `cds-superset`, `cds-dagster`); owner is lowercased, GHCR rejects uppercase.
 - Tags: `sha-<12-char-commit-sha>` and `latest`. For images with multiple build variants (e.g. Dagster's `base`/`hardened`), the non-default variant's tags are prefixed with the variant name (e.g. `hardened-sha-<sha>`, `hardened-latest`); the image name/repository stays the same across variants. Tags are mutable pointers for humans; they are **not** what gets signed or verified.
 
+### Docker Hub
+
+- Registry: `docker.io` (`registry-1.docker.io`)
+- Name: `docker.io/ronaldsoeverein/<image-name>` (e.g. `dagster`, `superset`, `dbt`; no `cds-` prefix).
+- Tags: a base-version tag derived per image (`dagster==`/`apache/superset:`/`dbt-core==` version) and `latest`, both optionally prefixed with the build variant (e.g. `hardened-1.8.0`, `hardened-latest`). As with GHCR, tags are mutable; verification is always by digest.
+
 ## Verifying an image
 
-Always verify by digest, not by tag:
+Always verify by digest, not by tag. The same certificate identity/OIDC
+issuer verifies both registries, since both jobs run from the same
+`publish-images.yml` workflow:
 
 ```bash
 cosign verify \
   --certificate-identity-regexp "^https://github.com/RonaldHensbergen/composable-data-stack/.github/workflows/publish-images.yml@refs/heads/main$" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/ronaldhensbergen/cds-superset@sha256:<digest>
+
+cosign verify \
+  --certificate-identity-regexp "^https://github.com/RonaldHensbergen/composable-data-stack/.github/workflows/publish-images.yml@refs/heads/main$" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  docker.io/ronaldsoeverein/superset@sha256:<digest>
 ```
 
 Attestations (SBOM, provenance) verify the same way with `cosign verify-attestation --type cyclonedx` / `--type slsaprovenance` in place of `cosign verify`.
@@ -26,7 +47,7 @@ Attestations (SBOM, provenance) verify the same way with `cosign verify-attestat
 Keyless signing via GitHub OIDC, no private key or long-lived secret is stored anywhere. The identity being trusted is:
 
 - **OIDC issuer:** `https://token.actions.githubusercontent.com`
-- **Certificate identity:** the `publish-images.yml` workflow running on `refs/heads/main` in this repo, specifically; a signature minted by any other workflow, branch, or fork will not match.
+- **Certificate identity:** the `publish-images.yml` workflow running on `refs/heads/main` in this repo, specifically; a signature minted by any other workflow, branch, or fork will not match. This holds for both the GHCR and Docker Hub publish jobs, since both run from this same workflow file.
 
 ## Provenance scope
 
