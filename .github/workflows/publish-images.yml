@@ -272,11 +272,19 @@ jobs:
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
           latest_tag="${{ steps.version.outputs.latest_tag }}"
-          # The :scan tag is local-only and never pushed; it exists so the
-          # vulnerability gate below can scan the exact image about to be
-          # published before anything reaches the registry.
+          # The :scan and :sha tags are local-only until the push step. The
+          # :scan tag exists so the vulnerability gate below can scan the
+          # exact image about to be published before anything reaches the
+          # registry; the :sha tag is immutable once published and is used
+          # to obtain the digest for signing and attestations.
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
           docker build -f "$dockerfile" \
             -t "$ref:$tag" -t "$ref:$latest_tag" \
+            -t "$ref:${prefix}sha-${GITHUB_SHA::12}" \
             -t "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan" "$context"
 
       - name: Gate on HIGH/CRITICAL vulnerabilities before push
@@ -301,9 +309,15 @@ jobs:
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
           latest_tag="${{ steps.version.outputs.latest_tag }}"
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
           docker push "$ref:$tag"
           docker push "$ref:$latest_tag"
-          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:$tag")"
+          docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Sign image (keyless)
@@ -356,6 +370,18 @@ jobs:
       - name: Verify signed image (self-check)
         run: |
           cosign verify \
+            --certificate-identity-regexp \
+            '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${{ steps.push.outputs.digest }}"
+          cosign verify-attestation \
+            --type cyclonedx \
+            --certificate-identity-regexp \
+            '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${{ steps.push.outputs.digest }}"
+          cosign verify-attestation \
+            --type slsaprovenance \
             --certificate-identity-regexp \
             '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \

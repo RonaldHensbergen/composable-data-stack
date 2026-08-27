@@ -113,11 +113,29 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         push_step = next(s for s in job["steps"] if s.get("id") == "push")
         self.assertIn("$(docker inspect", push_step["run"])
         self.assertIn('echo "digest=$digest" >> "$GITHUB_OUTPUT"', push_step["run"])
+        self.assertIn('"$ref:${prefix}sha-${GITHUB_SHA::12}"', push_step["run"])
 
         for step_name in ("Sign image (keyless)", "Attest SBOM", "Attest provenance"):
             with self.subTest(step=step_name):
                 step = next(s for s in job["steps"] if s.get("name") == step_name)
                 self.assertIn("steps.push.outputs.digest", step["run"])
+
+    def test_dockerhub_job_verifies_signature_and_attestations(self) -> None:
+        job = self.jobs["publish-dockerhub"]
+        verify_step = next(
+            s for s in job["steps"] if s.get("name") == "Verify signed image (self-check)"
+        )
+        verify_run = verify_step["run"]
+        self.assertIn("cosign verify \\", verify_run)
+        self.assertIn("cosign verify-attestation \\", verify_run)
+        self.assertIn("--type cyclonedx", verify_run)
+        self.assertIn("--type slsaprovenance", verify_run)
+        self.assertIn("steps.push.outputs.digest", verify_run)
+        self.assertIn(
+            "'^https://github\\.com/${{ github.repository }}/\\.github/workflows/"
+            "publish-images\\.yml@${{ github.ref }}$'",
+            verify_run,
+        )
 
     def test_dockerhub_job_sbom_and_provenance_are_both_attested(self) -> None:
         job = self.jobs["publish-dockerhub"]
