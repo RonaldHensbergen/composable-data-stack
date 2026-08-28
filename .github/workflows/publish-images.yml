@@ -215,6 +215,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -223,6 +224,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Determine version
         id: version
@@ -269,11 +272,19 @@ jobs:
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
           latest_tag="${{ steps.version.outputs.latest_tag }}"
-          # The :scan tag is local-only and never pushed; it exists so the
-          # vulnerability gate below can scan the exact image about to be
-          # published before anything reaches the registry.
+          # The :scan and :sha tags are local-only until the push step. The
+          # :scan tag exists so the vulnerability gate below can scan the
+          # exact image about to be published before anything reaches the
+          # registry; the :sha tag is immutable once published and is used
+          # to obtain the digest for signing and attestations.
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
           docker build -f "$dockerfile" \
             -t "$ref:$tag" -t "$ref:$latest_tag" \
+            -t "$ref:${prefix}sha-${GITHUB_SHA::12}" \
             -t "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan" "$context"
 
       - name: Gate on HIGH/CRITICAL vulnerabilities before push
@@ -293,12 +304,88 @@ jobs:
           ignore-unfixed: "true"
 
       - name: Push image
+        id: push
         run: |
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
           latest_tag="${{ steps.version.outputs.latest_tag }}"
+          variant="${{ matrix.image.variant }}"
+          prefix=""
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            prefix="${variant}-"
+          fi
           docker push "$ref:$tag"
           docker push "$ref:$latest_tag"
+          docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Sign image (keyless)
+        run: cosign sign --yes "${{ steps.push.outputs.digest }}"
+
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          # Pin the Trivy CLI version explicitly (see the equivalent ghcr.io
+          # "Generate SBOM" step above) so it is a visible, Renovate-trackable
+          # dependency rather than a value hidden inside the action default.
+          version: v0.74.0
+          image-ref: ${{ steps.push.outputs.digest }}
+          format: cyclonedx
+          output: sbom.json
+
+      - name: Attest SBOM
+        run: cosign attest --yes --predicate sbom.json --type cyclonedx "${{ steps.push.outputs.digest }}"
+
+      - name: Write provenance predicate
+        run: |
+          cat > provenance.json <<EOF
+          {
+            "builder": { "id": "https://github.com/actions/runner" },
+            "buildType": "https://github.com/${{ github.repository }}/publish-images@v1",
+            "invocation": {
+              "configSource": {
+                "uri": "git+https://github.com/${{ github.repository }}@${{ github.ref }}",
+                "digest": { "sha1": "${{ github.sha }}" },
+                "entryPoint": ".github/workflows/publish-images.yml"
+              }
+            },
+            "metadata": {
+              "buildInvocationId": "${{ github.run_id }}-${{ github.run_attempt }}",
+              "completeness": { "parameters": true, "environment": false, "materials": false },
+              "reproducible": false
+            },
+            "materials": [
+              {
+                "uri": "git+https://github.com/${{ github.repository }}@${{ github.ref }}",
+                "digest": { "sha1": "${{ github.sha }}" }
+              }
+            ]
+          }
+          EOF
+
+      - name: Attest provenance
+        run: cosign attest --yes --predicate provenance.json --type slsaprovenance "${{ steps.push.outputs.digest }}"
+
+      - name: Verify signed image (self-check)
+        run: |
+          cosign verify \
+            --certificate-identity-regexp \
+            '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${{ steps.push.outputs.digest }}"
+          cosign verify-attestation \
+            --type cyclonedx \
+            --certificate-identity-regexp \
+            '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${{ steps.push.outputs.digest }}"
+          cosign verify-attestation \
+            --type slsaprovenance \
+            --certificate-identity-regexp \
+            '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${{ steps.push.outputs.digest }}"
 
       - name: Update Docker Hub overview
         if: matrix.image.variant == '' || matrix.image.variant == 'base'
