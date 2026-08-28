@@ -6,6 +6,14 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-28
+
+### Added
+
+- Added a `cds config` subcommand family (`get`/`set`/`unset`/`list`) to manage persisted project-level defaults in `.cds/config.json` (or `CDS_CONFIG_PATH`), generalizing the existing single-purpose `cds use` command. Supported keys are `profile`, `environment`, and `security.strict`; a saved `environment` default is applied whenever `--environment` is omitted on any command that already accepts it, with an explicit `--environment` flag always taking precedence (#383, #537).
+- Added the core rendering mechanism for `image.source: build|registry`: `modules/orchestration/dagster/module.yaml` gained `image.source` (default `build`) and `image.tag` config fields, and `cli/renderer.py` can now conditionally swap a service's `build:` key for a registry `image:` reference derived from the naming scheme already used by `publish-images.yml`, composing with the existing `image.variant` (`--hardened`) field (#532, #536).
+- `publish-images.yml`'s Docker Hub publish job now signs, SBOM-attests, and SLSA-provenance-attests pushed images with the same keyless OIDC identity as the existing GHCR job, closing the supply-chain-guarantee gap between the two registries; `docs/image-signing.md` documents the shared trust identity (#275, #539).
+
 ## [0.6.0] - 2026-08-25
 
 ### Added
