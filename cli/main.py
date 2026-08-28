@@ -1764,10 +1764,6 @@ def main() -> int:
                         profile_class = (
                             infer_profile_class(profile) if profile is not None else "local"
                         )
-                        image_verification_kwargs = {
-                            "compose_yaml": compose_yaml,
-                            "profile_class": profile_class,
-                            "policy": load_policy_from_env(profile_class, mode_override="full"),
                         strict = load_saved_security_strict()
                         if profile is not None:
                             profile_class = "prod" if strict else infer_profile_class(profile)
