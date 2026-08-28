@@ -1,0 +1,188 @@
+# modules/integration/traefik/module.yaml
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: traefik
+  category: integration
+  version: "3.0.0"
+  displayName: Traefik
+  description: >
+    Traefik reverse proxy with TLS 1.2+ enforcement for secure ingress,
+    service discovery, and centralized certificate management.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: traefik
+      ports:
+        - name: http
+          containerPort: 80
+          protocol: TCP
+        - name: https
+          containerPort: 443
+          protocol: TCP
+        - name: dashboard
+          containerPort: 8080
+          protocol: TCP
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      log:
+        type: object
+        default: {}
+        properties:
+          level:
+            type: string
+            enum: [DEBUG, INFO, WARN, ERROR]
+            default: INFO
+
+      accessLog:
+        type: object
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+      api:
+        type: object
+        default: {}
+        properties:
+          dashboard:
+            type: boolean
+            default: true
+          debug:
+            type: boolean
+            default: false
+          insecure:
+            type: boolean
+            default: false
+
+      entryPoints:
+        type: object
+        default: {}
+        properties:
+          web:
+            type: object
+            properties:
+              address:
+                type: string
+                default: "127.0.0.1:80"
+          websecure:
+            type: object
+            properties:
+              address:
+                type: string
+                default: "127.0.0.1:443"
+
+      tls:
+        type: object
+        default: {}
+        properties:
+          minVersion:
+            type: string
+            default: VersionTLS12
+          maxVersion:
+            type: string
+            default: VersionTLS13
+          preferServerCipherSuites:
+            type: boolean
+            default: true
+          sniStrict:
+            type: boolean
+            default: true
+
+      docker:
+        type: object
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          exposedByDefault:
+            type: boolean
+            default: false
+
+      fileProvider:
+        type: object
+        default: {}
+        properties:
+          directory:
+            type: string
+            default: "/etc/traefik/dynamic"
+          watch:
+            type: boolean
+            default: true
+
+  provides:
+    - name: reverse-proxy
+      contract:
+        kind: reverse-proxy
+        spec:
+          host: ${service.host}
+          port: 443
+          protocol: https
+          connectionUri: "https://${service.host}:443"
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        traefik:
+          image: traefik:v3.0
+          user: traefik
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 512
+
+          ports:
+            - "${config.entryPoints.web.address}:80"
+            - "${config.entryPoints.websecure.address}:443"
+            - "127.0.0.1:8080:8080"
+
+          networks:
+            - default
+
+          volumes:
+            - /var/run/docker.sock:/var/run/docker.sock:ro
+            - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+            - ./traefik/dynamic:/etc/traefik/dynamic:ro
+            - ./certs/traefik:/etc/traefik/certs:ro
+            - ./data:/data:rw
+
+          environment:
+            TRAEFIK_LOG_LEVEL: "${config.log.level}"
+            TRAEFIK_LOG_FILEPATH: "/data/traefik.log"
+            TRAEFIK_ACCESSLOG: "${config.accessLog.enabled}"
+            TRAEFIK_ACCESSLOG_FILEPATH: "/data/access.log"
+            TRAEFIK_API_DASHBOARD: "${config.api.dashboard}"
+            TRAEFIK_API_DEBUG: "${config.api.debug}"
+            TRAEFIK_API_INSECURE: "${config.api.insecure}"
+            TRAEFIK_ENTRYPOINTS_WEB_ADDRESS: "${config.entryPoints.web.address}"
+            TRAEFIK_ENTRYPOINTS_WEBSECURE_ADDRESS: "${config.entryPoints.websecure.address}"
+            TRAEFIK_ENTRYPOINTS_WEBSECURE_HTTP_TLS_MINVERSION: "${config.tls.minVersion}"
+            TRAEFIK_ENTRYPOINTS_WEBSECURE_HTTP_TLS_MAXVERSION: "${config.tls.maxVersion}"
+            TRAEFIK_ENTRYPOINTS_WEBSECURE_HTTP_TLS_SNISTRICT: "${config.tls.sniStrict}"
+            TRAEFIK_ENTRYPOINTS_WEBSECURE_HTTP_TLS_PREFERSERVERCIPHERSUITES: "${config.tls.preferServerCipherSuites}"
+            TRAEFIK_PROVIDERS_DOCKER: "${config.docker.enabled}"
+            TRAEFIK_PROVIDERS_DOCKER_EXPOSEDBYDEFAULT: "${config.docker.exposedByDefault}"
+            TRAEFIK_PROVIDERS_DOCKER_NETWORK: "default"
+            TRAEFIK_PROVIDERS_FILE_DIRECTORY: "${config.fileProvider.directory}"
+            TRAEFIK_PROVIDERS_FILE_WATCH: "${config.fileProvider.watch}"
+
+          healthcheck:
+            test: ["CMD", "traefik", "healthcheck", "--ping"]
+            interval: 10s
+            timeout: 5s
+            retries: 3
