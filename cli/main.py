@@ -1761,9 +1761,6 @@ def main() -> int:
                         precomputed_render = PrecomputedRender(
                             plan=plan, rendered_compose_yaml=compose_yaml
                         )
-                        profile_class = (
-                            infer_profile_class(profile) if profile is not None else "local"
-                        )
                         strict = load_saved_security_strict()
                         if profile is not None:
                             profile_class = "prod" if strict else infer_profile_class(profile)
