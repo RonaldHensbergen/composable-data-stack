@@ -288,12 +288,17 @@ def _resolve_profile_for_config(profile: str) -> str:
 
 
 def _validate_environment_setting(environment: str) -> None:
+    saved_profile = load_saved_profile()
+    if not saved_profile:
+        raise ValueError(
+            "Cannot set environment without a saved default profile. "
+            "Run `cds use <profile>` or `cds config set profile <profile>` first."
+        )
     try:
-        profile_path = resolve_profile_path(None)
+        profile_path = resolve_profile_path(saved_profile)
     except ValueError as exc:
         raise ValueError(
-            "Cannot set environment without a resolvable default profile. "
-            "Set config profile first."
+            "Cannot set environment: the saved default profile could not be resolved."
         ) from exc
     profile, _, diagnostics = resolve_profile(profile_path, environment)
     if profile is None or has_errors(diagnostics):
