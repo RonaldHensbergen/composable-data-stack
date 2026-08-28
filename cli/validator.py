@@ -65,6 +65,7 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_dependencies(module_instances))
     diagnostics.extend(validate_secret_refs(profile, module_instances))
     diagnostics.extend(validate_contract_bindings(module_instances))
+    diagnostics.extend(validate_image_source_config(module_instances))
     diagnostics.extend(validate_outputs(profile, module_instances))
     diagnostics.extend(validate_observability_config(profile, module_instances))
 
@@ -405,6 +406,55 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                         path=f"spec.modules[{inst['index']}].config",
                     )
                 )
+
+    return diagnostics
+
+
+def validate_image_source_config(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+    """
+    Modules that support pulling a pre-built image (`config.image.source:
+    registry`, e.g. modules/orchestration/dagster) need `config.image.tag`
+    set to something pullable; the module's own configSchema can't express
+    "tag is required only when source is registry" as a plain JSON Schema
+    constraint, so that cross-field rule is enforced here instead. A
+    `tag: "latest"` is accepted but discouraged, since it defeats the
+    reproducibility that `source: registry` is meant to buy over `latest`
+    silently drifting between deploys.
+    """
+    diagnostics: list[Diagnostic] = []
+
+    for inst in module_instances:
+        image_config = inst["config"].get("image")
+        if not isinstance(image_config, dict) or image_config.get("source") != "registry":
+            continue
+
+        tag = image_config.get("tag")
+        if not isinstance(tag, str) or not tag:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E103",
+                    message=(
+                        'config.image.tag is required and must be a non-empty string '
+                        'when config.image.source is "registry".'
+                    ),
+                    path=f"spec.modules[{inst['index']}].config.image.tag",
+                )
+            )
+            continue
+
+        if tag == "latest":
+            diagnostics.append(
+                Diagnostic(
+                    level="warning",
+                    code="W097",
+                    message=(
+                        'config.image.tag is "latest" with config.image.source "registry". '
+                        "Pin an explicit published version instead for reproducible deploys."
+                    ),
+                    path=f"spec.modules[{inst['index']}].config.image.tag",
+                )
+            )
 
     return diagnostics
 
