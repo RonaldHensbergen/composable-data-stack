@@ -17,6 +17,31 @@ Because the images re-resolve pip ranges (`>=`) and OS packages at build
 time, a weekly rebuild refreshes base layers even when the pinned base
 image digest has not changed.
 
+## Versioning
+
+Images under `images/` are versioned and released **independently of the
+CLI**. The CLI's own version (`pyproject.toml`, `CHANGELOG.md`, `vX.Y.Z` git
+tags) covers `cli/`, `modules/`, and `profiles/` only and says nothing about
+which image tags are currently published.
+
+The tag scheme computed by `publish-images.yml`'s "Determine version" step is
+the authoritative release record for images — there is no separate GitHub
+Release object for them:
+
+- a base version derived from the pinned upstream dependency (`dagster==`
+  in `images/dagster/requirements.txt`, `FROM apache/superset:` in
+  `images/superset/base/Dockerfile`, `dbt-core==` in
+  `images/dbt/requirements.txt`),
+- an optional `<variant>-` prefix for non-default image variants,
+- plus a `sha-<12-char-commit-sha>` tag (immutable, always pushed) and a
+  `latest`/`<variant->latest` tag.
+
+To find the currently-published digest for a given image, look up
+`tests/fixtures/signed-images.json`: it is refreshed automatically by the
+`update-fixture` job in `publish-images.yml` after every successful publish
+and records the repository, digest, and signing/attestation status for each
+published image.
+
 ## Remediation SLA
 
 | Severity | Remediation target |

@@ -17,6 +17,10 @@
 # Module definitions
 /modules/ @RonaldHensbergen @SemTiOne
 
+# Runtime images (Dockerfiles, image-specific requirements). Versioned and
+# released independently of the CLI - see docs/image-scanning.md#versioning.
+/images/ @RonaldHensbergen @SemTiOne
+
 # Profile definitions
 /profiles/ @RonaldHensbergen @SemTiOne
 
