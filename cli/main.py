@@ -132,7 +132,7 @@ def find_project_root(start: Path | None = None) -> Path:
 
 
 def get_config_path() -> Path:
-    """Location of the per-project CDS config file used by `cds use`."""
+    """Location of the per-project CDS config file."""
     override = os.getenv("CDS_CONFIG_PATH")
     if override:
         return Path(override).expanduser()
@@ -140,7 +140,7 @@ def get_config_path() -> Path:
 
 
 class ConfigIOError(RuntimeError):
-    """Raised when the `cds use` config file cannot be read or written."""
+    """Raised when the CDS config file cannot be read or written."""
 
 
 
@@ -154,7 +154,7 @@ def _read_config() -> dict:
     except json.JSONDecodeError:
         print(
             f"WARNING {config_path} is not valid JSON; treating it as empty. "
-            "It will be overwritten by the next `cds use <profile>`.",
+            "It will be overwritten by the next config update.",
             file=sys.stderr,
         )
         return {}
@@ -164,11 +164,43 @@ def _read_config() -> dict:
     if not isinstance(data, dict):
         print(
             f"WARNING {config_path} contains valid JSON but not a mapping; treating it as empty. "
-            "It will be overwritten by the next `cds use <profile>`.",
+            "It will be overwritten by the next config update.",
             file=sys.stderr,
         )
         return {}
     return data
+
+
+def _write_config(data: dict) -> Path:
+    config_path = get_config_path()
+    try:
+        if data:
+            _atomic_write(config_path, json.dumps(data, indent=2) + "\n")
+        else:
+            config_path.unlink()
+    except OSError as exc:
+        raise ConfigIOError(f"Could not update config file {config_path}: {exc}") from exc
+    return config_path
+
+
+def _config_value(key: str) -> Any:
+    value: Any = _read_config()
+    for part in key.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
+
+
+def load_saved_environment() -> str | None:
+    """Return the environment overlay saved for this project, if any."""
+    environment = _config_value("environment")
+    return environment if isinstance(environment, str) and environment else None
+
+
+def load_saved_security_strict() -> bool:
+    """Return whether this project always uses production security rules."""
+    return _config_value("security.strict") is True
 
 
 def load_saved_profile() -> str | None:
@@ -182,14 +214,9 @@ def save_profile(profile: str) -> Path:
 
     Raises ConfigIOError if the config file cannot be written.
     """
-    config_path = get_config_path()
     data = _read_config()
     data["profile"] = profile
-    try:
-        _atomic_write(config_path, json.dumps(data, indent=2) + "\n")
-    except OSError as exc:
-        raise ConfigIOError(f"Could not update config file {config_path}: {exc}") from exc
-    return config_path
+    return _write_config(data)
 
 
 def clear_saved_profile() -> bool:
@@ -197,19 +224,86 @@ def clear_saved_profile() -> bool:
 
     Raises ConfigIOError if the config file cannot be updated/removed.
     """
-    config_path = get_config_path()
     data = _read_config()
     if "profile" not in data:
         return False
     del data["profile"]
-    try:
-        if data:
-            _atomic_write(config_path, json.dumps(data, indent=2) + "\n")
-        else:
-            config_path.unlink()
-    except OSError as exc:
-        raise ConfigIOError(f"Could not update config file {config_path}: {exc}") from exc
+    _write_config(data)
     return True
+
+
+def set_config_value(key: str, value: str) -> Path:
+    """Set a supported project setting and return the config file path."""
+    data = _read_config()
+    if key == "profile":
+        data["profile"] = value
+    elif key == "environment":
+        data["environment"] = value
+    elif key == "security.strict":
+        security = data.setdefault("security", {})
+        if not isinstance(security, dict):
+            raise ConfigIOError("Config key 'security' must be a mapping.")
+        security["strict"] = value == "true"
+    else:
+        raise ValueError(f"Unknown config key '{key}'.")
+    return _write_config(data)
+
+
+def unset_config_value(key: str) -> bool:
+    """Remove a supported project setting."""
+    data = _read_config()
+    if key == "profile" or key == "environment":
+        if key not in data:
+            return False
+        del data[key]
+    elif key == "security.strict":
+        security = data.get("security")
+        if not isinstance(security, dict) or "strict" not in security:
+            return False
+        del security["strict"]
+        if not security:
+            del data["security"]
+    else:
+        raise ValueError(f"Unknown config key '{key}'.")
+    _write_config(data)
+    return True
+
+
+def _resolve_profile_for_config(profile: str) -> str:
+    resolved = resolve_profile_path(profile)
+    if not Path(resolved).is_file():
+        raise ValueError(f"Profile '{profile}' could not be found (looked for {resolved}).")
+
+    profile_root = get_profiles_root()
+    if profile_root.is_file() and Path(resolved).resolve() == profile_root.resolve():
+        expected_names = {profile_root.stem, profile_root.parent.name}
+        given_matches_file = Path(profile).resolve() == profile_root.resolve()
+        if profile not in expected_names and not given_matches_file:
+            raise ValueError(
+                f"CDS_PROFILE_PATH points to a single profile file ({profile_root}); "
+                f"'{profile}' does not identify it. Pass the file path directly, "
+                f"or use '{profile_root.stem}' or '{profile_root.parent.name}'."
+            )
+    return resolved
+
+
+def _validate_environment_setting(environment: str) -> None:
+    saved_profile = load_saved_profile()
+    if not saved_profile:
+        raise ValueError(
+            "Cannot set environment without a saved default profile. "
+            "Run `cds use <profile>` or `cds config set profile <profile>` first."
+        )
+    try:
+        profile_path = resolve_profile_path(saved_profile)
+    except ValueError as exc:
+        raise ValueError(
+            "Cannot set environment: the saved default profile could not be resolved."
+        ) from exc
+    profile, _, diagnostics = resolve_profile(profile_path, environment)
+    if profile is None or has_errors(diagnostics):
+        details = "; ".join(d.message for d in diagnostics if d.level == "error")
+        raise ValueError(details or "The environment could not be resolved for the saved profile.")
 
 
 def _resolve_profile_root(profile_root: Path) -> str | None:
@@ -436,7 +530,7 @@ def _add_environment_arg(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument(
         "--environment",
         "-e",
-        default=None,
+        default=argparse.SUPPRESS,
         help=(
             "Environment overlay to apply, e.g. dev or prod. Merges "
             "profiles/<name>/environments/<environment>.yaml over the base "
@@ -977,6 +1071,20 @@ def main() -> int:
     if argcomplete is not None:
         use_action.completer = profile_completer  # type: ignore[attr-defined]
 
+    config_parser = subparsers.add_parser(
+        "config",
+        help="Get, set, unset, or list persisted project defaults",
+    )
+    config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
+    config_get_parser = config_subparsers.add_parser("get", help="Print a persisted setting")
+    config_get_parser.add_argument("key", choices=["profile", "environment", "security.strict"])
+    config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
+    config_set_parser.add_argument("key", choices=["profile", "environment", "security.strict"])
+    config_set_parser.add_argument("value")
+    config_unset_parser = config_subparsers.add_parser("unset", help="Remove a persisted setting")
+    config_unset_parser.add_argument("key", choices=["profile", "environment", "security.strict"])
+    config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
+
     completion_parser = subparsers.add_parser(
         "completion",
         help="Print shell setup instructions for cds tab-completion",
@@ -991,6 +1099,9 @@ def main() -> int:
         argcomplete.autocomplete(parser)
 
     args = parser.parse_args()
+    environment_explicit = hasattr(args, "environment")
+    if args.command in {"validate", "plan", "render", "up", "test", "preflight", "init", "security"}:
+        args.environment = getattr(args, "environment", None) or load_saved_environment()
     
     if args.command == "validate":
         try:
@@ -1076,7 +1187,7 @@ def main() -> int:
                     pass
 
         if is_plan_file:
-            if args.environment is not None:
+            if environment_explicit:
                 print(
                     "ERROR --environment is not supported when rendering a saved Plan file; "
                     "the environment overlay was already applied when the Plan was built."
@@ -1391,6 +1502,7 @@ def main() -> int:
                     profile_path=Path(profile_path),
                     env_file=env_file,
                     environment=args.environment,
+                    strict=load_saved_security_strict(),
                     redact_values=not args.reveal_secrets,
                     precomputed_render=PrecomputedRender(
                         plan=plan if plan_ok else None,
@@ -1649,9 +1761,11 @@ def main() -> int:
                         precomputed_render = PrecomputedRender(
                             plan=plan, rendered_compose_yaml=compose_yaml
                         )
-                        profile_class = (
-                            infer_profile_class(profile) if profile is not None else "local"
-                        )
+                        strict = load_saved_security_strict()
+                        if profile is not None:
+                            profile_class = "prod" if strict else infer_profile_class(profile)
+                        else:
+                            profile_class = "prod" if strict else "local"
                         image_verification_kwargs = {
                             "compose_yaml": compose_yaml,
                             "profile_class": profile_class,
@@ -1663,6 +1777,7 @@ def main() -> int:
                 profile_path=Path(profile_path),
                 env_file=str(resolve_env_file_path(profile_path)),
                 environment=args.environment,
+                strict=load_saved_security_strict(),
                 redact_values=not args.reveal_secrets,
                 precomputed_render=precomputed_render,
             )
@@ -1745,32 +1860,10 @@ def main() -> int:
             return 0
 
         try:
-            resolved = resolve_profile_path(args.profile)
+            resolved = _resolve_profile_for_config(args.profile)
         except ValueError as exc:
             print(f"ERROR {exc}")
             return 1
-
-        if not Path(resolved).is_file():
-            print(f"ERROR Profile '{args.profile}' could not be found (looked for {resolved}).")
-            return 1
-
-        # When CDS_PROFILE_PATH points directly at a single profile.yaml
-        # file, resolve_profile_path() returns that file for *any* name
-        # argument (there's no profiles directory to look names up under),
-        # which would otherwise let `cds use <typo>` succeed silently and
-        # save a bogus name as if it had been validated. Require the given
-        # name to plausibly identify this profile before accepting it.
-        profile_root = get_profiles_root()
-        if profile_root.is_file() and Path(resolved).resolve() == profile_root.resolve():
-            expected_names = {profile_root.stem, profile_root.parent.name}
-            given_matches_file = Path(args.profile).resolve() == profile_root.resolve()
-            if args.profile not in expected_names and not given_matches_file:
-                print(
-                    f"ERROR CDS_PROFILE_PATH points to a single profile file ({profile_root}); "
-                    f"'{args.profile}' does not identify it. Pass the file path directly, "
-                    f"or use '{profile_root.stem}' or '{profile_root.parent.name}'."
-                )
-                return 1
 
         try:
             config_path = save_profile(resolved)
@@ -1779,6 +1872,59 @@ def main() -> int:
             return 1
         print(f"Saved default profile: {args.profile} (resolves to {resolved})")
         print(f"Stored in {config_path}")
+        return 0
+
+    if args.command == "config":
+        if args.config_command == "list":
+            print(json.dumps(_read_config(), indent=2, sort_keys=True))
+            return 0
+
+        if args.config_command == "get":
+            value = _config_value(args.key)
+            if value is None:
+                print(f"ERROR Config key '{args.key}' is not set.")
+                return 1
+            print(json.dumps(value) if isinstance(value, bool) else value)
+            return 0
+
+        if args.config_command == "set":
+            if args.key == "profile":
+                try:
+                    value = _resolve_profile_for_config(args.value)
+                except ValueError as exc:
+                    print(f"ERROR {exc}")
+                    return 1
+            elif args.key == "environment":
+                value = args.value
+                try:
+                    _validate_environment_setting(value)
+                except ValueError as exc:
+                    print(f"ERROR {exc}")
+                    return 1
+            elif args.key == "security.strict":
+                if args.value not in {"true", "false"}:
+                    print("ERROR Config key 'security.strict' must be true or false.")
+                    return 1
+                value = args.value
+            else:
+                value = args.value
+            try:
+                config_path = set_config_value(args.key, value)
+            except ConfigIOError as exc:
+                print(f"ERROR {exc}")
+                return 1
+            print(f"Set {args.key} = {value} ({config_path})")
+            return 0
+
+        try:
+            removed = unset_config_value(args.key)
+        except ConfigIOError as exc:
+            print(f"ERROR {exc}")
+            return 1
+        if removed:
+            print(f"Unset {args.key} ({get_config_path()})")
+        else:
+            print(f"Config key '{args.key}' is not set.")
         return 0
 
     if args.command == "completion":

@@ -659,6 +659,7 @@ def run_security_validation(
     env_file: str | None = None,
     redact_values: bool = False,
     environment: str | None = None,
+    strict: bool = False,
     precomputed_render: PrecomputedRender | None = None,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     """
@@ -679,6 +680,8 @@ def run_security_validation(
             profile's declared metadata.environment (and therefore the
             production security policy applied below) reflects the overlay,
             not just the base profile.
+        strict:           Apply the production security rule class regardless
+            of the profile's declared environment.
         precomputed_render: Optional `PrecomputedRender` used by
             "rendered-compose"-scoped rules (e.g. CDS-SEC-070). Callers that
             already planned and/or rendered the profile for their own
@@ -707,7 +710,7 @@ def run_security_validation(
         overlay_diags = []
     rule_set = _validate_rule_set(rule_schema_path, rule_set_path)
 
-    profile_class = infer_profile_class(profile)
+    profile_class = "prod" if strict else infer_profile_class(profile)
 
     secrets, secret_diags = load_secrets_from_env(env_file)
 

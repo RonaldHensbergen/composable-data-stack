@@ -1711,6 +1711,87 @@ class UseCommandCLITest(unittest.TestCase):
         self.assertIn("Profile is valid", captured.getvalue())
 
 
+class ConfigCommandCLITest(unittest.TestCase):
+    def setUp(self):
+        self.repo_root = Path(__file__).resolve().parent.parent
+        self.profiles_root = self.repo_root / "profiles"
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.config_path = Path(self.tmpdir.name) / "config.json"
+        self.env_patch = patch.dict(
+            os.environ,
+            {"CDS_PROFILE_PATH": str(self.profiles_root), "CDS_CONFIG_PATH": str(self.config_path)},
+            clear=False,
+        )
+        self.env_patch.start()
+
+    def tearDown(self):
+        self.env_patch.stop()
+        self.tmpdir.cleanup()
+
+    def _run(self, argv_extra):
+        captured = io.StringIO()
+        with patch.object(sys, "argv", ["cds", "config"] + argv_extra), contextlib.redirect_stdout(captured):
+            result = main()
+        return result, captured.getvalue()
+
+    def test_config_sets_gets_and_unsets_profile(self):
+        result, output = self._run(["set", "profile", "local-dagster-postgres-superset"])
+        self.assertEqual(result, 0, output)
+        expected = str((self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml").resolve())
+        self.assertEqual(json.loads(self.config_path.read_text())["profile"], expected)
+
+        result, output = self._run(["get", "profile"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(output.strip(), expected)
+
+        result, output = self._run(["unset", "profile"])
+        self.assertEqual(result, 0, output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_config_environment_requires_existing_overlay_for_default_profile(self):
+        self._run(["set", "profile", "local-dagster-postgres-superset"])
+
+        result, output = self._run(["set", "environment", "does-not-exist"])
+        self.assertEqual(result, 1)
+        self.assertIn("Unknown environment", output)
+        self.assertNotIn("environment", json.loads(self.config_path.read_text()))
+
+    def test_config_list_and_security_strict(self):
+        self._run(["set", "profile", "local-dagster-postgres-superset"])
+        result, output = self._run(["set", "security.strict", "true"])
+        self.assertEqual(result, 0, output)
+
+        result, output = self._run(["get", "security.strict"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(output.strip(), "true")
+
+        result, output = self._run(["list"])
+        self.assertEqual(result, 0, output)
+        self.assertTrue(json.loads(output)["security"]["strict"])
+
+    def test_config_rejects_invalid_security_strict_value(self):
+        result, output = self._run(["set", "security.strict", "yes"])
+        self.assertEqual(result, 1)
+        self.assertIn("must be true or false", output)
+        self.assertFalse(self.config_path.exists())
+
+    @patch("cli.main.run_security_validation", return_value=([], []))
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_configured_security_strict_is_passed_to_security_checks(
+        self, mock_validate, mock_run_security
+    ):
+        self._run(["set", "security.strict", "true"])
+        captured = io.StringIO()
+        with patch.object(
+            sys, "argv", ["cds", "security", "local-dagster-postgres-superset"]
+        ), contextlib.redirect_stdout(captured):
+            result = main()
+
+        self.assertEqual(result, 0, captured.getvalue())
+        mock_validate.assert_called_once()
+        self.assertTrue(mock_run_security.call_args.kwargs["strict"])
+
+
 class CompletionCommandCLITest(unittest.TestCase):
     def _run(self, shell):
         captured = io.StringIO()
