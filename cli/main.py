@@ -1908,9 +1908,11 @@ def main() -> int:
                 except ValueError as exc:
                     print(f"ERROR {exc}")
                     return 1
-            elif args.value not in {"true", "false"}:
-                print("ERROR Config key 'security.strict' must be true or false.")
-                return 1
+            elif args.key == "security.strict":
+                if args.value not in {"true", "false"}:
+                    print("ERROR Config key 'security.strict' must be true or false.")
+                    return 1
+                value = args.value
             else:
                 value = args.value
             try:
