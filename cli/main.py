@@ -303,7 +303,7 @@ def _validate_environment_setting(environment: str) -> None:
     profile, _, diagnostics = resolve_profile(profile_path, environment)
     if profile is None or has_errors(diagnostics):
         details = "; ".join(d.message for d in diagnostics if d.level == "error")
-        raise ValueError(details or f"Unknown environment '{environment}'.")
+        raise ValueError(details or "The environment could not be resolved for the saved profile.")
 
 
 def _resolve_profile_root(profile_root: Path) -> str | None:
