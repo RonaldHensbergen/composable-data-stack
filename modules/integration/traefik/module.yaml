@@ -137,7 +137,7 @@ spec:
       services:
         traefik:
           image: traefik:v3.0
-          user: traefik
+          user: "65532:65532"
           init: true
           read_only: true
           cap_drop:
