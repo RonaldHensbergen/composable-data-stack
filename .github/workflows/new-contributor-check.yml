@@ -1,0 +1,88 @@
+name: New Contributor Check
+
+# Flags pull requests opened by first-time contributors so reviewers give
+# them extra scrutiny (e.g. AI-assisted submissions from unfamiliar
+# forks/accounts, per the CDS-SEC review guidance). This does not gate CI or
+# block merging -- it only labels the PR and leaves a one-time comment with a
+# review checklist. Uses pull_request_target (not pull_request) so it runs
+# with repo-scoped credentials even for fork PRs, but it never checks out or
+# executes the PR's own code -- only GitHub API metadata is read.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: new-contributor-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - name: Evaluate author association
+        id: author
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASSOCIATION: ${{ github.event.pull_request.author_association }}
+        run: |
+          set -euo pipefail
+          # FIRST_TIME_CONTRIBUTOR / FIRST_TIMER / NONE cover accounts with no
+          # prior merged contribution and no other association (member,
+          # collaborator, owner, contributor) to this repository.
+          case "${ASSOCIATION}" in
+            FIRST_TIME_CONTRIBUTOR|FIRST_TIMER|NONE)
+              echo "is_new=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "is_new=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+          echo "association=${ASSOCIATION}" >> "$GITHUB_OUTPUT"
+
+      - name: Label first-time contributor PRs
+        if: steps.author.outputs.is_new == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-label "new-contributor"
+
+      - name: Post review checklist (once)
+        if: steps.author.outputs.is_new == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          ASSOCIATION: ${{ steps.author.outputs.association }}
+        run: |
+          set -euo pipefail
+          marker="<!-- new-contributor-check -->"
+
+          already_commented="$(gh pr view "${PR_NUMBER}" --repo "${REPO}" \
+            --json comments --jq ".comments[].body | select(startswith(\"${marker}\")) | length" | head -n1)"
+
+          if [ -n "${already_commented}" ]; then
+            exit 0
+          fi
+
+          body="${marker}
+          👋 This PR was opened by a first-time contributor to this repository (\`author_association: ${ASSOCIATION}\`).
+
+          This is not a judgment on the change itself -- just a reminder for reviewers to apply extra scrutiny before merging, since there's no prior contribution history to calibrate trust against:
+
+          - [ ] Confirm the PR description accurately reflects what the diff does (mismatches between claimed and actual behavior, e.g. stale CI status claims, can indicate the description was generated without re-checking).
+          - [ ] Verify commit(s) look like an iterative human/AI-assisted process, not an unexplained wholesale diff.
+          - [ ] Re-run or check CI/security-scan results directly rather than relying on the PR body's claims about test coverage.
+          - [ ] Review any added dependencies, secrets handling, or CI/workflow changes with extra care -- these are common vectors for supply-chain issues.
+
+          This comment is informational only and does not block merging."
+
+          gh pr comment "${PR_NUMBER}" --repo "${REPO}" --body "${body}"
