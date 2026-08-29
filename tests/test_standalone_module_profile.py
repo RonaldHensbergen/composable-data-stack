@@ -60,8 +60,6 @@ class StandaloneModuleProfileTest(unittest.TestCase):
         for source, module_yaml in modules:
             module_root = module_yaml.parents[2]  # .../modules
             with self.subTest(module=source):
-                module_def = yaml.safe_load(module_yaml.read_text(encoding="utf-8"))
-
                 profile = {
                     "apiVersion": "cds/v1alpha1",
                     "kind": "Profile",
@@ -72,6 +70,7 @@ class StandaloneModuleProfileTest(unittest.TestCase):
                             {
                                 "id": "under-test",
                                 "source": source,
+                                "version": "0.0.0",
                                 "enabled": True,
                                 "config": {},
                             }
