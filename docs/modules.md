@@ -115,7 +115,7 @@ Avoid:
 
 ## Interpolation placeholders
 
-CDS resolves module placeholders while rendering a profile. Each namespace has a
+CDS resolves module placeholders while rendering a profile. Each placeholder has a
 specific source and availability:
 
 | Placeholder | Source | Available when |
@@ -124,6 +124,7 @@ specific source and availability:
 | `${bindings.<contract>.<field>}` | A consumed contract resolved by the profile | The contract is declared in `spec.consumes` and has been bound |
 | `${service.host}` | The module instance `id` from the profile | The module is being rendered |
 | `${secrets.<alias>}` | A profile secret alias | The alias is declared in `spec.secrets` |
+| `${ifNonempty:<path>,<prefix>,<suffix>}` | Conditional interpolation of a placeholder path | The module is being rendered |
 
 For example, a cache module can publish a contract and consume it from another
 module without hard-coding either module's host or port:
@@ -167,6 +168,20 @@ its `cache` binding is resolved. `${secrets.<alias>}` is different: it remains
 a Docker Compose runtime variable (for example `${CDS_DB_PASSWORD}`), so CDS
 never embeds the secret value in generated output. See the
 [profile guide](from-docker-to-cds-profile.md) for a complete stack example.
+
+### Conditional interpolation (`ifNonempty`)
+
+For configuration values that require delimiters or prefixes only when set (such as optional passwords in connection URIs), CDS supports conditional interpolation via `${ifNonempty:<path>,<prefix>,<suffix>}`:
+
+- **Syntax**: `${ifNonempty:<path>,<prefix>,<suffix>}` where `<path>` is any valid placeholder expression (e.g. `config.password` or `bindings.db.password`), `<prefix>` is prepended to the resolved value, and `<suffix>` is appended.
+- **Semantics**: Evaluates `<path>`. If the resolved value is `None`, empty, or whitespace-only after stripping, it emits an empty string `""`. Otherwise, it returns `prefix + value + suffix`.
+- **Example**: In `modules/cache/keydb/module.yaml`, constructing an optional authenticated Redis connection URI:
+
+```yaml
+connectionUri: "redis://${ifNonempty:config.password,:,@}${service.host}:${config.port}"
+```
+
+If `config.password` is set to `"mypassword"`, it renders `redis://:mypassword@keydb:6379`. If `config.password` is empty or omitted, both prefix and suffix are skipped, rendering `redis://keydb:6379`.
 
 ## Custom images
 
