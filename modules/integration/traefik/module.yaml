@@ -145,6 +145,8 @@ spec:
           security_opt:
             - no-new-privileges:true
           pids_limit: 512
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev
 
           ports:
             - "${config.entryPoints.web.address}:80"
