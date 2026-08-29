@@ -80,7 +80,7 @@ spec:
             properties:
               address:
                 type: string
-                default: "127.0.0.1:443"
+                default: ":443"
 
       tls:
         type: object
