@@ -105,7 +105,16 @@ spec:
         properties:
           enabled:
             type: boolean
-            default: true
+            default: false
+            description: >
+              Enables Traefik's Docker provider for label-based dynamic
+              routing. Disabled by default: this module does not mount
+              /var/run/docker.sock (doing so grants root-equivalent access
+              to the Docker host, negating the container's cap_drop/
+              no-new-privileges/read_only hardening). Enabling this option
+              alone has no effect unless the profile also supplies the
+              socket (e.g. via a socket proxy) through a Compose override;
+              prefer fileProvider for dynamic configuration instead.
           exposedByDefault:
             type: boolean
             default: false
@@ -136,7 +145,7 @@ spec:
     compose:
       services:
         traefik:
-          image: traefik:v3.0
+          image: traefik:v3.0@sha256:a208c74fd80a566d4ea376053bff73d31616d7af3f1465a7747b8b89ee34d97e
           user: "65532:65532"
           init: true
           read_only: true
@@ -156,8 +165,11 @@ spec:
           networks:
             - default
 
+          # No /var/run/docker.sock mount: the Docker provider is disabled
+          # by default (see docker.enabled above), and mounting the socket
+          # even read-only would grant root-equivalent host access,
+          # undermining cap_drop/no-new-privileges/read_only hardening.
           volumes:
-            - /var/run/docker.sock:/var/run/docker.sock:ro
             - ./traefik/dynamic:/etc/traefik/dynamic:ro
             - ./certs/traefik:/etc/traefik/certs:ro
             - ./data:/data:rw
