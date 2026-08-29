@@ -27,9 +27,13 @@ from cli.validator import validate_profile
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _MODULE_ROOTS = ("modules", "modules-experimental")
 
-# Diagnostic codes that only ever fire because a required contract binding
-# (e.g. a database the module consumes) wasn't supplied -- expected when a
-# module is exercised standalone rather than wired up in a real profile.
+# Codes expected when a module runs standalone (no sibling modules, no config
+# supplied) instead of wired into a real profile:
+#   E030 - config-schema violation (fires because we pass config: {}, so any
+#          module with required config fields reports them missing)
+#   E041 - a required `consumes` binding could not be resolved (no producer
+#          module exists in the standalone profile)
+#   E042 - contract kind mismatch on a consumed binding
 _EXPECTED_UNBOUND_CODES = {"E030", "E041", "E042"}
 
 
