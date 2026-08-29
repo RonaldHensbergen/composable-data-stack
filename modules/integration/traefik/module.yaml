@@ -74,7 +74,7 @@ spec:
             properties:
               address:
                 type: string
-                default: "127.0.0.1:80"
+                default: ":80"
           websecure:
             type: object
             properties:
