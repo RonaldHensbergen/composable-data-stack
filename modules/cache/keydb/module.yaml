@@ -57,7 +57,7 @@ spec:
           port: ${config.port}
           protocol: redis
           password: ${config.password}
-          connectionUri: "redis://${service.host}:${config.port}"
+          connectionUri: "redis://${ifNonempty:config.password,:,@}${service.host}:${config.port}"
 
   implementation:
     kind: docker-compose
