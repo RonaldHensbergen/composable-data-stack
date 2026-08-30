@@ -495,6 +495,13 @@ def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
 
     Returns None if the path is not found.
     """
+    if expr.startswith("ifNonempty:"):
+        path, prefix, suffix = expr[len("ifNonempty:"):].split(",", 2)
+        value = _resolve_expr(path, context)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return ""
+        return f"{prefix}{value}{suffix}"
+
     if expr.startswith("secrets."):
         alias = expr.split(".", 1)[1]
         secret_map = context.get("secrets", {})
