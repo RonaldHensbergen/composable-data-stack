@@ -111,10 +111,11 @@ spec:
               routing. Disabled by default: this module does not mount
               /var/run/docker.sock (doing so grants root-equivalent access
               to the Docker host, negating the container's cap_drop/
-              no-new-privileges/read_only hardening). Enabling this option
-              alone has no effect unless the profile also supplies the
-              socket (e.g. via a socket proxy) through a Compose override;
-              prefer fileProvider for dynamic configuration instead.
+              no-new-privileges/read_only hardening). Setting this to true 
+              without also supplying the socket (e.g. via a socket proxy) 
+              through a Compose override makes Traefik fail to start, since it
+              cannot reach the Docker API; prefer fileProvider for dynamic 
+              configuration instead.
           exposedByDefault:
             type: boolean
             default: false
