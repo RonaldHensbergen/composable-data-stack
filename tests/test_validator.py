@@ -278,6 +278,10 @@ class ImageSourceConfigValidationTest(unittest.TestCase):
         self.assertEqual([d.code for d in diagnostics], ["E103"])
         self.assertEqual(diagnostics[0].path, "spec.modules[0].config.image.tag")
 
+    def test_registry_source_with_non_string_tag_is_rejected(self):
+        instances = [self._instance({"image": {"source": "registry", "tag": 123}})]
+        diagnostics = validate_image_source_config(instances)
+        self.assertEqual([d.code for d in diagnostics], ["E103"])
     def test_registry_source_with_empty_tag_is_rejected(self):
         instances = [self._instance({"image": {"source": "registry", "tag": ""}})]
         diagnostics = validate_image_source_config(instances)
