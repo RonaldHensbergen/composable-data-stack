@@ -36,6 +36,7 @@ spec:
     properties:
       log:
         type: object
+        additionalProperties: false
         default: {}
         properties:
           level:
@@ -45,6 +46,7 @@ spec:
 
       accessLog:
         type: object
+        additionalProperties: false
         default: {}
         properties:
           enabled:
@@ -53,6 +55,7 @@ spec:
 
       api:
         type: object
+        additionalProperties: false
         default: {}
         properties:
           dashboard:
@@ -67,16 +70,19 @@ spec:
 
       entryPoints:
         type: object
+        additionalProperties: false
         default: {}
         properties:
           web:
             type: object
+            additionalProperties: false
             properties:
               address:
                 type: string
                 default: ":80"
           websecure:
             type: object
+            additionalProperties: false
             properties:
               address:
                 type: string
@@ -84,6 +90,7 @@ spec:
 
       tls:
         type: object
+        additionalProperties: false
         default: {}
         properties:
           minVersion:
@@ -101,6 +108,7 @@ spec:
 
       docker:
         type: object
+        additionalProperties: false
         default: {}
         properties:
           enabled:
@@ -111,10 +119,10 @@ spec:
               routing. Disabled by default: this module does not mount
               /var/run/docker.sock (doing so grants root-equivalent access
               to the Docker host, negating the container's cap_drop/
-              no-new-privileges/read_only hardening). Setting this to true 
-              without also supplying the socket (e.g. via a socket proxy) 
+              no-new-privileges/read_only hardening). Setting this to true
+              without also supplying the socket (e.g. via a socket proxy)
               through a Compose override makes Traefik fail to start, since it
-              cannot reach the Docker API; prefer fileProvider for dynamic 
+              cannot reach the Docker API; prefer fileProvider for dynamic
               configuration instead.
           exposedByDefault:
             type: boolean
@@ -122,6 +130,7 @@ spec:
 
       fileProvider:
         type: object
+        additionalProperties: false
         default: {}
         properties:
           directory:
