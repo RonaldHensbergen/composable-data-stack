@@ -99,7 +99,6 @@ CDS wires modules through **contracts**, not direct dependencies. This section h
 Below, `local-dagster-postgres-superset` wires Dagster to Postgres to Superset through contracts:
 
 ```mermaid
----
 flowchart TD
     Dagster[Dagster]
     Postgres[(Postgres)]
@@ -138,7 +137,6 @@ consumption in Superset), see
 [docs/profile-testing/failure-path-and-ci.md](docs/profile-testing/failure-path-and-ci.md).
 
 ```mermaid
----
 flowchart TD
     subgraph compile["Compile-time (cds)"]
         direction TB
