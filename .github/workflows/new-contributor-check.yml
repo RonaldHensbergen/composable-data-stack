@@ -70,7 +70,8 @@ jobs:
           marker="<!-- new-contributor-check -->"
 
           already_commented="$(gh pr view "${PR_NUMBER}" --repo "${REPO}" \
-            --json comments --jq ".comments[].body | select(startswith(\"${marker}\")) | length" | head -n1)"
+            --json comments --jq ".comments[].body | select(startswith(\"${marker}\")) | length")"
+          already_commented="${already_commented%%$'\n'*}"
 
           if [ -n "${already_commented}" ]; then
             exit 0
