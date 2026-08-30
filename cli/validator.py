@@ -424,7 +424,10 @@ def validate_image_source_config(module_instances: list[dict[str, Any]]) -> list
     diagnostics: list[Diagnostic] = []
 
     for inst in module_instances:
-        image_config = inst["config"].get("image")
+        config = inst.get("config")
+        if not isinstance(config, dict):
+            continue
+        image_config = config.get("image")
         if not isinstance(image_config, dict) or image_config.get("source") != "registry":
             continue
 
