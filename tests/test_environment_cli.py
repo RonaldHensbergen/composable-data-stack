@@ -89,6 +89,45 @@ class EnvironmentOverlayFixture(unittest.TestCase):
 
 
 class ValidatePlanRenderEnvironmentTest(EnvironmentOverlayFixture):
+    def test_configured_environment_is_used_when_flag_is_omitted(self):
+        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
+        config_path = self.root / ".cds" / "config.json"
+        config_path.parent.mkdir()
+        config_path.write_text(
+            json.dumps({"profile": str(self.profile_path), "environment": "prod"})
+        )
+        env_vars = {**self.env_vars, "CDS_CONFIG_PATH": str(config_path)}
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, env_vars, clear=False), patch.object(
+            sys, "argv", ["cds", "plan"]
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0, stdout.getvalue())
+        self.assertEqual(json.loads(stdout.getvalue())["environment"], "prod")
+
+    def test_explicit_environment_overrides_configured_default(self):
+        self._write_overlay("dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 2}}]}})
+        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
+        config_path = self.root / ".cds" / "config.json"
+        config_path.parent.mkdir()
+        config_path.write_text(
+            json.dumps({"profile": str(self.profile_path), "environment": "prod"})
+        )
+        env_vars = {**self.env_vars, "CDS_CONFIG_PATH": str(config_path)}
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, env_vars, clear=False), patch.object(
+            sys, "argv", ["cds", "plan", "--environment", "dev"]
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0, stdout.getvalue())
+        plan = json.loads(stdout.getvalue())
+        self.assertEqual(plan["environment"], "dev")
+        self.assertEqual(plan["modules"][0]["config"]["replicas"], 2)
+
     def test_validate_uses_overlay_when_environment_given(self):
         self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
         result, output = self._run(["cds", "validate", "--environment", "prod"])

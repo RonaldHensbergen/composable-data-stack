@@ -887,6 +887,25 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertIsNotNone(plan)
             module = next(m for m in plan["modules"] if m["id"] == "svc")
             self.assertEqual(module["config"]["replicas"], 5)
+    def test_substitute_string_if_nonempty_omits_affix_for_empty_password(self):
+        result = planner.substitute_string(
+            "redis://${ifNonempty:config.password,:,@}${service.host}:${config.port}",
+            {
+                "config": {"password": "", "port": 6379},
+                "service": {"host": "keydb"},
+            },
+        )
+        self.assertEqual(result, "redis://keydb:6379")
+
+    def test_substitute_string_if_nonempty_includes_password_in_redis_uri(self):
+        result = planner.substitute_string(
+            "redis://${ifNonempty:config.password,:,@}${service.host}:${config.port}",
+            {
+                "config": {"password": "secret", "port": 6379},
+                "service": {"host": "keydb"},
+            },
+        )
+        self.assertEqual(result, "redis://:secret@keydb:6379")
 
     def test_substitute_values_raises_max_nesting_depth_exceeded_on_deep_dict(self):
         obj: dict = {}
