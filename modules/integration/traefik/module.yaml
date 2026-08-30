@@ -173,7 +173,6 @@ spec:
           volumes:
             - ./traefik/dynamic:/etc/traefik/dynamic:ro
             - ./certs/traefik:/etc/traefik/certs:ro
-            - ./data:/data:rw
 
           environment:
             TRAEFIK_LOG_LEVEL: "${config.log.level}"
