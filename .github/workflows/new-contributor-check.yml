@@ -53,6 +53,9 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          gh label create "new-contributor" \
+            --description "PR opened by a first-time contributor to this repository" \
+            --color "0e8a16" 2>/dev/null || true
           gh pr edit "${PR_NUMBER}" --repo "${REPO}" --add-label "new-contributor"
 
       - name: Post review checklist (once)
