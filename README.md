@@ -787,6 +787,8 @@ Common errors from `cds validate`, `cds plan`, and `cds render`, and how to fix 
 | `[E041] ... Contract ref "x.y" points to unknown module "x"` | A `consumes` binding's `contractRef` refers to a module ID that isn't defined in the profile. | Check `spec.modules` for the correct module `id`, and confirm the contract ref follows `<module-id>.<contract-name>`. |
 | `[E041] ... but it does not provide "<contract-name>"` | The referenced module exists, but its `spec.provides` list doesn't expose that contract name. | Check the producing module's `module.yaml` for the contracts it actually provides, and fix the consumer's `contractRef` to match. |
 | `[E042] ... Contract kind mismatch` | The consumer expects one contract kind (e.g. `sql-database`) but the producer exposes a different kind. | Point the binding at a module that provides the expected contract kind, or update the consumer's expected kind if the mismatch is intentional. |
+| `[E103] ... config.image.tag is required ... when config.image.source is "registry"` | A module instance sets `config.image.source: registry` without also setting `config.image.tag`. | Set `config.image.tag` to a version, or switch back to `config.image.source: build`. |
+| `[W097] ... config.image.tag is "latest" with config.image.source "registry"` | `config.image.tag: latest` under `source: registry` still validates, but drifts silently between deploys instead of pinning a reproducible version. | Pin an explicit tag from `publish-images.yml`'s output (or `tests/fixtures/signed-images.json`) instead of `latest`. |
 
 All diagnostics print with their error code and YAML path (e.g. `spec.modules[1].config`), so search the profile file for that path to find the exact line to fix.
 
