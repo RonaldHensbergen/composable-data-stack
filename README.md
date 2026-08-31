@@ -662,7 +662,7 @@ dimension.
 A malformed `extends` chain fails validation/planning before anything else
 runs, with a dedicated diagnostic code:
 
-|Code|Meaning|
+| Code | Meaning |
 |---|---|
 |E103|`extends` is missing, not a list, empty, or contains a non-string/empty entry|
 |E104|A parent reference resolves outside the profiles root|
