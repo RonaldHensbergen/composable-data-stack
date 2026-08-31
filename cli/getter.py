@@ -319,7 +319,6 @@ def _collect_asset_roots(source_repo: Path, profile_path: Path) -> list[Path]:
     return sorted(asset_roots)
 
 
-
 def _collect_module_runtime_assets(
     source_repo: Path,
     module_dir: Path,
