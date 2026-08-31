@@ -1,4 +1,4 @@
-FROM apache/superset:6.1.0@sha256:d4bc02540ccd550acf71ca346bca2ef7938913917fe97ac76653cf7d2119589a
+FROM apache/superset:6.1.0@sha256:59cd4af66006fe4cc98906eda42a771dbefdacb432f9ab083e02cdc6ff01f29d
 
 ARG IMAGE_PACKAGES=""
 ARG UV_VERSION=0.11.26
