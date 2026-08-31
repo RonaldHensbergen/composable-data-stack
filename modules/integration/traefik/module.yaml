@@ -155,7 +155,7 @@ spec:
     compose:
       services:
         traefik:
-          image: traefik:v3.0@sha256:a208c74fd80a566d4ea376053bff73d31616d7af3f1465a7747b8b89ee34d97e
+          image: traefik:v3.7@sha256:a208c74fd80a566d4ea376053bff73d31616d7af3f1465a7747b8b89ee34d97e
           user: "65532:65532"
           init: true
           read_only: true
