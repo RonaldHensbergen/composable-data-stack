@@ -1435,7 +1435,7 @@ def main() -> int:
 
     if args.command == "get":
         try:
-            actions, manifest_path = fetch_profile(
+            actions, manifest_path, conflicts = fetch_profile(
                 args.profile,
                 remote=args.remote,
                 ref=args.ref,
@@ -1450,8 +1450,10 @@ def main() -> int:
 
         destination_root = (Path(args.into) if args.into else Path.cwd()).expanduser().resolve()
         if args.dry_run:
-            print(format_get_plan(actions, destination_root=destination_root))
+            print(format_get_plan(actions, destination_root=destination_root, conflicts=conflicts))
             print(f"Tracking metadata would be written to {manifest_path}")
+            if conflicts and not args.force:
+                print(f"{len(conflicts)} file(s) would need --force to overwrite.")
             return 0
 
         print(f"Fetched {len(actions)} file(s) into {destination_root}")

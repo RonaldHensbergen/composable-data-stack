@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.getter import DEFAULT_REMOTE, GetError, _parse_github_remote, fetch_profile
+from cli.getter import DEFAULT_REMOTE, GetError, _parse_github_remote, fetch_profile, format_get_plan
 
 
 def _write(path: Path, content: str) -> None:
@@ -76,12 +76,13 @@ class GetterTest(unittest.TestCase):
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
 
-            actions, manifest_path = fetch_profile(
+            actions, manifest_path, conflicts = fetch_profile(
                 "demo",
                 local=str(source_root),
                 destination_root=destination_root,
             )
 
+            self.assertEqual(conflicts, [])
             self.assertGreater(len(actions), 0)
             self.assertTrue((destination_root / "profiles" / "demo" / "profile.yaml").exists())
             self.assertTrue((destination_root / "profiles" / "demo" / "workdirs" / "shared-data" / "README.txt").exists())
@@ -206,7 +207,7 @@ class GetterTest(unittest.TestCase):
 
             stderr = io.StringIO()
             with contextlib.redirect_stderr(stderr):
-                _, returned_manifest_path = fetch_profile(
+                _, returned_manifest_path, _ = fetch_profile(
                     "demo",
                     local=str(source_root),
                     destination_root=destination_root,
@@ -328,7 +329,7 @@ class GetterTest(unittest.TestCase):
             backups = list(manifest_path.parent.glob("get-manifest.json.corrupt-*"))
             self.assertEqual(len(backups), 0)
 
-    def test_fetch_profile_dry_run_ignores_conflicting_files(self) -> None:
+    def test_fetch_profile_dry_run_reports_conflicts_without_writing(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
@@ -338,7 +339,7 @@ class GetterTest(unittest.TestCase):
             profile_file = destination_root / "profiles" / "demo" / "profile.yaml"
             profile_file.write_text("changed\n", encoding="utf-8")
 
-            actions, manifest_path = fetch_profile(
+            actions, manifest_path, conflicts = fetch_profile(
                 "demo",
                 local=str(source_root),
                 destination_root=destination_root,
@@ -346,8 +347,13 @@ class GetterTest(unittest.TestCase):
             )
 
             self.assertGreater(len(actions), 0)
+            self.assertEqual(conflicts, ["profiles/demo/profile.yaml"])
             self.assertEqual(manifest_path, destination_root.resolve() / ".cds" / "get-manifest.json")
             self.assertEqual(profile_file.read_text(encoding="utf-8"), "changed\n")
+
+            rendered = format_get_plan(actions, destination_root=destination_root, conflicts=conflicts)
+            self.assertIn("Would conflict without --force (1):", rendered)
+            self.assertIn("profiles/demo/profile.yaml", rendered)
 
     def test_fetch_profile_resolves_templated_dockerfile_from_module_config_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
@@ -453,7 +459,7 @@ spec:
 """,
             )
 
-            _, manifest_path = fetch_profile(
+            _, manifest_path, _ = fetch_profile(
                 "demo",
                 local=str(source_root),
                 destination_root=destination_root,
@@ -786,7 +792,7 @@ class GitHubRemoteTest(unittest.TestCase):
                 return _FakeResponse()
 
             with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
-                actions, manifest_path = fetch_profile(
+                actions, manifest_path, _ = fetch_profile(
                     "demo",
                     destination_root=destination_root,
                 )
@@ -824,7 +830,7 @@ class GitHubRemoteTest(unittest.TestCase):
                 return _FakeResponse()
 
             with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
-                actions, _ = fetch_profile(
+                actions, _, _ = fetch_profile(
                     "demo",
                     remote="RonaldHensbergen/composable-data-stack",
                     ref="v1.2.3",
