@@ -10,7 +10,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.getter import DEFAULT_REMOTE, GetError, _parse_github_remote, fetch_profile, format_get_plan
+from cli.getter import (
+    DEFAULT_REMOTE,
+    GetError,
+    _parse_github_remote,
+    fetch_profile,
+    format_get_plan,
+)
 
 
 def _write(path: Path, content: str) -> None:
