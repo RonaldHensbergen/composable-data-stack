@@ -8,6 +8,7 @@ import yaml
 from cli.validator import (
     validate_contract_document,
     validate_contract_file,
+    validate_image_source_config,
     validate_observability_config,
     validate_profile,
 )
@@ -257,6 +258,107 @@ class ObservabilityConfigValidationTest(unittest.TestCase):
             }
         ]
         self.assertEqual(validate_observability_config(profile, module_instances), [])
+
+
+class ImageSourceConfigValidationTest(unittest.TestCase):
+    def _instance(self, config, index=0):
+        return {"index": index, "id": "under-test", "config": config}
+
+    def test_source_build_default_is_unaffected(self):
+        instances = [self._instance({"image": {"source": "build"}})]
+        self.assertEqual(validate_image_source_config(instances), [])
+
+    def test_absent_image_config_is_unaffected(self):
+        instances = [self._instance({})]
+        self.assertEqual(validate_image_source_config(instances), [])
+
+    def test_registry_source_without_tag_is_rejected(self):
+        instances = [self._instance({"image": {"source": "registry"}})]
+        diagnostics = validate_image_source_config(instances)
+        self.assertEqual([d.code for d in diagnostics], ["E103"])
+        self.assertEqual(diagnostics[0].path, "spec.modules[0].config.image.tag")
+
+    def test_registry_source_with_non_string_tag_is_rejected(self):
+        instances = [self._instance({"image": {"source": "registry", "tag": 123}})]
+        diagnostics = validate_image_source_config(instances)
+        self.assertEqual([d.code for d in diagnostics], ["E103"])
+    def test_registry_source_with_empty_tag_is_rejected(self):
+        instances = [self._instance({"image": {"source": "registry", "tag": ""}})]
+        diagnostics = validate_image_source_config(instances)
+        self.assertEqual([d.code for d in diagnostics], ["E103"])
+
+    def test_registry_source_with_pinned_tag_is_valid(self):
+        instances = [self._instance({"image": {"source": "registry", "tag": "1.8.0"}})]
+        self.assertEqual(validate_image_source_config(instances), [])
+
+    def test_registry_source_with_latest_tag_is_a_warning_not_an_error(self):
+        instances = [self._instance({"image": {"source": "registry", "tag": "latest"}})]
+        diagnostics = validate_image_source_config(instances)
+        self.assertEqual([d.code for d in diagnostics], ["W097"])
+        self.assertEqual(diagnostics[0].level, "warning")
+        self.assertEqual(diagnostics[0].path, "spec.modules[0].config.image.tag")
+
+    def test_full_profile_with_latest_tag_still_validates(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            modules_root = root / "modules"
+            module_dir = modules_root / "orchestration" / "dagster"
+            profile_dir.mkdir(parents=True)
+            module_dir.mkdir(parents=True)
+
+            (module_dir / "module.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Module",
+                        "metadata": {"name": "dagster", "category": "orchestration", "version": "0.1.0"},
+                        "spec": {
+                            "runtime": {
+                                "type": "container",
+                                "service": {
+                                    "name": "dagster",
+                                    "ports": [{"name": "http", "containerPort": 3000, "protocol": "TCP"}],
+                                },
+                            },
+                            "configSchema": {
+                                "type": "object",
+                                "additionalProperties": True,
+                            },
+                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "local-test", "environment": "local"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {
+                            "id": "dagster",
+                            "source": "orchestration/dagster",
+                            "version": "0.1.0",
+                            "enabled": True,
+                            "config": {"image": {"source": "registry", "tag": "latest"}},
+                        }
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+            with patch.dict("os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False):
+                diagnostics = validate_profile(str(profile_file))
+
+            self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+            self.assertEqual([d.code for d in diagnostics if d.level == "warning"], ["W097"])
 
 
 class ContractSchemaValidationTest(unittest.TestCase):
