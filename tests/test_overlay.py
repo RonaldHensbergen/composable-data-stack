@@ -470,7 +470,7 @@ class ExtendsCompositionTest(unittest.TestCase):
         )
         resolved, _prov, diagnostics = resolve_profile(str(a / "profile.yaml"), environment=None)
         self.assertIsNone(resolved)
-        self.assertTrue(any(d.code == "E106" for d in diagnostics), diagnostics)
+        self.assertTrue(any(d.code == "E113" for d in diagnostics), diagnostics)
 
     def test_missing_parent_profile_is_rejected(self):
         child = self._write_profile(
@@ -485,7 +485,7 @@ class ExtendsCompositionTest(unittest.TestCase):
         )
         resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
         self.assertIsNone(resolved)
-        self.assertTrue(any(d.code == "E105" for d in diagnostics), diagnostics)
+        self.assertTrue(any(d.code == "E112" for d in diagnostics), diagnostics)
 
     def test_extends_outside_profiles_root_is_rejected(self):
         outside_dir = self.root / "outside"
@@ -512,7 +512,7 @@ class ExtendsCompositionTest(unittest.TestCase):
         )
         resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
         self.assertIsNone(resolved)
-        self.assertTrue(any(d.code == "E104" for d in diagnostics), diagnostics)
+        self.assertTrue(any(d.code == "E111" for d in diagnostics), diagnostics)
 
     def test_extends_not_a_list_is_rejected(self):
         child = self._write_profile(
@@ -527,7 +527,7 @@ class ExtendsCompositionTest(unittest.TestCase):
         )
         resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
         self.assertIsNone(resolved)
-        self.assertTrue(any(d.code == "E103" for d in diagnostics), diagnostics)
+        self.assertTrue(any(d.code == "E110" for d in diagnostics), diagnostics)
 
     def test_extends_combined_with_environment_overlay_applies_on_top(self):
         self._write_profile(
@@ -582,7 +582,7 @@ class ExtendsCompositionTest(unittest.TestCase):
         )
         resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
         self.assertIsNone(resolved)
-        self.assertTrue(any(d.code == "E104" for d in diagnostics), diagnostics)
+        self.assertTrue(any(d.code == "E111" for d in diagnostics), diagnostics)
 
     def test_extends_root_derivation_uses_innermost_profiles_segment(self):
         # Regression test: _derive_profiles_root() must anchor on the
@@ -635,7 +635,7 @@ class ExtendsCompositionTest(unittest.TestCase):
 
         resolved, _prov, diagnostics = resolve_profile(str(child), environment=None)
         self.assertIsNone(resolved)
-        self.assertTrue(any(d.code == "E104" for d in diagnostics), diagnostics)
+        self.assertTrue(any(d.code == "E111" for d in diagnostics), diagnostics)
 
     def test_no_extends_field_behaves_exactly_as_before(self):
         child = self._write_profile(

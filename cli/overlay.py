@@ -206,7 +206,7 @@ def _compose_extends(
         return None, {}, [
             Diagnostic(
                 level="error",
-                code="E106",
+                code="E113",
                 message=f"Cycle detected in profile extends chain: {chain}.",
                 path="extends",
             )
@@ -226,7 +226,7 @@ def _compose_extends(
         diagnostics.append(
             Diagnostic(
                 level="error",
-                code="E103",
+                code="E110",
                 message="'extends' must be a non-empty list of non-empty profile references.",
                 path="extends",
             )
@@ -239,7 +239,7 @@ def _compose_extends(
         diagnostics.append(
             Diagnostic(
                 level="error",
-                code="E104",
+                code="E111",
                 message=(
                     f'Cannot resolve "extends" for {profile_file}: its directory does not '
                     'reside under a "profiles/" root.'
@@ -262,7 +262,7 @@ def _compose_extends(
             diagnostics.append(
                 Diagnostic(
                     level="error",
-                    code="E104",
+                    code="E111",
                     message=f'Parent profile "{ref}" resolves outside the profiles root "{profiles_root}".',
                     path="extends",
                 )
@@ -273,7 +273,7 @@ def _compose_extends(
             diagnostics.append(
                 Diagnostic(
                     level="error",
-                    code="E105",
+                    code="E112",
                     message=f'Parent profile "{ref}" not found (looked for {parent_path}).',
                     path="extends",
                 )
