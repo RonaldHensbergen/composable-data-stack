@@ -672,7 +672,19 @@ def _add_copy_action(
     destination_root: Path,
     actions_by_destination: dict[Path, CopyAction],
 ) -> None:
-    repo_relative = source_file.resolve().relative_to(source_repo.resolve())
+    resolved_source = source_file.resolve()
+    try:
+        repo_relative = resolved_source.relative_to(source_repo.resolve())
+    except ValueError as exc:
+        # A symlink (or directory junction) planted under an asset root can
+        # resolve to a real path outside the source repository. Without this
+        # guard, Path.relative_to() raises a bare ValueError that escapes as
+        # an unhandled traceback instead of the stable GetError callers rely
+        # on (#454).
+        raise GetError(
+            f"Asset {source_file} resolves outside the source repository "
+            f"({source_repo}): {resolved_source}"
+        ) from exc
     # Deliberately do NOT call .resolve() on the combined destination path:
     # destination_root is already an absolute, resolved path (see
     # fetch_profile()), and resolving the full path here would follow a
@@ -684,12 +696,12 @@ def _add_copy_action(
     existing = actions_by_destination.get(destination)
     if existing is None:
         actions_by_destination[destination] = CopyAction(
-            source=source_file.resolve(),
+            source=resolved_source,
             destination=destination,
             repo_relative_path=repo_relative.as_posix(),
         )
         return
-    if existing.source.resolve() != source_file.resolve():
+    if existing.source.resolve() != resolved_source:
         raise GetError(
             f"Multiple source files would map to the same destination: {destination}"
         )
@@ -726,10 +738,17 @@ def _write_actions(actions: list[CopyAction]) -> None:
     (e.g. a symlink planted at profiles/foo/profile.yaml pointing outside
     the destination tree)."""
     for action in actions:
-        action.destination.parent.mkdir(parents=True, exist_ok=True)
-        if action.destination.is_symlink():
-            action.destination.unlink()
-        shutil.copy2(action.source, action.destination)
+        try:
+            action.destination.parent.mkdir(parents=True, exist_ok=True)
+            if action.destination.is_symlink():
+                action.destination.unlink()
+            shutil.copy2(action.source, action.destination)
+        except OSError as exc:
+            # Surface filesystem failures (permission denied, read-only
+            # destination, disk full, ...) as a stable GetError instead of a
+            # raw OSError, so callers get a predictable error path and
+            # message regardless of the underlying platform/errno (#454).
+            raise GetError(f"Could not write {action.destination}: {exc}") from exc
 
 
 def _write_tracking_manifest(
