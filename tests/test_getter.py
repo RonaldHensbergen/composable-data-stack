@@ -10,7 +10,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from cli.getter import DEFAULT_REMOTE, GetError, _parse_github_remote, fetch_profile
+from cli.getter import (
+    DEFAULT_REMOTE,
+    GetError,
+    _parse_github_remote,
+    fetch_profile,
+    find_conflicts,
+    format_get_plan,
+)
 
 
 def _write(path: Path, content: str) -> None:
@@ -348,6 +355,72 @@ class GetterTest(unittest.TestCase):
             self.assertGreater(len(actions), 0)
             self.assertEqual(manifest_path, destination_root.resolve() / ".cds" / "get-manifest.json")
             self.assertEqual(profile_file.read_text(encoding="utf-8"), "changed\n")
+
+    def test_find_conflicts_reports_content_mismatch_after_dry_run(self) -> None:
+        """find_conflicts() is read-only, so it can be run on the actions
+        returned from a dry-run fetch_profile() call to report overwrite
+        risk without writing anything or requiring --force (#452)."""
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            profile_file = destination_root / "profiles" / "demo" / "profile.yaml"
+            profile_file.write_text("changed\n", encoding="utf-8")
+
+            actions, _ = fetch_profile(
+                "demo",
+                local=str(source_root),
+                destination_root=destination_root,
+                dry_run=True,
+            )
+
+            conflicts = find_conflicts(actions)
+
+            self.assertIn("profiles/demo/profile.yaml", conflicts)
+            # find_conflicts() must not write or modify anything.
+            self.assertEqual(profile_file.read_text(encoding="utf-8"), "changed\n")
+
+    def test_format_get_plan_reports_conflicts_and_force_hint(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            (destination_root / "profiles" / "demo" / "profile.yaml").write_text("changed\n", encoding="utf-8")
+
+            actions, _ = fetch_profile(
+                "demo",
+                local=str(source_root),
+                destination_root=destination_root,
+                dry_run=True,
+            )
+            conflicts = find_conflicts(actions)
+
+            rendered = format_get_plan(actions, destination_root=destination_root, conflicts=conflicts)
+
+            self.assertIn("would conflict", rendered)
+            self.assertIn("--force", rendered)
+            self.assertIn("profiles/demo/profile.yaml", rendered)
+
+    def test_format_get_plan_omits_conflict_section_when_no_conflicts(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            actions, _ = fetch_profile(
+                "demo",
+                local=str(source_root),
+                destination_root=destination_root,
+                dry_run=True,
+            )
+
+            rendered = format_get_plan(actions, destination_root=destination_root, conflicts=find_conflicts(actions))
+
+            self.assertNotIn("would conflict", rendered)
 
     def test_fetch_profile_resolves_templated_dockerfile_from_module_config_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:

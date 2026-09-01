@@ -542,6 +542,80 @@ spec:
             self.assertFalse((destination_root / "profiles" / "demo" / "profile.yaml").exists())
             self.assertFalse((destination_root / ".cds" / "get-manifest.json").exists())
 
+    def test_get_command_dry_run_reports_conflicts_without_writing_or_force(self):
+        """`cds get --dry-run` must report which planned files would
+        conflict with existing content, without requiring --force and
+        without writing anything or creating a manifest (#452)."""
+        import tempfile
+
+        def write(path: Path, content: str) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            write(
+                source_root / "profiles" / "demo" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+""",
+            )
+            write(
+                source_root / "modules" / "apps" / "demo" / "module.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: demo
+spec:
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          image: demo:latest
+""",
+            )
+            # Pre-plant a conflicting file at the destination before the
+            # first fetch, so the dry-run plan below sees a real conflict.
+            write(destination_root / "profiles" / "demo" / "profile.yaml", "pre-existing local edits\n")
+
+            stdout = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "get",
+                    "demo",
+                    "--local",
+                    str(source_root),
+                    "--into",
+                    str(destination_root),
+                    "--dry-run",
+                ],
+            ), contextlib.redirect_stdout(stdout):
+                result = main()
+
+            output = stdout.getvalue()
+            self.assertEqual(result, 0)
+            self.assertIn("would conflict", output)
+            self.assertIn("--force", output)
+            self.assertIn("profiles/demo/profile.yaml", output)
+            self.assertEqual(
+                (destination_root / "profiles" / "demo" / "profile.yaml").read_text(encoding="utf-8"),
+                "pre-existing local edits\n",
+            )
+            self.assertFalse((destination_root / ".cds" / "get-manifest.json").exists())
+
     def test_get_command_reports_errors_on_stderr(self):
         stdout = io.StringIO()
         stderr = io.StringIO()

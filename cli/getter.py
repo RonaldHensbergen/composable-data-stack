@@ -80,9 +80,12 @@ def fetch_profile(
 
         actions = _build_copy_plan(source_repo, asset_roots, target_root)
         if dry_run:
+            # Dry-run performs no writes, but conflict detection is
+            # read-only, so callers (e.g. the CLI's --dry-run output) can
+            # still report overwrite risk via find_conflicts(actions).
             return actions, target_root / _TRACKING_FILE
 
-        conflicts = _find_conflicts(actions)
+        conflicts = find_conflicts(actions)
         if conflicts and not force:
             rendered = ", ".join(conflicts[:5])
             extra = "" if len(conflicts) <= 5 else f" (+{len(conflicts) - 5} more)"
@@ -107,7 +110,12 @@ def fetch_profile(
     return actions, target_root / _TRACKING_FILE
 
 
-def format_get_plan(actions: list[CopyAction], *, destination_root: Path) -> str:
+def format_get_plan(
+    actions: list[CopyAction],
+    *,
+    destination_root: Path,
+    conflicts: list[str] | None = None,
+) -> str:
     if not actions:
         return f"No file changes required under {destination_root}."
 
@@ -116,6 +124,16 @@ def format_get_plan(actions: list[CopyAction], *, destination_root: Path) -> str
         lines.append(f"  - {action.repo_relative_path}")
     if len(actions) > 20:
         lines.append(f"  - ... {len(actions) - 20} more")
+
+    if conflicts:
+        lines.append(
+            f"\n{len(conflicts)} file(s) would conflict with existing content "
+            "(rerun with --force to overwrite):"
+        )
+        for path in conflicts[:5]:
+            lines.append(f"  ! {path}")
+        if len(conflicts) > 5:
+            lines.append(f"  ! ... {len(conflicts) - 5} more")
     return "\n".join(lines)
 
 
@@ -602,7 +620,7 @@ def _add_copy_action(
     # symlink planted at the destination leaf, silently swapping the
     # CopyAction's destination for the symlink's target instead of the
     # symlink path itself. That would defeat the is_symlink() conflict/
-    # write-through guards in _find_conflicts()/_write_actions() (#474).
+    # write-through guards in find_conflicts()/_write_actions() (#474).
     destination = destination_root / repo_relative
     existing = actions_by_destination.get(destination)
     if existing is None:
@@ -618,7 +636,7 @@ def _add_copy_action(
         )
 
 
-def _find_conflicts(actions: list[CopyAction]) -> list[str]:
+def find_conflicts(actions: list[CopyAction]) -> list[str]:
     conflicts: list[str] = []
     for action in actions:
         destination = action.destination

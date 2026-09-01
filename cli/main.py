@@ -20,7 +20,7 @@ except ImportError:
 import yaml
 
 from .diagnostics import Diagnostic
-from .getter import GetError, fetch_profile, format_get_plan
+from .getter import GetError, fetch_profile, find_conflicts, format_get_plan
 from .image_updates import check_image_update, collect_module_images
 from .image_verification import (
     ImagePolicy,
@@ -1450,7 +1450,11 @@ def main() -> int:
 
         destination_root = (Path(args.into) if args.into else Path.cwd()).expanduser().resolve()
         if args.dry_run:
-            print(format_get_plan(actions, destination_root=destination_root))
+            # Conflict detection only reads files, so it's safe to run here
+            # even though --dry-run performs no writes and creates no
+            # manifest.
+            conflicts = find_conflicts(actions)
+            print(format_get_plan(actions, destination_root=destination_root, conflicts=conflicts))
             print(f"Tracking metadata would be written to {manifest_path}")
             return 0
 
