@@ -529,6 +529,154 @@ def _map_service_to_module(plan: dict[str, Any] | None) -> dict[str, str]:
     return mapping
 
 
+def _module_provides_plaintext_http(module: dict[str, Any]) -> bool:
+    provides = module.get("provides", {})
+    if not isinstance(provides, dict):
+        return False
+    for contract in provides.values():
+        if not isinstance(contract, dict):
+            continue
+        if contract.get("kind") != "http-service":
+            continue
+        spec = contract.get("spec", {})
+        if isinstance(spec, dict) and str(spec.get("protocol", "")).lower() == "http":
+            return True
+    return False
+
+
+def _plan_has_tls_reverse_proxy(plan: dict[str, Any] | None) -> bool:
+    if not isinstance(plan, dict):
+        return False
+    for module in plan.get("modules", []):
+        if not isinstance(module, dict):
+            continue
+        provides = module.get("provides", {})
+        if not isinstance(provides, dict):
+            continue
+        for contract in provides.values():
+            if not isinstance(contract, dict):
+                continue
+            if contract.get("kind") != "reverse-proxy":
+                continue
+            spec = contract.get("spec", {})
+            if isinstance(spec, dict) and str(spec.get("protocol", "")).lower() == "https":
+                return True
+    return False
+
+
+def _port_is_non_local_host_exposure(port: Any) -> bool:
+    if isinstance(port, int):
+        return True
+    if isinstance(port, str):
+        value = port.strip()
+        if value.startswith("127.0.0.1:") or value.startswith("localhost:") or value.startswith("[::1]:"):
+            return False
+        return True
+    if isinstance(port, dict):
+        host_ip = str(port.get("host_ip", "")).strip().lower()
+        if host_ip in {"127.0.0.1", "localhost", "::1"}:
+            return False
+        return "target" in port
+    return False
+
+
+def _plaintext_exposure_waiver_reason(profile: dict[str, Any]) -> str | None:
+    waiver = (
+        profile.get("spec", {})
+        .get("security", {})
+        .get("waivers", {})
+        .get("plaintextEndpointExposure")
+    )
+    if not isinstance(waiver, dict):
+        return None
+    reason = waiver.get("reason")
+    if not isinstance(reason, str):
+        return None
+    reason = reason.strip()
+    return reason or None
+
+
+def _check_production_plaintext_exposure(
+    profile: dict[str, Any],
+    profile_class: str,
+    plan: dict[str, Any] | None,
+    rendered_compose: dict[str, Any] | None,
+    service_to_module: dict[str, str],
+    redact_values: bool = False,
+) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
+    if profile_class != "prod" or not isinstance(plan, dict) or not isinstance(rendered_compose, dict):
+        return [], []
+
+    plaintext_modules = {
+        module.get("id")
+        for module in plan.get("modules", [])
+        if isinstance(module, dict)
+        and isinstance(module.get("id"), str)
+        and _module_provides_plaintext_http(module)
+    }
+    if not plaintext_modules:
+        return [], []
+
+    services = rendered_compose.get("services", {})
+    if not isinstance(services, dict):
+        return [], []
+
+    exposures: list[dict[str, Any]] = []
+    for service_name, service_def in services.items():
+        if not isinstance(service_def, dict):
+            continue
+        module_id = service_to_module.get(service_name, service_name)
+        if module_id not in plaintext_modules:
+            continue
+        ports = service_def.get("ports", [])
+        if not isinstance(ports, list):
+            ports = [ports]
+        for index, port in enumerate(ports):
+            if _port_is_non_local_host_exposure(port):
+                exposures.append({
+                    "module": module_id,
+                    "path": f"services.{service_name}.ports[{index}]",
+                    "value": port,
+                })
+
+    if not exposures or _plan_has_tls_reverse_proxy(plan):
+        return [], []
+
+    waiver_reason = _plaintext_exposure_waiver_reason(profile)
+    if waiver_reason is not None:
+        modules = ", ".join(sorted({entry["module"] for entry in exposures}))
+        return [], [Diagnostic(
+            level="warning",
+            code="W098",
+            message=(
+                "Applied plaintext endpoint exposure waiver for production profile "
+                f"(modules: {modules}): {waiver_reason}"
+            ),
+            path="spec.security.waivers.plaintextEndpointExposure",
+        )]
+
+    findings = [
+        {
+            "rule_id": "CDS-SEC-074",
+            "severity": "high",
+            "module": entry["module"],
+            "message": (
+                "Production profile exposes a plaintext HTTP endpoint without a "
+                "TLS reverse-proxy contract"
+            ),
+            "path": entry["path"],
+            "value": _redact(entry["value"]) if redact_values else entry["value"],
+            "recommendation": [
+                "Route endpoint traffic through a module that provides reverse-proxy with protocol https.",
+                "Limit plaintext endpoint bindings to localhost-only interfaces.",
+                "If exposure is intentional, add spec.security.waivers.plaintextEndpointExposure.reason.",
+            ],
+        }
+        for entry in exposures
+    ]
+    return findings, []
+
+
 @dataclass(frozen=True)
 class PrecomputedRender:
     """
@@ -557,7 +705,7 @@ def _try_render_compose_for_scan(
     env_file: str | None,
     environment: str | None,
     precomputed: PrecomputedRender | None = None,
-) -> tuple[dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
     """
     Resolve the rendered Compose document (and its service->module map) used
     by "rendered-compose"-scoped rules.
@@ -589,7 +737,7 @@ def _try_render_compose_for_scan(
     plan = precomputed.plan
     rendered_compose_yaml = precomputed.rendered_compose_yaml
     if precomputed.failed and rendered_compose_yaml is None:
-        return None, {}, diagnostics
+        return None, None, {}, diagnostics
     try:
         if rendered_compose_yaml is None:
             if plan is None:
@@ -609,7 +757,7 @@ def _try_render_compose_for_scan(
                         ),
                         path="spec.modules",
                     ))
-                    return None, {}, diagnostics
+                    return None, None, {}, diagnostics
 
             rendered_compose_yaml, render_diags = render_compose(plan, env_file=env_file)
             render_errors = [d for d in render_diags if d.level == "error"]
@@ -625,11 +773,11 @@ def _try_render_compose_for_scan(
                     ),
                     path="spec.modules",
                 ))
-                return None, {}, diagnostics
+                return plan, None, {}, diagnostics
 
         rendered = yaml.safe_load(rendered_compose_yaml)
         service_to_module = _map_service_to_module(plan)
-        return (rendered if isinstance(rendered, dict) else None), service_to_module, diagnostics
+        return (rendered if isinstance(rendered, dict) else None), plan, service_to_module, diagnostics
     except Exception as exc:
         diagnostics.append(Diagnostic(
             level="warning",
@@ -640,7 +788,7 @@ def _try_render_compose_for_scan(
             ),
             path="spec.modules",
         ))
-        return None, {}, diagnostics
+        return None, plan, {}, diagnostics
 
 
 # ---------------------------------------------------------------------------
@@ -723,12 +871,13 @@ def run_security_validation(
     # rule actually declares the "rendered-compose" scope -- e.g. a custom
     # rule set may omit CDS-SEC-070 entirely, in which case doing a full
     # plan+render here would be wasted work on every security scan.
-    needs_rendered_compose = any(
+    needs_rendered_compose = profile_class == "prod" or any(
         rule.get("enabled", True) and set(rule.get("scope", [])) & _RENDERED_COMPOSE_SCOPES
         for rule in rule_set["rules"]
     )
+    rendered_plan = precomputed_render.plan if precomputed_render is not None else None
     if needs_rendered_compose:
-        rendered_compose, service_to_module, render_scan_diags = _try_render_compose_for_scan(
+        rendered_compose, rendered_plan, service_to_module, render_scan_diags = _try_render_compose_for_scan(
             profile_path, env_file, environment,
             precomputed=precomputed_render,
         )
@@ -761,6 +910,15 @@ def run_security_validation(
             ))
 
     findings.extend(_check_secret_reuse(flat_profile + flat_env))
+    plaintext_findings, plaintext_diags = _check_production_plaintext_exposure(
+        profile=profile,
+        profile_class=profile_class,
+        plan=rendered_plan,
+        rendered_compose=rendered_compose,
+        service_to_module=service_to_module,
+        redact_values=redact_values,
+    )
+    findings.extend(plaintext_findings)
     
     findings.sort(key=lambda x: (
         SEVERITY_ORDER.get(x["severity"], 99),
@@ -769,4 +927,4 @@ def run_security_validation(
         x["path"],
     ))
 
-    return findings, overlay_diags + secret_diags + render_scan_diags
+    return findings, overlay_diags + secret_diags + render_scan_diags + plaintext_diags
