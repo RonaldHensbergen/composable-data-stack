@@ -38,6 +38,33 @@ spec:
         maximum: 65535
         default: 8088
 
+      image:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          source:
+            type: string
+            enum:
+              - build
+              - registry
+            default: build
+            description: >
+              Selects how the superset-init and superset services obtain
+              their image. "build" (default) builds the image locally from
+              images/superset/base/Dockerfile. "registry" pulls the
+              already published, scanned, and signed image from
+              docker.io/ronaldsoeverein/superset instead of building it,
+              avoiding a local rebuild. Requires image.tag to be set.
+          tag:
+            type: string
+            description: >
+              Registry tag to pull when image.source is "registry", e.g. a
+              version published by .github/workflows/publish-images.yml
+              (derived from the apache/superset base version pinned in
+              images/superset/base/Dockerfile). Ignored when image.source
+              is "build".
+
       secretKeyFrom:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
