@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from cli.diagnostics import Diagnostic
 from cli.image_updates import collect_module_images
 from cli.main import (
+    _collect_profile_env_vars,
     _resolve_profile_root,
     list_modules,
     list_profiles,
@@ -479,6 +480,42 @@ class MainCLITest(unittest.TestCase):
             self.assertIn("CDS_SUPERSET_ADMIN_PASSWORD=change-me", content)
         finally:
             output_file.unlink(missing_ok=True)
+
+    def test_collect_profile_env_vars_honors_extends_without_environment_flag(self):
+        # Regression test: _collect_profile_env_vars() previously called
+        # load_yaml_file() directly when environment=None, bypassing
+        # extends resolution and silently dropping secrets declared only in
+        # a parent profile from the generated .env file.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            base_dir = root / "profiles" / "base"
+            base_dir.mkdir(parents=True)
+            (base_dir / "profile.yaml").write_text(
+                "apiVersion: cds/v1alpha1\n"
+                "kind: Profile\n"
+                "metadata: {name: base, environment: local}\n"
+                "spec:\n"
+                "  runtime: {type: docker-compose}\n"
+                "  modules: []\n"
+                "  secrets:\n"
+                "    values:\n"
+                "      dbPassword: {env: CDS_DB_PASSWORD}\n"
+            )
+            child_dir = root / "profiles" / "child"
+            child_dir.mkdir(parents=True)
+            child_path = child_dir / "profile.yaml"
+            child_path.write_text(
+                "apiVersion: cds/v1alpha1\n"
+                "kind: Profile\n"
+                "metadata: {name: child, environment: local}\n"
+                "extends: [base]\n"
+                "spec: {}\n"
+            )
+
+            env_vars, secret_env_vars = _collect_profile_env_vars(str(child_path), environment=None)
+
+            self.assertIn("CDS_DB_PASSWORD", env_vars)
+            self.assertIn("CDS_DB_PASSWORD", secret_env_vars)
 
     def test_get_command_dry_run_reports_planned_files_without_writing(self):
         import tempfile
