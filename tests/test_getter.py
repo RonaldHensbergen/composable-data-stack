@@ -106,6 +106,129 @@ class GetterTest(unittest.TestCase):
             self.assertIn("modules/apps/demo", entry["assetRoots"])
             self.assertIn("images/demo/Dockerfile", entry["assetRoots"])
 
+    def test_fetch_profile_copies_extends_parent_and_its_module(self) -> None:
+        # Regression test: _collect_asset_roots() must resolve `extends` so
+        # `cds get` fetches a parent profile's own modules even when the
+        # child profile doesn't redeclare them.
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            _write(
+                source_root / "profiles" / "base" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: base
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+      config: {}
+""",
+            )
+            _write(
+                source_root / "profiles" / "child" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: child
+extends:
+  - base
+spec: {}
+""",
+            )
+
+            actions, manifest_path = fetch_profile(
+                "child",
+                local=str(source_root),
+                destination_root=destination_root,
+            )
+
+            self.assertGreater(len(actions), 0)
+            self.assertTrue((destination_root / "profiles" / "child" / "profile.yaml").exists())
+            self.assertTrue((destination_root / "profiles" / "base" / "profile.yaml").exists())
+            self.assertTrue((destination_root / "modules" / "apps" / "demo" / "module.yaml").exists())
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = manifest["profiles"]["child"]
+            self.assertIn("modules/apps/demo", entry["assetRoots"])
+            self.assertIn("profiles/base", entry["assetRoots"])
+
+    def test_fetch_profile_diamond_extends_is_not_a_false_positive_cycle(self) -> None:
+        # Regression test: _collect_extends_profile_dirs() must not treat a
+        # diamond-shaped extends graph (child extends left and right, both
+        # of which extend the same shared-base) as a cycle -- the shared
+        # parent is legitimately reached twice via two different paths.
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            _write(
+                source_root / "profiles" / "shared-base" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: shared-base
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+      config: {}
+""",
+            )
+            _write(
+                source_root / "profiles" / "left" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: left
+extends:
+  - shared-base
+spec: {}
+""",
+            )
+            _write(
+                source_root / "profiles" / "right" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: right
+extends:
+  - shared-base
+spec: {}
+""",
+            )
+            _write(
+                source_root / "profiles" / "diamond-child" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: diamond-child
+extends:
+  - left
+  - right
+spec: {}
+""",
+            )
+
+            actions, manifest_path = fetch_profile(
+                "diamond-child",
+                local=str(source_root),
+                destination_root=destination_root,
+            )
+
+            self.assertGreater(len(actions), 0)
+            self.assertTrue((destination_root / "profiles" / "diamond-child" / "profile.yaml").exists())
+            self.assertTrue((destination_root / "profiles" / "left" / "profile.yaml").exists())
+            self.assertTrue((destination_root / "profiles" / "right" / "profile.yaml").exists())
+            self.assertTrue((destination_root / "profiles" / "shared-base" / "profile.yaml").exists())
+            self.assertTrue((destination_root / "modules" / "apps" / "demo" / "module.yaml").exists())
+
     def test_fetch_profile_requires_force_for_conflicting_files(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             source_root = Path(source_dir)

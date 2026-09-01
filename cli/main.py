@@ -28,8 +28,7 @@ from .image_verification import (
     load_policy_from_env,
     verify_images,
 )
-from .loader import load_yaml_file
-from .overlay import resolve_profile
+from .overlay import resolve_extends, resolve_profile
 from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
 from .renderer import render_compose
@@ -563,12 +562,14 @@ def _collect_profile_env_vars(
     identifiers like database/user names, so callers can fill in friendlier defaults
     for them instead of a placeholder.
     """
+    # Always resolve via cli.overlay so a profile's `extends` chain (and, if
+    # selected, --environment overlay) is applied; environment=None still
+    # resolves extends via resolve_extends() (lighter than resolve_profile(),
+    # which also runs full validate_loaded_profile()).
     if environment is not None:
-        from .overlay import resolve_profile
-
         profile, _, diags = resolve_profile(profile_path, environment)
     else:
-        profile, diags = load_yaml_file(Path(profile_path))
+        profile, _, diags = resolve_extends(profile_path)
     if profile is None:
         error_messages = [d.format() for d in diags if d.level == "error"]
         raise ValueError("Could not load profile: " + "; ".join(error_messages or ["unknown error"]))

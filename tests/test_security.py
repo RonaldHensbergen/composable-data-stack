@@ -560,5 +560,32 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
             tmp_rule_set_path.unlink()
 
 
+class ExtendsAwareSecurityScanTest(unittest.TestCase):
+    """cds security must resolve `extends` even without --environment (issue #175)."""
+
+    def test_finding_declared_only_in_extends_parent_is_still_detected(self):
+        # base/profile.yaml declares default admin credentials on a
+        # "superset" module; child/profile.yaml only has `extends: [base]`
+        # and no modules of its own. Scanning the child without an
+        # --environment flag must still surface the parent's finding.
+        profile_path = (
+            _REPO_ROOT
+            / "tests"
+            / "fixtures"
+            / "security"
+            / "extends-parent-secret"
+            / "profiles"
+            / "child"
+            / "profile.yaml"
+        )
+
+        findings, diags = run_security_validation(profile_path, _RULE_SCHEMA_PATH, _RULE_SET_PATH)
+
+        self.assertFalse(any(d.level == "error" for d in diags), diags)
+        hits = {f["path"] for f in findings if f["rule_id"] == "CDS-SEC-010"}
+        self.assertIn("services.superset.environment.ADMIN_USERNAME", hits)
+        self.assertIn("services.superset.environment.ADMIN_PASSWORD", hits)
+
+
 if __name__ == "__main__":
     unittest.main()
