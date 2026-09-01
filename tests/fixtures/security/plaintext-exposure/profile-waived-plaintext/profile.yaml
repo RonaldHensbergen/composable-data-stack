@@ -17,4 +17,4 @@ spec:
   security:
     waivers:
       plaintextEndpointExposure:
-        reason: temporary legacy endpoint while TLS ingress migration is in progress
+        reason: approved waiver
