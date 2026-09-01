@@ -18,6 +18,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .loader import load_yaml_file, resolve_module_dir
+from .overlay import _derive_profiles_root, _resolve_extends_ref, resolve_extends
 from .planner import MaxNestingDepthExceeded, apply_defaults, substitute_string
 
 # The upstream repository `cds get` downloads from when no `--remote` is
@@ -233,14 +234,66 @@ def _resolve_source_profile_path(source_repo: Path, profile: str) -> Path:
     )
 
 
+def _collect_extends_profile_dirs(
+    source_repo: Path, profile_path: Path, _visited: frozenset[Path] = frozenset()
+) -> set[Path]:
+    """
+    Returns every parent profile directory reachable via `extends`, so
+    `cds get` copies parent profile.yaml files (and, via
+    _collect_asset_roots's module walk, their modules) too instead of
+    silently omitting anything only declared in a parent profile. Reuses
+    cli.overlay's own extends-ref resolution rather than re-implementing it.
+
+    `_visited` tracks resolved profile paths already seen along the current
+    extends chain so a cyclic `extends` graph raises a clean GetError
+    instead of recursing until Python's recursion limit is hit; this
+    mirrors cli.overlay._compose_extends's own cycle-detection stack.
+    """
+    resolved_profile_path = profile_path.resolve()
+    if resolved_profile_path in _visited:
+        raise GetError(f"Cycle detected in extends chain at {profile_path}")
+    _visited = _visited | {resolved_profile_path}
+
+    doc, _diagnostics = load_yaml_file(profile_path)
+    if doc is None:
+        raise GetError(f"Could not load source profile {profile_path}")
+
+    extends = doc.get("extends")
+    if not extends:
+        return set()
+
+    profile_dir = profile_path.parent.resolve()
+    profiles_root = _derive_profiles_root(profile_dir)
+    if profiles_root is None:
+        raise GetError(f'Could not derive a profiles root for extends in {profile_path}')
+
+    dirs: set[Path] = set()
+    for ref in extends:
+        parent_path = _resolve_extends_ref(ref, profile_dir, profiles_root)
+        if not parent_path.is_file():
+            raise GetError(f'Could not resolve extends parent "{ref}" for {profile_path}')
+        _require_within_repo(parent_path, source_repo, f'extends parent "{ref}"')
+        dirs.add(parent_path.parent)
+        dirs.update(_collect_extends_profile_dirs(source_repo, parent_path, _visited))
+
+    return dirs
+
+
 def _collect_asset_roots(source_repo: Path, profile_path: Path) -> list[Path]:
     profile_dir = profile_path.parent
     asset_roots: set[Path] = {
         profile_dir if profile_path.name == "profile.yaml" else profile_path
     }
-    profile_doc, profile_diags = load_yaml_file(profile_path)
-    if profile_diags or profile_doc is None:
+
+    # Resolve through `extends` so modules/config contributed only by a
+    # parent profile (not redeclared in the child) are still collected;
+    # cli.overlay is the single source of truth for extends semantics (see
+    # cli.planner/cli.validator, which route through it the same way).
+    profile_doc, _provenance, diagnostics = resolve_extends(str(profile_path))
+    if profile_doc is None or any(d.level == "error" for d in diagnostics):
         raise GetError(f"Could not load source profile {profile_path}")
+
+    asset_roots.update(_collect_extends_profile_dirs(source_repo, profile_path))
 
     spec = profile_doc.get("spec")
     modules = spec.get("modules", []) if isinstance(spec, dict) else []

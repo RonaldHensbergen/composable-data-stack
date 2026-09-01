@@ -57,16 +57,20 @@ def build_plan(
     diagnostics: list[Diagnostic] = []
 
     profile_file = Path(profile_path)
-    provenance: dict[str, str] = {}
-    if environment is not None:
-        # Local import: cli.overlay imports from cli.validator, which this
-        # module does not otherwise depend on; keep the dependency scoped to
-        # avoid pulling in an import cycle for callers that never use overlays.
-        from .overlay import resolve_profile
+    # Local import: cli.overlay imports from cli.validator, which this
+    # module does not otherwise depend on; keep the dependency scoped to
+    # avoid pulling in an import cycle for callers that never use overlays.
+    from .overlay import resolve_extends, resolve_profile
 
+    if environment is not None:
         profile, provenance, diags = resolve_profile(profile_path, environment)
     else:
-        profile, diags = load_yaml_file(profile_file)
+        # resolve_extends() (not a bare load_yaml_file()) so a profile's own
+        # `extends` chain still applies with no --environment selected, but
+        # without resolve_profile()'s full validate_loaded_profile() pass,
+        # which would replace build_plan()'s own defensive diagnostics for
+        # malformed profiles with a single upfront validation failure.
+        profile, provenance, diags = resolve_extends(profile_path)
     diagnostics.extend(diags)
 
     if profile is None:

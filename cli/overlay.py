@@ -53,6 +53,262 @@ def _merge_value(
     return overlay
 
 
+def _validate_modules_shape(label: str, modules: Any) -> list[Diagnostic]:
+    """
+    Shared spec.modules shape validation: used for both environment overlays
+    and extends parents/child so extends does not need a second validation
+    path. Returns error diagnostics only; an empty list means modules is a
+    well-formed list of module mappings with unique, present ids.
+    """
+    diagnostics: list[Diagnostic] = []
+
+    if not isinstance(modules, list):
+        return [
+            Diagnostic(
+                level="error",
+                code="E093",
+                message=f"spec.modules in {label} must be a list, got {type(modules).__name__}.",
+                path="spec.modules",
+            )
+        ]
+
+    non_dict_indices = [i for i, m in enumerate(modules) if not isinstance(m, dict)]
+    if non_dict_indices:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E093",
+                message=(
+                    f"Module entr{'y' if len(non_dict_indices) == 1 else 'ies'} in {label} "
+                    f"must be a mapping, not a scalar/list, at index {non_dict_indices}."
+                ),
+                path="spec.modules",
+            )
+        )
+        return diagnostics
+
+    missing_id = [i for i, m in enumerate(modules) if not m.get("id")]
+    if missing_id:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E093",
+                message=f"Module entr{'y' if len(missing_id) == 1 else 'ies'} in {label} missing required 'id' at index {missing_id}.",
+                path="spec.modules",
+            )
+        )
+        return diagnostics
+
+    dupes = _duplicate_module_ids(modules)
+    if dupes:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E093",
+                message=f"Duplicate module id(s) in {label}: {sorted(dupes)}.",
+                path="spec.modules",
+            )
+        )
+
+    return diagnostics
+
+
+def _merge_profile_docs(
+    base: dict[str, Any],
+    overlay: dict[str, Any],
+    base_source: str,
+    overlay_source: str,
+    provenance: dict[str, str],
+) -> tuple[dict[str, Any], list[Diagnostic]]:
+    """
+    Merges two profile-shaped documents (deep-merge for everything except
+    spec.modules, which is merged by stable id). This is the single merge
+    path shared by environment overlays and `extends` composition, per
+    issue #175's requirement to reuse the resolver built for #229 rather
+    than introduce a second merge engine.
+    """
+    diagnostics: list[Diagnostic] = []
+
+    base_spec = base.get("spec", {})
+    base_modules = base_spec.get("modules", []) if isinstance(base_spec, dict) else []
+    overlay_spec = overlay.get("spec", {})
+    overlay_modules = overlay_spec.get("modules", []) if isinstance(overlay_spec, dict) else []
+
+    for label, modules in ((base_source, base_modules), (overlay_source, overlay_modules)):
+        diagnostics += _validate_modules_shape(label, modules)
+    if any(d.level == "error" for d in diagnostics):
+        return {}, diagnostics
+
+    base_without_modules = dict(base)
+    base_spec_without_modules = (
+        {k: v for k, v in base_spec.items() if k != "modules"} if isinstance(base_spec, dict) else {}
+    )
+    base_without_modules["spec"] = base_spec_without_modules
+
+    overlay_without_modules = dict(overlay)
+    if isinstance(overlay.get("spec"), dict):
+        overlay_without_modules["spec"] = {k: v for k, v in overlay["spec"].items() if k != "modules"}
+
+    merged = _merge_value(
+        base_without_modules, overlay_without_modules, base_source, overlay_source, "", provenance
+    )
+    merged.setdefault("spec", {})
+    if not isinstance(merged["spec"], dict):
+        # An overlay/parent that sets `spec: null` (or any non-mapping) wins
+        # the deep-merge in _merge_value since it's a full-value override,
+        # not a sub-key merge. Normalize back to a dict here so the
+        # spec.modules assignment below doesn't crash; the profile will
+        # still fail downstream shape/schema validation as expected.
+        merged["spec"] = {}
+    merged["spec"]["modules"] = _merge_modules(
+        base_modules, overlay_modules, base_source, overlay_source, provenance
+    )
+    return merged, diagnostics
+
+
+def _derive_profiles_root(profile_dir: Path) -> Path | None:
+    # Use the innermost (last, i.e. closest to profile_dir) "profiles"
+    # segment, not the first/outermost one. A path can contain more than one
+    # segment literally named "profiles" (e.g. a checkout at
+    # ".../profiles/<repo>/profiles/prod"); picking the outermost match would
+    # derive an overly broad root and let `extends` escape the profile's own
+    # repo-local profiles/ tree into an unrelated sibling project.
+    parts = profile_dir.parts
+    for index in range(len(parts) - 1, -1, -1):
+        if parts[index] == "profiles":
+            return Path(*parts[: index + 1])
+    return None
+
+
+def _resolve_extends_ref(ref: str, profile_dir: Path, profiles_root: Path) -> Path:
+    ref_path = Path(ref)
+    if ref_path.suffix in (".yaml", ".yml") or ".." in ref_path.parts or ref_path.is_absolute():
+        return (profile_dir / ref_path).resolve()
+    if len(ref_path.parts) > 1:
+        return (profile_dir / ref_path / "profile.yaml").resolve()
+    return (profiles_root / ref / "profile.yaml").resolve()
+
+
+def _compose_extends(
+    profile_file: Path,
+    stack: tuple[Path, ...],
+) -> tuple[dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
+    """
+    Recursively resolves `extends` on the profile at profile_file, merging
+    one or more parent profiles left-to-right (later parents win) and then
+    the child's own document on top of all parents. Reuses
+    _merge_profile_docs so this is the same merge/provenance model as
+    environment overlays, not a separate engine, per issue #175.
+    """
+    resolved_file = profile_file.resolve()
+    if resolved_file in stack:
+        chain = " -> ".join(str(p) for p in (*stack, resolved_file))
+        return None, {}, [
+            Diagnostic(
+                level="error",
+                code="E113",
+                message=f"Cycle detected in profile extends chain: {chain}.",
+                path="extends",
+            )
+        ]
+
+    doc, diagnostics = load_yaml_file(profile_file)
+    if doc is None:
+        return None, {}, diagnostics
+
+    extends = doc.get("extends")
+    if extends is None:
+        return doc, {}, diagnostics
+
+    if not isinstance(extends, list) or not extends or not all(
+        isinstance(ref, str) and ref.strip() for ref in extends
+    ):
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E110",
+                message="'extends' must be a non-empty list of non-empty profile references.",
+                path="extends",
+            )
+        )
+        return None, {}, diagnostics
+
+    profile_dir = profile_file.parent.resolve()
+    profiles_root = _derive_profiles_root(profile_dir)
+    if profiles_root is None:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E111",
+                message=(
+                    f'Cannot resolve "extends" for {profile_file}: its directory does not '
+                    'reside under a "profiles/" root.'
+                ),
+                path="extends",
+            )
+        )
+        return None, {}, diagnostics
+
+    new_stack = (*stack, resolved_file)
+
+    merged: dict[str, Any] | None = None
+    merged_source: str | None = None
+    provenance: dict[str, str] = {}
+
+    for ref in extends:
+        parent_path = _resolve_extends_ref(ref, profile_dir, profiles_root)
+
+        if not _is_within(parent_path, profiles_root):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E111",
+                    message=f'Parent profile "{ref}" resolves outside the profiles root "{profiles_root}".',
+                    path="extends",
+                )
+            )
+            return None, {}, diagnostics
+
+        if not parent_path.is_file():
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E112",
+                    message=f'Parent profile "{ref}" not found (looked for {parent_path}).',
+                    path="extends",
+                )
+            )
+            return None, {}, diagnostics
+
+        parent_doc, parent_provenance, parent_diagnostics = _compose_extends(parent_path, new_stack)
+        diagnostics += parent_diagnostics
+        if parent_doc is None:
+            return None, {}, diagnostics
+
+        if merged is None:
+            merged = parent_doc
+            merged_source = str(parent_path)
+            provenance = parent_provenance
+        else:
+            merged, merge_diagnostics = _merge_profile_docs(
+                merged, parent_doc, merged_source, str(parent_path), provenance
+            )
+            diagnostics += merge_diagnostics
+            if merge_diagnostics:
+                return None, {}, diagnostics
+            merged_source = str(parent_path)
+
+    child_without_extends = {k: v for k, v in doc.items() if k != "extends"}
+    merged, merge_diagnostics = _merge_profile_docs(
+        merged, child_without_extends, merged_source, str(profile_file), provenance
+    )
+    diagnostics += merge_diagnostics
+    if merge_diagnostics:
+        return None, {}, diagnostics
+
+    return merged, provenance, diagnostics
+
+
 def _merge_modules(
     base_modules: list[dict[str, Any]],
     overlay_modules: list[dict[str, Any]],
@@ -83,6 +339,20 @@ def _merge_modules(
     return [by_id[mid] for mid in order]
 
 
+def resolve_extends(
+    profile_path: str,
+) -> tuple[dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
+    """
+    Resolves only a profile's `extends` chain (no --environment overlay, no
+    full validate_loaded_profile pass). Used by build_plan()/validate_profile()
+    in place of a bare load_yaml_file() so `extends` composition applies even
+    when no --environment is selected, while preserving their own
+    lighter-weight/defensive diagnostic handling instead of resolve_profile()'s
+    full validation, which would mask those diagnostics.
+    """
+    return _compose_extends(Path(profile_path), ())
+
+
 def resolve_profile(
     profile_path: str,
     environment: str | None = None,
@@ -101,13 +371,12 @@ def resolve_profile(
     standalone profiles are unaffected by this resolver existing.
     """
     profile_file = Path(profile_path)
-    base, diagnostics = load_yaml_file(profile_file)
+    base, provenance, diagnostics = _compose_extends(profile_file, ())
     if base is None:
         return None, {}, diagnostics
 
     if environment is None:
         diagnostics += validate_loaded_profile(base, profile_file)
-        provenance = {}
         return (base, provenance, diagnostics) if not any(
             d.level == "error" for d in diagnostics
         ) else (None, provenance, diagnostics)
@@ -146,91 +415,10 @@ def resolve_profile(
     base_source = str(profile_file)
     overlay_source = str(overlay_file)
 
-    base_spec = base.get("spec", {})
-    base_modules = base_spec.get("modules", []) if isinstance(base_spec, dict) else []
-    overlay_spec = overlay.get("spec", {})
-    overlay_modules = overlay_spec.get("modules", []) if isinstance(overlay_spec, dict) else []
-
-    for label, modules in (("base profile", base_modules), (f"overlay {overlay_source}", overlay_modules)):
-        if not isinstance(modules, list):
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E093",
-                    message=f"spec.modules in {label} must be a list, got {type(modules).__name__}.",
-                    path="spec.modules",
-                )
-            )
-            continue
-
-        non_dict_indices = [i for i, m in enumerate(modules) if not isinstance(m, dict)]
-        if non_dict_indices:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E093",
-                    message=(
-                        f"Module entr{'y' if len(non_dict_indices) == 1 else 'ies'} in {label} "
-                        f"must be a mapping, not a scalar/list, at index {non_dict_indices}."
-                    ),
-                    path="spec.modules",
-                )
-            )
-
-    if any(d.level == "error" for d in diagnostics):
+    merged, merge_diagnostics = _merge_profile_docs(base, overlay, base_source, overlay_source, provenance)
+    diagnostics += merge_diagnostics
+    if merge_diagnostics:
         return None, {}, diagnostics
-
-    for label, modules in (("base profile", base_modules), (f"overlay {overlay_source}", overlay_modules)):
-        missing_id = [i for i, m in enumerate(modules) if not m.get("id")]
-        if missing_id:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E093",
-                    message=f"Module entr{'y' if len(missing_id) == 1 else 'ies'} in {label} missing required 'id' at index {missing_id}.",
-                    path="spec.modules",
-                )
-            )
-    if any(d.level == "error" for d in diagnostics):
-        return None, {}, diagnostics
-
-    for label, modules in (("base profile", base_modules), (f"overlay {overlay_source}", overlay_modules)):
-        dupes = _duplicate_module_ids(modules)
-        if dupes:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E093",
-                    message=f"Duplicate module id(s) in {label}: {sorted(dupes)}.",
-                    path="spec.modules",
-                )
-            )
-    if any(d.level == "error" for d in diagnostics):
-        return None, {}, diagnostics
-
-    provenance: dict[str, str] = {}
-
-    base_without_modules = dict(base)
-    base_spec_val = base.get("spec", {})
-    base_spec_without_modules = (
-        {k: v for k, v in base_spec_val.items() if k != "modules"}
-        if isinstance(base_spec_val, dict)
-        else {}
-    )
-    base_without_modules["spec"] = base_spec_without_modules
-
-    overlay_without_modules = dict(overlay)
-    if "spec" in overlay and isinstance(overlay.get("spec"), dict):
-        overlay_spec_without_modules = {k: v for k, v in overlay["spec"].items() if k != "modules"}
-        overlay_without_modules["spec"] = overlay_spec_without_modules
-
-    merged = _merge_value(
-        base_without_modules, overlay_without_modules, base_source, overlay_source, "", provenance
-    )
-    merged.setdefault("spec", {})
-    merged["spec"]["modules"] = _merge_modules(
-        base_modules, overlay_modules, base_source, overlay_source, provenance
-    )
 
     diagnostics += validate_loaded_profile(merged, profile_file)
     if any(d.level == "error" for d in diagnostics):
