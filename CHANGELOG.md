@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- `cds list profiles`/`cds list modules`/`cds list images` now accept `--remote <owner/repo>`, `--ref <ref>`, and `--local <dir>`, reusing `cds get`'s own source-repository resolution so users can discover what's available in a remote repository or existing local checkout before running `cds get` against it (#500).
+
 ## [0.7.0] - 2026-08-28
 
 ### Added

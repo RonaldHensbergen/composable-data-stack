@@ -7,6 +7,7 @@ import os
 import re
 import subprocess  # nosec B404
 import sys
+from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _package_version
 from pathlib import Path
@@ -20,7 +21,7 @@ except ImportError:
 import yaml
 
 from .diagnostics import Diagnostic
-from .getter import GetError, fetch_profile, format_get_plan
+from .getter import GetError, _prepare_source_repository, fetch_profile, format_get_plan
 from .image_updates import check_image_update, collect_module_images
 from .image_verification import (
     ImagePolicy,
@@ -467,8 +468,8 @@ def resolve_env_file_path(profile_path: str) -> Path:
     return project_env
 
 
-def list_profiles() -> list[str]:
-    profile_root = get_profiles_root()
+def list_profiles(profile_root: Path | None = None) -> list[str]:
+    profile_root = profile_root if profile_root is not None else get_profiles_root()
     profiles: list[str] = []
 
     if profile_root.is_file():
@@ -488,8 +489,8 @@ def list_profiles() -> list[str]:
     return profiles
 
 
-def list_modules() -> list[str]:
-    module_root = get_modules_root()
+def list_modules(module_root: Path | None = None) -> list[str]:
+    module_root = module_root if module_root is not None else get_modules_root()
     modules: list[str] = []
 
     if module_root.is_file():
@@ -505,6 +506,23 @@ def list_modules() -> list[str]:
             modules.append(str(module_file.parent))
 
     return modules
+
+
+@contextmanager
+def _resolve_list_source_roots(remote: str | None, ref: str, local: str | None):
+    """Yield the (profiles_root, modules_root) pair `cds list` should scan.
+
+    With no --remote/--local, this is just the local project's roots. With
+    either given, reuse `cds get`'s own source-repository resolution
+    (download-and-extract for --remote, validate-in-place for --local) so
+    `cds list ... --remote/--local` inspects the same repository `cds get`
+    would fetch from, without requiring a prior fetch (#500).
+    """
+    if remote is None and local is None:
+        yield get_profiles_root(), get_modules_root()
+        return
+    with _prepare_source_repository(remote, ref, local) as source_repo:
+        yield source_repo / "profiles", source_repo / "modules"
 
 
 def _add_profile_arg(subparser: argparse.ArgumentParser) -> None:
@@ -523,6 +541,31 @@ def _add_profile_arg(subparser: argparse.ArgumentParser) -> None:
     )
     if argcomplete is not None:
         action.completer = profile_completer  # type: ignore[attr-defined]
+
+
+def _add_remote_source_args(subparser: argparse.ArgumentParser) -> None:
+    """Add the same --remote/--ref/--local source-repository selection args
+    `cds get` already exposes, so `cds list` can inspect a repository other
+    than the local one before running `cds get` against it (#500)."""
+    subparser.add_argument(
+        "--remote",
+        help=(
+            "GitHub repository to inspect, as 'owner/repo' or a github.com URL "
+            "(default: the local repository; ignored unless --remote or --local is given)"
+        ),
+    )
+    subparser.add_argument(
+        "--ref",
+        default="main",
+        help="Branch, tag, or commit to fetch from --remote (default: main)",
+    )
+    subparser.add_argument(
+        "--local",
+        help=(
+            "Use an existing local directory as the source repository instead of "
+            "the current project (mutually exclusive with --remote/--ref)"
+        ),
+    )
 
 
 def _add_environment_arg(subparser: argparse.ArgumentParser) -> None:
@@ -1011,9 +1054,14 @@ def main() -> int:
 
     list_parser = subparsers.add_parser("list", help="List available profiles or modules")
     list_subparsers = list_parser.add_subparsers(dest="list_command", required=True)
-    list_subparsers.add_parser("profiles", help="List available profiles")
-    list_subparsers.add_parser("modules", help="List available module sources")
-    list_subparsers.add_parser("images", help="List images from module templates and check for newer versions")
+    list_profiles_parser = list_subparsers.add_parser("profiles", help="List available profiles")
+    _add_remote_source_args(list_profiles_parser)
+    list_modules_parser = list_subparsers.add_parser("modules", help="List available module sources")
+    _add_remote_source_args(list_modules_parser)
+    list_images_parser = list_subparsers.add_parser(
+        "images", help="List images from module templates and check for newer versions"
+    )
+    _add_remote_source_args(list_images_parser)
 
     security_parser = subparsers.add_parser("security", help="Run security validation on a profile")
     _add_profile_arg(security_parser)
@@ -1661,60 +1709,64 @@ def main() -> int:
         return 0
 
     if args.command == "list":
-        if args.list_command == "profiles":
-            for profile_name in list_profiles():
-                print(profile_name)
-            return 0
+        try:
+            with _resolve_list_source_roots(args.remote, args.ref, args.local) as (profile_root, module_root):
+                if args.list_command == "profiles":
+                    for profile_name in list_profiles(profile_root):
+                        print(profile_name)
+                    return 0
 
-        if args.list_command == "modules":
-            for module_source in list_modules():
-                print(module_source)
-            return 0
+                if args.list_command == "modules":
+                    for module_source in list_modules(module_root):
+                        print(module_source)
+                    return 0
 
-        if args.list_command == "images":
-            module_root = get_modules_root()
-            images = collect_module_images(module_root)
-            if not images:
-                print("No images found in modules.")
-                return 0
+                if args.list_command == "images":
+                    images = collect_module_images(module_root)
+                    if not images:
+                        print("No images found in modules.")
+                        return 0
 
-            update_cache: dict[tuple[str, str | None], dict[str, object]] = {}
+                    update_cache: dict[tuple[str, str | None], dict[str, object]] = {}
 
-            for image_entry in images:
-                dockerfile = image_entry.get("dockerfile")
-                cache_key = (image_entry["image"], str(dockerfile) if dockerfile is not None else None)
-                if cache_key not in update_cache:
-                    update_cache[cache_key] = check_image_update(
-                        image_entry["image"],
-                        dockerfile=dockerfile,
-                    )
-                info = update_cache[cache_key]
-                status = info["status"]
-                if status == "update-available":
-                    print(
-                        f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> update available: {info['latest']}"
-                    )
-                elif status == "up-to-date":
-                    print(
-                        f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> up to date"
-                    )
-                elif status == "local":
-                    print(
-                        f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> local image, no remote check"
-                    )
-                elif status == "unsupported-registry":
-                    print(
-                        f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> unsupported registry"
-                    )
-                elif status == "lookup-failed":
-                    print(
-                        f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> registry lookup failed"
-                    )
-                else:
-                    print(
-                        f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> unknown status"
-                    )
-            return 0
+                    for image_entry in images:
+                        dockerfile = image_entry.get("dockerfile")
+                        cache_key = (image_entry["image"], str(dockerfile) if dockerfile is not None else None)
+                        if cache_key not in update_cache:
+                            update_cache[cache_key] = check_image_update(
+                                image_entry["image"],
+                                dockerfile=dockerfile,
+                            )
+                        info = update_cache[cache_key]
+                        status = info["status"]
+                        if status == "update-available":
+                            print(
+                                f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> update available: {info['latest']}"
+                            )
+                        elif status == "up-to-date":
+                            print(
+                                f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> up to date"
+                            )
+                        elif status == "local":
+                            print(
+                                f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> local image, no remote check"
+                            )
+                        elif status == "unsupported-registry":
+                            print(
+                                f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> unsupported registry"
+                            )
+                        elif status == "lookup-failed":
+                            print(
+                                f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> registry lookup failed"
+                            )
+                        else:
+                            print(
+                                f"{image_entry['module']}::{image_entry['service']}: {info['image']} -> unknown status"
+                            )
+                    return 0
+        except GetError as exc:
+            print(f"ERROR {exc}", file=sys.stderr)
+            return 1
 
     if args.command == "security":
         try:
