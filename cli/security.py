@@ -327,6 +327,7 @@ _NON_SECRET_PATH_SUFFIXES = (
     "title",
     "comment",
     "notes",
+    "reason",
 )
 def _eval_condition(
     path: str,

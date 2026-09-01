@@ -177,6 +177,18 @@ class ImageTagPolicyTest(unittest.TestCase):
         self.assertFalse(matched, "an explicitly tagged image should not be flagged")
 
 
+class NonSecretReasonEntropyGuardTest(unittest.TestCase):
+    def test_entropy_rule_ignores_plaintext_waiver_reason_field(self):
+        matched = _eval_condition(
+            path="spec.security.waivers.plaintextEndpointExposure.reason",
+            key="reason",
+            value="Temporary exception for external compatibility windows 123!",
+            cond={"entropy": "high", "minLength": 16},
+            profile_class="prod",
+        )
+        self.assertFalse(matched)
+
+
 class EnvFilePathRuleTest(unittest.TestCase):
     def test_flags_a_profile_scoped_env_file_path(self):
         profile_path = (
