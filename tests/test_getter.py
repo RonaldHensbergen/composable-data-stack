@@ -848,6 +848,48 @@ spec:
 
             self.assertIn('build.dockerfile "/etc/passwd" resolves outside the source repository', str(ctx.exception))
 
+    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
+    def test_fetch_profile_rejects_asset_symlink_escaping_source_repo(self) -> None:
+        """A symlink planted *inside* an asset root (module/profile/build
+        context) that resolves outside the source repository must be
+        rejected as a stable GetError, not an unhandled ValueError from
+        Path.relative_to() (#454)."""
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir, tempfile.TemporaryDirectory() as outside_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            outside_root = Path(outside_dir)
+            _make_source_repo(source_root)
+
+            secret_file = outside_root / "secret.txt"
+            secret_file.write_text("top secret\n", encoding="utf-8")
+            escape_link = source_root / "modules" / "apps" / "demo" / "escape.txt"
+            escape_link.symlink_to(secret_file)
+
+            with self.assertRaises(GetError) as ctx:
+                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+
+            self.assertIn("resolves outside the source repository", str(ctx.exception))
+            self.assertFalse((destination_root / "modules" / "apps" / "demo" / "escape.txt").exists())
+
+    def test_fetch_profile_reports_copy_failure_as_get_error(self) -> None:
+        """A filesystem failure while writing a planned copy (permission
+        denied, disk full, read-only destination, ...) must surface as a
+        stable GetError, not a raw OSError, so callers get a predictable
+        error path regardless of the underlying platform/errno (#454)."""
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            with patch("cli.getter.shutil.copy2", side_effect=OSError("disk full")):
+                with self.assertRaises(GetError) as ctx:
+                    fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+
+            self.assertIn("Could not write", str(ctx.exception))
+            self.assertIn("disk full", str(ctx.exception))
+            # No manifest should be left behind after a failed, partial write.
+            self.assertFalse((destination_root / ".cds" / "get-manifest.json").exists())
+
     @unittest.skipIf(sys.platform == "win32", "Windows does not preserve Unix executable permissions")
     def test_fetch_profile_preserves_executable_permissions(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
