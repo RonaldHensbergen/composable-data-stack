@@ -72,7 +72,7 @@ def fetch_profile(
     destination_root: Path | None = None,
     force: bool = False,
     dry_run: bool = False,
-) -> tuple[list[CopyAction], Path]:
+) -> tuple[list[CopyAction], Path, list[str]]:
     target_root = (destination_root or Path.cwd()).expanduser().resolve()
 
     with _prepare_source_repository(remote, ref, local) as source_repo:
@@ -80,10 +80,15 @@ def fetch_profile(
         asset_roots = _collect_asset_roots(source_repo, profile_path)
 
         actions = _build_copy_plan(source_repo, asset_roots, target_root)
-        if dry_run:
-            return actions, target_root / _TRACKING_FILE
-
+        # Conflict detection must happen while `source_repo` (which may be a
+        # temporary directory holding a downloaded tarball) is still alive,
+        # since `_find_conflicts()` reads each action's source file to
+        # compare content. Compute it up front so both the dry-run and
+        # real-run paths can report/enforce conflicts consistently (#452).
         conflicts = _find_conflicts(actions)
+        if dry_run:
+            return actions, target_root / _TRACKING_FILE, conflicts
+
         if conflicts and not force:
             rendered = ", ".join(conflicts[:5])
             extra = "" if len(conflicts) <= 5 else f" (+{len(conflicts) - 5} more)"
@@ -105,18 +110,37 @@ def fetch_profile(
             actions=actions,
             asset_roots=asset_roots,
         )
-    return actions, target_root / _TRACKING_FILE
+    return actions, target_root / _TRACKING_FILE, conflicts
 
 
-def format_get_plan(actions: list[CopyAction], *, destination_root: Path) -> str:
+def format_get_plan(
+    actions: list[CopyAction],
+    *,
+    destination_root: Path,
+    conflicts: list[str] | None = None,
+) -> str:
+    conflicts = conflicts or []
+    conflict_set = set(conflicts)
+    clean_actions = [a for a in actions if a.repo_relative_path not in conflict_set]
+
     if not actions:
         return f"No file changes required under {destination_root}."
 
     lines = [f"Planned {len(actions)} file(s) under {destination_root}:"]
-    for action in actions[:20]:
-        lines.append(f"  - {action.repo_relative_path}")
-    if len(actions) > 20:
-        lines.append(f"  - ... {len(actions) - 20} more")
+    if clean_actions:
+        lines.append(f"  Would copy ({len(clean_actions)}):")
+        for action in clean_actions[:20]:
+            lines.append(f"    - {action.repo_relative_path}")
+        if len(clean_actions) > 20:
+            lines.append(f"    - ... {len(clean_actions) - 20} more")
+
+    if conflicts:
+        lines.append(f"  Would conflict without --force ({len(conflicts)}):")
+        for path in conflicts[:20]:
+            lines.append(f"    - {path}")
+        if len(conflicts) > 20:
+            lines.append(f"    - ... {len(conflicts) - 20} more")
+
     return "\n".join(lines)
 
 
