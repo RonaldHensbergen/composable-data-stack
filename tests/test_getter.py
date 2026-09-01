@@ -141,7 +141,7 @@ spec: {}
 """,
             )
 
-            actions, manifest_path = fetch_profile(
+            actions, manifest_path, _conflicts = fetch_profile(
                 "child",
                 local=str(source_root),
                 destination_root=destination_root,
@@ -216,7 +216,7 @@ spec: {}
 """,
             )
 
-            actions, manifest_path = fetch_profile(
+            actions, manifest_path, _conflicts = fetch_profile(
                 "diamond-child",
                 local=str(source_root),
                 destination_root=destination_root,
