@@ -29,6 +29,30 @@
     },
     {
       "customType": "regex",
+      "description": "Track the pinned image.tag registry default in modules/orchestration/dagster/module.yaml against the dagster PyPI version, since it must stay in sync with the dagster== pin in images/dagster/requirements.txt for `--image-source registry`/`cds config set image.source registry` to pull a valid published tag",
+      "matchStrings": [
+        "# cds-registry-tag-source: pypi/dagster[^\\n]*(?:\\n\\s*#[^\\n]*)*\\n\\s*default:\\s*\"(?<currentValue>[\\w.-]+)\""
+      ],
+      "depNameTemplate": "dagster",
+      "datasourceTemplate": "pypi",
+      "managerFilePatterns": [
+        "/^modules/orchestration/dagster/module\\.yaml$/"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Track the pinned image.tag registry default in modules/bi/superset/module.yaml against the apache/superset Docker tag, since it must stay in sync with the apache/superset base pinned in images/superset/base/Dockerfile for `--image-source registry`/`cds config set image.source registry` to pull a valid published tag",
+      "matchStrings": [
+        "# cds-registry-tag-source: docker/apache/superset[^\\n]*(?:\\n\\s*#[^\\n]*)*\\n\\s*default:\\s*\"(?<currentValue>[\\w.-]+)\""
+      ],
+      "depNameTemplate": "apache/superset",
+      "datasourceTemplate": "docker",
+      "managerFilePatterns": [
+        "/^modules/bi/superset/module\\.yaml$/"
+      ]
+    },
+    {
+      "customType": "regex",
       "description": "Keep the documented minimum Python version in docs/support-policy.md in sync with pyproject.toml's requires-python",
       "matchStrings": [
         "requires-python\\s*=\\s*\">=(?<currentValue>\\d+\\.\\d+)\"",

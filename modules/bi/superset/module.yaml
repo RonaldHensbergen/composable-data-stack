@@ -58,12 +58,21 @@ spec:
               avoiding a local rebuild. Requires image.tag to be set.
           tag:
             type: string
+            # cds-registry-tag-source: docker/apache/superset -- kept in
+            # sync with the apache/superset base tag pinned in
+            # images/superset/base/Dockerfile by Renovate; see
+            # renovate.json's customManagers. Used as the default tag when
+            # `cds render/up/test --image-source registry` is passed
+            # without an explicit config.image.tag.
+            default: "6.1.0"
             description: >
               Registry tag to pull when image.source is "registry", e.g. a
               version published by .github/workflows/publish-images.yml
               (derived from the apache/superset base version pinned in
               images/superset/base/Dockerfile). Ignored when image.source
-              is "build".
+              is "build". Defaults to the pinned apache/superset version
+              above, kept in sync by Renovate; pass an explicit
+              config.image.tag (or `--image-tag`) to override.
 
       secretKeyFrom:
         type: string

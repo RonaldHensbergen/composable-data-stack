@@ -86,11 +86,20 @@ spec:
               be set.
           tag:
             type: string
+            # cds-registry-tag-source: pypi/dagster -- kept in sync with the
+            # dagster== pin in images/dagster/requirements.txt by Renovate;
+            # see renovate.json's customManagers. Used as the base (non-
+            # variant-prefixed) tag when `cds render/up/test --image-source
+            # registry` is passed without an explicit config.image.tag.
+            default: "1.13.20"
             description: >
               Registry tag to pull when image.source is "registry", e.g. a
               version published by .github/workflows/publish-images.yml
               (optionally prefixed with the variant, such as
               "hardened-1.8.0"). Ignored when image.source is "build".
+              Defaults to the pinned dagster PyPI version above, kept in
+              sync by Renovate; pass an explicit config.image.tag (or
+              `--image-tag`) to override.
 
       storage:
         type: object
