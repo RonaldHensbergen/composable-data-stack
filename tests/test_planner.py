@@ -833,6 +833,60 @@ class PlannerRegressionTest(unittest.TestCase):
             errors = [d for d in diagnostics if d.code == "E094"]
             self.assertEqual(len(errors), 1)
 
+    def test_build_plan_honors_extends_without_environment_flag(self):
+        """
+        A profile's `extends` chain must be resolved even when build_plan()
+        is called with no --environment, since `extends` is a property of
+        the profile file itself, not something gated behind that flag.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            module_dir = root / "modules" / "deep"
+            module_dir.mkdir(parents=True)
+            (module_dir / "module.yaml").write_text(
+                "apiVersion: cds/v1alpha1\n"
+                "kind: Module\n"
+                "metadata:\n"
+                "  name: deep\n"
+                "spec:\n"
+                "  configSchema: {type: object, additionalProperties: true}\n"
+                "  implementation: {kind: docker-compose, compose: {services: {}}}\n"
+            )
+
+            base_dir = root / "profiles" / "base"
+            base_dir.mkdir(parents=True)
+            (base_dir / "profile.yaml").write_text(
+                "apiVersion: cds/v1alpha1\n"
+                "kind: Profile\n"
+                "metadata: {name: base, environment: local}\n"
+                "spec:\n"
+                "  runtime: {type: docker-compose}\n"
+                "  modules:\n"
+                "    - id: svc\n"
+                "      source: ../../modules/deep\n"
+                "      config: {replicas: 1}\n"
+            )
+
+            child_dir = root / "profiles" / "child"
+            child_dir.mkdir(parents=True)
+            profile_path = child_dir / "profile.yaml"
+            profile_path.write_text(
+                "apiVersion: cds/v1alpha1\n"
+                "kind: Profile\n"
+                "metadata: {name: child, environment: local}\n"
+                "extends: [base]\n"
+                "spec:\n"
+                "  modules:\n"
+                "    - id: svc\n"
+                "      config: {replicas: 5}\n"
+            )
+
+            plan, diagnostics = planner.build_plan(str(profile_path))
+
+            self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+            self.assertIsNotNone(plan)
+            module = next(m for m in plan["modules"] if m["id"] == "svc")
+            self.assertEqual(module["config"]["replicas"], 5)
     def test_substitute_string_if_nonempty_omits_affix_for_empty_password(self):
         result = planner.substitute_string(
             "redis://${ifNonempty:config.password,:,@}${service.host}:${config.port}",

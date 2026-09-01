@@ -1,0 +1,17 @@
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: base
+  environment: local
+spec:
+  modules:
+    - id: superset
+      source: ../../../../rendered-command-secret/modules/superset
+      version: 0.1.0
+      enabled: true
+      config:
+        services:
+          superset:
+            environment:
+              ADMIN_USERNAME: admin
+              ADMIN_PASSWORD: password
