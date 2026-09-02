@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- `cds preflight`'s image supply-chain check now honors a saved `security.strict` project default, forcing the production image policy (registry allowlist, digest pins, signature/provenance verification) regardless of the profile's inferred environment class, matching the existing behavior of `cds security --verify-images` (#546).
+
 ## [0.7.0] - 2026-08-28
 
 ### Added
