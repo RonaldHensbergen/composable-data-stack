@@ -1,16 +1,15 @@
 # CDS dbt Image
 
 Custom image for the [Composable Data Stack (CDS)](https://github.com/RonaldHensbergen/composable-data-stack)
-`modules-experimental/transformation/dbt` module. Runs `dbt-core` against a
+`modules/transformation/dbt` module. Runs `dbt-core` against a
 consumed `sql-database` contract (e.g. the `postgres` module) and, optionally,
 generates and serves static `dbt docs` output.
 
 > This image is built and wired automatically by `cds render`/`cds up` for
 > profiles that include the `dbt` module — you normally never invoke it
-> directly. It is experimental, built locally via the `build:` block in
-> `module.yaml`, and (like `images/dagster`/`images/superset`) also built,
-> scanned, signed, and published to a registry by the repo's image
-> workflows.
+> directly. It is built locally via the `build:` block in `module.yaml`,
+> and (like `images/dagster`/`images/superset`) also built, scanned,
+> signed, and published to a registry by the repo's image workflows.
 
 ## Why Python 3.13, not 3.14?
 
@@ -64,5 +63,5 @@ integration.
 ## Source
 
 - Dockerfile and supporting files: [`images/dbt`](https://github.com/RonaldHensbergen/composable-data-stack/tree/main/images/dbt)
-- Module definition: [`modules-experimental/transformation/dbt/module.yaml`](https://github.com/RonaldHensbergen/composable-data-stack/tree/main/modules-experimental/transformation/dbt)
+- Module definition: [`modules/transformation/dbt/module.yaml`](https://github.com/RonaldHensbergen/composable-data-stack/tree/main/modules/transformation/dbt)
 - Issues and contributions: [RonaldHensbergen/composable-data-stack](https://github.com/RonaldHensbergen/composable-data-stack/issues)

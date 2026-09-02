@@ -18,7 +18,9 @@ These are considered production-ready in the current release (v0.4.0):
 - Module: Superset (`modules/bi/superset/`)
 - Module: KeyDB (`modules/cache/keydb/`)
 - Module: Vault (`modules/secrets/vault/`)
+- Module: dbt (`modules/transformation/dbt/`)
 - Profile: `local-dagster-postgres-superset`
+- Profile: `local-dagster-postgres-superset-dbt`
 
 ---
 

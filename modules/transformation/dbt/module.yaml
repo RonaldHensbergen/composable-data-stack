@@ -6,14 +6,13 @@ metadata:
   name: dbt
   category: transformation
   version: "0.1.0"
-  productionSuitable: false
-  displayName: dbt (experimental)
+  displayName: dbt
   description: >
-    Experimental dbt-core transformation module. Runs a bind-mounted dbt
-    project's models/tests against a consumed sql-database contract as a
-    one-shot job, and optionally serves generated dbt docs via a small nginx
-    sidecar. See images/dbt/README.md for why this image is pinned to
-    Python 3.13 instead of the repo's usual 3.14 base.
+    dbt-core transformation module. Runs a bind-mounted dbt project's
+    models/tests against a consumed sql-database contract as a one-shot job,
+    and optionally serves generated dbt docs via a small nginx sidecar. See
+    images/dbt/README.md for why this image is pinned to Python 3.13 instead
+    of the repo's usual 3.14 base.
 
 spec:
   runtime:
