@@ -485,6 +485,31 @@ class PreflightIntegrationTest(unittest.TestCase):
         image_checks = [check for check in checks if check.name == "images"]
         self.assertEqual(image_checks[0].status, "PASS")
 
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    @patch("cli.preflight.subprocess.run")
+    def test_strict_forces_prod_policy_for_non_production_environment(
+        self, mock_run, _mock_which
+    ) -> None:
+        """A project with security.strict enabled must get production-level
+        image policy even on a profile whose declared environment infers to
+        a non-strict class (e.g. "local"), matching `cds security
+        --verify-images` (#546)."""
+        mock_run.return_value = subprocess.CompletedProcess([], 0)
+        plan = {"runtime": {"type": "docker-compose"}}
+        compose = yaml.safe_dump({"services": {"a": {"image": "quay.io/example/tool:1.0"}}})
+        with patch.dict(os.environ, {}, clear=True):
+            lenient_checks = run_preflight(plan, compose, Path("missing.env"))
+            strict_checks = run_preflight(plan, compose, Path("missing.env"), strict=True)
+
+        self.assertTrue(
+            all(check.name != "images" for check in lenient_checks),
+            "image checks must stay disabled for a non-strict local profile",
+        )
+        strict_image_checks = [check for check in strict_checks if check.name.startswith("images")]
+        self.assertTrue(strict_image_checks, "strict=True must enable image checks regardless of environment")
+        self.assertTrue(any(check.status == "FAIL" for check in strict_image_checks))
+        self.assertTrue(any("CDS-SEC-052" in check.message for check in strict_image_checks))
+
 
 if __name__ == "__main__":
     unittest.main()
