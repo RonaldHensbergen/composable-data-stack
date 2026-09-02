@@ -11,7 +11,7 @@ set -eu
 : "${DBT_SCHEMA:?DBT_SCHEMA is required}"
 
 mkdir -p "$DBT_PROFILES_DIR"
-cp /app/images/dbt/profiles.yml "$DBT_PROFILES_DIR/profiles.yml"
+cp /app/profiles.yml.template "$DBT_PROFILES_DIR/profiles.yml"
 
 if [ -z "${DBT_COMMANDS:-}" ]; then
     echo "DBT_COMMANDS is not set; nothing to run" >&2

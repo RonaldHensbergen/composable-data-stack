@@ -47,7 +47,7 @@ RUN groupadd --system --gid 999 dbt && \
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY --chmod=0444 images/dbt/profiles.yml /app/images/dbt/profiles.yml
+COPY --chmod=0444 images/dbt/profiles.yml /app/profiles.yml.template
 COPY --chmod=0555 images/dbt/entrypoint.sh /entrypoint.sh
 
 USER dbt
