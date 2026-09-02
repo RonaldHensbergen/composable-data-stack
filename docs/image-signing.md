@@ -19,8 +19,8 @@ differ (see below).
 ### Docker Hub
 
 - Registry: `docker.io` (`registry-1.docker.io`)
-- Name: `docker.io/ronaldsoeverein/<image-name>` (e.g. `dagster`, `superset`, `dbt`; no `cds-` prefix).
-- Tags: a base-version tag derived per image (`dagster==`/`apache/superset:`/`dbt-core==` version) and `latest`, both optionally prefixed with the build variant (e.g. `hardened-1.8.0`, `hardened-latest`). As with GHCR, tags are mutable; verification is always by digest.
+- Name: `docker.io/ronaldsoeverein/<image-name>` (e.g. `dagster`, `superset`, `dbt`, `dlt`; no `cds-` prefix).
+- Tags: a base-version tag derived per image (`dagster==`/`apache/superset:`/`dbt-core==`/`dlt[postgres]==` version) and `latest`, both optionally prefixed with the build variant (e.g. `hardened-1.8.0`, `hardened-latest`). As with GHCR, tags are mutable; verification is always by digest.
 
 ## Verifying an image
 

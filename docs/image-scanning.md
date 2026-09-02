@@ -31,7 +31,8 @@ Release object for them:
 - a base version derived from the pinned upstream dependency (`dagster==`
   in `images/dagster/requirements.txt`, `FROM apache/superset:` in
   `images/superset/base/Dockerfile`, `dbt-core==` in
-  `images/dbt/requirements.txt`),
+  `images/dbt/requirements.txt`, `dlt[postgres]==` in
+  `images/dlt/requirements.txt`),
 - an optional `<variant>-` prefix for non-default image variants,
 - plus a `sha-<12-char-commit-sha>` tag (immutable, always pushed) and a
   `latest`/`<variant->latest` tag.
