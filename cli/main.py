@@ -1641,7 +1641,7 @@ def main() -> int:
             print("Cannot run preflight because render failed.")
             return 1
 
-        checks = run_preflight(plan, compose_yaml, env_file)
+        checks = run_preflight(plan, compose_yaml, env_file, strict=load_saved_security_strict())
         for check in checks:
             print(f"[{check.status}] {check.name}: {check.message}")
 

@@ -35,12 +35,14 @@ def run_preflight(
     plan: dict[str, Any],
     compose_yaml: str,
     env_file: Path,
+    *,
+    strict: bool = False,
 ) -> list[PreflightCheck]:
     checks: list[PreflightCheck] = []
     checks.extend(_check_runtime(plan.get("runtime", {})))
     checks.extend(_check_environment(compose_yaml, env_file))
     checks.extend(_check_ports(compose_yaml))
-    checks.extend(_check_images(plan, compose_yaml))
+    checks.extend(_check_images(plan, compose_yaml, strict=strict))
     return checks
 
 
@@ -219,15 +221,19 @@ def _reference_has_insecure_default(name: str, suffix: str) -> bool:
     return bool(SECRET_KEY_SEGMENT_RE.search(name))
 
 
-def _check_images(plan: dict[str, Any], compose_yaml: str) -> list[PreflightCheck]:
+def _check_images(plan: dict[str, Any], compose_yaml: str, *, strict: bool = False) -> list[PreflightCheck]:
     """
     Enforce the CDS image policy (registry allowlist, digest pins, and, in
     full mode, cosign-verified signatures and provenance attestations).
 
     Disabled when the policy mode resolves to "off"; production profiles
-    default to "policy" so static supply-chain checks run by default.
+    default to "policy" so static supply-chain checks run by default. When
+    the project has `security.strict` enabled, force the production policy
+    class regardless of the profile's inferred class, matching `cds
+    security --verify-images` (#546).
     """
-    policy = load_policy_from_env(infer_profile_class(plan))
+    profile_class = "prod" if strict else infer_profile_class(plan)
+    policy = load_policy_from_env(profile_class)
     if policy.mode == "off":
         return []
 
