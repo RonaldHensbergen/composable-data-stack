@@ -71,6 +71,29 @@ class DbtHardeningTest(unittest.TestCase):
         )
         self.assertTrue(project_mount["read_only"])
 
+    def test_docs_sidecar_volume_mount_avoids_stock_nginx_docroot(self) -> None:
+        # The dbt-run and dbt-docs services share the dbt-target named
+        # volume. Docker populates a first-referenced named volume from
+        # whichever image's content exists at the mount path, so mounting
+        # the shared volume at nginx's stock docroot (/usr/share/nginx/html)
+        # risks the volume being seeded with nginx's own root-owned default
+        # index.html/50x.html, permanently blocking dbt-run's non-root
+        # writes. The mount target must therefore not collide with a path
+        # that ships content in the nginx:alpine base image.
+        docs_service = self.services["dbt-docs"]
+        shared_mount = next(
+            volume
+            for volume in docs_service["volumes"]
+            if isinstance(volume, dict) and volume.get("source") == "dbt-target"
+        )
+        self.assertNotEqual(shared_mount["target"], "/usr/share/nginx/html")
+
+        nginx_conf = (self.repo_root / "images" / "dbt" / "nginx.conf").read_text(encoding="utf-8")
+        root_match = re.search(r"root\s+(\S+);", nginx_conf)
+        self.assertIsNotNone(root_match, "expected an nginx root directive")
+        self.assertEqual(root_match.group(1), shared_mount["target"])
+        self.assertNotEqual(root_match.group(1), "/usr/share/nginx/html")
+
     def test_docs_sidecar_only_starts_after_dbt_run_succeeds(self) -> None:
         docs_service = self.services["dbt-docs"]
 

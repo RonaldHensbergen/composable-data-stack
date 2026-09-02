@@ -184,7 +184,7 @@ spec:
               read_only: true
             - type: volume
               source: dbt-target
-              target: /usr/share/nginx/html
+              target: /usr/share/nginx/dbt-docs
               read_only: true
           healthcheck:
             conditionallyEnabledFrom: config.healthcheck.enabled
