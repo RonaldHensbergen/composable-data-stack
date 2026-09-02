@@ -58,6 +58,8 @@ def _bucket_for(service: dict[str, Any]) -> str:
         return "HEALTHY EXIT" if exit_code == 0 else "UNHEALTHY EXIT"
     if state == "running":
         return "RUNNING"
+    if state == "created":
+        return "CREATED"
 
     # Paused/Dead/etc. aren't states normal cds workflows produce, no
     # dedicated bucket for them, they fall in with everything else unknown.
@@ -70,8 +72,8 @@ def group_services_by_health(services: list[dict[str, Any]]) -> dict[str, list[s
     both deterministically sorted. Bucket is Health when the service has a
     healthcheck ("starting"/"healthy"/"unhealthy"); else "healthy exit"/
     "unhealthy exit" by ExitCode when State is "exited"; else "running";
-    else "UNKNOWN" (covers Paused/Dead/etc., which normal cds workflows
-    don't produce).
+    else "created" when State is "created"; else "UNKNOWN" (covers
+    Paused/Dead/etc., which normal cds workflows don't produce).
     """
     buckets: dict[str, set[str]] = {}
     for service in services:
@@ -91,6 +93,7 @@ _COLORS = {
     "HEALTHY EXIT": "\033[92m",
     "UNHEALTHY EXIT": "\033[91m",
     "STARTING": "\033[33m",
+    "CREATED": "\033[36m",
     "UNKNOWN": "\033[2m",
 }
 _RESET = "\033[0m"

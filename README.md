@@ -676,6 +676,7 @@ runs, with a dedicated diagnostic code:
 |Command|Description|
 |---|---|
 |cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|
+|cds list profiles\|modules\|images [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>]|List available profiles, module sources, or module images and check for newer versions; add `--remote`/`--local` to inspect another repository before fetching from it|
 |cds init [profile]|Generate a project `.env` template from profile secret definitions|
 |cds validate [profile]|Validate modules and contracts|
 |cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
@@ -707,6 +708,12 @@ with `--remote`/`--ref`) for offline/dev workflows. Use `--into` to choose a
 destination root, `--dry-run` to inspect the copy plan first, and `--force` to
 replace conflicting local files. Successful fetches record tracking metadata
 in `.cds/get-manifest.json` for future update workflows.
+
+`cds list profiles`, `cds list modules`, and `cds list images` accept the same
+`--remote`/`--ref`/`--local` source-repository selection as `cds get`, so you
+can discover what's available in another repository (a fork, or an existing
+local checkout) before running `cds get` against it. Without these flags,
+`cds list` inspects the local project as before.
 
 ### Project defaults
 
