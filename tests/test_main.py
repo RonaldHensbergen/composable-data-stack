@@ -137,6 +137,81 @@ class MainCLITest(unittest.TestCase):
         mock_collect.assert_called_once()
         mock_check.assert_called_once_with("mock:1.0", dockerfile=None)
 
+    def test_list_profiles_local_inspects_given_repository_instead_of_cwd(self):
+        with tempfile.TemporaryDirectory() as source_dir:
+            source_root = Path(source_dir)
+            profile_dir = source_root / "profiles" / "remote-demo"
+            profile_dir.mkdir(parents=True)
+            (profile_dir / "profile.yaml").write_text(
+                "apiVersion: cds/v1alpha1\nkind: Profile\nmetadata:\n  name: remote-demo\nspec: {}\n",
+                encoding="utf-8",
+            )
+
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["cds", "list", "profiles", "--local", str(source_root)]), \
+                    contextlib.redirect_stdout(stdout):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("remote-demo", stdout.getvalue())
+        self.assertNotIn("local-dagster-postgres-superset", stdout.getvalue())
+
+    def test_list_modules_local_inspects_given_repository_instead_of_cwd(self):
+        with tempfile.TemporaryDirectory() as source_dir:
+            source_root = Path(source_dir)
+            (source_root / "profiles").mkdir()
+            module_dir = source_root / "modules" / "apps" / "demo"
+            module_dir.mkdir(parents=True)
+            (module_dir / "module.yaml").write_text(
+                "apiVersion: cds/v1alpha1\nkind: Module\nmetadata:\n  name: demo\nspec: {}\n",
+                encoding="utf-8",
+            )
+
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["cds", "list", "modules", "--local", str(source_root)]), \
+                    contextlib.redirect_stdout(stdout):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertEqual(stdout.getvalue().strip(), "apps/demo")
+
+    @patch("cli.main.collect_module_images")
+    def test_list_images_local_scans_given_repository_module_root(self, mock_collect):
+        mock_collect.return_value = []
+        with tempfile.TemporaryDirectory() as source_dir:
+            source_root = Path(source_dir)
+            (source_root / "profiles").mkdir()
+            (source_root / "modules").mkdir()
+
+            with patch.object(sys, "argv", ["cds", "list", "images", "--local", str(source_root)]):
+                result = main()
+
+        self.assertEqual(result, 0)
+        mock_collect.assert_called_once_with(source_root.resolve() / "modules")
+
+    def test_list_rejects_remote_and_local_together(self):
+        with tempfile.TemporaryDirectory() as source_dir:
+            stderr = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                ["cds", "list", "profiles", "--local", source_dir, "--remote", "owner/repo"],
+            ), contextlib.redirect_stderr(stderr):
+                result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("Specify only one of --remote and --local", stderr.getvalue())
+
+    def test_list_local_rejects_missing_source_repository(self):
+        stderr = io.StringIO()
+        with patch.object(
+            sys, "argv", ["cds", "list", "profiles", "--local", "/does/not/exist"]
+        ), contextlib.redirect_stderr(stderr):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", stderr.getvalue())
+
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
     def test_security_command_resolves_profile_and_runs_validation(self, mock_validate, mock_run_security):
