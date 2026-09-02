@@ -155,8 +155,6 @@ spec:
           build:
             context: ../../../
             dockerfile: images/superset/base/Dockerfile
-            args:
-              IMAGE_PACKAGES: "psycopg2-binary==2.9.12"
           image: local/superset:custom
           read_only: true
           cap_drop:
@@ -183,8 +181,6 @@ spec:
           build:
             context: ../../../
             dockerfile: images/superset/base/Dockerfile
-            args:
-              IMAGE_PACKAGES: "psycopg2-binary==2.9.12"
           image: local/superset:custom
           read_only: true
           cap_drop:
