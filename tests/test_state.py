@@ -83,6 +83,10 @@ class GroupServicesByHealthTest(unittest.TestCase):
         services = [{"Service": "svc-a", "Health": "", "State": "running"}]
         self.assertEqual(group_services_by_health(services), {"RUNNING": ["svc-a"]})
 
+    def test_created_state_falls_back_to_created_bucket(self):
+        services = [{"Service": "svc-a", "Health": "", "State": "created"}]
+        self.assertEqual(group_services_by_health(services), {"CREATED": ["svc-a"]})
+
     def test_paused_and_dead_states_fall_to_unknown_not_their_own_bucket(self):
         services = [
             {"Service": "svc-a", "Health": "", "State": "paused"},
