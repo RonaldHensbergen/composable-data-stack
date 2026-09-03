@@ -140,17 +140,26 @@ node starts.
 
 ## Access local services
 
-The chart uses ClusterIP Services. Forward them explicitly:
+The reusable chart keeps its Services private with `ClusterIP`. The local k3d
+install wrapper attaches Dagster and Superset to the NodePorts already published
+by the branch-scoped cluster. `make k3d-install` performs this step automatically
+and prints both URLs.
+
+To expose an existing installation or print its URLs again, run:
 
 ```bash
-kubectl --context k3d-cds-feat-k8s -n cds-local \
-  port-forward service/dagster-webserver 3000:3000
-kubectl --context k3d-cds-feat-k8s -n cds-local \
-  port-forward service/superset 8088:8088
+make k3d-expose
 ```
 
-Dagster is then available at `http://localhost:3000` and Superset at
-`http://localhost:8088`.
+Ports are deterministic per branch to keep worktrees isolated. On `feat/k8s`,
+Dagster is available at `http://127.0.0.1:38142` and Superset at
+`http://127.0.0.1:38143`. Run `scripts/k8s/k3d-env.sh` to print the ports for the
+current branch.
+
+Set `CDS_EXPOSE_LOCALHOST=0` when installing a second release into the same
+cluster. NodePorts are cluster-global, so only one release can own the local
+host mappings. The isolated E2E release disables them and uses bounded temporary
+forwards for its own boundary checks.
 
 ## Translation boundaries
 

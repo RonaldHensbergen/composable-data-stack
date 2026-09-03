@@ -67,3 +67,7 @@ node ports  : ${CDS_DAGSTER_PORT} (Dagster), ${CDS_SUPERSET_PORT} (Superset)
 port-forward: ${CDS_DAGSTER_FORWARD_PORT} (Dagster), ${CDS_SUPERSET_FORWARD_PORT} (Superset)
 EOF
 }
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  cds_k3d_summary
+fi

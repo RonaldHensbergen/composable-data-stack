@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check k3d-build k3d-up k3d-install k3d-e2e k3d-down
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -65,6 +65,9 @@ k3d-up:
 
 k3d-install:
 	scripts/k8s/install.sh $(PROFILE)
+
+k3d-expose:
+	scripts/k8s/expose-local.sh
 
 k3d-e2e:
 	scripts/k8s/e2e.sh $(PROFILE)

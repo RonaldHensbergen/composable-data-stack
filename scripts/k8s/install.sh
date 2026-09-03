@@ -26,5 +26,7 @@ echo "==> cds up --target helm ${CDS_RELEASE} into ${CDS_NAMESPACE}"
   --timeout 600 \
   "$@"
 
+"${SCRIPT_DIR}/expose-local.sh"
+
 echo
 kubectl --context "$CDS_CONTEXT" -n "$CDS_NAMESPACE" get pods

@@ -15,7 +15,10 @@ if k3d cluster list "$CDS_CLUSTER" >/dev/null 2>&1; then
 fi
 CDS_NAMESPACE="${CDS_NAMESPACE}-e2e"
 CDS_RELEASE="${CDS_RELEASE}-e2e"
-export CDS_NAMESPACE CDS_RELEASE
+# NodePorts are cluster-global. The retained operator release owns the local
+# host mappings while this isolated release verifies its boundaries by port-forward.
+CDS_EXPOSE_LOCALHOST=0
+export CDS_NAMESPACE CDS_RELEASE CDS_EXPOSE_LOCALHOST
 PASS=0
 FAIL=0
 PORT_FORWARD_PIDS=()

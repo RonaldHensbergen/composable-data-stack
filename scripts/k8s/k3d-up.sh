@@ -22,8 +22,8 @@ else
     superset "$CDS_SUPERSET_PORT"
   k3d cluster create "$CDS_CLUSTER" \
     --api-port "127.0.0.1:${CDS_API_PORT}" \
-    --port "${CDS_DAGSTER_PORT}:30300@server:0" \
-    --port "${CDS_SUPERSET_PORT}:30808@server:0" \
+    --port "127.0.0.1:${CDS_DAGSTER_PORT}:30300@server:0" \
+    --port "127.0.0.1:${CDS_SUPERSET_PORT}:30808@server:0" \
     --k3s-arg "--disable=traefik@server:0" \
     --wait
 fi
