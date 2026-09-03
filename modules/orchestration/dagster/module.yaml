@@ -216,6 +216,9 @@ spec:
 
   implementation:
     kind: docker-compose
+    targets:
+      - docker-compose
+      - kubernetes
     compose:
       services:
         user-code:
@@ -423,3 +426,171 @@ spec:
       volumes:
         dagster-io-manager-storage: {}
         dagster-grpc-socket: {}
+
+    kubernetes:
+      # Compose shares the code server over a Unix socket in a named volume.
+      # Pods cannot share a socket, so the gRPC server is exposed over TCP and
+      # reached through a Service. See docs/adr/0002-dagster-grpc-over-tcp.md.
+      workloads:
+        user-code:
+          kind: Deployment
+          podSecurityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            runAsNonRoot: true
+            fsGroup: 999
+          containers:
+            - user-code
+          service:
+            type: ClusterIP
+            ports:
+              - name: grpc
+                port: 4000
+                targetPort: 4000
+          containerOverrides:
+            user-code:
+              command:
+                - dagster
+                - code-server
+                - start
+                - -h
+                - 0.0.0.0
+                - -p
+                - "4000"
+                - -f
+                - "${config.definitionsFile.containerPath}"
+              ports:
+                - name: grpc
+                  containerPort: 4000
+              dropVolumeMounts:
+                - /var/run/dagster
+              dropProbes:
+                - liveness
+                - readiness
+                - startup
+              readinessProbe:
+                tcpSocket:
+                  port: 4000
+                initialDelaySeconds: 10
+                periodSeconds: 5
+                failureThreshold: 60
+              livenessProbe:
+                tcpSocket:
+                  port: 4000
+                initialDelaySeconds: 90
+                periodSeconds: 20
+                failureThreshold: 6
+          resources:
+            user-code:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+          waitFor:
+            - host: "${bindings.run-storage.host}"
+              port: "${bindings.run-storage.port}"
+              description: Dagster run storage must accept connections before the code server starts.
+        webserver:
+          kind: Deployment
+          podSecurityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            runAsNonRoot: true
+            fsGroup: 999
+          containers:
+            - dagster-webserver
+          service:
+            type: ClusterIP
+            ports:
+              - name: http
+                port: "${config.webPort}"
+                targetPort: 3000
+          containerOverrides:
+            dagster-webserver:
+              dropVolumeMounts:
+                - /var/run/dagster
+              dropProbes:
+                - liveness
+                - readiness
+                - startup
+              readinessProbe:
+                httpGet:
+                  path: /server_info
+                  port: 3000
+                initialDelaySeconds: 15
+                periodSeconds: 10
+                failureThreshold: 30
+              livenessProbe:
+                httpGet:
+                  path: /server_info
+                  port: 3000
+                initialDelaySeconds: 60
+                periodSeconds: 20
+                failureThreshold: 6
+          resources:
+            dagster-webserver:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+          waitFor:
+            - host: "${bindings.run-storage.host}"
+              port: "${bindings.run-storage.port}"
+            - host: "${k8s.service.user-code}"
+              port: 4000
+              description: The code server must serve gRPC before the webserver loads its workspace.
+        daemon:
+          kind: Deployment
+          podSecurityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            runAsNonRoot: true
+            fsGroup: 999
+          containers:
+            - dagster-daemon
+          containerOverrides:
+            dagster-daemon:
+              dropVolumeMounts:
+                - /var/run/dagster
+              dropProbes:
+                - liveness
+                - readiness
+                - startup
+          resources:
+            dagster-daemon:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+          waitFor:
+            - host: "${bindings.run-storage.host}"
+              port: "${bindings.run-storage.port}"
+            - host: "${k8s.service.user-code}"
+              port: 4000
+      volumes:
+        dagster-io-manager-storage:
+          type: emptyDir
+        dagster-grpc-socket:
+          type: emptyDir
+      configMaps:
+        definitions:
+          key: definitions.py
+          fromBind: "${config.definitionsFile.hostPath}"
+          mountPath: "${config.definitionsFile.containerPath}"
+          containers:
+            - user-code
+        workspace:
+          key: workspace.yaml
+          mountPath: /app/images/dagster/workspace.yaml
+          containers:
+            - dagster-webserver
+            - dagster-daemon
+          content: |
+            load_from:
+              - grpc_server:
+                  host: ${k8s.service.user-code}
+                  port: 4000
+                  location_name: example_user_code

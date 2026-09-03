@@ -4,7 +4,12 @@
   "title": "Composable Data Stack Module",
   "type": "object",
   "additionalProperties": false,
-  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec"
+  ],
   "properties": {
     "apiVersion": {
       "type": "string",
@@ -17,7 +22,11 @@
     "metadata": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["name", "category", "version"],
+      "required": [
+        "name",
+        "category",
+        "version"
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -47,7 +56,11 @@
     "spec": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["runtime", "configSchema", "implementation"],
+      "required": [
+        "runtime",
+        "configSchema",
+        "implementation"
+      ],
       "properties": {
         "runtime": {
           "$ref": "#/$defs/runtime"
@@ -77,7 +90,10 @@
     "runtime": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "service"],
+      "required": [
+        "type",
+        "service"
+      ],
       "properties": {
         "type": {
           "type": "string"
@@ -85,7 +101,10 @@
         "service": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["name", "ports"],
+          "required": [
+            "name",
+            "ports"
+          ],
           "properties": {
             "name": {
               "type": "string",
@@ -111,7 +130,11 @@
     "servicePort": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "containerPort", "protocol"],
+      "required": [
+        "name",
+        "containerPort",
+        "protocol"
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -130,7 +153,12 @@
     "contractConsume": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "contract", "required", "mappedFrom"],
+      "required": [
+        "name",
+        "contract",
+        "required",
+        "mappedFrom"
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -151,7 +179,10 @@
     "contractProvide": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "contract"],
+      "required": [
+        "name",
+        "contract"
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -165,7 +196,9 @@
     "contractRef": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
         "kind": {
           "type": "string",
@@ -176,7 +209,9 @@
     "contractSpec": {
       "type": "object",
       "additionalProperties": true,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
         "kind": {
           "type": "string",
@@ -190,13 +225,466 @@
     "implementation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind"],
+      "required": [
+        "kind"
+      ],
       "properties": {
         "kind": {
-          "type": "string"
+          "type": "string",
+          "description": "Primary implementation kind. Retained for backward compatibility; 'targets' is authoritative when present."
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "docker-compose",
+              "kubernetes"
+            ]
+          },
+          "description": "Render targets this module supports. Defaults to [kind] when omitted."
         },
         "compose": {
           "type": "object"
+        },
+        "kubernetes": {
+          "$ref": "#/$defs/kubernetesImplementation"
+        }
+      }
+    },
+    "kubernetesImplementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workloads"
+      ],
+      "description": "Kubernetes orchestration shape. Container-level detail (image, command, env, healthcheck, tmpfs, hardening flags) is translated from the compose fragment; this block declares only what compose cannot express.",
+      "properties": {
+        "workloads": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "$ref": "#/$defs/kubernetesWorkload"
+          },
+          "description": "Workload name -> spec. Each groups one or more compose services into a single Pod."
+        },
+        "volumes": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/kubernetesVolume"
+          },
+          "description": "Classification of compose named volumes. Unlisted volumes become emptyDir."
+        },
+        "configMaps": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/kubernetesConfigMap"
+          },
+          "description": "Bind-mounted files promoted to ConfigMaps, keyed by the compose bind source path."
+        }
+      }
+    },
+    "kubernetesWorkload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "containers"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "Deployment",
+            "StatefulSet",
+            "Job"
+          ]
+        },
+        "containers": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Compose service names that become containers in this Pod."
+        },
+        "initContainers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Compose service names that run to completion before the main containers start."
+        },
+        "replicas": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1
+        },
+        "enabledFrom": {
+          "type": "string",
+          "minLength": 1
+        },
+        "service": {
+          "$ref": "#/$defs/kubernetesService"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/kubernetesResources"
+          },
+          "description": "Container name -> resource requests/limits."
+        },
+        "imagePullPolicy": {
+          "type": "string",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
+        },
+        "waitFor": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/kubernetesWaitFor"
+          },
+          "description": "Dependency gates rendered as wait initContainers, replacing compose depends_on conditions."
+        },
+        "containerOverrides": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/kubernetesContainerOverride"
+          },
+          "description": "Container name -> overrides applied after the compose fragment is translated."
+        },
+        "serviceName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Override the generated Service/DNS name. Defaults to the module-prefixed workload name."
+        },
+        "podSecurityContext": {
+          "type": "object",
+          "description": "Pod-level securityContext. Needed where compose names a user (user: postgres) that Kubernetes can only express numerically."
+        }
+      }
+    },
+    "kubernetesService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ports"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "ClusterIP",
+            "NodePort",
+            "LoadBalancer",
+            "None"
+          ],
+          "default": "ClusterIP"
+        },
+        "ports": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "port"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "port": {
+                "type": [
+                  "integer",
+                  "string"
+                ]
+              },
+              "targetPort": {
+                "type": [
+                  "integer",
+                  "string"
+                ]
+              },
+              "nodePort": {
+                "type": [
+                  "integer",
+                  "string"
+                ]
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "TCP",
+                  "UDP"
+                ],
+                "default": "TCP"
+              }
+            }
+          }
+        }
+      }
+    },
+    "kubernetesResources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "$ref": "#/$defs/kubernetesResourceQuantities"
+        },
+        "limits": {
+          "$ref": "#/$defs/kubernetesResourceQuantities"
+        }
+      }
+    },
+    "kubernetesResourceQuantities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "memory": {
+          "type": "string"
+        },
+        "ephemeral-storage": {
+          "type": "string"
+        }
+      }
+    },
+    "kubernetesVolume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "persistentVolumeClaim",
+            "emptyDir"
+          ]
+        },
+        "size": {
+          "type": "string",
+          "description": "PVC size, e.g. 5Gi. Required for persistentVolumeClaim."
+        },
+        "sizeFrom": {
+          "type": "string",
+          "description": "Config expression yielding the PVC size, e.g. config.storage.size."
+        },
+        "accessModes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "storageClassName": {
+          "type": "string"
+        },
+        "medium": {
+          "type": "string",
+          "enum": [
+            "",
+            "Memory"
+          ]
+        },
+        "enabledFrom": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "kubernetesConfigMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key"
+      ],
+      "description": "A file projected into containers as a ConfigMap. Source is either a compose bind path (fromBind) or inline content.",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ConfigMap data key, normally the file basename."
+        },
+        "fromBind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Compose bind source path whose file contents become the ConfigMap value."
+        },
+        "content": {
+          "type": "string",
+          "description": "Inline file content, used when no compose bind mount carries this file."
+        },
+        "mountPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path the file is projected to. Derived from the bind target when omitted."
+        },
+        "containers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Containers that mount this file. Defaults to every container in the module."
+        },
+        "mode": {
+          "type": [
+            "integer",
+            "string"
+          ],
+          "description": "Octal file mode, e.g. 0555 for an executable script."
+        }
+      }
+    },
+    "kubernetesWaitFor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "port"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": [
+            "integer",
+            "string"
+          ]
+        },
+        "timeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "default": 300,
+          "description": "Hard deadline for one dependency wait attempt."
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "kubernetesContainerOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "integer",
+              "boolean"
+            ]
+          }
+        },
+        "ports": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "containerPort"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "containerPort": {
+                "type": [
+                  "integer",
+                  "string"
+                ]
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "TCP",
+                  "UDP"
+                ]
+              }
+            }
+          }
+        },
+        "livenessProbe": {
+          "type": "object"
+        },
+        "readinessProbe": {
+          "type": "object"
+        },
+        "startupProbe": {
+          "type": "object"
+        },
+        "dropVolumeMounts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Compose volume/bind targets to NOT mount in Kubernetes (e.g. a Unix socket volume replaced by TCP)."
+        },
+        "dropProbes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "liveness",
+              "readiness",
+              "startup"
+            ]
+          },
+          "description": "Probes translated from the compose healthcheck that do not apply in Kubernetes (e.g. a Unix-socket check replaced by TCP)."
+        },
+        "securityContext": {
+          "type": "object",
+          "description": "Merged over the securityContext derived from the compose hardening flags."
+        },
+        "entrypoint": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "description": "Overrides the compose entrypoint, which becomes the Kubernetes command."
         }
       }
     }

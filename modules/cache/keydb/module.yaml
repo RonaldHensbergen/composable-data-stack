@@ -61,6 +61,9 @@ spec:
 
   implementation:
     kind: docker-compose
+    targets:
+      - docker-compose
+      - kubernetes
     compose:
       services:
         keydb:
@@ -85,8 +88,33 @@ spec:
             conditionallyEnabledFrom: config.healthcheck.enabled
             test:
               - CMD
-              - redis-cli
+              - keydb-cli
               - ping
             interval: 10s
             timeout: 5s
             retries: 5
+
+    kubernetes:
+      workloads:
+        keydb:
+          kind: Deployment
+          # compose `user: keydb`; uid/gid 999 in eqalpha/keydb.
+          podSecurityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            runAsNonRoot: true
+          containers:
+            - keydb
+          service:
+            type: ClusterIP
+            ports:
+              - name: redis
+                port: 6379
+                targetPort: 6379
+          resources:
+            keydb:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi

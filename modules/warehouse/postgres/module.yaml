@@ -156,6 +156,9 @@ spec:
           connectionUri: postgresql://${config.supersetDatabase.username}:${config.supersetDatabase.passwordFrom}@${service.host}:${config.port}/${config.supersetDatabase.name}
   implementation:
     kind: docker-compose
+    targets:
+      - docker-compose
+      - kubernetes
     compose:
       services:
         postgres:
@@ -198,3 +201,42 @@ spec:
       volumes:
         postgres-data:
           enabledFrom: config.storage.enabled
+
+    kubernetes:
+      workloads:
+        postgres:
+          kind: StatefulSet
+          # compose `user: postgres`; the image creates postgres as uid/gid 999.
+          # fsGroup makes the PVC group-writable so postgres can open its data dir.
+          podSecurityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            runAsNonRoot: true
+            fsGroup: 999
+          containers:
+            - postgres
+          service:
+            type: ClusterIP
+            ports:
+              - name: postgres
+                port: 5432
+                targetPort: 5432
+          resources:
+            postgres:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 1Gi
+      volumes:
+        postgres-data:
+          type: persistentVolumeClaim
+          sizeFrom: config.storage.size
+          accessModes:
+            - ReadWriteOnce
+          enabledFrom: config.storage.enabled
+      configMaps:
+        init-db:
+          key: "${config.initDbScript}"
+          fromBind: "${config.initDbScript}"
+          mode: "0555"

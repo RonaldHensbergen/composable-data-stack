@@ -113,6 +113,9 @@ spec:
 
   implementation:
     kind: docker-compose
+    targets:
+      - docker-compose
+      - kubernetes
     compose:
       services:
         superset-init:
@@ -180,3 +183,45 @@ spec:
             interval: 10s
             timeout: 5s
             retries: 20
+
+    kubernetes:
+      workloads:
+        superset:
+          kind: Deployment
+          # apache/superset runs as the superset user, uid/gid 1000.
+          podSecurityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            fsGroup: 1000
+          containers:
+            - superset
+          # Compose orders this with depends_on: service_completed_successfully.
+          # Kubernetes guarantees the same ordering natively via an init container.
+          initContainers:
+            - superset-init
+          service:
+            type: ClusterIP
+            ports:
+              - name: http
+                port: "${config.webPort}"
+                targetPort: 8088
+          resources:
+            superset:
+              requests:
+                cpu: 200m
+                memory: 1Gi
+              limits:
+                memory: 3Gi
+            superset-init:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+          waitFor:
+            - host: "${bindings.metadata-database.host}"
+              port: "${bindings.metadata-database.port}"
+              description: Superset runs migrations against its metadata database on startup.
+            - host: "${bindings.cache-service.host}"
+              port: "${bindings.cache-service.port}"

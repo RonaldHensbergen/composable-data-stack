@@ -29,6 +29,9 @@ from .image_verification import (
     load_policy_from_env,
     verify_images,
 )
+from .k8s_renderer import render_helm
+from .k8s_runner import get_k8s_state, helm_down, helm_up
+from .k8s_security import scan_k8s_security
 from .overlay import resolve_extends, resolve_profile
 from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
@@ -91,6 +94,21 @@ def print_diagnostics(diagnostics) -> None:
     for d in diagnostics:
         prefix = "ERROR" if d.level == "error" else "WARN"
         print(f"{prefix} {d.format()}\n")
+
+
+def _k8s_runtime_defaults(profile_path: str) -> tuple[str, str]:
+    """Read non-secret Helm defaults without planning or loading environment values."""
+    fallback_release = Path(profile_path).parent.name or "cds"
+    try:
+        document = yaml.safe_load(Path(profile_path).read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return fallback_release, "cds-local"
+    release = str((document.get("metadata") or {}).get("name") or fallback_release)
+    namespace = str(
+        (((document.get("spec") or {}).get("runtime") or {}).get("namespace"))
+        or "cds-local"
+    )
+    return release, namespace
 
 
 def profile_completer(prefix, parsed_args, **kwargs):
@@ -870,6 +888,31 @@ def _run_image_verification(
         return [_unverifiable_image_finding(f"Image verification failed unexpectedly: {e}")]
 
 
+def _render_helm_chart(plan, output_dir, force):
+    """
+    Render the Helm chart for a plan and report where it landed.
+
+    Returns (exit_code, diagnostics). The chart is a directory, so unlike the
+    compose target this refuses to write over existing unrelated content unless
+    the caller passes --force.
+    """
+    target_dir = Path(output_dir)
+    if target_dir.exists() and not target_dir.is_dir():
+        if not force:
+            print(f"ERROR Helm output path {target_dir} exists and is not a directory. Pass --force to replace it.")
+            return 1, []
+    elif target_dir.exists() and any(target_dir.iterdir()) and not force:
+        # A chart CDS itself produced is safe to refresh; anything else is not.
+        if not (target_dir / "Chart.yaml").is_file():
+            print(
+                f"ERROR Output directory {target_dir} is not empty and does not look "
+                "like a CDS-generated chart. Pass --force to overwrite it."
+            )
+            return 1, []
+    files, diags = render_helm(plan, output_dir=str(target_dir))
+    return 0, diags
+
+
 def main() -> int:
     # Load .env file if it exists
     load_env_file()
@@ -880,7 +923,7 @@ def main() -> int:
             "Composable Data Stack (CDS): a compiler and CLI for declarative data "
             "platforms. Define reusable modules (orchestrators, warehouses, BI tools, "
             "caches, secrets providers) and wire them together in a profile; cds "
-            "validates, plans, and renders the stack to Docker Compose."
+            "validates, plans, and renders the stack to Docker Compose or Helm."
         ),
     )
     parser.add_argument(
@@ -894,6 +937,12 @@ def main() -> int:
     validate_parser = subparsers.add_parser("validate", help="Validate a profile")
     _add_profile_arg(validate_parser)
     _add_environment_arg(validate_parser)
+    validate_parser.add_argument(
+        "--target",
+        choices=["compose", "helm"],
+        default="compose",
+        help="Validate target-specific requirements (default: compose).",
+    )
 
     plan_parser = subparsers.add_parser("plan", help="Build a resolved plan from a profile")
     _add_profile_arg(plan_parser)
@@ -916,18 +965,46 @@ def main() -> int:
     )
     _add_environment_arg(render_parser)
     render_parser.add_argument(
+        "--target",
+        choices=["compose", "helm"],
+        default="compose",
+        help=(
+            "Render target. 'compose' writes a docker-compose.yml file (default); "
+            "'helm' writes a Helm chart DIRECTORY."
+        ),
+    )
+    render_parser.add_argument(
         "--output",
         "-o",
-        help="Output file path for rendered output (default: <project-root>/docker-compose.yml)",
+        help=(
+            "Output path. For --target=compose a file (default: "
+            "<project-root>/docker-compose.yml); for --target=helm a directory "
+            "(default: <project-root>/chart)."
+        ),
+    )
+    render_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite a non-empty --target=helm output directory.",
     )
     _add_hardened_arg(render_parser)
 
     up_parser = subparsers.add_parser(
         "up",
-        help="Validate, plan, render, build, and run the profile with docker compose",
+        help="Validate, plan, render, and run a profile",
     )
     _add_profile_arg(up_parser)
     _add_environment_arg(up_parser)
+    up_parser.add_argument(
+        "--target",
+        choices=["compose", "helm"],
+        default="compose",
+        help="Runtime target (default: compose).",
+    )
+    up_parser.add_argument("--namespace", help="Kubernetes namespace (defaults to plan runtime namespace).")
+    up_parser.add_argument("--release", help="Helm release name (defaults to profile name).")
+    up_parser.add_argument("--kube-context", help="Explicit kube context without changing shared config.")
+    up_parser.add_argument("--chart-dir", help="Rendered Helm chart directory (default: <project-root>/chart).")
     up_parser.add_argument(
         "--detach",
         "-d",
@@ -959,6 +1036,24 @@ def main() -> int:
     )
     _add_hardened_arg(up_parser)
 
+    down_parser = subparsers.add_parser("down", help="Stop or uninstall a running profile")
+    _add_profile_arg(down_parser)
+    down_parser.add_argument(
+        "--target", choices=["compose", "helm"], default="compose", help="Runtime target."
+    )
+    down_parser.add_argument("--namespace", help="Kubernetes namespace (defaults to profile runtime).")
+    down_parser.add_argument("--release", help="Helm release name (defaults to profile name).")
+    down_parser.add_argument("--kube-context", help="Explicit kube context.")
+    down_parser.add_argument(
+        "--delete-pvcs",
+        action="store_true",
+        help="Delete release PVCs after Helm uninstall (retained by default).",
+    )
+    down_parser.add_argument(
+        "--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS, help="Bounded shutdown timeout."
+    )
+    down_parser.add_argument("--log-file", help="Lifecycle log path.")
+
     test_parser = subparsers.add_parser(
         "test",
         help="One-shot smoke validation: validate, security, plan, and render",
@@ -987,6 +1082,12 @@ def main() -> int:
         help="Show running service status grouped by health",
     )
     _add_profile_arg(state_parser)
+    state_parser.add_argument(
+        "--target", choices=["compose", "helm"], default="compose", help="Runtime target."
+    )
+    state_parser.add_argument("--namespace", help="Kubernetes namespace (defaults to profile runtime).")
+    state_parser.add_argument("--release", help="Helm release name (defaults to profile name).")
+    state_parser.add_argument("--kube-context", help="Explicit kube context.")
     state_parser.add_argument(
         "--no-color",
         action="store_true",
@@ -1066,6 +1167,12 @@ def main() -> int:
     security_parser = subparsers.add_parser("security", help="Run security validation on a profile")
     _add_profile_arg(security_parser)
     _add_environment_arg(security_parser)
+    security_parser.add_argument(
+        "--target",
+        choices=["compose", "helm"],
+        default="compose",
+        help="Include target-specific security checks (default: compose).",
+    )
     security_parser.add_argument(
         "--reveal-secrets",
         action="store_true",
@@ -1160,6 +1267,16 @@ def main() -> int:
             return 1
 
         diagnostics = validate_profile(profile_path, environment=args.environment)
+        if args.target == "helm" and not has_errors(diagnostics):
+            plan, plan_diags = build_plan(
+                profile_path,
+                env_file=str(resolve_env_file_path(profile_path)),
+                environment=args.environment,
+            )
+            diagnostics.extend(plan_diags)
+            if plan is not None and not has_errors(diagnostics):
+                _, render_diags = render_helm(plan)
+                diagnostics.extend(render_diags)
 
         if diagnostics:
             error_count = sum(1 for d in diagnostics if d.level == "error")
@@ -1248,13 +1365,26 @@ def main() -> int:
                 print(f"ERROR Failed to load plan from {plan_path}")
                 return 1
 
+            source_profile = Path(plan.get("sourceProfile", "."))
             output_path = args.output
             if output_path is None:
                 # Use project root from plan's sourceProfile, or cwd
-                source_profile = Path(plan.get("sourceProfile", "."))
-                output_path = str(resolve_project_root(str(source_profile)) / "docker-compose.yml")
+                _root = resolve_project_root(str(source_profile))
+                output_path = str(_root / ("chart" if args.target == "helm" else "docker-compose.yml"))
 
             env_file = str(resolve_env_file_path(str(source_profile)))
+            if args.target == "helm":
+                code, render_diags = _render_helm_chart(plan, output_path, args.force)
+                all_diags = render_diags
+                if code != 0:
+                    return code
+                if has_errors(all_diags):
+                    print_diagnostics(all_diags)
+                    print("Render failed.")
+                    return 1
+                print(f"Rendered Helm chart written to {output_path}")
+                return 0
+
             compose_yaml, render_diags = render_compose(plan, output_path=output_path, env_file=env_file)
             all_diags = render_diags
 
@@ -1291,7 +1421,22 @@ def main() -> int:
 
             output_path = args.output
             if output_path is None:
-                output_path = str(resolve_project_root(profile_path) / "docker-compose.yml")
+                output_path = str(
+                    resolve_project_root(profile_path)
+                    / ("chart" if args.target == "helm" else "docker-compose.yml")
+                )
+
+            if args.target == "helm":
+                code, render_diags = _render_helm_chart(plan, output_path, args.force)
+                all_diags = all_diags + render_diags
+                if code != 0:
+                    return code
+                if has_errors(all_diags):
+                    print_diagnostics(all_diags)
+                    print("Render failed.")
+                    return 1
+                print(f"Rendered Helm chart written to {output_path}")
+                return 0
 
             compose_yaml, render_diags = render_compose(plan, output_path=output_path, env_file=env_file)
             all_diags = all_diags + render_diags
@@ -1327,6 +1472,46 @@ def main() -> int:
             print_diagnostics(all_diags)
             print("Cannot start stack because plan generation failed.")
             return 1
+
+        if args.target == "helm":
+            project_root = resolve_project_root(profile_path)
+            chart_dir = Path(args.chart_dir) if args.chart_dir else project_root / "chart"
+            code, render_diags = _render_helm_chart(plan, chart_dir, force=True)
+            all_diags.extend(render_diags)
+            if code != 0 or has_errors(all_diags):
+                print_diagnostics(all_diags)
+                print("Cannot start stack because Helm rendering failed.")
+                return code or 1
+
+            namespace = args.namespace or plan.get("runtime", {}).get("namespace") or "cds-local"
+            release = args.release or plan.get("metadata", {}).get("name") or "cds"
+            log_path = Path(args.log_file) if args.log_file else default_log_path(
+                Path(profile_path).parent.name
+            )
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                with open(log_path, "a", encoding="utf-8") as log_file:
+                    result = helm_up(
+                        plan,
+                        chart_dir,
+                        namespace=namespace,
+                        release=release,
+                        kube_context=args.kube_context,
+                        timeout=args.timeout,
+                        detach=args.detach,
+                        log_file=log_file,
+                    )
+            except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+                print(f"ERROR {exc}")
+                return 1
+            if result != 0:
+                print(f"Helm deployment failed (exit {result}). See {log_path} for details.")
+                return result
+            if args.detach:
+                print(f"Helm release {release} submitted in {namespace}. See {log_path} for details.")
+            else:
+                print(f"Helm release {release} is ready in {namespace}. See {log_path} for details.")
+            return 0
 
         output_path = str(resolve_project_root(profile_path) / "docker-compose.yml")
         compose_yaml, render_diags = render_compose(plan, output_path=output_path, env_file=env_file)
@@ -1509,6 +1694,48 @@ def main() -> int:
         print(f"Tracking metadata written to {manifest_path}")
         return 0
 
+    if args.command == "down":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+        project_root = resolve_project_root(profile_path)
+        profile_release, profile_namespace = _k8s_runtime_defaults(profile_path)
+        log_path = Path(args.log_file) if args.log_file else default_log_path(
+            f"down-{Path(profile_path).parent.name}"
+        )
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(log_path, "a", encoding="utf-8") as log_file:
+                if args.target == "helm":
+                    result = helm_down(
+                        namespace=args.namespace or profile_namespace,
+                        release=args.release or profile_release,
+                        kube_context=args.kube_context,
+                        timeout=args.timeout,
+                        delete_pvcs=args.delete_pvcs,
+                        log_file=log_file,
+                    )
+                else:
+                    compose_path = project_root / "docker-compose.yml"
+                    result = run_streamed(
+                        ["docker", "compose", "-f", str(compose_path), "down"],
+                        log_file,
+                        timeout=args.timeout,
+                    )
+        except (FileNotFoundError, OSError) as exc:
+            print(f"ERROR {exc}")
+            return 1
+        if result != 0:
+            print(f"Shutdown failed (exit {result}). See {log_path} for details.")
+            return result
+        if args.target == "helm" and not args.delete_pvcs:
+            print("Helm release removed. PersistentVolumeClaims were retained.")
+        else:
+            print("Stack removed.")
+        return 0
+
     if args.command == "test":
         try:
             profile_path = resolve_profile_path(args.profile)
@@ -1659,6 +1886,22 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
 
+        if args.target == "helm":
+            profile_release, profile_namespace = _k8s_runtime_defaults(profile_path)
+            try:
+                services = get_k8s_state(
+                    args.namespace or profile_namespace,
+                    args.release or profile_release,
+                    args.kube_context,
+                )
+            except (FileNotFoundError, RuntimeError, subprocess.TimeoutExpired) as exc:
+                print(f"ERROR {exc}")
+                return 1
+            grouped = group_services_by_health(services)
+            use_color = (not args.no_color) and sys.stdout.isatty()
+            print(format_state_output(grouped, use_color=use_color))
+            return 0
+
         compose_path = resolve_project_root(profile_path) / "docker-compose.yml"
         if not compose_path.exists():
             print(f"ERROR {compose_path} not found. Run 'cds up' first.")
@@ -1781,6 +2024,23 @@ def main() -> int:
             print("Cannot run security validation because profile validation failed.")
             return 1
 
+        helm_plan: dict[str, Any] | None = None
+        if args.target == "helm":
+            helm_plan, plan_diags = build_plan(
+                profile_path,
+                env_file=str(resolve_env_file_path(profile_path)),
+                environment=args.environment,
+            )
+            if helm_plan is None or has_errors(plan_diags):
+                print_diagnostics(plan_diags)
+                print("Cannot run Kubernetes security validation because planning failed.")
+                return 1
+            _, helm_diags = render_helm(helm_plan)
+            if has_errors(helm_diags):
+                print_diagnostics(helm_diags)
+                print("Cannot run Kubernetes security validation because rendering failed.")
+                return 1
+
         precomputed_render: PrecomputedRender | None = None
         image_verification_kwargs: dict[str, Any] = {}
         if args.verify_images:
@@ -1844,6 +2104,14 @@ def main() -> int:
                 path="spec.modules",
             ).format(), file=sys.stderr)
             return 2
+
+        if helm_plan is not None:
+            findings.extend(scan_k8s_security(helm_plan))
+            findings.sort(key=lambda finding: (
+                SEVERITY_ORDER.get(finding["severity"], 99),
+                finding["rule_id"],
+                finding["path"],
+            ))
 
         for diag in diagnostics:
             print(diag.format(), file=sys.stderr)
