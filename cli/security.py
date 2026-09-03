@@ -22,6 +22,7 @@ from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .planner import build_plan
 from .renderer import _compose_service_name, render_compose
+from .resolver import parse_contract_ref
 from .secrets import load_secrets_from_env
 from .security_common import SECRET_KEY_RE, SEVERITY_ORDER, infer_profile_class
 
@@ -327,7 +328,15 @@ _NON_SECRET_PATH_SUFFIXES = (
     "title",
     "comment",
     "notes",
-    "reason",
+)
+
+# Path-scoped (rather than bare key-suffix) exemptions from the high-entropy
+# secret heuristic. Unlike _NON_SECRET_PATH_SUFFIXES, these only suppress the
+# check for the exact documented field, so an unrelated key that happens to
+# end in "reason" (e.g. a genuine secret named "authFailureReason") is still
+# scanned normally.
+_NON_SECRET_PATH_PATTERNS = (
+    "spec.security.waivers.*.reason",
 )
 def _eval_condition(
     path: str,
@@ -338,8 +347,12 @@ def _eval_condition(
 ) -> bool:
     sval = "" if value is None else str(value)
 
-    # Never flag known metadata fields as secret-like
-    if cond.get("entropy") == "high" and key.lower().endswith(_NON_SECRET_PATH_SUFFIXES):
+    # Never flag known metadata fields, or the documented waiver reason
+    # field, as secret-like.
+    if cond.get("entropy") == "high" and (
+        key.lower().endswith(_NON_SECRET_PATH_SUFFIXES)
+        or _path_matches_any(path, _NON_SECRET_PATH_PATTERNS)
+    ):
         return False
     
     if "pathPatterns" in cond and not _path_matches_any(path, cond["pathPatterns"]):
@@ -530,39 +543,79 @@ def _map_service_to_module(plan: dict[str, Any] | None) -> dict[str, str]:
     return mapping
 
 
-def _module_provides_plaintext_http(module: dict[str, Any]) -> bool:
+def _module_plaintext_http_provide_names(module: dict[str, Any]) -> set[str]:
+    """Return the names of this module's provided contracts that are plaintext
+    (protocol: http) http-service contracts."""
     provides = module.get("provides", {})
     if not isinstance(provides, dict):
-        return False
-    for contract in provides.values():
+        return set()
+    names = set()
+    for provide_name, contract in provides.items():
         if not isinstance(contract, dict):
             continue
         if contract.get("kind") != "http-service":
             continue
         spec = contract.get("spec", {})
         if isinstance(spec, dict) and str(spec.get("protocol", "")).lower() == "http":
+            names.add(provide_name)
+    return names
+
+
+def _module_provides_plaintext_http(module: dict[str, Any]) -> bool:
+    return bool(_module_plaintext_http_provide_names(module))
+
+
+def _module_provides_tls_reverse_proxy(module: dict[str, Any]) -> bool:
+    provides = module.get("provides", {})
+    if not isinstance(provides, dict):
+        return False
+    for contract in provides.values():
+        if not isinstance(contract, dict):
+            continue
+        if contract.get("kind") != "reverse-proxy":
+            continue
+        spec = contract.get("spec", {})
+        if isinstance(spec, dict) and str(spec.get("protocol", "")).lower() == "https":
             return True
     return False
 
 
-def _plan_has_tls_reverse_proxy(plan: dict[str, Any] | None) -> bool:
+def _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan: dict[str, Any] | None) -> set[str]:
+    """Return the ids of plan modules whose plaintext http-service contract is
+    actually consumed (per the plan's contract wiring) by another module that
+    itself provides a TLS (https) reverse-proxy contract.
+
+    Merely having *some* https reverse-proxy contract present anywhere in the
+    plan is not sufficient -- it must be wired to the specific plaintext
+    module via `consumes`/`mappedFrom`, otherwise an unrelated module
+    providing reverse-proxy/https would incorrectly suppress findings for a
+    plaintext endpoint it has no relationship to.
+    """
     if not isinstance(plan, dict):
-        return False
+        return set()
+
+    fronted: set[str] = set()
     for module in plan.get("modules", []):
-        if not isinstance(module, dict):
+        if not isinstance(module, dict) or not _module_provides_tls_reverse_proxy(module):
             continue
-        provides = module.get("provides", {})
-        if not isinstance(provides, dict):
+        consumes = module.get("consumes", {})
+        if not isinstance(consumes, dict):
             continue
-        for contract in provides.values():
-            if not isinstance(contract, dict):
+        for consumed in consumes.values():
+            if not isinstance(consumed, dict):
                 continue
-            if contract.get("kind") != "reverse-proxy":
+            contract_ref = consumed.get("contractRef")
+            parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+            if parsed is None:
+                continue
+            producer_id, provide_name = parsed
+            contract = consumed.get("contract")
+            if not isinstance(contract, dict) or contract.get("kind") != "http-service":
                 continue
             spec = contract.get("spec", {})
-            if isinstance(spec, dict) and str(spec.get("protocol", "")).lower() == "https":
-                return True
-    return False
+            if isinstance(spec, dict) and str(spec.get("protocol", "")).lower() == "http":
+                fronted.add(producer_id)
+    return fronted
 
 
 def _port_is_non_local_host_exposure(port: Any) -> bool:
@@ -640,7 +693,12 @@ def _check_production_plaintext_exposure(
                     "value": port,
                 })
 
-    if not exposures or _plan_has_tls_reverse_proxy(plan):
+    if not exposures:
+        return [], []
+
+    fronted_module_ids = _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan)
+    exposures = [entry for entry in exposures if entry["module"] not in fronted_module_ids]
+    if not exposures:
         return [], []
 
     waiver_reason = _plaintext_exposure_waiver_reason(profile)

@@ -201,6 +201,17 @@ class ProductionPlaintextExposureWorkflowTest(unittest.TestCase):
             self.assertIn("W098", result.stderr)
             self.assertNotIn("CDS-SEC-074", result.stdout)
 
+        with self.subTest(case="unrelated tls reverse proxy does not front the plaintext module"):
+            result = self._run_test("profile-unrelated-tls")
+            self.assertEqual(
+                result.returncode, 1,
+                "an https reverse-proxy present in the plan but not wired "
+                "(via consumes/mappedFrom) to the plaintext module must not "
+                f"suppress the finding:\nstdout: {result.stdout}\nstderr: {result.stderr}",
+            )
+            self.assertIn("[FAIL] security", result.stdout)
+            self.assertIn("CDS-SEC-074", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

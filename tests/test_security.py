@@ -188,6 +188,20 @@ class NonSecretReasonEntropyGuardTest(unittest.TestCase):
         )
         self.assertFalse(matched)
 
+    def test_entropy_rule_still_flags_other_keys_ending_in_reason(self):
+        # The waiver-reason exemption is scoped to the documented
+        # spec.security.waivers.*.reason path, not to any key ending in
+        # "reason" -- a genuine secret-shaped value under an unrelated key
+        # must still be scanned.
+        matched = _eval_condition(
+            path="modules[0].config.authFailureReason",
+            key="authFailureReason",
+            value="Temporary exception for external compatibility windows 123!",
+            cond={"entropy": "high", "minLength": 16},
+            profile_class="prod",
+        )
+        self.assertTrue(matched)
+
 
 class EnvFilePathRuleTest(unittest.TestCase):
     def test_flags_a_profile_scoped_env_file_path(self):

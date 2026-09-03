@@ -2,16 +2,19 @@
 apiVersion: cds/v1alpha1
 kind: Module
 metadata:
-  name: secure-ingress
+  name: secure-ingress-unwired
   category: network
   version: "0.1.0"
-  displayName: TLS ingress test fixture
-  description: Test-only reverse proxy that declares HTTPS.
+  displayName: Unwired TLS ingress test fixture
+  description: >-
+    Test-only reverse proxy that declares HTTPS but does not consume/front
+    any specific backend module -- used to prove CDS-SEC-074 doesn't treat
+    an unrelated reverse-proxy contract as protecting a plaintext endpoint.
 spec:
   runtime:
     type: container
     service:
-      name: secure-ingress
+      name: secure-ingress-unwired
       ports:
         - name: https
           containerPort: 443
@@ -19,22 +22,7 @@ spec:
   configSchema:
     type: object
     additionalProperties: false
-    required:
-      - backend
-    properties:
-      backend:
-        type: object
-        required:
-          - contractRef
-        properties:
-          contractRef:
-            type: string
-  consumes:
-    - name: backend
-      contract:
-        kind: http-service
-      required: true
-      mappedFrom: spec.config.backend
+    properties: {}
   provides:
     - name: reverse-proxy
       contract:
@@ -47,7 +35,7 @@ spec:
     kind: docker-compose
     compose:
       services:
-        secure-ingress:
+        secure-ingress-unwired:
           image: alpine:3.20
           command: ["sh", "-c", "sleep infinity"]
           ports:

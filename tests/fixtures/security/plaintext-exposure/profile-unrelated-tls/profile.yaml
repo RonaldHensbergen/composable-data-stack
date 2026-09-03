@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../../../../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: plaintext-exposure-unrelated-tls
+  environment: production
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    # `ingress` provides an https reverse-proxy but is never wired
+    # (via consumes/mappedFrom) to front `api`'s plaintext endpoint. This
+    # must NOT suppress the CDS-SEC-074 finding for `api` -- an unrelated
+    # TLS-terminating module elsewhere in the plan must not be treated as
+    # protecting a plaintext endpoint it has no relationship to.
+    - id: ingress
+      source: network/secure-ingress-unwired
+      version: "0.1.0"
+      enabled: true
+      config: {}
+    - id: api
+      source: apps/plain-api
+      version: "0.1.0"
+      enabled: true
+      config:
+        publicPort: 8080

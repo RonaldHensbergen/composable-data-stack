@@ -12,7 +12,9 @@ spec:
       source: network/secure-ingress
       version: "0.1.0"
       enabled: true
-      config: {}
+      config:
+        backend:
+          contractRef: api.http-service
     - id: api
       source: apps/plain-api
       version: "0.1.0"
