@@ -1,13 +1,18 @@
 cds_target:
-  target: prod
+  target: "{{ env_var('DBT_WAREHOUSE_TYPE') }}"
   outputs:
-    prod:
+    postgres:
       type: postgres
-      host: "{{ env_var('DBT_HOST') }}"
-      port: "{{ env_var('DBT_PORT') | as_number }}"
-      dbname: "{{ env_var('DBT_DBNAME') }}"
-      user: "{{ env_var('DBT_USER') }}"
-      password: "{{ env_var('DBT_PASSWORD') }}"
+      host: "{{ env_var('DBT_HOST', '') }}"
+      port: "{{ env_var('DBT_PORT', '5432') | as_number }}"
+      dbname: "{{ env_var('DBT_DBNAME', '') }}"
+      user: "{{ env_var('DBT_USER', '') }}"
+      password: "{{ env_var('DBT_PASSWORD', '') }}"
       schema: "{{ env_var('DBT_SCHEMA') }}"
       threads: "{{ env_var('DBT_THREADS', '4') | as_number }}"
       connect_timeout: 10
+    duckdb:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', '') }}"
+      schema: "{{ env_var('DBT_SCHEMA') }}"
+      threads: "{{ env_var('DBT_THREADS', '4') | as_number }}"

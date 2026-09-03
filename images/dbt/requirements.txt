@@ -12,5 +12,10 @@
 # the patched version is always installed.
 dbt-core==1.12.3
 dbt-postgres==1.11.0
+# dbt-duckdb declares dbt-core>=1.8.0 (loose floor, no upper pin as of
+# 1.11.0), so it resolves cleanly alongside the dbt-core==1.12.3 pin above
+# without forcing any of the protobuf/deepdiff/sqlparse constraints noted
+# above to move.
+dbt-duckdb==1.11.0
 deepdiff>=8.6.2
 sqlparse>=0.6.0

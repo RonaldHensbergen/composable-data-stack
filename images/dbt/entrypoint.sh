@@ -2,13 +2,28 @@
 set -eu
 
 # Required connection settings, provided by the module's compose environment
-# (sourced from the consumed sql-database contract via ${bindings.*}).
-: "${DBT_HOST:?DBT_HOST is required}"
-: "${DBT_PORT:?DBT_PORT is required}"
-: "${DBT_DBNAME:?DBT_DBNAME is required}"
-: "${DBT_USER:?DBT_USER is required}"
-: "${DBT_PASSWORD:?DBT_PASSWORD is required}"
+# (sourced from whichever contract is consumed -- sql-database via
+# ${bindings.*} for postgres, or file-database for duckdb -- see
+# module.yaml's config.warehouseType).
+: "${DBT_WAREHOUSE_TYPE:?DBT_WAREHOUSE_TYPE is required}"
 : "${DBT_SCHEMA:?DBT_SCHEMA is required}"
+
+case "$DBT_WAREHOUSE_TYPE" in
+    postgres)
+        : "${DBT_HOST:?DBT_HOST is required when DBT_WAREHOUSE_TYPE=postgres -- set config.targetDatabase.contractRef}"
+        : "${DBT_PORT:?DBT_PORT is required when DBT_WAREHOUSE_TYPE=postgres -- set config.targetDatabase.contractRef}"
+        : "${DBT_DBNAME:?DBT_DBNAME is required when DBT_WAREHOUSE_TYPE=postgres -- set config.targetDatabase.contractRef}"
+        : "${DBT_USER:?DBT_USER is required when DBT_WAREHOUSE_TYPE=postgres -- set config.targetDatabase.contractRef}"
+        : "${DBT_PASSWORD:?DBT_PASSWORD is required when DBT_WAREHOUSE_TYPE=postgres -- set config.targetDatabase.contractRef}"
+        ;;
+    duckdb)
+        : "${DBT_DUCKDB_PATH:?DBT_DUCKDB_PATH is required when DBT_WAREHOUSE_TYPE=duckdb -- set config.targetWarehouseFile.contractRef}"
+        ;;
+    *)
+        echo "Unsupported DBT_WAREHOUSE_TYPE '$DBT_WAREHOUSE_TYPE' (expected postgres or duckdb)" >&2
+        exit 1
+        ;;
+esac
 
 mkdir -p "$DBT_PROFILES_DIR"
 cp /app/images/dbt/profiles.yml "$DBT_PROFILES_DIR/profiles.yml"

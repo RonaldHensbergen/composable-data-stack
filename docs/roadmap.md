@@ -27,7 +27,8 @@ These are considered production-ready in the current release (v0.4.0):
 These work but may have breaking changes in upcoming releases:
 
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
-- Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the new `file-database` contract; not yet wired into dlt/dbt or a demo profile (#593)
+- Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the new `file-database` contract; dbt can now target it (see below), dlt wiring and a demo profile are still pending (#593)
+- Module: dbt (`modules-experimental/transformation/dbt/`) — can now optionally target DuckDB via `file-database`, in addition to Postgres via `sql-database`, selected by the `warehouseType` config field (#593)
 - `cds test` — implemented; not yet exercised in CI or real contributor usage
 
 ---

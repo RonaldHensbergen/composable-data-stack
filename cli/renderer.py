@@ -225,6 +225,25 @@ def _render_services(
                 else:
                     service_copy["healthcheck"] = _substitute_values(hc_copy, context)
 
+        # Conditional individual bind-mount/volume entries: a service's
+        # volumes list can mix mounts that only apply to one of several
+        # mutually-exclusive consumed contracts (e.g. a module that
+        # supports either a sql-database or a file-database target).
+        # Entries carrying enabledFrom are dropped up front so an unused
+        # mount never resolves an unwired binding into a broken/literal
+        # path in the rendered compose file.
+        volumes = service_copy.get("volumes")
+        if isinstance(volumes, list):
+            kept_volumes = []
+            for volume_item in volumes:
+                if isinstance(volume_item, dict) and "enabledFrom" in volume_item:
+                    volume_item = deepcopy(volume_item)
+                    item_enabled_from = volume_item.pop("enabledFrom", None)
+                    if item_enabled_from and _resolve_expr(item_enabled_from, context) is False:
+                        continue
+                kept_volumes.append(volume_item)
+            service_copy["volumes"] = kept_volumes
+
         diagnostics.extend(
             _check_unsafe_field_type_substitutions(service_copy, module.get("id"), service_name, context)
         )
@@ -495,6 +514,15 @@ def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
 
     Returns None if the path is not found.
     """
+    if "==" in expr:
+        # Equality gate, e.g. "config.warehouseType==duckdb" -- used by
+        # enabledFrom guards that need to pick one of several mutually
+        # exclusive options (unlike enabledFrom's plain boolean-flag use,
+        # which only checks a path resolves to literal False). Dotted paths
+        # never contain "==", so this check is unambiguous.
+        path, _, expected = expr.partition("==")
+        return _resolve_expr(path, context) == expected
+
     if expr.startswith("ifNonempty:"):
         path, prefix, suffix = expr[len("ifNonempty:"):].split(",", 2)
         value = _resolve_expr(path, context)
