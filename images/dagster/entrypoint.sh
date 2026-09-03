@@ -38,7 +38,13 @@ case "$BACKEND" in
         ;;
 esac
 
-cp /app/images/dagster/workspace.yaml "$DAGSTER_HOME/workspace.yaml"
+# The image source is mode 0444. Replace through a writable temporary file so
+# repeated starts remain safe when DAGSTER_HOME lives on a persistent volume.
+workspace_tmp="$DAGSTER_HOME/.workspace.yaml.tmp"
+rm -f "$workspace_tmp"
+cp /app/images/dagster/workspace.yaml "$workspace_tmp"
+chmod 0644 "$workspace_tmp"
+mv -f "$workspace_tmp" "$DAGSTER_HOME/workspace.yaml"
 python /app/images/dagster/generate_config.py
 
 if [ "$#" -ge 3 ] && [ "$1" = "dagster" ] && [ "$2" = "code-server" ] && [ "$3" = "start" ]; then
