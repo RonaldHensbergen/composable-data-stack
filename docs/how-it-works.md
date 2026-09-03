@@ -21,6 +21,7 @@
   - [`cds security`](#cds-security)
   - [`cds plan`](#cds-plan)
   - [`cds render`](#cds-render)
+  - [`cds render --target helm`](#cds-render---target-helm)
 - [Anatomy of the Generated `docker-compose.yml`](#anatomy-of-the-generated-docker-composeyml)
 - [Key Source Files](#key-source-files)
 
@@ -30,21 +31,19 @@
 
 CDS is a **Python command-line tool** that reads declarative **YAML** (profiles +
 modules), validates them against **JSON Schemas** and a security rule set, resolves
-the wiring between components ("contracts"), and **generates a `docker-compose.yml`**
-you can `docker compose up`.
+the wiring between components ("contracts"), and generates either a
+`docker-compose.yml` or a deterministic Helm chart.
 
 It is best understood as a **compiler / code generator for data platforms**:
 
 ```text
-  YAML profile + YAML modules  ──▶  [ CDS CLI ]  ──▶  docker-compose.yml  ──▶  docker compose up
-     (declarative source)          (validate,        (generated artifact)     (real containers)
-                                    plan, render)
+  YAML profile + modules -> [ CDS CLI ] -> docker-compose.yml -> Docker Compose
+                                     `-> chart/             -> Helm + Kubernetes
 ```
 
 There is **no SDK, no cloud API, no Terraform provider, and no long-running
-service.** CDS itself provisions nothing. It emits a Compose file; Docker does the
-actual running. Think "Terraform `plan`/`render`" for a local data stack, where the
-"apply" step is just `docker compose up`.
+service.** CDS renders runtime artifacts and can invoke Docker Compose or Helm;
+the selected runtime performs the actual orchestration.
 
 ---
 
@@ -54,13 +53,12 @@ actual running. Think "Terraform `plan`/`render`" for a local data stack, where 
 | --- | --- |
 | A YAML-driven CLI (`cds`) | A cloud provisioner / Terraform replacement (yet) |
 | A validator + planner + renderer | An orchestrator or runtime agent |
-| A generator of `docker-compose.yml` | A collection of hand-written compose scripts |
+| A generator of Compose and Helm artifacts | A collection of hand-written runtime scripts |
 | A contract-checking "compiler" | A service that stays running |
 | Pure Python, two dependencies | A heavyweight framework with a plugin runtime |
 
-The MVP shipped today covers **validate → security → plan → render**. Commands like
-`cds up` and `cds test` are declared in the CLI table but are **planned**, not yet
-implemented. The engine stops at generating the Compose file.
+The shipped workflow covers validation, security, planning, rendering, startup,
+state inspection, and shutdown for Compose and Helm targets.
 
 ---
 
@@ -87,7 +85,7 @@ cds = "cli.main:main"
 | Config format | **YAML** via **PyYAML** | Everything (profiles, modules, defaults) is YAML. |
 | Validation | **`jsonschema`** (Draft) | `schemas/profile.schema.json`, `schemas/module.schema.json`, plus a hand-rolled contract/graph checker. |
 | Security rules | Custom engine over **JSON** | `security/rule-set.json` validated by `security/rule-schema.json`. |
-| Output target | **Docker Compose** | The only implementation `kind` supported today is `docker-compose`. |
+| Output targets | **Docker Compose and Helm** | Sibling renderers consume the same resolved plan. |
 | Packaging | **setuptools** | Installs the `cds` console script. |
 
 **No SDK.** The "interface" is the `cds` CLI plus the YAML schemas. Modules do not
@@ -102,17 +100,14 @@ contracts, declared as YAML modules under `modules/`.
 
 ## What Resources CDS Creates
 
-This is the question that most often trips people up. CDS does **not** stand up
-infrastructure. Running the pipeline produces exactly one durable artifact:
+Rendering produces one target-specific artifact:
 
 ```text
-  cds render local-dagster-postgres-superset
-        │
-        ▼
-  ./docker-compose.yml        ← the ONLY thing CDS writes to disk
+  cds render PROFILE                    -> ./docker-compose.yml
+  cds render PROFILE --target helm      -> ./chart/
 ```
 
-That generated file contains:
+The Compose file contains:
 
 | Compose key | Where it comes from |
 | --- | --- |
@@ -128,11 +123,9 @@ Intermediate (optional) artifacts:
   or a file. This is the fully resolved, validated composition graph. `cds render`
   can consume a saved plan file directly instead of re-reading the profile.
 
-So the honest answer to *"does it just create a bunch of composed-up scripts?"* is:
-**it generates a single, deterministic Compose file from many small, contract-checked
-YAML modules.** The value is in everything that happens *before* the file is written:
-schema validation, contract resolution, dependency-cycle detection, and security
-checks.
+The Helm chart contains Deployments or StatefulSets, Services, ConfigMaps,
+probes, resource policy, storage, and Secret references. Secret values are
+supplied only at install time.
 
 ---
 
@@ -156,14 +149,16 @@ graph TB
         MODULES["**Modules**<br/>modules/**/module.yaml"]
     end
 
-    subgraph RUNTIME["🐳 Runtime (external)"]
+    subgraph RUNTIME["⚙️ Runtimes (external)"]
         DOCKER["**Docker Compose**<br/>Runs the generated stack"]
+        K8S["**Kubernetes**<br/>Runs the generated Helm release"]
     end
 
     DEV -->|"runs cds validate / plan / render"| CDS
     PROFILES -->|"read"| CDS
     MODULES -->|"read"| CDS
     CDS -->|"writes docker-compose.yml"| DOCKER
+    CDS -->|"writes chart/"| K8S
     DEV -->|"docker compose up"| DOCKER
 ```
 
@@ -182,6 +177,7 @@ graph TB
         SECURITY["**security.py**<br/>Rule engine"]
         PLANNER["**planner.py**<br/>Resolve config, contracts, secrets"]
         RENDERER["**renderer.py**<br/>Emit docker-compose.yml"]
+        KRENDERER["**k8s_renderer.py**<br/>Emit Helm chart"]
     end
 
     subgraph DATA["📄 On-disk YAML/JSON"]
@@ -192,13 +188,14 @@ graph TB
         ENV["🔑 .env / shell env<br/>CDS_* secrets"]
     end
 
-    OUT["📦 **docker-compose.yml**<br/>generated artifact"]
+    OUT["📦 **docker-compose.yml or chart/**<br/>generated artifact"]
 
     DEV -->|"cds <command>"| MAIN
     MAIN --> VALIDATOR
     MAIN --> SECURITY
     MAIN --> PLANNER
     MAIN --> RENDERER
+    MAIN --> KRENDERER
 
     PROFILE -->|read| VALIDATOR
     MODULE -->|read| VALIDATOR
@@ -209,6 +206,7 @@ graph TB
     VALIDATOR -->|"ok?"| PLANNER
     PLANNER -->|"plan (cds/v1alpha1)"| RENDERER
     RENDERER --> OUT
+    KRENDERER --> OUT
 ```
 
 ### Level 3: Components (the CLI internals)
@@ -231,6 +229,7 @@ graph TB
 
         subgraph REND["Rendering"]
             RENDERER["**renderer.py**<br/>services/volumes + value substitution"]
+            KRENDERER["**k8s_renderer.py**<br/>workloads/services/storage + Helm templates"]
         end
 
         SEC["**security.py**<br/>rule-set.json engine"]
@@ -243,6 +242,7 @@ graph TB
     MAIN --> SEC
     MAIN --> PLANNER
     MAIN --> RENDERER
+    MAIN --> KRENDERER
     VALIDATOR --> GRAPH
     VALIDATOR --> LOADER
     PLANNER --> RESOLVER
@@ -251,6 +251,7 @@ graph TB
     VALIDATOR -.emits.-> DIAG
     PLANNER -.emits.-> DIAG
     RENDERER -.emits.-> DIAG
+    KRENDERER -.emits.-> DIAG
     SEC -.emits.-> DIAG
 ```
 
@@ -443,6 +444,28 @@ sequenceDiagram
     CLI-->>CLI: "Rendered compose file written to <path>"
 ```
 
+### `cds render --target helm`
+
+The Helm renderer is a sibling of the Compose renderer. It consumes the same
+plan directly and does not translate a generated Compose file.
+
+```mermaid
+sequenceDiagram
+    participant CLI as main.py
+    participant Plan as planner.py
+    participant Helm as k8s_renderer.py
+    participant FS as chart directory
+
+    CLI->>Plan: validate and build_plan(profile)
+    Plan-->>CLI: resolved plan
+    CLI->>Helm: render_helm(plan)
+    Helm->>Helm: map module orchestration blocks
+    Helm->>Helm: verify Services, secrets, probes, resources
+    Helm->>FS: atomic chart directory replacement
+    Helm-->>CLI: files and diagnostics
+    Note over CLI,FS: Secret values never enter the chart
+```
+
 ---
 
 ## Anatomy of the Generated `docker-compose.yml`
@@ -505,6 +528,8 @@ A few things worth noting:
 | `cli/resolver.py` | Parse `contractRef` and `secrets.*` references |
 | `cli/secrets.py` | Load `CDS_*` secrets from environment / `.env` |
 | `cli/renderer.py` | `render_compose` — plan → `docker-compose.yml` |
+| `cli/k8s_renderer.py` | `render_helm` maps a plan to a deterministic Helm chart |
+| `cli/k8s_runner.py` | Bounded Helm install, rollout, state, and uninstall operations |
 | `cli/loader.py` | YAML loading with diagnostics |
 | `cli/diagnostics.py` | `Diagnostic` (error code, level, YAML path, message) |
 | `cli/image_updates.py` | `cds list images` — check module images against registries |
@@ -515,7 +540,7 @@ A few things worth noting:
 
 ---
 
-*This document reflects the MVP engine: `validate → security → plan → render`.
-`cds up` and `cds test` are on the roadmap but not yet implemented. See
-[architecture.md](architecture.md) for the longer-term production-platform vision and
-[roadmap.md](roadmap.md) for milestones.*
+*This document reflects the Compose and Helm workflows through validation,
+security, planning, rendering, runtime startup, state inspection, and shutdown.
+See [architecture.md](architecture.md) for the longer-term production-platform
+vision and [kubernetes.md](kubernetes.md) for the local k3s workflow.*

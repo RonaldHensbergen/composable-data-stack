@@ -213,6 +213,11 @@ tempCodeRunnerFile.py
 docker-compose.yml
 docker-compose.yaml
 
+# Generated Helm output and per-worktree local-cluster credentials
+/chart/
+/.k3d/
+/.playwright-cli/
+
 # cds up build/up/logs output (see .cds/logs/)
 .cds/
 
@@ -251,3 +256,11 @@ workdirs/shared-data/processed/*
 !workdirs/shared-data/incoming/.gitkeep
 !workdirs/shared-data/incoming/offers-1000.csv
 !workdirs/shared-data/processed/.gitkeep
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+
+# bv (b9s) local config and caches
+.bv/

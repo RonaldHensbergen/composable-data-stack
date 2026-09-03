@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check k3d-build k3d-up k3d-install k3d-e2e k3d-down
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -56,3 +56,18 @@ docker-build:
 		docker build -f "$$dockerfile" "$$context" || exit 1; \
 	done
 	@echo "All Dockerfiles built successfully!"
+
+k3d-build:
+	scripts/k8s/build-images.sh
+
+k3d-up:
+	scripts/k8s/k3d-up.sh
+
+k3d-install:
+	scripts/k8s/install.sh $(PROFILE)
+
+k3d-e2e:
+	scripts/k8s/e2e.sh $(PROFILE)
+
+k3d-down:
+	scripts/k8s/k3d-down.sh
