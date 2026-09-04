@@ -259,9 +259,13 @@ workdirs/shared-data/processed/*
 !workdirs/shared-data/processed/.gitkeep
 
 # Beads / Dolt files (added by bd init)
+/.beads
 .dolt/
 *.db
 .beads-credential-key
+
+# Operator-local Claude configuration
+/.claude
 
 # bv (b9s) local config and caches
 .bv/

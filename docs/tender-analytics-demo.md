@@ -85,7 +85,6 @@ charts.
 
 ## Proof artifacts
 
-- [Feature proof video](videos/tender-analytics-dashboard--feat-k8s.mp4)
 - [Captured Superset dashboard](evidence/tender-analytics-dashboard.png)
 - [E2E baseline at revision 3073b1c](evidence/tender-analytics-e2e-before.txt)
 - [E2E green run](evidence/tender-analytics-e2e-after.txt)

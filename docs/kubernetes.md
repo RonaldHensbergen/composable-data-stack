@@ -4,9 +4,6 @@ CDS can render the same resolved plan as either Docker Compose or a Helm chart.
 The Helm target is intended for local and development Kubernetes clusters,
 including k3s through k3d.
 
-Watch the [three-minute feature proof](videos/kubernetes-target--feat-k8s.mp4)
-for the architecture, hardening findings, and captured local-cluster evidence.
-
 ## Contents
 
 - [Prerequisites](#prerequisites)
