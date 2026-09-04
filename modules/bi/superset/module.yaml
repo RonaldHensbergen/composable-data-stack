@@ -87,6 +87,16 @@ spec:
             type: string
             pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
 
+      analyticsDatabase:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
       cacheService:
         type: object
         additionalProperties: false
@@ -112,6 +122,12 @@ spec:
         kind: sql-database
       required: true
       mappedFrom: spec.config.metadataDatabase
+
+    - name: analytics-database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.analyticsDatabase
 
     - name: cache-service
       contract:
@@ -158,6 +174,7 @@ spec:
             SUPERSET_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
             SUPERSET_ADMIN_EMAIL: "${config.adminUser.email}"
             SUPERSET__SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
+            SUPERSET_ANALYTICS_DATABASE_URI: "${bindings.analytics-database.connectionUri}"
             SUPERSET__REDIS_URL: "${bindings.cache-service.connectionUri}"
             SUPERSET__CACHE_CONFIG: '{"CACHE_TYPE": "redis", "CACHE_REDIS_URL": "${bindings.cache-service.connectionUri}", "CACHE_DEFAULT_TIMEOUT": 300}'
           healthcheck:
@@ -186,6 +203,7 @@ spec:
           environment:
             SUPERSET_SECRET_KEY: "${config.secretKeyFrom}"
             SUPERSET__SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
+            SUPERSET_ANALYTICS_DATABASE_URI: "${bindings.analytics-database.connectionUri}"
             # Redis cache configuration
             SUPERSET__REDIS_URL: "${bindings.cache-service.connectionUri}"
             SUPERSET__CACHE_CONFIG: '{"CACHE_TYPE": "redis", "CACHE_REDIS_URL": "${bindings.cache-service.connectionUri}", "CACHE_DEFAULT_TIMEOUT": 300}'

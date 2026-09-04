@@ -122,6 +122,8 @@ spec:
           email: admin@example.local
         metadataDatabase:
           contractRef: postgres.superset-database
+        analyticsDatabase:
+          contractRef: postgres.sql-database
         cacheService:
           contractRef: keydb.cache-service
         healthcheck:

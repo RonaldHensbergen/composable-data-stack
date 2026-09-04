@@ -110,10 +110,12 @@ class RealProfileHelmRendererTest(unittest.TestCase):
         self.assertIn("kind: Deployment", files["templates/dagster-webserver-deployment.yaml"])
         dagster_service = yaml.safe_load(files["templates/dagster-webserver-service.yaml"])
         superset_service = yaml.safe_load(files["templates/superset-superset-service.yaml"])
+        superset_deployment = files["templates/superset-superset-deployment.yaml"]
         self.assertEqual(dagster_service["spec"]["type"], "NodePort")
         self.assertEqual(dagster_service["spec"]["ports"][0]["nodePort"], 30300)
         self.assertEqual(superset_service["spec"]["type"], "NodePort")
         self.assertEqual(superset_service["spec"]["ports"][0]["nodePort"], 30808)
+        self.assertIn("SUPERSET_ANALYTICS_DATABASE_URI", superset_deployment)
         self.assertIn(
             "tender_analytics.py",
             files["templates/dagster-configmap-tender-analytics.yaml"],
