@@ -2110,6 +2110,25 @@ class ConfigCommandCLITest(unittest.TestCase):
         self.assertIn("must be true or false", output)
         self.assertFalse(self.config_path.exists())
 
+    def test_config_sets_gets_and_unsets_image_source(self):
+        result, output = self._run(["set", "image.source", "registry"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(json.loads(self.config_path.read_text())["image"]["source"], "registry")
+
+        result, output = self._run(["get", "image.source"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(output.strip(), "registry")
+
+        result, output = self._run(["unset", "image.source"])
+        self.assertEqual(result, 0, output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_config_rejects_invalid_image_source_value(self):
+        result, output = self._run(["set", "image.source", "s3"])
+        self.assertEqual(result, 1)
+        self.assertIn("must be 'build' or 'registry'", output)
+        self.assertFalse(self.config_path.exists())
+
     @patch("cli.main.run_security_validation", return_value=([], []))
     @patch("cli.main.validate_profile", return_value=[])
     def test_configured_security_strict_is_passed_to_security_checks(

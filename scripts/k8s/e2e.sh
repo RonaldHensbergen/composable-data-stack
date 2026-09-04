@@ -9,6 +9,7 @@ source "${SCRIPT_DIR}/k3d-env.sh"
 PROFILE="${1:-profiles/local-dagster-postgres-superset/profile.yaml}"
 KEEP_CLUSTER="${CDS_E2E_KEEP_CLUSTER:-0}"
 WAIT_SECONDS="${CDS_E2E_TIMEOUT:-600}"
+E2E_PROFILE=""
 CLUSTER_EXISTED=0
 if k3d cluster list "$CDS_CLUSTER" >/dev/null 2>&1; then
   CLUSTER_EXISTED=1
@@ -48,6 +49,9 @@ cleanup() {
       "${SCRIPT_DIR}/k3d-down.sh" >/dev/null 2>&1 || true
     fi
   fi
+  if [[ -n "$E2E_PROFILE" ]]; then
+    rm -f "$E2E_PROFILE"
+  fi
   echo "=== CDS-K8S-E2E DONE pass=${PASS} fail=${FAIL} ==="
 }
 trap cleanup EXIT
@@ -79,10 +83,19 @@ wait_for_http() {
   return 1
 }
 
+PROFILE_DIR="$(cd "$(dirname "$PROFILE")" && pwd)"
+PROFILE="${PROFILE_DIR}/$(basename "$PROFILE")"
+E2E_PROFILE="$(mktemp "${PROFILE_DIR}/.cds-e2e-profile.XXXXXX.yaml")"
+if ! "${CDS_REPO_ROOT}/.venv/bin/python" \
+  "${SCRIPT_DIR}/clusterip_profile.py" "$PROFILE" "$E2E_PROFILE"; then
+  record_fail "isolated ClusterIP profile"
+  exit 1
+fi
+
 if ! run_setup "cluster available" "${SCRIPT_DIR}/k3d-up.sh"; then
   exit 1
 fi
-if ! run_setup "Helm release installed" "${SCRIPT_DIR}/install.sh" "$PROFILE"; then
+if ! run_setup "Helm release installed" "${SCRIPT_DIR}/install.sh" "$E2E_PROFILE"; then
   exit 1
 fi
 
