@@ -27,15 +27,13 @@ These are considered production-ready in the current release (v0.4.0):
 These work but may have breaking changes in upcoming releases:
 
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
-- Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the new `file-database` contract; dbt can now target it (see below), dlt wiring and a demo profile are still pending (#593)
-- Module: dbt (`modules-experimental/transformation/dbt/`) — can now optionally target DuckDB via `file-database`, in addition to Postgres via `sql-database`, selected by the `warehouseType` config field (#593)
+- Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the new `file-database` contract; not yet wired into dlt/dbt or a demo profile (#593)
 - `cds test` — implemented; not yet exercised in CI or real contributor usage
 
 ---
 
 ## Near-Term (Next 1–3 Releases)
 
-- 📋 **Publish CLI to PyPI** — enable `pipx install composable-data-stack` and `pip install composable-data-stack` (#52)
 - Profile: `local-dagster-postgres-superset-vault` - not tested thoroughly yet
 - 📋 **Stabilize Vault-backed profile** — validate and harden `local-dagster-postgres-superset-vault` for regular use
 - 📋 **Profile Retrieval & Update milestone**
@@ -58,6 +56,7 @@ Items shipped in v0.1.1 through v0.4.0:
 - ✅ **PowerShell task runner** — PowerShell parity for core Makefile targets (#55)
 - ✅ **Pre-commit hooks** — markdownlint, yamllint, and flake8 checks enforced locally before push (#31)
 - ✅ **Release automation** — automated GitHub release creation on version tags (#32)
+- ✅ **Publish CLI to PyPI** — enable `pipx install composable-data-stack` and `pip install composable-data-stack` (#52)
 
 ---
 

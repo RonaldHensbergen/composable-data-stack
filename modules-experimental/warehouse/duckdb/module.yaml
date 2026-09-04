@@ -41,11 +41,12 @@ spec:
           Host path (relative to the profile's rendered docker-compose.yml,
           or absolute) of the directory that will hold the DuckDB database
           file. Consumers bind-mount this same directory to share the file.
+          Use a project-local data directory, not a system path.
 
       filename:
         type: string
         minLength: 1
-        pattern: "^[A-Za-z0-9_.-]+$"
+        pattern: "^(?!\\.\\.?$)[A-Za-z0-9_.-]+$"
         default: warehouse.duckdb
 
       readOnly:
