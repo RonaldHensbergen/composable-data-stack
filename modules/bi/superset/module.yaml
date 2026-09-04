@@ -38,6 +38,23 @@ spec:
         maximum: 65535
         default: 8088
 
+      kubernetesService:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          type:
+            type: string
+            enum:
+              - ClusterIP
+              - NodePort
+            default: ClusterIP
+          nodePort:
+            type: integer
+            minimum: 0
+            maximum: 32767
+            default: 0
+
       secretKeyFrom:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
@@ -201,11 +218,12 @@ spec:
           initContainers:
             - superset-init
           service:
-            type: ClusterIP
+            type: "${config.kubernetesService.type}"
             ports:
               - name: http
                 port: "${config.webPort}"
                 targetPort: 8088
+                nodePort: "${config.kubernetesService.nodePort}"
           resources:
             superset:
               requests:

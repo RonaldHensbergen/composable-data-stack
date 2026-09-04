@@ -108,6 +108,20 @@ class RealProfileHelmRendererTest(unittest.TestCase):
         self.assertIn("kind: StatefulSet", files["templates/postgres-postgres-statefulset.yaml"])
         self.assertIn("storage: 5Gi", files["templates/postgres-postgres-statefulset.yaml"])
         self.assertIn("kind: Deployment", files["templates/dagster-webserver-deployment.yaml"])
+        dagster_service = yaml.safe_load(files["templates/dagster-webserver-service.yaml"])
+        superset_service = yaml.safe_load(files["templates/superset-superset-service.yaml"])
+        self.assertEqual(dagster_service["spec"]["type"], "NodePort")
+        self.assertEqual(dagster_service["spec"]["ports"][0]["nodePort"], 30300)
+        self.assertEqual(superset_service["spec"]["type"], "NodePort")
+        self.assertEqual(superset_service["spec"]["ports"][0]["nodePort"], 30808)
+        self.assertIn(
+            "tender_analytics.py",
+            files["templates/dagster-configmap-tender-analytics.yaml"],
+        )
+        self.assertIn(
+            "/app/workdirs/dagster/tender_analytics.py",
+            files["templates/dagster-user-code-deployment.yaml"],
+        )
         self.assertIn("host: dagster-user-code", files["templates/dagster-configmap-workspace.yaml"])
         self.assertIn("name: postgres", files["templates/postgres-postgres-service.yaml"])
         self.assertIn("name: superset", files["templates/superset-superset-service.yaml"])

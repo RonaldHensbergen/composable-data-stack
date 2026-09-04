@@ -379,12 +379,20 @@
       ],
       "properties": {
         "type": {
-          "type": "string",
-          "enum": [
-            "ClusterIP",
-            "NodePort",
-            "LoadBalancer",
-            "None"
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "ClusterIP",
+                "NodePort",
+                "LoadBalancer",
+                "None"
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$\\{config\\.[a-zA-Z0-9_.-]+\\}$"
+            }
           ],
           "default": "ClusterIP"
         },

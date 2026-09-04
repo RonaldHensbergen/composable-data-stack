@@ -38,6 +38,23 @@ spec:
         maximum: 65535
         default: 3000
 
+      kubernetesService:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          type:
+            type: string
+            enum:
+              - ClusterIP
+              - NodePort
+            default: ClusterIP
+          nodePort:
+            type: integer
+            minimum: 0
+            maximum: 32767
+            default: 0
+
       homeDir:
         type: string
         minLength: 1
@@ -149,6 +166,21 @@ spec:
             minLength: 1
             pattern: "^/"
             default: /app/workdirs/dagster/definitions.py
+
+      tenderAnalyticsFile:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          hostPath:
+            type: string
+            minLength: 1
+            default: ./workdirs/dagster/tender_analytics.py
+          containerPath:
+            type: string
+            minLength: 1
+            pattern: "^/"
+            default: /app/workdirs/dagster/tender_analytics.py
 
       runLauncher:
         type: object
@@ -268,6 +300,10 @@ spec:
             - type: bind
               source: "${config.definitionsFile.hostPath}"
               target: "${config.definitionsFile.containerPath}"
+              read_only: true
+            - type: bind
+              source: "${config.tenderAnalyticsFile.hostPath}"
+              target: "${config.tenderAnalyticsFile.containerPath}"
               read_only: true
           environment:
             DB_BACKEND: "${config.storage.backend}"
@@ -501,11 +537,12 @@ spec:
           containers:
             - dagster-webserver
           service:
-            type: ClusterIP
+            type: "${config.kubernetesService.type}"
             ports:
               - name: http
                 port: "${config.webPort}"
                 targetPort: 3000
+                nodePort: "${config.kubernetesService.nodePort}"
           containerOverrides:
             dagster-webserver:
               dropVolumeMounts:
@@ -580,6 +617,12 @@ spec:
           key: definitions.py
           fromBind: "${config.definitionsFile.hostPath}"
           mountPath: "${config.definitionsFile.containerPath}"
+          containers:
+            - user-code
+        tender-analytics:
+          key: tender_analytics.py
+          fromBind: "${config.tenderAnalyticsFile.hostPath}"
+          mountPath: "${config.tenderAnalyticsFile.containerPath}"
           containers:
             - user-code
         workspace:

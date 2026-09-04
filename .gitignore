@@ -217,6 +217,7 @@ docker-compose.yaml
 /chart/
 /.k3d/
 /.playwright-cli/
+/data/tenderned/
 
 # cds up build/up/logs output (see .cds/logs/)
 .cds/

@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -74,3 +74,9 @@ k3d-e2e:
 
 k3d-down:
 	scripts/k8s/k3d-down.sh
+
+tender-export:
+	scripts/tender/export-snapshot.sh
+
+tender-load:
+	scripts/tender/load-snapshot.sh

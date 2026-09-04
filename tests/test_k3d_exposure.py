@@ -47,17 +47,26 @@ esac
             log = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
             return result, log
 
-    def test_exposes_both_ui_services_on_published_nodeports(self) -> None:
+    def test_verifies_both_ui_services_on_published_nodeports(self) -> None:
         result, log = self._run("1")
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertRegex(result.stdout, r"Dagster: http://127\.0\.0\.1:\d+")
         self.assertRegex(result.stdout, r"Superset: http://127\.0\.0\.1:\d+")
-        self.assertIn("patch service dagster-webserver", log)
-        self.assertIn('"nodePort":30300', log)
-        self.assertIn("patch service superset", log)
-        self.assertIn('"nodePort":30808', log)
+        self.assertNotIn("patch service", log)
         self.assertEqual(log.count("get service"), 2)
+
+    def test_local_profile_declares_nodeports_for_helm_ownership(self) -> None:
+        profile = (
+            self.repo_root
+            / "profiles"
+            / "local-dagster-postgres-superset"
+            / "profile.yaml"
+        ).read_text(encoding="utf-8")
+
+        self.assertEqual(profile.count("type: NodePort"), 2)
+        self.assertIn("nodePort: 30300", profile)
+        self.assertIn("nodePort: 30808", profile)
 
     def test_exposure_can_be_disabled_for_parallel_releases(self) -> None:
         result, log = self._run("0")
