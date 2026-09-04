@@ -938,5 +938,86 @@ class ImageSourceRenderingTest(unittest.TestCase):
         self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:hardened-1.8.0")
 
 
+class SupersetImageSourceRenderingTest(unittest.TestCase):
+    """Mirrors ImageSourceRenderingTest (Dagster) for the Superset module,
+    which has no image.variant split -- only image.source/image.tag."""
+
+    def _plan(self, image_config):
+        return {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "superset",
+                    "config": {"image": image_config},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "superset-init": {
+                                    "build": {
+                                        "context": ".",
+                                        "dockerfile": "images/superset/base/Dockerfile",
+                                    },
+                                    "image": "local/superset:custom",
+                                },
+                                "superset": {
+                                    "build": {
+                                        "context": ".",
+                                        "dockerfile": "images/superset/base/Dockerfile",
+                                    },
+                                    "image": "local/superset:custom",
+                                },
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+    def test_default_source_build_leaves_build_block_intact(self):
+        plan = self._plan({"source": "build"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["superset"]
+        self.assertIn("build", service)
+        self.assertEqual(service["image"], "local/superset:custom")
+
+    def test_source_registry_with_tag_drops_build_and_rewrites_image(self):
+        plan = self._plan({"source": "registry", "tag": "3.1.0"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["superset"]
+        self.assertNotIn("build", service)
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/superset:3.1.0")
+
+    def test_source_registry_without_tag_falls_back_to_build(self):
+        plan = self._plan({"source": "registry"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["superset"]
+        self.assertIn("build", service)
+        self.assertEqual(service["image"], "local/superset:custom")
+
+    def test_source_registry_rewrites_init_service_too(self):
+        plan = self._plan({"source": "registry", "tag": "3.1.0"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["superset-init"]
+        self.assertNotIn("build", service)
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/superset:3.1.0")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -38,6 +38,42 @@ spec:
         maximum: 65535
         default: 8088
 
+      image:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          source:
+            type: string
+            enum:
+              - build
+              - registry
+            default: build
+            description: >
+              Selects how the superset-init and superset services obtain
+              their image. "build" (default) builds the image locally from
+              images/superset/base/Dockerfile. "registry" pulls the
+              already published, scanned, and signed image from
+              docker.io/ronaldsoeverein/superset instead of building it,
+              avoiding a local rebuild. Requires image.tag to be set.
+          tag:
+            type: string
+            # cds-registry-tag-source: docker/apache/superset -- kept in
+            # sync with the apache/superset base tag pinned in
+            # images/superset/base/Dockerfile by Renovate; see
+            # renovate.json's customManagers. Used as the default tag when
+            # `cds render/up/test --image-source registry` is passed
+            # without an explicit config.image.tag.
+            default: "6.1.0"
+            description: >
+              Registry tag to pull when image.source is "registry", e.g. a
+              version published by .github/workflows/publish-images.yml
+              (derived from the apache/superset base version pinned in
+              images/superset/base/Dockerfile). Ignored when image.source
+              is "build". Defaults to the pinned apache/superset version
+              above, kept in sync by Renovate; pass an explicit
+              config.image.tag to override.
+
       secretKeyFrom:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
@@ -119,8 +155,6 @@ spec:
           build:
             context: ../../../
             dockerfile: images/superset/base/Dockerfile
-            args:
-              IMAGE_PACKAGES: "psycopg2-binary==2.9.12"
           image: local/superset:custom
           read_only: true
           cap_drop:
@@ -147,8 +181,6 @@ spec:
           build:
             context: ../../../
             dockerfile: images/superset/base/Dockerfile
-            args:
-              IMAGE_PACKAGES: "psycopg2-binary==2.9.12"
           image: local/superset:custom
           read_only: true
           cap_drop:
