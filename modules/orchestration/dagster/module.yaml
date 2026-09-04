@@ -98,8 +98,8 @@ spec:
               (optionally prefixed with the variant, such as
               "hardened-1.8.0"). Ignored when image.source is "build".
               Defaults to the pinned dagster PyPI version above, kept in
-              sync by Renovate; pass an explicit config.image.tag (or
-              `--image-tag`) to override.
+              sync by Renovate; pass an explicit config.image.tag 
+              to override.
 
       storage:
         type: object
