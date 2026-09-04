@@ -21,6 +21,7 @@ without escaping it.
 from __future__ import annotations
 
 import os
+import signal
 import sys
 import unittest
 import warnings
@@ -42,9 +43,51 @@ warnings.filterwarnings("error", category=DeprecationWarning, module=r"test_.*$"
 # Everything else (third-party dependencies) keeps the default behavior.
 
 
+class TestTimeoutError(TimeoutError):
+    """Raised inside a test that exceeds its configured wall-clock limit."""
+
+
+def apply_test_timeouts(
+    suite: unittest.TestSuite, timeout_seconds: float
+) -> unittest.TestSuite:
+    if timeout_seconds <= 0:
+        raise ValueError("Per-test timeout must be greater than zero")
+    if not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"):
+        raise RuntimeError("Per-test timeouts require SIGALRM and setitimer support")
+
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            apply_test_timeouts(item, timeout_seconds)
+            continue
+
+        original_run = item.run
+
+        def run_with_timeout(result=None, *, _test=item, _run=original_run):
+            previous_handler = signal.getsignal(signal.SIGALRM)
+            previous_timer = signal.getitimer(signal.ITIMER_REAL)
+
+            def timeout_handler(_signum, _frame):
+                raise TestTimeoutError(
+                    f"{_test.id()} exceeded {timeout_seconds:g} seconds"
+                )
+
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+            try:
+                return _run(result)
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, *previous_timer)
+                signal.signal(signal.SIGALRM, previous_handler)
+
+        item.run = run_with_timeout
+    return suite
+
+
 def main() -> int:
     loader = unittest.TestLoader()
     suite = loader.discover(start_dir="tests", pattern="test_*.py")
+    timeout_seconds = float(os.environ.get("CDS_TEST_TIMEOUT_SECONDS", "60"))
+    apply_test_timeouts(suite, timeout_seconds)
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
     return 0 if result.wasSuccessful() else 1

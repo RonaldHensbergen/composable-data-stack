@@ -42,6 +42,7 @@ Export, load, and visualize the TenderNed metadata:
 make tender-export
 make tender-load
 make tender-dashboard
+make tender-e2e
 ```
 
 `tender-export` requires read access to the existing TenderNed Kubernetes
@@ -81,3 +82,16 @@ dates from March 29, 2011 through September 4, 2026. It includes 2,752
 PDF-enriched records. Two consecutive Dagster runs preserved that row count, and
 two consecutive dashboard provisioning runs preserved one dashboard with seven
 charts.
+
+## Proof artifacts
+
+- [Feature proof video](videos/tender-analytics-dashboard--feat-k8s.mp4)
+- [Captured Superset dashboard](evidence/tender-analytics-dashboard.png)
+- [E2E baseline at revision 3073b1c](evidence/tender-analytics-e2e-before.txt)
+- [E2E green run](evidence/tender-analytics-e2e-after.txt)
+
+The same bounded suite reported `pass=4 fail=3` when pointed at the pre-feature
+revision and `pass=7 fail=0` against the completed working tree. The green run
+checks the real local k3s pods, Dagster materialization, no-op convergence,
+Superset object counts, seven HTTP 200 chart responses, visible dashboard
+values, and an empty browser error console.
