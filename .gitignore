@@ -269,3 +269,4 @@ workdirs/shared-data/processed/*
 
 # bv (b9s) local config and caches
 .bv/
+/AGENTS.md
