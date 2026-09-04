@@ -138,7 +138,31 @@ class TenderDashboardTest(unittest.TestCase):
         self.assertEqual(len(initial_creates), 10)
         self.assertEqual(client.created, initial_creates)
         self.assertEqual(len(client.resources["chart"]), 7)
+        self.assertEqual(client.updated.count(("database", 1)), 1)
         self.assertEqual(client.updated.count(("dashboard", first_dashboard)), 2)
+
+    def test_chart_matching_is_scoped_to_the_tender_dataset(self) -> None:
+        client = _FakeClient()
+        client.resources["chart"].append(
+            {
+                "id": 1,
+                "slice_name": "Total tenders",
+                "datasource_id": 999,
+                "datasource_type": "table",
+            }
+        )
+        env = {
+            "CDS_ANALYTICS_DB_USER": "analytics",
+            "CDS_ANALYTICS_DB_PASSWORD": "password",
+            "CDS_ANALYTICS_DB_NAME": "analytics",
+        }
+
+        with mock.patch.dict(os.environ, env, clear=False):
+            _, charts = _DASHBOARD.provision(client)
+
+        self.assertEqual(len(client.resources["chart"]), 8)
+        self.assertNotEqual(charts[0][0], 1)
+        self.assertEqual(client.resources["chart"][0]["datasource_id"], 999)
 
 
 if __name__ == "__main__":

@@ -299,19 +299,18 @@ def find_one(
 
 
 def provision(client: SupersetClient) -> tuple[int, list[tuple[int, str]]]:
+    database_payload = {
+        "database_name": DATABASE_NAME,
+        "sqlalchemy_uri": analytics_uri(),
+        "expose_in_sqllab": True,
+        "allow_dml": False,
+    }
     database = find_one(client.list_all("database"), "database_name", DATABASE_NAME)
     if database is None:
-        database_id = client.create(
-            "database",
-            {
-                "database_name": DATABASE_NAME,
-                "sqlalchemy_uri": analytics_uri(),
-                "expose_in_sqllab": True,
-                "allow_dml": False,
-            },
-        )
+        database_id = client.create("database", database_payload)
     else:
         database_id = int(database["id"])
+        client.update("database", database_id, database_payload)
 
     dataset = next(
         (
@@ -335,8 +334,9 @@ def provision(client: SupersetClient) -> tuple[int, list[tuple[int, str]]]:
     else:
         dataset_id = int(dataset["id"])
 
-    dashboard = find_one(
-        client.list_all("dashboard"), "dashboard_title", DASHBOARD_TITLE
+    dashboards = client.list_all("dashboard")
+    dashboard = find_one(dashboards, "slug", DASHBOARD_SLUG) or find_one(
+        dashboards, "dashboard_title", DASHBOARD_TITLE
     )
     dashboard_payload = {
         "dashboard_title": DASHBOARD_TITLE,
@@ -373,7 +373,16 @@ def provision(client: SupersetClient) -> tuple[int, list[tuple[int, str]]]:
             ),
             "dashboards": [dashboard_id],
         }
-        existing = find_one(existing_charts, "slice_name", definition.name)
+        existing = next(
+            (
+                record
+                for record in existing_charts
+                if record.get("slice_name") == definition.name
+                and int(record.get("datasource_id", -1)) == dataset_id
+                and record.get("datasource_type") == "table"
+            ),
+            None,
+        )
         if existing is None:
             chart_id = client.create("chart", payload)
         else:

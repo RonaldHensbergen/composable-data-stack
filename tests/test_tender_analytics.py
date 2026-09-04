@@ -50,6 +50,7 @@ class _FakeCursor:
                 (2, date(2011, 3, 29), date(2026, 9, 4)),
             ]
         )
+        self.rowcount = 0
 
     def __enter__(self):
         return self
@@ -148,9 +149,11 @@ class TenderAnalyticsTest(unittest.TestCase):
 
         self.assertEqual(result.snapshot_rows, 2)
         self.assertEqual(result.warehouse_rows, 2)
+        self.assertEqual(result.changed_rows, 0)
         self.assertEqual(result.earliest_publication, date(2011, 3, 29))
         self.assertIn("TN-1", connection.cursor_instance.copied)
         self.assertIn("ON CONFLICT (publicatie_id) DO UPDATE", _UPSERT_SQL)
+        self.assertIn("IS DISTINCT FROM", _UPSERT_SQL)
         self.assertNotIn("DELETE FROM tender_analytics.tenders", _UPSERT_SQL)
 
     def test_exporter_enforces_read_only_source_access(self) -> None:

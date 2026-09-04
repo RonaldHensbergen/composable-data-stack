@@ -14,8 +14,10 @@ Secret values never reach disk here. `${CDS_*}` references are rewritten to
 Kubernetes `$(VAR)` expansions backed by `secretKeyRef` entries, so the chart is
 safe to commit and the values are supplied at install time.
 """
+
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -51,13 +53,17 @@ _K8S_SERVICE_PATTERN = re.compile(r"\$\{k8s\.service\.([A-Za-z0-9_.-]+)\}")
 _DURATION_PATTERN = re.compile(r"^(\d+(?:\.\d+)?)(ns|us|ms|s|m|h)?$")
 
 _DURATION_MULTIPLIERS = {
-    "ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0, "m": 60.0, "h": 3600.0,
+    "ns": 1e-9,
+    "us": 1e-6,
+    "ms": 1e-3,
+    "s": 1.0,
+    "m": 60.0,
+    "h": 3600.0,
 }
 
 # The wait-for gates need a tiny image with a shell. busybox is already a
 # transitive dependency of most clusters and stays out of the module's concern.
 WAIT_IMAGE = "busybox:1.37.0"
-
 
 
 class K8sRenderError(Exception):
@@ -84,17 +90,19 @@ def render_helm(
     modules = plan.get("modules", [])
     renderable, unsupported = _partition_modules(modules)
     for module_id, kind in unsupported:
-        diagnostics.append(Diagnostic(
-            level="error",
-            code="E072",
-            message=(
-                f'Module "{module_id}" does not support the "kubernetes" render '
-                f'target (implementation kind "{kind}", no "kubernetes" block). '
-                "Add spec.implementation.kubernetes to the module, or render this "
-                "profile with --target=compose."
-            ),
-            path=f"module:{module_id}.implementation.kubernetes",
-        ))
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E072",
+                message=(
+                    f'Module "{module_id}" does not support the "kubernetes" render '
+                    f'target (implementation kind "{kind}", no "kubernetes" block). '
+                    "Add spec.implementation.kubernetes to the module, or render this "
+                    "profile with --target=compose."
+                ),
+                path=f"module:{module_id}.implementation.kubernetes",
+            )
+        )
     if unsupported:
         return {}, diagnostics
 
@@ -128,7 +136,13 @@ def render_helm(
         )
         _merge_init_db_env(compose_services, module, secrets)
 
-        module_values, module_manifests, module_files, module_secret_keys, module_diags = _render_module(
+        (
+            module_values,
+            module_manifests,
+            module_files,
+            module_secret_keys,
+            module_diags,
+        ) = _render_module(
             module=module,
             module_id=module_id,
             k8s=k8s,
@@ -149,10 +163,12 @@ def render_helm(
         diagnostics.extend(module_diags)
 
     if secret_keys:
-        manifests.append((
-            "secret.yaml",
-            _secret_manifest(release, sorted(secret_keys)),
-        ))
+        manifests.append(
+            (
+                "secret.yaml",
+                _secret_manifest(release, sorted(secret_keys)),
+            )
+        )
 
     files["Chart.yaml"] = _dump(_chart_metadata(metadata, release))
     files["values.yaml"] = _dump(values)
@@ -165,7 +181,9 @@ def render_helm(
     diagnostics.extend(_check_unresolved(files))
     diagnostics.extend(_check_secret_references(files, secret_keys))
 
-    if output_dir and not any(diagnostic.level == "error" for diagnostic in diagnostics):
+    if output_dir and not any(
+        diagnostic.level == "error" for diagnostic in diagnostics
+    ):
         _write_chart(Path(output_dir), files)
 
     return files, diagnostics
@@ -174,6 +192,7 @@ def render_helm(
 # ---------------------------------------------------------------------------
 # Module rendering
 # ---------------------------------------------------------------------------
+
 
 def _render_module(
     module: dict[str, Any],
@@ -185,7 +204,13 @@ def _render_module(
     service_names: dict[str, str],
     profile_dir: Path | None,
     project_root: Path | None,
-) -> tuple[dict[str, Any], list[tuple[str, dict[str, Any]]], dict[str, str], set[str], list[Diagnostic]]:
+) -> tuple[
+    dict[str, Any],
+    list[tuple[str, dict[str, Any]]],
+    dict[str, str],
+    set[str],
+    list[Diagnostic],
+]:
     diagnostics: list[Diagnostic] = []
     manifests: list[tuple[str, dict[str, Any]]] = []
     files: dict[str, str] = {}
@@ -229,27 +254,40 @@ def _render_module(
             *(workload.get("containers", []) or []),
         ]:
             if compose_name not in declared_resources:
-                diagnostics.append(Diagnostic(
-                    level="warning",
-                    code="W072",
-                    message=(
-                        f'Container "{compose_name}" in Kubernetes workload '
-                        f'"{module_id}/{workload_name}" has no resource requests or limits.'
-                    ),
-                    path=(
-                        f"module:{module_id}.implementation.kubernetes.workloads."
-                        f"{workload_name}.resources.{compose_name}"
-                    ),
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="warning",
+                        code="W072",
+                        message=(
+                            f'Container "{compose_name}" in Kubernetes workload '
+                            f'"{module_id}/{workload_name}" has no resource requests or limits.'
+                        ),
+                        path=(
+                            f"module:{module_id}.implementation.kubernetes.workloads."
+                            f"{workload_name}.resources.{compose_name}"
+                        ),
+                    )
+                )
 
         for compose_name in workload.get("initContainers", []) or []:
             spec = compose_services.get(compose_name)
             if spec is None:
-                diagnostics.append(_missing_service(module_id, workload_name, compose_name))
+                diagnostics.append(
+                    _missing_service(module_id, workload_name, compose_name)
+                )
                 continue
             container, vols, claims, keys = _translate_container(
-                compose_name, spec, workload, workload_name, module_id, context,
-                configmaps, volume_specs, pod_volumes, pvcs, is_init=True,
+                compose_name,
+                spec,
+                workload,
+                workload_name,
+                module_id,
+                context,
+                configmaps,
+                volume_specs,
+                pod_volumes,
+                pvcs,
+                is_init=True,
             )
             secret_keys |= keys
             init_containers.append(container)
@@ -257,11 +295,22 @@ def _render_module(
         for compose_name in workload.get("containers", []):
             spec = compose_services.get(compose_name)
             if spec is None:
-                diagnostics.append(_missing_service(module_id, workload_name, compose_name))
+                diagnostics.append(
+                    _missing_service(module_id, workload_name, compose_name)
+                )
                 continue
             container, vols, claims, keys = _translate_container(
-                compose_name, spec, workload, workload_name, module_id, context,
-                configmaps, volume_specs, pod_volumes, pvcs, is_init=False,
+                compose_name,
+                spec,
+                workload,
+                workload_name,
+                module_id,
+                context,
+                configmaps,
+                volume_specs,
+                pod_volumes,
+                pvcs,
+                is_init=False,
             )
             secret_keys |= keys
             containers.append(container)
@@ -282,7 +331,9 @@ def _render_module(
         if psc:
             pod_spec["securityContext"] = psc
         if pod_volumes:
-            pod_spec["volumes"] = [dict(v, name=n) for n, v in sorted(pod_volumes.items())]
+            pod_spec["volumes"] = [
+                dict(v, name=n) for n, v in sorted(pod_volumes.items())
+            ]
 
         kind = workload.get("kind", "Deployment")
         manifest = _workload_manifest(
@@ -295,22 +346,36 @@ def _render_module(
             pvcs=pvcs,
             service_name=service_name if kind == "StatefulSet" else None,
         )
+        config_checksum = _configmap_checksum(pod_volumes, configmaps)
+        if config_checksum:
+            manifest["spec"]["template"]["metadata"]["annotations"] = {
+                "cds.dev/config-checksum": config_checksum
+            }
         manifests.append((f"{module_id}-{workload_name}-{kind.lower()}.yaml", manifest))
 
         # A StatefulSet needs its governing headless Service regardless of
         # whether the module exposes ports.
         svc = workload.get("service")
         if svc and svc.get("type") != "None":
-            manifests.append((
-                f"{module_id}-{workload_name}-service.yaml",
-                _service_manifest(service_name, release, module_id, full_name, svc),
-            ))
+            manifests.append(
+                (
+                    f"{module_id}-{workload_name}-service.yaml",
+                    _service_manifest(service_name, release, module_id, full_name, svc),
+                )
+            )
         elif kind == "StatefulSet":
-            manifests.append((
-                f"{module_id}-{workload_name}-service.yaml",
-                _service_manifest(service_name, release, module_id, full_name,
-                                  {"type": "None", "ports": []}),
-            ))
+            manifests.append(
+                (
+                    f"{module_id}-{workload_name}-service.yaml",
+                    _service_manifest(
+                        service_name,
+                        release,
+                        module_id,
+                        full_name,
+                        {"type": "None", "ports": []},
+                    ),
+                )
+            )
 
         module_values[workload_name] = {
             "replicas": workload.get("replicas", 1),
@@ -336,6 +401,7 @@ def _missing_service(module_id: str, workload: str, compose_name: str) -> Diagno
 # ---------------------------------------------------------------------------
 # Compose service -> Kubernetes container
 # ---------------------------------------------------------------------------
+
 
 def _translate_container(
     compose_name: str,
@@ -380,7 +446,9 @@ def _translate_container(
     if overrides.get("args") is not None:
         container["args"] = [str(x) for x in overrides["args"]]
 
-    env, secret_keys = _translate_env(spec.get("environment", {}), overrides.get("env", {}))
+    env, secret_keys = _translate_env(
+        spec.get("environment", {}), overrides.get("env", {})
+    )
     if env:
         container["env"] = env
 
@@ -401,8 +469,14 @@ def _translate_container(
         )
 
     mounts = _translate_volumes(
-        spec, compose_name, module_id, configmaps, volume_specs,
-        pod_volumes, pvcs, overrides.get("dropVolumeMounts", []) or [],
+        spec,
+        compose_name,
+        module_id,
+        configmaps,
+        volume_specs,
+        pod_volumes,
+        pvcs,
+        overrides.get("dropVolumeMounts", []) or [],
         context=context,
     )
     if mounts:
@@ -413,11 +487,17 @@ def _translate_container(
         healthcheck = spec.get("healthcheck")
         if isinstance(healthcheck, dict):
             enabled_from = healthcheck.get("conditionallyEnabledFrom")
-            if isinstance(enabled_from, str) and _resolve_expr(enabled_from, context) is False:
+            if (
+                isinstance(enabled_from, str)
+                and _resolve_expr(enabled_from, context) is False
+            ):
                 healthcheck = None
         probes = _translate_healthcheck(healthcheck)
         for probe_kind in ("livenessProbe", "readinessProbe", "startupProbe"):
-            if probe_kind[:-5] in {"liveness", "readiness", "startup"} and probe_kind.replace("Probe", "") in dropped:
+            if (
+                probe_kind[:-5] in {"liveness", "readiness", "startup"}
+                and probe_kind.replace("Probe", "") in dropped
+            ):
                 probes.pop(probe_kind, None)
             if overrides.get(probe_kind):
                 probes[probe_kind] = overrides[probe_kind]
@@ -481,8 +561,11 @@ def _translate_env(
 def _translate_ports(compose_ports: Any, override: Any) -> list[dict[str, Any]]:
     if override is not None:
         return [
-            {"name": p["name"], "containerPort": int(p["containerPort"]),
-             "protocol": p.get("protocol", "TCP")}
+            {
+                "name": p["name"],
+                "containerPort": int(p["containerPort"]),
+                "protocol": p.get("protocol", "TCP"),
+            }
             for p in override
         ]
     ports: list[dict[str, Any]] = []
@@ -506,7 +589,7 @@ def _compose_port_target(entry: Any) -> int | None:
     if isinstance(entry, dict):
         try:
             return int(entry.get("target"))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
     text = str(entry).split("/")[0]
     parts = text.split(":")
@@ -531,7 +614,10 @@ def _translate_security_context(spec: dict[str, Any]) -> dict[str, Any]:
     if caps:
         ctx["capabilities"] = caps
     for opt in spec.get("security_opt", []) or []:
-        if str(opt).replace(" ", "") in {"no-new-privileges:true", "no-new-privileges=true"}:
+        if str(opt).replace(" ", "") in {
+            "no-new-privileges:true",
+            "no-new-privileges=true",
+        }:
             ctx["allowPrivilegeEscalation"] = False
     if spec.get("privileged"):
         ctx["privileged"] = True
@@ -591,7 +677,9 @@ def _probe_handler(test: Any) -> dict[str, Any] | None:
     if head == "NONE":
         return None
     if head == "CMD-SHELL":
-        return {"exec": {"command": ["/bin/sh", "-c", " ".join(str(x) for x in test[1:])]}}
+        return {
+            "exec": {"command": ["/bin/sh", "-c", " ".join(str(x) for x in test[1:])]}
+        }
     if head == "CMD":
         return {"exec": {"command": [str(x) for x in test[1:]]}}
     return {"exec": {"command": ["/bin/sh", "-c", " ".join(str(x) for x in test)]}}
@@ -613,6 +701,7 @@ def _duration_seconds(value: Any, default: int) -> int:
 # ---------------------------------------------------------------------------
 # Volumes
 # ---------------------------------------------------------------------------
+
 
 def _translate_volumes(
     spec: dict[str, Any],
@@ -646,18 +735,23 @@ def _translate_volumes(
         cm = _configmap_for_target(configmaps, source, target, compose_name)
         if cm is not None:
             name = cm["volume_name"]
-            pod_volumes.setdefault(name, {
-                "configMap": {
-                    "name": cm["manifest"]["metadata"]["name"],
-                    "defaultMode": cm["mode"],
+            pod_volumes.setdefault(
+                name,
+                {
+                    "configMap": {
+                        "name": cm["manifest"]["metadata"]["name"],
+                        "defaultMode": cm["mode"],
+                    }
+                },
+            )
+            mounts.append(
+                {
+                    "name": name,
+                    "mountPath": cm["mount_path"],
+                    "subPath": cm["key"],
+                    "readOnly": True,
                 }
-            })
-            mounts.append({
-                "name": name,
-                "mountPath": cm["mount_path"],
-                "subPath": cm["key"],
-                "readOnly": True,
-            })
+            )
             continue
 
         if kind == "bind":
@@ -723,11 +817,34 @@ def _configmap_for_target(
         # An omitted `containers` list means the file applies module-wide.
         if cm["containers"] and compose_name not in cm["containers"]:
             continue
-        if cm["mount_path"] == target or (cm["from_bind"] and str(source) == cm["from_bind"]):
+        if cm["mount_path"] == target or (
+            cm["from_bind"] and str(source) == cm["from_bind"]
+        ):
             # A module that names no mountPath inherits the compose bind target,
             # which is where the container already expects the file.
             return dict(cm, mount_path=cm["mount_path"] or target)
     return None
+
+
+def _configmap_checksum(
+    pod_volumes: dict[str, dict[str, Any]],
+    configmaps: dict[str, dict[str, Any]],
+) -> str | None:
+    mounted_names = {
+        volume["configMap"]["name"]
+        for volume in pod_volumes.values()
+        if "configMap" in volume
+    }
+    mounted_data = {
+        configmap["manifest"]["metadata"]["name"]: configmap["manifest"]["data"]
+        for configmap in configmaps.values()
+        if configmap["manifest"]["metadata"]["name"] in mounted_names
+    }
+    if not mounted_data:
+        return None
+
+    serialized = yaml.safe_dump(mounted_data, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(serialized).hexdigest()
 
 
 def _render_configmaps(
@@ -747,44 +864,55 @@ def _render_configmaps(
         mount_path = spec.get("mountPath")
 
         if content is None and from_bind:
-            resolved, diag = _read_bind_file(from_bind, module_id, name, profile_dir, project_root)
+            resolved, diag = _read_bind_file(
+                from_bind, module_id, name, profile_dir, project_root
+            )
             if diag is not None:
                 diagnostics.append(diag)
                 continue
             content = resolved
         if content is None:
-            diagnostics.append(Diagnostic(
-                level="error", code="E074",
-                message=(
-                    f'ConfigMap "{name}" of module "{module_id}" supplies neither '
-                    '"content" nor a readable "fromBind" file.'
-                ),
-                path=f"module:{module_id}.implementation.kubernetes.configMaps.{name}",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E074",
+                    message=(
+                        f'ConfigMap "{name}" of module "{module_id}" supplies neither '
+                        '"content" nor a readable "fromBind" file.'
+                    ),
+                    path=f"module:{module_id}.implementation.kubernetes.configMaps.{name}",
+                )
+            )
             continue
 
         # A ConfigMap tops out around 1MiB; truncating would ship a chart that
         # installs and then misbehaves, so refuse instead.
         if len(content.encode("utf-8")) > 1_000_000:
-            diagnostics.append(Diagnostic(
-                level="error", code="E075",
-                message=(
-                    f'ConfigMap "{name}" of module "{module_id}" exceeds the 1MiB '
-                    "ConfigMap limit. Bake this file into the image instead."
-                ),
-                path=f"module:{module_id}.implementation.kubernetes.configMaps.{name}",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E075",
+                    message=(
+                        f'ConfigMap "{name}" of module "{module_id}" exceeds the 1MiB '
+                        "ConfigMap limit. Bake this file into the image instead."
+                    ),
+                    path=f"module:{module_id}.implementation.kubernetes.configMaps.{name}",
+                )
+            )
             continue
 
         if mount_path is None and not from_bind:
-            diagnostics.append(Diagnostic(
-                level="error", code="E080",
-                message=(
-                    f'ConfigMap "{name}" of module "{module_id}" needs a "mountPath": '
-                    "there is no compose bind mount to inherit the path from."
-                ),
-                path=f"module:{module_id}.implementation.kubernetes.configMaps.{name}.mountPath",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E080",
+                    message=(
+                        f'ConfigMap "{name}" of module "{module_id}" needs a "mountPath": '
+                        "there is no compose bind mount to inherit the path from."
+                    ),
+                    path=f"module:{module_id}.implementation.kubernetes.configMaps.{name}.mountPath",
+                )
+            )
             continue
 
         cm_name = _k8s_name(f"{module_id}-{name}")
@@ -829,7 +957,8 @@ def _read_bind_file(
         if candidate.is_file():
             return candidate.read_text(encoding="utf-8"), None
     return None, Diagnostic(
-        level="error", code="E076",
+        level="error",
+        code="E076",
         message=(
             f'ConfigMap "{name}" of module "{module_id}" references bind source '
             f'"{from_bind}", which was not found relative to the profile or project root.'
@@ -852,6 +981,7 @@ def _octal(value: Any) -> int:
 # Manifests
 # ---------------------------------------------------------------------------
 
+
 def _wait_containers(wait_for: list[dict[str, Any]]) -> list[dict[str, Any]]:
     containers = []
     for index, gate in enumerate(wait_for):
@@ -859,32 +989,35 @@ def _wait_containers(wait_for: list[dict[str, Any]]) -> list[dict[str, Any]]:
         port = gate["port"]
         timeout_seconds = int(gate.get("timeoutSeconds", 300))
         attempts = max(1, (timeout_seconds + 1) // 2)
-        containers.append({
-            "name": _k8s_name(f"wait-{index}-{host}"),
-            "image": WAIT_IMAGE,
-            "command": [
-                "/bin/sh", "-c",
-                (
-                    "attempt=0; "
-                    f"until nc -z {host} {port}; do "
-                    "attempt=$((attempt + 1)); "
-                    f'if [ "$attempt" -ge {attempts} ]; then '
-                    f'echo "timed out waiting for {host}:{port}"; exit 1; fi; '
-                    f"echo waiting for {host}:{port}; sleep 2; done"
-                ),
-            ],
-            "securityContext": {
-                "readOnlyRootFilesystem": True,
-                "allowPrivilegeEscalation": False,
-                "runAsNonRoot": True,
-                "runAsUser": 65534,
-                "capabilities": {"drop": ["ALL"]},
-            },
-            "resources": {
-                "requests": {"cpu": "10m", "memory": "16Mi"},
-                "limits": {"cpu": "100m", "memory": "32Mi"},
-            },
-        })
+        containers.append(
+            {
+                "name": _k8s_name(f"wait-{index}-{host}"),
+                "image": WAIT_IMAGE,
+                "command": [
+                    "/bin/sh",
+                    "-c",
+                    (
+                        "attempt=0; "
+                        f"until nc -z {host} {port}; do "
+                        "attempt=$((attempt + 1)); "
+                        f'if [ "$attempt" -ge {attempts} ]; then '
+                        f'echo "timed out waiting for {host}:{port}"; exit 1; fi; '
+                        f"echo waiting for {host}:{port}; sleep 2; done"
+                    ),
+                ],
+                "securityContext": {
+                    "readOnlyRootFilesystem": True,
+                    "allowPrivilegeEscalation": False,
+                    "runAsNonRoot": True,
+                    "runAsUser": 65534,
+                    "capabilities": {"drop": ["ALL"]},
+                },
+                "resources": {
+                    "requests": {"cpu": "10m", "memory": "16Mi"},
+                    "limits": {"cpu": "100m", "memory": "32Mi"},
+                },
+            }
+        )
     return containers
 
 
@@ -899,7 +1032,10 @@ def _workload_manifest(
     service_name: str | None,
 ) -> dict[str, Any]:
     labels = _labels(release, module_id)
-    selector = {"app.kubernetes.io/name": name, "app.kubernetes.io/instance": "{{ .Release.Name }}"}
+    selector = {
+        "app.kubernetes.io/name": name,
+        "app.kubernetes.io/instance": "{{ .Release.Name }}",
+    }
     pod_labels = dict(labels, **selector)
 
     manifest: dict[str, Any] = {
@@ -923,7 +1059,10 @@ def _workload_manifest(
         # A Deployment cannot own claim templates; the claims are separate
         # objects and the pod references them by name.
         manifest["spec"]["template"]["spec"].setdefault("volumes", []).extend(
-            {"name": n, "persistentVolumeClaim": {"claimName": "{{ .Release.Name }}-" + n}}
+            {
+                "name": n,
+                "persistentVolumeClaim": {"claimName": "{{ .Release.Name }}-" + n},
+            }
             for n in sorted(pvcs)
         )
     if kind == "Job":
@@ -1017,14 +1156,18 @@ def _chart_metadata(metadata: dict[str, Any], release: str) -> dict[str, Any]:
     return {
         "apiVersion": CHART_API_VERSION,
         "name": release,
-        "description": (metadata.get("description") or f"CDS profile {release}").strip(),
+        "description": (
+            metadata.get("description") or f"CDS profile {release}"
+        ).strip(),
         "type": "application",
         "version": version,
         "appVersion": str(metadata.get("appVersion") or version),
     }
 
 
-def _notes(release: str, modules: list[dict[str, Any]], service_names: dict[str, str]) -> str:
+def _notes(
+    release: str, modules: list[dict[str, Any]], service_names: dict[str, str]
+) -> str:
     lines = [
         f"CDS profile {release} installed as release {{{{ .Release.Name }}}}.",
         "",
@@ -1033,7 +1176,9 @@ def _notes(release: str, modules: list[dict[str, Any]], service_names: dict[str,
     for svc in sorted(set(service_names.values())):
         lines.append(f"  {svc}: kubectl -n {{{{ .Release.Namespace }}}} get svc {svc}")
     lines.append("")
-    lines.append("Secret values are supplied at install time and are not stored in this chart.")
+    lines.append(
+        "Secret values are supplied at install time and are not stored in this chart."
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -1041,8 +1186,9 @@ def _notes(release: str, modules: list[dict[str, Any]], service_names: dict[str,
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _partition_modules(
-    modules: list[dict[str, Any]]
+    modules: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
     renderable, unsupported = [], []
     for module in modules:
@@ -1091,16 +1237,18 @@ def _check_binding_services(
                 continue
             host = ((consume.get("contract") or {}).get("spec") or {}).get("host")
             if host not in available_services:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E084",
-                    message=(
-                        f'Contract "{module["id"]}.{consume_name}" binds to module '
-                        f'"{provider_id}", but host "{host}" is not exposed by a '
-                        "renderable Kubernetes Service."
-                    ),
-                    path=f"module:{module['id']}.consumes.{consume_name}",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E084",
+                        message=(
+                            f'Contract "{module["id"]}.{consume_name}" binds to module '
+                            f'"{provider_id}", but host "{host}" is not exposed by a '
+                            "renderable Kubernetes Service."
+                        ),
+                        path=f"module:{module['id']}.consumes.{consume_name}",
+                    )
+                )
     return diagnostics
 
 
@@ -1117,7 +1265,9 @@ def _k8s_name(value: str) -> str:
 def _dump(obj: Any) -> str:
     if isinstance(obj, str):
         return obj
-    rendered = yaml.safe_dump(obj, sort_keys=False, default_flow_style=False, width=4096)
+    rendered = yaml.safe_dump(
+        obj, sort_keys=False, default_flow_style=False, width=4096
+    )
     return re.sub(
         r"^(?P<indent>\s*)resources: __CDS_HELM_TO_YAML__(?P<path>[^\n]+)$",
         _expand_helm_to_yaml,
@@ -1132,7 +1282,7 @@ def _helm_to_yaml(*path: str) -> str:
 
 def _expand_helm_to_yaml(match: re.Match[str]) -> str:
     indent = match.group("indent")
-    quoted = " ".join(f'\"{part}\"' for part in match.group("path").split("|"))
+    quoted = " ".join(f'"{part}"' for part in match.group("path").split("|"))
     return (
         f"{indent}resources:\n"
         f"{{{{ toYaml (index .Values {quoted}) | nindent {len(indent) + 2} }}}}"
@@ -1185,7 +1335,8 @@ def _check_unresolved(files: dict[str, str]) -> list[Diagnostic]:
         found.update(pattern.findall(content))
     return [
         Diagnostic(
-            level="error", code="E071",
+            level="error",
+            code="E071",
             message=(
                 f'Unresolved template expression "${{{expr}}}" remains in the rendered '
                 "chart. A module template referenced something the plan never bound."
@@ -1196,7 +1347,9 @@ def _check_unresolved(files: dict[str, str]) -> list[Diagnostic]:
     ]
 
 
-def _check_secret_references(files: dict[str, str], secret_keys: set[str]) -> list[Diagnostic]:
+def _check_secret_references(
+    files: dict[str, str], secret_keys: set[str]
+) -> list[Diagnostic]:
     """
     Assert the chart's secret plumbing is complete and self-consistent.
 
@@ -1213,27 +1366,33 @@ def _check_secret_references(files: dict[str, str], secret_keys: set[str]) -> li
     diagnostics: list[Diagnostic] = []
     for rel, content in sorted(files.items()):
         for name in sorted(set(_CDS_VAR_PATTERN.findall(content))):
-            diagnostics.append(Diagnostic(
-                level="error", code="E078",
-                message=(
-                    f'Chart file "{rel}" still contains the compose-style reference '
-                    f'"${{{name}}}". Kubernetes does not expand it, so the container '
-                    "would receive the literal text."
-                ),
-                path=f"chart.{rel}",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E078",
+                    message=(
+                        f'Chart file "{rel}" still contains the compose-style reference '
+                        f'"${{{name}}}". Kubernetes does not expand it, so the container '
+                        "would receive the literal text."
+                    ),
+                    path=f"chart.{rel}",
+                )
+            )
 
     declared = set(secret_keys)
     expansion = re.compile(r"\$\((CDS_[A-Z0-9_]+)\)")
     for rel, content in sorted(files.items()):
         for name in sorted(set(expansion.findall(content))):
             if name not in declared:
-                diagnostics.append(Diagnostic(
-                    level="error", code="E079",
-                    message=(
-                        f'Chart file "{rel}" expands "$({name})" but no secretKeyRef '
-                        "entry supplies it, so the container would see an empty value."
-                    ),
-                    path=f"chart.{rel}",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E079",
+                        message=(
+                            f'Chart file "{rel}" expands "$({name})" but no secretKeyRef '
+                            "entry supplies it, so the container would see an empty value."
+                        ),
+                        path=f"chart.{rel}",
+                    )
+                )
     return diagnostics

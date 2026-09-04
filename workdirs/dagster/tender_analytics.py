@@ -151,7 +151,44 @@ ON CONFLICT (publicatie_id) DO UPDATE SET
     cpv_codes = EXCLUDED.cpv_codes,
     nuts_codes = EXCLUDED.nuts_codes,
     trefwoorden = EXCLUDED.trefwoorden,
-    snapshot_loaded_at = EXCLUDED.snapshot_loaded_at;
+    snapshot_loaded_at = EXCLUDED.snapshot_loaded_at
+WHERE (
+    tenders.source_url,
+    tenders.kenmerk,
+    tenders.aanbesteding_naam,
+    tenders.opdrachtgever_naam,
+    tenders.publicatie_datum,
+    tenders.type_publicatie,
+    tenders.type_opdracht,
+    tenders.procedure,
+    tenders.europees,
+    tenders.publicatiecode,
+    tenders.publicatiestatus,
+    tenders.source_ingested_at,
+    tenders.chunk_count,
+    tenders.has_pdf,
+    tenders.cpv_codes,
+    tenders.nuts_codes,
+    tenders.trefwoorden
+) IS DISTINCT FROM (
+    EXCLUDED.source_url,
+    EXCLUDED.kenmerk,
+    EXCLUDED.aanbesteding_naam,
+    EXCLUDED.opdrachtgever_naam,
+    EXCLUDED.publicatie_datum,
+    EXCLUDED.type_publicatie,
+    EXCLUDED.type_opdracht,
+    EXCLUDED.procedure,
+    EXCLUDED.europees,
+    EXCLUDED.publicatiecode,
+    EXCLUDED.publicatiestatus,
+    EXCLUDED.source_ingested_at,
+    EXCLUDED.chunk_count,
+    EXCLUDED.has_pdf,
+    EXCLUDED.cpv_codes,
+    EXCLUDED.nuts_codes,
+    EXCLUDED.trefwoorden
+);
 """
 
 _CREATE_VIEW_SQL = """
@@ -184,6 +221,7 @@ FROM tender_analytics.tenders;
 class TenderLoadResult:
     snapshot_rows: int
     warehouse_rows: int
+    changed_rows: int
     earliest_publication: date | None
     latest_publication: date | None
     snapshot_sha256: str
@@ -236,6 +274,7 @@ def load_tender_snapshot(connection, snapshot_path: Path) -> TenderLoadResult:
             )
 
         cursor.execute(_UPSERT_SQL)
+        changed_rows = cursor.rowcount
         cursor.execute(_CREATE_VIEW_SQL)
         cursor.execute(
             """
@@ -248,6 +287,7 @@ def load_tender_snapshot(connection, snapshot_path: Path) -> TenderLoadResult:
     return TenderLoadResult(
         snapshot_rows=snapshot_rows,
         warehouse_rows=warehouse_rows,
+        changed_rows=changed_rows,
         earliest_publication=earliest,
         latest_publication=latest,
         snapshot_sha256=digest,
