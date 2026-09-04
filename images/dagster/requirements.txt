@@ -1,5 +1,5 @@
-dagster==1.13.20
-dagster-graphql==1.13.20
-dagster-webserver==1.13.20
+dagster==1.13.21
+dagster-graphql==1.13.21
+dagster-webserver==1.13.21
 msgpack>=1.2.1
 setuptools>=78.1.1
