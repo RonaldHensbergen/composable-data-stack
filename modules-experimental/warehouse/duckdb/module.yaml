@@ -46,7 +46,7 @@ spec:
       filename:
         type: string
         minLength: 1
-        pattern: "^[A-Za-z0-9_.-]+$"
+        pattern: "^(?!\\.\\.?$)[A-Za-z0-9_.-]+$"
         default: warehouse.duckdb
 
       readOnly:
