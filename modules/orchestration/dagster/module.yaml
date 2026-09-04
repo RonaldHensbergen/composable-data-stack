@@ -91,7 +91,7 @@ spec:
             # see renovate.json's customManagers. Used as the base (non-
             # variant-prefixed) tag when `cds render/up/test --image-source
             # registry` is passed without an explicit config.image.tag.
-            default: "1.13.20"
+            default: "1.13.21"
             description: >
               Registry tag to pull when image.source is "registry", e.g. a
               version published by .github/workflows/publish-images.yml
