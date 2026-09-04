@@ -72,7 +72,7 @@ spec:
               images/superset/base/Dockerfile). Ignored when image.source
               is "build". Defaults to the pinned apache/superset version
               above, kept in sync by Renovate; pass an explicit
-              config.image.tag (or `--image-tag`) to override.
+              config.image.tag to override.
 
       secretKeyFrom:
         type: string
