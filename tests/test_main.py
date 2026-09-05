@@ -14,6 +14,7 @@ from cli.image_updates import collect_module_images
 from cli.main import (
     _collect_profile_env_vars,
     _resolve_profile_root,
+    _run_image_verification,
     list_modules,
     list_profiles,
     load_env_file,
@@ -2066,6 +2067,64 @@ class LoadEnvFileTest(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True):
             load_env_file("does-not-exist.env")
             self.assertNotIn("CDS_TOKEN", os.environ)
+
+
+class RunImageVerificationTest(unittest.TestCase):
+    """Unit tests for `_run_image_verification`'s fail-closed exception
+    handling (cli/main.py's broad `except Exception` blocks around
+    verify_images/plan/render), which report CDS-VER-004 + E095 rather than
+    letting an unexpected error silently skip image verification."""
+
+    def test_render_failed_flag_short_circuits_with_unverifiable_finding(self):
+        findings = _run_image_verification(
+            "profile.yaml", environment=None, render_failed=True
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-VER-004")
+        self.assertEqual(findings[0]["severity"], "high")
+        self.assertIn("rendering failed", findings[0]["message"])
+
+    @patch("cli.main.verify_images")
+    @patch("cli.main.load_policy_from_env")
+    def test_verify_images_exception_with_precomputed_compose_reports_e095(
+        self, mock_load_policy, mock_verify_images
+    ):
+        """When the caller already rendered compose_yaml (the cds security
+        fast path) and verify_images() itself raises, the failure must be
+        caught and reported as E095 rather than propagating and crashing
+        the whole `cds security` invocation."""
+        mock_load_policy.return_value = MagicMock()
+        mock_verify_images.side_effect = RuntimeError("cosign binary not found")
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            findings = _run_image_verification(
+                "profile.yaml",
+                environment=None,
+                compose_yaml="services: {}\n",
+                profile_class="local",
+            )
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-VER-004")
+        self.assertIn("cosign binary not found", findings[0]["message"])
+        self.assertIn("E095", stderr.getvalue())
+
+    @patch("cli.main.resolve_profile")
+    def test_unexpected_error_during_plan_render_reports_e095(self, mock_resolve_profile):
+        """The outer plan/render/verify try-block must also fail closed:
+        an unexpected exception anywhere in that best-effort path (here,
+        profile resolution itself) must not propagate uncaught."""
+        mock_resolve_profile.side_effect = RuntimeError("boom during resolve")
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            findings = _run_image_verification("profile.yaml", environment=None)
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-VER-004")
+        self.assertIn("boom during resolve", findings[0]["message"])
+        self.assertIn("E095", stderr.getvalue())
 
 
 if __name__ == "__main__":
