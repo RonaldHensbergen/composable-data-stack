@@ -12,6 +12,8 @@ from .diagnostics import Diagnostic
 from .graph import validate_dependency_graph
 from .loader import load_yaml_file, resolve_module_file
 from .resolver import (
+    RequiredIfSyntaxError,
+    evaluate_required_if,
     is_secret_ref,
     parse_contract_ref,
     resolve_path,
@@ -320,30 +322,53 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                 continue
 
             required = consume.get("required", True)
+            required_if = consume.get("requiredIf")
+            if required_if:
+                try:
+                    conditionally_required = evaluate_required_if(required_if, inst["config"])
+                except RequiredIfSyntaxError as err:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E021",
+                            message=f'Consume entry "{name}" in module "{inst["id"]}" has a malformed requiredIf: {err}',
+                            path=f'module:{inst["id"]}.spec.consumes',
+                        )
+                    )
+                    conditionally_required = False
+            else:
+                conditionally_required = False
+            effective_required = required or conditionally_required
 
             try:
                 value = resolve_path({"spec": {"config": inst["config"]}}, mapped_from)
             except KeyError:
-                if not required:
+                if not effective_required:
                     continue
                 diagnostics.append(
                     Diagnostic(
                         level="error",
                         code="E041",
-                        message=f'Path "{mapped_from}" could not be resolved in module instance config.',
+                        message=(
+                            f'Path "{mapped_from}" could not be resolved in module instance config'
+                            + (f' (required because {required_if}).' if conditionally_required and not required else ".")
+                        ),
                         path=f"spec.modules[{inst['index']}].config",
                     )
                 )
                 continue
 
             if not isinstance(value, dict) or "contractRef" not in value:
-                if not required and not value:
+                if not effective_required and not value:
                     continue
                 diagnostics.append(
                     Diagnostic(
                         level="error",
                         code="E041",
-                        message=f'Consume binding "{name}" must resolve to an object with "contractRef".',
+                        message=(
+                            f'Consume binding "{name}" must resolve to an object with "contractRef"'
+                            + (f' (required because {required_if}).' if conditionally_required and not required else ".")
+                        ),
                         path=f"spec.modules[{inst['index']}].config",
                     )
                 )
