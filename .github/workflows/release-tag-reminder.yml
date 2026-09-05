@@ -1,18 +1,27 @@
-name: Release Tag Reminder
+name: Release Checklist Reminder
 
 # Catches the exact gap that let v0.5.2 sit merged-to-main for ~10 hours
-# without ever being tagged/released: a `chore(release): bump version to
-# X.Y.Z` PR merges (version-bump.yml deliberately stops there and never
-# tags), and nobody remembers to `git tag vX.Y.Z && git push --tags`
-# afterwards. This workflow does not tag or release anything itself -- it
-# only opens/updates a single tracking issue so the gap is visible instead
-# of silent.
+# without ever being tagged/released, and the later gap that let v0.8.0 be
+# tagged and released without ever getting a CHANGELOG.md entry (#605):
+# a `chore(release): bump version to X.Y.Z` PR merges (version-bump.yml
+# deliberately stops there and never touches the changelog, tags, or
+# releases anything), and each remaining manual step -- changelog entry,
+# git tag, GitHub release, PyPI publish -- can be forgotten independently.
+# This workflow does not perform any of those steps itself -- it only
+# opens/updates a single tracking issue enumerating exactly which ones are
+# still outstanding for the version currently on `main`, so the release is
+# only considered done once every step is verifiably done.
 on:
   push:
     branches: [main]
+  release:
+    # Reconcile promptly once release.yml/the GitHub UI actually publishes
+    # the release, instead of leaving a stale reminder issue open until the
+    # next daily cron run (up to ~24h later).
+    types: [published]
   schedule:
-    # Daily backstop in case the triggering push event is missed/delayed,
-    # or the gap persists across multiple days.
+    # Daily backstop in case the triggering push/release event is
+    # missed/delayed, or the gap persists across multiple days.
     - cron: "43 8 * * *"
   workflow_dispatch:
 
@@ -30,6 +39,15 @@ jobs:
       contents: read
       issues: write
     steps:
+      - name: Wait for release publication to fully propagate
+        # A `release: published` event can fire slightly before the
+        # matching tag/release/PyPI artifact are all consistently visible
+        # (git fetch, the GitHub API, and PyPI's own index each lag
+        # independently). Only this trigger needs the wait; push/schedule/
+        # workflow_dispatch runs proceed immediately.
+        if: github.event_name == 'release'
+        run: sleep 300
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -41,59 +59,104 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Compare pyproject.toml version against existing tags
+      - name: Check every release step for the version on main
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          package="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["name"])')"
           tag="v${version}"
-
-          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-            echo "untagged=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "untagged=true" >> "$GITHUB_OUTPUT"
-          fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
+          # 1. Dated CHANGELOG.md section (must exist whether or not the tag
+          # has been pushed yet -- this is meant to be added before tagging).
+          if grep -qE "^## \[${version//./\\.}\] - [0-9]{4}-[0-9]{2}-[0-9]{2}" CHANGELOG.md; then
+            echo "changelog_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changelog_ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # 2. Git tag pushed.
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "tag_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # 3. GitHub release published (not missing, not left as a draft).
+          # release.yml is expected to publish it outright (see the comment
+          # in that workflow), so "exists as a draft" is also a failure.
+          if is_draft="$(gh release view "${tag}" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "${is_draft}" = "false" ]; then
+              echo "release_ok=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "release_ok=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "release_ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # 4. Published to PyPI. Public JSON API, no auth needed.
+          status="$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/${package}/${version}/json")"
+          if [ "${status}" = "200" ]; then
+            echo "pypi_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "pypi_ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Open or update reminder issue
-        if: steps.check.outputs.untagged == 'true'
+        if: |
+          steps.check.outputs.changelog_ok == 'false' ||
+          steps.check.outputs.tag_ok == 'false' ||
+          steps.check.outputs.release_ok == 'false' ||
+          steps.check.outputs.pypi_ok == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.check.outputs.version }}
           TAG: ${{ steps.check.outputs.tag }}
+          CHANGELOG_OK: ${{ steps.check.outputs.changelog_ok }}
+          TAG_OK: ${{ steps.check.outputs.tag_ok }}
+          RELEASE_OK: ${{ steps.check.outputs.release_ok }}
+          PYPI_OK: ${{ steps.check.outputs.pypi_ok }}
         run: |
           set -euo pipefail
-          title="Release ${TAG} is untagged on main"
-          body="\`pyproject.toml\` on \`main\` declares version \`${VERSION}\`, but no \`${TAG}\` git tag exists yet, so \`release.yml\`/\`pypi.yml\` never ran for it.
+          title="Release ${TAG} checklist incomplete"
 
-          To finish the release:
-          1. Confirm \`CHANGELOG.md\` has a dated \`## [${VERSION}] - YYYY-MM-DD\` section (not just \`[Unreleased]\`).
-          2. Tag the current \`main\` HEAD and push it:
-             \`\`\`
-             git tag ${TAG}
-             git push origin ${TAG}
-             \`\`\`
-          3. Confirm the \`Release\` and \`Publish CLI to PyPI\` workflow runs both succeed for the new tag.
+          mark() { [ "$1" = "true" ] && echo "x" || echo " "; }
 
-          This issue was opened automatically by \`.github/workflows/release-tag-reminder.yml\` and will auto-close the next time this check runs after ${TAG} exists."
+          body="\`pyproject.toml\` on \`main\` declares version \`${VERSION}\`. Not every step of the release process has been completed for it yet:
+
+          - [$(mark "${CHANGELOG_OK}")] \`CHANGELOG.md\` has a dated \`## [${VERSION}] - YYYY-MM-DD\` section (not just \`[Unreleased]\`).
+          - [$(mark "${TAG_OK}")] The \`${TAG}\` git tag has been pushed (\`git tag ${TAG} && git push origin ${TAG}\`), triggering \`release.yml\`/\`pypi.yml\`.
+          - [$(mark "${RELEASE_OK}")] The \`${TAG}\` GitHub release exists and is published (not left as a draft): https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}
+          - [$(mark "${PYPI_OK}")] Version \`${VERSION}\` is published on PyPI: https://pypi.org/project/composable-data-stack/${VERSION}/
+
+          This issue was opened automatically by \`.github/workflows/release-tag-reminder.yml\` and will auto-close the next time this check runs with every box above checked."
 
           existing="$(gh issue list --search "in:title \"${title}\"" --state open --json number,title \
             --jq ".[] | select(.title == \"${title}\") | .number" | head -n1)"
 
           if [ -n "${existing}" ]; then
-            gh issue comment "${existing}" --body "Still untagged as of this check."
+            gh issue edit "${existing}" --body "${body}"
+            gh issue comment "${existing}" --body "Still incomplete as of this check."
           else
             gh issue create --title "${title}" --body "${body}" --label "release"
           fi
 
-      - name: Close stale reminder issues
-        if: steps.check.outputs.untagged == 'false'
+      - name: Close resolved reminder issues
+        if: |
+          steps.check.outputs.changelog_ok == 'true' &&
+          steps.check.outputs.tag_ok == 'true' &&
+          steps.check.outputs.release_ok == 'true' &&
+          steps.check.outputs.pypi_ok == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          for number in $(gh issue list --search "in:title \"is untagged on main\"" --state open --json number --jq '.[].number'); do
-            gh issue comment "${number}" --body "Resolved: the release version on \`main\` now has a matching tag."
+          for number in $(gh issue list --search "in:title \"checklist incomplete\"" --state open --json number --jq '.[].number'); do
+            gh issue comment "${number}" --body "Resolved: every release step (changelog, tag, GitHub release, PyPI publish) is now confirmed done for this version."
             gh issue close "${number}"
           done
