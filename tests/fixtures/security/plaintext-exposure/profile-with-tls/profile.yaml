@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=../../../../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: plaintext-exposure-with-tls
+  environment: production
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: ingress
+      source: network/secure-ingress
+      version: "0.1.0"
+      enabled: true
+      config:
+        backend:
+          contractRef: api.http-service
+    - id: api
+      source: apps/plain-api
+      version: "0.1.0"
+      enabled: true
+      config:
+        publicPort: 8080

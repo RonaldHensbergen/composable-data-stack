@@ -149,5 +149,69 @@ class TestCDSWorkflow(unittest.TestCase):
                     )
 
 
+class ProductionPlaintextExposureWorkflowTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.cds = _find_cds()
+        cls.repo_root = _REPO_ROOT
+        cls.fixture_root = (
+            _REPO_ROOT / "tests" / "fixtures" / "security" / "plaintext-exposure"
+        )
+        cls.modules_root = cls.fixture_root / "modules"
+
+    def _run_test(self, profile_dir: str) -> subprocess.CompletedProcess:
+        env = os.environ.copy()
+        env["CDS_MODULE_PATH"] = str(self.modules_root)
+        profile_path = self.fixture_root / profile_dir / "profile.yaml"
+        return subprocess.run(
+            self.cds + ["test", str(profile_path)],
+            cwd=str(self.repo_root),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    def test_production_plaintext_exposure_policy_end_to_end(self):
+        with self.subTest(case="valid tls reverse proxy"):
+            result = self._run_test("profile-with-tls")
+            self.assertEqual(
+                result.returncode, 0,
+                f"expected pass with TLS reverse proxy:\nstdout: {result.stdout}\nstderr: {result.stderr}",
+            )
+            for stage in ("validate", "security", "plan", "render"):
+                self.assertIn(f"[PASS] {stage}", result.stdout)
+            self.assertNotIn("CDS-SEC-074", result.stdout)
+
+        with self.subTest(case="missing tls reverse proxy"):
+            result = self._run_test("profile-missing-tls")
+            self.assertEqual(
+                result.returncode, 1,
+                f"expected failure without TLS reverse proxy:\nstdout: {result.stdout}\nstderr: {result.stderr}",
+            )
+            self.assertIn("[FAIL] security", result.stdout)
+            self.assertIn("CDS-SEC-074", result.stdout)
+
+        with self.subTest(case="waived plaintext exposure"):
+            result = self._run_test("profile-waived-plaintext")
+            self.assertEqual(
+                result.returncode, 0,
+                f"expected pass with explicit waiver:\nstdout: {result.stdout}\nstderr: {result.stderr}",
+            )
+            self.assertIn("[PASS] security", result.stdout)
+            self.assertIn("W098", result.stderr)
+            self.assertNotIn("CDS-SEC-074", result.stdout)
+
+        with self.subTest(case="unrelated tls reverse proxy does not front the plaintext module"):
+            result = self._run_test("profile-unrelated-tls")
+            self.assertEqual(
+                result.returncode, 1,
+                "an https reverse-proxy present in the plan but not wired "
+                "(via consumes/mappedFrom) to the plaintext module must not "
+                f"suppress the finding:\nstdout: {result.stdout}\nstderr: {result.stderr}",
+            )
+            self.assertIn("[FAIL] security", result.stdout)
+            self.assertIn("CDS-SEC-074", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=../../../../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: secure-ingress
+  category: network
+  version: "0.1.0"
+  displayName: TLS ingress test fixture
+  description: Test-only reverse proxy that declares HTTPS.
+spec:
+  runtime:
+    type: container
+    service:
+      name: secure-ingress
+      ports:
+        - name: https
+          containerPort: 443
+          protocol: TCP
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - backend
+    properties:
+      backend:
+        type: object
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+  consumes:
+    - name: backend
+      contract:
+        kind: http-service
+      required: true
+      mappedFrom: spec.config.backend
+  provides:
+    - name: reverse-proxy
+      contract:
+        kind: reverse-proxy
+        spec:
+          protocol: https
+          port: 443
+          connectionUri: "https://${service.host}:443"
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        secure-ingress:
+          image: alpine:3.20
+          command: ["sh", "-c", "sleep infinity"]
+          ports:
+            - "443:443"

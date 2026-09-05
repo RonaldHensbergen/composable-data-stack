@@ -1,0 +1,42 @@
+# yaml-language-server: $schema=../../../../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: secure-ingress-unwired
+  category: network
+  version: "0.1.0"
+  displayName: Unwired TLS ingress test fixture
+  description: >-
+    Test-only reverse proxy that declares HTTPS but does not consume/front
+    any specific backend module -- used to prove CDS-SEC-074 doesn't treat
+    an unrelated reverse-proxy contract as protecting a plaintext endpoint.
+spec:
+  runtime:
+    type: container
+    service:
+      name: secure-ingress-unwired
+      ports:
+        - name: https
+          containerPort: 443
+          protocol: TCP
+  configSchema:
+    type: object
+    additionalProperties: false
+    properties: {}
+  provides:
+    - name: reverse-proxy
+      contract:
+        kind: reverse-proxy
+        spec:
+          protocol: https
+          port: 443
+          connectionUri: "https://${service.host}:443"
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        secure-ingress-unwired:
+          image: alpine:3.20
+          command: ["sh", "-c", "sleep infinity"]
+          ports:
+            - "443:443"

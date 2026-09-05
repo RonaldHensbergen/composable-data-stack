@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=../../../../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: plain-api
+  category: apps
+  version: "0.1.0"
+  displayName: Plain HTTP API test fixture
+  description: Test-only plaintext HTTP endpoint module.
+spec:
+  runtime:
+    type: container
+    service:
+      name: plain-api
+      ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - publicPort
+    properties:
+      publicPort:
+        type: integer
+  provides:
+    - name: http-service
+      contract:
+        kind: http-service
+        spec:
+          protocol: http
+          portFrom: spec.config.publicPort
+          connectionUri: "http://${service.host}:${config.publicPort}"
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        plain-api:
+          image: alpine:3.20
+          command: ["sh", "-c", "sleep infinity"]
+          ports:
+            - "${config.publicPort}:8080"
