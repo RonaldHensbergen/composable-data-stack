@@ -104,9 +104,19 @@ class DbtHardeningTest(unittest.TestCase):
         self.assertEqual(docs_service["enabledFrom"], "config.docs.enabled")
 
     def test_target_database_contract_ref_is_required(self) -> None:
-        self.assertIn("targetDatabase", self.config_schema["required"])
+        # Enforced at compile time via requiredIf (E041), not a hard JSON
+        # Schema `required` entry: targetDatabase's own consume gate makes
+        # it required only when config.warehouseType == "postgres" (the
+        # duckdb path uses targetWarehouseFile instead), matching
+        # cli/resolver.py's evaluate_required_if vocabulary.
+        consumes = {c["name"]: c for c in self.module["spec"]["consumes"]}
+        target_database_consume = consumes["target-database"]
+        self.assertFalse(target_database_consume["required"])
+        self.assertEqual(target_database_consume["requiredIf"], "config.warehouseType==postgres")
+        self.assertEqual(target_database_consume["mappedFrom"], "spec.config.targetDatabase")
+
         target_database = self.config_schema["properties"]["targetDatabase"]
-        self.assertIn("contractRef", target_database["required"])
+        self.assertIn("contractRef", target_database["properties"])
 
     def test_entrypoint_requires_connection_env_vars(self) -> None:
         for var in ("DBT_HOST", "DBT_PORT", "DBT_DBNAME", "DBT_USER", "DBT_PASSWORD", "DBT_SCHEMA"):
