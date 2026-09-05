@@ -42,6 +42,28 @@ cosign verify \
 
 Attestations (SBOM, provenance) verify the same way with `cosign verify-attestation --type cyclonedx` / `--type slsaprovenance` in place of `cosign verify`.
 
+## Consuming a published image from `cds`
+
+Modules that support `config.image.source: registry` (currently
+`orchestration/dagster` and `bi/superset`) also expose
+`config.image.registry`, which selects which of the two registries above
+`cds render`/`up`/`test` pulls from:
+
+```yaml
+config:
+  image:
+    source: registry
+    registry: ghcr # or "dockerhub" (default)
+    tag: hardened-1.13.21
+```
+
+`dockerhub` (the default) rewrites the service's `image:` to
+`docker.io/ronaldsoeverein/<module>:<tag>`; `ghcr` rewrites it to
+`ghcr.io/ronaldhensbergen/cds-<module>:<tag>`. Remember GHCR has no
+version-derived tag (only `sha-<sha>`/`latest`, optionally
+variant-prefixed), so a tag like `hardened-1.13.21` only resolves on
+Docker Hub.
+
 ## Trust identity
 
 Keyless signing via GitHub OIDC, no private key or long-lived secret is stored anywhere. The identity being trusted is:
