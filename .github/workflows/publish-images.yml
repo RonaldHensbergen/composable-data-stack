@@ -106,11 +106,19 @@ jobs:
             prefix="${variant}-"
           fi
           ref="${{ steps.name.outputs.ref }}"
+          # "hardened" variants are Alpine-based; publish an "alpine-"
+          # aliased pair of tags alongside the "hardened-" ones so users
+          # searching by base OS find the same image (ghcr.io has no
+          # version-based tag, so alias the sha/latest pair instead).
+          extra_tags=()
+          if [ "$variant" = "hardened" ]; then
+            extra_tags=(-t "$ref:alpine-sha-${GITHUB_SHA::12}" -t "$ref:alpine-latest")
+          fi
           # The :scan tag is local-only and never pushed; it exists so the
           # vulnerability gate below can scan the exact image about to be
           # published before anything reaches the registry.
           docker build -f "$dockerfile" \
-            -t "$ref:${prefix}sha-${GITHUB_SHA::12}" -t "$ref:${prefix}latest" \
+            -t "$ref:${prefix}sha-${GITHUB_SHA::12}" -t "$ref:${prefix}latest" "${extra_tags[@]}" \
             -t "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan" "$context"
 
       - name: Gate on HIGH/CRITICAL vulnerabilities before push
@@ -141,6 +149,10 @@ jobs:
           ref="${{ steps.name.outputs.ref }}"
           docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
           docker push "$ref:${prefix}latest"
+          if [ "$variant" = "hardened" ]; then
+            docker push "$ref:alpine-sha-${GITHUB_SHA::12}"
+            docker push "$ref:alpine-latest"
+          fi
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
@@ -256,6 +268,17 @@ jobs:
           fi
           echo "tag=${prefix}${base_version}" >> "$GITHUB_OUTPUT"
           echo "latest_tag=${prefix}latest" >> "$GITHUB_OUTPUT"
+          # "hardened" variants are Alpine-based; publish an "alpine-"
+          # aliased pair of tags alongside the "hardened-" ones on Docker
+          # Hub so users searching by base OS find the same image.
+          alpine_tag=""
+          alpine_latest_tag=""
+          if [ "$variant" = "hardened" ]; then
+            alpine_tag="alpine-${base_version}"
+            alpine_latest_tag="alpine-latest"
+          fi
+          echo "alpine_tag=${alpine_tag}" >> "$GITHUB_OUTPUT"
+          echo "alpine_latest_tag=${alpine_latest_tag}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -272,6 +295,8 @@ jobs:
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
           latest_tag="${{ steps.version.outputs.latest_tag }}"
+          alpine_tag="${{ steps.version.outputs.alpine_tag }}"
+          alpine_latest_tag="${{ steps.version.outputs.alpine_latest_tag }}"
           # The :scan and :sha tags are local-only until the push step. The
           # :scan tag exists so the vulnerability gate below can scan the
           # exact image about to be published before anything reaches the
@@ -282,8 +307,12 @@ jobs:
           if [ -n "$variant" ] && [ "$variant" != "base" ]; then
             prefix="${variant}-"
           fi
+          extra_tags=()
+          if [ -n "$alpine_tag" ]; then
+            extra_tags=(-t "$ref:$alpine_tag" -t "$ref:$alpine_latest_tag")
+          fi
           docker build -f "$dockerfile" \
-            -t "$ref:$tag" -t "$ref:$latest_tag" \
+            -t "$ref:$tag" -t "$ref:$latest_tag" "${extra_tags[@]}" \
             -t "$ref:${prefix}sha-${GITHUB_SHA::12}" \
             -t "cds/${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}:scan" "$context"
 
@@ -309,6 +338,8 @@ jobs:
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
           latest_tag="${{ steps.version.outputs.latest_tag }}"
+          alpine_tag="${{ steps.version.outputs.alpine_tag }}"
+          alpine_latest_tag="${{ steps.version.outputs.alpine_latest_tag }}"
           variant="${{ matrix.image.variant }}"
           prefix=""
           if [ -n "$variant" ] && [ "$variant" != "base" ]; then
@@ -317,6 +348,10 @@ jobs:
           docker push "$ref:$tag"
           docker push "$ref:$latest_tag"
           docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
+          if [ -n "$alpine_tag" ]; then
+            docker push "$ref:$alpine_tag"
+            docker push "$ref:$alpine_latest_tag"
+          fi
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
