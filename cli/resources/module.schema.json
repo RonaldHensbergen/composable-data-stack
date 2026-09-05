@@ -145,6 +145,11 @@
         "mappedFrom": {
           "type": "string",
           "minLength": 1
+        },
+        "requiredIf": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Dotted 'config.<path>==<value>' expression (same vocabulary as the renderer's enabledFrom equality gate); when it evaluates true against the module instance's own config, this consume entry is treated as required even if required is false, and a missing/invalid binding raises E041 at validate time instead of only surfacing later at render (E071) or container start."
         }
       }
     },

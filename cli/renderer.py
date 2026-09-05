@@ -206,8 +206,7 @@ def _render_services(
             continue
 
         # Top-level enabledFrom guard
-        enabled_from = service_def.get("enabledFrom")
-        if enabled_from and _resolve_expr(enabled_from, context) is False:
+        if _is_disabled(service_def.get("enabledFrom"), context):
             continue
 
         service_copy = deepcopy(service_def)
@@ -220,7 +219,7 @@ def _render_services(
             if cond:
                 hc_copy = deepcopy(healthcheck)
                 hc_copy.pop("conditionallyEnabledFrom", None)
-                if _resolve_expr(cond, context) is False:
+                if _is_disabled(cond, context):
                     service_copy.pop("healthcheck", None)
                 else:
                     service_copy["healthcheck"] = _substitute_values(hc_copy, context)
@@ -239,7 +238,7 @@ def _render_services(
                 if isinstance(volume_item, dict) and "enabledFrom" in volume_item:
                     volume_item = deepcopy(volume_item)
                     item_enabled_from = volume_item.pop("enabledFrom", None)
-                    if item_enabled_from and _resolve_expr(item_enabled_from, context) is False:
+                    if _is_disabled(item_enabled_from, context):
                         continue
                 kept_volumes.append(volume_item)
             service_copy["volumes"] = kept_volumes
@@ -284,8 +283,7 @@ def _render_volumes(
 
     for volume_name, volume_def in volumes.items():
         if isinstance(volume_def, dict):
-            enabled_from = volume_def.get("enabledFrom")
-            if enabled_from and _resolve_expr(enabled_from, context) is False:
+            if _is_disabled(volume_def.get("enabledFrom"), context):
                 continue
             volume_copy = deepcopy(volume_def)
             volume_copy.pop("enabledFrom", None)
@@ -505,6 +503,17 @@ def _check_unsafe_field_type_substitutions(
     return diagnostics
 
 
+def _is_disabled(expr: str | None, context: dict[str, Any]) -> bool:
+    """
+    Shared enabledFrom/conditionallyEnabledFrom/per-item enabledFrom guard:
+    true only when expr is set and resolves to exactly False (or, for an
+    equality gate, to a non-match). An unset expr, or one that resolves to
+    None/True/any other value, means "enabled" -- callers only skip
+    rendering the guarded service/healthcheck/volume when this returns True.
+    """
+    return bool(expr) and _resolve_expr(expr, context) is False
+
+
 def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
     """
     Resolve a dot-notation expression against context.
@@ -519,9 +528,16 @@ def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
         # enabledFrom guards that need to pick one of several mutually
         # exclusive options (unlike enabledFrom's plain boolean-flag use,
         # which only checks a path resolves to literal False). Dotted paths
-        # never contain "==", so this check is unambiguous.
+        # never contain "==", so this check is unambiguous. Both sides are
+        # stripped so incidental whitespace around "==" (e.g. a template
+        # author writing "config.warehouseType == duckdb") compares the
+        # intended values instead of silently failing to match and
+        # dropping the guarded entry with no error. Only plain string
+        # equality is supported -- the expected side is always compared as
+        # a literal string, never coerced to bool/int/etc, so e.g.
+        # "config.threads==4" never matches an integer 4.
         path, _, expected = expr.partition("==")
-        return _resolve_expr(path, context) == expected
+        return _resolve_expr(path.strip(), context) == expected.strip()
 
     if expr.startswith("ifNonempty:"):
         path, prefix, suffix = expr[len("ifNonempty:"):].split(",", 2)

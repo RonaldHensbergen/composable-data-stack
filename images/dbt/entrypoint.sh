@@ -4,7 +4,11 @@ set -eu
 # Required connection settings, provided by the module's compose environment
 # (sourced from whichever contract is consumed -- sql-database via
 # ${bindings.*} for postgres, or file-database for duckdb -- see
-# module.yaml's config.warehouseType).
+# module.yaml's config.warehouseType). module.yaml's requiredIf on each
+# consume entry already enforces this match at compile time (E041), so a
+# mismatch should never reach a running container; the checks below are
+# defense in depth (e.g. against a hand-edited/legacy compose file) rather
+# than the primary enforcement point.
 : "${DBT_WAREHOUSE_TYPE:?DBT_WAREHOUSE_TYPE is required}"
 : "${DBT_SCHEMA:?DBT_SCHEMA is required}"
 

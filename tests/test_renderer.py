@@ -951,6 +951,48 @@ class RendererRegressionTest(unittest.TestCase):
         self.assertEqual(volumes[0]["source"], "data/duckdb")
         self.assertNotIn("enabledFrom", volumes[0])
 
+    def test_render_compose_equality_gate_tolerates_whitespace_around_operator(self):
+        """A previous bug compared the raw, unstripped left/right sides of
+        an enabledFrom equality gate, so "config.warehouseType == duckdb"
+        (spaces around "==") never matched -- silently dropping the
+        guarded entry instead of raising an error. Both sides must now be
+        stripped before comparison."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "worker",
+                    "config": {"warehouseType": "duckdb"},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "worker:latest",
+                                    "volumes": [
+                                        {
+                                            "type": "bind",
+                                            "source": "/host/data",
+                                            "target": "/data",
+                                            "enabledFrom": "config.warehouseType == duckdb",
+                                        },
+                                    ],
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        volumes = compose["services"]["worker-app"]["volumes"]
+        self.assertEqual(len(volumes), 1)
+        self.assertEqual(volumes[0]["target"], "/data")
+
 
 class ImageSourceRenderingTest(unittest.TestCase):
     def _plan(self, image_config):

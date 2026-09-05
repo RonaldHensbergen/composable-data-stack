@@ -12,6 +12,7 @@ from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .resolver import (
+    evaluate_required_if,
     is_secret_ref,
     parse_contract_ref,
     resolve_path,
@@ -452,11 +453,14 @@ def resolve_consumed_contracts(
             continue
 
         required = consume.get("required", True)
+        required_if = consume.get("requiredIf")
+        conditionally_required = bool(required_if) and evaluate_required_if(required_if, inst["config"])
+        effective_required = required or conditionally_required
 
         try:
             binding = resolve_path({"spec": {"config": inst["config"]}}, mapped_from)
         except KeyError:
-            if not required:
+            if not effective_required:
                 continue
             diagnostics.append(
                 Diagnostic(
@@ -469,7 +473,7 @@ def resolve_consumed_contracts(
             continue
 
         if not isinstance(binding, dict) or "contractRef" not in binding:
-            if not required and not binding:
+            if not effective_required and not binding:
                 continue
             diagnostics.append(
                 Diagnostic(

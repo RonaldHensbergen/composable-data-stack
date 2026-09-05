@@ -62,8 +62,10 @@ spec:
           sql-database provider; "duckdb" requires
           targetWarehouseFile.contractRef to reference a file-database
           provider. Only one of targetDatabase/targetWarehouseFile needs to
-          be set, matching this value -- entrypoint.sh fails loudly at
-          container start if the required one is missing.
+          be set, matching this value -- each consume entry's requiredIf
+          below enforces the match at compile time (E041), so a mismatch
+          fails `cds validate`/`cds test` instead of only being caught by
+          entrypoint.sh's runtime check at container start.
 
       targetDatabase:
         type: object
@@ -144,12 +146,14 @@ spec:
       contract:
         kind: sql-database
       required: false
+      requiredIf: "config.warehouseType==postgres"
       mappedFrom: spec.config.targetDatabase
 
     - name: target-warehouse-file
       contract:
         kind: file-database
       required: false
+      requiredIf: "config.warehouseType==duckdb"
       mappedFrom: spec.config.targetWarehouseFile
 
   provides:
@@ -195,6 +199,14 @@ spec:
               source: "${bindings.target-warehouse-file.hostDirectory}"
               target: /usr/app/dbt_duckdb
               enabledFrom: "config.warehouseType==duckdb"
+          # Both targets' env vars are always present in this template, but
+          # only one is active per instance (config.warehouseType). The
+          # postgres vars use ifNonempty because they must tolerate being
+          # unbound when duckdb is selected; the duckdb vars use a plain
+          # ref because the requiredIf gates on target-database/
+          # target-warehouse-file above guarantee target-warehouse-file is
+          # always bound when duckdb is selected (E041 fails the build
+          # otherwise), so there's nothing to tolerate on that side.
           environment:
             DBT_WAREHOUSE_TYPE: "${config.warehouseType}"
             DBT_HOST: "${ifNonempty:bindings.target-database.host,,}"
