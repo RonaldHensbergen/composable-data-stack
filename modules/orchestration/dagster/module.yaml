@@ -68,11 +68,11 @@ spec:
               for the user-code, webserver, and daemon services. "base"
               builds the default Debian-based (python:3.14-slim) image
               optimized for compatibility. "hardened" builds the
-              Alpine-based image, which has a smaller package footprint
-              (musl/busybox, no apt/build tools at runtime). This does not
-              guarantee fewer CVEs at any given time: each distro's own
-              patch cadence for OS packages can leave either variant ahead
-              on open vulnerabilities (see .trivyignore and
+              Alpine-based image, which uses a musl/busybox userland
+              instead of glibc/Debian and has a smaller base image. This
+              does not guarantee fewer CVEs at any given time: each
+              distro's own patch cadence for OS packages can leave either
+              variant ahead on open vulnerabilities (see .trivyignore and
               docs/image-scanning.md). Both variants run as a non-root
               user with no build tooling in the final image.
           source:
