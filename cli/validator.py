@@ -12,6 +12,7 @@ from .diagnostics import Diagnostic
 from .graph import validate_dependency_graph
 from .loader import load_yaml_file, resolve_module_file
 from .resolver import (
+    RequiredIfSyntaxError,
     evaluate_required_if,
     is_secret_ref,
     parse_contract_ref,
@@ -322,7 +323,21 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
 
             required = consume.get("required", True)
             required_if = consume.get("requiredIf")
-            conditionally_required = bool(required_if) and evaluate_required_if(required_if, inst["config"])
+            if required_if:
+                try:
+                    conditionally_required = evaluate_required_if(required_if, inst["config"])
+                except RequiredIfSyntaxError as err:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E021",
+                            message=f'Consume entry "{name}" in module "{inst["id"]}" has a malformed requiredIf: {err}',
+                            path=f'module:{inst["id"]}.spec.consumes',
+                        )
+                    )
+                    conditionally_required = False
+            else:
+                conditionally_required = False
             effective_required = required or conditionally_required
 
             try:

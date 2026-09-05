@@ -202,11 +202,17 @@ spec:
           # Both targets' env vars are always present in this template, but
           # only one is active per instance (config.warehouseType). The
           # postgres vars use ifNonempty because they must tolerate being
-          # unbound when duckdb is selected; the duckdb vars use a plain
-          # ref because the requiredIf gates on target-database/
-          # target-warehouse-file above guarantee target-warehouse-file is
-          # always bound when duckdb is selected (E041 fails the build
-          # otherwise), so there's nothing to tolerate on that side.
+          # unbound when duckdb is selected. The requiredIf gates on
+          # target-database/target-warehouse-file above guarantee
+          # target-warehouse-file is always bound when duckdb is selected
+          # (E041 fails the build otherwise), so the bind mount source
+          # above uses a plain ref -- nothing to tolerate there. The
+          # DBT_DUCKDB_PATH filename segment still uses ifNonempty as
+          # defense in depth: file-database's `filename` field is required
+          # by shared/contracts/file-database.yaml, but nothing here
+          # re-validates that at compile time the way requiredIf does for
+          # the binding itself, so an empty value degrades to targeting
+          # the mounted directory instead of failing the substitution.
           environment:
             DBT_WAREHOUSE_TYPE: "${config.warehouseType}"
             DBT_HOST: "${ifNonempty:bindings.target-database.host,,}"

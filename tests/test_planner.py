@@ -1232,5 +1232,40 @@ class RequiredIfConsumeTest(unittest.TestCase):
             self.assertTrue(all(d.code == "E041" for d in errors))
 
 
+class RequiredIfMalformedGatePlannerTest(unittest.TestCase):
+    """
+    Direct unit test for resolve_consumed_contracts against a malformed
+    requiredIf gate, bypassing module.schema.json's requiredIf pattern (the
+    schema stops a malformed expression earlier in practice), to prove the
+    resolver-level defense-in-depth also fails loudly at plan time with an
+    E021 diagnostic instead of silently disabling the requiredIf gate.
+    """
+
+    def test_missing_operator_reports_e021_instead_of_silently_skipping(self):
+        inst = {
+            "id": "consumer",
+            "config": {"warehouseType": "duckdb"},
+            "module": {
+                "spec": {
+                    "consumes": [
+                        {
+                            "name": "target-database",
+                            "contract": {"kind": "sql-database"},
+                            "required": False,
+                            "requiredIf": "config.warehouseType",
+                            "mappedFrom": "spec.config.targetDatabase",
+                        }
+                    ]
+                }
+            },
+        }
+        diagnostics: list = []
+        planner.resolve_consumed_contracts(inst, {}, {}, diagnostics)
+
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E021"])
+        self.assertIn("malformed requiredIf", errors[0].message)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,7 @@ from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .resolver import (
+    RequiredIfSyntaxError,
     evaluate_required_if,
     is_secret_ref,
     parse_contract_ref,
@@ -454,7 +455,21 @@ def resolve_consumed_contracts(
 
         required = consume.get("required", True)
         required_if = consume.get("requiredIf")
-        conditionally_required = bool(required_if) and evaluate_required_if(required_if, inst["config"])
+        if required_if:
+            try:
+                conditionally_required = evaluate_required_if(required_if, inst["config"])
+            except RequiredIfSyntaxError as err:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E021",
+                        message=f'Consume entry "{consume_name}" in module "{inst["id"]}" has a malformed requiredIf: {err}',
+                        path=f'module:{inst["id"]}.consumes.{consume_name}',
+                    )
+                )
+                conditionally_required = False
+        else:
+            conditionally_required = False
         effective_required = required or conditionally_required
 
         try:
