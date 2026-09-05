@@ -42,7 +42,7 @@ The platform is divided into logical layers.
 | **Ingestion** | extract-load pipelines into the warehouse | dlt (experimental) |
 | **Storage / compute** | databases, warehouses, and processing engines | Postgres, DuckDB (experimental) |
 | **Orchestration** | workflow scheduling and task execution | Dagster |
-| **Transformation** | data modeling and transformation | (planned) |
+| **Transformation** | data modeling and transformation | dbt (experimental; targets Postgres or DuckDB) |
 | **Quality** | data validation and testing | (planned) |
 | **BI / access** | dashboards, semantic access, and exploration | Superset |
 | **Platform tooling** | bootstrap, diagnostics, deployment helpers | shared scripts, templates |
