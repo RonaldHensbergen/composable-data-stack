@@ -15,7 +15,7 @@
   `python -m unittest tests.test_validator.ValidatorRegressionTest.test_validate_profile_rejects_module_source_traversal_outside_modules_tree`.
 - Match CI's coverage gate with
   `coverage run -m unittest discover -s tests -p "test_*.py" -v && coverage report -m`;
-  coverage is scoped to `cli/` and must remain at least 65%.
+  coverage is scoped to `cli/` and must remain at least 80%.
 - Lint Markdown with
   `npx --yes markdownlint-cli@0.49.0 "**/*.md" ".github/**/*.md"`, YAML with
   `yamllint .`, Python deprecations with `ruff check .` (configured for Ruff's
