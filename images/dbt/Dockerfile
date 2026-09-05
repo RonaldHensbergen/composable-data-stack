@@ -16,7 +16,15 @@ COPY images/dbt/requirements.txt ./
 # builder venv drops that SBOM, matching images/dagster/base/Dockerfile's
 # pattern; the final stage's own base-image pip is uninstalled separately
 # below, since it ships independently of the venv copied in from builder.
+#
+# The import check catches a resolver-satisfiable but broken combination of
+# dbt-core/dbt-postgres/dbt-duckdb (e.g. an adapter's plugin entry points
+# failing to load against the pinned dbt-core) at build time, since
+# requirements.txt currently pins dbt-postgres/dbt-duckdb to older minors
+# than dbt-core (see requirements.txt) -- neither adapter has shipped a
+# release matching dbt-core's minor yet.
 RUN python -m pip install --no-cache-dir -r requirements.txt && \
+    python -c "import dbt.adapters.postgres, dbt.adapters.duckdb" && \
     python -m pip uninstall --yes pip
 
 FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6

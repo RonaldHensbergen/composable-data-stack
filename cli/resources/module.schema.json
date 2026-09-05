@@ -173,6 +173,11 @@
         "mappedFrom": {
           "type": "string",
           "minLength": 1
+        },
+        "requiredIf": {
+          "type": "string",
+          "pattern": "^config(\\.[A-Za-z0-9_]+)+\\s*==\\s*\\S.*$",
+          "description": "Dotted 'config.<path>==<value>' expression (same vocabulary as the renderer's enabledFrom equality gate); when it evaluates true against the module instance's own config, this consume entry is treated as required even if required is false, and a missing/invalid binding raises E041 at validate time instead of only surfacing later at render (E071) or container start. Must match config.<path>==<value> (dotted path, then a literal ==, then a non-empty value) so a typo fails at schema validation instead of silently disabling enforcement."
         }
       }
     },
