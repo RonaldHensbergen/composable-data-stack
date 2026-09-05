@@ -10,6 +10,11 @@ name: Release Tag Reminder
 on:
   push:
     branches: [main]
+  release:
+    # Reconcile promptly once release.yml/the GitHub UI actually publishes
+    # the release, instead of leaving a stale reminder issue open until the
+    # next daily cron run (up to ~24h later).
+    types: [published]
   schedule:
     # Daily backstop in case the triggering push event is missed/delayed,
     # or the gap persists across multiple days.
@@ -30,6 +35,14 @@ jobs:
       contents: read
       issues: write
     steps:
+      - name: Wait for release publication to fully propagate
+        # A `release: published` event can fire slightly before the
+        # matching tag is consistently visible to `git fetch`/the GitHub
+        # API on every backend replica. Only this trigger needs the wait;
+        # push/schedule/workflow_dispatch runs proceed immediately.
+        if: github.event_name == 'release'
+        run: sleep 300
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
