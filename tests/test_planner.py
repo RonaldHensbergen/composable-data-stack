@@ -1086,7 +1086,7 @@ class RequiredIfConsumeTest(unittest.TestCase):
     cli/validator.py's validate_contract_bindings) with a dbt-warehouseType-
     shaped module: two optional consumes (a sql-database "target-database"
     and a file-database "target-warehouse-file"), each requiredIf-gated on
-    config.warehouseType, mirroring modules-experimental/transformation/dbt.
+    config.warehouseType, mirroring modules/transformation/dbt.
     """
 
     def _write_profile(self, tmpdir: str, warehouse_type: str, database_ref: str | None, warehouse_file_ref: str | None) -> str:

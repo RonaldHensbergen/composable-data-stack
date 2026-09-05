@@ -1,0 +1,173 @@
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: local-dagster-postgres-superset-dbt
+  environment: local
+  displayName: Local Dagster + Postgres + Superset + dbt
+  description: >
+    Minimal local development stack for orchestration, warehouse, and BI.
+    Adds a dbt transformation job that runs models/tests against the
+    analytics database and, optionally, publishes generated dbt docs.
+
+spec:
+  runtime:
+    type: docker-compose
+    namespace: cds-local
+    networks:
+      - name: cds-local
+        driver: bridge
+
+  modules:
+    - id: postgres
+      source: ../../modules/warehouse/postgres
+      version: "0.1.0"
+      enabled: true
+      config:
+        database: "${CDS_ANALYTICS_DB_NAME}"
+        username: "${CDS_ANALYTICS_DB_USER}"
+        passwordFrom: secrets.analytics_db_password
+        superuserPasswordFrom: secrets.postgres_superuser_password
+        port: 5432
+        initDbScript: init-db.sh
+        initDbEnv:
+          ANALYTICS_DB_NAME: config.database
+          ANALYTICS_DB_USER: config.username
+          ANALYTICS_DB_PASSWORD: config.passwordFrom
+          DAGSTER_DB_NAME: config.dagsterDatabase.name
+          DAGSTER_DB_USER: config.dagsterDatabase.username
+          DAGSTER_DB_PASSWORD: config.dagsterDatabase.passwordFrom
+          SUPERSET_DB_NAME: config.supersetDatabase.name
+          SUPERSET_DB_USER: config.supersetDatabase.username
+          SUPERSET_DB_PASSWORD: config.supersetDatabase.passwordFrom
+        dagsterDatabase:
+          name: "${CDS_DAGSTER_DB_NAME}"
+          username: "${CDS_DAGSTER_DB_USER}"
+          passwordFrom: secrets.dagster_db_password
+        supersetDatabase:
+          name: "${CDS_SUPERSET_DB_NAME}"
+          username: "${CDS_SUPERSET_DB_USER}"
+          passwordFrom: secrets.superset_db_password
+        storage:
+          enabled: true
+          size: 5Gi
+        healthcheck:
+          enabled: true
+
+    - id: dagster
+      source: ../../modules/orchestration/dagster
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+      config:
+        webPort: 3000
+        daemon:
+          enabled: true
+        homeDir: /opt/dagster/dagster_home
+        analyticsDatabase:
+          contractRef: postgres.sql-database
+        sharedData:
+          hostPath: ./workdirs/shared-data
+          containerPath: /app/data/cds
+        definitionsFile:
+          hostPath: ./workdirs/dagster/definitions.py
+          containerPath: /app/workdirs/dagster/definitions.py
+        storage:
+          backend: postgres
+          runStorage:
+            contractRef: postgres.dagster-database
+          eventLogStorage:
+            contractRef: postgres.dagster-database
+          scheduleStorage:
+            contractRef: postgres.dagster-database
+
+        runLauncher:
+          type: default
+        healthcheck:
+          enabled: true
+
+    - id: keydb
+      source: ../../modules/cache/keydb
+      version: "0.1.0"
+      enabled: true
+      config:
+        port: 6379
+        password: ""
+        healthcheck:
+          enabled: true
+
+    - id: dbt
+      source: ../../modules/transformation/dbt
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+      config:
+        targetDatabase:
+          contractRef: postgres.sql-database
+        schema: public
+        docs:
+          enabled: true
+          port: 8090
+        healthcheck:
+          enabled: true
+
+    - id: superset
+      source: ../../modules/bi/superset
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+        - keydb
+      config:
+        webPort: 8088
+        secretKeyFrom: secrets.superset_secret_key
+        adminUser:
+          username: admin
+          passwordFrom: secrets.superset_admin_password
+          email: admin@example.local
+        metadataDatabase:
+          contractRef: postgres.superset-database
+        cacheService:
+          contractRef: keydb.cache-service
+        healthcheck:
+          enabled: true
+
+  secrets:
+    provider:
+      type: env
+    values:
+      postgres_superuser_password:
+        env: CDS_POSTGRES_SUPERUSER_PASSWORD
+        required: true
+      db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
+        required: true
+      dagster_db_password:
+        env: CDS_DAGSTER_DB_PASSWORD
+        required: true
+      superset_db_password:
+        env: CDS_SUPERSET_DB_PASSWORD
+        required: true
+      analytics_db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
+        required: true
+      superset_secret_key:
+        env: CDS_SUPERSET_SECRET_KEY
+        required: true
+      superset_admin_password:
+        env: CDS_SUPERSET_ADMIN_PASSWORD
+        required: true
+
+  outputs:
+    contracts:
+      warehouse:
+        from: postgres.sql-database
+      orchestrationApi:
+        from: dagster.http-service
+      biApi:
+        from: superset.http-service
+      transformationDocs:
+        from: dbt.docs-service

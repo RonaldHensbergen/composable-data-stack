@@ -18,7 +18,9 @@ These are considered production-ready in the current release (v0.4.0):
 - Module: Superset (`modules/bi/superset/`)
 - Module: KeyDB (`modules/cache/keydb/`)
 - Module: Vault (`modules/secrets/vault/`)
+- Module: dbt (`modules/transformation/dbt/`)
 - Profile: `local-dagster-postgres-superset`
+- Profile: `local-dagster-postgres-superset-dbt`
 
 ---
 
@@ -28,7 +30,6 @@ These work but may have breaking changes in upcoming releases:
 
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the new `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
-- Module: dbt (`modules-experimental/transformation/dbt/`) — one-shot dbt-core transformation job; targets Postgres or DuckDB via `config.warehouseType` (#599)
 - `cds test` — implemented; not yet exercised in CI or real contributor usage
 
 ---
