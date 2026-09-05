@@ -1,5 +1,7 @@
 import io
 import subprocess
+import sys
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -37,6 +39,18 @@ class DefaultLogPathTest(unittest.TestCase):
 
 
 class RunStreamedTest(unittest.TestCase):
+    def test_timeout_kills_a_hung_process(self):
+        started = time.monotonic()
+        returncode = run_streamed(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            io.StringIO(),
+            echo=False,
+            timeout=0.05,
+        )
+
+        self.assertEqual(returncode, 124)
+        self.assertLess(time.monotonic() - started, 2)
+
     @patch("cli.up_runner.subprocess.Popen")
     def test_writes_output_to_log_file_and_returns_exit_code(self, mock_popen):
         process = MagicMock()

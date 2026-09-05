@@ -74,6 +74,23 @@ spec:
               above, kept in sync by Renovate; pass an explicit
               config.image.tag to override.
 
+      kubernetesService:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          type:
+            type: string
+            enum:
+              - ClusterIP
+              - NodePort
+            default: ClusterIP
+          nodePort:
+            type: integer
+            minimum: 0
+            maximum: 32767
+            default: 0
+
       secretKeyFrom:
         type: string
         pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
@@ -97,6 +114,16 @@ spec:
             minLength: 3
 
       metadataDatabase:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
+      analyticsDatabase:
         type: object
         additionalProperties: false
         required:
@@ -132,6 +159,12 @@ spec:
       required: true
       mappedFrom: spec.config.metadataDatabase
 
+    - name: analytics-database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.analyticsDatabase
+
     - name: cache-service
       contract:
         kind: cache-service
@@ -149,6 +182,9 @@ spec:
 
   implementation:
     kind: docker-compose
+    targets:
+      - docker-compose
+      - kubernetes
     compose:
       services:
         superset-init:
@@ -172,6 +208,7 @@ spec:
             SUPERSET_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
             SUPERSET_ADMIN_EMAIL: "${config.adminUser.email}"
             SUPERSET__SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
+            SUPERSET_ANALYTICS_DATABASE_URI: "${bindings.analytics-database.connectionUri}"
             SUPERSET__REDIS_URL: "${bindings.cache-service.connectionUri}"
             SUPERSET__CACHE_CONFIG: '{"CACHE_TYPE": "redis", "CACHE_REDIS_URL": "${bindings.cache-service.connectionUri}", "CACHE_DEFAULT_TIMEOUT": 300}'
           healthcheck:
@@ -198,6 +235,7 @@ spec:
           environment:
             SUPERSET_SECRET_KEY: "${config.secretKeyFrom}"
             SUPERSET__SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
+            SUPERSET_ANALYTICS_DATABASE_URI: "${bindings.analytics-database.connectionUri}"
             # Redis cache configuration
             SUPERSET__REDIS_URL: "${bindings.cache-service.connectionUri}"
             SUPERSET__CACHE_CONFIG: '{"CACHE_TYPE": "redis", "CACHE_REDIS_URL": "${bindings.cache-service.connectionUri}", "CACHE_DEFAULT_TIMEOUT": 300}'
@@ -212,3 +250,46 @@ spec:
             interval: 10s
             timeout: 5s
             retries: 20
+
+    kubernetes:
+      workloads:
+        superset:
+          kind: Deployment
+          # apache/superset runs as the superset user, uid/gid 1000.
+          podSecurityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            fsGroup: 1000
+          containers:
+            - superset
+          # Compose orders this with depends_on: service_completed_successfully.
+          # Kubernetes guarantees the same ordering natively via an init container.
+          initContainers:
+            - superset-init
+          service:
+            type: "${config.kubernetesService.type}"
+            ports:
+              - name: http
+                port: "${config.webPort}"
+                targetPort: 8088
+                nodePort: "${config.kubernetesService.nodePort}"
+          resources:
+            superset:
+              requests:
+                cpu: 200m
+                memory: 1Gi
+              limits:
+                memory: 3Gi
+            superset-init:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+          waitFor:
+            - host: "${bindings.metadata-database.host}"
+              port: "${bindings.metadata-database.port}"
+              description: Superset runs migrations against its metadata database on startup.
+            - host: "${bindings.cache-service.host}"
+              port: "${bindings.cache-service.port}"

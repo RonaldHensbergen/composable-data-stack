@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import subprocess  # nosec B404
 import sys
+import threading
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -45,6 +46,7 @@ def run_streamed(
     group_by_image: bool = False,
     service_to_image: dict[str, str] | None = None,
     use_color: bool = True,
+    timeout: float | None = None,
 ) -> int:
     """
     Runs `cmd` with stdout+stderr merged, writing each line to
@@ -65,6 +67,16 @@ def run_streamed(
     `cmd[0]` isn't on PATH, same as subprocess.run.
     """
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)  # nosec B603  # noqa: S603
+    timed_out = threading.Event()
+
+    def _kill_on_timeout() -> None:
+        if process.poll() is None:
+            timed_out.set()
+            process.kill()
+
+    timer = threading.Timer(timeout, _kill_on_timeout) if timeout is not None else None
+    if timer is not None:
+        timer.start()
     if process.stdout is None:
         raise RuntimeError("subprocess.Popen returned no stdout despite stdout=PIPE")
     try:
@@ -97,8 +109,11 @@ def run_streamed(
                 sys.stdout.write(line)
                 sys.stdout.flush()
     finally:
+        if timer is not None:
+            timer.cancel()
         process.stdout.close()
-    return process.wait()
+    returncode = process.wait()
+    return 124 if timed_out.is_set() else returncode
 
 
 def start_log_tail(compose_path: str, log_file: IO[str]) -> subprocess.Popen:
@@ -254,4 +269,3 @@ def poll_state_until_settled(
             return False, grouped
 
         sleep_fn(poll_interval)
-

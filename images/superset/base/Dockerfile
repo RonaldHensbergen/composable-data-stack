@@ -30,6 +30,7 @@ RUN rm -rf \
     && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.10 /usr/local/bin/wheel
 
 COPY --chown=superset:superset --chmod=0444 images/superset/superset_config.py /app/pythonpath/superset_config.py
+COPY --chown=superset:superset --chmod=0444 images/superset/service-worker.js /app/superset/static/service-worker.js
 COPY --chown=superset:superset --chmod=0555 images/superset/entrypoint-web.sh /app/docker/entrypoint-web.sh
 COPY --chown=superset:superset --chmod=0555 images/superset/init.sh /app/docker/init.sh
 

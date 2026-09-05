@@ -229,6 +229,65 @@ class MainCLITest(unittest.TestCase):
         mock_run_security.assert_called_once()
         self.assertEqual(mock_run_security.call_args.kwargs["profile_path"], Path(str(profile_file)))
 
+    @patch("cli.main.scan_k8s_security")
+    @patch("cli.main.render_helm")
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_security_helm_runs_target_specific_checks(
+        self,
+        mock_validate,
+        mock_build_plan,
+        mock_run_security,
+        mock_render_helm,
+        mock_scan_k8s_security,
+    ):
+        plan = {"metadata": {"name": "test"}, "modules": []}
+        mock_validate.return_value = []
+        mock_build_plan.return_value = (plan, [])
+        mock_render_helm.return_value = ({"Chart.yaml": "name: test\n"}, [])
+        mock_run_security.return_value = ([], [])
+        mock_scan_k8s_security.return_value = []
+
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            ["cds", "security", "local-dagster-postgres-superset", "--target", "helm"],
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        mock_render_helm.assert_called_once_with(plan)
+        mock_scan_k8s_security.assert_called_once_with(plan)
+
+    @patch("cli.main.render_helm")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_validate_helm_includes_renderer_diagnostics(
+        self, mock_validate, mock_build_plan, mock_render_helm
+    ):
+        plan = {"metadata": {"name": "test"}, "modules": []}
+        mock_validate.return_value = []
+        mock_build_plan.return_value = (plan, [])
+        mock_render_helm.return_value = (
+            {},
+            [Diagnostic("error", "E084", "provider has no service", "contractBindings.0")],
+        )
+
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            ["cds", "validate", "local-dagster-postgres-superset", "--target", "helm"],
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+        mock_render_helm.assert_called_once_with(plan)
+
     @patch("cli.main.run_security_validation")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
@@ -1588,6 +1647,73 @@ spec:
         self.assertIn("E072", output)
         self.assertIn("[FAIL] render", output)
 
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_up", return_value=0)
+    @patch("cli.main._render_helm_chart", return_value=(0, []))
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_up_helm_dispatches_to_bounded_helm_runner(
+        self, _mock_validate, mock_plan, mock_render, mock_helm_up, mock_log_path
+    ):
+        plan = {
+            "metadata": {"name": "demo"},
+            "runtime": {"namespace": "demo-ns"},
+            "modules": [],
+        }
+        mock_plan.return_value = (plan, [])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "up.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "up",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                    "--kube-context",
+                    "k3d-test",
+                    "--timeout",
+                    "45",
+                ],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        mock_render.assert_called_once()
+        self.assertEqual(mock_helm_up.call_args.kwargs["namespace"], "demo-ns")
+        self.assertEqual(mock_helm_up.call_args.kwargs["release"], "demo")
+        self.assertEqual(mock_helm_up.call_args.kwargs["kube_context"], "k3d-test")
+        self.assertEqual(mock_helm_up.call_args.kwargs["timeout"], 45)
+
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_down", return_value=0)
+    def test_down_helm_retains_pvcs_by_default(self, mock_helm_down, mock_log_path):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "down.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "down",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                    "--release",
+                    "cds",
+                ],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertFalse(mock_helm_down.call_args.kwargs["delete_pvcs"])
+
 
 class CollectModuleImagesTest(unittest.TestCase):
 
@@ -1762,6 +1888,35 @@ class StateCLITest(unittest.TestCase):
         result, output = self._run_state_with_tty([], isatty_return=True)
         self.assertEqual(result, 0)
         self.assertIn("\033", output)
+
+    @patch("cli.main.get_k8s_state")
+    def test_state_helm_reuses_shared_health_grouping(self, mock_get_state):
+        mock_get_state.return_value = [
+            {"Service": "cds-web", "Health": "HEALTHY", "State": "running"}
+        ]
+        stdout = io.StringIO()
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "state",
+                "local-dagster-postgres-superset",
+                "--target",
+                "helm",
+                "--kube-context",
+                "k3d-test",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("HEALTHY:\n  - cds-web", stdout.getvalue())
+        mock_get_state.assert_called_once_with(
+            "cds-local", "local-dagster-postgres-superset", "k3d-test"
+        )
 
 
 class UseCommandCLITest(unittest.TestCase):

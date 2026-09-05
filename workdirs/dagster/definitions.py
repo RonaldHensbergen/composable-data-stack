@@ -51,6 +51,13 @@ except ModuleNotFoundError:
 
 insert_incoming_file_event = _db_connection.insert_incoming_file_event
 
+_tender_analytics = _load_module_from_path(
+    "cds_tender_analytics",
+    Path(__file__).resolve().with_name("tender_analytics.py"),
+)
+tender_analytics = _tender_analytics.tender_analytics
+load_tender_analytics_job = _tender_analytics.load_tender_analytics_job
+
 INCOMING_DATA_DIR = Path(os.getenv("CDS_INCOMING_DATA_DIR", "/app/data/cds/incoming"))
 PROCESSED_DATA_DIR = Path(os.getenv("CDS_PROCESSED_DATA_DIR", "/app/data/cds/processed"))
 OFFERS_FIXTURE_PATH = Path(
@@ -569,9 +576,10 @@ def incoming_files_sensor(context: SensorEvaluationContext):
 
 
 defs = Definitions(
-    assets=[hello_cds],
+    assets=[hello_cds, tender_analytics],
     jobs=[
         hello_cds_job,
+        load_tender_analytics_job,
         load_offers_1000_job,
         pickup_incoming_files_job,
         process_incoming_file_job,

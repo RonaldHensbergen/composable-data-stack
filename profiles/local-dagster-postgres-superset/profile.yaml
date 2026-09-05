@@ -62,6 +62,9 @@ spec:
         - postgres
       config:
         webPort: 3000
+        kubernetesService:
+          type: NodePort
+          nodePort: 30300
         daemon:
           enabled: true
         homeDir: /opt/dagster/dagster_home
@@ -73,6 +76,9 @@ spec:
         definitionsFile:
           hostPath: ./workdirs/dagster/definitions.py
           containerPath: /app/workdirs/dagster/definitions.py
+        tenderAnalyticsFile:
+          hostPath: ./workdirs/dagster/tender_analytics.py
+          containerPath: /app/workdirs/dagster/tender_analytics.py
         storage:
           backend: postgres
           runStorage:
@@ -106,6 +112,9 @@ spec:
         - keydb
       config:
         webPort: 8088
+        kubernetesService:
+          type: NodePort
+          nodePort: 30808
         secretKeyFrom: secrets.superset_secret_key
         adminUser:
           username: admin
@@ -113,6 +122,8 @@ spec:
           email: admin@example.local
         metadataDatabase:
           contractRef: postgres.superset-database
+        analyticsDatabase:
+          contractRef: postgres.sql-database
         cacheService:
           contractRef: keydb.cache-service
         healthcheck:

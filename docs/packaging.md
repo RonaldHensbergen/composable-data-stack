@@ -14,6 +14,11 @@ are not installed into the Python environment. Until registry-backed
 `cds pull` support exists, use a repository checkout or provide external roots
 through `CDS_PROFILE_PATH` and `CDS_MODULE_PATH`.
 
+The wheel includes both renderers. Docker Compose remains the default target.
+Users of `--target helm` must install Helm and kubectl separately and must supply
+their own Kubernetes context. The package does not embed cluster credentials or
+secret values.
+
 ## Environment variables
 
 The CLI supports two optional variables:
@@ -133,6 +138,7 @@ Wrap the bundled executable in an MSI using WiX Toolset or another Windows insta
    - `cds list profiles`
    - `cds list modules`
    - `cds validate local-dagster-postgres-superset`
+   - `cds render local-dagster-postgres-superset --target helm`
 
 ## TestPyPI publishing
 

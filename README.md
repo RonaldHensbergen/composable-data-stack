@@ -216,6 +216,7 @@ When you run CDS:
 - resolved contract bindings
 - dependency-aware execution plan
 - generated Docker Compose configuration
+- generated Helm chart for Kubernetes
 - reproducible stack definition
 
 This allows you to go from a declarative profile to a runnable local data stack.
@@ -247,6 +248,10 @@ The `cds up` command and generated local profiles additionally require:
 - Free host ports required by the selected profile
 - Write access to the checkout for `.env`, `docker-compose.yml`, and workdir
   data
+
+For Kubernetes, install Helm and kubectl and provide an explicit kube context.
+The local k3s workflow uses k3d and is documented in
+[docs/kubernetes.md](docs/kubernetes.md).
 
 Docker Desktop on Windows must use the WSL 2 backend. See the
 [support policy](docs/support-policy.md) for supported operating systems and
@@ -411,6 +416,12 @@ cds render local-dagster-postgres-superset
 ```
 
 By default, this writes `docker-compose.yml` to the project root.
+
+Render the same plan as a Helm chart with:
+
+```bash
+cds render local-dagster-postgres-superset --target helm
+```
 
 Use a custom location when needed:
 
@@ -678,12 +689,13 @@ runs, with a dedicated diagnostic code:
 |cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|
 |cds list profiles\|modules\|images [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>]|List available profiles, module sources, or module images and check for newer versions; add `--remote`/`--local` to inspect another repository before fetching from it|
 |cds init [profile]|Generate a project `.env` template from profile secret definitions|
-|cds validate [profile]|Validate modules and contracts|
+|cds validate [profile]|Validate modules and contracts; use `--target helm` for Kubernetes checks|
 |cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
-|cds render [profile]|Generate Docker Compose configuration from a resolved plan|
-|cds up [profile]|Validate, plan, render, build, and start services with docker compose; logs output to a file and shows a live `cds state` view until the stack settles (use `--no-build` to skip build, `--detach` to skip the live view, `--log-file`/`--timeout`/`--no-color` to override defaults)|
-|cds state [profile]|Show running service status grouped by health (use `--no-color` to disable colored labels)|
+|cds render [profile]|Generate Docker Compose or a Helm chart from a resolved plan|
+|cds up [profile]|Validate, plan, render, and start the Compose or Helm target; use `--target helm` for Kubernetes|
+|cds down [profile]|Stop Compose or uninstall a Helm release; Helm PVCs are retained by default|
+|cds state [profile]|Show Compose services or Kubernetes workloads grouped by health|
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 |cds security [profile]|Run rule-based security validation on a profile|
 |cds diff [profile] --from \<env\> --to \<env\>|Show effective configuration differences between two environment overlays, secrets never included|
@@ -901,11 +913,11 @@ MVP ready:
 - security checks
 - profile composition
 - Docker Compose rendering
+- Kubernetes Helm rendering and local k3s lifecycle
+- runtime startup, health state, and shutdown
 
 Next:
 
-- runtime orchestration
-- Kubernetes support
 - advanced secret providers
 - stack bootstrap and health checks
 
@@ -940,6 +952,8 @@ Good first contributions:
 ## 📖 Documentation
 
 - [Quickstart](README.md#-quickstart) — get running in 5 minutes
+- [How CDS Works](docs/how-it-works.md) — C4 + sequence diagrams of the validate → plan → render engine
+- [Kubernetes Target](docs/kubernetes.md): Helm rendering and isolated local k3s workflow
 - [From Docker Compose to CDS Profile](docs/from-docker-to-cds-profile.md) — complete transformation guide
 - [Architecture](docs/architecture.md) — design and core concepts
 - [Modules](docs/modules.md) — how to structure reusable components
