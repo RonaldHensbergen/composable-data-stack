@@ -669,6 +669,12 @@ def _rewrite_depends_on(
     return {**service_def, "depends_on": rewritten}
 
 
+_REGISTRY_IMAGE_TEMPLATES = {
+    "dockerhub": "docker.io/ronaldsoeverein/{module_id}:{tag}",
+    "ghcr": "ghcr.io/ronaldhensbergen/cds-{module_id}:{tag}",
+}
+
+
 def _apply_image_source(
     service_def: dict[str, Any],
     module: dict[str, Any],
@@ -678,8 +684,14 @@ def _apply_image_source(
     when the module's config.image.source is "registry".
 
     When config.image.source is "registry", any "build" key is dropped and
-    "image" is rewritten to
-    "docker.io/ronaldsoeverein/<module id>:<config.image.tag>". Emitting
+    "image" is rewritten to a reference on the registry named by
+    config.image.registry ("dockerhub", the default, or "ghcr"):
+    "docker.io/ronaldsoeverein/<module id>:<config.image.tag>" or
+    "ghcr.io/ronaldhensbergen/cds-<module id>:<config.image.tag>"
+    respectively -- the same two registries .github/workflows/publish-images.yml
+    publishes to (see docs/image-signing.md for the tag scheme, which
+    differs slightly between the two: GHCR has no version-derived tag,
+    only sha-<sha>/latest, optionally variant/alpine-prefixed). Emitting
     a registry reference without a tag would silently produce an untagged
     image, so the service is left unchanged (with the build: block intact)
     if no tag is configured; validator enforcement of a required tag is
@@ -693,9 +705,12 @@ def _apply_image_source(
     if not tag:
         return service_def
 
+    registry = image_config.get("registry", "dockerhub")
+    template = _REGISTRY_IMAGE_TEMPLATES.get(registry, _REGISTRY_IMAGE_TEMPLATES["dockerhub"])
+
     service_copy = dict(service_def)
     service_copy.pop("build", None)
-    service_copy["image"] = f"docker.io/ronaldsoeverein/{module.get('id')}:{tag}"
+    service_copy["image"] = template.format(module_id=module.get("id"), tag=tag)
     return service_copy
 
 
