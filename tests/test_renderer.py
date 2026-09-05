@@ -852,6 +852,147 @@ class RendererRegressionTest(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertNotIn("web-app", output)
 
+    def test_render_compose_drops_volume_entry_when_enabled_from_resolves_false(self):
+        """A service's volumes list can mix bind-mounts that only apply to
+        one of several mutually-exclusive consumed contracts (e.g. a module
+        that targets either a sql-database or a file-database, selected by
+        a config field). An entry's enabledFrom is evaluated against
+        config/bindings and, when it resolves to False, the entry is
+        dropped entirely -- never reaching output as an unresolved
+        ${bindings.*} placeholder."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "worker",
+                    "config": {"warehouseType": "postgres"},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "worker:latest",
+                                    "volumes": [
+                                        {
+                                            "type": "bind",
+                                            "source": "/host/always",
+                                            "target": "/always",
+                                        },
+                                        {
+                                            "type": "bind",
+                                            "source": "${bindings.target-warehouse-file.hostDirectory}",
+                                            "target": "/usr/app/dbt_duckdb",
+                                            "enabledFrom": "config.warehouseType==duckdb",
+                                        },
+                                    ],
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        volumes = compose["services"]["worker-app"]["volumes"]
+        self.assertEqual(len(volumes), 1)
+        self.assertEqual(volumes[0]["target"], "/always")
+
+    def test_render_compose_keeps_volume_entry_when_enabled_from_resolves_true(self):
+        """The mirror case of the test above: when the equality gate
+        matches, the entry is kept, its enabledFrom key is stripped, and
+        its ${...} expressions are substituted normally."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "worker",
+                    "config": {"warehouseType": "duckdb"},
+                    "consumes": {
+                        "target-warehouse-file": {
+                            "contractRef": "duckdb.file-database",
+                            "contract": {
+                                "kind": "file-database",
+                                "spec": {"hostDirectory": "./data/duckdb"},
+                            },
+                        }
+                    },
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "worker:latest",
+                                    "volumes": [
+                                        {
+                                            "type": "bind",
+                                            "source": "${bindings.target-warehouse-file.hostDirectory}",
+                                            "target": "/usr/app/dbt_duckdb",
+                                            "enabledFrom": "config.warehouseType==duckdb",
+                                        },
+                                    ],
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        volumes = compose["services"]["worker-app"]["volumes"]
+        self.assertEqual(len(volumes), 1)
+        self.assertEqual(volumes[0]["source"], "data/duckdb")
+        self.assertNotIn("enabledFrom", volumes[0])
+
+    def test_render_compose_equality_gate_tolerates_whitespace_around_operator(self):
+        """A previous bug compared the raw, unstripped left/right sides of
+        an enabledFrom equality gate, so "config.warehouseType == duckdb"
+        (spaces around "==") never matched -- silently dropping the
+        guarded entry instead of raising an error. Both sides must now be
+        stripped before comparison."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "worker",
+                    "config": {"warehouseType": "duckdb"},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "worker:latest",
+                                    "volumes": [
+                                        {
+                                            "type": "bind",
+                                            "source": "/host/data",
+                                            "target": "/data",
+                                            "enabledFrom": "config.warehouseType == duckdb",
+                                        },
+                                    ],
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        volumes = compose["services"]["worker-app"]["volumes"]
+        self.assertEqual(len(volumes), 1)
+        self.assertEqual(volumes[0]["target"], "/data")
+
 
 class ImageSourceRenderingTest(unittest.TestCase):
     def _plan(self, image_config):
@@ -936,6 +1077,87 @@ class ImageSourceRenderingTest(unittest.TestCase):
         service = compose["services"]["dagster-user-code"]
         self.assertNotIn("build", service)
         self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:hardened-1.8.0")
+
+
+class SupersetImageSourceRenderingTest(unittest.TestCase):
+    """Mirrors ImageSourceRenderingTest (Dagster) for the Superset module,
+    which has no image.variant split -- only image.source/image.tag."""
+
+    def _plan(self, image_config):
+        return {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "superset",
+                    "config": {"image": image_config},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "superset-init": {
+                                    "build": {
+                                        "context": ".",
+                                        "dockerfile": "images/superset/base/Dockerfile",
+                                    },
+                                    "image": "local/superset:custom",
+                                },
+                                "superset": {
+                                    "build": {
+                                        "context": ".",
+                                        "dockerfile": "images/superset/base/Dockerfile",
+                                    },
+                                    "image": "local/superset:custom",
+                                },
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+    def test_default_source_build_leaves_build_block_intact(self):
+        plan = self._plan({"source": "build"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["superset"]
+        self.assertIn("build", service)
+        self.assertEqual(service["image"], "local/superset:custom")
+
+    def test_source_registry_with_tag_drops_build_and_rewrites_image(self):
+        plan = self._plan({"source": "registry", "tag": "3.1.0"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["superset"]
+        self.assertNotIn("build", service)
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/superset:3.1.0")
+
+    def test_source_registry_without_tag_falls_back_to_build(self):
+        plan = self._plan({"source": "registry"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["superset"]
+        self.assertIn("build", service)
+        self.assertEqual(service["image"], "local/superset:custom")
+
+    def test_source_registry_rewrites_init_service_too(self):
+        plan = self._plan({"source": "registry", "tag": "3.1.0"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["superset-init"]
+        self.assertNotIn("build", service)
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/superset:3.1.0")
 
 
 if __name__ == "__main__":

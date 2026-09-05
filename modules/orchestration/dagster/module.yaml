@@ -67,9 +67,14 @@ spec:
               Selects the image build directory under images/dagster/ used
               for the user-code, webserver, and daemon services. "base"
               builds the default Debian-based (python:3.14-slim) image
-              optimized for compatibility. "hardened" builds the Alpine-based
-              image optimized for a minimal attack surface and fewer
-              vulnerabilities.
+              optimized for compatibility. "hardened" builds the
+              Alpine-based image, which uses a musl/busybox userland
+              instead of glibc/Debian and has a smaller base image. This
+              does not guarantee fewer CVEs at any given time: each
+              distro's own patch cadence for OS packages can leave either
+              variant ahead on open vulnerabilities (see .trivyignore and
+              docs/image-scanning.md). Both variants run as a non-root
+              user with no build tooling in the final image.
           source:
             type: string
             enum:
@@ -86,11 +91,20 @@ spec:
               be set.
           tag:
             type: string
+            # cds-registry-tag-source: pypi/dagster -- kept in sync with the
+            # dagster== pin in images/dagster/requirements.txt by Renovate;
+            # see renovate.json's customManagers. Used as the base (non-
+            # variant-prefixed) tag when `cds render/up/test --image-source
+            # registry` is passed without an explicit config.image.tag.
+            default: "1.13.21"
             description: >
               Registry tag to pull when image.source is "registry", e.g. a
               version published by .github/workflows/publish-images.yml
               (optionally prefixed with the variant, such as
               "hardened-1.8.0"). Ignored when image.source is "build".
+              Defaults to the pinned dagster PyPI version above, kept in
+              sync by Renovate; pass an explicit config.image.tag
+              to override.
 
       storage:
         type: object

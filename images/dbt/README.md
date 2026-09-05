@@ -2,8 +2,10 @@
 
 Custom image for the [Composable Data Stack (CDS)](https://github.com/RonaldHensbergen/composable-data-stack)
 `modules/transformation/dbt` module. Runs `dbt-core` against a
-consumed `sql-database` contract (e.g. the `postgres` module) and, optionally,
-generates and serves static `dbt docs` output.
+consumed target warehouse -- a `sql-database` contract (e.g. the `postgres`
+module) or a `file-database` contract (e.g. the `duckdb` module), selected
+via `config.warehouseType` -- and, optionally, generates and serves static
+`dbt docs` output.
 
 > This image is built and wired automatically by `cds render`/`cds up` for
 > profiles that include the `dbt` module — you normally never invoke it
@@ -31,7 +33,10 @@ usual base. Revisit this pin once dbt Labs ships a 3.14-compatible
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DBT_HOST` / `DBT_PORT` / `DBT_DBNAME` / `DBT_USER` / `DBT_PASSWORD` / `DBT_SCHEMA` | yes | Connection fields for `images/dbt/profiles.yml`'s `cds_target` profile, sourced from the module's consumed `sql-database` contract binding |
+| `DBT_WAREHOUSE_TYPE` | yes | Selects the `profiles.yml` target: `postgres` or `duckdb`, sourced from `config.warehouseType`. Determines which of the two variable groups below is required. |
+| `DBT_HOST` / `DBT_PORT` / `DBT_DBNAME` / `DBT_USER` / `DBT_PASSWORD` | yes, when `DBT_WAREHOUSE_TYPE=postgres` | Connection fields for the `postgres` output, sourced from the module's consumed `sql-database` contract binding (`config.targetDatabase.contractRef`) |
+| `DBT_DUCKDB_PATH` | yes, when `DBT_WAREHOUSE_TYPE=duckdb` | Path to the shared `.duckdb` file for the `duckdb` output: the fixed container path `/usr/app/dbt_duckdb` (hardcoded, not user-configurable) combined with the consumed `file-database` contract's `filename` |
+| `DBT_SCHEMA` | yes | Schema/dataset name, shared by both outputs |
 | `DBT_THREADS` | no | dbt `threads` setting (default `4`) |
 | `DBT_COMMANDS` | yes | Newline-separated list of dbt subcommands to run in order (e.g. `run\ntest\ndocs generate`), executed by `entrypoint.sh` |
 | `DBT_PROJECT_DIR` | baked in | dbt project directory (default `/usr/app/dbt`), bind-mounted read-only from the host project source |
@@ -45,6 +50,7 @@ usual base. Revisit this pin once dbt Labs ships a 3.14-compatible
 | `$DBT_PROJECT_DIR` | dbt project source (models, `dbt_project.yml`) — mounted **read-only** |
 | `$DBT_TARGET_PATH` | dbt artifacts (`manifest.json`, `catalog.json`, generated docs HTML) — shared with the optional `dbt-docs` nginx service |
 | `$DBT_LOG_PATH` | dbt run logs |
+| `/usr/app/dbt_duckdb` (only when `DBT_WAREHOUSE_TYPE=duckdb`) | the consumed `file-database` contract's shared `hostDirectory`, bind-mounted **read-write** so dbt can create/update tables in the `.duckdb` file |
 
 ## Serving docs (optional nginx sidecar)
 

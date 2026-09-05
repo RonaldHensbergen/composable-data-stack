@@ -9,10 +9,13 @@ metadata:
   displayName: dbt
   description: >
     dbt-core transformation module. Runs a bind-mounted dbt project's
-    models/tests against a consumed sql-database contract as a one-shot job,
-    and optionally serves generated dbt docs via a small nginx sidecar. See
-    images/dbt/README.md for why this image is pinned to Python 3.13 instead
-    of the repo's usual 3.14 base.
+    models/tests as a one-shot job against a consumed target warehouse --
+    either a client-server sql-database contract (e.g. the postgres
+    module) or an embedded file-database contract (e.g. the duckdb
+    module), selected via config.warehouseType -- and optionally serves
+    generated dbt docs via a small nginx sidecar. See images/dbt/README.md
+    for why this image is pinned to Python 3.13 instead of the repo's
+    usual 3.14 base.
 
 spec:
   runtime:
@@ -29,8 +32,7 @@ spec:
   configSchema:
     type: object
     additionalProperties: false
-    required:
-      - targetDatabase
+    required: []
     properties:
       project:
         type: object
@@ -47,15 +49,51 @@ spec:
             pattern: "^/"
             default: /usr/app/dbt
 
+      warehouseType:
+        type: string
+        enum:
+          - postgres
+          - duckdb
+        default: postgres
+        description: >
+          Selects which consumed target the rendered dbt profile points at.
+          "postgres" requires targetDatabase.contractRef to reference a
+          sql-database provider; "duckdb" requires
+          targetWarehouseFile.contractRef to reference a file-database
+          provider. Only one of targetDatabase/targetWarehouseFile needs to
+          be set, matching this value -- each consume entry's requiredIf
+          below enforces the match at compile time (E041), so a mismatch
+          fails `cds validate`/`cds test` instead of only being caught by
+          entrypoint.sh's runtime check at container start.
+
       targetDatabase:
         type: object
         additionalProperties: false
-        required:
-          - contractRef
+        default: {}
         properties:
           contractRef:
             type: string
             pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
+      targetWarehouseFile:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+        description: >
+          The consumed file-database contract's shared directory is always
+          bind-mounted to the fixed container path /usr/app/dbt_duckdb
+          (hardcoded in the compose template, not user-configurable) --
+          this field only needs contractRef. Keeping this object free of
+          its own defaulted properties matters: CDS's schema-default
+          application recursively fills in nested property defaults even
+          when the whole object is omitted, which would otherwise make an
+          unset-but-still-non-empty targetWarehouseFile indistinguishable
+          from a real binding and break the required:false skip-when-unset
+          behavior below.
 
       schema:
         type: string
@@ -106,8 +144,16 @@ spec:
     - name: target-database
       contract:
         kind: sql-database
-      required: true
+      required: false
+      requiredIf: "config.warehouseType==postgres"
       mappedFrom: spec.config.targetDatabase
+
+    - name: target-warehouse-file
+      contract:
+        kind: file-database
+      required: false
+      requiredIf: "config.warehouseType==duckdb"
+      mappedFrom: spec.config.targetWarehouseFile
 
   provides:
     - name: docs-service
@@ -148,12 +194,32 @@ spec:
               read_only: true
             - dbt-target:/usr/app/dbt_target
             - dbt-logs:/usr/app/dbt_logs
+            - type: bind
+              source: "${bindings.target-warehouse-file.hostDirectory}"
+              target: /usr/app/dbt_duckdb
+              enabledFrom: "config.warehouseType==duckdb"
+          # Both targets' env vars are always present in this template, but
+          # only one is active per instance (config.warehouseType). The
+          # postgres vars use ifNonempty because they must tolerate being
+          # unbound when duckdb is selected. The requiredIf gates on
+          # target-database/target-warehouse-file above guarantee
+          # target-warehouse-file is always bound when duckdb is selected
+          # (E041 fails the build otherwise), so the bind mount source
+          # above uses a plain ref -- nothing to tolerate there. The
+          # DBT_DUCKDB_PATH filename segment still uses ifNonempty as
+          # defense in depth: file-database's `filename` field is required
+          # by shared/contracts/file-database.yaml, but nothing here
+          # re-validates that at compile time the way requiredIf does for
+          # the binding itself, so an empty value degrades to targeting
+          # the mounted directory instead of failing the substitution.
           environment:
-            DBT_HOST: "${bindings.target-database.host}"
-            DBT_PORT: "${bindings.target-database.port}"
-            DBT_DBNAME: "${bindings.target-database.database}"
-            DBT_USER: "${bindings.target-database.username}"
-            DBT_PASSWORD: "${bindings.target-database.password}"
+            DBT_WAREHOUSE_TYPE: "${config.warehouseType}"
+            DBT_HOST: "${ifNonempty:bindings.target-database.host,,}"
+            DBT_PORT: "${ifNonempty:bindings.target-database.port,,}"
+            DBT_DBNAME: "${ifNonempty:bindings.target-database.database,,}"
+            DBT_USER: "${ifNonempty:bindings.target-database.username,,}"
+            DBT_PASSWORD: "${ifNonempty:bindings.target-database.password,,}"
+            DBT_DUCKDB_PATH: "/usr/app/dbt_duckdb/${ifNonempty:bindings.target-warehouse-file.filename,,}"
             DBT_SCHEMA: "${config.schema}"
             DBT_THREADS: "${config.threads}"
             DBT_COMMANDS: "${config.commands}"

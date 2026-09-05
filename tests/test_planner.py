@@ -231,6 +231,167 @@ class PlannerRegressionTest(unittest.TestCase):
             dagster_entry = next(m for m in plan["modules"] if m["id"] == "dagster")
             self.assertEqual(dagster_entry["config"]["image"]["variant"], "base")
 
+    def _write_module_with_image_source(
+        self,
+        module_dir: Path,
+        supports_source: bool,
+        supports_variant: bool = False,
+        default_tag: str | None = None,
+    ) -> None:
+        import yaml
+
+        image_properties: dict = {}
+        if supports_variant:
+            image_properties["variant"] = {
+                "type": "string",
+                "enum": ["base", "hardened"],
+                "default": "base",
+            }
+        if supports_source:
+            image_properties["source"] = {
+                "type": "string",
+                "enum": ["build", "registry"],
+                "default": "build",
+            }
+            tag_schema: dict = {"type": "string"}
+            if default_tag is not None:
+                tag_schema["default"] = default_tag
+            image_properties["tag"] = tag_schema
+
+        config_schema: dict = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+        }
+        if image_properties:
+            config_schema["properties"]["image"] = {
+                "type": "object",
+                "additionalProperties": False,
+                "default": {},
+                "properties": image_properties,
+            }
+
+        module_def = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Module",
+            "metadata": {"name": module_dir.name},
+            "spec": {
+                "configSchema": config_schema,
+                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+            },
+        }
+        module_dir.mkdir(parents=True)
+        (module_dir / "module.yaml").write_text(yaml.safe_dump(module_def), encoding="utf-8")
+
+    def _build_single_module_plan(self, profile_dir: Path, module_id: str, config: dict, hardened: bool = False, image_source: str | None = None):
+        import yaml
+
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "local-test"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {"id": module_id, "source": f"./modules/{module_id}", "enabled": True, "config": config},
+                ],
+                "secrets": {"provider": {"type": "env"}, "values": {}},
+            },
+        }
+        profile_file = profile_dir / "profile.yaml"
+        profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+        return planner.build_plan(str(profile_file), hardened=hardened, image_source=image_source)
+
+    def test_build_plan_image_source_flag_overrides_source_for_supporting_modules(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            self._write_module_with_image_source(
+                profile_dir / "modules" / "superset", supports_source=True, default_tag="6.1.0"
+            )
+
+            plan, diagnostics = self._build_single_module_plan(
+                profile_dir, "superset", config={}, image_source="registry"
+            )
+
+            self.assertIsNotNone(plan)
+            self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+            entry = next(m for m in plan["modules"] if m["id"] == "superset")
+            self.assertEqual(entry["config"]["image"]["source"], "registry")
+            self.assertEqual(entry["config"]["image"]["tag"], "6.1.0")
+
+    def test_build_plan_image_source_flag_leaves_unsupported_modules_untouched(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            self._write_module_with_image_source(profile_dir / "modules" / "postgres", supports_source=False)
+
+            plan, diagnostics = self._build_single_module_plan(
+                profile_dir, "postgres", config={}, image_source="registry"
+            )
+
+            self.assertIsNotNone(plan)
+            entry = next(m for m in plan["modules"] if m["id"] == "postgres")
+            self.assertNotIn("image", entry["config"])
+
+    def test_build_plan_image_source_flag_does_not_overwrite_explicit_profile_tag(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            self._write_module_with_image_source(
+                profile_dir / "modules" / "superset", supports_source=True, default_tag="6.1.0"
+            )
+
+            plan, diagnostics = self._build_single_module_plan(
+                profile_dir,
+                "superset",
+                config={"image": {"tag": "5.0.0-custom"}},
+                image_source="registry",
+            )
+
+            self.assertIsNotNone(plan)
+            entry = next(m for m in plan["modules"] if m["id"] == "superset")
+            self.assertEqual(entry["config"]["image"]["source"], "registry")
+            self.assertEqual(entry["config"]["image"]["tag"], "5.0.0-custom")
+
+    def test_build_plan_image_source_registry_with_hardened_prefixes_default_tag(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            self._write_module_with_image_source(
+                profile_dir / "modules" / "dagster",
+                supports_source=True,
+                supports_variant=True,
+                default_tag="1.13.20",
+            )
+
+            plan, diagnostics = self._build_single_module_plan(
+                profile_dir, "dagster", config={}, hardened=True, image_source="registry"
+            )
+
+            self.assertIsNotNone(plan)
+            entry = next(m for m in plan["modules"] if m["id"] == "dagster")
+            self.assertEqual(entry["config"]["image"]["variant"], "hardened")
+            self.assertEqual(entry["config"]["image"]["source"], "registry")
+            self.assertEqual(entry["config"]["image"]["tag"], "hardened-1.13.20")
+
+    def test_build_plan_image_source_build_leaves_tag_default_bare(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            self._write_module_with_image_source(
+                profile_dir / "modules" / "superset", supports_source=True, default_tag="6.1.0"
+            )
+
+            plan, diagnostics = self._build_single_module_plan(
+                profile_dir, "superset", config={}, image_source="build"
+            )
+
+            self.assertIsNotNone(plan)
+            entry = next(m for m in plan["modules"] if m["id"] == "superset")
+            self.assertEqual(entry["config"]["image"]["source"], "build")
+            self.assertEqual(entry["config"]["image"]["tag"], "6.1.0")
+
     def test_build_plan_resolves_provider_contract_placeholders_for_consumers(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -916,6 +1077,194 @@ class PlannerRegressionTest(unittest.TestCase):
 
         with self.assertRaises(planner.MaxNestingDepthExceeded):
             planner.substitute_values(obj, context={})
+
+
+class RequiredIfConsumeTest(unittest.TestCase):
+    """
+    Covers the requiredIf gate (cli/resolver.py's evaluate_required_if, used
+    by both cli/planner.py's resolve_consumed_contracts and
+    cli/validator.py's validate_contract_bindings) with a dbt-warehouseType-
+    shaped module: two optional consumes (a sql-database "target-database"
+    and a file-database "target-warehouse-file"), each requiredIf-gated on
+    config.warehouseType, mirroring modules/transformation/dbt.
+    """
+
+    def _write_profile(self, tmpdir: str, warehouse_type: str, database_ref: str | None, warehouse_file_ref: str | None) -> str:
+        import yaml
+
+        root = Path(tmpdir)
+        profile_dir = root / "profiles" / "local"
+        postgres_dir = profile_dir / "modules" / "postgres"
+        duckdb_dir = profile_dir / "modules" / "duckdb"
+        consumer_dir = profile_dir / "modules" / "consumer"
+        for d in (postgres_dir, duckdb_dir, consumer_dir):
+            d.mkdir(parents=True)
+
+        postgres_module = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Module",
+            "metadata": {"name": "postgres"},
+            "spec": {
+                "configSchema": {"type": "object", "additionalProperties": False},
+                "provides": [
+                    {
+                        "name": "sql-database",
+                        "contract": {"kind": "sql-database", "spec": {"host": "postgres"}},
+                    }
+                ],
+                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+            },
+        }
+        duckdb_module = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Module",
+            "metadata": {"name": "duckdb"},
+            "spec": {
+                "configSchema": {"type": "object", "additionalProperties": False},
+                "provides": [
+                    {
+                        "name": "file-database",
+                        "contract": {"kind": "file-database", "spec": {"hostDirectory": "./data/duckdb"}},
+                    }
+                ],
+                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+            },
+        }
+        consumer_module = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Module",
+            "metadata": {"name": "consumer"},
+            "spec": {
+                "configSchema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "warehouseType": {"type": "string", "enum": ["postgres", "duckdb"], "default": "postgres"},
+                        "targetDatabase": {"type": "object", "additionalProperties": False, "default": {}, "properties": {"contractRef": {"type": "string"}}},
+                        "targetWarehouseFile": {"type": "object", "additionalProperties": False, "default": {}, "properties": {"contractRef": {"type": "string"}}},
+                    },
+                },
+                "consumes": [
+                    {
+                        "name": "target-database",
+                        "contract": {"kind": "sql-database"},
+                        "required": False,
+                        "requiredIf": "config.warehouseType==postgres",
+                        "mappedFrom": "spec.config.targetDatabase",
+                    },
+                    {
+                        "name": "target-warehouse-file",
+                        "contract": {"kind": "file-database"},
+                        "required": False,
+                        "requiredIf": "config.warehouseType==duckdb",
+                        "mappedFrom": "spec.config.targetWarehouseFile",
+                    },
+                ],
+                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+            },
+        }
+
+        (postgres_dir / "module.yaml").write_text(yaml.safe_dump(postgres_module), encoding="utf-8")
+        (duckdb_dir / "module.yaml").write_text(yaml.safe_dump(duckdb_module), encoding="utf-8")
+        (consumer_dir / "module.yaml").write_text(yaml.safe_dump(consumer_module), encoding="utf-8")
+
+        consumer_config: dict = {"warehouseType": warehouse_type}
+        if database_ref is not None:
+            consumer_config["targetDatabase"] = {"contractRef": database_ref}
+        if warehouse_file_ref is not None:
+            consumer_config["targetWarehouseFile"] = {"contractRef": warehouse_file_ref}
+
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "local-test"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {"id": "postgres", "source": "./modules/postgres", "enabled": True, "config": {}},
+                    {"id": "duckdb", "source": "./modules/duckdb", "enabled": True, "config": {}},
+                    {
+                        "id": "consumer",
+                        "source": "./modules/consumer",
+                        "enabled": True,
+                        "dependsOn": ["postgres", "duckdb"],
+                        "config": consumer_config,
+                    },
+                ],
+                "secrets": {"provider": {"type": "env"}, "values": {}},
+            },
+        }
+        profile_file = profile_dir / "profile.yaml"
+        profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+        return str(profile_file)
+
+    def test_build_plan_resolves_target_database_when_warehouse_type_is_postgres(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_file = self._write_profile(tmpdir, "postgres", "postgres.sql-database", None)
+            plan, diagnostics = planner.build_plan(profile_file)
+
+            self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+            consumer_entry = next(m for m in plan["modules"] if m["id"] == "consumer")
+            self.assertIn("target-database", consumer_entry["consumes"])
+            self.assertNotIn("target-warehouse-file", consumer_entry["consumes"])
+
+    def test_build_plan_resolves_target_warehouse_file_when_warehouse_type_is_duckdb(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_file = self._write_profile(tmpdir, "duckdb", None, "duckdb.file-database")
+            plan, diagnostics = planner.build_plan(profile_file)
+
+            self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+            consumer_entry = next(m for m in plan["modules"] if m["id"] == "consumer")
+            self.assertIn("target-warehouse-file", consumer_entry["consumes"])
+            self.assertNotIn("target-database", consumer_entry["consumes"])
+
+    def test_build_plan_reports_e041_when_warehouse_type_mismatches_bound_target(self):
+        """warehouseType selects postgres, but only the duckdb-side
+        targetWarehouseFile binding is set (e.g. a config typo/omission) --
+        requiredIf must fail this as E041 rather than silently planning
+        without a target-database binding at all."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_file = self._write_profile(tmpdir, "postgres", None, "duckdb.file-database")
+            plan, diagnostics = planner.build_plan(profile_file)
+
+            errors = [d for d in diagnostics if d.level == "error"]
+            self.assertTrue(errors)
+            self.assertTrue(all(d.code == "E041" for d in errors))
+
+
+class RequiredIfMalformedGatePlannerTest(unittest.TestCase):
+    """
+    Direct unit test for resolve_consumed_contracts against a malformed
+    requiredIf gate, bypassing module.schema.json's requiredIf pattern (the
+    schema stops a malformed expression earlier in practice), to prove the
+    resolver-level defense-in-depth also fails loudly at plan time with an
+    E021 diagnostic instead of silently disabling the requiredIf gate.
+    """
+
+    def test_missing_operator_reports_e021_instead_of_silently_skipping(self):
+        inst = {
+            "id": "consumer",
+            "config": {"warehouseType": "duckdb"},
+            "module": {
+                "spec": {
+                    "consumes": [
+                        {
+                            "name": "target-database",
+                            "contract": {"kind": "sql-database"},
+                            "required": False,
+                            "requiredIf": "config.warehouseType",
+                            "mappedFrom": "spec.config.targetDatabase",
+                        }
+                    ]
+                }
+            },
+        }
+        diagnostics: list = []
+        planner.resolve_consumed_contracts(inst, {}, {}, diagnostics)
+
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E021"])
+        self.assertIn("malformed requiredIf", errors[0].message)
 
 
 if __name__ == "__main__":
