@@ -1,0 +1,131 @@
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: dlt
+  category: ingestion
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: dlt (experimental)
+  description: >
+    Experimental dlt (data load tool) ingestion module. Runs a bind-mounted
+    Python pipeline script as a one-shot job that extracts from a source and
+    loads into a consumed sql-database contract (e.g. the postgres module).
+    See images/dlt/README.md for configuration details.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: dlt
+      ports: []
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - destinationDatabase
+    properties:
+      pipeline:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          hostPath:
+            type: string
+            minLength: 1
+            default: ./workdirs/dlt
+          containerPath:
+            type: string
+            minLength: 1
+            pattern: "^/"
+            default: /usr/app/dlt
+
+      entrypointScript:
+        type: string
+        minLength: 1
+        default: pipeline.py
+        description: >
+          Filename (relative to config.pipeline.containerPath) that
+          entrypoint.sh runs with `python`. Replace workdirs/dlt/pipeline.py
+          with a real extract-load pipeline; this only needs to be a valid
+          Python script that dlt can execute.
+
+      destinationDatabase:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
+      destinationDataset:
+        type: string
+        minLength: 1
+        default: raw
+        description: >
+          dlt "dataset_name" — the schema/dataset the pipeline loads into at
+          the consumed destination. Exposed to the pipeline script as the
+          DLT_DATASET_NAME environment variable.
+
+      pipelineName:
+        type: string
+        minLength: 1
+        default: cds_dlt_pipeline
+        description: >
+          dlt "pipeline_name" — identifies this pipeline's local state
+          (schema history, incremental load cursors) on the dlt-state
+          volume. Exposed to the pipeline script as the DLT_PIPELINE_NAME
+          environment variable.
+
+  consumes:
+    - name: destination-database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.destinationDatabase
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        dlt-run:
+          build:
+            context: ../../../
+            dockerfile: images/dlt/Dockerfile
+          image: local/dlt:custom
+          restart: "no"
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 256
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=1777
+            - /home/dlt/.dlt:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700
+          hostname: "${service.host}"
+          healthcheck:
+            disable: true
+          volumes:
+            - type: bind
+              source: "${config.pipeline.hostPath}"
+              target: "${config.pipeline.containerPath}"
+              read_only: true
+            - dlt-state:/usr/app/dlt_state
+          environment:
+            DESTINATION__POSTGRES__CREDENTIALS: "${bindings.destination-database.connectionUri}"
+            DLT_DATASET_NAME: "${config.destinationDataset}"
+            DLT_PIPELINE_NAME: "${config.pipelineName}"
+            DLT_PIPELINES_DIR: /usr/app/dlt_state
+            DLT_PROJECT_DIR: "${config.pipeline.containerPath}"
+            DLT_ENTRYPOINT: "${config.entrypointScript}"
+
+      volumes:
+        dlt-state: {}
