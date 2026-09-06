@@ -9,6 +9,10 @@ The format is based on Keep a Changelog.
 ### Changed
 
 - Raised the `coverage`-enforced `cli/` coverage gate from 65% to 80%, matching actual measured coverage and the industry norm for a security-focused tool (`pyproject.toml`'s `[tool.coverage.report]` `fail_under`) (#471).
+
+### Added
+
+- Added `test_fetch_profile_rejects_dockerfile_copy_traversal_escaping_source_repo`, a regression test proving a Dockerfile `COPY`/`ADD` source containing `..` that `Path.glob()` matches outside the source repository is rejected as a stable `GetError` (via the existing `_add_copy_action` guard from #454), not an unhandled `ValueError` (#475).
 - Pinned `build`, `twine`, and `yamllint`'s CI-installed versions, and the `renovate` npm package version used by `renovate-config-validator`, matching this repo's existing exact-pin convention for CI-only tooling (e.g. `ruff==0.16.6`), addressing SonarCloud's `githubactions:S8544` findings triaged in #622. Added matching Renovate custom managers so these pins stay up to date automatically.
 - `images/superset/init.sh` now uses `[[ ... ]]` instead of `[ ... ]` for its conditional tests, addressing SonarCloud's `shelldre:S7688` findings triaged in #622.
 
