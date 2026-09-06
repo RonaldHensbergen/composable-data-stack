@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Changed
+
+- Pinned `build`, `twine`, and `yamllint`'s CI-installed versions, and the `renovate` npm package version used by `renovate-config-validator`, matching this repo's existing exact-pin convention for CI-only tooling (e.g. `ruff==0.16.6`), addressing SonarCloud's `githubactions:S8544` findings triaged in #622. Added matching Renovate custom managers so these pins stay up to date automatically.
+
 ## [0.8.0] - 2026-09-04
 
 ### Added
