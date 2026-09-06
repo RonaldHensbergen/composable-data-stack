@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a quadratic (super-linear) regex backtracking hazard in `cli/preflight.py`'s `_ENV_REFERENCE` pattern, used to scan rendered Compose YAML for `${VAR...}` references: an unterminated reference could make the identifier and suffix capture groups' overlapping character classes retry every possible split point. Required the suffix group to start with one of its actual delimiters (`:`, `?`, `-`), making the two groups' character classes disjoint, flagged by SonarCloud as `python:S8786`.
+
 ### Changed
 
 - Raised the `coverage`-enforced `cli/` coverage gate from 65% to 80%, matching actual measured coverage and the industry norm for a security-focused tool (`pyproject.toml`'s `[tool.coverage.report]` `fail_under`) (#471).
