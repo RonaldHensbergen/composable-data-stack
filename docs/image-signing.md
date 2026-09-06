@@ -54,7 +54,7 @@ config:
   image:
     source: registry
     registry: ghcr # or "dockerhub" (default)
-    tag: hardened-1.13.21
+    tag: hardened-sha-<12-char-sha>
 ```
 
 `dockerhub` (the default) rewrites the service's `image:` to

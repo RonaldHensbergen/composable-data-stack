@@ -695,7 +695,11 @@ def _apply_image_source(
     a registry reference without a tag would silently produce an untagged
     image, so the service is left unchanged (with the build: block intact)
     if no tag is configured; validator enforcement of a required tag is
-    tracked separately (issue #533).
+    tracked separately (issue #533). Likewise, an unrecognized
+    config.image.registry value (unreachable via a schema-validated
+    profile, since the schema enums this field, but this function also
+    renders hand-built Plans that bypass that validation) leaves the
+    service unchanged rather than silently defaulting to Docker Hub.
     """
     image_config = module.get("config", {}).get("image", {})
     if not isinstance(image_config, dict) or image_config.get("source") != "registry":
@@ -706,7 +710,9 @@ def _apply_image_source(
         return service_def
 
     registry = image_config.get("registry", "dockerhub")
-    template = _REGISTRY_IMAGE_TEMPLATES.get(registry, _REGISTRY_IMAGE_TEMPLATES["dockerhub"])
+    template = _REGISTRY_IMAGE_TEMPLATES.get(registry)
+    if template is None:
+        return service_def
 
     service_copy = dict(service_def)
     service_copy.pop("build", None)
