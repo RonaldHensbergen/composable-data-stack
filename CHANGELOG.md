@@ -9,6 +9,7 @@ The format is based on Keep a Changelog.
 ### Fixed
 
 - Set the Docker Hub short description for every published image (`dagster`, `superset`, `dbt`, `dlt`) via `peter-evans/dockerhub-description`'s `short-description` input, instead of relying on it being set manually per repository. `dbt` and `dlt` were missing it entirely since their Docker Hub repositories were auto-created by CI without ever going through that manual step.
+- Fixed a quadratic (super-linear) regex backtracking hazard in `cli/preflight.py`'s `_ENV_REFERENCE` pattern, used to scan rendered Compose YAML for `${VAR...}` references: an unterminated reference could make the identifier and suffix capture groups' overlapping character classes retry every possible split point. Required the suffix group to start with one of its actual delimiters (`:`, `?`, `-`), making the two groups' character classes disjoint, flagged by SonarCloud as `python:S8786`.
 
 ### Changed
 
