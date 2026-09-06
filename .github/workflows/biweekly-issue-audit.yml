@@ -18,7 +18,7 @@ jobs:
     permissions:
       contents: read
       issues: read
-      models: read
+      copilot-requests: write
     outputs:
       should_run: ${{ steps.cadence.outputs.run }}
     steps:
@@ -61,10 +61,22 @@ jobs:
             --date=short \
             > "$RUNNER_TEMP/recent-commits.txt"
 
+      - name: Setup Node
+        if: steps.cadence.outputs.run == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+
+      - name: Install Copilot CLI
+        if: steps.cadence.outputs.run == 'true'
+        run: npm install -g @github/copilot
+
       - name: Audit issue consistency
         if: steps.cadence.outputs.run == 'true'
         id: inference
         uses: actions/ai-inference@2c43c91ae16266ca159d311430343c67a5ffa222 # v3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           prompt-file: .github/prompts/issue-consistency-audit.prompt.yml
           file_input: |
