@@ -7,9 +7,16 @@ import unittest
 import unittest.mock
 from pathlib import Path
 
+from cli.diagnostics import Diagnostic
 from cli.security import (
     PrecomputedRender,
     _eval_condition,
+    _flatten_profile_by_module,
+    _flatten_rendered_leak_surfaces,
+    _map_service_to_module,
+    _path_matches_any,
+    _redact,
+    _try_render_compose_for_scan,
     _validate_rule_set,
     run_security_validation,
 )
@@ -25,6 +32,98 @@ class BundledSecurityRulesTest(unittest.TestCase):
 
         self.assertEqual(rule_set["version"], "1.0.0")
         self.assertGreater(len(rule_set["rules"]), 0)
+
+    def test_invalid_rule_set_raises_validation_error_with_paths(self):
+        schema = json.loads(_RULE_SCHEMA_PATH.read_text(encoding="utf-8"))
+        invalid_rule_set = {"version": "1.0.0", "rules": [{}]}
+
+        with unittest.mock.patch(
+            "cli.security._load_json",
+            side_effect=[schema, invalid_rule_set],
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_rule_set(_RULE_SCHEMA_PATH, _RULE_SET_PATH)
+
+        message = str(ctx.exception)
+        self.assertIn("Rule-set validation failed", message)
+        self.assertIn("rules.0", message)
+
+
+class SecurityHelpersTest(unittest.TestCase):
+    def test_flatten_profile_by_module_skips_disabled_modules(self):
+        profile = {
+            "spec": {
+                "modules": [
+                    {
+                        "id": "disabled",
+                        "enabled": False,
+                        "config": {"password": "should-not-appear"},
+                    },
+                    {
+                        "id": "enabled",
+                        "enabled": True,
+                        "config": {"password": "should-appear"},
+                    },
+                ],
+            },
+        }
+
+        flat = _flatten_profile_by_module(profile)
+
+        self.assertEqual(flat, [("enabled", "password", "should-appear")])
+
+    def test_flatten_rendered_leak_surfaces_ignores_non_mapping_shapes(self):
+        self.assertEqual(_flatten_rendered_leak_surfaces({"services": []}), [])
+        self.assertEqual(
+            _flatten_rendered_leak_surfaces({"services": {"svc": ["not-a-dict"]}}),
+            [],
+        )
+
+    def test_path_matches_any_without_patterns_matches_everything(self):
+        self.assertTrue(_path_matches_any("services.app.command[0]", []))
+
+    def test_redact_handles_none(self):
+        self.assertIsNone(_redact(None))
+
+    def test_map_service_to_module_handles_non_mapping_inputs(self):
+        self.assertEqual(_map_service_to_module(None), {})
+        self.assertEqual(
+            _map_service_to_module(
+                {
+                    "modules": [
+                        "not-a-module",
+                        {"implementation": {"compose": {"services": {"svc": {}}}}},
+                        {"id": "svc", "implementation": {"compose": {"services": []}}},
+                    ]
+                }
+            ),
+            {},
+        )
+
+    def test_try_render_compose_for_scan_warns_on_render_diagnostics(self):
+        with (
+            unittest.mock.patch(
+                "cli.security.build_plan",
+                return_value=({"modules": []}, []),
+            ),
+            unittest.mock.patch(
+                "cli.security.render_compose",
+                return_value=(
+                    None,
+                    [Diagnostic(level="error", code="E060", message="boom", path="spec")],
+                ),
+            ),
+        ):
+            rendered, service_map, diags = _try_render_compose_for_scan(
+                _REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml",
+                env_file=None,
+                environment=None,
+            )
+
+        self.assertIsNone(rendered)
+        self.assertEqual(service_map, {})
+        self.assertEqual([d.code for d in diags], ["W096"])
+        self.assertIn("rendered (E060)", diags[0].message)
 
 
 class PackageDataConfigurationTest(unittest.TestCase):
@@ -175,6 +274,39 @@ class ImageTagPolicyTest(unittest.TestCase):
             profile_class="prod",
         )
         self.assertFalse(matched, "an explicitly tagged image should not be flagged")
+
+    def test_not_value_regex_blocks_matching_values(self):
+        self.assertFalse(
+            _eval_condition(
+                path="spec.modules[0].config.password",
+                key="password",
+                value="admin",
+                cond={"notValueRegex": r"^admin$"},
+                profile_class="prod",
+            )
+        )
+
+    def test_contains_any_requires_a_listed_substring(self):
+        self.assertFalse(
+            _eval_condition(
+                path="services.app.command[0]",
+                key="command[0]",
+                value="python app.py",
+                cond={"containsAny": ["--password", "--token"]},
+                profile_class="prod",
+            )
+        )
+
+    def test_localhost_only_port_exposure_rejects_non_local_bindings(self):
+        self.assertFalse(
+            _eval_condition(
+                path="spec.modules[0].config.ports[0]",
+                key="ports[0]",
+                value="0.0.0.0:5432:5432",
+                cond={"portExposure": "localhost-only"},
+                profile_class="prod",
+            )
+        )
 
 
 class EnvFilePathRuleTest(unittest.TestCase):
@@ -585,6 +717,37 @@ class ExtendsAwareSecurityScanTest(unittest.TestCase):
         hits = {f["path"] for f in findings if f["rule_id"] == "CDS-SEC-010"}
         self.assertIn("services.superset.environment.ADMIN_USERNAME", hits)
         self.assertIn("services.superset.environment.ADMIN_PASSWORD", hits)
+
+    def test_returns_overlay_diagnostics_when_environment_overlay_resolution_fails(self):
+        expected = [Diagnostic(level="error", code="E999", message="missing", path="spec")]
+        with unittest.mock.patch(
+            "cli.overlay.resolve_profile",
+            return_value=(None, None, expected),
+        ):
+            findings, diags = run_security_validation(
+                _REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml",
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                environment="missing",
+            )
+
+        self.assertEqual(findings, [])
+        self.assertEqual(diags, expected)
+
+    def test_returns_overlay_diagnostics_when_extends_resolution_fails(self):
+        expected = [Diagnostic(level="error", code="E998", message="broken", path="spec")]
+        with unittest.mock.patch(
+            "cli.overlay.resolve_extends",
+            return_value=(None, None, expected),
+        ):
+            findings, diags = run_security_validation(
+                _REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml",
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+            )
+
+        self.assertEqual(findings, [])
+        self.assertEqual(diags, expected)
 
 
 if __name__ == "__main__":

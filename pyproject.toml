@@ -68,7 +68,7 @@ packages = ["cli", "cli.resources"]
 source = ["cli"]
 
 [tool.coverage.report]
-fail_under = 65
+fail_under = 80
 show_missing = true
 skip_covered = false
 
