@@ -39,15 +39,6 @@ jobs:
       contents: read
       issues: write
     steps:
-      - name: Wait for release publication to fully propagate
-        # A `release: published` event can fire slightly before the
-        # matching tag/release/PyPI artifact are all consistently visible
-        # (git fetch, the GitHub API, and PyPI's own index each lag
-        # independently). Only this trigger needs the wait; push/schedule/
-        # workflow_dispatch runs proceed immediately.
-        if: github.event_name == 'release'
-        run: sleep 300
-
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -59,15 +50,65 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Check every release step for the version on main
-        id: check
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve release metadata
+        id: meta
         run: |
           set -euo pipefail
           version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           package="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["name"])')"
-          tag="v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "package=${package}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for release publication to fully propagate
+        # A `release: published` event can fire slightly before the
+        # matching tag/PyPI artifact are all consistently visible (git
+        # fetch and PyPI's own index each lag independently). Poll with a
+        # bounded deadline instead of a fixed `sleep 300`: this returns as
+        # soon as both are visible (often much faster than 5 minutes), and
+        # keeps waiting past 5 minutes -- up to the deadline -- on the rare
+        # occasions PyPI's index lags longer than that. Only this trigger
+        # needs the wait; push/schedule/workflow_dispatch runs proceed
+        # immediately since nothing was *just* published.
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          PACKAGE: ${{ steps.meta.outputs.package }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 900))
+          while [ "${SECONDS}" -lt "${deadline}" ]; do
+            git fetch --tags --quiet
+            tag_ready=false
+            git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null && tag_ready=true
+
+            pypi_ready=false
+            status="$(curl -s --max-time 10 --retry 2 --retry-delay 3 \
+              -o /dev/null -w '%{http_code}' \
+              "https://pypi.org/pypi/${PACKAGE}/${VERSION}/json" || true)"
+            [ "${status}" = "200" ] && pypi_ready=true
+
+            if [ "${tag_ready}" = "true" ] && [ "${pypi_ready}" = "true" ]; then
+              echo "Tag and PyPI artifact are both visible; continuing."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::warning::Tag/PyPI artifact still not fully visible after 15 minutes; proceeding with the check anyway."
+
+      - name: Check every release step for the version on main
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          PACKAGE: ${{ steps.meta.outputs.package }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          version="${VERSION}"
+          package="${PACKAGE}"
+          tag="${TAG}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
@@ -99,8 +140,13 @@ jobs:
             echo "release_ok=false" >> "$GITHUB_OUTPUT"
           fi
 
-          # 4. Published to PyPI. Public JSON API, no auth needed.
-          status="$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/${package}/${version}/json")"
+          # 4. Published to PyPI. Public JSON API, no auth needed. Bounded
+          # --max-time plus a couple of --retry attempts so a hung/flaky
+          # connection fails fast instead of stalling the job (and opening
+          # a bogus incomplete-checklist issue on a false negative).
+          status="$(curl -s --max-time 10 --retry 3 --retry-delay 5 \
+            -o /dev/null -w '%{http_code}' \
+            "https://pypi.org/pypi/${package}/${version}/json" || echo "000")"
           if [ "${status}" = "200" ]; then
             echo "pypi_ok=true" >> "$GITHUB_OUTPUT"
           else
@@ -117,6 +163,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.check.outputs.version }}
           TAG: ${{ steps.check.outputs.tag }}
+          PACKAGE: ${{ steps.meta.outputs.package }}
           CHANGELOG_OK: ${{ steps.check.outputs.changelog_ok }}
           TAG_OK: ${{ steps.check.outputs.tag_ok }}
           RELEASE_OK: ${{ steps.check.outputs.release_ok }}
@@ -132,7 +179,7 @@ jobs:
           - [$(mark "${CHANGELOG_OK}")] \`CHANGELOG.md\` has a dated \`## [${VERSION}] - YYYY-MM-DD\` section (not just \`[Unreleased]\`).
           - [$(mark "${TAG_OK}")] The \`${TAG}\` git tag has been pushed (\`git tag ${TAG} && git push origin ${TAG}\`), triggering \`release.yml\`/\`pypi.yml\`.
           - [$(mark "${RELEASE_OK}")] The \`${TAG}\` GitHub release exists and is published (not left as a draft): https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}
-          - [$(mark "${PYPI_OK}")] Version \`${VERSION}\` is published on PyPI: https://pypi.org/project/composable-data-stack/${VERSION}/
+          - [$(mark "${PYPI_OK}")] Version \`${VERSION}\` is published on PyPI: https://pypi.org/project/${PACKAGE}/${VERSION}/
 
           This issue was opened automatically by \`.github/workflows/release-tag-reminder.yml\` and will auto-close the next time this check runs with every box above checked."
 
