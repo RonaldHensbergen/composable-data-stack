@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "refreshRequired": false,
   "refreshInstructions": "Refreshed automatically by the update-fixture job in .github/workflows/publish-images.yml after each successful publish.",
-  "updated": "2026-09-05",
+  "updated": "2026-09-06",
   "source": "https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/publish-images.yml",
   "trustRoot": {
     "registries": [
@@ -17,21 +17,21 @@
   "images": {
     "cds-dagster": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
-      "digest": "sha256:740653c0a899305fd96c212ce0d2f4b45b20024c4dcc69e329798b35b7a09eb5",
+      "digest": "sha256:88f656db83b9176e77f8c13e08d5b63f885a48877bb4a209eafd94ddb3912445",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-superset": {
       "repository": "ghcr.io/ronaldhensbergen/cds-superset",
-      "digest": "sha256:75826c6a70199685dfb048e9827427d0afdd5123872d149728e9b75376a627b2",
+      "digest": "sha256:0011082cfb6c8809394bfd25386668a27f0bfcf2baece4d27195cd16e0f95cea",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dbt": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dbt",
-      "digest": "sha256:666f0ed420e052268b26c55b31984a293859cfdd94f185c8e26c01b9e9ba4447",
+      "digest": "sha256:731ca459ba8a2f33a8689d2fab4555ca085a6991bcf0adfc63007b2572fb2281",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true

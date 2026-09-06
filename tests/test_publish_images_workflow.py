@@ -295,6 +295,74 @@ class PublishImagesWorkflowTest(unittest.TestCase):
                 f"signed-images fixture is missing an entry for the published {image} image",
             )
 
+    def test_ghcr_build_tags_alpine_alias_only_for_hardened_variant(self) -> None:
+        # Structural guard for the "hardened" -> "alpine-" tag alias
+        # (ghcr.io publish job's "Build image for publication" step): a
+        # post-merge typo here (e.g. a stray/misplaced conditional) would
+        # either silently drop the alias or tag it onto every variant, and
+        # a manual trace of the workflow YAML wouldn't catch it in review.
+        build_step = next(
+            s for s in self.publish_steps if s.get("name") == "Build image for publication"
+        )
+        run = build_step["run"]
+        self.assertIn('if [ "$variant" = "hardened" ]; then', run)
+        self.assertIn('extra_tags=(-t "$ref:alpine-sha-${GITHUB_SHA::12}" -t "$ref:alpine-latest")', run)
+        self.assertIn('"${extra_tags[@]}"', run, "build must actually apply extra_tags to docker build")
+
+    def test_ghcr_push_mirrors_the_alpine_alias_build_guard(self) -> None:
+        # The push step's "hardened" guard must stay in lockstep with the
+        # build step's: pushing a tag build never created (or vice versa,
+        # silently never pushing a tag that was built) both leave the
+        # registry in a broken/incomplete state.
+        push_step = next(s for s in self.publish_steps if s.get("name") == "Push image")
+        run = push_step["run"]
+        self.assertIn('if [ "$variant" = "hardened" ]; then', run)
+        self.assertIn('docker push "$ref:alpine-sha-${GITHUB_SHA::12}"', run)
+        self.assertIn('docker push "$ref:alpine-latest"', run)
+
+    def test_dockerhub_version_step_declares_alpine_tag_outputs(self) -> None:
+        # alpine_tag/alpine_latest_tag are always declared (even as empty
+        # strings for non-hardened variants) -- every downstream step
+        # (build, push) branches on `-n "$alpine_tag"`, so a missing output
+        # here would surface as a silent no-op alias instead of a clear
+        # workflow failure.
+        job = self.jobs["publish-dockerhub"]
+        version_step = next(s for s in job["steps"] if s.get("id") == "version")
+        run = version_step["run"]
+        self.assertIn('echo "alpine_tag=${alpine_tag}" >> "$GITHUB_OUTPUT"', run)
+        self.assertIn('echo "alpine_latest_tag=${alpine_latest_tag}" >> "$GITHUB_OUTPUT"', run)
+        self.assertIn('alpine_tag=""', run, "must default to empty for non-hardened variants")
+        self.assertIn('alpine_latest_tag=""', run, "must default to empty for non-hardened variants")
+        self.assertIn('if [ "$variant" = "hardened" ]; then', run)
+        self.assertIn('alpine_tag="alpine-${base_version}"', run)
+        self.assertIn('alpine_latest_tag="alpine-latest"', run)
+
+    def test_dockerhub_build_and_push_gate_alpine_extras_on_version_output(self) -> None:
+        # Both the build and push steps must only add the alpine-aliased
+        # tags when the version step actually populated alpine_tag (i.e.
+        # only for the hardened variant); locking this down catches any of
+        # the five new branches (2 in version, 2 in build, 2 in push -- one
+        # is shared setup) silently regressing to always/never adding the
+        # alias.
+        job = self.jobs["publish-dockerhub"]
+        build_step = next(
+            s for s in job["steps"] if s.get("name") == "Build image for publication"
+        )
+        build_run = build_step["run"]
+        self.assertIn('alpine_tag="${{ steps.version.outputs.alpine_tag }}"', build_run)
+        self.assertIn('alpine_latest_tag="${{ steps.version.outputs.alpine_latest_tag }}"', build_run)
+        self.assertIn('if [ -n "$alpine_tag" ]; then', build_run)
+        self.assertIn('extra_tags=(-t "$ref:$alpine_tag" -t "$ref:$alpine_latest_tag")', build_run)
+        self.assertIn('"${extra_tags[@]}"', build_run, "build must actually apply extra_tags to docker build")
+
+        push_step = next(s for s in job["steps"] if s.get("name") == "Push image")
+        push_run = push_step["run"]
+        self.assertIn('alpine_tag="${{ steps.version.outputs.alpine_tag }}"', push_run)
+        self.assertIn('alpine_latest_tag="${{ steps.version.outputs.alpine_latest_tag }}"', push_run)
+        self.assertIn('if [ -n "$alpine_tag" ]; then', push_run)
+        self.assertIn('docker push "$ref:$alpine_tag"', push_run)
+        self.assertIn('docker push "$ref:$alpine_latest_tag"', push_run)
+
 
 if __name__ == "__main__":
     unittest.main()

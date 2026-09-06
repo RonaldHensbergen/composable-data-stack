@@ -54,8 +54,23 @@ spec:
               their image. "build" (default) builds the image locally from
               images/superset/base/Dockerfile. "registry" pulls the
               already published, scanned, and signed image from
-              docker.io/ronaldsoeverein/superset instead of building it,
-              avoiding a local rebuild. Requires image.tag to be set.
+              config.image.registry instead of building it, avoiding a
+              local rebuild. Requires image.tag to be set.
+          registry:
+            type: string
+            enum:
+              - dockerhub
+              - ghcr
+            default: dockerhub
+            description: >
+              Registry to pull from when image.source is "registry".
+              "dockerhub" (default) pulls from
+              docker.io/ronaldsoeverein/superset. "ghcr" pulls from
+              ghcr.io/ronaldhensbergen/cds-superset instead. Both are
+              published by the same .github/workflows/publish-images.yml
+              run, but their tag schemes differ slightly: GHCR has no
+              version-derived tag, only sha-<sha>/latest -- see
+              docs/image-signing.md.
           tag:
             type: string
             # cds-registry-tag-source: docker/apache/superset -- kept in
