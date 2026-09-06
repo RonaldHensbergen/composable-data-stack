@@ -29,7 +29,7 @@ jobs:
       - name: Install lint dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .[dev] yamllint
+          pip install .[dev] yamllint==1.38.0
 
       - name: Run Markdown lint
         run: |
@@ -45,7 +45,7 @@ jobs:
 
       - name: Validate Renovate config
         run: |
-          npx --yes --package renovate -- renovate-config-validator --strict renovate.json
+          npx --yes --package renovate@44.65.5 -- renovate-config-validator --strict renovate.json
 
   test:
     runs-on: ${{ matrix.os }}
@@ -79,6 +79,35 @@ jobs:
           pip install .[dev]
           coverage run scripts/run_tests_with_deprecation_gate.py
           coverage report -m
+          coverage xml
+
+      - name: Upload coverage report (Ubuntu only)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  sonarcloud:
+    needs: test
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history so SonarCloud can attribute issues/coverage to blame data.
+          fetch-depth: 0
+
+      - name: Download coverage report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-xml
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   package:
     runs-on: ubuntu-latest
