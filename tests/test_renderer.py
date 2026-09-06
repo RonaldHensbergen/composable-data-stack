@@ -1078,6 +1078,71 @@ class ImageSourceRenderingTest(unittest.TestCase):
         self.assertNotIn("build", service)
         self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:hardened-1.8.0")
 
+    def test_source_registry_defaults_to_dockerhub(self):
+        plan = self._plan({"variant": "base", "source": "registry", "tag": "1.8.0"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["dagster-user-code"]
+        self.assertNotIn("build", service)
+        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:1.8.0")
+
+    def test_source_registry_ghcr_rewrites_image(self):
+        plan = self._plan(
+            {"variant": "base", "source": "registry", "registry": "ghcr", "tag": "sha-abcdef123456"}
+        )
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["dagster-user-code"]
+        self.assertNotIn("build", service)
+        self.assertEqual(
+            service["image"], "ghcr.io/ronaldhensbergen/cds-dagster:sha-abcdef123456"
+        )
+
+    def test_source_registry_ghcr_with_variant_prefixed_tag(self):
+        plan = self._plan(
+            {
+                "variant": "hardened",
+                "source": "registry",
+                "registry": "ghcr",
+                "tag": "alpine-latest",
+            }
+        )
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["dagster-user-code"]
+        self.assertNotIn("build", service)
+        self.assertEqual(
+            service["image"], "ghcr.io/ronaldhensbergen/cds-dagster:alpine-latest"
+        )
+
+    def test_source_registry_unrecognized_registry_falls_back_to_build(self):
+        """An unrecognized config.image.registry value is unreachable via a
+        schema-validated profile (the schema enums this field to
+        dockerhub/ghcr), but this function also renders hand-built Plans
+        that bypass that validation. It must leave the service unchanged
+        (build: block intact) rather than silently defaulting to Docker
+        Hub, matching the existing missing-tag behavior."""
+        plan = self._plan(
+            {"variant": "base", "source": "registry", "registry": "quay", "tag": "1.8.0"}
+        )
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["dagster-user-code"]
+        self.assertIn("build", service)
+        self.assertEqual(service["image"], "local/dagster:custom")
+
 
 class SupersetImageSourceRenderingTest(unittest.TestCase):
     """Mirrors ImageSourceRenderingTest (Dagster) for the Superset module,
@@ -1158,6 +1223,19 @@ class SupersetImageSourceRenderingTest(unittest.TestCase):
         service = compose["services"]["superset-init"]
         self.assertNotIn("build", service)
         self.assertEqual(service["image"], "docker.io/ronaldsoeverein/superset:3.1.0")
+
+    def test_source_registry_ghcr_rewrites_image(self):
+        plan = self._plan({"source": "registry", "registry": "ghcr", "tag": "sha-abcdef123456"})
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+        compose = yaml.safe_load(output)
+        service = compose["services"]["superset"]
+        self.assertNotIn("build", service)
+        self.assertEqual(
+            service["image"], "ghcr.io/ronaldhensbergen/cds-superset:sha-abcdef123456"
+        )
 
 
 if __name__ == "__main__":
