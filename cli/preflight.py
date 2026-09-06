@@ -18,7 +18,13 @@ from .image_verification import (
 )
 from .security_common import SECRET_KEY_SEGMENT_RE, infer_profile_class
 
-_ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)([^}]*)\}")
+# The suffix group is required to start with one of ":", "?", or "-" (the
+# only delimiters _reference_is_required/_reference_default_value below
+# understand) so its character class never overlaps with the identifier
+# group's "[A-Za-z0-9_]". That keeps the two adjacent quantifiers
+# unambiguous and avoids the non-linear backtracking SonarCloud flags on
+# unterminated "${...}" references otherwise (python:S8786).
+_ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)((?:[:?-][^}]*)?)\}")
 # Docker publishes ports on every IPv4 interface when no host IP is specified.
 # Preflight uses this only for a short-lived availability probe.
 _DOCKER_WILDCARD_IPV4 = "0.0.0.0"  # nosec B104  # noqa: S104
