@@ -259,7 +259,7 @@ jobs:
               base_version="$(grep -m1 '^dbt-core==' images/dbt/requirements.txt | cut -d= -f3)"
               ;;
             dlt)
-              base_version="$(grep -m1 '^dlt\[' images/dlt/requirements.txt | sed -E 's/^dlt\[[a-z]+\]==([^[:space:]]+).*/\1/')"
+              base_version="$(grep -m1 '^dlt\[postgres\]==' images/dlt/requirements.txt | sed -E 's/^dlt\[postgres\]==([^[:space:]]+).*/\1/')"
               ;;
             *)
               echo "No version scheme defined for image '${{ matrix.image.name }}'" >&2

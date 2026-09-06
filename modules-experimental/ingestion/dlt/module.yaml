@@ -47,6 +47,7 @@ spec:
       entrypointScript:
         type: string
         minLength: 1
+        pattern: "^(?!\\.\\.?$)[A-Za-z0-9_.-]+$"
         default: pipeline.py
         description: >
           Filename (relative to config.pipeline.containerPath) that
