@@ -5,6 +5,20 @@
 
 ![Composable Data Stack logo](assets/branding/logo.svg)
 
+[![CI](https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/composable-data-stack.svg)](https://pypi.org/project/composable-data-stack/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=bugs)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=coverage)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+
 ---
 
 ## 🧠 What Is CDS (In 1 Minute)
