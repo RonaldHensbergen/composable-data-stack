@@ -1,5 +1,6 @@
 dagster==1.13.21
 dagster-graphql==1.13.21
 dagster-webserver==1.13.21
+jinja2>=3.0
 msgpack>=1.2.1
 setuptools>=78.1.1
