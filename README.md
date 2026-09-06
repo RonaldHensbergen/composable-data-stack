@@ -11,6 +11,7 @@
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=bugs)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=coverage)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
