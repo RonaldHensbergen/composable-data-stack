@@ -82,7 +82,7 @@ jobs:
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
           case "$dockerfile" in
-            images/dagster/*|images/superset/*|images/dbt/*) context="." ;;
+            images/dagster/*|images/superset/*|images/dbt/*|images/dlt/*) context="." ;;
           esac
           tag="${{ matrix.image.name }}${{ matrix.image.variant != '' && format('-{0}', matrix.image.variant) || '' }}"
           docker build -f "$dockerfile" -t "cds/$tag:scan" "$context"
