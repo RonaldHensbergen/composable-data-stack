@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Removed
+
+- Removed `jinja2` from the CLI package's runtime dependencies; it was only ever imported by `images/dagster/generate_config.py`, a Docker build-time script, and is now installed explicitly in `images/dagster/requirements.txt` instead. Added a new `test` extra (and updated `Makefile`, `CONTRIBUTING.md`, and CI) since the test suite still exercises `generate_config.py` directly (#470).
+
 ### Added
 
 - Promoted the dbt transformation module from `modules-experimental/` to
