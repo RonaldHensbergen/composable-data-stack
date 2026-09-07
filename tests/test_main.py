@@ -15,6 +15,7 @@ from cli.main import (
     _collect_profile_env_vars,
     _resolve_profile_root,
     _run_image_verification,
+    generate_profile,
     list_modules,
     list_profiles,
     load_env_file,
@@ -22,7 +23,9 @@ from cli.main import (
     main,
     resolve_profile_path,
 )
+from cli.planner import build_plan
 from cli.preflight import PreflightCheck
+from cli.validator import validate_profile
 
 
 @contextlib.contextmanager
@@ -536,6 +539,88 @@ class MainCLITest(unittest.TestCase):
         self.assertIn("[E041]", output)
         self.assertIn("spec.modules[0].config", output)
         self.assertIn('points to unknown module "unknown-module"', output)
+
+    def test_generate_profile_saved_to_disk_flows_through_validate_and_build_plan(self):
+        """A runtime/programmatically composed profile is supported by
+        writing it to its normal profiles/<name>/profile.yaml location via
+        generate_profile(), then handing that path to the existing
+        validate_profile()/build_plan() entry points completely unchanged
+        (issue #349) -- not by adding a second in-memory-only code path to
+        the planner/validator."""
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            modules_root = root / "modules"
+            module_dir = modules_root / "warehouse" / "postgres"
+            module_dir.mkdir(parents=True)
+
+            (module_dir / "module.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Module",
+                        "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                        "spec": {
+                            "runtime": {
+                                "type": "container",
+                                "service": {
+                                    "name": "postgres",
+                                    "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                },
+                            },
+                            "configSchema": {"type": "object", "additionalProperties": False},
+                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            generated_profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "runtime-generated", "environment": "local"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {
+                            "id": "postgres",
+                            "source": "warehouse/postgres",
+                            "version": "0.1.0",
+                            "enabled": True,
+                            "config": {},
+                        }
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+
+            profiles_root = root / "profiles"
+            with patch.dict(
+                os.environ,
+                {"CDS_PROFILE_PATH": str(profiles_root), "CDS_MODULE_PATH": str(modules_root)},
+                clear=False,
+            ):
+                profile_path, generate_diags = generate_profile(generated_profile)
+
+                self.assertEqual(generate_diags, [])
+                self.assertEqual(Path(profile_path), profiles_root / "runtime-generated" / "profile.yaml")
+
+                # Regenerating without force must fail closed rather than
+                # silently clobbering the file another caller may be relying on.
+                _, refuse_diags = generate_profile(generated_profile)
+                self.assertEqual(len(refuse_diags), 1)
+                self.assertEqual(refuse_diags[0].code, "E116")
+
+                validation_diags = validate_profile(profile_path)
+                self.assertEqual([d for d in validation_diags if d.level == "error"], [])
+
+                plan, plan_diags = build_plan(profile_path)
+
+                self.assertEqual(plan_diags, [])
+                self.assertIsNotNone(plan)
+                self.assertEqual([m["id"] for m in plan["modules"]], ["postgres"])
 
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")

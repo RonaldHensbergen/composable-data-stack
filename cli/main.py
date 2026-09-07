@@ -29,6 +29,7 @@ from .image_verification import (
     load_policy_from_env,
     verify_images,
 )
+from .loader import save_generated_profile
 from .overlay import resolve_extends, resolve_profile
 from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
@@ -102,6 +103,22 @@ def get_profiles_root() -> Path:
     if override:
         return Path(override).expanduser()
     return find_project_root() / "profiles"
+
+
+def generate_profile(
+    profile: dict[str, Any], name: str | None = None, force: bool = False
+) -> tuple[str | None, list[Diagnostic]]:
+    """
+    Persists a runtime-generated/in-memory profile dict at its normal
+    profiles/<name>/profile.yaml location (honoring CDS_PROFILE_PATH the
+    same way every other profile-resolution helper in this module does),
+    then returns the resulting path so it can be handed straight to
+    validate_profile()/build_plan() unchanged (issue #349). See
+    cli.loader.save_generated_profile() for the path-safety/overwrite
+    semantics.
+    """
+    profile_file, diagnostics = save_generated_profile(profile, get_profiles_root(), name=name, force=force)
+    return (str(profile_file) if profile_file is not None else None), diagnostics
 
 
 def get_modules_root() -> Path:
