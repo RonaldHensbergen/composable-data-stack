@@ -6,6 +6,11 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added regression tests for planner default materialization in nested `configSchema` structures: array-item object defaults filled in per-item without overwriting explicitly provided sibling properties, and partially provided nested objects preserving explicit falsy values (`False`/`0`) while still materializing omitted siblings (#459).
+- Added CLI-level test coverage asserting `cds validate` reports precise diagnostic codes and data paths for common validation failures: a module entry missing a required field (`E010`) and a consume binding with an unresolvable `contractRef` (`E041`) (#460).
+
 ### Fixed
 
 - Set the Docker Hub short description for every published image (`dagster`, `superset`, `dbt`, `dlt`) via `peter-evans/dockerhub-description`'s `short-description` input, instead of relying on it being set manually per repository. `dbt` and `dlt` were missing it entirely since their Docker Hub repositories were auto-created by CI without ever going through that manual step.

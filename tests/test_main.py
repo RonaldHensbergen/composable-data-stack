@@ -394,6 +394,149 @@ class MainCLITest(unittest.TestCase):
         finally:
             Path(output_file).unlink(missing_ok=True)
 
+    def test_validate_command_reports_precise_path_for_missing_required_field(self):
+        """`cds validate` on a profile whose module entry omits the
+        required "source" field must print the E010 diagnostic with the
+        exact data path pinpointing that module entry, not just a generic
+        message (issue #460)."""
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            module_dir = profile_dir / "modules" / "demo"
+            module_dir.mkdir(parents=True)
+
+            (module_dir / "module.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Module",
+                        "metadata": {"name": "demo", "category": "test", "version": "0.1.0"},
+                        "spec": {
+                            "runtime": {
+                                "type": "container",
+                                "service": {
+                                    "name": "demo",
+                                    "ports": [{"name": "http", "containerPort": 8080, "protocol": "TCP"}],
+                                },
+                            },
+                            "configSchema": {"type": "object", "additionalProperties": False},
+                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "local-test", "environment": "local"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        # "source" is omitted entirely -- required by profile.schema.json.
+                        {"id": "demo", "version": "0.1.0", "enabled": True, "config": {}}
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["cds", "validate", str(profile_file)]), contextlib.redirect_stdout(
+                stdout
+            ):
+                result = main()
+
+        self.assertEqual(result, 1)
+        output = stdout.getvalue()
+        self.assertIn("[E010]", output)
+        self.assertIn("spec.modules.0", output)
+        self.assertIn("'source' is a required property", output)
+
+    def test_validate_command_reports_precise_path_for_invalid_contract_binding(self):
+        """`cds validate` on a profile whose module consumes a contract
+        pointing at a nonexistent module id must print the E041 diagnostic
+        with the exact data path of the offending module's config, not just
+        a generic contract-binding failure message (issue #460)."""
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "local"
+            consumer_dir = profile_dir / "modules" / "consumer"
+            consumer_dir.mkdir(parents=True)
+
+            (consumer_dir / "module.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Module",
+                        "metadata": {"name": "consumer", "category": "test", "version": "0.1.0"},
+                        "spec": {
+                            "runtime": {
+                                "type": "container",
+                                "service": {
+                                    "name": "consumer",
+                                    "ports": [{"name": "http", "containerPort": 8080, "protocol": "TCP"}],
+                                },
+                            },
+                            "configSchema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {"db": {"type": "object"}},
+                            },
+                            "consumes": [
+                                {
+                                    "name": "db",
+                                    "contract": {"kind": "sql-database"},
+                                    "mappedFrom": "spec.config.db",
+                                    "required": True,
+                                }
+                            ],
+                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "local-test", "environment": "local"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {
+                            "id": "consumer",
+                            "source": "modules/consumer",
+                            "version": "0.1.0",
+                            "enabled": True,
+                            "config": {"db": {"contractRef": "unknown-module.sql-database"}},
+                        }
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+            profile_file = profile_dir / "profile.yaml"
+            profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["cds", "validate", str(profile_file)]), contextlib.redirect_stdout(
+                stdout
+            ):
+                result = main()
+
+        self.assertEqual(result, 1)
+        output = stdout.getvalue()
+        self.assertIn("[E041]", output)
+        self.assertIn("spec.modules[0].config", output)
+        self.assertIn('points to unknown module "unknown-module"', output)
+
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
