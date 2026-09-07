@@ -98,7 +98,7 @@ jobs:
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
           case "$dockerfile" in
-            images/dagster/*|images/superset/*|images/dbt/*) context="." ;;
+            images/dagster/*|images/superset/*|images/dbt/*|images/dlt/*) context="." ;;
           esac
           variant="${{ matrix.image.variant }}"
           prefix=""
@@ -258,6 +258,9 @@ jobs:
             dbt)
               base_version="$(grep -m1 '^dbt-core==' images/dbt/requirements.txt | cut -d= -f3)"
               ;;
+            dlt)
+              base_version="$(grep -m1 '^dlt\[postgres\]==' images/dlt/requirements.txt | sed -E 's/^dlt\[postgres\]==([^[:space:]]+).*/\1/')"
+              ;;
             *)
               echo "No version scheme defined for image '${{ matrix.image.name }}'" >&2
               exit 1
@@ -300,7 +303,7 @@ jobs:
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
           case "$dockerfile" in
-            images/dagster/*|images/superset/*|images/dbt/*) context="." ;;
+            images/dagster/*|images/superset/*|images/dbt/*|images/dlt/*) context="." ;;
           esac
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
@@ -439,6 +442,7 @@ jobs:
           username: ronaldsoeverein
           password: ${{ secrets.RONALDSOEVEREIN_LOGIN }}
           repository: ronaldsoeverein/${{ matrix.image.name }}
+          short-description: "Result of Composable Data Stack (https://github.com/RonaldHensbergen/composable-data-stack)"
           readme-filepath: images/${{ matrix.image.name }}/README.md
 
   update-fixture:

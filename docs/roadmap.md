@@ -29,6 +29,7 @@ These are considered production-ready in the current release (v0.4.0):
 These work but may have breaking changes in upcoming releases:
 
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
+- Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the new `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
 - `cds test` — implemented; not yet exercised in CI or real contributor usage
 
