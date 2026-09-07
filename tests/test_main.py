@@ -624,6 +624,112 @@ class MainCLITest(unittest.TestCase):
                 self.assertIsNotNone(plan)
                 self.assertEqual([m["id"] for m in plan["modules"]], ["postgres"])
 
+    def test_generate_profile_command_writes_file_from_input_path(self):
+        """`cds generate-profile <file>` reads a JSON/YAML profile document
+        from disk and persists it via generate_profile()."""
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profiles_root = root / "profiles"
+            input_file = root / "generated.yaml"
+            input_file.write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Profile",
+                        "metadata": {"name": "cli-generated"},
+                        "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            stdout = io.StringIO()
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "generate-profile", str(input_file)]
+            ), contextlib.redirect_stdout(stdout):
+                result = main()
+
+            expected_path = (profiles_root / "cli-generated" / "profile.yaml").resolve()
+            self.assertEqual(result, 0)
+            self.assertIn(str(expected_path), stdout.getvalue())
+            self.assertTrue(expected_path.exists())
+
+    def test_generate_profile_command_reads_from_stdin_and_honors_name_override(self):
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profiles_root = root / "profiles"
+            raw = yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "ignored-name"},
+                    "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                }
+            )
+
+            stdout = io.StringIO()
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "generate-profile", "-", "--name", "stdin-profile"]
+            ), patch.object(sys, "stdin", io.StringIO(raw)), contextlib.redirect_stdout(stdout):
+                result = main()
+
+            expected_path = (profiles_root / "stdin-profile" / "profile.yaml").resolve()
+            self.assertEqual(result, 0)
+            self.assertTrue(expected_path.exists())
+            self.assertFalse((profiles_root / "ignored-name").exists())
+
+    def test_generate_profile_command_refuses_overwrite_without_force(self):
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profiles_root = root / "profiles"
+            input_file = root / "generated.yaml"
+            input_file.write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Profile",
+                        "metadata": {"name": "dup-profile"},
+                        "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False):
+                with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]):
+                    first_result = main()
+                self.assertEqual(first_result, 0)
+
+                stdout = io.StringIO()
+                with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]), contextlib.redirect_stdout(
+                    stdout
+                ):
+                    second_result = main()
+
+        self.assertEqual(second_result, 1)
+        self.assertIn("[E116]", stdout.getvalue())
+
+    def test_generate_profile_command_reports_error_for_invalid_yaml_input(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_file = root / "broken.yaml"
+            input_file.write_text("key: [unterminated", encoding="utf-8")
+
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]), contextlib.redirect_stdout(
+                stdout
+            ):
+                result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", stdout.getvalue())
+
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")

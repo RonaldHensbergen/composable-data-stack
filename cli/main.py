@@ -949,6 +949,24 @@ def main() -> int:
     _add_profile_arg(validate_parser)
     _add_environment_arg(validate_parser)
 
+    generate_profile_parser = subparsers.add_parser(
+        "generate-profile",
+        help="Persist a runtime-generated profile document to profiles/<name>/profile.yaml",
+    )
+    generate_profile_parser.add_argument(
+        "input",
+        help="Path to a JSON or YAML file containing the profile document, or '-' to read from stdin",
+    )
+    generate_profile_parser.add_argument(
+        "--name",
+        help="Profile directory name (default: profile['metadata']['name'])",
+    )
+    generate_profile_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing profiles/<name>/profile.yaml",
+    )
+
     plan_parser = subparsers.add_parser("plan", help="Build a resolved plan from a profile")
     _add_profile_arg(plan_parser)
     _add_environment_arg(plan_parser)
@@ -1233,6 +1251,35 @@ def main() -> int:
             print("Profile is valid.")
 
         return 1 if has_errors(diagnostics) else 0
+
+    if args.command == "generate-profile":
+        if args.input == "-":
+            raw = sys.stdin.read()
+        else:
+            input_path = Path(args.input)
+            try:
+                raw = input_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                print(f"ERROR Could not read {args.input}: {exc}")
+                return 1
+
+        try:
+            profile = yaml.safe_load(raw)
+        except yaml.YAMLError as exc:
+            print(f"ERROR Could not parse {args.input} as JSON/YAML: {exc}")
+            return 1
+
+        profile_path, diagnostics = generate_profile(profile, name=args.name, force=args.force)
+
+        if diagnostics:
+            print_diagnostics(diagnostics)
+
+        if profile_path is None:
+            print("Profile generation failed.")
+            return 1
+
+        print(f"Profile written to {profile_path}")
+        return 0
 
     if args.command == "plan":
         try:
