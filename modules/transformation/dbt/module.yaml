@@ -6,17 +6,16 @@ metadata:
   name: dbt
   category: transformation
   version: "0.1.0"
-  productionSuitable: false
-  displayName: dbt (experimental)
+  displayName: dbt
   description: >
-    Experimental dbt-core transformation module. Runs a bind-mounted dbt
-    project's models/tests as a one-shot job against a consumed target
-    warehouse -- either a client-server sql-database contract (e.g. the
-    postgres module) or an embedded file-database contract (e.g. the duckdb
+    dbt-core transformation module. Runs a bind-mounted dbt project's
+    models/tests as a one-shot job against a consumed target warehouse --
+    either a client-server sql-database contract (e.g. the postgres
+    module) or an embedded file-database contract (e.g. the duckdb
     module), selected via config.warehouseType -- and optionally serves
     generated dbt docs via a small nginx sidecar. See images/dbt/README.md
-    for why this image is pinned to Python 3.13 instead of the repo's usual
-    3.14 base.
+    for why this image is pinned to Python 3.13 instead of the repo's
+    usual 3.14 base.
 
 spec:
   runtime:
@@ -251,7 +250,7 @@ spec:
               read_only: true
             - type: volume
               source: dbt-target
-              target: /usr/share/nginx/html
+              target: /usr/share/nginx/dbt-docs
               read_only: true
           healthcheck:
             conditionallyEnabledFrom: config.healthcheck.enabled

@@ -63,6 +63,10 @@ destination/target.
   multiple writers against the same file will need to coordinate access
   (e.g. via `dependsOn` ordering) rather than relying on database-level
   locking guarantees the way postgres provides.
+- **Not suitable as a logging database.** A centralized logging backend
+  receives concurrent writes from multiple services, which conflicts with
+  DuckDB's single-writer model; use a `log-sink` provider or a networked
+  database instead.
 - **Not suitable for multi-node clustering.** DuckDB runs in-process on a
   single node by design (like Spark's single-node/local mode); this module
   targets the same single-node analytical use cases DuckDB itself is built

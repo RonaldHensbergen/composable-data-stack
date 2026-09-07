@@ -12,6 +12,9 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Promoted the dbt transformation module from `modules-experimental/` to
+  `modules/transformation/`, with production-suitable hardening and
+  PostgreSQL/DuckDB warehouse support (#594).
 - Added regression tests for planner default materialization in nested `configSchema` structures: array-item object defaults filled in per-item without overwriting explicitly provided sibling properties, and partially provided nested objects preserving explicit falsy values (`False`/`0`) while still materializing omitted siblings (#459).
 - Added CLI-level test coverage asserting `cds validate` reports precise diagnostic codes and data paths for common validation failures: a module entry missing a required field (`E010`) and a consume binding with an unresolvable `contractRef` (`E041`) (#460).
 
