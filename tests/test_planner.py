@@ -891,6 +891,86 @@ class PlannerRegressionTest(unittest.TestCase):
             {"enabled": True},
         )
 
+    def test_apply_defaults_materializes_array_item_object_defaults(self):
+        """Array items with an object schema must have their own nested
+        defaults materialized per-item, including for items that omit the
+        nested property entirely (issue #459)."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "replicas": {
+                    "type": "array",
+                    "default": [],
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "resources": {
+                                "type": "object",
+                                "default": {},
+                                "properties": {
+                                    "cpu": {"type": "string", "default": "100m"},
+                                    "memory": {"type": "string", "default": "256Mi"},
+                                },
+                            },
+                        },
+                    },
+                }
+            },
+        }
+
+        config = {
+            "replicas": [
+                {"name": "a"},
+                {"name": "b", "resources": {"cpu": "500m"}},
+            ]
+        }
+
+        result = planner.apply_defaults(config, schema)
+
+        self.assertEqual(
+            result["replicas"],
+            [
+                {"name": "a", "resources": {"cpu": "100m", "memory": "256Mi"}},
+                # Explicitly provided "cpu" must survive; only the omitted
+                # sibling "memory" gets filled in from its own default.
+                {"name": "b", "resources": {"cpu": "500m", "memory": "256Mi"}},
+            ],
+        )
+
+    def test_apply_defaults_preserves_partially_provided_nested_object_values(self):
+        """When a profile provides some but not all properties of a nested
+        object, the explicitly provided values (including falsy ones like
+        False/0/"") must be preserved verbatim, and only the properties
+        omitted entirely should be materialized from their schema defaults
+        (issue #459)."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "healthcheck": {
+                    "type": "object",
+                    "default": {},
+                    "properties": {
+                        "enabled": {"type": "boolean", "default": True},
+                        "retries": {"type": "integer", "default": 3},
+                        "path": {"type": "string", "default": "/health"},
+                    },
+                }
+            },
+        }
+
+        # "enabled" is explicitly False and "retries" is explicitly 0 -
+        # both falsy but must not be overwritten by their truthy defaults.
+        # "path" is omitted and must be materialized.
+        config = {"healthcheck": {"enabled": False, "retries": 0}}
+
+        result = planner.apply_defaults(config, schema)
+
+        self.assertEqual(
+            result["healthcheck"],
+            {"enabled": False, "retries": 0, "path": "/health"},
+        )
+
 
     def test_build_plan_reports_diagnostic_for_non_dict_module_entry(self):
         """build_plan() is a public entry point that may be called without

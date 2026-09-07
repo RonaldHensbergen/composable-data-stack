@@ -6,6 +6,16 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added regression tests for planner default materialization in nested `configSchema` structures: array-item object defaults filled in per-item without overwriting explicitly provided sibling properties, and partially provided nested objects preserving explicit falsy values (`False`/`0`) while still materializing omitted siblings (#459).
+- Added CLI-level test coverage asserting `cds validate` reports precise diagnostic codes and data paths for common validation failures: a module entry missing a required field (`E010`) and a consume binding with an unresolvable `contractRef` (`E041`) (#460).
+
+### Fixed
+
+- Set the Docker Hub short description for every published image (`dagster`, `superset`, `dbt`, `dlt`) via `peter-evans/dockerhub-description`'s `short-description` input, instead of relying on it being set manually per repository. `dbt` and `dlt` were missing it entirely since their Docker Hub repositories were auto-created by CI without ever going through that manual step.
+- Fixed a quadratic (super-linear) regex backtracking hazard in `cli/preflight.py`'s `_ENV_REFERENCE` pattern, used to scan rendered Compose YAML for `${VAR...}` references: an unterminated reference could make the identifier and suffix capture groups' overlapping character classes retry every possible split point. Required the suffix group to start with one of its actual delimiters (`:`, `?`, `-`), making the two groups' character classes disjoint, flagged by SonarCloud as `python:S8786`.
+
 ### Changed
 
 - Raised the `coverage`-enforced `cli/` coverage gate from 65% to 80%, matching actual measured coverage and the industry norm for a security-focused tool (`pyproject.toml`'s `[tool.coverage.report]` `fail_under`) (#471).

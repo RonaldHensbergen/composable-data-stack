@@ -442,6 +442,7 @@ jobs:
           username: ronaldsoeverein
           password: ${{ secrets.RONALDSOEVEREIN_LOGIN }}
           repository: ronaldsoeverein/${{ matrix.image.name }}
+          short-description: "Result of Composable Data Stack (https://github.com/RonaldHensbergen/composable-data-stack)"
           readme-filepath: images/${{ matrix.image.name }}/README.md
 
   update-fixture:
