@@ -105,6 +105,7 @@ spec:
       dependsOn:
         - postgres
       config:
+        warehouseType: postgres
         targetDatabase:
           contractRef: postgres.sql-database
         schema: public

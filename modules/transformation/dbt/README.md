@@ -36,6 +36,13 @@ forking this module.
 - `targetDatabase.contractRef` binds the consumed `sql-database` contract
   (e.g. `postgres.sql-database`); connection fields are exposed to the
   container as `DBT_HOST`/`DBT_PORT`/`DBT_DBNAME`/`DBT_USER`/`DBT_PASSWORD`.
+- `warehouseType` selects the target: use `postgres` with
+  `targetDatabase.contractRef`, or `duckdb` with
+  `targetWarehouseFile.contractRef` bound to a `file-database` provider
+  (e.g. `duckdb.file-database`). The DuckDB file is available to dbt as
+  `DBT_DUCKDB_PATH`, combining the provider's filename with the fixed
+  `/usr/app/dbt_duckdb` mount; `DBT_WAREHOUSE_TYPE` is set from
+  `warehouseType`.
 - `commands` is a newline-separated list of dbt subcommands run in order by
   the entrypoint (e.g. `run\ntest\ndocs generate`); add `deps` as the first
   line if the project has a `packages.yml`.
