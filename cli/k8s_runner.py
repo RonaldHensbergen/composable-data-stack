@@ -11,7 +11,7 @@ from typing import IO, Any
 import yaml
 
 from .state import parse_k8s_workloads_json
-from .up_runner import run_streamed
+from .up_runner import _validate_command, run_streamed
 
 
 def helm_up(
@@ -130,7 +130,11 @@ def get_k8s_workloads(
         "json",
     ]
     result = subprocess.run(  # nosec B603  # noqa: S603
-        command, capture_output=True, text=True, timeout=30
+        _validate_command(command),
+        capture_output=True,
+        text=True,
+        timeout=30,
+        shell=False,
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "kubectl get workloads failed")
