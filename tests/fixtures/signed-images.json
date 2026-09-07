@@ -17,28 +17,28 @@
   "images": {
     "cds-dagster": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
-      "digest": "sha256:75795e9b3ee71a0cbb0ff5b8eb1de0e0fe142666bcd41f328c93dd10c5cdee73",
+      "digest": "sha256:a02e7462570cdce4c26f9adde1a9bfa9dd9e0eb9c8567967f2d9180ac8081968",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-superset": {
       "repository": "ghcr.io/ronaldhensbergen/cds-superset",
-      "digest": "sha256:bae473d8f2d4b7b9c5b8b2aa53707d45cf6a1f12cc1e742b91577020e6402bc5",
+      "digest": "sha256:5a2d195f5c304e4a5e1e984788e69c435c569f761618edf5e0ccb553df983115",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dbt": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dbt",
-      "digest": "sha256:96a07a26ef5064fbb9727369e2d2502e90241c8ebbcbe02877e18f6a8c8f4297",
+      "digest": "sha256:3b595d287259e90a1b8c5973f88a7fcf5ae7d484020395cb66c176cb7f9f7ae1",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dlt": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dlt",
-      "digest": "sha256:ae24dd29a957978a3818890fda5da2302faff56e1396e7e186894167caf14a9c",
+      "digest": "sha256:cad1e9eef40e9d39830d5398153c817a2917ea10c01fb08b0c874ff325daee87",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
