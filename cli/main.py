@@ -1256,7 +1256,19 @@ def main() -> int:
         if args.input == "-":
             raw = sys.stdin.read()
         else:
-            input_path = Path(args.input)
+            # Explicitly resolve and validate the CLI-supplied path before
+            # touching the file system: reject dangling symlinks/missing
+            # paths and anything that isn't a regular file (e.g. a
+            # directory) rather than handing an unvalidated path straight
+            # to read_text().
+            try:
+                input_path = Path(args.input).expanduser().resolve(strict=True)
+            except OSError as exc:
+                print(f"ERROR Could not read {args.input}: {exc}")
+                return 1
+            if not input_path.is_file():
+                print(f"ERROR {args.input} is not a file")
+                return 1
             try:
                 raw = input_path.read_text(encoding="utf-8")
             except OSError as exc:

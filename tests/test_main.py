@@ -730,6 +730,31 @@ class MainCLITest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("ERROR", stdout.getvalue())
 
+    def test_generate_profile_command_rejects_nonexistent_and_non_file_input(self):
+        """The CLI-supplied input path is resolved and validated before it
+        is ever handed to read_text(): a missing path and a directory
+        (rather than a regular file) must both fail closed with a clear
+        error instead of raising an unhandled exception."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            stdout = io.StringIO()
+            with patch.object(
+                sys, "argv", ["cds", "generate-profile", str(root / "does-not-exist.yaml")]
+            ), contextlib.redirect_stdout(stdout):
+                missing_result = main()
+            self.assertEqual(missing_result, 1)
+            self.assertIn("ERROR", stdout.getvalue())
+
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["cds", "generate-profile", str(root)]), contextlib.redirect_stdout(
+                stdout
+            ):
+                directory_result = main()
+            self.assertEqual(directory_result, 1)
+            self.assertIn("ERROR", stdout.getvalue())
+            self.assertIn("is not a file", stdout.getvalue())
+
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
