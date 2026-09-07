@@ -31,7 +31,7 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             result_path, diagnostics = save_generated_profile(profile, profiles_root)
 
             self.assertEqual(diagnostics, [])
-            expected = profiles_root / "generated-demo" / "profile.yaml"
+            expected = (profiles_root / "generated-demo" / "profile.yaml").resolve()
             self.assertEqual(result_path, expected)
             self.assertTrue(expected.is_file())
             self.assertEqual(yaml.safe_load(expected.read_text(encoding="utf-8")), profile)
@@ -44,7 +44,7 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             result_path, diagnostics = save_generated_profile(profile, profiles_root)
 
             self.assertEqual(diagnostics, [])
-            self.assertEqual(result_path, profiles_root / "from-metadata" / "profile.yaml")
+            self.assertEqual(result_path, (profiles_root / "from-metadata" / "profile.yaml").resolve())
 
     def test_rejects_missing_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -605,7 +605,9 @@ class MainCLITest(unittest.TestCase):
                 profile_path, generate_diags = generate_profile(generated_profile)
 
                 self.assertEqual(generate_diags, [])
-                self.assertEqual(Path(profile_path), profiles_root / "runtime-generated" / "profile.yaml")
+                self.assertEqual(
+                    Path(profile_path), (profiles_root / "runtime-generated" / "profile.yaml").resolve()
+                )
 
                 # Regenerating without force must fail closed rather than
                 # silently clobbering the file another caller may be relying on.
