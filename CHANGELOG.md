@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Removed
+
+- Removed `jinja2` from the CLI package's runtime dependencies; it was only ever imported by `images/dagster/generate_config.py`, a Docker build-time script, and is now installed explicitly in `images/dagster/requirements.txt` instead. Added a new `test` extra (and updated `Makefile`, `CONTRIBUTING.md`, and CI) since the test suite still exercises `generate_config.py` directly (#470).
+
 ### Added
 
 - Added regression tests for planner default materialization in nested `configSchema` structures: array-item object defaults filled in per-item without overwriting explicitly provided sibling properties, and partially provided nested objects preserving explicit falsy values (`False`/`0`) while still materializing omitted siblings (#459).

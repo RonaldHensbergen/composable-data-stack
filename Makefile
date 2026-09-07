@@ -4,7 +4,7 @@ PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
 
 install:
-	pip install -e .
+	pip install -e ".[test]"
 
 lint: lint-markdown lint-yaml lint-deprecated lint-renovate
 

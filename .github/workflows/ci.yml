@@ -66,7 +66,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install .[completion]
+          pip install .[completion,test]
 
       - name: Run tests
         if: matrix.os != 'ubuntu-latest'
@@ -76,7 +76,7 @@ jobs:
       - name: Run tests with coverage gate (Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          pip install .[dev]
+          pip install .[dev,test]
           coverage run scripts/run_tests_with_deprecation_gate.py
           coverage report -m
           coverage xml
