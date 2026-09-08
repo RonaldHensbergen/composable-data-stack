@@ -8,6 +8,8 @@ from unittest.mock import patch
 import yaml
 
 from cli.image_verification import (
+    _fixture_entry,
+    _load_fixture,
     _verification_findings,
     collect_compose_images,
     default_fixture_path,
@@ -71,6 +73,10 @@ class CollectComposeImagesTest(unittest.TestCase):
 
     def test_handles_malformed_compose(self) -> None:
         self.assertEqual(collect_compose_images("not: [valid"), [])
+
+    def test_ignores_non_mapping_services_collection(self) -> None:
+        compose = yaml.safe_dump({"services": ["not-a-service-map"]})
+        self.assertEqual(collect_compose_images(compose), [])
 
 
 class ImagePolicyTest(unittest.TestCase):
@@ -314,6 +320,52 @@ class FixtureVerificationTest(unittest.TestCase):
         mock_which.assert_not_called()
         self.assertEqual(findings, [])
 
+    def test_local_build_entries_are_skipped_by_verification(self) -> None:
+        with patch("cli.image_verification.shutil.which", return_value="/usr/bin/cosign") as mock_which:
+            findings = _verification_findings(
+                [("app", f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}", True)],
+                _policy(),
+                None,
+            )
+        mock_which.assert_not_called()
+        self.assertEqual(findings, [])
+
+
+class FixtureHelpersTest(unittest.TestCase):
+    def test_load_fixture_rejects_non_object_json(self) -> None:
+        scratch = _REPO_ROOT / ".fixture-array.json"
+        self.addCleanup(lambda: scratch.unlink(missing_ok=True))
+        scratch.write_text("[]", encoding="utf-8")
+
+        fixture, error = _load_fixture(scratch)
+
+        self.assertIsNone(fixture)
+        self.assertEqual(error, "does not contain a JSON object")
+
+    def test_fixture_entry_ignores_malformed_entries_and_requires_a_match(self) -> None:
+        fixture = {
+            "images": {
+                "bad-entry": "not-a-dict",
+                "missing-repository": {"repository": None},
+                "good-entry": {
+                    "repository": "ghcr.io/example/app",
+                    "digest": _DIGEST_A,
+                    "signed": True,
+                    "provenanceAttested": True,
+                    "sbomAttested": True,
+                },
+            }
+        }
+
+        self.assertIsNone(
+            _fixture_entry({"images": []}, "ghcr.io/example/app@" + _DIGEST_A)
+        )
+        self.assertEqual(
+            _fixture_entry(fixture, "ghcr.io/example/app:" + "1.2.3"),
+            fixture["images"]["good-entry"],
+        )
+        self.assertIsNone(_fixture_entry(fixture, "ghcr.io/example/other:" + "1.2.3"))
+
 
 class CosignVerificationTest(unittest.TestCase):
     def _compose(self, image: str) -> str:
@@ -369,6 +421,30 @@ class CosignVerificationTest(unittest.TestCase):
         self.assertEqual(findings[0]["rule_id"], "CDS-VER-001")
         self.assertIn("signature mismatch", findings[0]["message"])
 
+    @patch("cli.image_verification.subprocess.run", side_effect=OSError("boom"))
+    @patch("cli.image_verification.shutil.which", return_value="/usr/bin/cosign")
+    def test_oserror_from_cosign_is_reported(self, _mock_which, _mock_run) -> None:
+        image = f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"
+        findings = verify_images(self._compose(image), _policy())
+        self.assertEqual(findings[0]["rule_id"], "CDS-VER-001")
+        self.assertIn("cosign invocation failed", findings[0]["message"])
+
+    @patch("cli.image_verification._verify_with_cosign")
+    def test_provenance_verification_failure_is_reported_after_signature_success(
+        self, mock_verify
+    ) -> None:
+        mock_verify.side_effect = [(True, ""), (False, "missing provenance")]
+        image = f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"
+
+        findings = verify_images(self._compose(image), _policy(), fixture=None)
+
+        self.assertEqual([f["rule_id"] for f in findings], ["CDS-VER-002"])
+        self.assertIn("missing provenance", findings[0]["message"])
+        self.assertEqual(
+            [call.kwargs["attestation_type"] for call in mock_verify.call_args_list],
+            [None, "slsaprovenance"],
+        )
+
 
 class SignedImagesFixtureTest(unittest.TestCase):
     def test_bundled_fixture_is_valid(self) -> None:
@@ -410,6 +486,35 @@ class SignedImagesFixtureTest(unittest.TestCase):
         }
         errors = validate_fixture(fixture)
         self.assertTrue(any("placeholder" in e for e in errors))
+
+    def test_validate_fixture_rejects_malformed_trust_root_and_image_entries(self) -> None:
+        errors = validate_fixture(
+            {
+                "schemaVersion": 1,
+                "trustRoot": "not-a-dict",
+                "images": {
+                    "not-a-dict": "bad",
+                    "bad-image": {
+                        "repository": "",
+                        "digest": "sha256:not-valid",
+                        "signed": "yes",
+                        "provenanceAttested": None,
+                        "sbomAttested": "no",
+                    },
+                },
+            }
+        )
+
+        self.assertIn("trustRoot must be an object", errors)
+        self.assertIn("images.not-a-dict must be an object", errors)
+        self.assertIn("images.bad-image.repository must be a non-empty string", errors)
+        self.assertIn(
+            "images.bad-image.digest must match sha256:<64 hex chars>",
+            errors,
+        )
+        self.assertIn("images.bad-image.signed must be a boolean", errors)
+        self.assertIn("images.bad-image.provenanceAttested must be a boolean", errors)
+        self.assertIn("images.bad-image.sbomAttested must be a boolean", errors)
 
     def test_default_fixture_path_resolves_in_repo(self) -> None:
         with patch.dict(os.environ, {}, clear=True):

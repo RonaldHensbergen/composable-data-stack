@@ -39,9 +39,10 @@ The platform is divided into logical layers.
 | --- | --- | --- |
 | **Secrets** | credentials, secret injection, key management | Vault |
 | **Infrastructure services** | service coordination backends and support systems | KeyDB |
+| **Ingestion** | extract-load pipelines into the warehouse | dlt (experimental) |
 | **Storage / compute** | databases, warehouses, and processing engines | Postgres, DuckDB (experimental) |
 | **Orchestration** | workflow scheduling and task execution | Dagster |
-| **Transformation** | data modeling and transformation | dbt (experimental; targets Postgres or DuckDB) |
+| **Transformation** | data modeling and transformation | dbt (targets Postgres or DuckDB) |
 | **Quality** | data validation and testing | (planned) |
 | **BI / access** | dashboards, semantic access, and exploration | Superset |
 | **Platform tooling** | bootstrap, diagnostics, deployment helpers | shared scripts, templates |

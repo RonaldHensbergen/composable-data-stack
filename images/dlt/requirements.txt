@@ -1,0 +1,3 @@
+# dlt's postgres destination extra pulls in psycopg2-binary and the
+# SQLAlchemy-based helpers dlt needs to load into Postgres.
+dlt[postgres]==1.30.0

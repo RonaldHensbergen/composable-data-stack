@@ -15,12 +15,12 @@
   `python -m unittest tests.test_validator.ValidatorRegressionTest.test_validate_profile_rejects_module_source_traversal_outside_modules_tree`.
 - Match CI's coverage gate with
   `coverage run -m unittest discover -s tests -p "test_*.py" -v && coverage report -m`;
-  coverage is scoped to `cli/` and must remain at least 65%.
+  coverage is scoped to `cli/` and must remain at least 80%.
 - Lint Markdown with
   `npx --yes markdownlint-cli@0.49.0 "**/*.md" ".github/**/*.md"`, YAML with
   `yamllint .`, Python deprecations with `ruff check .` (configured for Ruff's
   `UP` pyupgrade rules only), and Renovate config with
-  `npx --yes --package renovate -- renovate-config-validator --strict renovate.json`.
+  `npx --yes --package renovate@44.65.5 -- renovate-config-validator --strict renovate.json`.
   `pre-commit run --all-files` additionally runs the repository's selected
   Flake8 checks and file hygiene hooks.
 - Validate a profile with `cds validate <profile-name-or-path>` or

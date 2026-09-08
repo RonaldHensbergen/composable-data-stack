@@ -883,6 +883,36 @@ spec:
             self.assertIn("resolves outside the source repository", str(ctx.exception))
             self.assertFalse((destination_root / "modules" / "apps" / "demo" / "escape.txt").exists())
 
+    def test_fetch_profile_rejects_dockerfile_copy_traversal_escaping_source_repo(self) -> None:
+        """A Dockerfile COPY/ADD source containing ".." that Path.glob()
+        matches outside the build context (and outside the source repo
+        entirely) must be rejected as a stable GetError, not an unhandled
+        ValueError from Path.relative_to() in _add_copy_action (#475)."""
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            outside_root = source_root.parent / "outside"
+            _write(outside_root / "secret.txt", "top secret\n")
+
+            _make_source_repo(source_root)
+            # _make_source_repo's Dockerfile build context is "../../../"
+            # (the repo root), so ".." from there escapes the repo entirely.
+            _write(
+                source_root / "images" / "demo" / "Dockerfile",
+                """FROM python:3.14-slim
+COPY shared/python /app/shared/python
+COPY workdirs/demo /app/workdirs/demo
+COPY images/demo/entrypoint.sh /entrypoint.sh
+COPY ../outside/secret.txt /app/secret.txt
+""",
+            )
+
+            with self.assertRaises(GetError) as ctx:
+                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+
+            self.assertIn("resolves outside the source repository", str(ctx.exception))
+            self.assertFalse((destination_root / "images" / "demo" / "secret.txt").exists())
+
     def test_fetch_profile_reports_copy_failure_as_get_error(self) -> None:
         """A filesystem failure while writing a planned copy (permission
         denied, disk full, read-only destination, ...) must surface as a
