@@ -47,7 +47,7 @@ class ReviewProfileTest(unittest.TestCase):
                 str(EXAMPLE_PROFILE), environment=None, dry_run=True
             )
         mock_complete.assert_not_called()
-        self.assertEqual(result["status"], "dry-run", msg=repr(result))
+        self.assertEqual(result["status"], "dry-run")
         self.assertIn("Profile YAML", result["report"])
         self.assertIsNone(result["error"])
 

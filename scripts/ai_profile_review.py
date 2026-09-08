@@ -23,9 +23,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
+from contextlib import contextmanager
 from pathlib import Path
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 for _path in (str(REPO_ROOT), str(REPO_ROOT / "scripts" / "_vendor")):
@@ -101,6 +105,40 @@ def parse_status(report: str) -> str | None:
     return match.group(1).lower() if match else None
 
 
+def _declared_secret_env_names(profile_text: str) -> set[str]:
+    """Every CDS_* env var name a profile's `spec.secrets.values` declares."""
+    profile_dict = yaml.safe_load(profile_text) or {}
+    values = ((profile_dict.get("spec") or {}).get("secrets") or {}).get("values") or {}
+    if not isinstance(values, dict):
+        return set()
+    return {
+        secret_def["env"]
+        for secret_def in values.values()
+        if isinstance(secret_def, dict) and isinstance(secret_def.get("env"), str) and secret_def["env"]
+    }
+
+
+@contextmanager
+def _placeholder_secrets(env_names: set[str]):
+    """Temporarily set any of `env_names` that aren't already set, to a placeholder value.
+
+    `build_plan` requires every declared *required* secret to be present as
+    a CDS_* env var or it reports a hard [E081] error -- but the plan only
+    ever records the env var *name*, never its value (cli/secrets.py), so a
+    placeholder is enough to let planning succeed without a real `.env`
+    file. This keeps the review reproducible on a clean checkout (no local
+    `.env` needed) and never touches real secret values.
+    """
+    added = [name for name in env_names if name not in os.environ]
+    for name in added:
+        os.environ[name] = "ai-profile-review-placeholder"
+    try:
+        yield
+    finally:
+        for name in added:
+            del os.environ[name]
+
+
 def review_profile(profile: str, *, environment: str | None, dry_run: bool) -> dict:
     """Validate, plan, and (unless dry_run) run the AI guardrail/simplification pass.
 
@@ -119,7 +157,9 @@ def review_profile(profile: str, *, environment: str | None, dry_run: bool) -> d
             "error": "Profile failed `cds validate`; fix validation errors before an AI review.",
         }
 
-    plan, plan_diags = build_plan(str(profile_path), environment=environment)
+    profile_text = profile_path.read_text(encoding="utf-8")
+    with _placeholder_secrets(_declared_secret_env_names(profile_text)):
+        plan, plan_diags = build_plan(str(profile_path), environment=environment)
     if plan is None or has_errors(plan_diags):
         return {
             "profile_path": str(profile_path),
@@ -128,7 +168,6 @@ def review_profile(profile: str, *, environment: str | None, dry_run: bool) -> d
             "error": "Profile failed planning; fix plan errors before an AI review.",
         }
 
-    profile_text = profile_path.read_text(encoding="utf-8")
     user_prompt = build_user_prompt(profile_path, profile_text, plan)
 
     if dry_run:
