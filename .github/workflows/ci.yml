@@ -45,7 +45,7 @@ jobs:
 
       - name: Validate Renovate config
         run: |
-          npx --yes --package renovate@44.69.7 -- renovate-config-validator --strict renovate.json
+          npx --yes --package renovate@44.69.8 -- renovate-config-validator --strict renovate.json
 
   test:
     runs-on: ${{ matrix.os }}
