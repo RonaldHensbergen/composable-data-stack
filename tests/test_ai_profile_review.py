@@ -1,8 +1,8 @@
 """Tests for scripts/ai_profile_review.py.
 
 Kept independent of any real LLM provider: `complete()` is monkeypatched in
-every test that exercises the non-dry-run path, mirroring how
-llm/README.md's "single seam" is meant to be stubbed.
+every test that exercises the non-dry-run path, since it's the single seam
+through which every provider is called.
 """
 from __future__ import annotations
 

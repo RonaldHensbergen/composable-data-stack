@@ -1,9 +1,7 @@
-"""Standalone LLM completion seam, vendored from the sibling `llm` repo.
+"""Standalone, provider-agnostic LLM completion seam.
 
-Vendored (not a package/path dependency) so `scripts/` stays self-contained
-for anyone who clones just this repository. Re-sync by copying
-`client.py`/`config.py`/`__init__.py` from the source repo's `llm/` package
-when it changes; this copy is not meant to diverge locally.
+Self-contained under `scripts/_vendor/llm` so anyone who clones just this
+repository can use it without any external dependency or path/git reference.
 
     from llm import complete, preflight_provider
 
