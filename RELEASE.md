@@ -20,12 +20,12 @@ This document describes how to create a release.
    ```bash
    git checkout -b release/vX.Y.Z
    ```
-3. Update version in pyproject.toml and changelog.
+3. Update version in pyproject.toml and changelog. In practice, `.github/workflows/version-bump.yml` runs weekly (Mondays, plus on-demand via `workflow_dispatch`) and opens a `chore(release): bump version to X.Y.Z` PR that already bundles both: it calculates the next semver from Conventional Commits, bumps `pyproject.toml`, and runs `scripts/bump_changelog.py` to date the `CHANGELOG.md` `[Unreleased]` section (and reinsert a fresh empty one). Review that PR's dated section for accuracy, merge it, then continue from step 4/6 below on the merge commit -- no separate manual changelog edit needed. It opens no PR at all if no version change is calculated that week.
 4. Run tests:
    ```bash
    python -m unittest discover -s tests -p "*.py"
    ```
-5. Commit release metadata:
+5. Commit release metadata (skip if step 3 was done via the automated PR):
    ```bash
    git add pyproject.toml CHANGELOG.md
    git commit -m "Release vX.Y.Z"
