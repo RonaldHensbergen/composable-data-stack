@@ -298,10 +298,51 @@ def walk_for_secret_refs(obj: Any, current_path: str, known_secrets: set[str], d
                 )
 
 
+def _load_compatibility_registry() -> dict[tuple[str, str, str], str]:
+    """
+    Loads and validates cli/resources/compatibility-registry.json (bundled
+    with the package, unlike shared/contracts/, so it's available whether
+    CDS is run from a checkout or an installed wheel), returning a lookup
+    of (contract kind, provider "<category>/<name>", consumer
+    "<category>/<name>") -> status ("tested" | "unsupported"). Raises
+    ValueError if the bundled registry doesn't match its own schema --
+    a malformed bundled asset is a packaging bug, not a user input error.
+    """
+    schema = _load_schema("compatibility-registry.schema.json")
+    registry = _load_schema("compatibility-registry.json")
+
+    validator = Draft202012Validator(schema)
+    errors = sorted(validator.iter_errors(registry), key=lambda e: list(e.path))
+    if errors:
+        msgs = [
+            f'{".".join(str(x) for x in err.path) or "<root>"}: {err.message}'
+            for err in errors
+        ]
+        raise ValueError("Compatibility registry validation failed:\n  - " + "\n  - ".join(msgs))
+
+    return {
+        (pairing["contract"], pairing["provider"], pairing["consumer"]): pairing["status"]
+        for pairing in registry["pairings"]
+    }
+
+
+def _module_key(module_def: dict[str, Any]) -> str | None:
+    """"<category>/<name>" identity for a module, stable across profiles (unlike
+    a profile-scoped instance id or a source path), used to look up
+    tested/unsupported pairings in the compatibility registry."""
+    metadata = module_def.get("metadata", {})
+    category = metadata.get("category")
+    name = metadata.get("name")
+    if not isinstance(category, str) or not isinstance(name, str) or not category or not name:
+        return None
+    return f"{category}/{name}"
+
+
 def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
     by_id = {m["id"]: m for m in module_instances}
+    compatibility_registry = _load_compatibility_registry()
 
     for inst in module_instances:
         consumes = inst["module"].get("spec", {}).get("consumes", [])
@@ -426,6 +467,26 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                         path=f"spec.modules[{inst['index']}].config",
                     )
                 )
+                continue
+
+            provider_key = _module_key(producer["module"])
+            consumer_key = _module_key(inst["module"])
+            if provider_key and consumer_key:
+                status = compatibility_registry.get((expected_kind, provider_key, consumer_key))
+                if status == "unsupported":
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E043",
+                            message=(
+                                f'Contract ref "{contract_ref}" pairs "{consumer_key}" (consumer) with '
+                                f'"{provider_key}" (provider) for contract "{expected_kind}": this pairing '
+                                'matches structurally but is recorded as unsupported in the compatibility '
+                                'registry (cli/resources/compatibility-registry.json).'
+                            ),
+                            path=f"spec.modules[{inst['index']}].config",
+                        )
+                    )
 
     return diagnostics
 
