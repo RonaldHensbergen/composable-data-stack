@@ -1,0 +1,96 @@
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: duckdb
+  category: warehouse
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: DuckDB (experimental)
+  description: >
+    Fast, in-process analytical (OLAP) warehouse based on DuckDB. Unlike
+    postgres, DuckDB is embedded and has no network protocol -- it provides
+    a file-database contract (a shared host directory holding the database
+    file) instead of a sql-database contract. This module only prepares
+    that shared file with the correct permissions; the actual database is
+    opened directly by whichever consumer module (e.g. dlt, dbt) reads or
+    writes it. This module is marked experimental because the file-database
+    contract shape is new to CDS and unproven across multiple consumers, not
+    because DuckDB itself is immature -- see README.md for consumption
+    details and current limitations (e.g. BI tools cannot connect to it like
+    they do postgres, and it has no multi-node clustering).
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: duckdb-init
+      ports: []
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - hostDirectory
+    properties:
+      hostDirectory:
+        type: string
+        minLength: 1
+        description: >
+          Host path (relative to the profile's rendered docker-compose.yml,
+          or absolute) of the directory that will hold the DuckDB database
+          file. Consumers bind-mount this same directory to share the file.
+          Use a project-local data directory, not a system path.
+
+      filename:
+        type: string
+        minLength: 1
+        pattern: "^(?!\\.\\.?$)[A-Za-z0-9_.-]+$"
+        default: warehouse.duckdb
+
+      readOnly:
+        type: boolean
+        default: false
+
+  provides:
+    - name: file-database
+      contract:
+        kind: file-database
+        spec:
+          hostDirectory: ${config.hostDirectory}
+          filename: ${config.filename}
+          path: ${config.hostDirectory}/${config.filename}
+          readOnly: ${config.readOnly}
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        duckdb-init:
+          image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+          restart: "no"
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 64
+          healthcheck:
+            disable: true
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,mode=1777
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              mkdir -p /data
+              touch "/data/${config.filename}"
+              chmod 0777 /data
+              chmod 0666 "/data/${config.filename}"
+          volumes:
+            - type: bind
+              source: "${config.hostDirectory}"
+              target: /data

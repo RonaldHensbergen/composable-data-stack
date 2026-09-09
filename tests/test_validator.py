@@ -6,6 +6,7 @@ from unittest.mock import patch
 import yaml
 
 from cli.validator import (
+    validate_contract_bindings,
     validate_contract_document,
     validate_contract_file,
     validate_image_source_config,
@@ -592,6 +593,67 @@ class ModuleSchemaValidationTest(unittest.TestCase):
             errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
             self.assertEqual([d.code for d in errors], ["E021"])
             self.assertIn("not of type", errors[0].message)
+
+    def test_module_schema_rejects_malformed_required_if(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module = self._valid_module()
+            module["spec"]["consumes"] = [
+                {
+                    "name": "target-database",
+                    "contract": {"kind": "sql-database"},
+                    "required": False,
+                    "requiredIf": "config.warehouseType",
+                    "mappedFrom": "spec.config.targetDatabase",
+                }
+            ]
+            errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
+            self.assertEqual([d.code for d in errors], ["E021"])
+
+
+class RequiredIfMalformedGateTest(unittest.TestCase):
+    """
+    Direct unit tests for validate_contract_bindings against a malformed
+    requiredIf gate, bypassing module.schema.json's requiredIf pattern (the
+    schema stops a malformed expression earlier in practice, via
+    load_module_instances's E021 short-circuit -- see
+    ModuleSchemaValidationTest.test_module_schema_rejects_malformed_required_if),
+    to prove the resolver-level defense-in-depth (cli/resolver.py's
+    RequiredIfSyntaxError) also fails loudly with an E021 diagnostic
+    instead of resolver.evaluate_required_if's old behavior of silently
+    returning False and disabling enforcement.
+    """
+
+    def _module_instance(self, required_if: str) -> dict:
+        return {
+            "index": 0,
+            "id": "consumer",
+            "config": {"warehouseType": "duckdb"},
+            "module": {
+                "spec": {
+                    "consumes": [
+                        {
+                            "name": "target-database",
+                            "contract": {"kind": "sql-database"},
+                            "required": False,
+                            "requiredIf": required_if,
+                            "mappedFrom": "spec.config.targetDatabase",
+                        }
+                    ]
+                }
+            },
+        }
+
+    def test_missing_operator_reports_e021_instead_of_silently_skipping(self):
+        diagnostics = validate_contract_bindings([self._module_instance("config.warehouseType")])
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E021"])
+        self.assertIn("malformed requiredIf", errors[0].message)
+
+    def test_path_not_rooted_at_config_reports_e021(self):
+        diagnostics = validate_contract_bindings([self._module_instance("cofnig.warehouseType==duckdb")])
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E021"])
+        self.assertIn("malformed requiredIf", errors[0].message)
 
 
 if __name__ == "__main__":

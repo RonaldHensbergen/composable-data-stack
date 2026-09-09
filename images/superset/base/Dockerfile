@@ -1,6 +1,5 @@
-FROM apache/superset:6.1.0@sha256:59cd4af66006fe4cc98906eda42a771dbefdacb432f9ab083e02cdc6ff01f29d
+FROM apache/superset:6.1.0@sha256:16b50bbef6648912a79e3293d418fefa743ce555d36c5af6b85d859119ed7f88
 
-ARG IMAGE_PACKAGES=""
 ARG UV_VERSION=0.11.26
 
 USER root
@@ -18,10 +17,6 @@ RUN apt-get update \
 COPY images/superset/requirements.txt /tmp/superset-requirements.txt
 RUN uv pip install --python /app/.venv/bin/python --no-cache --upgrade \
       -r /tmp/superset-requirements.txt
-
-RUN if [ -n "$IMAGE_PACKAGES" ]; then \
-      uv pip install --python /app/.venv/bin/python --no-cache $IMAGE_PACKAGES; \
-    fi
 
 # The application uses /app/.venv; remove unused system packaging tools and their
 # vendored metadata so scanners do not report packages that cannot run.

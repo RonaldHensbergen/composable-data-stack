@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: file-database
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared contract describing an embedded, file-based database (e.g.
+    DuckDB) that consumers access by bind-mounting the same host directory,
+    rather than connecting over a network like sql-database. There is no
+    host/port/username -- the "connection" is opening the shared file
+    directly from within the consumer's own process.
+
+spec:
+  fields:
+    hostDirectory:
+      type: string
+      required: true
+      description: >-
+        Host filesystem path (relative to the profile's rendered
+        docker-compose.yml, or absolute) of the directory holding the
+        database file. Consumers must bind-mount this exact path into
+        their own container to access the same file; it is not a
+        network-reachable address.
+    filename:
+      type: string
+      required: true
+      description: File name of the database file within hostDirectory.
+    path:
+      type: string
+      required: true
+      description: Convenience field combining hostDirectory and filename.
+    readOnly:
+      type: boolean
+      required: true
+      description: Whether consumers should treat the file as read-only.
+  examples:
+    - hostDirectory: ./data/duckdb
+      filename: warehouse.duckdb
+      path: ./data/duckdb/warehouse.duckdb
+      readOnly: false

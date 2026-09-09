@@ -12,6 +12,8 @@ from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .resolver import (
+    RequiredIfSyntaxError,
+    evaluate_required_if,
     is_secret_ref,
     parse_contract_ref,
     resolve_path,
@@ -30,6 +32,7 @@ def build_plan(
     env_file: str | None = None,
     environment: str | None = None,
     hardened: bool = False,
+    image_source: str | None = None,
 ) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
     """
     Build a resolved plan from a profile.
@@ -50,6 +53,17 @@ def build_plan(
             convenience flag (see cli/main.py's up/render/test subcommands)
             for switching to the Alpine-hardened image variant without
             hand-editing the profile YAML.
+        image_source: When "build" or "registry", overrides
+            `config.image.source` for any module instance whose
+            configSchema exposes an `image.source` property (currently
+            modules/orchestration/dagster and modules/bi/superset), leaving
+            modules without that config option untouched. This is the
+            CLI-level `--image-source` convenience flag (see cli/main.py's
+            up/render/test subcommands and `cds config set image.source`).
+            Switching to "registry" without an explicit `config.image.tag`
+            re-derives the tag from the module's schema-pinned default (see
+            `_apply_image_source_override`), correctly re-prefixing it for
+            `--hardened`/other non-base variants.
 
     Returns:
         Tuple of (plan, diagnostics)
@@ -166,6 +180,7 @@ def build_plan(
             )
             if hardened and _supports_image_variant(module_def):
                 normalized_config.setdefault("image", {})["variant"] = "hardened"
+            _apply_image_source_override(normalized_config, module_def, image_source)
         except MaxNestingDepthExceeded:
             diagnostics.append(Diagnostic(
                 level="error",
@@ -285,6 +300,56 @@ def _supports_image_variant(module_def: dict[str, Any]) -> bool:
     return "variant" in image_schema.get("properties", {})
 
 
+def _apply_image_source_override(
+    normalized_config: dict[str, Any],
+    module_def: dict[str, Any],
+    image_source: str | None,
+) -> None:
+    """
+    Applies the CLI-level `--image-source` override (see build_plan's
+    image_source parameter) to a module instance's resolved image.* config,
+    mutating normalized_config in place.
+
+    Only touches modules whose configSchema exposes an `image.source`
+    property (currently modules/orchestration/dagster and
+    modules/bi/superset); modules without that config option (e.g.
+    warehouse/postgres) are left unchanged.
+
+    When switching to "registry" and the module's config still holds its
+    schema-default tag (i.e. no explicit config.image.tag was pinned by the
+    profile), the tag is re-derived from that same schema default so it
+    stays correct even when config.image.variant was also overridden (e.g.
+    by --hardened) in the same command: modules that publish
+    variant-prefixed registry tags (see
+    .github/workflows/publish-images.yml) get "<variant>-<default-tag>"
+    instead of the bare default, which only ever refers to the base
+    variant. An explicitly profile-pinned tag is never overwritten.
+    """
+    image_schema = (
+        module_def.get("spec", {})
+        .get("configSchema", {})
+        .get("properties", {})
+        .get("image", {})
+        .get("properties", {})
+    )
+    if not image_source or "source" not in image_schema:
+        return
+
+    image_config = normalized_config.setdefault("image", {})
+    image_config["source"] = image_source
+    if image_source != "registry":
+        return
+
+    default_tag = image_schema.get("tag", {}).get("default")
+    current_tag = image_config.get("tag")
+    if not default_tag or current_tag != default_tag:
+        return
+
+    variant = image_config.get("variant")
+    if variant and variant != "base" and not str(default_tag).startswith(f"{variant}-"):
+        image_config["tag"] = f"{variant}-{default_tag}"
+
+
 def apply_defaults(config: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     config_copy = deepcopy(config)
     return _apply_schema_defaults(config_copy, schema)
@@ -389,11 +454,28 @@ def resolve_consumed_contracts(
             continue
 
         required = consume.get("required", True)
+        required_if = consume.get("requiredIf")
+        if required_if:
+            try:
+                conditionally_required = evaluate_required_if(required_if, inst["config"])
+            except RequiredIfSyntaxError as err:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E021",
+                        message=f'Consume entry "{consume_name}" in module "{inst["id"]}" has a malformed requiredIf: {err}',
+                        path=f'module:{inst["id"]}.consumes.{consume_name}',
+                    )
+                )
+                conditionally_required = False
+        else:
+            conditionally_required = False
+        effective_required = required or conditionally_required
 
         try:
             binding = resolve_path({"spec": {"config": inst["config"]}}, mapped_from)
         except KeyError:
-            if not required:
+            if not effective_required:
                 continue
             diagnostics.append(
                 Diagnostic(
@@ -406,7 +488,7 @@ def resolve_consumed_contracts(
             continue
 
         if not isinstance(binding, dict) or "contractRef" not in binding:
-            if not required and not binding:
+            if not effective_required and not binding:
                 continue
             diagnostics.append(
                 Diagnostic(

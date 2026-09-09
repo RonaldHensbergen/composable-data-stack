@@ -203,6 +203,12 @@ def load_saved_security_strict() -> bool:
     return _config_value("security.strict") is True
 
 
+def load_saved_image_source() -> str | None:
+    """Return the project-wide default image.source override, if any."""
+    value = _config_value("image.source")
+    return value if value in {"build", "registry"} else None
+
+
 def load_saved_profile() -> str | None:
     """Return the profile name saved via `cds use`, if any."""
     profile = _read_config().get("profile")
@@ -244,6 +250,11 @@ def set_config_value(key: str, value: str) -> Path:
         if not isinstance(security, dict):
             raise ConfigIOError("Config key 'security' must be a mapping.")
         security["strict"] = value == "true"
+    elif key == "image.source":
+        image = data.setdefault("image", {})
+        if not isinstance(image, dict):
+            raise ConfigIOError("Config key 'image' must be a mapping.")
+        image["source"] = value
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     return _write_config(data)
@@ -263,6 +274,13 @@ def unset_config_value(key: str) -> bool:
         del security["strict"]
         if not security:
             del data["security"]
+    elif key == "image.source":
+        image = data.get("image")
+        if not isinstance(image, dict) or "source" not in image:
+            return False
+        del image["source"]
+        if not image:
+            del data["image"]
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     _write_config(data)
@@ -594,6 +612,25 @@ def _add_hardened_arg(subparser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_image_source_arg(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument(
+        "--image-source",
+        choices=["build", "registry"],
+        default=None,
+        help=(
+            "Override config.image.source for any module whose configSchema "
+            "exposes an image.source option (currently "
+            "modules/orchestration/dagster and modules/bi/superset), without "
+            "editing the profile YAML. \"registry\" pulls the published, "
+            "scanned, and signed image instead of building locally, using "
+            "each module's schema-pinned default tag unless the profile sets "
+            "config.image.tag explicitly. Modules without that config option "
+            "are left unchanged. Falls back to `cds config get image.source` "
+            "(see `cds config set image.source registry`) when omitted."
+        ),
+    )
+
+
 def _collect_profile_env_vars(
     profile_path: str, environment: str | None = None
 ) -> tuple[list[str], set[str]]:
@@ -921,6 +958,7 @@ def main() -> int:
         help="Output file path for rendered output (default: <project-root>/docker-compose.yml)",
     )
     _add_hardened_arg(render_parser)
+    _add_image_source_arg(render_parser)
 
     up_parser = subparsers.add_parser(
         "up",
@@ -958,6 +996,7 @@ def main() -> int:
         help="Disable colored labels in the live state view",
     )
     _add_hardened_arg(up_parser)
+    _add_image_source_arg(up_parser)
 
     test_parser = subparsers.add_parser(
         "test",
@@ -974,6 +1013,7 @@ def main() -> int:
         ),
     )
     _add_hardened_arg(test_parser)
+    _add_image_source_arg(test_parser)
 
     preflight_parser = subparsers.add_parser(
         "preflight",
@@ -1126,12 +1166,12 @@ def main() -> int:
     )
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_get_parser = config_subparsers.add_parser("get", help="Print a persisted setting")
-    config_get_parser.add_argument("key", choices=["profile", "environment", "security.strict"])
+    config_get_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
-    config_set_parser.add_argument("key", choices=["profile", "environment", "security.strict"])
+    config_set_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
     config_set_parser.add_argument("value")
     config_unset_parser = config_subparsers.add_parser("unset", help="Remove a persisted setting")
-    config_unset_parser.add_argument("key", choices=["profile", "environment", "security.strict"])
+    config_unset_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
     config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
 
     completion_parser = subparsers.add_parser(
@@ -1151,6 +1191,8 @@ def main() -> int:
     environment_explicit = hasattr(args, "environment")
     if args.command in {"validate", "plan", "render", "up", "test", "preflight", "init", "security"}:
         args.environment = getattr(args, "environment", None) or load_saved_environment()
+    if args.command in {"render", "up", "test"}:
+        args.image_source = getattr(args, "image_source", None) or load_saved_image_source()
     
     if args.command == "validate":
         try:
@@ -1281,7 +1323,7 @@ def main() -> int:
 
             env_file = str(resolve_env_file_path(profile_path))
             plan, plan_diags = build_plan(
-                profile_path, env_file=env_file, environment=args.environment, hardened=args.hardened
+                profile_path, env_file=env_file, environment=args.environment, hardened=args.hardened, image_source=args.image_source
             )
             all_diags = diagnostics + plan_diags
             if has_errors(all_diags):
@@ -1320,7 +1362,7 @@ def main() -> int:
 
         env_file = str(resolve_env_file_path(profile_path))
         plan, plan_diags = build_plan(
-            profile_path, env_file=env_file, environment=args.environment, hardened=args.hardened
+            profile_path, env_file=env_file, environment=args.environment, hardened=args.hardened, image_source=args.image_source
         )
         all_diags = diagnostics + plan_diags
         if has_errors(all_diags):
@@ -1539,7 +1581,7 @@ def main() -> int:
         render_ok = False
         if validate_ok:
             plan, plan_diags = build_plan(
-                profile_path, env_file=env_file, environment=args.environment, hardened=args.hardened
+                profile_path, env_file=env_file, environment=args.environment, hardened=args.hardened, image_source=args.image_source
             )
             plan_ok = not has_errors(diagnostics + plan_diags)
             if plan_ok:
@@ -1959,6 +2001,11 @@ def main() -> int:
             elif args.key == "security.strict":
                 if args.value not in {"true", "false"}:
                     print("ERROR Config key 'security.strict' must be true or false.")
+                    return 1
+                value = args.value
+            elif args.key == "image.source":
+                if args.value not in {"build", "registry"}:
+                    print("ERROR Config key 'image.source' must be 'build' or 'registry'.")
                     return 1
                 value = args.value
             else:

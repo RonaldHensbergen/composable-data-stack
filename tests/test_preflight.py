@@ -2,13 +2,19 @@ import os
 import socket
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import yaml
 
-from cli.preflight import _published_ports, preflight_passed, run_preflight
+from cli.preflight import (
+    _ENV_REFERENCE,
+    _published_ports,
+    preflight_passed,
+    run_preflight,
+)
 
 
 class PreflightTest(unittest.TestCase):
@@ -456,6 +462,38 @@ class PreflightTest(unittest.TestCase):
                 for check in checks
             )
         )
+
+    def test_env_reference_regex_parses_identifier_and_suffix_correctly(self) -> None:
+        """Correctness check for the disjoint-suffix rewrite (python:S8786):
+        matching behavior must be unchanged for all supported reference
+        forms (bare, default, and required-with-message)."""
+        cases = [
+            ("${CDS_REQUIRED}", "CDS_REQUIRED", ""),
+            ("${CDS_DB_PASSWORD:-postgres}", "CDS_DB_PASSWORD", ":-postgres"),
+            ("${CDS_TOKEN-fallback}", "CDS_TOKEN", "-fallback"),
+            ("${CDS_TOKEN:?must be set}", "CDS_TOKEN", ":?must be set"),
+            ("${CDS_TOKEN?must be set}", "CDS_TOKEN", "?must be set"),
+        ]
+        for text, expected_name, expected_suffix in cases:
+            with self.subTest(text=text):
+                match = _ENV_REFERENCE.search(text)
+                self.assertIsNotNone(match)
+                self.assertEqual(match.group(1), expected_name)
+                self.assertEqual(match.group(2), expected_suffix)
+
+    def test_env_reference_regex_does_not_exhibit_quadratic_backtracking(self) -> None:
+        """Regression test for python:S8786 (SonarCloud): the original
+        pattern had two adjacent quantifiers over overlapping character
+        classes ("[A-Za-z0-9_]*" then "[^}]*"), so an unterminated
+        "${...}" reference made the engine retry every possible split
+        between them, giving O(n^2) worst-case time. Requiring the suffix
+        group to start with one of ":", "?", or "-" makes the two groups'
+        character classes disjoint, removing that ambiguity."""
+        payload = "${" + "A" * 8000
+        start = time.monotonic()
+        self.assertIsNone(_ENV_REFERENCE.search(payload))
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 1.0, "regex match took too long; backtracking may have regressed")
 
 
 if __name__ == "__main__":

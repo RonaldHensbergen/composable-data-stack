@@ -14,13 +14,13 @@ differ (see below).
 
 - Registry: `ghcr.io`
 - Name: `ghcr.io/ronaldhensbergen/cds-<image-name>` (e.g. `cds-superset`, `cds-dagster`); owner is lowercased, GHCR rejects uppercase.
-- Tags: `sha-<12-char-commit-sha>` and `latest`. For images with multiple build variants (e.g. Dagster's `base`/`hardened`), the non-default variant's tags are prefixed with the variant name (e.g. `hardened-sha-<sha>`, `hardened-latest`); the image name/repository stays the same across variants. Tags are mutable pointers for humans; they are **not** what gets signed or verified.
+- Tags: `sha-<12-char-commit-sha>` and `latest`. For images with multiple build variants (e.g. Dagster's `base`/`hardened`), the non-default variant's tags are prefixed with the variant name (e.g. `hardened-sha-<sha>`, `hardened-latest`); the image name/repository stays the same across variants. The `hardened` variant (Alpine-based) additionally gets an `alpine-` aliased pair (`alpine-sha-<sha>`, `alpine-latest`) pointing at the same image, for users searching by base OS. Tags are mutable pointers for humans; they are **not** what gets signed or verified.
 
 ### Docker Hub
 
 - Registry: `docker.io` (`registry-1.docker.io`)
-- Name: `docker.io/ronaldsoeverein/<image-name>` (e.g. `dagster`, `superset`, `dbt`; no `cds-` prefix).
-- Tags: a base-version tag derived per image (`dagster==`/`apache/superset:`/`dbt-core==` version) and `latest`, both optionally prefixed with the build variant (e.g. `hardened-1.8.0`, `hardened-latest`). As with GHCR, tags are mutable; verification is always by digest.
+- Name: `docker.io/ronaldsoeverein/<image-name>` (e.g. `dagster`, `superset`, `dbt`, `dlt`; no `cds-` prefix).
+- Tags: a base-version tag derived per image (`dagster==`/`apache/superset:`/`dbt-core==`/`dlt[postgres]==` version) and `latest`, both optionally prefixed with the build variant (e.g. `hardened-1.8.0`, `hardened-latest`). The `hardened` variant additionally gets an `alpine-` aliased pair (`alpine-1.8.0`, `alpine-latest`) pointing at the same image. As with GHCR, tags are mutable; verification is always by digest.
 
 ## Verifying an image
 
@@ -41,6 +41,28 @@ cosign verify \
 ```
 
 Attestations (SBOM, provenance) verify the same way with `cosign verify-attestation --type cyclonedx` / `--type slsaprovenance` in place of `cosign verify`.
+
+## Consuming a published image from `cds`
+
+Modules that support `config.image.source: registry` (currently
+`orchestration/dagster` and `bi/superset`) also expose
+`config.image.registry`, which selects which of the two registries above
+`cds render`/`up`/`test` pulls from:
+
+```yaml
+config:
+  image:
+    source: registry
+    registry: ghcr # or "dockerhub" (default)
+    tag: hardened-sha-<12-char-sha>
+```
+
+`dockerhub` (the default) rewrites the service's `image:` to
+`docker.io/ronaldsoeverein/<module>:<tag>`; `ghcr` rewrites it to
+`ghcr.io/ronaldhensbergen/cds-<module>:<tag>`. Remember GHCR has no
+version-derived tag (only `sha-<sha>`/`latest`, optionally
+variant-prefixed), so a tag like `hardened-1.13.21` only resolves on
+Docker Hub.
 
 ## Trust identity
 

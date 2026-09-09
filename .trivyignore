@@ -44,3 +44,19 @@ CVE-2026-53614 exp:2026-11-15
 # revisit sooner if no digest bump has landed by then.
 # owner:@RonaldHensbergen
 CVE-2026-14456 exp:2026-11-15
+
+# CVE-2026-76642/78408/78409/78410: util-linux (libuuid) HIGH findings on
+# the python:3.14-alpine base used by images/dagster/hardened/Dockerfile.
+# Fixed by util-linux 2.42.3-r0; the pinned python:3.14-alpine digest
+# still ships libuuid-2.42.1-r0 and no newer digest has been published
+# upstream yet (checked 2026-09-05, same digest as `docker pull
+# python:3.14-alpine` resolves to today). Renovate bumps the digest when
+# upstream rebuilds; drop these entries then.
+# owner:@RonaldHensbergen — mount post-hook privileged X-mount.idmap/owner escalation
+CVE-2026-76642 exp:2026-12-04
+# owner:@RonaldHensbergen — nsenter --join-cgroup root cgroup migration leak, same fix
+CVE-2026-78408 exp:2026-12-04
+# owner:@RonaldHensbergen — X-mount.subdir detached-tree symlink escape, same fix
+CVE-2026-78409 exp:2026-12-04
+# owner:@RonaldHensbergen — restricted bind mount owner/group/mode pin bypass, same fix
+CVE-2026-78410 exp:2026-12-04

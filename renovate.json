@@ -29,6 +29,30 @@
     },
     {
       "customType": "regex",
+      "description": "Track the pinned image.tag registry default in modules/orchestration/dagster/module.yaml against the dagster PyPI version, since it must stay in sync with the dagster== pin in images/dagster/requirements.txt for `--image-source registry`/`cds config set image.source registry` to pull a valid published tag",
+      "matchStrings": [
+        "# cds-registry-tag-source: pypi/dagster[^\\n]*(?:\\n\\s*#[^\\n]*)*\\n\\s*default:\\s*\"(?<currentValue>[\\w.-]+)\""
+      ],
+      "depNameTemplate": "dagster",
+      "datasourceTemplate": "pypi",
+      "managerFilePatterns": [
+        "/^modules/orchestration/dagster/module\\.yaml$/"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Track the pinned image.tag registry default in modules/bi/superset/module.yaml against the apache/superset Docker tag, since it must stay in sync with the apache/superset base pinned in images/superset/base/Dockerfile for `--image-source registry`/`cds config set image.source registry` to pull a valid published tag",
+      "matchStrings": [
+        "# cds-registry-tag-source: docker/apache/superset[^\\n]*(?:\\n\\s*#[^\\n]*)*\\n\\s*default:\\s*\"(?<currentValue>[\\w.-]+)\""
+      ],
+      "depNameTemplate": "apache/superset",
+      "datasourceTemplate": "docker",
+      "managerFilePatterns": [
+        "/^modules/bi/superset/module\\.yaml$/"
+      ]
+    },
+    {
+      "customType": "regex",
       "description": "Keep the documented minimum Python version in docs/support-policy.md in sync with pyproject.toml's requires-python",
       "matchStrings": [
         "requires-python\\s*=\\s*\">=(?<currentValue>\\d+\\.\\d+)\"",
@@ -53,6 +77,31 @@
       "managerFilePatterns": [
         "/^\\.github/workflows/image-security-scan\\.yml$/",
         "/^\\.github/workflows/publish-images\\.yml$/"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Track exact-pinned CI-only tool versions installed via pip/npx in workflow run steps (not library dependencies, which intentionally use flexible ranges in pyproject.toml)",
+      "matchStrings": [
+        "(?<depName>build)==(?<currentValue>\\S+)",
+        "(?<depName>twine)==(?<currentValue>\\S+)",
+        "(?<depName>yamllint)==(?<currentValue>\\S+)"
+      ],
+      "datasourceTemplate": "pypi",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/build-python-package\\.yml$/",
+        "/^\\.github/workflows/ci\\.yml$/"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Track the exact-pinned renovate npm package version used to validate this file via `npx --package renovate@<version>`",
+      "matchStrings": [
+        "--package (?<depName>renovate)@(?<currentValue>\\S+)"
+      ],
+      "datasourceTemplate": "npm",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/ci\\.yml$/"
       ]
     }
   ],
@@ -85,6 +134,19 @@
       "matchPackageNames": [
         "/.*/"
       ]
+    },
+    {
+      "description": "Batch the self-pinned renovate npm package (used by renovate-config-validator in ci.yml) into a single weekly PR instead of one per upstream patch release -- renovate ships multiple patch releases per day, so without this each release reopens/edits a new PR the moment the previous one merges",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "renovate"
+      ],
+      "schedule": [
+        "before 6am on monday"
+      ],
+      "minimumReleaseAge": "3 days"
     }
   ]
 }

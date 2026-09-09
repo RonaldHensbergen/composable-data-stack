@@ -1,13 +1,25 @@
 cds_target:
-  target: prod
+  target: "{{ env_var('DBT_WAREHOUSE_TYPE') }}"
+  # Both outputs below are Jinja-rendered (and their env_var calls
+  # evaluated) at profiles.yml parse time regardless of which one
+  # `target` selects -- dbt validates/renders the whole outputs map before
+  # picking the active target. Every var referenced here besides
+  # DBT_WAREHOUSE_TYPE/DBT_SCHEMA (both always set -- see entrypoint.sh)
+  # therefore has an explicit `env_var(..., '')`/`'4'` default so the idle
+  # (non-selected) output never raises on a missing var in either mode.
   outputs:
-    prod:
+    postgres:
       type: postgres
-      host: "{{ env_var('DBT_HOST') }}"
-      port: "{{ env_var('DBT_PORT') | as_number }}"
-      dbname: "{{ env_var('DBT_DBNAME') }}"
-      user: "{{ env_var('DBT_USER') }}"
-      password: "{{ env_var('DBT_PASSWORD') }}"
+      host: "{{ env_var('DBT_HOST', '') }}"
+      port: "{{ env_var('DBT_PORT', '5432') | as_number }}"
+      dbname: "{{ env_var('DBT_DBNAME', '') }}"
+      user: "{{ env_var('DBT_USER', '') }}"
+      password: "{{ env_var('DBT_PASSWORD', '') }}"
       schema: "{{ env_var('DBT_SCHEMA') }}"
       threads: "{{ env_var('DBT_THREADS', '4') | as_number }}"
       connect_timeout: 10
+    duckdb:
+      type: duckdb
+      path: "{{ env_var('DBT_DUCKDB_PATH', '') }}"
+      schema: "{{ env_var('DBT_SCHEMA') }}"
+      threads: "{{ env_var('DBT_THREADS', '4') | as_number }}"
