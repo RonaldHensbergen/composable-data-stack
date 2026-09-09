@@ -10,11 +10,17 @@ from pathlib import Path
 from cli.diagnostics import Diagnostic
 from cli.security import (
     PrecomputedRender,
+    _check_production_plaintext_exposure,
     _eval_condition,
     _flatten_profile_by_module,
     _flatten_rendered_leak_surfaces,
     _map_service_to_module,
+    _module_provides_plaintext_http,
+    _module_provides_tls_reverse_proxy,
     _path_matches_any,
+    _plaintext_exposure_waiver_reason,
+    _plaintext_module_ids_fronted_by_tls_reverse_proxy,
+    _port_is_non_local_host_exposure,
     _redact,
     _try_render_compose_for_scan,
     _validate_rule_set,
@@ -776,6 +782,289 @@ class ExtendsAwareSecurityScanTest(unittest.TestCase):
 
         self.assertEqual(findings, [])
         self.assertEqual(diags, expected)
+
+
+class PlaintextExposureHelpersTest(unittest.TestCase):
+    """Direct, in-process unit coverage for the CDS-SEC-074 helper functions.
+
+    The end-to-end coverage for this rule in test_cds_workflow.py drives the
+    `cds` CLI as a subprocess, which coverage.py cannot attribute to these
+    functions -- so this class exercises them directly to close that gap.
+    """
+
+    def test_module_provides_plaintext_http_false_for_non_mapping_provides(self):
+        self.assertFalse(_module_provides_plaintext_http({"provides": ["not", "a", "dict"]}))
+        self.assertFalse(_module_provides_plaintext_http({}))
+
+    def test_module_provides_plaintext_http_true_for_http_protocol_contract(self):
+        module = {
+            "provides": {
+                "http-service": {
+                    "kind": "http-service",
+                    "spec": {"protocol": "HTTP"},
+                }
+            }
+        }
+        self.assertTrue(_module_provides_plaintext_http(module))
+
+    def test_module_provides_plaintext_http_false_for_https_protocol_contract(self):
+        module = {
+            "provides": {
+                "http-service": {
+                    "kind": "http-service",
+                    "spec": {"protocol": "https"},
+                }
+            }
+        }
+        self.assertFalse(_module_provides_plaintext_http(module))
+
+    def test_module_provides_tls_reverse_proxy_false_for_non_mapping_provides(self):
+        self.assertFalse(_module_provides_tls_reverse_proxy({"provides": None}))
+
+    def test_module_provides_tls_reverse_proxy_ignores_non_reverse_proxy_and_non_https(self):
+        module = {
+            "provides": {
+                "not-a-mapping": "oops",
+                "wrong-kind": {"kind": "http-service", "spec": {"protocol": "https"}},
+                "http-reverse-proxy": {"kind": "reverse-proxy", "spec": {"protocol": "http"}},
+            }
+        }
+        self.assertFalse(_module_provides_tls_reverse_proxy(module))
+
+    def test_module_provides_tls_reverse_proxy_true_for_https_reverse_proxy(self):
+        module = {
+            "provides": {
+                "reverse-proxy": {"kind": "reverse-proxy", "spec": {"protocol": "HTTPS"}},
+            }
+        }
+        self.assertTrue(_module_provides_tls_reverse_proxy(module))
+
+    def test_fronted_by_tls_reverse_proxy_returns_empty_set_for_non_mapping_plan(self):
+        self.assertEqual(_plaintext_module_ids_fronted_by_tls_reverse_proxy(None), set())
+
+    def test_fronted_by_tls_reverse_proxy_skips_modules_without_tls_reverse_proxy(self):
+        plan = {"modules": [{"id": "api", "provides": {}}]}
+        self.assertEqual(_plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), set())
+
+    def test_fronted_by_tls_reverse_proxy_skips_non_mapping_or_unwired_consumes(self):
+        plan = {
+            "modules": [
+                {
+                    "id": "proxy-no-consumes",
+                    "provides": {"rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}},
+                    "consumes": "not-a-dict",
+                },
+                {
+                    "id": "proxy-bad-entries",
+                    "provides": {"rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}},
+                    "consumes": {
+                        "upstream": "not-a-dict",
+                        "no-ref": {"contractRef": None},
+                        "malformed-ref": {"contractRef": "not-dotted"},
+                        "wrong-contract-kind": {
+                            "contractRef": "api.http-service",
+                            "contract": {"kind": "database"},
+                        },
+                        "wrong-protocol": {
+                            "contractRef": "api.http-service",
+                            "contract": {"kind": "http-service", "spec": {"protocol": "https"}},
+                        },
+                    },
+                },
+            ]
+        }
+        self.assertEqual(_plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), set())
+
+    def test_fronted_by_tls_reverse_proxy_returns_wired_producer_id(self):
+        plan = {
+            "modules": [
+                {
+                    "id": "proxy",
+                    "provides": {"rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}},
+                    "consumes": {
+                        "upstream": {
+                            "contractRef": "api.http-service",
+                            "contract": {"kind": "http-service", "spec": {"protocol": "http"}},
+                        },
+                    },
+                },
+            ]
+        }
+        self.assertEqual(_plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), {"api"})
+
+    def test_port_is_non_local_host_exposure_by_type(self):
+        self.assertTrue(_port_is_non_local_host_exposure(8080))
+        self.assertFalse(_port_is_non_local_host_exposure("127.0.0.1:8080"))
+        self.assertFalse(_port_is_non_local_host_exposure("localhost:8080"))
+        self.assertFalse(_port_is_non_local_host_exposure("[::1]:8080"))
+        self.assertTrue(_port_is_non_local_host_exposure("0.0.0.0:8080"))
+        self.assertFalse(_port_is_non_local_host_exposure({"host_ip": "127.0.0.1", "target": 8080}))
+        self.assertTrue(_port_is_non_local_host_exposure({"host_ip": "0.0.0.0", "target": 8080}))  # nosec B104  # noqa: S104
+        self.assertFalse(_port_is_non_local_host_exposure({"published": 8080}))
+        self.assertFalse(_port_is_non_local_host_exposure(None))
+
+    def test_waiver_reason_missing_or_malformed_returns_none(self):
+        self.assertIsNone(_plaintext_exposure_waiver_reason({}))
+        self.assertIsNone(_plaintext_exposure_waiver_reason(
+            {"spec": {"security": {"waivers": {"plaintextEndpointExposure": "not-a-dict"}}}}
+        ))
+        self.assertIsNone(_plaintext_exposure_waiver_reason(
+            {"spec": {"security": {"waivers": {"plaintextEndpointExposure": {"reason": 123}}}}}
+        ))
+        self.assertIsNone(_plaintext_exposure_waiver_reason(
+            {"spec": {"security": {"waivers": {"plaintextEndpointExposure": {"reason": "   "}}}}}
+        ))
+
+    def test_waiver_reason_returns_trimmed_string(self):
+        profile = {
+            "spec": {"security": {"waivers": {"plaintextEndpointExposure": {"reason": "  approved  "}}}}
+        }
+        self.assertEqual(_plaintext_exposure_waiver_reason(profile), "approved")
+
+
+class ProductionPlaintextExposureCheckTest(unittest.TestCase):
+    """Direct, in-process coverage of _check_production_plaintext_exposure's
+    branches (complementing the subprocess-based end-to-end coverage in
+    test_cds_workflow.py, which coverage.py cannot attribute to this
+    function since it runs `cds` as a separate process)."""
+
+    def _plan(self):
+        return {
+            "modules": [
+                {
+                    "id": "api",
+                    "provides": {
+                        "http": {"kind": "http-service", "spec": {"protocol": "http"}},
+                    },
+                },
+            ]
+        }
+
+    def _rendered_compose(self, port="8080:8080"):
+        return {"services": {"api": {"ports": [port]}}}
+
+    def test_non_prod_without_waiver_is_silent(self):
+        findings, diags = _check_production_plaintext_exposure(
+            profile={}, profile_class="dev", plan=None, rendered_compose=None,
+            service_to_module={},
+        )
+        self.assertEqual((findings, diags), ([], []))
+
+    def test_non_prod_with_waiver_emits_w099(self):
+        profile = {
+            "spec": {"security": {"waivers": {"plaintextEndpointExposure": {"reason": "not prod yet"}}}}
+        }
+        findings, diags = _check_production_plaintext_exposure(
+            profile=profile, profile_class="dev", plan=None, rendered_compose=None,
+            service_to_module={},
+        )
+        self.assertEqual(findings, [])
+        self.assertEqual([d.code for d in diags], ["W099"])
+        self.assertIn("profile class 'dev'", diags[0].message)
+
+    def test_prod_without_a_plan_or_rendered_compose_is_silent(self):
+        findings, diags = _check_production_plaintext_exposure(
+            profile={}, profile_class="prod", plan=None, rendered_compose=None,
+            service_to_module={},
+        )
+        self.assertEqual((findings, diags), ([], []))
+
+    def test_prod_with_no_plaintext_modules_is_silent(self):
+        plan = {"modules": [{"id": "db", "provides": {}}]}
+        findings, diags = _check_production_plaintext_exposure(
+            profile={}, profile_class="prod", plan=plan,
+            rendered_compose={"services": {}}, service_to_module={},
+        )
+        self.assertEqual((findings, diags), ([], []))
+
+    def test_prod_with_non_mapping_services_is_silent(self):
+        findings, diags = _check_production_plaintext_exposure(
+            profile={}, profile_class="prod", plan=self._plan(),
+            rendered_compose={"services": "not-a-dict"}, service_to_module={},
+        )
+        self.assertEqual((findings, diags), ([], []))
+
+    def test_prod_with_only_localhost_ports_is_silent(self):
+        findings, diags = _check_production_plaintext_exposure(
+            profile={}, profile_class="prod", plan=self._plan(),
+            rendered_compose=self._rendered_compose(port="127.0.0.1:8080:8080"),
+            service_to_module={"api": "api"},
+        )
+        self.assertEqual((findings, diags), ([], []))
+
+    def test_prod_exposure_fronted_by_wired_tls_reverse_proxy_is_silent(self):
+        plan = self._plan()
+        plan["modules"].append({
+            "id": "proxy",
+            "provides": {"rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}},
+            "consumes": {
+                "upstream": {
+                    "contractRef": "api.http",
+                    "contract": {"kind": "http-service", "spec": {"protocol": "http"}},
+                },
+            },
+        })
+        findings, diags = _check_production_plaintext_exposure(
+            profile={}, profile_class="prod", plan=plan,
+            rendered_compose=self._rendered_compose(),
+            service_to_module={"api": "api"},
+        )
+        self.assertEqual((findings, diags), ([], []))
+
+    def test_prod_exposure_with_waiver_emits_w098_and_no_findings(self):
+        profile = {
+            "spec": {"security": {"waivers": {"plaintextEndpointExposure": {"reason": "temporary"}}}}
+        }
+        findings, diags = _check_production_plaintext_exposure(
+            profile=profile, profile_class="prod", plan=self._plan(),
+            rendered_compose=self._rendered_compose(), service_to_module={"api": "api"},
+        )
+        self.assertEqual(findings, [])
+        self.assertEqual([d.code for d in diags], ["W098"])
+        self.assertIn("temporary", diags[0].message)
+        self.assertIn("api", diags[0].message)
+
+    def test_prod_exposure_without_waiver_reports_cds_sec_074(self):
+        findings, diags = _check_production_plaintext_exposure(
+            profile={}, profile_class="prod", plan=self._plan(),
+            rendered_compose=self._rendered_compose(), service_to_module={"api": "api"},
+        )
+        self.assertEqual(diags, [])
+        self.assertEqual(len(findings), 1)
+        finding = findings[0]
+        self.assertEqual(finding["rule_id"], "CDS-SEC-074")
+        self.assertEqual(finding["severity"], "high")
+        self.assertEqual(finding["module"], "api")
+        self.assertEqual(finding["path"], "services.api.ports[0]")
+        self.assertEqual(finding["value"], "8080:8080")
+
+    def test_prod_exposure_redacts_value_when_requested(self):
+        findings, _ = _check_production_plaintext_exposure(
+            profile={}, profile_class="prod", plan=self._plan(),
+            rendered_compose=self._rendered_compose(), service_to_module={"api": "api"},
+            redact_values=True,
+        )
+        self.assertEqual(findings[0]["value"], "80***REDACTED***80")
+
+
+    def test_prod_exposure_skips_non_module_services_and_normalizes_non_list_ports(self):
+        plan = self._plan()
+        rendered_compose = {
+            "services": {
+                "not-a-dict": "oops",
+                "unrelated": {"ports": ["8081:8081"]},
+                "api": {"ports": "8080:8080"},
+            }
+        }
+        findings, diags = _check_production_plaintext_exposure(
+            profile={}, profile_class="prod", plan=plan,
+            rendered_compose=rendered_compose,
+            service_to_module={"api": "api", "unrelated": "unrelated"},
+        )
+        self.assertEqual(diags, [])
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["module"], "api")
+        self.assertEqual(findings[0]["path"], "services.api.ports[0]")
 
 
 if __name__ == "__main__":
