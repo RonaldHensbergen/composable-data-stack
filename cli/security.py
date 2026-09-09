@@ -543,26 +543,19 @@ def _map_service_to_module(plan: dict[str, Any] | None) -> dict[str, str]:
     return mapping
 
 
-def _module_plaintext_http_provide_names(module: dict[str, Any]) -> set[str]:
-    """Return the names of this module's provided contracts that are plaintext
-    (protocol: http) http-service contracts."""
+def _module_provides_plaintext_http(module: dict[str, Any]) -> bool:
+    """Return whether any of this module's provided contracts is a plaintext
+    (protocol: http) http-service contract."""
     provides = module.get("provides", {})
     if not isinstance(provides, dict):
-        return set()
-    names = set()
-    for provide_name, contract in provides.items():
-        if not isinstance(contract, dict):
-            continue
-        if contract.get("kind") != "http-service":
-            continue
-        spec = contract.get("spec", {})
-        if isinstance(spec, dict) and str(spec.get("protocol", "")).lower() == "http":
-            names.add(provide_name)
-    return names
-
-
-def _module_provides_plaintext_http(module: dict[str, Any]) -> bool:
-    return bool(_module_plaintext_http_provide_names(module))
+        return False
+    return any(
+        isinstance(contract, dict)
+        and contract.get("kind") == "http-service"
+        and isinstance(contract.get("spec", {}), dict)
+        and str(contract.get("spec", {}).get("protocol", "")).lower() == "http"
+        for contract in provides.values()
+    )
 
 
 def _module_provides_tls_reverse_proxy(module: dict[str, Any]) -> bool:
@@ -658,7 +651,26 @@ def _check_production_plaintext_exposure(
     service_to_module: dict[str, str],
     redact_values: bool = False,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
-    if profile_class != "prod" or not isinstance(plan, dict) or not isinstance(rendered_compose, dict):
+    if profile_class != "prod":
+        # The waiver only ever has an effect on a prod-class profile (below,
+        # only reached when profile_class == "prod"); if one is declared here
+        # anyway, it currently does nothing, so tell the author rather than
+        # staying silent about a waiver that "sleeps" until the profile is
+        # promoted to prod.
+        if _plaintext_exposure_waiver_reason(profile) is not None:
+            return [], [Diagnostic(
+                level="warning",
+                code="W099",
+                message=(
+                    "spec.security.waivers.plaintextEndpointExposure is set but has no "
+                    f"effect for profile class {profile_class!r}: CDS-SEC-074 and its waiver "
+                    "only apply to prod-class profiles."
+                ),
+                path="spec.security.waivers.plaintextEndpointExposure",
+            )]
+        return [], []
+
+    if not isinstance(plan, dict) or not isinstance(rendered_compose, dict):
         return [], []
 
     plaintext_modules = {
@@ -832,7 +844,7 @@ def _try_render_compose_for_scan(
                     ),
                     path="spec.modules",
                 ))
-                return plan, None, {}, diagnostics
+                return None, plan, {}, diagnostics
 
         rendered = yaml.safe_load(rendered_compose_yaml)
         service_to_module = _map_service_to_module(plan)

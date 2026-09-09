@@ -114,13 +114,14 @@ class SecurityHelpersTest(unittest.TestCase):
                 ),
             ),
         ):
-            rendered, service_map, diags = _try_render_compose_for_scan(
+            rendered, plan, service_map, diags = _try_render_compose_for_scan(
                 _REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml",
                 env_file=None,
                 environment=None,
             )
 
         self.assertIsNone(rendered)
+        self.assertEqual(plan, {"modules": []})
         self.assertEqual(service_map, {})
         self.assertEqual([d.code for d in diags], ["W096"])
         self.assertIn("rendered (E060)", diags[0].message)
@@ -426,6 +427,7 @@ class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
                 "CDS-SEC-030",
                 "CDS-SEC-032",
                 "CDS-SEC-071",
+                "CDS-SEC-074",
             },
         )
         for rule in deferred_rules:

@@ -212,6 +212,16 @@ class ProductionPlaintextExposureWorkflowTest(unittest.TestCase):
             self.assertIn("[FAIL] security", result.stdout)
             self.assertIn("CDS-SEC-074", result.stdout)
 
+        with self.subTest(case="waiver declared on a non-prod profile has no effect and is not silent"):
+            result = self._run_test("profile-waived-plaintext-non-prod")
+            self.assertEqual(
+                result.returncode, 0,
+                f"non-prod profiles are not subject to CDS-SEC-074:\nstdout: {result.stdout}\nstderr: {result.stderr}",
+            )
+            self.assertIn("[PASS] security", result.stdout)
+            self.assertIn("W099", result.stderr)
+            self.assertNotIn("CDS-SEC-074", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
