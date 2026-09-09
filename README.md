@@ -683,6 +683,18 @@ runs, with a dedicated diagnostic code:
 |E112|A referenced parent profile does not exist|
 |E113|A cycle was detected in the `extends` chain|
 
+`cds generate-profile` (see [CLI](#%EF%B8%8F-cli)), which persists a
+runtime-generated profile dict to `profiles/<name>/profile.yaml` before it
+flows through the same `extends`/environment-overlay resolution as any
+hand-authored profile, has its own diagnostic codes:
+
+|Code|Meaning|
+|---|---|
+|E114|The input isn't a usable profile document: either not a mapping/object, or a mapping with no resolvable name (no `name=` argument and no `metadata.name`)|
+|E115|The resolved `metadata.name` is absolute, contains `..` segments, or otherwise resolves outside the profiles root|
+|E116|`profiles/<name>/profile.yaml` already exists and `force=True` wasn't passed|
+|E117|The profile couldn't be written: a value inside it isn't YAML-serializable, or the write itself failed (permission denied, disk full, etc.)|
+
 ---
 
 ## ⚙️ CLI
@@ -692,6 +704,7 @@ runs, with a dedicated diagnostic code:
 |cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|
 |cds list profiles\|modules\|images [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>]|List available profiles, module sources, or module images and check for newer versions; add `--remote`/`--local` to inspect another repository before fetching from it|
 |cds init [profile]|Generate a project `.env` template from profile secret definitions|
+|cds generate-profile \<input\|-\> [--name \<name\>] [--force]|Persist a runtime/programmatically composed profile document (JSON or YAML, from a file or stdin) to `profiles/<name>/profile.yaml`, so it can be validated/planned/rendered exactly like a hand-authored profile|
 |cds validate [profile]|Validate modules and contracts|
 |cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|

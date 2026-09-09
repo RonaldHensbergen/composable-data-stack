@@ -203,8 +203,19 @@ def save_generated_profile(
     force=True, refuses to silently overwrite an existing profile.yaml.
 
     Returns (profile_file_path, diagnostics). profile_file_path is None if
-    diagnostics contains an error.
+    diagnostics contains an error. A YAML-serialization failure (E117, e.g.
+    a non-representable value nested in the profile) or a filesystem write
+    failure (E117, e.g. permission denied, disk full) is reported as a
+    diagnostic rather than raising, keeping this promise for every error
+    path instead of just the validation checks above.
     """
+    # E114 groups both "unusable input document" cases below (a non-dict
+    # profile, and a dict profile with no resolvable name) rather than
+    # splitting into two codes: both are the same class of failure -- the
+    # caller handed generate_profile() something it cannot even attempt to
+    # write out yet, before any path/overwrite check applies -- mirroring
+    # how E115 already groups "absolute name" and "escapes profiles_root"
+    # as one "invalid destination" class below.
     if not isinstance(profile, dict):
         return None, [
             Diagnostic(
@@ -265,6 +276,28 @@ def save_generated_profile(
             )
         ]
 
-    _atomic_write(profile_file, yaml.safe_dump(profile, sort_keys=False))
+    try:
+        serialized = yaml.safe_dump(profile, sort_keys=False)
+    except yaml.representer.RepresenterError as exc:
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E117",
+                message=f"Generated profile contains a value that cannot be serialized to YAML: {exc}",
+                path="profile",
+            )
+        ]
+
+    try:
+        _atomic_write(profile_file, serialized)
+    except OSError as exc:
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E117",
+                message=f"Failed to write generated profile to {profile_file}: {exc}",
+                path=str(profile_file),
+            )
+        ]
 
     return profile_file, []

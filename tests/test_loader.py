@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import yaml
@@ -124,3 +125,38 @@ class SaveGeneratedProfileTest(unittest.TestCase):
                 yaml.safe_load(second_path.read_text(encoding="utf-8")),
                 updated_profile,
             )
+
+    def test_reports_diagnostic_for_non_yaml_serializable_value(self):
+        """A value yaml.safe_dump() can't represent (e.g. an arbitrary
+        object) must surface as an E117 diagnostic, not an unhandled
+        RepresenterError traceback -- the function's return contract
+        promises (None, diagnostics) on every error path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profiles_root = Path(tmpdir) / "profiles"
+            profile = self._profile("generated-demo")
+            profile["spec"]["unrepresentable"] = object()
+
+            path, diagnostics = save_generated_profile(profile, profiles_root)
+
+            self.assertIsNone(path)
+            self.assertEqual(len(diagnostics), 1)
+            self.assertEqual(diagnostics[0].code, "E117")
+            self.assertFalse((profiles_root / "generated-demo" / "profile.yaml").exists())
+
+    def test_reports_diagnostic_for_write_failure(self):
+        """A filesystem write failure (e.g. permission denied) must surface
+        as an E117 diagnostic rather than an unhandled OSError, matching the
+        (None, diagnostics) contract on every error path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profiles_root = Path(tmpdir) / "profiles"
+            profile = self._profile("generated-demo")
+
+            with unittest.mock.patch(
+                "cli.loader._atomic_write", side_effect=OSError("disk full")
+            ):
+                path, diagnostics = save_generated_profile(profile, profiles_root)
+
+            self.assertIsNone(path)
+            self.assertEqual(len(diagnostics), 1)
+            self.assertEqual(diagnostics[0].code, "E117")
+            self.assertFalse((profiles_root / "generated-demo" / "profile.yaml").exists())

@@ -624,6 +624,96 @@ class MainCLITest(unittest.TestCase):
                 self.assertIsNotNone(plan)
                 self.assertEqual([m["id"] for m in plan["modules"]], ["postgres"])
 
+    def test_generate_profile_supports_environment_overlay(self):
+        """A generated profile still picks up `--environment` overlays the
+        same way a hand-authored profile does, since it lands at the normal
+        profiles/<name>/profile.yaml location and environments/<env>.yaml
+        overlay resolution (cli/overlay.py) looks up that sibling file by
+        relative reference -- proving disk-first preserves this feature
+        rather than asserting both extends and overlay separately."""
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            modules_root = root / "modules"
+            module_dir = modules_root / "warehouse" / "postgres"
+            module_dir.mkdir(parents=True)
+
+            (module_dir / "module.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Module",
+                        "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                        "spec": {
+                            "runtime": {
+                                "type": "container",
+                                "service": {
+                                    "name": "postgres",
+                                    "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                },
+                            },
+                            "configSchema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {"logLevel": {"type": "string", "default": "info"}},
+                            },
+                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            generated_profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "runtime-generated-overlay", "environment": "local"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {
+                            "id": "postgres",
+                            "source": "warehouse/postgres",
+                            "version": "0.1.0",
+                            "enabled": True,
+                            "config": {},
+                        }
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+
+            profiles_root = root / "profiles"
+            with patch.dict(
+                os.environ,
+                {"CDS_PROFILE_PATH": str(profiles_root), "CDS_MODULE_PATH": str(modules_root)},
+                clear=False,
+            ):
+                profile_path, generate_diags = generate_profile(generated_profile)
+                self.assertEqual(generate_diags, [])
+
+                # environments/<name>.yaml lives next to the generated
+                # profile.yaml, exactly like a hand-authored profile.
+                environments_dir = Path(profile_path).parent / "environments"
+                environments_dir.mkdir(parents=True)
+                (environments_dir / "dev.yaml").write_text(
+                    yaml.safe_dump(
+                        {
+                            "metadata": {"environment": "development"},
+                            "spec": {"modules": [{"id": "postgres", "config": {"logLevel": "debug"}}]},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                plan, plan_diags = build_plan(profile_path, environment="dev")
+
+                self.assertEqual(plan_diags, [])
+                self.assertIsNotNone(plan)
+                postgres_module = next(m for m in plan["modules"] if m["id"] == "postgres")
+                self.assertEqual(postgres_module["config"]["logLevel"], "debug")
+
     def test_generate_profile_command_writes_file_from_input_path(self):
         """`cds generate-profile <file>` reads a JSON/YAML profile document
         from disk and persists it via generate_profile()."""
