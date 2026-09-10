@@ -14,7 +14,6 @@
 [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 
-
 [![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=bugs)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
