@@ -45,7 +45,7 @@ jobs:
 
       - name: Validate Renovate config
         run: |
-          npx --yes --package renovate@44.69.7 -- renovate-config-validator --strict renovate.json
+          npx --yes --package renovate@44.69.8 -- renovate-config-validator --strict renovate.json
 
   test:
     runs-on: ${{ matrix.os }}
@@ -99,6 +99,12 @@ jobs:
           # Full history so SonarCloud can attribute issues/coverage to blame data.
           fetch-depth: 0
 
+      - name: Setup Java 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Download coverage report
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -108,6 +114,7 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_SCANNER_JAVA_VERSION: 21
 
   package:
     runs-on: ubuntu-latest
