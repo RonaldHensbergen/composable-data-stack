@@ -2,6 +2,8 @@
 
 This document tracks near-term priorities for Composable Data Stack (CDS). Milestones follow the weekly release train documented in [docs/release-strategy.md](release-strategy.md). Items are marked stable or experimental to set contributor and user expectations.
 
+For the longer-term plan to add a Kubernetes rendering target, Haven+-style platform modules (observability, security, backup, GitOps), and a profile maturity model, see [docs/haven-parity-plan.md](haven-parity-plan.md).
+
 ---
 
 ## Stable Components
