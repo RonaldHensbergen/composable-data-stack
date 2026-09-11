@@ -20,6 +20,7 @@ def _atomic_write(path: Path, content: str, encoding: str = "utf-8", overwrite: 
     "win" -- the loser gets `FileExistsError` instead of silently
     clobbering the winner's file.
     """
+    path = Path(path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
     try:
