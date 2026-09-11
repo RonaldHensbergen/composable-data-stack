@@ -207,7 +207,16 @@ def save_generated_profile(
     a non-representable value nested in the profile) or a filesystem write
     failure (E117, e.g. permission denied, disk full) is reported as a
     diagnostic rather than raising, keeping this promise for every error
-    path instead of just the validation checks above.
+    path instead of just the validation checks above. `profiles_root`
+    existing but not being a directory (E118) is reported the same way,
+    rather than silently building a nonsense nested path underneath it.
+
+    The upfront `profile_file.exists()` check below is a fast, friendly
+    E116 for the common case, but it can't close the race between that
+    check and the write: a second caller could create the same file in
+    between. The write itself (_atomic_write(..., overwrite=force)) closes
+    that race for real when force=False -- if a concurrent writer wins,
+    this call fails closed with E116 instead of silently overwriting it.
     """
     # E114 groups both "unusable input document" cases below (a non-dict
     # profile, and a dict profile with no resolvable name) rather than
@@ -254,6 +263,23 @@ def save_generated_profile(
         ]
 
     allowed_root = profiles_root.expanduser().resolve()
+
+    if allowed_root.exists() and not allowed_root.is_dir():
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E118",
+                message=(
+                    f'The profiles root "{allowed_root}" is not a directory. '
+                    "Generating a profile needs a directory to create "
+                    "<name>/profile.yaml under -- point CDS_PROFILE_PATH at a "
+                    "profiles root directory, not a single profile file or a "
+                    "bare profile name."
+                ),
+                path=str(allowed_root),
+            )
+        ]
+
     profile_file = (allowed_root / name_path / "profile.yaml").resolve()
 
     if not _is_within(profile_file, allowed_root):
@@ -289,7 +315,19 @@ def save_generated_profile(
         ]
 
     try:
-        _atomic_write(profile_file, serialized)
+        _atomic_write(profile_file, serialized, overwrite=force)
+    except FileExistsError:
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E116",
+                message=(
+                    f"Refusing to overwrite existing profile: {profile_file}. "
+                    "Pass force=True to overwrite."
+                ),
+                path=str(profile_file),
+            )
+        ]
     except OSError as exc:
         return None, [
             Diagnostic(

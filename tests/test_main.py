@@ -820,6 +820,25 @@ class MainCLITest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("ERROR", stdout.getvalue())
 
+    def test_generate_profile_command_reports_clean_error_for_invalid_utf8_input(self):
+        """A file that isn't valid UTF-8 must fail closed with a clean
+        "ERROR ..." message, the same as any other unreadable input --
+        not an unhandled UnicodeDecodeError traceback."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_file = root / "not-utf8.yaml"
+            input_file.write_bytes(b"\xff\xfe\x00key: value")
+
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]), contextlib.redirect_stdout(
+                stdout
+            ):
+                result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", stdout.getvalue())
+        self.assertNotIn("Traceback", stdout.getvalue())
+
     def test_generate_profile_command_rejects_nonexistent_and_non_file_input(self):
         """The CLI-supplied input path is resolved and validated before it
         is ever handed to read_text(): a missing path and a directory

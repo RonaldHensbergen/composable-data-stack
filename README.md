@@ -695,8 +695,9 @@ hand-authored profile, has its own diagnostic codes:
 |---|---|
 |E114|The input isn't a usable profile document: either not a mapping/object, or a mapping with no resolvable name (no `name=` argument and no `metadata.name`)|
 |E115|The resolved `metadata.name` is absolute, contains `..` segments, or otherwise resolves outside the profiles root|
-|E116|`profiles/<name>/profile.yaml` already exists and `force=True` wasn't passed|
+|E116|`profiles/<name>/profile.yaml` already exists and `force=True` wasn't passed -- including a concurrent writer that created it after the initial check|
 |E117|The profile couldn't be written: a value inside it isn't YAML-serializable, or the write itself failed (permission denied, disk full, etc.)|
+|E118|`CDS_PROFILE_PATH` (or the resolved profiles root) exists but isn't a directory -- point it at a profiles root directory, not a single profile file or bare name|
 
 ---
 

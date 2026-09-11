@@ -110,11 +110,22 @@ def generate_profile(
 ) -> tuple[str | None, list[Diagnostic]]:
     """
     Persists a runtime-generated/in-memory profile dict at its normal
-    profiles/<name>/profile.yaml location (honoring CDS_PROFILE_PATH the
-    same way every other profile-resolution helper in this module does),
-    then returns the resulting path so it can be handed straight to
-    validate_profile()/build_plan() unchanged (issue #349). See
-    cli.loader.save_generated_profile() for the path-safety/overwrite
+    profiles/<name>/profile.yaml location, then returns the resulting path
+    so it can be handed straight to validate_profile()/build_plan()
+    unchanged (issue #349).
+
+    CDS_PROFILE_PATH is honored as a profiles *root directory*, via
+    get_profiles_root() -- the same helper other commands use. Unlike
+    resolve_profile_path()/_resolve_profile_root(), which also accept
+    CDS_PROFILE_PATH pointing at a single profile file or a bare profile
+    name, generate_profile() always needs a directory to create
+    <name>/profile.yaml under: a brand-new generated profile has no
+    existing file/name to resolve against yet. If CDS_PROFILE_PATH is set
+    to a file or otherwise isn't a directory, save_generated_profile()
+    reports a clear E118 diagnostic instead of silently building a nonsense
+    nested path.
+
+    See cli.loader.save_generated_profile() for the path-safety/overwrite
     semantics.
     """
     profile_file, diagnostics = save_generated_profile(profile, get_profiles_root(), name=name, force=force)
@@ -1271,7 +1282,7 @@ def main() -> int:
                 return 1
             try:
                 raw = input_path.read_text(encoding="utf-8")
-            except OSError as exc:
+            except (OSError, UnicodeDecodeError) as exc:
                 print(f"ERROR Could not read {args.input}: {exc}")
                 return 1
 

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 
+import cli.loader
 from cli.loader import save_generated_profile
 
 
@@ -160,3 +161,50 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             self.assertEqual(len(diagnostics), 1)
             self.assertEqual(diagnostics[0].code, "E117")
             self.assertFalse((profiles_root / "generated-demo" / "profile.yaml").exists())
+
+    def test_rejects_a_profiles_root_that_is_a_file(self):
+        """CDS_PROFILE_PATH (passed in here as profiles_root) may be set to
+        a single profile file or a bare profile name elsewhere in the CLI,
+        but generate_profile() always needs a directory to create
+        <name>/profile.yaml under. That must fail closed with a clear E118
+        diagnostic instead of silently building a nonsense nested path
+        underneath the file."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profiles_root = Path(tmpdir) / "profiles.yaml"
+            profiles_root.write_text("not a directory", encoding="utf-8")
+            profile = self._profile("generated-demo")
+
+            path, diagnostics = save_generated_profile(profile, profiles_root)
+
+            self.assertIsNone(path)
+            self.assertEqual(len(diagnostics), 1)
+            self.assertEqual(diagnostics[0].code, "E118")
+
+    def test_fails_closed_when_a_concurrent_writer_wins_the_check_then_write_race(self):
+        """The upfront profile_file.exists() check is a fast, friendly E116
+        for the common case, but it can't close the race between that check
+        and the write: a second caller could create the same file in
+        between. Simulate that race by creating the destination file inside
+        a wrapped _atomic_write(), after save_generated_profile()'s own
+        exists() check has already passed -- the underlying os.link()-based
+        publish step must still fail closed with E116 (via FileExistsError)
+        instead of silently overwriting the "winner"."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profiles_root = Path(tmpdir) / "profiles"
+            profile = self._profile("generated-demo")
+            target = profiles_root / "generated-demo" / "profile.yaml"
+
+            real_atomic_write = cli.loader._atomic_write
+
+            def racing_atomic_write(path, content, encoding="utf-8", overwrite=True):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("winner-of-the-race: true\n", encoding="utf-8")
+                return real_atomic_write(path, content, encoding=encoding, overwrite=overwrite)
+
+            with unittest.mock.patch("cli.loader._atomic_write", side_effect=racing_atomic_write):
+                path, diagnostics = save_generated_profile(profile, profiles_root)
+
+            self.assertIsNone(path)
+            self.assertEqual(len(diagnostics), 1)
+            self.assertEqual(diagnostics[0].code, "E116")
+            self.assertEqual(target.read_text(encoding="utf-8"), "winner-of-the-race: true\n")
