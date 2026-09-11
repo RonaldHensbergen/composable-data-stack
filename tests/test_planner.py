@@ -1347,5 +1347,199 @@ class RequiredIfMalformedGatePlannerTest(unittest.TestCase):
         self.assertIn("malformed requiredIf", errors[0].message)
 
 
+class InMemoryProfilePlanningTest(unittest.TestCase):
+    """
+    build_plan_from_profile()/plan_generated_profile() (issue #349): planning
+    a profile dict directly, without requiring it to be loaded from (or
+    written to) disk first.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.profiles_dir = self.root / "profiles"
+        self.profiles_dir.mkdir(parents=True)
+        self.modules_dir = self.root / "modules" / "warehouse" / "postgres"
+        self.modules_dir.mkdir(parents=True)
+
+        import yaml
+
+        (self.modules_dir / "module.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Module",
+                    "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                    "spec": {
+                        "runtime": {
+                            "type": "container",
+                            "service": {
+                                "name": "postgres",
+                                "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                            },
+                        },
+                        "configSchema": {"type": "object", "additionalProperties": True},
+                        "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        # A never-materialized profile directory: it exists on disk (so
+        # relative module `source:` fields can resolve), but has no
+        # profile.yaml of its own -- exercising the "path-optional" case
+        # from issue #349.
+        self.profile_dir = self.profiles_dir / "generated"
+        self.profile_dir.mkdir(parents=True)
+
+        self.profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "generated", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "db",
+                        "source": "../../modules/warehouse/postgres",
+                        "version": "0.1.0",
+                        "enabled": True,
+                        "config": {"replicas": 1},
+                    }
+                ],
+            },
+        }
+
+    def test_build_plan_from_profile_plans_an_in_memory_profile_with_no_file_on_disk(self):
+        plan, diagnostics = planner.build_plan_from_profile(self.profile, self.profile_dir)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["sourceProfile"], "<in-memory profile>")
+        self.assertEqual(plan["provenance"], {})
+        self.assertEqual(len(plan["modules"]), 1)
+        self.assertEqual(plan["modules"][0]["id"], "db")
+        self.assertEqual(plan["modules"][0]["config"]["replicas"], 1)
+
+    def test_build_plan_from_profile_honors_source_label_and_environment(self):
+        plan, diagnostics = planner.build_plan_from_profile(
+            self.profile,
+            self.profile_dir,
+            environment="prod",
+            source_label="generated-at-runtime",
+        )
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(plan["sourceProfile"], "generated-at-runtime")
+        self.assertEqual(plan["environment"], "prod")
+
+    def test_build_plan_from_profile_matches_disk_based_build_plan_output(self):
+        import yaml
+
+        profile_file = self.profile_dir / "profile.yaml"
+        profile_file.write_text(yaml.safe_dump(self.profile), encoding="utf-8")
+
+        disk_plan, disk_diags = planner.build_plan(str(profile_file))
+        memory_plan, memory_diags = planner.build_plan_from_profile(
+            self.profile, self.profile_dir, source_label=str(profile_file)
+        )
+
+        self.assertFalse(any(d.level == "error" for d in disk_diags), disk_diags)
+        self.assertFalse(any(d.level == "error" for d in memory_diags), memory_diags)
+        self.assertEqual(disk_plan, memory_plan)
+
+    def test_build_plan_from_profile_rejects_non_list_modules_without_crashing(self):
+        profile = dict(self.profile)
+        profile["spec"] = dict(profile["spec"])
+        profile["spec"]["modules"] = "not-a-list"
+
+        plan, diagnostics = planner.build_plan_from_profile(profile, self.profile_dir)
+
+        self.assertIsNone(plan)
+        self.assertTrue(any(d.code == "E010" for d in diagnostics))
+
+    def test_plan_generated_profile_resolves_extends_from_an_in_memory_child(self):
+        import yaml
+
+        base_dir = self.profiles_dir / "base"
+        base_dir.mkdir(parents=True)
+        (base_dir / "profile.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "base", "environment": "local"},
+                    "spec": {
+                        "runtime": {"type": "docker-compose"},
+                        "modules": [
+                            {
+                                "id": "db",
+                                "source": "../../modules/warehouse/postgres",
+                                "version": "0.1.0",
+                                "enabled": True,
+                                "config": {"replicas": 1},
+                            }
+                        ],
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        child_profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "generated", "environment": "local"},
+            "extends": ["base"],
+            "spec": {"modules": [{"id": "db", "config": {"replicas": 5}}]},
+        }
+
+        plan, diagnostics = planner.plan_generated_profile(child_profile, self.profile_dir)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["modules"][0]["config"]["replicas"], 5)
+        self.assertIn("spec.modules[db]", plan["provenance"])
+
+    def test_plan_generated_profile_resolves_environment_overlay_in_memory(self):
+        import yaml
+
+        env_dir = self.profile_dir / "environments"
+        env_dir.mkdir(parents=True)
+        (env_dir / "prod.yaml").write_text(
+            yaml.safe_dump({"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}),
+            encoding="utf-8",
+        )
+
+        plan, diagnostics = planner.plan_generated_profile(
+            self.profile, self.profile_dir, environment="prod"
+        )
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["modules"][0]["config"]["replicas"], 3)
+        self.assertEqual(plan["environment"], "prod")
+
+    def test_plan_generated_profile_propagates_module_resolution_failure(self):
+        # A module with an unresolvable source produces the same E022
+        # diagnostic build_plan() itself would (per-module errors skip that
+        # module rather than nulling the whole plan, matching build_plan()'s
+        # existing behavior for structurally valid-but-broken profiles).
+        bad_profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "generated", "environment": "local"},
+            "spec": {"modules": [{"id": "ghost", "source": "does/not/exist", "config": {}}]},
+        }
+
+        plan, diagnostics = planner.plan_generated_profile(bad_profile, self.profile_dir)
+
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["modules"], [])
+        self.assertTrue(any(d.code == "E022" for d in diagnostics), diagnostics)
+
+
 if __name__ == "__main__":
     unittest.main()
