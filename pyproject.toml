@@ -54,7 +54,7 @@ dev = [
   "coverage>=7.6",
   "bandit>=1.7",
   "pip-audit>=2.7",
-  "ruff==0.16.6",
+  "ruff==0.16.7",
 ]
 
 [project.scripts]
