@@ -9,7 +9,9 @@ from cli.overlay import (
     _merge_modules,
     _merge_value,
     resolve_extends,
+    resolve_extends_from_profile,
     resolve_profile,
+    resolve_profile_from_profile,
 )
 
 
@@ -726,6 +728,188 @@ class ExtendsCompositionTest(unittest.TestCase):
         # itself must complete without an unhandled exception.
         resolve_profile(str(child), environment=None)
         resolve_extends(str(child))
+
+
+class InMemoryExtendsCompositionTest(unittest.TestCase):
+    """
+    resolve_extends_from_profile()/resolve_profile_from_profile() (issue
+    #349): resolving `extends`/`environment` for a profile dict that has no
+    file of its own on disk yet.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.profiles_dir = self.root / "profiles"
+        self.profiles_dir.mkdir(parents=True)
+        self.modules_dir = self.root / "modules" / "warehouse" / "postgres"
+        self.modules_dir.mkdir(parents=True)
+
+        (self.modules_dir / "module.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Module",
+                    "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                    "spec": {
+                        "runtime": {
+                            "type": "container",
+                            "service": {
+                                "name": "postgres",
+                                "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                            },
+                        },
+                        "configSchema": {"type": "object", "additionalProperties": True},
+                        "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                    },
+                }
+            )
+        )
+
+        (self.profiles_dir / "base").mkdir(parents=True)
+        (self.profiles_dir / "base" / "profile.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "base", "environment": "local"},
+                    "spec": {
+                        "runtime": {"type": "docker-compose"},
+                        "modules": [
+                            {
+                                "id": "db",
+                                "source": "../../modules/warehouse/postgres",
+                                "version": "0.1.0",
+                                "enabled": True,
+                                "config": {"replicas": 1},
+                            }
+                        ],
+                    },
+                }
+            )
+        )
+
+        # No profile.yaml here: this directory only anchors relative
+        # extends refs / module source: paths and environment overlay
+        # lookups for an in-memory profile that lives here conceptually.
+        self.profile_dir = self.profiles_dir / "generated"
+        self.profile_dir.mkdir(parents=True)
+
+    def test_resolve_extends_from_profile_with_no_extends_returns_doc_unchanged(self):
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "generated", "environment": "local"},
+            "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+        }
+        resolved, provenance, diagnostics = resolve_extends_from_profile(profile, self.profile_dir)
+        self.assertEqual(resolved, profile)
+        self.assertEqual(provenance, {})
+        self.assertFalse(diagnostics)
+
+    def test_resolve_extends_from_profile_merges_an_on_disk_parent(self):
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "generated", "environment": "local"},
+            "extends": ["base"],
+            "spec": {"modules": [{"id": "db", "config": {"replicas": 5}}]},
+        }
+        resolved, provenance, diagnostics = resolve_extends_from_profile(
+            profile, self.profile_dir, source_label="generated-profile"
+        )
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 5)
+        self.assertEqual(provenance["spec.modules[db]"], "generated-profile")
+
+    def test_resolve_extends_from_profile_rejects_a_missing_parent(self):
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "extends": ["does-not-exist"],
+            "spec": {"modules": []},
+        }
+        resolved, _prov, diagnostics = resolve_extends_from_profile(profile, self.profile_dir)
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E112" for d in diagnostics))
+
+    def test_resolve_profile_from_profile_with_no_environment_validates_directly(self):
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "generated", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "db",
+                        "source": "../../modules/warehouse/postgres",
+                        "version": "0.1.0",
+                        "enabled": True,
+                        "config": {"replicas": 1},
+                    }
+                ],
+            },
+        }
+        resolved, provenance, diagnostics = resolve_profile_from_profile(profile, self.profile_dir)
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(resolved, profile)
+        self.assertEqual(provenance, {})
+
+    def test_resolve_profile_from_profile_merges_environment_overlay(self):
+        env_dir = self.profile_dir / "environments"
+        env_dir.mkdir(parents=True)
+        (env_dir / "prod.yaml").write_text(
+            yaml.safe_dump({"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
+        )
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "generated", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "db",
+                        "source": "../../modules/warehouse/postgres",
+                        "version": "0.1.0",
+                        "enabled": True,
+                        "config": {"replicas": 1},
+                    }
+                ],
+            },
+        }
+        resolved, provenance, diagnostics = resolve_profile_from_profile(
+            profile, self.profile_dir, environment="prod"
+        )
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 3)
+        self.assertIn("spec.modules[db]", provenance)
+
+    def test_resolve_profile_from_profile_unknown_environment_is_rejected(self):
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "generated", "environment": "local"},
+            "spec": {"modules": []},
+        }
+        resolved, _prov, diagnostics = resolve_profile_from_profile(
+            profile, self.profile_dir, environment="does-not-exist"
+        )
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.code == "E091" for d in diagnostics))
+
+    def test_resolve_profile_from_profile_invalid_module_fails_validation(self):
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "generated", "environment": "local"},
+            "spec": {"modules": [{"id": "ghost", "source": "does/not/exist", "config": {}}]},
+        }
+        resolved, _prov, diagnostics = resolve_profile_from_profile(profile, self.profile_dir)
+        self.assertIsNone(resolved)
+        self.assertTrue(any(d.level == "error" for d in diagnostics))
 
 
 if __name__ == "__main__":
