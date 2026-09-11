@@ -1,8 +1,9 @@
 # Reaching Haven Parity: A Plan for CDS
 
-Version: 0.2
+Version: 0.3
 Status: Draft — planning document. Section 4 tracks work already in flight
-against the workstreams below (updated 2026-09-11).
+against the workstreams below; section 7 recommends a concrete module per
+open gap (updated 2026-09-11).
 Related: [docs/roadmap.md](roadmap.md), [docs/architecture.md](architecture.md),
 [docs/observability.md](observability.md), [docs/threat-model.md](threat-model.md)
 
@@ -288,10 +289,38 @@ current status in section 4:
 - This document does not commit to a timeline; it feeds
   [docs/roadmap.md](roadmap.md), which tracks actual release commitments.
 
-## 7. Next steps
+## 7. Recommended module per gap
+
+Concrete module/category recommendations for each open gap in section 4,
+following CDS's existing `modules/<category>/<name>/module.yaml` convention
+(new/unproven modules start under `modules-experimental/`, per
+[docs/modules.md](modules.md)):
+
+| Gap | Category | Module | Contract it provides/consumes | Notes |
+| --- | --- | --- | --- | --- |
+| 3.2 GitOps | `modules-experimental/gitops/` | `fluxcd` | new `gitops-target` contract | FluxCD over ArgoCD as the default reference: no separate UI/DB, lighter CRD surface, pull-based — matches Haven+'s lower-friction option. ArgoCD can be a documented alternative provider of the same contract, not a second mandatory module. |
+| 3.3 Observability — logs | `modules-experimental/observability/` | `loki` (Vector or Fluent Bit as the shipping agent, Loki as the store) | existing `log-sink` contract ([shared/contracts/log-sink.yaml](../shared/contracts/log-sink.yaml)) | Closes #662 directly — the contract/schema already exist ([docs/observability.md](observability.md)); this module is the missing provider. |
+| 3.3 Observability — metrics/traces | `modules-experimental/observability/` | `grafana` (bundling Grafana + Prometheus/Mimir; Tempo optional) | new `metrics-sink` (+ optional `trace-sink`) contracts | Closes #369. Keep as a second module rather than folding into `loki`, so profiles can opt into logs without pulling in the full metrics stack. |
+| 3.4 Security — identity/SSO | `modules/identity/` | `keycloak` | new `identity-broker` contract | Already scaffolded on branch `feat/identity-keycloak-module` (draft, closes #370) — needs `consumes`/`provides` filled in and the hardcoded `postgres` service name replaced with a consumed `sql-database` binding before it is profile-ready. |
+| 3.4 Security — TLS | `modules/integration/` or new `modules-experimental/security/` | `traefik` (already a dependency named in issue #549) | new `reverse-proxy` contract with TLS fields (#579) + `cert-issuer` contract | Do this before Istio — it is the prerequisite blocking #205, and has far lower operational cost than a service mesh. |
+| 3.4 Security — service mesh | `modules-experimental/security/` | `istio` | `service-mesh` contract | Lowest priority in this group — highest complexity, Kubernetes-only, and TLS-at-the-proxy (above) covers most profiles' actual need without it. Defer until a profile explicitly needs mTLS between module instances. |
+| 3.5 Backup — Postgres | `modules/warehouse/postgres/` (extend, don't fork) | add a sidecar/`backup-target` consumer to the existing module | consumes new `backup-target` contract | Closes #665. A `pgbackrest`- or `wal-g`-shaped sidecar, not a new warehouse module — keeps the existing stable Postgres module as the single source of truth. |
+| 3.5 Backup — generic files | `modules-experimental/backup/` | `restic` | provides `backup-target` | Closes #668 (Dagster IO manager, DuckDB, dlt). Define the contract here first (#210); #665/#669 should bind to it rather than inventing their own. |
+| 3.5 Backup — object storage | `modules-experimental/backup/` | extend `restic` module or add a `restic-s3` variant | consumes `backup-target` | Closes #669; depends on #668 landing first per that issue's own text. |
+| 3.6 Database operators | `modules-experimental/warehouse/` | `postgres-operator` (CloudNativePG) | same `sql-database` contract as `modules/warehouse/postgres`, Kubernetes-only implementation | Additive, not a replacement — keep the Compose-based `postgres` module as-is for local/dev; this is the Kubernetes-native HA alternative, gated to the Helm render target. |
+| 3.7 Maturity model | *(no module)* | `cds maturity` CLI feature reading Plan bindings | — | Not a module — a reporting layer over which of the above contracts a profile binds. Don't file it as a module issue. |
+
+Suggested build order: `log-sink` (`loki`) and the Keycloak identity module
+first — both have existing issues/scaffolding and no Kubernetes dependency
+blocking them. TLS (`traefik`) next, since #205/#579/#580 are already
+blocked on it. GitOps, metrics, backup, and the Postgres operator can follow
+in parallel; Istio last.
+
+## 8. Next steps
 
 - File issues for the three untracked workstreams — **3.2 GitOps**, **3.6
-  database operators**, and **3.7 maturity model** — and link them from
+  database operators**, and **3.7 maturity model** — using the module
+  recommendations in section 7, and link them from
   [docs/roadmap.md](roadmap.md)'s Near-Term section.
 - Re-file or reopen focused follow-ups for the two 3.1 gaps PR #608 left
   open: NetworkPolicy generation (building on #75) and CI-based cluster
