@@ -5,22 +5,30 @@
 
 ![Composable Data Stack logo](assets/branding/logo.svg)
 
+Project:
+
 [![CI](https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/composable-data-stack.svg)](https://pypi.org/project/composable-data-stack/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+SonarCloud — Quality Gate & Ratings:
+
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 
-[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
-[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+SonarCloud — Issues:
+
 [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=bugs)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
-[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+
+SonarCloud — Metrics:
 
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=coverage)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 
 ---
 
@@ -686,19 +694,6 @@ runs, with a dedicated diagnostic code:
 |E112|A referenced parent profile does not exist|
 |E113|A cycle was detected in the `extends` chain|
 
-`cds generate-profile` (see [CLI](#%EF%B8%8F-cli)), which persists a
-runtime-generated profile dict to `profiles/<name>/profile.yaml` before it
-flows through the same `extends`/environment-overlay resolution as any
-hand-authored profile, has its own diagnostic codes:
-
-|Code|Meaning|
-|---|---|
-|E114|The input isn't a usable profile document: either not a mapping/object, or a mapping with no resolvable name (no `name=` argument and no `metadata.name`)|
-|E115|The resolved `metadata.name` is absolute, contains `..` segments, or otherwise resolves outside the profiles root|
-|E116|`profiles/<name>/profile.yaml` already exists and `force=True` wasn't passed -- including a concurrent writer that created it after the initial check|
-|E117|The profile couldn't be written: a value inside it isn't YAML-serializable, or the write itself failed (permission denied, disk full, etc.)|
-|E118|`CDS_PROFILE_PATH` (or the resolved profiles root) exists but isn't a directory -- point it at a profiles root directory, not a single profile file or bare name|
-
 ---
 
 ## ⚙️ CLI
@@ -708,7 +703,6 @@ hand-authored profile, has its own diagnostic codes:
 |cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|
 |cds list profiles\|modules\|images [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>]|List available profiles, module sources, or module images and check for newer versions; add `--remote`/`--local` to inspect another repository before fetching from it|
 |cds init [profile]|Generate a project `.env` template from profile secret definitions|
-|cds generate-profile \<input\|-\> [--name \<name\>] [--force]|Persist a runtime/programmatically composed profile document (JSON or YAML, from a file or stdin) to `profiles/<name>/profile.yaml`, so it can be validated/planned/rendered exactly like a hand-authored profile|
 |cds validate [profile]|Validate modules and contracts|
 |cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
