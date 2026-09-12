@@ -205,6 +205,81 @@ def _default_redraw(text: str) -> None:
     sys.stdout.flush()
 
 
+def _poll_until_settled(
+    fetch_grouped: Callable[[], dict[str, list[str]]],
+    *,
+    expected_service_count: int | None = None,
+    poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    use_color: bool = False,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    now_fn: Callable[[], float] = time.monotonic,
+    redraw_fn: Callable[[str], None] | None = None,
+    up_done_fn: Callable[[], int | None] | None = None,
+    on_up_finished: Callable[[int], None] | None = None,
+) -> tuple[bool, dict[str, list[str]]]:
+    """
+    Shared readiness-polling core used by both `poll_state_until_settled`
+    (Compose) and `poll_k8s_state_until_settled` (Helm). Calls
+    `fetch_grouped()` every `poll_interval` seconds, redrawing the grouped
+    `cds state` view each time, until every reported service is in a
+    terminal bucket (HEALTHY, RUNNING, HEALTHY EXIT, UNHEALTHY EXIT, or
+    UNHEALTHY) or `timeout` seconds elapse.
+
+    Returns `(settled, grouped)`. `settled` is False if the loop timed
+    out, or if any service ended in UNHEALTHY / UNHEALTHY EXIT.
+
+    `sleep_fn`, `now_fn`, and `redraw_fn` are injectable so this can be
+    unit tested with a fake clock instead of real sleeping.
+
+    `up_done_fn`, if given, is polled once per iteration and must return
+    `None` while the underlying apply command is still running, or its
+    exit code once it has finished. See `poll_state_until_settled` for
+    the full rationale.
+
+    `on_up_finished`, if given, is called exactly once, the first time
+    `up_done_fn` reports a successful result (exit code 0).
+    """
+    if redraw_fn is None:
+        redraw_fn = _default_redraw
+
+    if up_done_fn is None:
+        # No background apply process to track: behave as if it had
+        # already finished successfully, so the timeout clock starts
+        # immediately (matches the pre-existing behavior).
+        def up_done_fn() -> int | None:
+            return 0
+
+    start: float | None = None
+    up_finished_seen = False
+    grouped: dict[str, list[str]] = {}
+    while True:
+        grouped = fetch_grouped()
+        redraw_fn(format_state_output(grouped, use_color=use_color))
+
+        if _is_settled(grouped, expected_service_count):
+            has_failure = any(bucket in _FAILURE_BUCKETS and names for bucket, names in grouped.items())
+            return (not has_failure), grouped
+
+        up_exit_code = up_done_fn()
+        if up_exit_code is not None:
+            if not up_finished_seen:
+                up_finished_seen = True
+                if up_exit_code == 0 and on_up_finished is not None:
+                    on_up_finished(up_exit_code)
+            if up_exit_code != 0:
+                # `up` itself already failed; services it never started
+                # will never settle, so don't wait out the full timeout.
+                return False, grouped
+            if start is None:
+                start = now_fn()
+
+        if start is not None and now_fn() - start >= timeout:
+            return False, grouped
+
+        sleep_fn(poll_interval)
+
+
 def poll_state_until_settled(
     compose_path: str,
     *,
@@ -258,43 +333,20 @@ def poll_state_until_settled(
             ps_cmd = ["docker", "compose", "-f", compose_path, "ps", "-a", "--format", "json"]
             return subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603  # noqa: S603
 
-    if redraw_fn is None:
-        redraw_fn = _default_redraw
-
-    if up_done_fn is None:
-        # No background `up` process to track: behave as if it had
-        # already finished successfully, so the timeout clock starts
-        # immediately (matches the pre-existing behavior).
-        def up_done_fn() -> int | None:
-            return 0
-
-    start: float | None = None
-    up_finished_seen = False
-    grouped: dict[str, list[str]] = {}
-    while True:
+    def fetch_grouped() -> dict[str, list[str]]:
         ps_result = ps_fn()
         services = parse_compose_ps_json(ps_result.stdout) if ps_result.returncode == 0 else []
-        grouped = group_services_by_health(services)
-        redraw_fn(format_state_output(grouped, use_color=use_color))
+        return group_services_by_health(services)
 
-        if _is_settled(grouped, expected_service_count):
-            has_failure = any(bucket in _FAILURE_BUCKETS and names for bucket, names in grouped.items())
-            return (not has_failure), grouped
-
-        up_exit_code = up_done_fn()
-        if up_exit_code is not None:
-            if not up_finished_seen:
-                up_finished_seen = True
-                if up_exit_code == 0 and on_up_finished is not None:
-                    on_up_finished(up_exit_code)
-            if up_exit_code != 0:
-                # `up` itself already failed; services it never started
-                # will never settle, so don't wait out the full timeout.
-                return False, grouped
-            if start is None:
-                start = now_fn()
-
-        if start is not None and now_fn() - start >= timeout:
-            return False, grouped
-
-        sleep_fn(poll_interval)
+    return _poll_until_settled(
+        fetch_grouped,
+        expected_service_count=expected_service_count,
+        poll_interval=poll_interval,
+        timeout=timeout,
+        use_color=use_color,
+        sleep_fn=sleep_fn,
+        now_fn=now_fn,
+        redraw_fn=redraw_fn,
+        up_done_fn=up_done_fn,
+        on_up_finished=on_up_finished,
+    )

@@ -5,13 +5,20 @@ import json
 import os
 import subprocess  # nosec B404
 import tempfile
+import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import IO, Any
 
 import yaml
 
-from .state import parse_k8s_workloads_json
-from .up_runner import _validate_command, run_streamed
+from .state import group_services_by_health, parse_k8s_workloads_json
+from .up_runner import (
+    DEFAULT_POLL_INTERVAL_SECONDS,
+    _poll_until_settled,
+    _validate_command,
+    run_streamed,
+)
 
 
 def helm_up(
@@ -24,12 +31,33 @@ def helm_up(
     timeout: float,
     detach: bool,
     log_file: IO[str],
+    poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
+    use_color: bool = False,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    now_fn: Callable[[], float] = time.monotonic,
+    redraw_fn: Callable[[str], None] | None = None,
 ) -> int:
-    """Install or upgrade a rendered chart without persisting secret values."""
+    """
+    Install or upgrade a rendered chart without persisting secret values.
+
+    `timeout` is one overall budget shared across the whole call, the way
+    Compose's `--timeout` already is: it bounds `helm upgrade --install`
+    itself, then whatever remains bounds the readiness poll below, rather
+    than being reused in full for each step (which could let total
+    wall-clock time exceed `timeout` several times over on a
+    multi-workload release).
+
+    Readiness is decided by polling `get_k8s_state()` /
+    `group_services_by_health()` — the exact same functions `cds state
+    --target helm` uses — instead of a separate `helm --wait` +
+    `kubectl rollout status`/`wait` implementation, so "ready" here and
+    "healthy" in `cds state` can never disagree.
+    """
+    deadline = now_fn() + timeout
     secret_values = _secret_values(plan)
     secret_path = _write_secret_values(secret_values)
     context_args = ["--kube-context", kube_context] if kube_context else []
-    timeout_arg = f"{max(1, int(timeout))}s"
+    apply_timeout_arg = f"{max(1, int(timeout))}s"
     command = [
         "helm",
         *context_args,
@@ -43,10 +71,8 @@ def helm_up(
         "--values",
         str(secret_path),
         "--timeout",
-        timeout_arg,
+        apply_timeout_arg,
     ]
-    if not detach:
-        command.append("--wait")
 
     try:
         result = run_streamed(command, log_file, timeout=timeout + 30)
@@ -56,29 +82,74 @@ def helm_up(
         return result
 
     workloads = get_k8s_workloads(namespace, release, kube_context)
-    for workload in workloads:
-        kind = str(workload.get("kind", "")).lower()
-        name = str((workload.get("metadata") or {}).get("name", ""))
-        if not kind or not name:
-            continue
-        if kind == "job":
-            wait_command = _kubectl_command(kube_context, namespace) + [
-                "wait",
-                "--for=condition=complete",
-                f"job/{name}",
-                f"--timeout={timeout_arg}",
-            ]
-        else:
-            wait_command = _kubectl_command(kube_context, namespace) + [
-                "rollout",
-                "status",
-                f"{kind}/{name}",
-                f"--timeout={timeout_arg}",
-            ]
-        result = run_streamed(wait_command, log_file, timeout=timeout + 30)
-        if result != 0:
-            return result
+    remaining = max(0.0, deadline - now_fn())
+    settled, grouped = poll_k8s_state_until_settled(
+        namespace,
+        release,
+        kube_context,
+        expected_service_count=len(workloads),
+        poll_interval=poll_interval,
+        timeout=remaining,
+        use_color=use_color,
+        sleep_fn=sleep_fn,
+        now_fn=now_fn,
+        redraw_fn=redraw_fn,
+    )
+    if not settled:
+        unhealthy = [name for bucket in ("UNHEALTHY", "UNHEALTHY EXIT") for name in grouped.get(bucket, [])]
+        log_file.write(
+            f"helm release {release} did not settle within {timeout:.0f}s"
+            + (f"; unhealthy: {', '.join(unhealthy)}" if unhealthy else "")
+            + "\n"
+        )
+        log_file.flush()
+        return 1
     return 0
+
+
+def poll_k8s_state_until_settled(
+    namespace: str,
+    release: str,
+    kube_context: str | None,
+    *,
+    expected_service_count: int | None = None,
+    poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
+    timeout: float = 180.0,
+    use_color: bool = False,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    now_fn: Callable[[], float] = time.monotonic,
+    fetch_fn: Callable[[], list[dict[str, Any]]] | None = None,
+    redraw_fn: Callable[[str], None] | None = None,
+) -> tuple[bool, dict[str, list[str]]]:
+    """
+    Polls `get_k8s_state()` every `poll_interval` seconds, grouping with
+    `group_services_by_health()` — the same pair `cds state --target
+    helm` calls — until every workload settles into a terminal bucket or
+    `timeout` seconds elapse. Shares its settle/failure rule with
+    Compose's `poll_state_until_settled()` via `_poll_until_settled()`.
+
+    `fetch_fn` is injectable for tests; defaults to a real
+    `get_k8s_state(namespace, release, kube_context)` call.
+    """
+    if fetch_fn is None:
+        def fetch_fn() -> list[dict[str, Any]]:
+            return get_k8s_state(namespace, release, kube_context)
+
+    def fetch_grouped() -> dict[str, list[str]]:
+        return group_services_by_health(fetch_fn())
+
+    return _poll_until_settled(
+        fetch_grouped,
+        expected_service_count=expected_service_count,
+        poll_interval=poll_interval,
+        timeout=timeout,
+        use_color=use_color,
+        sleep_fn=sleep_fn,
+        now_fn=now_fn,
+        redraw_fn=redraw_fn,
+        up_done_fn=None,
+        on_up_finished=None,
+    )
 
 
 def helm_down(

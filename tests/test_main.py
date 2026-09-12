@@ -13,6 +13,7 @@ from cli.diagnostics import Diagnostic
 from cli.image_updates import collect_module_images
 from cli.main import (
     _collect_profile_env_vars,
+    _k8s_runtime_defaults,
     _resolve_profile_root,
     _run_image_verification,
     generate_profile,
@@ -2202,6 +2203,68 @@ spec:
         self.assertEqual(mock_helm_up.call_args.kwargs["timeout"], 45)
 
     @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_up", return_value=0)
+    @patch("cli.main._render_helm_chart", return_value=(0, []))
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_up_helm_wires_no_color_through_to_helm_up(
+        self, _mock_validate, mock_plan, _mock_render, mock_helm_up, mock_log_path
+    ):
+        plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
+        mock_plan.return_value = (plan, [])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "up.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "up",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                    "--no-color",
+                ],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertFalse(mock_helm_up.call_args.kwargs["use_color"])
+
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_up", return_value=0)
+    @patch("cli.main._render_helm_chart", return_value=(0, []))
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_up_helm_warns_that_no_build_has_no_effect(
+        self, _mock_validate, mock_plan, _mock_render, _mock_helm_up, mock_log_path
+    ):
+        plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
+        mock_plan.return_value = (plan, [])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "up.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "up",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                    "--no-build",
+                ],
+            ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("--no-build has no effect with --target helm", stdout.getvalue())
+
+    @patch("cli.main.default_log_path")
     @patch("cli.main.helm_down", return_value=0)
     def test_down_helm_retains_pvcs_by_default(self, mock_helm_down, mock_log_path):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -2225,6 +2288,65 @@ spec:
 
         self.assertEqual(result, 0)
         self.assertFalse(mock_helm_down.call_args.kwargs["delete_pvcs"])
+
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_down", return_value=0)
+    def test_down_helm_accepts_environment_and_derives_matching_release(
+        self, mock_helm_down, mock_log_path
+    ):
+        # Regression test for #689: `down --environment prod` must derive
+        # the same release/namespace an `up --environment prod` run would
+        # have used, even though `down` never builds a full plan.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profiles" / "overlay-demo"
+            (profile_dir / "environments").mkdir(parents=True)
+            (profile_dir / "profile.yaml").write_text(
+                """\
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: overlay-demo
+  environment: local
+spec:
+  runtime:
+    type: docker-compose
+    namespace: base-ns
+  modules: []
+""",
+                encoding="utf-8",
+            )
+            (profile_dir / "environments" / "prod.yaml").write_text(
+                """\
+metadata:
+  name: overlay-demo-prod
+spec:
+  runtime:
+    namespace: prod-ns
+""",
+                encoding="utf-8",
+            )
+
+            mock_log_path.return_value = Path(tmpdir) / "down.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(profile_dir.parent)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "down",
+                    "overlay-demo",
+                    "--target",
+                    "helm",
+                    "--environment",
+                    "prod",
+                ],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertEqual(mock_helm_down.call_args.kwargs["release"], "overlay-demo-prod")
+        self.assertEqual(mock_helm_down.call_args.kwargs["namespace"], "prod-ns")
 
 
 class CollectModuleImagesTest(unittest.TestCase):
@@ -2791,6 +2913,102 @@ class RunImageVerificationTest(unittest.TestCase):
         self.assertEqual(findings[0]["rule_id"], "CDS-VER-004")
         self.assertIn("boom during resolve", findings[0]["message"])
         self.assertIn("E095", stderr.getvalue())
+
+
+class K8sRuntimeDefaultsTest(unittest.TestCase):
+    """Directly exercises `_k8s_runtime_defaults`, the release/namespace
+    resolver shared by `cds down --target helm` and `cds state --target
+    helm`. See #689: this must derive the same identity `cds up` would
+    have used for the same profile/--environment combination, without
+    requiring the profile to currently pass full validation."""
+
+    def _write_profile(self, profile_dir: Path, name: str = "demo", namespace: str | None = None) -> None:
+        (profile_dir).mkdir(parents=True, exist_ok=True)
+        runtime_lines = "    type: docker-compose\n"
+        if namespace:
+            runtime_lines += f"    namespace: {namespace}\n"
+        (profile_dir / "profile.yaml").write_text(
+            f"""\
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: {name}
+  environment: local
+spec:
+  runtime:
+{runtime_lines}  modules: []
+""",
+            encoding="utf-8",
+        )
+
+    def test_reads_base_profile_without_an_environment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "demo"
+            self._write_profile(profile_dir, name="demo", namespace="demo-ns")
+
+            release, namespace = _k8s_runtime_defaults(str(profile_dir / "profile.yaml"))
+
+        self.assertEqual(release, "demo")
+        self.assertEqual(namespace, "demo-ns")
+
+    def test_environment_overlay_changes_release_and_namespace_like_the_plan_would(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "demo"
+            self._write_profile(profile_dir, name="demo", namespace="demo-ns")
+            (profile_dir / "environments").mkdir()
+            (profile_dir / "environments" / "prod.yaml").write_text(
+                """\
+metadata:
+  name: demo-prod
+spec:
+  runtime:
+    namespace: demo-prod-ns
+""",
+                encoding="utf-8",
+            )
+
+            release, namespace = _k8s_runtime_defaults(
+                str(profile_dir / "profile.yaml"), environment="prod"
+            )
+
+        self.assertEqual(release, "demo-prod")
+        self.assertEqual(namespace, "demo-prod-ns")
+
+    def test_falls_back_to_directory_name_when_module_validation_fails(self):
+        # A profile referencing a nonexistent module still has a valid
+        # metadata.name/runtime.namespace shape; best-effort resolution
+        # must still surface those instead of falling back to generic
+        # cds-local/directory-name defaults, since the release/namespace
+        # a stack is actually running under doesn't depend on whether the
+        # profile currently validates cleanly.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "demo"
+            profile_dir.mkdir()
+            (profile_dir / "profile.yaml").write_text(
+                """\
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+  environment: local
+spec:
+  runtime:
+    type: docker-compose
+    namespace: demo-ns
+  modules:
+    - id: missing
+      source: does/not-exist
+      version: "0.1.0"
+      enabled: true
+      config: {}
+""",
+                encoding="utf-8",
+            )
+
+            release, namespace = _k8s_runtime_defaults(str(profile_dir / "profile.yaml"))
+
+        self.assertEqual(release, "demo")
+        self.assertEqual(namespace, "demo-ns")
 
 
 if __name__ == "__main__":
