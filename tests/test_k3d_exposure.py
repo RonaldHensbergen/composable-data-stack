@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -47,6 +48,11 @@ esac
             log = log_path.read_text(encoding="utf-8") if log_path.exists() else ""
             return result, log
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "local k3d dev scripts require a POSIX shell environment "
+        "(bash, shasum, lsof) not available on Windows runners",
+    )
     def test_verifies_both_ui_services_on_published_nodeports(self) -> None:
         result, log = self._run("1")
 
@@ -70,6 +76,11 @@ esac
         self.assertIn("nodePort: 30300", profile)
         self.assertIn("nodePort: 30808", profile)
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "local k3d dev scripts require a POSIX shell environment "
+        "(bash, shasum, lsof) not available on Windows runners",
+    )
     def test_exposure_can_be_disabled_for_parallel_releases(self) -> None:
         result, log = self._run("0")
 
@@ -77,6 +88,11 @@ esac
         self.assertIn("localhost exposure disabled", result.stdout)
         self.assertEqual(log, "")
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "local k3d dev scripts require a POSIX shell environment "
+        "(bash, shasum, lsof) not available on Windows runners",
+    )
     def test_invalid_exposure_setting_fails_closed(self) -> None:
         result, log = self._run("yes")
 
@@ -84,6 +100,11 @@ esac
         self.assertIn("must be 0 or 1", result.stderr)
         self.assertEqual(log, "")
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "local k3d dev scripts require a POSIX shell environment "
+        "(bash, shasum, lsof) not available on Windows runners",
+    )
     def test_environment_script_prints_the_current_branch_urls(self) -> None:
         result = subprocess.run(
             ["bash", str(self.repo_root / "scripts" / "k8s" / "k3d-env.sh")],

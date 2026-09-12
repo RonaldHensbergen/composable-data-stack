@@ -1,6 +1,7 @@
 import io
 import os
 import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +19,10 @@ class KubernetesRunnerTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "CDS_REQUIRED"):
                 _secret_values(plan)
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "Windows does not enforce POSIX permission bits",
+    )
     def test_secret_values_file_is_private_and_yaml_safe(self) -> None:
         path = _write_secret_values({"CDS_PASSWORD": "colon: quote' newline\nvalue"})
         try:

@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import signal
 import sys
 import time
 import types
@@ -28,6 +29,10 @@ _RUNNER = _load_runner_module()
 
 
 class TestRunnerTimeoutTest(unittest.TestCase):
+    @unittest.skipUnless(
+        hasattr(signal, "SIGALRM") and hasattr(signal, "setitimer"),
+        "per-test timeouts require SIGALRM/setitimer, unavailable on this platform (e.g. Windows)",
+    )
     def test_slow_test_is_interrupted_and_reported(self) -> None:
         class SlowTest(unittest.TestCase):
             def runTest(self) -> None:
