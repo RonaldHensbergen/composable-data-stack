@@ -157,6 +157,10 @@ class RenderExampleProfileTest(unittest.TestCase):
             self.assertIn("services", compose)
             self.assertIn("vault", compose["services"])
             self.assertGreater(len(compose["services"]), 0)
+            self.assertIn(
+                "SUPERSET_ANALYTICS_DATABASE_URI",
+                compose["services"]["superset"]["environment"],
+            )
 
 
 class RenderGuardRegressionTest(unittest.TestCase):

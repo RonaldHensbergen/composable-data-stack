@@ -1,0 +1,11 @@
+Tender analytics E2E feature proof
+Revision under test: working tree after a4e2907
+
+PASS local .env exists
+PASS all local k3s pods are ready
+PASS Dagster materializes every snapshot row
+PASS unchanged Dagster load performs no row rewrites
+PASS Superset provisioning converges twice
+PASS Superset owns one dashboard and seven tender charts
+PASS browser renders seven charts with zero console errors
+=== TENDER ANALYTICS E2E DONE pass=7 fail=0 ===

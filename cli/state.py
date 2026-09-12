@@ -43,6 +43,57 @@ def parse_compose_ps_json(raw_output: str) -> list[dict[str, Any]]:
     return services
 
 
+def parse_k8s_workloads_json(raw_output: str) -> list[dict[str, Any]]:
+    """Convert Kubernetes workload status into the provider-neutral state shape."""
+    try:
+        document = json.loads(raw_output)
+    except json.JSONDecodeError:
+        return []
+
+    services: list[dict[str, Any]] = []
+    items = document.get("items", []) if isinstance(document, dict) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        metadata = item.get("metadata") or {}
+        spec = item.get("spec") or {}
+        status = item.get("status") or {}
+        name = str(metadata.get("name") or "").strip()
+        kind = item.get("kind")
+        if not name:
+            continue
+
+        if kind == "Job":
+            if int(status.get("succeeded") or 0) > 0:
+                services.append({"Service": name, "State": "exited", "ExitCode": 0})
+            elif int(status.get("failed") or 0) > 0:
+                services.append({"Service": name, "State": "exited", "ExitCode": 1})
+            else:
+                services.append(
+                    {"Service": name, "Health": "STARTING", "State": "running"}
+                )
+            continue
+
+        desired = int(spec.get("replicas", 1) or 0)
+        ready = int(status.get("readyReplicas") or 0)
+        conditions = status.get("conditions") or []
+        failed = any(
+            condition.get("status") == "False"
+            and condition.get("type") in {"Available", "Progressing"}
+            and condition.get("reason") == "ProgressDeadlineExceeded"
+            for condition in conditions
+            if isinstance(condition, dict)
+        )
+        if failed:
+            health = "UNHEALTHY"
+        elif ready >= desired:
+            health = "HEALTHY"
+        else:
+            health = "STARTING"
+        services.append({"Service": name, "Health": health, "State": "running"})
+    return services
+
+
 def _bucket_for(service: dict[str, Any]) -> str:
     health = str(service.get("Health") or "").strip()
     if health:

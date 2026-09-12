@@ -10,7 +10,9 @@ class SupersetHardeningTest(unittest.TestCase):
         self.repo_root = Path(__file__).resolve().parent.parent
 
     def test_image_uses_pinned_base_and_non_root_runtime(self) -> None:
-        dockerfile = (self.repo_root / "images" / "superset" / "base" / "Dockerfile").read_text(encoding="utf-8")
+        dockerfile = (
+            self.repo_root / "images" / "superset" / "base" / "Dockerfile"
+        ).read_text(encoding="utf-8")
 
         self.assertRegex(
             dockerfile,
@@ -20,16 +22,24 @@ class SupersetHardeningTest(unittest.TestCase):
         self.assertEqual(users[-1], "superset")
 
     def test_os_packages_are_upgraded_to_fix_cves(self) -> None:
-        dockerfile = (self.repo_root / "images" / "superset" / "base" / "Dockerfile").read_text(encoding="utf-8")
+        dockerfile = (
+            self.repo_root / "images" / "superset" / "base" / "Dockerfile"
+        ).read_text(encoding="utf-8")
 
         self.assertIn("apt-get upgrade", dockerfile)
         self.assertIn("apt-get clean", dockerfile)
 
     def test_vulnerable_python_packages_are_patched(self) -> None:
-        dockerfile = (self.repo_root / "images" / "superset" / "base" / "Dockerfile").read_text(encoding="utf-8")
-        requirements = (self.repo_root / "images" / "superset" / "requirements.txt").read_text(encoding="utf-8")
+        dockerfile = (
+            self.repo_root / "images" / "superset" / "base" / "Dockerfile"
+        ).read_text(encoding="utf-8")
+        requirements = (
+            self.repo_root / "images" / "superset" / "requirements.txt"
+        ).read_text(encoding="utf-8")
         self.assertIn("uv pip install --python /app/.venv/bin/python", dockerfile)
-        self.assertNotIn("pip install --no-cache-dir -r /tmp/superset-requirements.txt", dockerfile)
+        self.assertNotIn(
+            "pip install --no-cache-dir -r /tmp/superset-requirements.txt", dockerfile
+        )
         self.assertIn("/usr/local/lib/python3.10/site-packages/setuptools", dockerfile)
         self.assertIn("rm -f /usr/local/bin/pip", dockerfile)
 
@@ -40,7 +50,9 @@ class SupersetHardeningTest(unittest.TestCase):
                 for op in (">=", "=="):
                     if op in line:
                         pkg, _, ver = line.partition(op)
-                        pinned[pkg.strip().lower()] = tuple(int(x) for x in ver.strip().split("."))
+                        pinned[pkg.strip().lower()] = tuple(
+                            int(x) for x in ver.strip().split(".")
+                        )
                         break
 
         min_versions = {
@@ -59,7 +71,11 @@ class SupersetHardeningTest(unittest.TestCase):
         }
         for pkg, min_ver in min_versions.items():
             with self.subTest(package=pkg):
-                self.assertIn(pkg, pinned, msg=f"{pkg} must be pinned in images/superset/requirements.txt")
+                self.assertIn(
+                    pkg,
+                    pinned,
+                    msg=f"{pkg} must be pinned in images/superset/requirements.txt",
+                )
                 self.assertGreaterEqual(
                     pinned[pkg],
                     tuple(int(x) for x in min_ver.split(".")),
@@ -67,8 +83,12 @@ class SupersetHardeningTest(unittest.TestCase):
                 )
 
     def test_inherited_uv_binaries_are_patched(self) -> None:
-        dockerfile = (self.repo_root / "images" / "superset" / "base" / "Dockerfile").read_text(encoding="utf-8")
-        version_match = re.search(r"(?m)^ARG UV_VERSION=(\d+)\.(\d+)\.(\d+)$", dockerfile)
+        dockerfile = (
+            self.repo_root / "images" / "superset" / "base" / "Dockerfile"
+        ).read_text(encoding="utf-8")
+        version_match = re.search(
+            r"(?m)^ARG UV_VERSION=(\d+)\.(\d+)\.(\d+)$", dockerfile
+        )
 
         self.assertIsNotNone(version_match)
         self.assertGreaterEqual(
@@ -79,9 +99,23 @@ class SupersetHardeningTest(unittest.TestCase):
         self.assertIn("/usr/local/bin/python -m pip install", dockerfile)
         self.assertIn('"uv==${UV_VERSION}"', dockerfile)
 
+    def test_image_provides_the_registered_service_worker(self) -> None:
+        dockerfile = (
+            self.repo_root / "images" / "superset" / "base" / "Dockerfile"
+        ).read_text(encoding="utf-8")
+        service_worker = self.repo_root / "images" / "superset" / "service-worker.js"
+
+        self.assertTrue(service_worker.is_file())
+        self.assertIn(
+            "images/superset/service-worker.js /app/superset/static/service-worker.js",
+            dockerfile,
+        )
+
     def test_service_has_restricted_runtime(self) -> None:
         module = yaml.safe_load(
-            (self.repo_root / "modules" / "bi" / "superset" / "module.yaml").read_text(encoding="utf-8")
+            (self.repo_root / "modules" / "bi" / "superset" / "module.yaml").read_text(
+                encoding="utf-8"
+            )
         )
         services = module["spec"]["implementation"]["compose"]["services"]
 
@@ -92,17 +126,25 @@ class SupersetHardeningTest(unittest.TestCase):
                 self.assertEqual(service["cap_drop"], ["ALL"])
                 self.assertEqual(service["security_opt"], ["no-new-privileges:true"])
                 self.assertIn("/tmp:rw,noexec,nosuid,nodev", service["tmpfs"])
-                self.assertIn("/app/superset_home:rw,noexec,nosuid,nodev", service["tmpfs"])
+                self.assertIn(
+                    "/app/superset_home:rw,noexec,nosuid,nodev", service["tmpfs"]
+                )
 
     def test_initialization_is_isolated_from_web_service(self) -> None:
         module = yaml.safe_load(
-            (self.repo_root / "modules" / "bi" / "superset" / "module.yaml").read_text(encoding="utf-8")
+            (self.repo_root / "modules" / "bi" / "superset" / "module.yaml").read_text(
+                encoding="utf-8"
+            )
         )
         services = module["spec"]["implementation"]["compose"]["services"]
         init_service = services["superset-init"]
         web_service = services["superset"]
-        init_script = (self.repo_root / "images" / "superset" / "init.sh").read_text(encoding="utf-8")
-        web_script = (self.repo_root / "images" / "superset" / "entrypoint-web.sh").read_text(encoding="utf-8")
+        init_script = (self.repo_root / "images" / "superset" / "init.sh").read_text(
+            encoding="utf-8"
+        )
+        web_script = (
+            self.repo_root / "images" / "superset" / "entrypoint-web.sh"
+        ).read_text(encoding="utf-8")
 
         self.assertEqual(init_service["entrypoint"], ["/app/docker/init.sh"])
         self.assertEqual(init_service["restart"], "no")
