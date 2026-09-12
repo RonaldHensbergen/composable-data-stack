@@ -175,15 +175,26 @@ def _parse_port_entry(entry: Any) -> tuple[int | None, int, str]:
     return host_port, container_port, protocol
 
 
-def _port_field_name(existing: set[str], container_port: int) -> str:
-    base = _KNOWN_PORT_NAMES.get(container_port, f"port{container_port}")
-    name = f"{base}Port" if base != "port" else "port"
+def _dedupe_field_name(existing: set[str], name: str) -> str:
+    """Return `name` unchanged if it isn't already used, otherwise the first
+    `<name><suffix>` (suffix starting at 2) that is free. Shared by port and
+    environment-variable field naming so merging multiple compose services
+    into one module (this script's own documented use case) never lets a
+    second service's config property silently overwrite a first service's
+    distinctly-named field -- e.g. two services each defining their own
+    DB_PASSWORD secret reference."""
     if name not in existing:
         return name
     suffix = 2
     while f"{name}{suffix}" in existing:
         suffix += 1
     return f"{name}{suffix}"
+
+
+def _port_field_name(existing: set[str], container_port: int) -> str:
+    base = _KNOWN_PORT_NAMES.get(container_port, f"port{container_port}")
+    name = f"{base}Port" if base != "port" else "port"
+    return _dedupe_field_name(existing, name)
 
 
 class ModuleScaffold:
@@ -319,6 +330,13 @@ class ModuleScaffold:
                 var_name = match.group(1)
                 if _SECRET_NAME_HINT.search(var_name) or _SECRET_NAME_HINT.search(env_key):
                     secret_field = field_name if field_name.endswith("From") else f"{field_name}From"
+                    # Dedupe across merged services: without this, a second
+                    # service defining its own same-named env var (e.g. both
+                    # a webserver and a worker each with their own
+                    # DB_PASSWORD) would silently overwrite the first
+                    # service's config property and rewire both services'
+                    # environments to whichever secret was seen last.
+                    secret_field = _dedupe_field_name(set(self.config_properties), secret_field)
                     self.config_properties[secret_field] = {
                         "type": "string",
                         "pattern": "^secrets\\.[a-zA-Z0-9_-]+$",
@@ -363,6 +381,10 @@ class ModuleScaffold:
             return f"${{config.{field_name}}}"
 
         json_type = _infer_json_type(value)
+        # Same dedup concern as the secret branch above: two merged services
+        # defining the same env var name with different literal values must
+        # not collapse into one shared (and silently wrong) config field.
+        field_name = _dedupe_field_name(set(self.config_properties), field_name)
         self.config_properties[field_name] = {
             "type": json_type,
             "default": value,

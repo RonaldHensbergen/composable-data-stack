@@ -42,6 +42,48 @@ class BuildScaffoldTest(unittest.TestCase):
         self.assertEqual(service["environment"]["POSTGRES_PASSWORD"], "${config.postgresPasswordFrom}")
         self.assertFalse(scaffold.todos)
 
+    def test_merged_services_with_same_secret_env_var_name_get_distinct_fields(self) -> None:
+        # Two merged services each defining their own same-named secret env
+        # var must not collapse into one shared config field -- that would
+        # silently discard the first service's distinct secret reference
+        # and wire both services to whichever one was resolved last.
+        compose = {
+            "services": {
+                "svc1": {"image": "a:1", "environment": {"DB_PASSWORD": "${CDS_SVC1_DB_PASSWORD}"}},
+                "svc2": {"image": "b:1", "environment": {"DB_PASSWORD": "${CDS_SVC2_DB_PASSWORD}"}},
+            }
+        }
+        scaffold = compose_to_module.build_scaffold(compose, ["svc1", "svc2"], "merged", "bi")
+        module = scaffold.to_module_dict()
+
+        props = module["spec"]["configSchema"]["properties"]
+        self.assertEqual(set(props), {"dbPasswordFrom", "dbPasswordFrom2"})
+        self.assertIn("svc1", props["dbPasswordFrom"]["description"])
+        self.assertIn("svc2", props["dbPasswordFrom2"]["description"])
+        self.assertEqual(set(module["spec"]["configSchema"]["required"]), {"dbPasswordFrom", "dbPasswordFrom2"})
+
+        services = module["spec"]["implementation"]["compose"]["services"]
+        self.assertEqual(services["svc1"]["environment"]["DB_PASSWORD"], "${config.dbPasswordFrom}")
+        self.assertEqual(services["svc2"]["environment"]["DB_PASSWORD"], "${config.dbPasswordFrom2}")
+
+    def test_merged_services_with_same_literal_env_var_name_get_distinct_fields(self) -> None:
+        compose = {
+            "services": {
+                "svc1": {"image": "a:1", "environment": {"DB_HOST": "foo"}},
+                "svc2": {"image": "b:1", "environment": {"DB_HOST": "bar"}},
+            }
+        }
+        scaffold = compose_to_module.build_scaffold(compose, ["svc1", "svc2"], "merged", "bi")
+        module = scaffold.to_module_dict()
+
+        props = module["spec"]["configSchema"]["properties"]
+        self.assertEqual(props["dbHost"]["default"], "foo")
+        self.assertEqual(props["dbHost2"]["default"], "bar")
+
+        services = module["spec"]["implementation"]["compose"]["services"]
+        self.assertEqual(services["svc1"]["environment"]["DB_HOST"], "${config.dbHost}")
+        self.assertEqual(services["svc2"]["environment"]["DB_HOST"], "${config.dbHost2}")
+
     def test_bare_var_referencing_another_service_is_flagged_as_todo(self) -> None:
         compose = {
             "services": {
@@ -225,12 +267,22 @@ class PortFieldNameDedupTest(unittest.TestCase):
     names waiting to land on one that's already taken."""
 
     def test_no_collision_returns_base_name(self) -> None:
-        self.assertEqual(compose_to_module._port_field_name(set(), 8080), "httpPort")
+        self.assertEqual(compose_to_module._dedupe_field_name(set(), "dbHost"), "dbHost")
 
     def test_single_collision_returns_suffixed_name(self) -> None:
-        self.assertEqual(compose_to_module._port_field_name({"httpPort"}, 3000), "httpPort2")
+        self.assertEqual(compose_to_module._dedupe_field_name({"dbHost"}, "dbHost"), "dbHost2")
 
     def test_multiple_collisions_returns_next_free_suffix(self) -> None:
+        existing = {"dbHost", "dbHost2", "dbHost3"}
+        self.assertEqual(compose_to_module._dedupe_field_name(existing, "dbHost"), "dbHost4")
+
+    def test_port_field_name_no_collision_returns_base_name(self) -> None:
+        self.assertEqual(compose_to_module._port_field_name(set(), 8080), "httpPort")
+
+    def test_port_field_name_single_collision_returns_suffixed_name(self) -> None:
+        self.assertEqual(compose_to_module._port_field_name({"httpPort"}, 3000), "httpPort2")
+
+    def test_port_field_name_multiple_collisions_returns_next_free_suffix(self) -> None:
         existing = {"httpPort", "httpPort2", "httpPort3"}
         self.assertEqual(compose_to_module._port_field_name(existing, 3000), "httpPort4")
 
