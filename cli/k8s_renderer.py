@@ -1374,6 +1374,11 @@ def _values_config(value: Any) -> Any:
 
 
 def _write_chart(root: Path, files: dict[str, str]) -> None:
+    # Canonicalize before touching the filesystem (same convention as
+    # `_atomic_write()`), so a caller-supplied `--output`/`--chart-dir`
+    # value is resolved to a single, unambiguous absolute path rather than
+    # acted on as a raw, possibly relative/traversal-bearing string.
+    root = root.resolve()
     root.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{root.name}.tmp-", dir=root.parent))
     backup = staging.with_name(staging.name.replace(".tmp-", ".previous-"))

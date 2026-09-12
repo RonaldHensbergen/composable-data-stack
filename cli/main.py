@@ -961,7 +961,7 @@ def _render_helm_chart(plan, output_dir, force):
     compose target this refuses to write over existing unrelated content unless
     the caller passes --force.
     """
-    target_dir = Path(output_dir)
+    target_dir = Path(output_dir).resolve()
     if target_dir.exists() and not target_dir.is_dir():
         if not force:
             print(f"ERROR Helm output path {target_dir} exists and is not a directory. Pass --force to replace it.")
@@ -1620,9 +1620,9 @@ def main() -> int:
 
             namespace = args.namespace or plan.get("runtime", {}).get("namespace") or "cds-local"
             release = args.release or plan.get("metadata", {}).get("name") or "cds"
-            log_path = Path(args.log_file) if args.log_file else default_log_path(
-                Path(profile_path).parent.name
-            )
+            log_path = (
+                Path(args.log_file) if args.log_file else default_log_path(Path(profile_path).parent.name)
+            ).resolve()
             log_path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 with open(log_path, "a", encoding="utf-8") as log_file:
@@ -1678,6 +1678,7 @@ def main() -> int:
             log_path = Path(args.log_file)
         else:
             log_path = default_log_path(Path(profile_path).parent.name)
+        log_path = log_path.resolve()
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         log_tail_process = None
@@ -1837,9 +1838,9 @@ def main() -> int:
             return 1
         project_root = resolve_project_root(profile_path)
         profile_release, profile_namespace = _k8s_runtime_defaults(profile_path)
-        log_path = Path(args.log_file) if args.log_file else default_log_path(
-            f"down-{Path(profile_path).parent.name}"
-        )
+        log_path = (
+            Path(args.log_file) if args.log_file else default_log_path(f"down-{Path(profile_path).parent.name}")
+        ).resolve()
         log_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(log_path, "a", encoding="utf-8") as log_file:

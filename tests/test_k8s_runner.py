@@ -9,7 +9,15 @@ from unittest.mock import patch
 
 import yaml
 
-from cli.k8s_runner import _secret_values, _write_secret_values, helm_down, helm_up
+from cli.k8s_runner import (
+    _secret_values,
+    _validate_k8s_name,
+    _validate_kube_context,
+    _write_secret_values,
+    get_k8s_workloads,
+    helm_down,
+    helm_up,
+)
 
 
 class KubernetesRunnerTest(unittest.TestCase):
@@ -118,6 +126,71 @@ class KubernetesRunnerTest(unittest.TestCase):
         delete_command = mock_run.call_args_list[1].args[0]
         self.assertIn("postgres-data-cds-postgres-0", delete_command)
         self.assertNotIn("-l", delete_command)
+
+
+class K8sNameValidationTest(unittest.TestCase):
+    """
+    A `namespace`/`release`/`kube_context` value that starts with `-` (or
+    otherwise doesn't look like a plain Kubernetes name) must never reach
+    `helm`/`kubectl` as a command argument: a downstream binary could parse
+    it as an extra flag instead of a plain positional value (CWE-88
+    argument injection).
+    """
+
+    def test_validate_k8s_name_accepts_valid_dns_label(self) -> None:
+        self.assertEqual(_validate_k8s_name("cds-local", "namespace"), "cds-local")
+
+    def test_validate_k8s_name_rejects_leading_dash(self) -> None:
+        with self.assertRaisesRegex(ValueError, "namespace"):
+            _validate_k8s_name("--kubeconfig=/tmp/evil", "namespace")
+
+    def test_validate_k8s_name_rejects_uppercase_and_empty(self) -> None:
+        with self.assertRaises(ValueError):
+            _validate_k8s_name("Invalid_Name", "release")
+        with self.assertRaises(ValueError):
+            _validate_k8s_name("", "release")
+
+    def test_validate_kube_context_accepts_plain_value(self) -> None:
+        self.assertEqual(_validate_kube_context("k3d-test"), "k3d-test")
+        self.assertIsNone(_validate_kube_context(None))
+
+    def test_validate_kube_context_rejects_flag_like_value(self) -> None:
+        with self.assertRaises(ValueError):
+            _validate_kube_context("--kubeconfig=/tmp/evil")
+
+    @patch("cli.k8s_runner.subprocess.run")
+    def test_get_k8s_workloads_rejects_flag_like_release(self, mock_run) -> None:
+        with self.assertRaises(ValueError):
+            get_k8s_workloads("test", "--namespace=kube-system", None)
+        mock_run.assert_not_called()
+
+    @patch("cli.k8s_runner.run_streamed")
+    def test_helm_up_rejects_flag_like_namespace(self, mock_run_streamed) -> None:
+        with self.assertRaises(ValueError):
+            helm_up(
+                {"secrets": {}},
+                Path("chart"),
+                namespace="--kubeconfig=/tmp/evil",
+                release="cds",
+                kube_context=None,
+                timeout=30,
+                detach=True,
+                log_file=io.StringIO(),
+            )
+        mock_run_streamed.assert_not_called()
+
+    @patch("cli.k8s_runner.run_streamed")
+    def test_helm_down_rejects_flag_like_release(self, mock_run_streamed) -> None:
+        with self.assertRaises(ValueError):
+            helm_down(
+                namespace="test",
+                release="--kubeconfig=/tmp/evil",
+                kube_context=None,
+                timeout=30,
+                delete_pvcs=False,
+                log_file=io.StringIO(),
+            )
+        mock_run_streamed.assert_not_called()
 
 
 if __name__ == "__main__":
