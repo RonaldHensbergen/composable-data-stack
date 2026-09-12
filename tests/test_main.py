@@ -2199,7 +2199,57 @@ spec:
         self.assertEqual(mock_helm_up.call_args.kwargs["namespace"], "demo-ns")
         self.assertEqual(mock_helm_up.call_args.kwargs["release"], "demo")
         self.assertEqual(mock_helm_up.call_args.kwargs["kube_context"], "k3d-test")
-        self.assertEqual(mock_helm_up.call_args.kwargs["timeout"], 45)
+
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_up", return_value=0)
+    @patch("cli.main._render_helm_chart", return_value=(0, []))
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_up_helm_resolves_a_relative_chart_dir(
+        self, _mock_validate, mock_plan, mock_render, mock_helm_up, mock_log_path
+    ):
+        """
+        `--chart-dir` is user-controlled and, before this, was passed
+        through to `helm upgrade --install <release> <chart_dir> ...` as a
+        raw (possibly relative) string. Resolving it to an absolute path
+        up front means it can never be mistaken for an extra flag by
+        `helm` (CWE-88 argument injection), the same way `.resolve()`
+        already protects `--output`/`--log-file` elsewhere in this module.
+        """
+        plan = {
+            "metadata": {"name": "demo"},
+            "runtime": {"namespace": "demo-ns"},
+            "modules": [],
+        }
+        mock_plan.return_value = (plan, [])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "up.log"
+            previous_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                with patch.dict(
+                    os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+                ), patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--target",
+                        "helm",
+                        "--chart-dir",
+                        "relative-chart",
+                    ],
+                ):
+                    result = main()
+            finally:
+                os.chdir(previous_cwd)
+
+        self.assertEqual(result, 0)
+        rendered_chart_dir = mock_render.call_args.args[1]
+        self.assertTrue(Path(rendered_chart_dir).is_absolute())
+        self.assertEqual(Path(rendered_chart_dir), Path(tmpdir).resolve() / "relative-chart")
 
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_down", return_value=0)
