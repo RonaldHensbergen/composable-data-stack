@@ -24,21 +24,18 @@ The format is based on Keep a Changelog.
 - Added regression tests for planner default materialization in nested `configSchema` structures: array-item object defaults filled in per-item without overwriting explicitly provided sibling properties, and partially provided nested objects preserving explicit falsy values (`False`/`0`) while still materializing omitted siblings (#459).
 - Added CLI-level test coverage asserting `cds validate` reports precise diagnostic codes and data paths for common validation failures: a module entry missing a required field (`E010`) and a consume binding with an unresolvable `contractRef` (`E041`) (#460).
 - Added `cli.loader.save_generated_profile()` and `cli.main.generate_profile()` so a runtime/programmatically composed profile can be persisted at its normal `profiles/<name>/profile.yaml` location (honoring `CDS_PROFILE_PATH`), then handed to the existing `validate_profile()`/`build_plan()` entry points completely unchanged -- same relative module-source resolution and `extends`/environment-overlay semantics as any hand-authored profile. Refuses to write outside the profiles root or silently overwrite an existing profile without `force=True`. Exposed as a new `cds generate-profile <file>` CLI command (reads JSON/YAML from a file path or `-` for stdin, with `--name`/`--force` options) (#349).
+- Added `test_fetch_profile_rejects_dockerfile_copy_traversal_escaping_source_repo`, a regression test proving a Dockerfile `COPY`/`ADD` source containing `..` that `Path.glob()` matches outside the source repository is rejected as a stable `GetError` (via the existing `_add_copy_action` guard from #454), not an unhandled `ValueError` (#475).
+- Pinned `build`, `twine`, and `yamllint`'s CI-installed versions, and the `renovate` npm package version used by `renovate-config-validator`, matching this repo's existing exact-pin convention for CI-only tooling (e.g. `ruff==0.16.6`), addressing SonarCloud's `githubactions:S8544` findings triaged in #622. Added matching Renovate custom managers so these pins stay up to date automatically.
 
 ### Fixed
 
 - Set the Docker Hub short description for every published image (`dagster`, `superset`, `dbt`, `dlt`) via `peter-evans/dockerhub-description`'s `short-description` input, instead of relying on it being set manually per repository. `dbt` and `dlt` were missing it entirely since their Docker Hub repositories were auto-created by CI without ever going through that manual step.
 - Fixed a quadratic (super-linear) regex backtracking hazard in `cli/preflight.py`'s `_ENV_REFERENCE` pattern, used to scan rendered Compose YAML for `${VAR...}` references: an unterminated reference could make the identifier and suffix capture groups' overlapping character classes retry every possible split point. Required the suffix group to start with one of its actual delimiters (`:`, `?`, `-`), making the two groups' character classes disjoint, flagged by SonarCloud as `python:S8786`.
+- `images/superset/init.sh` now uses `[[ ... ]]` instead of `[ ... ]` for its conditional tests, addressing SonarCloud's `shelldre:S7688` findings triaged in #622.
 
 ### Changed
 
 - Raised the `coverage`-enforced `cli/` coverage gate from 65% to 80%, matching actual measured coverage and the industry norm for a security-focused tool (`pyproject.toml`'s `[tool.coverage.report]` `fail_under`) (#471).
-
-### Added
-
-- Added `test_fetch_profile_rejects_dockerfile_copy_traversal_escaping_source_repo`, a regression test proving a Dockerfile `COPY`/`ADD` source containing `..` that `Path.glob()` matches outside the source repository is rejected as a stable `GetError` (via the existing `_add_copy_action` guard from #454), not an unhandled `ValueError` (#475).
-- Pinned `build`, `twine`, and `yamllint`'s CI-installed versions, and the `renovate` npm package version used by `renovate-config-validator`, matching this repo's existing exact-pin convention for CI-only tooling (e.g. `ruff==0.16.6`), addressing SonarCloud's `githubactions:S8544` findings triaged in #622. Added matching Renovate custom managers so these pins stay up to date automatically.
-- `images/superset/init.sh` now uses `[[ ... ]]` instead of `[ ... ]` for its conditional tests, addressing SonarCloud's `shelldre:S7688` findings triaged in #622.
 
 ## [0.8.0] - 2026-09-04
 
