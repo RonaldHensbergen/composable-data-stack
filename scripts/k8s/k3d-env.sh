@@ -17,8 +17,11 @@ CDS_BRANCH="$(git -C "$CDS_REPO_ROOT" rev-parse --abbrev-ref HEAD)"
 CDS_SLUG="$(printf '%s' "$CDS_BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's#[^a-z0-9]#-#g; s#--*#-#g; s#^-##; s#-$##')"
 CDS_SLUG="${CDS_SLUG:0:24}"
 
-# base = 20000 + (sha1(branch) mod 1900) * 20, matching the worktree convention.
-_hash="$(printf '%s' "$CDS_BRANCH" | shasum | cut -c1-8)"
+# base = 20000 + (sha256(branch) mod 1900) * 20, matching the worktree convention.
+# SHA-256 (not SHA-1) is used purely to derive a deterministic local port number;
+# there is no security sensitivity here, but a modern hash avoids weak-hash
+# scanner findings (SonarCloud shell:S4790).
+_hash="$(printf '%s' "$CDS_BRANCH" | shasum -a 256 | cut -c1-8)"
 _dec="$((16#${_hash}))"
 CDS_PORT_BASE="$(( 20000 + (_dec % 1900) * 20 ))"
 
