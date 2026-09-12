@@ -181,7 +181,7 @@ def _port_field_name(existing: set[str], container_port: int) -> str:
     if name not in existing:
         return name
     suffix = 2
-    while f"{name}{suffix}" not in existing:
+    while f"{name}{suffix}" in existing:
         suffix += 1
     return f"{name}{suffix}"
 
@@ -251,6 +251,21 @@ class ModuleScaffold:
             external = [d for d in dep_names if d not in self.service_keys]
             for dep_name in external:
                 self._flag_external_dependency(service_key, dep_name)
+            # External targets aren't defined anywhere in this module's own
+            # compose.services, so leaving them in depends_on would emit a
+            # dangling reference (a real docker-compose config error, not
+            # just an incomplete one). The TODOs above already tell the
+            # author to replace each one with a spec.consumes contract
+            # binding; keep only dependencies on services included in this
+            # same scaffold.
+            if isinstance(depends_on, dict):
+                filtered_depends_on = {k: v for k, v in depends_on.items() if k in self.service_keys}
+            else:
+                filtered_depends_on = [d for d in depends_on if d in self.service_keys]
+            if filtered_depends_on:
+                service_def["depends_on"] = filtered_depends_on
+            else:
+                service_def.pop("depends_on", None)
 
         volumes = service_def.get("volumes", [])
         for volume_entry in volumes if isinstance(volumes, list) else []:

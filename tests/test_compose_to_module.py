@@ -92,9 +92,27 @@ class BuildScaffoldTest(unittest.TestCase):
             }
         }
         scaffold = compose_to_module.build_scaffold(compose, ["worker"], "worker", "orchestration")
-        scaffold.to_module_dict()
+        module = scaffold.to_module_dict()
 
         self.assertTrue(any("depends_on external service" in todo for todo in scaffold.todos))
+        # The flagged target isn't defined anywhere in this module's own
+        # compose.services, so leaving it in depends_on would be a dangling
+        # reference -- it must be stripped, not just flagged.
+        service = module["spec"]["implementation"]["compose"]["services"]["worker"]
+        self.assertNotIn("depends_on", service)
+
+    def test_external_depends_on_list_form_is_stripped(self) -> None:
+        compose = {
+            "services": {
+                "app": {"image": "example/app:1.0", "depends_on": ["db"]},
+                "db": {"image": "example/custom-thing:1.0"},
+            }
+        }
+        scaffold = compose_to_module.build_scaffold(compose, ["app"], "app", "bi")
+        module = scaffold.to_module_dict()
+
+        service = module["spec"]["implementation"]["compose"]["services"]["app"]
+        self.assertNotIn("depends_on", service)
 
     def test_known_infra_dependency_points_at_existing_contract_provider(self) -> None:
         compose = {
@@ -139,7 +157,29 @@ class BuildScaffoldTest(unittest.TestCase):
         services = module["spec"]["implementation"]["compose"]["services"]
         self.assertIn("user-code", services)
         self.assertIn("daemon", services)
+        self.assertEqual(services["daemon"]["depends_on"], {"user-code": {"condition": "service_healthy"}})
         self.assertFalse(scaffold.todos)
+
+    def test_mixed_internal_and_external_depends_on_keeps_only_internal(self) -> None:
+        compose = {
+            "services": {
+                "daemon": {
+                    "image": "dagster:1.0",
+                    "depends_on": {
+                        "user-code": {"condition": "service_healthy"},
+                        "db": {"condition": "service_healthy"},
+                    },
+                },
+                "user-code": {"image": "dagster-user-code:1.0"},
+                "db": {"image": "postgres:16"},
+            }
+        }
+        scaffold = compose_to_module.build_scaffold(compose, ["daemon", "user-code"], "dagster", "orchestration")
+        module = scaffold.to_module_dict()
+
+        service = module["spec"]["implementation"]["compose"]["services"]["daemon"]
+        self.assertEqual(service["depends_on"], {"user-code": {"condition": "service_healthy"}})
+        self.assertTrue(any("'db'" in todo for todo in scaffold.todos))
 
     def test_missing_service_raises_scaffold_error(self) -> None:
         compose = {"services": {"postgres": {"image": "postgres:16"}}}
@@ -177,6 +217,41 @@ class PortParsingTest(unittest.TestCase):
     def test_long_form_mapping(self) -> None:
         entry = {"target": 5432, "published": 5433, "protocol": "tcp"}
         self.assertEqual(compose_to_module._parse_port_entry(entry), (5433, 5432, "TCP"))
+
+
+class PortFieldNameDedupTest(unittest.TestCase):
+    """Regression coverage for the _port_field_name() suffix loop: it must
+    return the first *free* candidate name, not hang looping over free
+    names waiting to land on one that's already taken."""
+
+    def test_no_collision_returns_base_name(self) -> None:
+        self.assertEqual(compose_to_module._port_field_name(set(), 8080), "httpPort")
+
+    def test_single_collision_returns_suffixed_name(self) -> None:
+        self.assertEqual(compose_to_module._port_field_name({"httpPort"}, 3000), "httpPort2")
+
+    def test_multiple_collisions_returns_next_free_suffix(self) -> None:
+        existing = {"httpPort", "httpPort2", "httpPort3"}
+        self.assertEqual(compose_to_module._port_field_name(existing, 3000), "httpPort4")
+
+    def test_merging_two_services_with_same_known_port_name_terminates(self) -> None:
+        # 3000 and 8080 both map to "http" in _KNOWN_PORT_NAMES; merging two
+        # services exposing them (e.g. a webserver + an admin UI) must not
+        # hang -- this previously looped forever due to an inverted `while`
+        # condition in _port_field_name().
+        compose = {
+            "services": {
+                "webserver": {"image": "example/webserver:1.0", "ports": ["3000:3000"]},
+                "admin": {"image": "example/admin:1.0", "ports": ["8080:8080"]},
+            }
+        }
+        scaffold = compose_to_module.build_scaffold(compose, ["webserver", "admin"], "app", "bi")
+        module = scaffold.to_module_dict()
+
+        props = module["spec"]["configSchema"]["properties"]
+        self.assertEqual(set(props), {"httpPort", "httpPort2"})
+        self.assertEqual(props["httpPort"]["default"], 3000)
+        self.assertEqual(props["httpPort2"]["default"], 8080)
 
 
 if __name__ == "__main__":
