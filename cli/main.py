@@ -1610,7 +1610,7 @@ def main() -> int:
 
         if args.target == "helm":
             project_root = resolve_project_root(profile_path)
-            chart_dir = Path(args.chart_dir) if args.chart_dir else project_root / "chart"
+            chart_dir = (Path(args.chart_dir) if args.chart_dir else project_root / "chart").resolve()
             code, render_diags = _render_helm_chart(plan, chart_dir, force=True)
             all_diags.extend(render_diags)
             if code != 0 or has_errors(all_diags):
