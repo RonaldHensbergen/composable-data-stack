@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess  # nosec B404
 import tempfile
 from pathlib import Path
@@ -12,6 +13,38 @@ import yaml
 
 from .state import parse_k8s_workloads_json
 from .up_runner import _validate_command, run_streamed
+
+# RFC 1123 DNS label: lowercase alphanumeric and `-`, not leading/trailing
+# with `-`, 1-63 chars. Both Kubernetes namespaces and Helm release names
+# must already satisfy this, so enforcing it here rejects nothing legitimate.
+_K8S_NAME_RE = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
+
+
+def _validate_k8s_name(value: str, label: str) -> str:
+    """
+    Reject a `namespace`/`release` value that isn't a valid Kubernetes
+    DNS-1123 label before it reaches `helm`/`kubectl` as a command
+    argument. Without this, a value starting with `-` (e.g. supplied by a
+    misbehaving caller or automation) could be parsed as an extra flag by
+    the downstream binary instead of a plain name (CWE-88 argument
+    injection).
+    """
+    if not isinstance(value, str) or not _K8S_NAME_RE.match(value):
+        raise ValueError(f"invalid {label}: {value!r} is not a valid Kubernetes name")
+    return value
+
+
+def _validate_kube_context(value: str | None) -> str | None:
+    """
+    Reject a `kube_context` that looks like a command-line flag (starts
+    with `-`) or contains control characters, so it can't be smuggled to
+    `helm`/`kubectl` as an extra argument (CWE-88 argument injection).
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or value[0] == "-" or any(ord(c) < 0x20 for c in value):
+        raise ValueError(f"invalid kube context: {value!r}")
+    return value
 
 
 def helm_up(
@@ -26,6 +59,9 @@ def helm_up(
     log_file: IO[str],
 ) -> int:
     """Install or upgrade a rendered chart without persisting secret values."""
+    _validate_k8s_name(namespace, "namespace")
+    _validate_k8s_name(release, "release")
+    _validate_kube_context(kube_context)
     secret_values = _secret_values(plan)
     secret_path = _write_secret_values(secret_values)
     context_args = ["--kube-context", kube_context] if kube_context else []
@@ -90,6 +126,9 @@ def helm_down(
     delete_pvcs: bool,
     log_file: IO[str],
 ) -> int:
+    _validate_k8s_name(namespace, "namespace")
+    _validate_k8s_name(release, "release")
+    _validate_kube_context(kube_context)
     pvc_names: list[str] = []
     if delete_pvcs:
         pvc_names = _stateful_pvc_names(
@@ -121,6 +160,9 @@ def helm_down(
 def get_k8s_workloads(
     namespace: str, release: str, kube_context: str | None
 ) -> list[dict[str, Any]]:
+    _validate_k8s_name(namespace, "namespace")
+    _validate_k8s_name(release, "release")
+    _validate_kube_context(kube_context)
     command = _kubectl_command(kube_context, namespace) + [
         "get",
         "deployment,statefulset,job",
