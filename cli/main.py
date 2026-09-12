@@ -32,6 +32,7 @@ from .image_verification import (
 from .k8s_renderer import render_helm
 from .k8s_runner import get_k8s_state, helm_down, helm_up
 from .k8s_security import scan_k8s_security
+from .loader import save_generated_profile
 from .overlay import resolve_extends, resolve_profile
 from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
@@ -120,6 +121,33 @@ def get_profiles_root() -> Path:
     if override:
         return Path(override).expanduser()
     return find_project_root() / "profiles"
+
+
+def generate_profile(
+    profile: dict[str, Any], name: str | None = None, force: bool = False
+) -> tuple[str | None, list[Diagnostic]]:
+    """
+    Persists a runtime-generated/in-memory profile dict at its normal
+    profiles/<name>/profile.yaml location, then returns the resulting path
+    so it can be handed straight to validate_profile()/build_plan()
+    unchanged (issue #349).
+
+    CDS_PROFILE_PATH is honored as a profiles *root directory*, via
+    get_profiles_root() -- the same helper other commands use. Unlike
+    resolve_profile_path()/_resolve_profile_root(), which also accept
+    CDS_PROFILE_PATH pointing at a single profile file or a bare profile
+    name, generate_profile() always needs a directory to create
+    <name>/profile.yaml under: a brand-new generated profile has no
+    existing file/name to resolve against yet. If CDS_PROFILE_PATH is set
+    to a file or otherwise isn't a directory, save_generated_profile()
+    reports a clear E118 diagnostic instead of silently building a nonsense
+    nested path.
+
+    See cli.loader.save_generated_profile() for the path-safety/overwrite
+    semantics.
+    """
+    profile_file, diagnostics = save_generated_profile(profile, get_profiles_root(), name=name, force=force)
+    return (str(profile_file) if profile_file is not None else None), diagnostics
 
 
 def get_modules_root() -> Path:
@@ -981,6 +1009,24 @@ def main() -> int:
         help="Validate target-specific requirements (default: compose).",
     )
 
+    generate_profile_parser = subparsers.add_parser(
+        "generate-profile",
+        help="Persist a runtime-generated profile document to profiles/<name>/profile.yaml",
+    )
+    generate_profile_parser.add_argument(
+        "input",
+        help="Path to a JSON or YAML file containing the profile document, or '-' to read from stdin",
+    )
+    generate_profile_parser.add_argument(
+        "--name",
+        help="Profile directory name (default: profile['metadata']['name'])",
+    )
+    generate_profile_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing profiles/<name>/profile.yaml",
+    )
+
     plan_parser = subparsers.add_parser("plan", help="Build a resolved plan from a profile")
     _add_profile_arg(plan_parser)
     _add_environment_arg(plan_parser)
@@ -1339,6 +1385,47 @@ def main() -> int:
             print("Profile is valid.")
 
         return 1 if has_errors(diagnostics) else 0
+
+    if args.command == "generate-profile":
+        if args.input == "-":
+            raw = sys.stdin.read()
+        else:
+            # Explicitly resolve and validate the CLI-supplied path before
+            # touching the file system: reject dangling symlinks/missing
+            # paths and anything that isn't a regular file (e.g. a
+            # directory) rather than handing an unvalidated path straight
+            # to read_text().
+            try:
+                input_path = Path(args.input).expanduser().resolve(strict=True)
+            except OSError as exc:
+                print(f"ERROR Could not read {args.input}: {exc}")
+                return 1
+            if not input_path.is_file():
+                print(f"ERROR {args.input} is not a file")
+                return 1
+            try:
+                raw = input_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                print(f"ERROR Could not read {args.input}: {exc}")
+                return 1
+
+        try:
+            profile = yaml.safe_load(raw)
+        except yaml.YAMLError as exc:
+            print(f"ERROR Could not parse {args.input} as JSON/YAML: {exc}")
+            return 1
+
+        profile_path, diagnostics = generate_profile(profile, name=args.name, force=args.force)
+
+        if diagnostics:
+            print_diagnostics(diagnostics)
+
+        if profile_path is None:
+            print("Profile generation failed.")
+            return 1
+
+        print(f"Profile written to {profile_path}")
+        return 0
 
     if args.command == "plan":
         try:
