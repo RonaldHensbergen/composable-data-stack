@@ -69,7 +69,67 @@ class KubernetesRunnerTest(unittest.TestCase):
         values_path = Path(command[command.index("--values") + 1])
         self.assertFalse(values_path.exists())
         self.assertNotIn("sentinel", " ".join(command))
-        self.assertIn("--wait", command)
+        # Readiness is no longer decided by Helm's own --wait: it's decided by
+        # polling get_k8s_state()/group_services_by_health() below (the same
+        # pair `cds state` uses), so the apply step itself doesn't block on
+        # workload rollout.
+        self.assertNotIn("--wait", command)
+
+    @patch("cli.k8s_runner.get_k8s_state", return_value=[])
+    @patch("cli.k8s_runner.get_k8s_workloads", return_value=[])
+    @patch("cli.k8s_runner.run_streamed", return_value=0)
+    def test_helm_up_reports_failure_when_workload_never_settles(
+        self, mock_run, mock_workloads, _mock_state
+    ) -> None:
+        plan: dict = {"secrets": {}}
+        mock_workloads.return_value = [
+            {"kind": "Deployment", "metadata": {"name": "cds-web"}, "spec": {"replicas": 1}}
+        ]
+
+        result = helm_up(
+            plan,
+            Path("chart"),
+            namespace="test",
+            release="cds",
+            kube_context=None,
+            timeout=0,
+            detach=False,
+            log_file=io.StringIO(),
+            sleep_fn=lambda _seconds: None,
+        )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(mock_run.call_count, 1)
+
+    @patch("cli.k8s_runner.get_k8s_state")
+    @patch("cli.k8s_runner.get_k8s_workloads")
+    @patch("cli.k8s_runner.run_streamed", return_value=0)
+    def test_helm_up_ready_state_matches_cds_state_health_grouping(
+        self, _mock_run, mock_workloads, mock_state
+    ) -> None:
+        # A release with one healthy Deployment settles as ready via the same
+        # get_k8s_state()/group_services_by_health() pair `cds state` uses.
+        workload = {
+            "kind": "Deployment",
+            "metadata": {"name": "cds-web"},
+            "spec": {"replicas": 1},
+            "status": {"readyReplicas": 1},
+        }
+        mock_workloads.return_value = [workload]
+        mock_state.return_value = [{"Service": "cds-web", "Health": "HEALTHY", "State": "running"}]
+
+        result = helm_up(
+            {"secrets": {}},
+            Path("chart"),
+            namespace="test",
+            release="cds",
+            kube_context=None,
+            timeout=30,
+            detach=False,
+            log_file=io.StringIO(),
+        )
+
+        self.assertEqual(result, 0)
 
     @patch("cli.k8s_runner.get_k8s_workloads")
     @patch("cli.k8s_runner.run_streamed", return_value=0)

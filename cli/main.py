@@ -33,7 +33,7 @@ from .k8s_renderer import render_helm
 from .k8s_runner import get_k8s_state, helm_down, helm_up
 from .k8s_security import scan_k8s_security
 from .loader import save_generated_profile
-from .overlay import resolve_extends, resolve_profile
+from .overlay import _merge_profile_docs, resolve_extends, resolve_profile
 from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
 from .renderer import render_compose
@@ -97,19 +97,73 @@ def print_diagnostics(diagnostics) -> None:
         print(f"{prefix} {d.format()}\n")
 
 
-def _k8s_runtime_defaults(profile_path: str) -> tuple[str, str]:
-    """Read non-secret Helm defaults without planning or loading environment values."""
+def _helm_identity(
+    metadata: dict[str, Any] | None,
+    runtime: dict[str, Any] | None,
+    profile_path: str,
+) -> tuple[str, str]:
+    """
+    Shared release/namespace fallback rule: release from metadata.name (or
+    the profile's directory name), namespace from runtime.namespace (or
+    "cds-local"). `metadata`/`runtime` can come either from a fully built
+    plan (`up`) or from a best-effort document resolution (`down`/`state`)
+    as long as both use this same rule, so a stack brought up with a given
+    --environment is torn down/inspected against the same release and
+    namespace.
+    """
     fallback_release = Path(profile_path).parent.name or "cds"
-    try:
-        document = yaml.safe_load(Path(profile_path).read_text(encoding="utf-8")) or {}
-    except (OSError, UnicodeDecodeError, yaml.YAMLError):
-        return fallback_release, "cds-local"
-    release = str((document.get("metadata") or {}).get("name") or fallback_release)
-    namespace = str(
-        (((document.get("spec") or {}).get("runtime") or {}).get("namespace"))
-        or "cds-local"
-    )
+    release = str((metadata or {}).get("name") or fallback_release)
+    namespace = str((runtime or {}).get("namespace") or "cds-local")
     return release, namespace
+
+
+def _resolve_profile_document_best_effort(
+    profile_path: str, environment: str | None = None
+) -> dict[str, Any]:
+    """
+    Resolves a profile's `extends` chain and, if given, an `--environment`
+    overlay, WITHOUT running the full validate_loaded_profile() gate that
+    resolve_profile() applies. This is deliberate: down/state must be able
+    to resolve the release/namespace a stack was brought up under even if
+    the profile has since been edited into an invalid state (e.g. an
+    unrelated module config error) -- falling back to generic defaults in
+    that case would target the wrong release/namespace instead of tearing
+    down (or reporting on) the one that's actually running.
+    """
+    document, provenance, diagnostics = resolve_extends(profile_path)
+    if document is None or any(d.level == "error" for d in diagnostics):
+        return {}
+
+    if not environment:
+        return document
+
+    profile_file = Path(profile_path)
+    overlay_file = profile_file.parent / "environments" / f"{environment}.yaml"
+    if not overlay_file.is_file():
+        return document
+
+    try:
+        overlay = yaml.safe_load(overlay_file.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return document
+
+    merged, merge_diagnostics = _merge_profile_docs(
+        document, overlay, str(profile_file), str(overlay_file), provenance
+    )
+    if merge_diagnostics:
+        return document
+    return merged
+
+
+def _k8s_runtime_defaults(profile_path: str, environment: str | None = None) -> tuple[str, str]:
+    """
+    Read non-secret Helm defaults without planning, using the same
+    release/namespace rule the built plan uses (`_helm_identity`), so
+    `down`/`state` target the same release an `up --environment ...` run
+    created.
+    """
+    document = _resolve_profile_document_best_effort(profile_path, environment)
+    return _helm_identity(document.get("metadata"), (document.get("spec") or {}).get("runtime"), profile_path)
 
 
 def profile_completer(prefix, parsed_args, **kwargs):
@@ -1123,6 +1177,7 @@ def main() -> int:
 
     down_parser = subparsers.add_parser("down", help="Stop or uninstall a running profile")
     _add_profile_arg(down_parser)
+    _add_environment_arg(down_parser)
     down_parser.add_argument(
         "--target", choices=["compose", "helm"], default="compose", help="Runtime target."
     )
@@ -1174,6 +1229,7 @@ def main() -> int:
         help="Show running service status grouped by health",
     )
     _add_profile_arg(state_parser)
+    _add_environment_arg(state_parser)
     state_parser.add_argument(
         "--target", choices=["compose", "helm"], default="compose", help="Runtime target."
     )
@@ -1348,7 +1404,7 @@ def main() -> int:
 
     args = parser.parse_args()
     environment_explicit = hasattr(args, "environment")
-    if args.command in {"validate", "plan", "render", "up", "test", "preflight", "init", "security"}:
+    if args.command in {"validate", "plan", "render", "up", "test", "preflight", "init", "security", "down", "state"}:
         args.environment = getattr(args, "environment", None) or load_saved_environment()
     if args.command in {"render", "up", "test"}:
         args.image_source = getattr(args, "image_source", None) or load_saved_image_source()
@@ -1618,8 +1674,16 @@ def main() -> int:
                 print("Cannot start stack because Helm rendering failed.")
                 return code or 1
 
-            namespace = args.namespace or plan.get("runtime", {}).get("namespace") or "cds-local"
-            release = args.release or plan.get("metadata", {}).get("name") or "cds"
+            plan_release, plan_namespace = _helm_identity(
+                plan.get("metadata"), plan.get("runtime"), profile_path
+            )
+            namespace = args.namespace or plan_namespace
+            release = args.release or plan_release
+            if args.no_build:
+                print(
+                    "NOTE --no-build has no effect with --target helm: "
+                    "the Helm target does not build local images yet."
+                )
             log_path = Path(args.log_file) if args.log_file else default_log_path(
                 Path(profile_path).parent.name
             )
@@ -1635,6 +1699,7 @@ def main() -> int:
                         timeout=args.timeout,
                         detach=args.detach,
                         log_file=log_file,
+                        use_color=(not args.no_color) and sys.stdout.isatty(),
                     )
             except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
                 print(f"ERROR {exc}")
@@ -1836,7 +1901,7 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
         project_root = resolve_project_root(profile_path)
-        profile_release, profile_namespace = _k8s_runtime_defaults(profile_path)
+        profile_release, profile_namespace = _k8s_runtime_defaults(profile_path, args.environment)
         log_path = Path(args.log_file) if args.log_file else default_log_path(
             f"down-{Path(profile_path).parent.name}"
         )
@@ -2037,7 +2102,7 @@ def main() -> int:
             return 1
 
         if args.target == "helm":
-            profile_release, profile_namespace = _k8s_runtime_defaults(profile_path)
+            profile_release, profile_namespace = _k8s_runtime_defaults(profile_path, args.environment)
             try:
                 services = get_k8s_state(
                     args.namespace or profile_namespace,
