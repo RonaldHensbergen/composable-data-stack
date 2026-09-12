@@ -117,7 +117,7 @@ else
 fi
 
 kubectl --context "$CDS_CONTEXT" -n "$CDS_NAMESPACE" port-forward \
-  service/dagster-webserver "${CDS_DAGSTER_FORWARD_PORT}:3000" \
+  "service/${CDS_RELEASE}-dagster-webserver" "${CDS_DAGSTER_FORWARD_PORT}:3000" \
   >"/tmp/${CDS_CLUSTER}-${CDS_RELEASE}-dagster-port-forward.log" 2>&1 &
 PORT_FORWARD_PIDS+=("$!")
 if wait_for_http "http://127.0.0.1:${CDS_DAGSTER_FORWARD_PORT}/" 'dagster|graphql'; then
@@ -127,7 +127,7 @@ else
 fi
 
 kubectl --context "$CDS_CONTEXT" -n "$CDS_NAMESPACE" port-forward \
-  service/superset "${CDS_SUPERSET_FORWARD_PORT}:8088" \
+  "service/${CDS_RELEASE}-superset" "${CDS_SUPERSET_FORWARD_PORT}:8088" \
   >"/tmp/${CDS_CLUSTER}-${CDS_RELEASE}-superset-port-forward.log" 2>&1 &
 PORT_FORWARD_PIDS+=("$!")
 if wait_for_http "http://127.0.0.1:${CDS_SUPERSET_FORWARD_PORT}/login/" 'login|superset'; then

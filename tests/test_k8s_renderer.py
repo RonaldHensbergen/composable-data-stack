@@ -4,6 +4,7 @@ import io
 import os
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest import mock
 
@@ -156,14 +157,20 @@ class RealProfileHelmRendererTest(unittest.TestCase):
             files["templates/dagster-user-code-deployment.yaml"],
         )
         self.assertIn(
-            "host: dagster-user-code",
+            "host: {{ .Release.Name }}-dagster-user-code",
             files["templates/dagster-configmap-workspace.yaml"],
         )
-        self.assertIn(
-            "name: postgres", files["templates/postgres-postgres-service.yaml"]
+        postgres_service = yaml.safe_load(
+            files["templates/postgres-postgres-service.yaml"]
         )
-        self.assertIn(
-            "name: superset", files["templates/superset-superset-service.yaml"]
+        superset_service = yaml.safe_load(
+            files["templates/superset-superset-service.yaml"]
+        )
+        self.assertEqual(
+            postgres_service["metadata"]["name"], "{{ .Release.Name }}-postgres"
+        )
+        self.assertEqual(
+            superset_service["metadata"]["name"], "{{ .Release.Name }}-superset"
         )
         self.assertIn(
             "-v dagster_password", files["templates/postgres-configmap-init-db.yaml"]
@@ -197,7 +204,9 @@ class RealProfileHelmRendererTest(unittest.TestCase):
         self.assertIn("livenessProbe:", postgres)
         self.assertIn("startupProbe:", postgres)
         self.assertIn("- keydb-cli", keydb)
-        self.assertIn("timed out waiting for postgres:5432", superset)
+        self.assertIn(
+            "timed out waiting for {{ .Release.Name }}-postgres:5432", superset
+        )
         self.assertIn('if [ "$attempt" -ge 150 ]', superset)
         for manifest in (postgres, keydb, superset):
             self.assertIn("readOnlyRootFilesystem: true", manifest)
@@ -208,6 +217,7 @@ class RealProfileHelmRendererTest(unittest.TestCase):
             '{{ toYaml (index .Values "modules" "superset" "workloads" "superset" "resources" "superset")',
             superset,
         )
+        self.assertIn("{{ .Release.Name }}-postgres:5432", superset)
 
 
 class HelmRendererDiagnosticTest(unittest.TestCase):
@@ -342,6 +352,103 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
         _, diagnostics = render_helm(plan)
 
         self.assertIn("E075", {diagnostic.code for diagnostic in diagnostics})
+
+    def test_configmap_bind_rejects_absolute_and_traversal_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            project = workspace / "project"
+            profile = project / "profiles" / "demo" / "profile.yaml"
+            profile.parent.mkdir(parents=True)
+            (project / "pyproject.toml").write_text("[project]\nname='demo'\n")
+            outside = workspace / "secret.txt"
+            outside.write_text("do not render\n", encoding="utf-8")
+
+            for from_bind in (str(outside), "../secret.txt"):
+                with self.subTest(from_bind=from_bind):
+                    plan = self.minimal_plan()
+                    plan["sourceProfile"] = str(profile)
+                    plan["modules"][0]["implementation"]["kubernetes"]["configMaps"] = {
+                        "unsafe": {
+                            "key": "unsafe.txt",
+                            "fromBind": from_bind,
+                            "mountPath": "/etc/unsafe.txt",
+                        }
+                    }
+
+                    files, diagnostics = render_helm(plan)
+
+                    self.assertIn("E085", {diag.code for diag in diagnostics})
+                    self.assertNotIn("do not render", "\n".join(files.values()))
+
+    def test_configmap_bind_rejects_symlink_escape(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            project = workspace / "project"
+            profile = project / "profiles" / "demo" / "profile.yaml"
+            profile.parent.mkdir(parents=True)
+            (project / "pyproject.toml").write_text("[project]\nname='demo'\n")
+            outside = workspace / "secret.txt"
+            outside.write_text("do not render\n", encoding="utf-8")
+            link = project / "linked-secret.txt"
+            try:
+                link.symlink_to(outside)
+            except OSError as exc:
+                self.skipTest(f"symlinks unavailable on this platform: {exc}")
+
+            plan = self.minimal_plan()
+            plan["sourceProfile"] = str(profile)
+            plan["modules"][0]["implementation"]["kubernetes"]["configMaps"] = {
+                "unsafe": {
+                    "key": "unsafe.txt",
+                    "fromBind": "linked-secret.txt",
+                    "mountPath": "/etc/unsafe.txt",
+                }
+            }
+
+            files, diagnostics = render_helm(plan)
+
+            self.assertIn("E085", {diag.code for diag in diagnostics})
+            self.assertNotIn("do not render", "\n".join(files.values()))
+
+    def test_module_local_service_aliases_do_not_collide(self) -> None:
+        plan = self.minimal_plan(storage_enabled=False)
+        template = plan["modules"][0]
+        modules = []
+        for module_id in ("alpha", "beta"):
+            module = deepcopy(template)
+            module["id"] = module_id
+            workload = module["implementation"]["kubernetes"]["workloads"]["app"]
+            workload["kind"] = "Deployment"
+            workload["waitFor"] = [
+                {"host": "${k8s.service.app}", "port": 8080, "timeoutSeconds": 2}
+            ]
+            modules.append(module)
+        plan["modules"] = modules
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(diag.level == "error" for diag in diagnostics))
+        self.assertIn(
+            "{{ .Release.Name }}-alpha-app:8080",
+            files["templates/alpha-app-deployment.yaml"],
+        )
+        self.assertIn(
+            "{{ .Release.Name }}-beta-app:8080",
+            files["templates/beta-app-deployment.yaml"],
+        )
+
+    def test_service_and_statefulset_names_are_release_scoped(self) -> None:
+        files, diagnostics = render_helm(self.minimal_plan())
+
+        self.assertFalse(any(diag.level == "error" for diag in diagnostics))
+        service = yaml.safe_load(files["templates/demo-app-service.yaml"])
+        self.assertEqual(
+            service["metadata"]["name"], "{{ .Release.Name }}-demo-app"
+        )
+        self.assertIn(
+            "serviceName: '{{ .Release.Name }}-demo-app'",
+            files["templates/demo-app-statefulset.yaml"],
+        )
 
     def test_failed_render_does_not_replace_last_valid_chart(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

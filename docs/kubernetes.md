@@ -37,6 +37,7 @@ cannot express:
 ```bash
 cds validate local-dagster-postgres-superset --target helm
 cds security local-dagster-postgres-superset --target helm
+cds test local-dagster-postgres-superset --target helm
 cds render local-dagster-postgres-superset --target helm
 ```
 
@@ -46,7 +47,9 @@ update. It refuses to replace unrelated content unless `--force` is present.
 
 The generated chart contains `Chart.yaml`, `values.yaml`, `.helmignore`, notes,
 and templates for workloads, Services, ConfigMaps, PVC templates, and a Secret.
-Rendering is deterministic and contains no secret values.
+Rendering is deterministic and contains no secret values. Workloads and
+Services are prefixed by the Helm release name, so separate releases can share
+a namespace without claiming each other's internal DNS names.
 
 ## Supply secrets at install time
 

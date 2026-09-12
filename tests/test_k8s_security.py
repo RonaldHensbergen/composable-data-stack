@@ -82,6 +82,46 @@ class KubernetesSecurityTest(unittest.TestCase):
 
         self.assertEqual(scan_k8s_security(plan), [])
 
+    def test_container_override_cannot_disable_non_root_constraint(self) -> None:
+        plan = self.secure_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["containerOverrides"] = {
+            "app": {"securityContext": {"runAsNonRoot": False}}
+        }
+
+        findings = scan_k8s_security(plan)
+
+        root_findings = [
+            finding for finding in findings if finding["rule_id"] == "CDS-K8S-001"
+        ]
+        self.assertEqual(len(root_findings), 1)
+        self.assertIn("demo/app/app", root_findings[0]["message"])
+
+    def test_container_override_cannot_select_root_user(self) -> None:
+        plan = self.secure_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["containerOverrides"] = {
+            "app": {"securityContext": {"runAsUser": 0}}
+        }
+
+        findings = scan_k8s_security(plan)
+
+        self.assertIn(
+            "CDS-K8S-001", {finding["rule_id"] for finding in findings}
+        )
+
+    def test_container_override_can_establish_non_root_constraint(self) -> None:
+        plan = self.secure_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload.pop("podSecurityContext")
+        workload["containerOverrides"] = {
+            "app": {
+                "securityContext": {"runAsNonRoot": True, "runAsUser": 1000}
+            }
+        }
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
 
 if __name__ == "__main__":
     unittest.main()

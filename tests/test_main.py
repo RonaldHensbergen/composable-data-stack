@@ -1643,6 +1643,47 @@ spec:
 
         self.assertEqual(result, 0)
 
+    def test_test_command_helm_renders_and_scans_kubernetes_target(self):
+        plan = {"metadata": {"name": "cds-test"}, "modules": []}
+        k8s_finding = {
+            "severity": "high",
+            "rule_id": "CDS-K8S-001",
+            "message": "root container",
+            "path": "module:demo",
+            "module": "demo",
+            "value": None,
+            "recommendation": [],
+        }
+        with patch("cli.main.validate_profile", return_value=[]), patch(
+            "cli.main.build_plan", return_value=(plan, [])
+        ), patch("cli.main.render_helm", return_value=({"Chart.yaml": "chart"}, [])) as mock_helm, patch(
+            "cli.main.render_compose"
+        ) as mock_compose, patch(
+            "cli.main.run_security_validation", return_value=([], [])
+        ), patch(
+            "cli.main.scan_k8s_security", return_value=[k8s_finding]
+        ) as mock_k8s_security, patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "test",
+                "local-dagster-postgres-superset",
+                "--target",
+                "helm",
+            ],
+        ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            result = main()
+
+        self.assertEqual(result, 1)
+        mock_helm.assert_called_once_with(plan)
+        mock_compose.assert_not_called()
+        mock_k8s_security.assert_called_once_with(plan)
+        self.assertIn("CDS-K8S-001", stdout.getvalue())
+        self.assertIn("[FAIL] security", stdout.getvalue())
+
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.run_security_validation")

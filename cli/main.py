@@ -1100,6 +1100,12 @@ def main() -> int:
     _add_profile_arg(test_parser)
     _add_environment_arg(test_parser)
     test_parser.add_argument(
+        "--target",
+        choices=["compose", "helm"],
+        default="compose",
+        help="Runtime target included in the smoke validation (default: compose).",
+    )
+    test_parser.add_argument(
         "--reveal-secrets",
         action="store_true",
         help=(
@@ -1812,7 +1818,12 @@ def main() -> int:
             )
             plan_ok = not has_errors(diagnostics + plan_diags)
             if plan_ok:
-                compose_yaml, render_diags = render_compose(plan, env_file=env_file)
+                if args.target == "helm":
+                    _, render_diags = render_helm(plan)
+                else:
+                    compose_yaml, render_diags = render_compose(
+                        plan, env_file=env_file
+                    )
                 render_ok = not has_errors(render_diags)
 
         security_ok = False
@@ -1824,12 +1835,22 @@ def main() -> int:
                     environment=args.environment,
                     strict=load_saved_security_strict(),
                     redact_values=not args.reveal_secrets,
-                    precomputed_render=PrecomputedRender(
-                        plan=plan if plan_ok else None,
-                        rendered_compose_yaml=compose_yaml if render_ok else None,
-                        failed=not (plan_ok and render_ok),
+                    precomputed_render=(
+                        PrecomputedRender(
+                            plan=plan,
+                            rendered_compose_yaml=compose_yaml,
+                        )
+                        if plan_ok
+                        else PrecomputedRender(failed=True)
                     ),
                 )
+                if args.target == "helm" and plan_ok:
+                    findings.extend(scan_k8s_security(plan))
+                    findings.sort(key=lambda finding: (
+                        SEVERITY_ORDER.get(finding["severity"], 99),
+                        finding["rule_id"],
+                        finding["path"],
+                    ))
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)
                 for f in findings:

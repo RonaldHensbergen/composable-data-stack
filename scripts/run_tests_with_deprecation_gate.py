@@ -53,7 +53,13 @@ def apply_test_timeouts(
     if timeout_seconds <= 0:
         raise ValueError("Per-test timeout must be greater than zero")
     if not hasattr(signal, "SIGALRM") or not hasattr(signal, "setitimer"):
-        raise RuntimeError("Per-test timeouts require SIGALRM and setitimer support")
+        warnings.warn(
+            "Per-test timeouts are disabled because this platform does not support "
+            "SIGALRM and setitimer",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return suite
 
     for item in suite:
         if isinstance(item, unittest.TestSuite):

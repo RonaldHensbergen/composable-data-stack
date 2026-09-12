@@ -70,6 +70,8 @@ class TenderDashboardTest(unittest.TestCase):
                 "CDS_ANALYTICS_DB_USER": "analytics user",
                 "CDS_ANALYTICS_DB_PASSWORD": "slash/colon:at@",
                 "CDS_ANALYTICS_DB_NAME": "analytics",
+                "CDS_ANALYTICS_DB_HOST": "analytics-db",
+                "CDS_ANALYTICS_DB_PORT": "15432",
             },
             clear=False,
         ):
@@ -77,7 +79,7 @@ class TenderDashboardTest(unittest.TestCase):
 
         self.assertEqual(
             uri,
-            "postgresql+psycopg2://analytics%20user:slash%2Fcolon%3Aat%40@postgres:5432/analytics",
+            "postgresql+psycopg2://analytics%20user:slash%2Fcolon%3Aat%40@analytics-db:15432/analytics",
         )
 
     def test_dashboard_defines_seven_analytical_views(self) -> None:
@@ -127,6 +129,8 @@ class TenderDashboardTest(unittest.TestCase):
             "CDS_ANALYTICS_DB_USER": "analytics",
             "CDS_ANALYTICS_DB_PASSWORD": "password",
             "CDS_ANALYTICS_DB_NAME": "analytics",
+            "CDS_ANALYTICS_DB_HOST": "analytics-db",
+            "CDS_ANALYTICS_DB_PORT": "15432",
         }
         with mock.patch.dict(os.environ, env, clear=False):
             first_dashboard, first_charts = _DASHBOARD.provision(client)
@@ -155,6 +159,8 @@ class TenderDashboardTest(unittest.TestCase):
             "CDS_ANALYTICS_DB_USER": "analytics",
             "CDS_ANALYTICS_DB_PASSWORD": "password",
             "CDS_ANALYTICS_DB_NAME": "analytics",
+            "CDS_ANALYTICS_DB_HOST": "analytics-db",
+            "CDS_ANALYTICS_DB_PORT": "15432",
         }
 
         with mock.patch.dict(os.environ, env, clear=False):

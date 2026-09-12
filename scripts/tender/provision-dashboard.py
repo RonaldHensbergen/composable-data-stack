@@ -110,7 +110,9 @@ def analytics_uri() -> str:
     user = urllib.parse.quote(os.environ["CDS_ANALYTICS_DB_USER"], safe="")
     password = urllib.parse.quote(os.environ["CDS_ANALYTICS_DB_PASSWORD"], safe="")
     database = urllib.parse.quote(os.environ["CDS_ANALYTICS_DB_NAME"], safe="")
-    return f"postgresql+psycopg2://{user}:{password}@postgres:5432/{database}"
+    host = os.environ["CDS_ANALYTICS_DB_HOST"]
+    port = os.environ["CDS_ANALYTICS_DB_PORT"]
+    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}"
 
 
 def chart_definitions(dataset_id: int) -> list[ChartDefinition]:
@@ -407,6 +409,8 @@ def main() -> int:
         "CDS_ANALYTICS_DB_NAME",
         "CDS_ANALYTICS_DB_USER",
         "CDS_ANALYTICS_DB_PASSWORD",
+        "CDS_ANALYTICS_DB_HOST",
+        "CDS_ANALYTICS_DB_PORT",
         "CDS_SUPERSET_ADMIN_PASSWORD",
     ):
         required_env(name)

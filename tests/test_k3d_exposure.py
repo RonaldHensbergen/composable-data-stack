@@ -20,8 +20,8 @@ class K3dLocalExposureTest(unittest.TestCase):
                 """#!/bin/sh
 printf '%s\\n' \"$*\" >> \"$KUBECTL_LOG\"
 case \"$*\" in
-  *\"get service dagster-webserver\"*) printf 'NodePort:30300' ;;
-  *\"get service superset\"*) printf 'NodePort:30808' ;;
+  *\"get service cds-dagster-webserver\"*) printf 'NodePort:30300' ;;
+  *\"get service cds-superset\"*) printf 'NodePort:30808' ;;
 esac
 """,
                 encoding="utf-8",
@@ -55,6 +55,8 @@ esac
         self.assertRegex(result.stdout, r"Superset: http://127\.0\.0\.1:\d+")
         self.assertNotIn("patch service", log)
         self.assertEqual(log.count("get service"), 2)
+        self.assertIn("get service cds-dagster-webserver", log)
+        self.assertIn("get service cds-superset", log)
 
     def test_local_profile_declares_nodeports_for_helm_ownership(self) -> None:
         profile = (

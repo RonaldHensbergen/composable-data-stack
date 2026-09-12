@@ -17,4 +17,6 @@ source "${CDS_REPO_ROOT}/.env"
 set +a
 
 export SUPERSET_URL="${SUPERSET_URL:-http://127.0.0.1:${CDS_SUPERSET_PORT}}"
+export CDS_ANALYTICS_DB_HOST="${CDS_ANALYTICS_DB_HOST:-${CDS_RELEASE}-postgres}"
+export CDS_ANALYTICS_DB_PORT="${CDS_ANALYTICS_DB_PORT:-5432}"
 exec "${CDS_REPO_ROOT}/.venv/bin/python" "${SCRIPT_DIR}/provision-dashboard.py"

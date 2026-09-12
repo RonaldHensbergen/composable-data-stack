@@ -31,8 +31,8 @@ verify_local_service() {
 }
 
 echo "==> exposing local UIs through k3d"
-verify_local_service dagster-webserver 30300
-verify_local_service superset 30808
+verify_local_service "${CDS_RELEASE}-dagster-webserver" 30300
+verify_local_service "${CDS_RELEASE}-superset" 30808
 
 cat <<EOF
 Dagster: http://127.0.0.1:${CDS_DAGSTER_PORT}

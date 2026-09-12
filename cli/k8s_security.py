@@ -16,16 +16,6 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
                 f"module:{module_id}.implementation.kubernetes.workloads.{workload_name}"
             )
             pod_context = workload.get("podSecurityContext") or {}
-            if pod_context.get("runAsNonRoot") is not True or pod_context.get("runAsUser") == 0:
-                findings.append(_finding(
-                    "CDS-K8S-001",
-                    "high",
-                    f'Kubernetes workload "{module_id}/{workload_name}" is not constrained to a non-root user.',
-                    f"{path}.podSecurityContext",
-                    module_id,
-                    ["Set runAsNonRoot: true and a non-zero runAsUser in podSecurityContext."],
-                ))
-
             resources = workload.get("resources") or {}
             container_names = [
                 *(workload.get("initContainers") or []),
@@ -35,6 +25,18 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
             for container_name in container_names:
                 service = compose_services.get(container_name) or {}
                 override_context = (overrides.get(container_name) or {}).get("securityContext") or {}
+                if not _runs_as_non_root(pod_context, override_context):
+                    findings.append(_finding(
+                        "CDS-K8S-001",
+                        "high",
+                        f'Container "{module_id}/{workload_name}/{container_name}" is not constrained to a non-root user.',
+                        f"{path}.containers.{container_name}.securityContext",
+                        module_id,
+                        [
+                            "Set an effective runAsNonRoot: true and a non-zero "
+                            "runAsUser in podSecurityContext or the container override."
+                        ],
+                    ))
                 if not _read_only_root(service, override_context):
                     findings.append(_finding(
                         "CDS-K8S-002",
@@ -76,6 +78,16 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
                         ["Declare both requests and limits for the container."],
                     ))
     return findings
+
+
+def _runs_as_non_root(
+    pod_context: dict[str, Any], override: dict[str, Any]
+) -> bool:
+    run_as_non_root = override.get(
+        "runAsNonRoot", pod_context.get("runAsNonRoot")
+    )
+    run_as_user = override.get("runAsUser", pod_context.get("runAsUser"))
+    return run_as_non_root is True and run_as_user != 0
 
 
 def _read_only_root(service: dict[str, Any], override: dict[str, Any]) -> bool:

@@ -45,7 +45,7 @@ CHART_API_VERSION = "v2"
 # Compose exposes ${CDS_FOO}; Kubernetes expands $(CDS_FOO) from earlier env entries.
 _CDS_VAR_PATTERN = re.compile(r"\$\{(CDS_[A-Z0-9_]+)\}")
 
-# `${k8s.service.<compose service>}` resolves to the Service DNS name of that
+# `${k8s.service.<compose service>}` resolves to the release-scoped Service DNS name of that
 # workload. Modules need it because a Service name is only known once the module
 # id is bound, which happens in the profile rather than in the module.
 _K8S_SERVICE_PATTERN = re.compile(r"\$\{k8s\.service\.([A-Za-z0-9_.-]+)\}")
@@ -129,8 +129,11 @@ def render_helm(
     for module in renderable:
         module_id = module["id"]
         k8s = module["implementation"]["kubernetes"]
-        context = _build_context(module, secrets)
-        context["k8s"] = {"service": service_names}
+        context = deepcopy(_build_context(module, secrets))
+        context["k8s"] = {
+            "service": _service_context(module, service_names)
+        }
+        _release_scope_binding_hosts(context, service_names)
         compose_services = deepcopy(
             module["implementation"].get("compose", {}).get("services", {})
         )
@@ -241,7 +244,9 @@ def _render_module(
             continue
 
         full_name = _compose_service_name(module_id, workload_name)
-        service_name = workload.get("serviceName") or full_name
+        service_name = _release_scoped_service_name(
+            workload.get("serviceName") or full_name
+        )
 
         containers = []
         init_containers = []
@@ -943,25 +948,47 @@ def _read_bind_file(
     profile_dir: Path | None,
     project_root: Path | None,
 ) -> tuple[str | None, Diagnostic | None]:
-    candidates = []
     raw = Path(from_bind)
-    if raw.is_absolute():
-        candidates.append(raw)
-    else:
-        if profile_dir:
-            candidates.append(profile_dir / raw)
-        if project_root:
-            candidates.append(project_root / raw)
-        candidates.append(Path.cwd() / raw)
+    if raw.is_absolute() or project_root is None:
+        return None, _unsafe_bind_diagnostic(from_bind, module_id, name)
+
+    candidates = []
+    if profile_dir:
+        candidates.append(profile_dir / raw)
+    candidates.append(project_root / raw)
+    escaped_root = False
     for candidate in candidates:
-        if candidate.is_file():
-            return candidate.read_text(encoding="utf-8"), None
+        try:
+            resolved = candidate.resolve()
+            resolved.relative_to(project_root.resolve())
+        except (OSError, ValueError):
+            escaped_root = True
+            continue
+        if resolved.is_file():
+            return resolved.read_text(encoding="utf-8"), None
+    if escaped_root:
+        return None, _unsafe_bind_diagnostic(from_bind, module_id, name)
     return None, Diagnostic(
         level="error",
         code="E076",
         message=(
             f'ConfigMap "{name}" of module "{module_id}" references bind source '
             f'"{from_bind}", which was not found relative to the profile or project root.'
+        ),
+        path=f"module:{module_id}.implementation.kubernetes.configMaps.{name}.fromBind",
+    )
+
+
+def _unsafe_bind_diagnostic(
+    from_bind: str, module_id: str, name: str
+) -> Diagnostic:
+    return Diagnostic(
+        level="error",
+        code="E085",
+        message=(
+            f'ConfigMap "{name}" of module "{module_id}" references bind source '
+            f'"{from_bind}" outside the project root. Use a project-relative path '
+            "that does not traverse through a symlink outside the project."
         ),
         path=f"module:{module_id}.implementation.kubernetes.configMaps.{name}.fromBind",
     )
@@ -1174,7 +1201,10 @@ def _notes(
         "Services:",
     ]
     for svc in sorted(set(service_names.values())):
-        lines.append(f"  {svc}: kubectl -n {{{{ .Release.Namespace }}}} get svc {svc}")
+        scoped = _release_scoped_service_name(svc)
+        lines.append(
+            f"  {scoped}: kubectl -n {{{{ .Release.Namespace }}}} get svc {scoped}"
+        )
     lines.append("")
     lines.append(
         "Secret values are supplied at install time and are not stored in this chart."
@@ -1205,9 +1235,8 @@ def _collect_service_names(modules: list[dict[str, Any]]) -> dict[str, str]:
     """
     Map each workload to its Service DNS name.
 
-    Keys are exposed under both the module-local workload name and the
-    module-prefixed name, so `${k8s.service.user-code}` resolves from inside the
-    module that declares it.
+    Only globally unambiguous module-prefixed keys are stored here. A local
+    workload alias is added separately for the module currently being rendered.
     """
     names: dict[str, str] = {}
     for module in modules:
@@ -1218,9 +1247,53 @@ def _collect_service_names(modules: list[dict[str, Any]]) -> dict[str, str]:
                 continue
             full = _compose_service_name(module_id, workload_name)
             service = workload.get("serviceName") or full
-            names[workload_name] = service
             names[full] = service
     return names
+
+
+def _service_context(
+    module: dict[str, Any], service_names: dict[str, str]
+) -> dict[str, str]:
+    names = {
+        key: _release_scoped_service_name(service)
+        for key, service in service_names.items()
+    }
+    module_id = module["id"]
+    workloads = module["implementation"]["kubernetes"].get("workloads", {})
+    for workload_name in workloads:
+        full = _compose_service_name(module_id, workload_name)
+        if full in service_names:
+            names[workload_name] = _release_scoped_service_name(service_names[full])
+    return names
+
+
+def _release_scoped_service_name(service_name: str) -> str:
+    return "{{ .Release.Name }}-" + service_name
+
+
+def _release_scope_binding_hosts(
+    context: dict[str, Any], service_names: dict[str, str]
+) -> None:
+    scoped_by_host = {
+        service: _release_scoped_service_name(service)
+        for service in service_names.values()
+    }
+    for binding in context.get("bindings", {}).values():
+        if not isinstance(binding, dict):
+            continue
+        host = binding.get("host")
+        if host not in scoped_by_host:
+            continue
+        scoped_host = scoped_by_host[host]
+        binding["host"] = scoped_host
+        connection_uri = binding.get("connectionUri")
+        if isinstance(connection_uri, str):
+            binding["connectionUri"] = re.sub(
+                rf"(?<=@){re.escape(str(host))}(?=[:/?#]|$)",
+                scoped_host,
+                connection_uri,
+                count=1,
+            )
 
 
 def _check_binding_services(

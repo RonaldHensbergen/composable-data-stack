@@ -263,8 +263,8 @@ The UIs are ClusterIP services, so reaching them needs a port-forward:
 
 ```bash
 source scripts/k8s/k3d-env.sh
-kubectl --context "$CDS_CONTEXT" -n cds-local port-forward svc/dagster-webserver 3000:3000
-kubectl --context "$CDS_CONTEXT" -n cds-local port-forward svc/superset          8088:8088
+kubectl --context "$CDS_CONTEXT" -n cds-local port-forward svc/cds-dagster-webserver 3000:3000
+kubectl --context "$CDS_CONTEXT" -n cds-local port-forward svc/cds-superset          8088:8088
 ```
 
 Both endpoints are verified by `scripts/k8s/e2e.sh`.

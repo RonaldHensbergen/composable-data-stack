@@ -2,8 +2,10 @@ import importlib.util
 import io
 import sys
 import time
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 def _load_runner_module():
@@ -45,6 +47,17 @@ class TestRunnerTimeoutTest(unittest.TestCase):
     def test_non_positive_timeout_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "greater than zero"):
             _RUNNER.apply_test_timeouts(unittest.TestSuite(), 0)
+
+    def test_unsupported_platform_warns_and_runs_without_signal_timeout(self) -> None:
+        suite = unittest.TestSuite()
+        unsupported_signal = types.SimpleNamespace()
+
+        with mock.patch.object(_RUNNER, "signal", unsupported_signal), self.assertWarnsRegex(
+            RuntimeWarning, "Per-test timeouts are disabled"
+        ):
+            returned = _RUNNER.apply_test_timeouts(suite, 1)
+
+        self.assertIs(returned, suite)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ Temporary review ledger for [PR #608](https://github.com/RonaldHensbergen/compos
 compiled 2026-09-07. It separates merge-blocking or actionable requests from
 explicitly non-blocking follow-ups and informational comments.
 
-## Actionable requests 
+## Actionable requests
 
 | Priority | Location | Request | Source |
 | --- | --- | --- | --- |
@@ -16,7 +16,7 @@ explicitly non-blocking follow-ups and informational comments.
 | Medium | `cli/k8s_renderer.py:1220`, `cli/k8s_renderer.py:1222` | Remove globally ambiguous short service aliases, scope them per module, or raise a collision diagnostic. Both comments report the same silent-overwrite issue when modules use the same workload name. | [First inline review](https://github.com/RonaldHensbergen/composable-data-stack/pull/608#discussion_r3933940775); [second inline review](https://github.com/RonaldHensbergen/composable-data-stack/pull/608#discussion_r3940767079) |
 | Medium | `scripts/tender/provision-dashboard.py:113` | Build `analytics_uri()` from `CDS_ANALYTICS_DB_CONNECTION_URI` or the exported host/port binding variables instead of hardcoding `postgres:5432`. | [Inline review](https://github.com/RonaldHensbergen/composable-data-stack/pull/608#discussion_r3940767085) |
 | Critical | `tests/test_k8s_renderer.py` (`RealProfileHelmRendererTest.test_chart_is_deterministic_and_matches_golden_hashes`) | CI `test` job fails on `ubuntu-latest` and `macos-latest` (Python 3.14): the rendered Helm chart's actual `.tpl` hashes no longer match `tests/golden/k8s-chart.sha256` (`AssertionError: {'.he[2056 chars]l': '7a6a97d7ac...483'} != {'.he[2056 chars]l': 'd9bb5cafae...d13'}`). The golden fixture is stale relative to the current renderer output. | CI run [34199418641](https://github.com/RonaldHensbergen/composable-data-stack/actions/runs/34199418641/job/101975816869) |
-| Critical | `scripts/run_tests_with_deprecation_gate.py` (`apply_test_timeouts`) | CI `test` job fails outright on `windows-latest` (Python 3.14) before any test runs: `RuntimeError: Per-test timeouts require SIGALRM and setitimer support`, raised unconditionally at line 56. This is the runtime confirmation of the already-listed inline review comment on line 55 — same root cause, now also breaking CI. | CI run [34199418641](https://github.com/RonaldHensbergen/composable-data-stack/actions/runs/34199418641/job/101975817005) |
+| Critical | `scripts/run_tests_with_deprecation_gate.py` (`apply_test_timeouts`) | CI `test` job fails outright on `windows-latest` (Python 3.14) before any test runs: `RuntimeError: Per-test timeouts require SIGALRM and setitimer support`, raised unconditionally at line 56. This is the runtime confirmation of the already-listed inline review comment on line 55: same root cause, now also breaking CI. | CI run [34199418641](https://github.com/RonaldHensbergen/composable-data-stack/actions/runs/34199418641/job/101975817005) |
 
 ## Explicitly non-blocking follow-ups
 
