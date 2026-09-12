@@ -12,6 +12,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a new `identity` module category and its first module, Keycloak (`modules/identity/keycloak/`): an identity/SSO provider running in development mode (`start-dev`), consuming a `sql-database` contract for its own metadata store and providing an `http-service` contract. Declares `productionSuitable: false`; realm configuration and an `oidc-provider` contract for other modules to consume are tracked as follow-ups (#680, #681) (#370).
 - Promoted the dbt transformation module from `modules-experimental/` to
   `modules/transformation/`, with production-suitable hardening and
   PostgreSQL/DuckDB warehouse support (#594).
