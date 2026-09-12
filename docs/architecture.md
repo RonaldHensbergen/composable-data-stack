@@ -38,6 +38,7 @@ The platform is divided into logical layers.
 | Layer | Responsibility | Example modules |
 | --- | --- | --- |
 | **Secrets** | credentials, secret injection, key management | Vault |
+| **Identity** | authentication, SSO, and centrally revocable identity for admin-facing modules | Keycloak |
 | **Infrastructure services** | service coordination backends and support systems | KeyDB |
 | **Ingestion** | extract-load pipelines into the warehouse | dlt (experimental) |
 | **Storage / compute** | databases, warehouses, and processing engines | Postgres, DuckDB (experimental) |

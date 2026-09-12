@@ -33,6 +33,7 @@ These work but may have breaking changes in upcoming releases:
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the new `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
+- Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode (`start-dev`), backed by a consumed `sql-database` contract; not yet wired into a stable profile, no realm configuration (#680) or `oidc-provider` contract for other modules to consume (#681)
 - `cds test` — implemented; not yet exercised in CI or real contributor usage
 
 ---

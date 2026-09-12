@@ -1,6 +1,6 @@
 ## Module Contract
 
-A module is a self-contained building block of the platform, such as an orchestrator, warehouse, transformation engine, BI tool, validation tool, or secrets provider.
+A module is a self-contained building block of the platform, such as an orchestrator, warehouse, transformation engine, BI tool, validation tool, identity provider, or secrets provider.
 
 Each module should be independently understandable, minimally reusable, and composable into one or more stack profiles.
 
@@ -384,6 +384,7 @@ Examples:
 - modules/bi/superset
 - modules/secrets/vault
 - modules/cache/keydb
+- modules/identity/keycloak
 
 Avoid vague names such as:
 
