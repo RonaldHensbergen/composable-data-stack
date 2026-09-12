@@ -118,14 +118,18 @@ flowchart TD
         C2["consumer module config:<br/>contractRef: module.contract"]
         C3["parse_contract_ref splits<br/>module.contract into producer id + name"]
         C4{"producer provides it,<br/>and kind matches?"}
+        C4b{"pairing recorded as<br/>unsupported in compatibility<br/>registry?"}
         C5["contract merged into<br/>consumer's resolved config"]
         C6["E041 unknown module/contract,<br/>or E042 kind mismatch"]
+        C7["E043 known-unsupported pairing"]
 
         C1 --> C4
         C2 --> C3
         C3 --> C4
-        C4 -->|yes| C5
+        C4 -->|yes| C4b
         C4 -->|no| C6
+        C4b -->|no| C5
+        C4b -->|yes| C7
     end
 
     classDef stage stroke:#818cf8,fill:#eef2ff
@@ -134,13 +138,13 @@ flowchart TD
 
     class S1,S2,C1,C2 stage
     class S4,C5 sink
-    class C6 stop
+    class C6,C7 stop
 ```
 
 **End-to-end example** (from `profiles/local-dagster-postgres-superset/profile.yaml`):
 
 - **Secret**: `postgres` sets `passwordFrom: secrets.analytics_db_password`; the profile maps that alias to `env: CDS_ANALYTICS_DB_PASSWORD`. `load_profile_secrets` builds the alias→env-name map (name only, never the value); `resolve_expr` turns the ref into `${CDS_ANALYTICS_DB_PASSWORD}` in the rendered compose. Docker Compose resolves the real value at container start, CDS never touches it.
-- **Contract**: `postgres` provides `sql-database`; `dagster` sets `analyticsDatabase.contractRef: postgres.sql-database`. `parse_contract_ref` splits producer + name. **Validate**: `validate_contract_bindings` checks producer exists, provides it, and kind matches; `E041` / `E042` on failure. **Plan**: `resolve_consumed_contracts` re-checks existence only (a kind mismatch would already have stopped at validate) and merges the resolved contract (host, port, `password: ${CDS_ANALYTICS_DB_PASSWORD}`, etc.) into `dagster`'s config. See [Troubleshooting](../README.md#️-troubleshooting) for `E041`/`E042`.
+- **Contract**: `postgres` provides `sql-database`; `dagster` sets `analyticsDatabase.contractRef: postgres.sql-database`. `parse_contract_ref` splits producer + name. **Validate**: `validate_contract_bindings` checks producer exists, provides it, and kind matches; `E041` / `E042` on failure. It then looks up the `warehouse/postgres` → `orchestration/dagster` pairing for `sql-database` in `cli/resources/compatibility-registry.json`, a bundled, single-source record of module pairings known to have been tested together or known NOT to work despite matching `kind` (see [issue #350](https://github.com/RonaldHensbergen/composable-data-stack/issues/350)); this pairing is recorded as `tested` (exercised by this very profile), so it passes. A pairing recorded as `unsupported` fails with `E043` even though its `kind` matches; a pairing with no registry entry is only structurally checked (not blocked) -- kind matching alone doesn't imply a known-good combination. **Plan**: `resolve_consumed_contracts` re-checks existence only (a kind mismatch would already have stopped at validate) and merges the resolved contract (host, port, `password: ${CDS_ANALYTICS_DB_PASSWORD}`, etc.) into `dagster`'s config. See [Troubleshooting](../README.md#️-troubleshooting) for `E041`/`E042`/`E043`.
 
 **Raw secret values are never embedded in rendered output.** Every `secrets.*` resolution path (`planner.py`'s `resolve_expr`, `renderer.py`'s `_resolve_expr`) emits a `${CDS_VAR_NAME}` placeholder, never the value; the `secrets` dict only ever holds alias→env-name mappings. Docker Compose reads the real value at container start, outside of CDS.
 

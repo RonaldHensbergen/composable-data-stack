@@ -12,6 +12,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a compatibility registry (`cli/resources/compatibility-registry.json` + `compatibility-registry.schema.json`) strengthening contract compatibility validation beyond plain `kind` matching: `validate_contract_bindings` now looks up each consumer/provider pairing (by `<category>/<name>` module identity) and reports a new `E043` error if the pairing is explicitly recorded as `unsupported`, even when the contract `kind` matches structurally. A pairing with no registry entry is unaffected (only structural `kind` matching applies); entries recorded as `tested` document known-good combinations, seeded here with the three pairings `profiles/local-dagster-postgres-superset/profile.yaml` already exercises in CI (#350).
 - Promoted the dbt transformation module from `modules-experimental/` to
   `modules/transformation/`, with production-suitable hardening and
   PostgreSQL/DuckDB warehouse support (#594).
