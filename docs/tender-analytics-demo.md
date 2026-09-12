@@ -53,8 +53,8 @@ is safe.
 
 ## Open the interfaces
 
-Run `make k3d-env` to print the branch-specific localhost URLs. On the
-`feat/k8s` branch used for this proof, they are:
+Run `make k3d-env` to print the branch-specific localhost URLs. For the branch
+this demo was originally proven on, they were:
 
 - Dagster: <http://127.0.0.1:38142>
 - Superset dashboard: <http://127.0.0.1:38143/superset/dashboard/tender-analytics/>

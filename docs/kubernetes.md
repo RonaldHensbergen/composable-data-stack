@@ -151,10 +151,10 @@ To expose an existing installation or print its URLs again, run:
 make k3d-expose
 ```
 
-Ports are deterministic per branch to keep worktrees isolated. On `feat/k8s`,
-Dagster is available at `http://127.0.0.1:38142` and Superset at
-`http://127.0.0.1:38143`. Run `scripts/k8s/k3d-env.sh` to print the ports for the
-current branch.
+Ports are deterministic per branch to keep worktrees isolated (e.g. Dagster at
+`http://127.0.0.1:38142` and Superset at `http://127.0.0.1:38143` for a branch
+that happens to hash to that pair). Run `scripts/k8s/k3d-env.sh` to print the
+ports for the current branch.
 
 Set `CDS_EXPOSE_LOCALHOST=0` when installing a second release into the same
 cluster. NodePorts are cluster-global, so only one release can own the local

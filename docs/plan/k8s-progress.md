@@ -1,6 +1,6 @@
 # Kubernetes render target: progress write-up
 
-**Branch:** `feat/k8s` · **Epic:** `composable-data-stack-73y` · **Date:** 2026-09-03
+**Originally developed on:** `feat/k8s` (merged to `main` via #608) · **Epic:** `composable-data-stack-73y` · **Date:** 2026-09-03
 
 **Status: implementation complete and verified locally.** All six Kubernetes
 workloads are healthy, and the E2E suite proves the PostgreSQL, Dagster, and
