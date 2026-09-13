@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess  # nosec B404
@@ -62,6 +63,23 @@ def _validate_kube_context(value: str | None) -> str | None:
     return match.group(0)
 
 
+def _validate_timeout(value: float) -> int:
+    """
+    Reject a `timeout` that isn't a finite, positive number before it is
+    interpolated into a `--timeout=<n>s` argument for `helm`/`kubectl`. A
+    non-finite or non-positive value (e.g. NaN, infinity, or a negative
+    number) could otherwise render as a string that isn't a plain
+    numeric suffix, which risks being parsed as an extra flag by the
+    downstream binary (CWE-88 argument injection).
+
+    Returns a newly constructed ``int`` (rather than the original tainted
+    object) clamped to at least 1 second.
+    """
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+        raise ValueError(f"invalid timeout: {value!r} is not a finite number")
+    return max(1, int(value))
+
+
 def helm_up(
     plan: dict[str, Any],
     chart_dir: Path,
@@ -77,10 +95,11 @@ def helm_up(
     namespace = _validate_k8s_name(namespace, "namespace")
     release = _validate_k8s_name(release, "release")
     kube_context = _validate_kube_context(kube_context)
+    timeout = _validate_timeout(timeout)
     secret_values = _secret_values(plan)
     secret_path = _write_secret_values(secret_values)
     context_args = ["--kube-context", kube_context] if kube_context else []
-    timeout_arg = f"{max(1, int(timeout))}s"
+    timeout_arg = f"{timeout}s"
     command = [
         "helm",
         *context_args,
@@ -144,6 +163,7 @@ def helm_down(
     namespace = _validate_k8s_name(namespace, "namespace")
     release = _validate_k8s_name(release, "release")
     kube_context = _validate_kube_context(kube_context)
+    timeout = _validate_timeout(timeout)
     pvc_names: list[str] = []
     if delete_pvcs:
         pvc_names = _stateful_pvc_names(
@@ -159,7 +179,7 @@ def helm_down(
         namespace,
         "--ignore-not-found",
         "--timeout",
-        f"{max(1, int(timeout))}s",
+        f"{timeout}s",
     ]
     result = run_streamed(command, log_file, timeout=timeout + 30)
     if result != 0 or not delete_pvcs or not pvc_names:

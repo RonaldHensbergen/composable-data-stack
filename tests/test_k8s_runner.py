@@ -13,6 +13,7 @@ from cli.k8s_runner import (
     _secret_values,
     _validate_k8s_name,
     _validate_kube_context,
+    _validate_timeout,
     _write_secret_values,
     get_k8s_workloads,
     helm_down,
@@ -187,6 +188,47 @@ class K8sNameValidationTest(unittest.TestCase):
                 release="--kubeconfig=/tmp/evil",
                 kube_context=None,
                 timeout=30,
+                delete_pvcs=False,
+                log_file=io.StringIO(),
+            )
+        mock_run_streamed.assert_not_called()
+
+    def test_validate_timeout_clamps_and_truncates(self) -> None:
+        self.assertEqual(_validate_timeout(30.0), 30)
+        self.assertEqual(_validate_timeout(0.4), 1)
+        self.assertEqual(_validate_timeout(-5), 1)
+
+    def test_validate_timeout_rejects_non_finite_values(self) -> None:
+        with self.assertRaises(ValueError):
+            _validate_timeout(float("nan"))
+        with self.assertRaises(ValueError):
+            _validate_timeout(float("inf"))
+        with self.assertRaises(ValueError):
+            _validate_timeout("30s")  # type: ignore[arg-type]
+
+    @patch("cli.k8s_runner.run_streamed")
+    def test_helm_up_rejects_non_finite_timeout(self, mock_run_streamed) -> None:
+        with self.assertRaises(ValueError):
+            helm_up(
+                {"secrets": {}},
+                Path("chart"),
+                namespace="cds",
+                release="cds",
+                kube_context=None,
+                timeout=float("nan"),
+                detach=True,
+                log_file=io.StringIO(),
+            )
+        mock_run_streamed.assert_not_called()
+
+    @patch("cli.k8s_runner.run_streamed")
+    def test_helm_down_rejects_non_finite_timeout(self, mock_run_streamed) -> None:
+        with self.assertRaises(ValueError):
+            helm_down(
+                namespace="cds",
+                release="cds",
+                kube_context=None,
+                timeout=float("inf"),
                 delete_pvcs=False,
                 log_file=io.StringIO(),
             )
