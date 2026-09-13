@@ -36,3 +36,14 @@
 
 # Security and validation rules
 /rules/ @RonaldHensbergen @SemTiOne
+
+# Kubernetes render target (renderer/runner, helm scripts, docs, tests)
+/cli/k8s_renderer.py @RonaldHensbergen @SemTiOne @vanderheijden86
+/cli/k8s_runner.py @RonaldHensbergen @SemTiOne @vanderheijden86
+/cli/k8s_security.py @RonaldHensbergen @SemTiOne @vanderheijden86
+/scripts/k8s/ @RonaldHensbergen @SemTiOne @vanderheijden86
+/docs/kubernetes.md @RonaldHensbergen @SemTiOne @vanderheijden86
+/docs/adr/0001-kubernetes-render-target.md @RonaldHensbergen @SemTiOne @vanderheijden86
+/tests/test_k8s_renderer.py @RonaldHensbergen @SemTiOne @vanderheijden86
+/tests/test_k8s_runner.py @RonaldHensbergen @SemTiOne @vanderheijden86
+/tests/test_k8s_security.py @RonaldHensbergen @SemTiOne @vanderheijden86
