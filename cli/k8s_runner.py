@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import re
 import subprocess  # nosec B404
 import tempfile
 import time
@@ -19,6 +21,70 @@ from .up_runner import (
     _validate_command,
     run_streamed,
 )
+
+# RFC 1123 DNS label: lowercase alphanumeric and `-`, not leading/trailing
+# with `-`, 1-63 chars. Both Kubernetes namespaces and Helm release names
+# must already satisfy this, so enforcing it here rejects nothing legitimate.
+_K8S_NAME_RE = re.compile(r"[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?")
+
+# Kube contexts allow a wider character set (e.g. ARNs), but must not start
+# with `-` (which would be parsed as a flag) or contain control characters.
+_KUBE_CONTEXT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:@/-]*")
+
+
+def _validate_k8s_name(value: str, label: str) -> str:
+    """
+    Reject a `namespace`/`release` value that isn't a valid Kubernetes
+    DNS-1123 label before it reaches `helm`/`kubectl` as a command
+    argument. Without this, a value starting with `-` (e.g. supplied by a
+    misbehaving caller or automation) could be parsed as an extra flag by
+    the downstream binary instead of a plain name (CWE-88 argument
+    injection).
+
+    Returns a new string built only from the characters matched by the
+    allowlist regex (rather than the original object) so nothing beyond a
+    validated Kubernetes name can flow to the command it's used to build.
+    """
+    match = _K8S_NAME_RE.fullmatch(value) if isinstance(value, str) else None
+    if match is None:
+        raise ValueError(f"invalid {label}: {value!r} is not a valid Kubernetes name")
+    return match.group(0)
+
+
+def _validate_kube_context(value: str | None) -> str | None:
+    """
+    Reject a `kube_context` that looks like a command-line flag (starts
+    with `-`) or contains characters outside the safe allowlist, so it
+    can't be smuggled to `helm`/`kubectl` as an extra argument (CWE-88
+    argument injection).
+
+    Returns a new string built only from the allowlisted characters
+    (rather than the original object) so nothing beyond a validated
+    context name can flow to the command it's used to build.
+    """
+    if value is None:
+        return None
+    match = _KUBE_CONTEXT_RE.fullmatch(value) if isinstance(value, str) else None
+    if match is None:
+        raise ValueError(f"invalid kube context: {value!r}")
+    return match.group(0)
+
+
+def _validate_timeout(value: float) -> int:
+    """
+    Reject a `timeout` that isn't a finite, positive number before it is
+    interpolated into a `--timeout=<n>s` argument for `helm`/`kubectl`. A
+    non-finite or non-positive value (e.g. NaN, infinity, or a negative
+    number) could otherwise render as a string that isn't a plain
+    numeric suffix, which risks being parsed as an extra flag by the
+    downstream binary (CWE-88 argument injection).
+
+    Returns a newly constructed ``int`` (rather than the original tainted
+    object) clamped to at least 1 second.
+    """
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+        raise ValueError(f"invalid timeout: {value!r} is not a finite number")
+    return max(1, int(value))
 
 
 def helm_up(
@@ -53,11 +119,15 @@ def helm_up(
     `kubectl rollout status`/`wait` implementation, so "ready" here and
     "healthy" in `cds state` can never disagree.
     """
+    namespace = _validate_k8s_name(namespace, "namespace")
+    release = _validate_k8s_name(release, "release")
+    kube_context = _validate_kube_context(kube_context)
+    timeout = _validate_timeout(timeout)
     deadline = now_fn() + timeout
     secret_values = _secret_values(plan)
     secret_path = _write_secret_values(secret_values)
     context_args = ["--kube-context", kube_context] if kube_context else []
-    apply_timeout_arg = f"{max(1, int(timeout))}s"
+    apply_timeout_arg = f"{timeout}s"
     command = [
         "helm",
         *context_args,
@@ -161,6 +231,10 @@ def helm_down(
     delete_pvcs: bool,
     log_file: IO[str],
 ) -> int:
+    namespace = _validate_k8s_name(namespace, "namespace")
+    release = _validate_k8s_name(release, "release")
+    kube_context = _validate_kube_context(kube_context)
+    timeout = _validate_timeout(timeout)
     pvc_names: list[str] = []
     if delete_pvcs:
         pvc_names = _stateful_pvc_names(
@@ -176,7 +250,7 @@ def helm_down(
         namespace,
         "--ignore-not-found",
         "--timeout",
-        f"{max(1, int(timeout))}s",
+        f"{timeout}s",
     ]
     result = run_streamed(command, log_file, timeout=timeout + 30)
     if result != 0 or not delete_pvcs or not pvc_names:
@@ -192,6 +266,9 @@ def helm_down(
 def get_k8s_workloads(
     namespace: str, release: str, kube_context: str | None
 ) -> list[dict[str, Any]]:
+    namespace = _validate_k8s_name(namespace, "namespace")
+    release = _validate_k8s_name(release, "release")
+    kube_context = _validate_kube_context(kube_context)
     command = _kubectl_command(kube_context, namespace) + [
         "get",
         "deployment,statefulset,job",

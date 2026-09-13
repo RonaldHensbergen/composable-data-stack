@@ -575,3 +575,28 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
                 any(diagnostic.level == "error" for diagnostic in diagnostics)
             )
             self.assertTrue((file_output / "Chart.yaml").is_file())
+
+    def test_render_helm_chart_canonicalizes_a_relative_output_dir(self) -> None:
+        """
+        `--chart-dir`/`--output` is user-controlled; `_render_helm_chart()`
+        must resolve it to an absolute path up front so the chart always
+        lands at one unambiguous location relative to the current working
+        directory, rather than being reinterpreted if the CWD changes
+        later in the same process.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            previous_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                code, diagnostics = _render_helm_chart(
+                    self.minimal_plan(), "relative-chart", force=False
+                )
+            finally:
+                os.chdir(previous_cwd)
+            self.assertEqual(code, 0)
+            self.assertFalse(
+                any(diagnostic.level == "error" for diagnostic in diagnostics)
+            )
+            self.assertTrue(
+                (Path(tmpdir) / "relative-chart" / "Chart.yaml").is_file()
+            )
