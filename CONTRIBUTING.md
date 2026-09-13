@@ -118,6 +118,8 @@ Hooks included:
 
 `main` requires an approving review and green CI before merge. See [docs/maintainer-merge-policy.md](docs/maintainer-merge-policy.md) for how that applies to the maintainer's own PRs, since a solo maintainer can't approve their own review.
 
+If your PR touches a SonarCloud-flagged security/vulnerability finding, read [docs/sonarcloud-quality-gate.md](docs/sonarcloud-quality-gate.md) first: a PR's SonarCloud check passing does not guarantee `main`'s quality gate stays green afterward, because the two are scoped differently.
+
 ## Commit Message Guidance
 
 Use imperative style and keep scope clear.
