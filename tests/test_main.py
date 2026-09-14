@@ -15,6 +15,7 @@ from cli.main import (
     _collect_profile_env_vars,
     _resolve_profile_root,
     _run_image_verification,
+    generate_profile,
     list_modules,
     list_profiles,
     load_env_file,
@@ -22,7 +23,9 @@ from cli.main import (
     main,
     resolve_profile_path,
 )
+from cli.planner import build_plan
 from cli.preflight import PreflightCheck
+from cli.validator import validate_profile
 
 
 @contextlib.contextmanager
@@ -229,6 +232,65 @@ class MainCLITest(unittest.TestCase):
         mock_validate.assert_called_once_with(str(profile_file), environment=None)
         mock_run_security.assert_called_once()
         self.assertEqual(mock_run_security.call_args.kwargs["profile_path"], Path(str(profile_file)))
+
+    @patch("cli.main.scan_k8s_security")
+    @patch("cli.main.render_helm")
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_security_helm_runs_target_specific_checks(
+        self,
+        mock_validate,
+        mock_build_plan,
+        mock_run_security,
+        mock_render_helm,
+        mock_scan_k8s_security,
+    ):
+        plan = {"metadata": {"name": "test"}, "modules": []}
+        mock_validate.return_value = []
+        mock_build_plan.return_value = (plan, [])
+        mock_render_helm.return_value = ({"Chart.yaml": "name: test\n"}, [])
+        mock_run_security.return_value = ([], [])
+        mock_scan_k8s_security.return_value = []
+
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            ["cds", "security", "local-dagster-postgres-superset", "--target", "helm"],
+        ):
+            result = main()
+
+        self.assertEqual(result, 0)
+        mock_render_helm.assert_called_once_with(plan)
+        mock_scan_k8s_security.assert_called_once_with(plan)
+
+    @patch("cli.main.render_helm")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_validate_helm_includes_renderer_diagnostics(
+        self, mock_validate, mock_build_plan, mock_render_helm
+    ):
+        plan = {"metadata": {"name": "test"}, "modules": []}
+        mock_validate.return_value = []
+        mock_build_plan.return_value = (plan, [])
+        mock_render_helm.return_value = (
+            {},
+            [Diagnostic("error", "E084", "provider has no service", "contractBindings.0")],
+        )
+
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            ["cds", "validate", "local-dagster-postgres-superset", "--target", "helm"],
+        ):
+            result = main()
+
+        self.assertEqual(result, 1)
+        mock_render_helm.assert_called_once_with(plan)
 
     @patch("cli.main.run_security_validation")
     @patch("cli.main.build_plan")
@@ -536,6 +598,330 @@ class MainCLITest(unittest.TestCase):
         self.assertIn("[E041]", output)
         self.assertIn("spec.modules[0].config", output)
         self.assertIn('points to unknown module "unknown-module"', output)
+
+    def test_generate_profile_saved_to_disk_flows_through_validate_and_build_plan(self):
+        """A runtime/programmatically composed profile is supported by
+        writing it to its normal profiles/<name>/profile.yaml location via
+        generate_profile(), then handing that path to the existing
+        validate_profile()/build_plan() entry points completely unchanged
+        (issue #349) -- not by adding a second in-memory-only code path to
+        the planner/validator."""
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            modules_root = root / "modules"
+            module_dir = modules_root / "warehouse" / "postgres"
+            module_dir.mkdir(parents=True)
+
+            (module_dir / "module.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Module",
+                        "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                        "spec": {
+                            "runtime": {
+                                "type": "container",
+                                "service": {
+                                    "name": "postgres",
+                                    "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                },
+                            },
+                            "configSchema": {"type": "object", "additionalProperties": False},
+                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            generated_profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "runtime-generated", "environment": "local"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {
+                            "id": "postgres",
+                            "source": "warehouse/postgres",
+                            "version": "0.1.0",
+                            "enabled": True,
+                            "config": {},
+                        }
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+
+            profiles_root = root / "profiles"
+            with patch.dict(
+                os.environ,
+                {"CDS_PROFILE_PATH": str(profiles_root), "CDS_MODULE_PATH": str(modules_root)},
+                clear=False,
+            ):
+                profile_path, generate_diags = generate_profile(generated_profile)
+
+                self.assertEqual(generate_diags, [])
+                self.assertEqual(
+                    Path(profile_path), (profiles_root / "runtime-generated" / "profile.yaml").resolve()
+                )
+
+                # Regenerating without force must fail closed rather than
+                # silently clobbering the file another caller may be relying on.
+                _, refuse_diags = generate_profile(generated_profile)
+                self.assertEqual(len(refuse_diags), 1)
+                self.assertEqual(refuse_diags[0].code, "E116")
+
+                validation_diags = validate_profile(profile_path)
+                self.assertEqual([d for d in validation_diags if d.level == "error"], [])
+
+                plan, plan_diags = build_plan(profile_path)
+
+                self.assertEqual(plan_diags, [])
+                self.assertIsNotNone(plan)
+                self.assertEqual([m["id"] for m in plan["modules"]], ["postgres"])
+
+    def test_generate_profile_supports_environment_overlay(self):
+        """A generated profile still picks up `--environment` overlays the
+        same way a hand-authored profile does, since it lands at the normal
+        profiles/<name>/profile.yaml location and environments/<env>.yaml
+        overlay resolution (cli/overlay.py) looks up that sibling file by
+        relative reference -- proving disk-first preserves this feature
+        rather than asserting both extends and overlay separately."""
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            modules_root = root / "modules"
+            module_dir = modules_root / "warehouse" / "postgres"
+            module_dir.mkdir(parents=True)
+
+            (module_dir / "module.yaml").write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Module",
+                        "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                        "spec": {
+                            "runtime": {
+                                "type": "container",
+                                "service": {
+                                    "name": "postgres",
+                                    "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                },
+                            },
+                            "configSchema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {"logLevel": {"type": "string", "default": "info"}},
+                            },
+                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            generated_profile = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Profile",
+                "metadata": {"name": "runtime-generated-overlay", "environment": "local"},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [
+                        {
+                            "id": "postgres",
+                            "source": "warehouse/postgres",
+                            "version": "0.1.0",
+                            "enabled": True,
+                            "config": {},
+                        }
+                    ],
+                    "secrets": {"provider": {"type": "env"}, "values": {}},
+                },
+            }
+
+            profiles_root = root / "profiles"
+            with patch.dict(
+                os.environ,
+                {"CDS_PROFILE_PATH": str(profiles_root), "CDS_MODULE_PATH": str(modules_root)},
+                clear=False,
+            ):
+                profile_path, generate_diags = generate_profile(generated_profile)
+                self.assertEqual(generate_diags, [])
+
+                # environments/<name>.yaml lives next to the generated
+                # profile.yaml, exactly like a hand-authored profile.
+                environments_dir = Path(profile_path).parent / "environments"
+                environments_dir.mkdir(parents=True)
+                (environments_dir / "dev.yaml").write_text(
+                    yaml.safe_dump(
+                        {
+                            "metadata": {"environment": "development"},
+                            "spec": {"modules": [{"id": "postgres", "config": {"logLevel": "debug"}}]},
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+
+                plan, plan_diags = build_plan(profile_path, environment="dev")
+
+                self.assertEqual(plan_diags, [])
+                self.assertIsNotNone(plan)
+                postgres_module = next(m for m in plan["modules"] if m["id"] == "postgres")
+                self.assertEqual(postgres_module["config"]["logLevel"], "debug")
+
+    def test_generate_profile_command_writes_file_from_input_path(self):
+        """`cds generate-profile <file>` reads a JSON/YAML profile document
+        from disk and persists it via generate_profile()."""
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profiles_root = root / "profiles"
+            input_file = root / "generated.yaml"
+            input_file.write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Profile",
+                        "metadata": {"name": "cli-generated"},
+                        "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            stdout = io.StringIO()
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "generate-profile", str(input_file)]
+            ), contextlib.redirect_stdout(stdout):
+                result = main()
+
+            expected_path = (profiles_root / "cli-generated" / "profile.yaml").resolve()
+            self.assertEqual(result, 0)
+            self.assertIn(str(expected_path), stdout.getvalue())
+            self.assertTrue(expected_path.exists())
+
+    def test_generate_profile_command_reads_from_stdin_and_honors_name_override(self):
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profiles_root = root / "profiles"
+            raw = yaml.safe_dump(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "kind": "Profile",
+                    "metadata": {"name": "ignored-name"},
+                    "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                }
+            )
+
+            stdout = io.StringIO()
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False), patch.object(
+                sys, "argv", ["cds", "generate-profile", "-", "--name", "stdin-profile"]
+            ), patch.object(sys, "stdin", io.StringIO(raw)), contextlib.redirect_stdout(stdout):
+                result = main()
+
+            expected_path = (profiles_root / "stdin-profile" / "profile.yaml").resolve()
+            self.assertEqual(result, 0)
+            self.assertTrue(expected_path.exists())
+            self.assertFalse((profiles_root / "ignored-name").exists())
+
+    def test_generate_profile_command_refuses_overwrite_without_force(self):
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profiles_root = root / "profiles"
+            input_file = root / "generated.yaml"
+            input_file.write_text(
+                yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Profile",
+                        "metadata": {"name": "dup-profile"},
+                        "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False):
+                with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]):
+                    first_result = main()
+                self.assertEqual(first_result, 0)
+
+                stdout = io.StringIO()
+                with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]), contextlib.redirect_stdout(
+                    stdout
+                ):
+                    second_result = main()
+
+        self.assertEqual(second_result, 1)
+        self.assertIn("[E116]", stdout.getvalue())
+
+    def test_generate_profile_command_reports_error_for_invalid_yaml_input(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_file = root / "broken.yaml"
+            input_file.write_text("key: [unterminated", encoding="utf-8")
+
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]), contextlib.redirect_stdout(
+                stdout
+            ):
+                result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", stdout.getvalue())
+
+    def test_generate_profile_command_reports_clean_error_for_invalid_utf8_input(self):
+        """A file that isn't valid UTF-8 must fail closed with a clean
+        "ERROR ..." message, the same as any other unreadable input --
+        not an unhandled UnicodeDecodeError traceback."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            input_file = root / "not-utf8.yaml"
+            input_file.write_bytes(b"\xff\xfe\x00key: value")
+
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]), contextlib.redirect_stdout(
+                stdout
+            ):
+                result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", stdout.getvalue())
+        self.assertNotIn("Traceback", stdout.getvalue())
+
+    def test_generate_profile_command_rejects_nonexistent_and_non_file_input(self):
+        """The CLI-supplied input path is resolved and validated before it
+        is ever handed to read_text(): a missing path and a directory
+        (rather than a regular file) must both fail closed with a clear
+        error instead of raising an unhandled exception."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            stdout = io.StringIO()
+            with patch.object(
+                sys, "argv", ["cds", "generate-profile", str(root / "does-not-exist.yaml")]
+            ), contextlib.redirect_stdout(stdout):
+                missing_result = main()
+            self.assertEqual(missing_result, 1)
+            self.assertIn("ERROR", stdout.getvalue())
+
+            stdout = io.StringIO()
+            with patch.object(sys, "argv", ["cds", "generate-profile", str(root)]), contextlib.redirect_stdout(
+                stdout
+            ):
+                directory_result = main()
+            self.assertEqual(directory_result, 1)
+            self.assertIn("ERROR", stdout.getvalue())
+            self.assertIn("is not a file", stdout.getvalue())
 
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
@@ -1584,6 +1970,47 @@ spec:
 
         self.assertEqual(result, 0)
 
+    def test_test_command_helm_renders_and_scans_kubernetes_target(self):
+        plan = {"metadata": {"name": "cds-test"}, "modules": []}
+        k8s_finding = {
+            "severity": "high",
+            "rule_id": "CDS-K8S-001",
+            "message": "root container",
+            "path": "module:demo",
+            "module": "demo",
+            "value": None,
+            "recommendation": [],
+        }
+        with patch("cli.main.validate_profile", return_value=[]), patch(
+            "cli.main.build_plan", return_value=(plan, [])
+        ), patch("cli.main.render_helm", return_value=({"Chart.yaml": "chart"}, [])) as mock_helm, patch(
+            "cli.main.render_compose"
+        ) as mock_compose, patch(
+            "cli.main.run_security_validation", return_value=([], [])
+        ), patch(
+            "cli.main.scan_k8s_security", return_value=[k8s_finding]
+        ) as mock_k8s_security, patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "test",
+                "local-dagster-postgres-superset",
+                "--target",
+                "helm",
+            ],
+        ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            result = main()
+
+        self.assertEqual(result, 1)
+        mock_helm.assert_called_once_with(plan)
+        mock_compose.assert_not_called()
+        mock_k8s_security.assert_called_once_with(plan)
+        self.assertIn("CDS-K8S-001", stdout.getvalue())
+        self.assertIn("[FAIL] security", stdout.getvalue())
+
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.run_security_validation")
@@ -1731,6 +2158,123 @@ spec:
         output = stdout.getvalue()
         self.assertIn("E072", output)
         self.assertIn("[FAIL] render", output)
+
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_up", return_value=0)
+    @patch("cli.main._render_helm_chart", return_value=(0, []))
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_up_helm_dispatches_to_bounded_helm_runner(
+        self, _mock_validate, mock_plan, mock_render, mock_helm_up, mock_log_path
+    ):
+        plan = {
+            "metadata": {"name": "demo"},
+            "runtime": {"namespace": "demo-ns"},
+            "modules": [],
+        }
+        mock_plan.return_value = (plan, [])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "up.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "up",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                    "--kube-context",
+                    "k3d-test",
+                    "--timeout",
+                    "45",
+                ],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        mock_render.assert_called_once()
+        self.assertEqual(mock_helm_up.call_args.kwargs["namespace"], "demo-ns")
+        self.assertEqual(mock_helm_up.call_args.kwargs["release"], "demo")
+        self.assertEqual(mock_helm_up.call_args.kwargs["kube_context"], "k3d-test")
+
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_up", return_value=0)
+    @patch("cli.main._render_helm_chart", return_value=(0, []))
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_up_helm_resolves_a_relative_chart_dir(
+        self, _mock_validate, mock_plan, mock_render, mock_helm_up, mock_log_path
+    ):
+        """
+        `--chart-dir` is user-controlled and, before this, was passed
+        through to `helm upgrade --install <release> <chart_dir> ...` as a
+        raw (possibly relative) string. Resolving it to an absolute path
+        up front means it can never be mistaken for an extra flag by
+        `helm` (CWE-88 argument injection), the same way `.resolve()`
+        already protects `--output`/`--log-file` elsewhere in this module.
+        """
+        plan = {
+            "metadata": {"name": "demo"},
+            "runtime": {"namespace": "demo-ns"},
+            "modules": [],
+        }
+        mock_plan.return_value = (plan, [])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "up.log"
+            previous_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                with patch.dict(
+                    os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+                ), patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--target",
+                        "helm",
+                        "--chart-dir",
+                        "relative-chart",
+                    ],
+                ):
+                    result = main()
+            finally:
+                os.chdir(previous_cwd)
+
+        self.assertEqual(result, 0)
+        rendered_chart_dir = mock_render.call_args.args[1]
+        self.assertTrue(Path(rendered_chart_dir).is_absolute())
+        self.assertEqual(Path(rendered_chart_dir), Path(tmpdir).resolve() / "relative-chart")
+
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_down", return_value=0)
+    def test_down_helm_retains_pvcs_by_default(self, mock_helm_down, mock_log_path):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "down.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "down",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                    "--release",
+                    "cds",
+                ],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertFalse(mock_helm_down.call_args.kwargs["delete_pvcs"])
 
 
 class CollectModuleImagesTest(unittest.TestCase):
@@ -1906,6 +2450,35 @@ class StateCLITest(unittest.TestCase):
         result, output = self._run_state_with_tty([], isatty_return=True)
         self.assertEqual(result, 0)
         self.assertIn("\033", output)
+
+    @patch("cli.main.get_k8s_state")
+    def test_state_helm_reuses_shared_health_grouping(self, mock_get_state):
+        mock_get_state.return_value = [
+            {"Service": "cds-web", "Health": "HEALTHY", "State": "running"}
+        ]
+        stdout = io.StringIO()
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "state",
+                "local-dagster-postgres-superset",
+                "--target",
+                "helm",
+                "--kube-context",
+                "k3d-test",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("HEALTHY:\n  - cds-web", stdout.getvalue())
+        mock_get_state.assert_called_once_with(
+            "cds-local", "local-dagster-postgres-superset", "k3d-test"
+        )
 
 
 class UseCommandCLITest(unittest.TestCase):

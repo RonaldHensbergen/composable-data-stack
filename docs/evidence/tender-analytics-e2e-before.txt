@@ -1,0 +1,11 @@
+Tender analytics E2E capability baseline
+Revision under test: 3073b1c
+
+PASS local .env exists
+PASS all local k3s pods are ready
+FAIL Dagster materializes every snapshot row
+FAIL unchanged Dagster load performs no row rewrites
+FAIL Superset provisioning converges twice
+PASS Superset owns one dashboard and seven tender charts
+PASS browser renders seven charts with zero console errors
+=== TENDER ANALYTICS E2E DONE pass=4 fail=3 ===

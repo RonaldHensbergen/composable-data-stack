@@ -4,6 +4,7 @@ from cli.state import (
     format_state_output,
     group_services_by_health,
     parse_compose_ps_json,
+    parse_k8s_workloads_json,
 )
 
 
@@ -43,6 +44,53 @@ class ParseComposePsJsonTest(unittest.TestCase):
         raw = '{"Service": "web", "Health": "healthy"}\nnot json at all\n{"Service": "db", "Health": ""}\n'
         result = parse_compose_ps_json(raw)
         self.assertEqual([s["Service"] for s in result], ["web", "db"])
+
+
+class ParseKubernetesWorkloadsJsonTest(unittest.TestCase):
+    def test_maps_workloads_to_shared_health_buckets(self):
+        raw = """{
+          "items": [
+            {"kind": "Deployment", "metadata": {"name": "web"},
+             "spec": {"replicas": 1}, "status": {"readyReplicas": 1}},
+            {"kind": "StatefulSet", "metadata": {"name": "db"},
+             "spec": {"replicas": 1}, "status": {"readyReplicas": 0}},
+            {"kind": "Job", "metadata": {"name": "seed"},
+             "status": {"succeeded": 1}}
+          ]
+        }"""
+
+        grouped = group_services_by_health(parse_k8s_workloads_json(raw))
+
+        self.assertEqual(
+            grouped,
+            {
+                "HEALTHY": ["web"],
+                "HEALTHY EXIT": ["seed"],
+                "STARTING": ["db"],
+            },
+        )
+
+    def test_progress_deadline_is_unhealthy(self):
+        raw = """{
+          "items": [{
+            "kind": "Deployment", "metadata": {"name": "web"},
+            "spec": {"replicas": 1},
+            "status": {"conditions": [{"type": "Progressing", "status": "False",
+              "reason": "ProgressDeadlineExceeded"}]}
+          }]
+        }"""
+        self.assertEqual(
+            group_services_by_health(parse_k8s_workloads_json(raw)),
+            {"UNHEALTHY": ["web"]},
+        )
+
+    def test_scaled_to_zero_is_settled(self):
+        raw = """{"items": [{"kind": "Deployment", "metadata": {"name": "worker"},
+          "spec": {"replicas": 0}, "status": {"readyReplicas": 0}}]}"""
+        self.assertEqual(
+            group_services_by_health(parse_k8s_workloads_json(raw)),
+            {"HEALTHY": ["worker"]},
+        )
 
 
 class GroupServicesByHealthTest(unittest.TestCase):

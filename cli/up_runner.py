@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import subprocess  # nosec B404
 import sys
+import threading
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -14,12 +15,21 @@ from typing import IO
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 
 _BUILD_SERVICE_RE = re.compile(r"^([\w][\w.-]*?):\s+Building\b")
+_ALLOWED_EXECUTABLES = frozenset({"docker", "helm", "kubectl"})
 
 DEFAULT_POLL_INTERVAL_SECONDS = 2.0
 DEFAULT_TIMEOUT_SECONDS = 180.0
 
 _SETTLED_BUCKETS = {"HEALTHY", "RUNNING", "HEALTHY EXIT", "UNHEALTHY EXIT", "UNHEALTHY"}
 _FAILURE_BUCKETS = {"UNHEALTHY", "UNHEALTHY EXIT"}
+
+
+def _validate_command(cmd: list[str]) -> list[str]:
+    if not cmd or cmd[0] not in _ALLOWED_EXECUTABLES:
+        raise ValueError("unsupported executable")
+    if any(not isinstance(argument, str) or "\x00" in argument for argument in cmd):
+        raise ValueError("command arguments must be strings without null bytes")
+    return cmd
 
 
 def default_log_path(profile_name: str, logs_dir: Path | None = None) -> Path:
@@ -45,6 +55,7 @@ def run_streamed(
     group_by_image: bool = False,
     service_to_image: dict[str, str] | None = None,
     use_color: bool = True,
+    timeout: float | None = None,
 ) -> int:
     """
     Runs `cmd` with stdout+stderr merged, writing each line to
@@ -61,10 +72,28 @@ def run_streamed(
     stdout is a TTY, matching the ANSI handling in `_default_redraw`
     (e.g. CI logs and redirected output stay plain).
 
-    Returns the command's exit code. Raises FileNotFoundError if
-    `cmd[0]` isn't on PATH, same as subprocess.run.
+    Returns the command's exit code. Raises ValueError for an unsupported
+    executable or malformed argument, and FileNotFoundError if an allowed
+    executable isn't on PATH.
     """
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)  # nosec B603  # noqa: S603
+    process = subprocess.Popen(  # nosec B603  # noqa: S603
+        _validate_command(cmd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        shell=False,
+    )
+    timed_out = threading.Event()
+
+    def _kill_on_timeout() -> None:
+        if process.poll() is None:
+            timed_out.set()
+            process.kill()
+
+    timer = threading.Timer(timeout, _kill_on_timeout) if timeout is not None else None
+    if timer is not None:
+        timer.start()
     if process.stdout is None:
         raise RuntimeError("subprocess.Popen returned no stdout despite stdout=PIPE")
     try:
@@ -97,8 +126,11 @@ def run_streamed(
                 sys.stdout.write(line)
                 sys.stdout.flush()
     finally:
+        if timer is not None:
+            timer.cancel()
         process.stdout.close()
-    return process.wait()
+    returncode = process.wait()
+    return 124 if timed_out.is_set() else returncode
 
 
 def start_log_tail(compose_path: str, log_file: IO[str]) -> subprocess.Popen:
@@ -109,7 +141,13 @@ def start_log_tail(compose_path: str, log_file: IO[str]) -> subprocess.Popen:
     with `stop_log_tail` once the stack settles or `cds up` exits.
     """
     logs_cmd = ["docker", "compose", "-f", compose_path, "logs", "-f", "--no-color"]
-    return subprocess.Popen(logs_cmd, stdout=log_file, stderr=subprocess.STDOUT, text=True)  # nosec B603  # noqa: S603
+    return subprocess.Popen(  # nosec B603  # noqa: S603
+        _validate_command(logs_cmd),
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        text=True,
+        shell=False,
+    )
 
 
 def start_up_in_background(cmd: list[str], log_file: IO[str]) -> subprocess.Popen:
@@ -123,7 +161,13 @@ def start_up_in_background(cmd: list[str], log_file: IO[str]) -> subprocess.Pope
     directly) start rendering immediately instead of waiting for `up` to
     finish. Caller is responsible for reaping it with `process.wait()`.
     """
-    return subprocess.Popen(cmd, stdout=log_file, stderr=subprocess.STDOUT, text=True)  # nosec B603  # noqa: S603
+    return subprocess.Popen(  # nosec B603  # noqa: S603
+        _validate_command(cmd),
+        stdout=log_file,
+        stderr=subprocess.STDOUT,
+        text=True,
+        shell=False,
+    )
 
 
 def stop_log_tail(process: subprocess.Popen, timeout: float = 5.0) -> None:
@@ -254,4 +298,3 @@ def poll_state_until_settled(
             return False, grouped
 
         sleep_fn(poll_interval)
-

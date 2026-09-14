@@ -44,7 +44,7 @@ You should see all tests pass. If a test fails on something unrelated to your ch
 
 ## 2. Choosing An Issue
 
-Filter the [issue tracker](https://github.com/RonaldHensbergen/composable-data-stack/issues) by the `good first issue` label first. Those are scoped to be self-contained, no deep familiarity with the planner, renderer, or contract resolution internals required.
+Start with the "Ready For Contributors" section in [docs/roadmap.md](roadmap.md), which lists specific self-contained, low-risk issues that don't require deep familiarity with the planner, renderer, or contract resolution internals. This repo doesn't use a `good first issue` label — it drew low-quality, AI-generated PRs in the past — so use that section and each issue's Acceptance Criteria to judge scope instead of relying on a label.
 
 Before picking one, check:
 

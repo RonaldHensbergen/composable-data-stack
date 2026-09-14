@@ -7,6 +7,7 @@ from typing import Any
 import yaml
 
 from .diagnostics import Diagnostic
+from .utils import _atomic_write
 
 _MODULE_ROOT_MARKERS = {"modules", "modules-experimental"}
 
@@ -177,3 +178,164 @@ def resolve_module_dir(
         return None
 
     return candidate
+
+
+def save_generated_profile(
+    profile: dict[str, Any],
+    profiles_root: Path,
+    name: str | None = None,
+    force: bool = False,
+) -> tuple[Path | None, list[Diagnostic]]:
+    """
+    Persists a runtime-generated/in-memory profile dict at the normal
+    profiles/<name>/profile.yaml location -- the same on-disk layout as a
+    hand-authored profile -- so it can flow through the existing path-based
+    validate_profile()/build_plan() entry points completely unchanged, with
+    the same relative module-source resolution and extends/environment-
+    overlay semantics any other profile gets (issue #349: programmatically
+    composed profiles are supported by writing them to disk at their normal
+    location first, not by adding a second in-memory code path to the
+    planner/validator).
+
+    `name` defaults to profile["metadata"]["name"] when not given explicitly.
+    Refuses to write outside profiles_root (the same boundary
+    resolve_module_file() enforces for module sources) and, unless
+    force=True, refuses to silently overwrite an existing profile.yaml.
+
+    Returns (profile_file_path, diagnostics). profile_file_path is None if
+    diagnostics contains an error. A YAML-serialization failure (E117, e.g.
+    a non-representable value nested in the profile) or a filesystem write
+    failure (E117, e.g. permission denied, disk full) is reported as a
+    diagnostic rather than raising, keeping this promise for every error
+    path instead of just the validation checks above. `profiles_root`
+    existing but not being a directory (E118) is reported the same way,
+    rather than silently building a nonsense nested path underneath it.
+
+    The upfront `profile_file.exists()` check below is a fast, friendly
+    E116 for the common case, but it can't close the race between that
+    check and the write: a second caller could create the same file in
+    between. The write itself (_atomic_write(..., overwrite=force)) closes
+    that race for real when force=False -- if a concurrent writer wins,
+    this call fails closed with E116 instead of silently overwriting it.
+    """
+    # E114 groups both "unusable input document" cases below (a non-dict
+    # profile, and a dict profile with no resolvable name) rather than
+    # splitting into two codes: both are the same class of failure -- the
+    # caller handed generate_profile() something it cannot even attempt to
+    # write out yet, before any path/overwrite check applies -- mirroring
+    # how E115 already groups "absolute name" and "escapes profiles_root"
+    # as one "invalid destination" class below.
+    if not isinstance(profile, dict):
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E114",
+                message=f"Generated profile must be a mapping/object, got {type(profile).__name__}.",
+                path="profile",
+            )
+        ]
+
+    if name is None:
+        name = profile.get("metadata", {}).get("name") if isinstance(profile.get("metadata"), dict) else None
+
+    if not isinstance(name, str) or not name.strip():
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E114",
+                message=(
+                    "Generated profile requires a name: pass name= explicitly or set "
+                    "metadata.name on the profile."
+                ),
+                path="metadata.name",
+            )
+        ]
+
+    name_path = Path(name)
+    if name_path.is_absolute() or ".." in name_path.parts:
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E115",
+                message=f'Generated profile name "{name}" must be a relative name without ".." segments.',
+                path="metadata.name",
+            )
+        ]
+
+    allowed_root = profiles_root.expanduser().resolve()
+
+    if allowed_root.exists() and not allowed_root.is_dir():
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E118",
+                message=(
+                    f'The profiles root "{allowed_root}" is not a directory. '
+                    "Generating a profile needs a directory to create "
+                    "<name>/profile.yaml under -- point CDS_PROFILE_PATH at a "
+                    "profiles root directory, not a single profile file or a "
+                    "bare profile name."
+                ),
+                path=str(allowed_root),
+            )
+        ]
+
+    profile_file = (allowed_root / name_path / "profile.yaml").resolve()
+
+    if not _is_within(profile_file, allowed_root):
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E115",
+                message=f'Generated profile name "{name}" resolves outside the profiles root "{allowed_root}".',
+                path="metadata.name",
+            )
+        ]
+
+    if profile_file.exists() and not force:
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E116",
+                message=f"Refusing to overwrite existing profile: {profile_file}. Pass force=True to overwrite.",
+                path=str(profile_file),
+            )
+        ]
+
+    try:
+        serialized = yaml.safe_dump(profile, sort_keys=False)
+    except yaml.representer.RepresenterError as exc:
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E117",
+                message=f"Generated profile contains a value that cannot be serialized to YAML: {exc}",
+                path="profile",
+            )
+        ]
+
+    try:
+        _atomic_write(profile_file, serialized, overwrite=force)
+    except FileExistsError:
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E116",
+                message=(
+                    f"Refusing to overwrite existing profile: {profile_file}. "
+                    "Pass force=True to overwrite."
+                ),
+                path=str(profile_file),
+            )
+        ]
+    except OSError as exc:
+        return None, [
+            Diagnostic(
+                level="error",
+                code="E117",
+                message=f"Failed to write generated profile to {profile_file}: {exc}",
+                path=str(profile_file),
+            )
+        ]
+
+    return profile_file, []

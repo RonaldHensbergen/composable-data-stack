@@ -134,6 +134,19 @@
       "matchPackageNames": [
         "/.*/"
       ]
+    },
+    {
+      "description": "Batch the self-pinned renovate npm package (used by renovate-config-validator in ci.yml) into a single weekly PR instead of one per upstream patch release -- renovate ships multiple patch releases per day, so without this each release reopens/edits a new PR the moment the previous one merges",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchDepNames": [
+        "renovate"
+      ],
+      "schedule": [
+        "before 6am on monday"
+      ],
+      "minimumReleaseAge": "3 days"
     }
   ]
 }
