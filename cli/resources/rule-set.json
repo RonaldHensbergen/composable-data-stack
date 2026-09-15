@@ -805,6 +805,29 @@
         "If no production-suitable implementation exists yet, declare this profile's environment as local or development instead."
       ],
       "enabled": true
+    },
+    {
+      "id": "CDS-SEC-074",
+      "$comment": "Enforced entirely in code by _check_production_plaintext_exposure in cli/security.py, not the declarative match engine: it inspects the resolved plan's http-service/reverse-proxy contract wiring to decide whether a plaintext endpoint is actually fronted by a TLS reverse-proxy, then cross-references that against non-localhost published ports in the rendered Compose output. When spec.security.waivers.plaintextEndpointExposure.reason is set on a prod-class profile, this finding is suppressed and a W098 warning diagnostic carrying the waiver reason is emitted instead; on a non-prod profile the same waiver has no effect on this rule (see the info-level W099 diagnostic that flags a waiver set below prod class).",
+      "title": "Production profile exposes plaintext HTTP endpoint without TLS reverse-proxy",
+      "severity": "high",
+      "category": "network-exposure",
+      "scope": ["none"],
+      "match": {
+        "any": [
+          {
+            "portExposure": "host-published"
+          }
+        ]
+      },
+      "message": "Production profile exposes a plaintext HTTP endpoint without a TLS reverse-proxy contract",
+      "whyItMatters": "Plaintext HTTP endpoints exposed outside localhost in production profiles allow credentials and data to be intercepted in transit.",
+      "recommendation": [
+        "Route endpoint traffic through a module that provides reverse-proxy with protocol https.",
+        "Limit plaintext endpoint bindings to localhost-only interfaces.",
+        "If exposure is intentional, add spec.security.waivers.plaintextEndpointExposure.reason."
+      ],
+      "enabled": false
     }
   ]
 }

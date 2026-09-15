@@ -154,6 +154,21 @@
               }
             }
           }
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "waivers": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "plaintextEndpointExposure": {
+                  "$ref": "#/$defs/plaintextEndpointExposureWaiver"
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -229,6 +244,17 @@
         "driver": {
           "type": "string",
           "default": "bridge"
+        }
+      }
+    },
+    "plaintextEndpointExposureWaiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1
         }
       }
     }
