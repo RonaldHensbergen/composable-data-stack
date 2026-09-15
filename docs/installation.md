@@ -12,9 +12,12 @@ CDS compile-time commands and runtime commands have different requirements:
 | Validate, secure, plan, or render profiles | Python 3.14+, `pip`, and `venv` |
 | Clone and update the source repository | Git |
 | Build and run local profiles | Docker Engine/Desktop and Docker Compose v2 |
+| Render and run Kubernetes profiles | Helm, kubectl, and access to a Kubernetes cluster |
 
 Docker is not required for `cds validate`, `cds security`, `cds plan`, or
 `cds render`.
+
+For local k3s through k3d, follow the [Kubernetes target guide](kubernetes.md).
 
 ## Resource Guidance
 
@@ -232,6 +235,9 @@ cds plan local-dagster-postgres-superset
 cds render local-dagster-postgres-superset
 ```
 
+Add `--target helm` to validation, security, or rendering to check and emit the
+Kubernetes implementation.
+
 ## 7. Check Runtime Prerequisites
 
 ```bash
@@ -266,6 +272,13 @@ cds up local-dagster-postgres-superset --detach --no-build
 ```
 
 ## 9. Stop Or Remove The Stack
+
+CDS can stop either runtime while retaining persistent data by default:
+
+```bash
+cds down local-dagster-postgres-superset
+cds down local-dagster-postgres-superset --target helm --namespace cds-local --release cds
+```
 
 Stop and remove containers while retaining named volumes:
 

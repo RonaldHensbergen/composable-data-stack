@@ -3,7 +3,9 @@ extends: relaxed
 ignore: |
   docker-compose.yml
   build/
+  chart/
   modules-experimental/
+  .playwright-cli/
 
 rules:
   comments: disable

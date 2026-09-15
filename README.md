@@ -5,22 +5,30 @@
 
 ![Composable Data Stack logo](assets/branding/logo.svg)
 
+Project:
+
 [![CI](https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/composable-data-stack.svg)](https://pypi.org/project/composable-data-stack/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+SonarCloud — Quality Gate & Ratings:
+
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 
-[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
-[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+SonarCloud — Issues:
+
 [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=bugs)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
-[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+
+SonarCloud — Metrics:
 
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=coverage)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 
 ---
 
@@ -233,6 +241,7 @@ When you run CDS:
 - resolved contract bindings
 - dependency-aware execution plan
 - generated Docker Compose configuration
+- generated Helm chart for Kubernetes
 - reproducible stack definition
 
 This allows you to go from a declarative profile to a runnable local data stack.
@@ -264,6 +273,10 @@ The `cds up` command and generated local profiles additionally require:
 - Free host ports required by the selected profile
 - Write access to the checkout for `.env`, `docker-compose.yml`, and workdir
   data
+
+For Kubernetes, install Helm and kubectl and provide an explicit kube context.
+The local k3s workflow uses k3d and is documented in
+[docs/kubernetes.md](docs/kubernetes.md).
 
 Docker Desktop on Windows must use the WSL 2 backend. See the
 [support policy](docs/support-policy.md) for supported operating systems and
@@ -428,6 +441,12 @@ cds render local-dagster-postgres-superset
 ```
 
 By default, this writes `docker-compose.yml` to the project root.
+
+Render the same plan as a Helm chart with:
+
+```bash
+cds render local-dagster-postgres-superset --target helm
+```
 
 Use a custom location when needed:
 
@@ -686,19 +705,6 @@ runs, with a dedicated diagnostic code:
 |E112|A referenced parent profile does not exist|
 |E113|A cycle was detected in the `extends` chain|
 
-`cds generate-profile` (see [CLI](#%EF%B8%8F-cli)), which persists a
-runtime-generated profile dict to `profiles/<name>/profile.yaml` before it
-flows through the same `extends`/environment-overlay resolution as any
-hand-authored profile, has its own diagnostic codes:
-
-|Code|Meaning|
-|---|---|
-|E114|The input isn't a usable profile document: either not a mapping/object, or a mapping with no resolvable name (no `name=` argument and no `metadata.name`)|
-|E115|The resolved `metadata.name` is absolute, contains `..` segments, or otherwise resolves outside the profiles root|
-|E116|`profiles/<name>/profile.yaml` already exists and `force=True` wasn't passed -- including a concurrent writer that created it after the initial check|
-|E117|The profile couldn't be written: a value inside it isn't YAML-serializable, or the write itself failed (permission denied, disk full, etc.)|
-|E118|`CDS_PROFILE_PATH` (or the resolved profiles root) exists but isn't a directory -- point it at a profiles root directory, not a single profile file or bare name|
-
 ---
 
 ## ⚙️ CLI
@@ -708,13 +714,13 @@ hand-authored profile, has its own diagnostic codes:
 |cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|
 |cds list profiles\|modules\|images [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>]|List available profiles, module sources, or module images and check for newer versions; add `--remote`/`--local` to inspect another repository before fetching from it|
 |cds init [profile]|Generate a project `.env` template from profile secret definitions|
-|cds generate-profile \<input\|-\> [--name \<name\>] [--force]|Persist a runtime/programmatically composed profile document (JSON or YAML, from a file or stdin) to `profiles/<name>/profile.yaml`, so it can be validated/planned/rendered exactly like a hand-authored profile|
-|cds validate [profile]|Validate modules and contracts|
+|cds validate [profile]|Validate modules and contracts; use `--target helm` for Kubernetes checks|
 |cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
-|cds render [profile]|Generate Docker Compose configuration from a resolved plan|
-|cds up [profile]|Validate, plan, render, build, and start services with docker compose; logs output to a file and shows a live `cds state` view until the stack settles (use `--no-build` to skip build, `--detach` to skip the live view, `--log-file`/`--timeout`/`--no-color` to override defaults)|
-|cds state [profile]|Show running service status grouped by health (use `--no-color` to disable colored labels)|
+|cds render [profile]|Generate Docker Compose or a Helm chart from a resolved plan|
+|cds up [profile]|Validate, plan, render, and start the Compose or Helm target; use `--target helm` for Kubernetes|
+|cds down [profile]|Stop Compose or uninstall a Helm release; Helm PVCs are retained by default|
+|cds state [profile]|Show Compose services or Kubernetes workloads grouped by health|
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 |cds security [profile]|Run rule-based security validation on a profile|
 |cds diff [profile] --from \<env\> --to \<env\>|Show effective configuration differences between two environment overlays, secrets never included|
@@ -932,11 +938,11 @@ MVP ready:
 - security checks
 - profile composition
 - Docker Compose rendering
+- Kubernetes Helm rendering and local k3s lifecycle
+- runtime startup, health state, and shutdown
 
 Next:
 
-- runtime orchestration
-- Kubernetes support
 - advanced secret providers
 - stack bootstrap and health checks
 
@@ -971,6 +977,8 @@ Good first contributions:
 ## 📖 Documentation
 
 - [Quickstart](README.md#-quickstart) — get running in 5 minutes
+- [How CDS Works](docs/how-it-works.md) — C4 + sequence diagrams of the validate → plan → render engine
+- [Kubernetes Target](docs/kubernetes.md): Helm rendering and isolated local k3s workflow
 - [From Docker Compose to CDS Profile](docs/from-docker-to-cds-profile.md) — complete transformation guide
 - [Architecture](docs/architecture.md) — design and core concepts
 - [Modules](docs/modules.md) — how to structure reusable components
