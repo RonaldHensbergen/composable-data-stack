@@ -1,0 +1,141 @@
+# modules/identity/keycloak/module.yaml
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: keycloak
+  category: identity
+  version: 0.1.0
+  productionSuitable: false
+  displayName: Keycloak
+  description: >
+    Keycloak identity/SSO provider running in development mode, backed by a
+    consumed sql-database contract for its own metadata store.
+spec:
+  runtime:
+    type: container
+    service:
+      name: keycloak
+      ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - metadataDatabase
+      - adminUser
+    properties:
+      httpPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 8080
+        description: Host port published for keycloak's container port 8080.
+      metadataDatabase:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+            description: "Reference to a sql-database binding (e.g., postgres.identity-database)"
+          driver:
+            type: string
+            enum:
+              - postgres
+              - mysql
+              - mariadb
+              - mssql
+              - oracle
+            default: postgres
+            description: >
+              Keycloak KC_DB vendor value matching the wire protocol spoken
+              by the bound sql-database provider. Defaults to postgres, the
+              only sql-database provider in this repository today; must be
+              set explicitly if a non-Postgres provider is ever bound here.
+      adminUser:
+        type: object
+        additionalProperties: false
+        required:
+          - username
+          - passwordFrom
+        properties:
+          username:
+            type: string
+            minLength: 1
+          passwordFrom:
+            type: string
+            pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+      healthcheck:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+  consumes:
+    - name: metadata-database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.metadataDatabase
+  provides:
+    - name: http-service
+      contract:
+        kind: http-service
+        spec:
+          portFrom: spec.config.httpPort
+          healthPath: /health/ready
+          protocol: http
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        keycloak:
+          image: quay.io/keycloak/keycloak:26.7.3@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54
+          user: "1000:0"
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,mode=1777
+            - /opt/keycloak/data:rw,noexec,nosuid,nodev,uid=1000,gid=0,mode=0700
+          volumes:
+            - keycloak-quarkus:/opt/keycloak/lib/quarkus
+          command:
+            - start-dev
+          ports:
+            - "${config.httpPort}:8080"
+          environment:
+            KC_DB: "${config.metadataDatabase.driver}"
+            KC_DB_URL_HOST: "${bindings.metadata-database.host}"
+            KC_DB_URL_PORT: "${bindings.metadata-database.port}"
+            KC_DB_URL_DATABASE: "${bindings.metadata-database.database}"
+            KC_DB_USERNAME: "${bindings.metadata-database.username}"
+            KC_DB_PASSWORD: "${bindings.metadata-database.password}"
+            KC_BOOTSTRAP_ADMIN_USERNAME: "${config.adminUser.username}"
+            KC_BOOTSTRAP_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
+            KC_HEALTH_ENABLED: "true"
+          healthcheck:
+            conditionallyEnabledFrom: config.healthcheck.enabled
+            test:
+              - CMD-SHELL
+              - >-
+                bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000;
+                echo -e "GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3;
+                cat <&3 | grep -q "200 OK"'
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 60s
+
+      volumes:
+        keycloak-quarkus: {}
