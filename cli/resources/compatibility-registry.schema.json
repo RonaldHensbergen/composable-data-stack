@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "./compatibility-registry.schema.json",
+  "title": "Composable Data Stack Compatibility Registry",
+  "description": "Central, non-scattered record of module pairings for a given contract that are known to have been tested together, or explicitly known NOT to work together. This is deliberately separate from plain contract `kind` matching (structural compatibility): an entry here expresses practical, known-good/known-bad compatibility, not just shape compatibility. Absence of an entry for a pairing means 'not yet recorded' -- it is neither tested nor unsupported.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "metadata", "pairings"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "pairings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pairing"
+      }
+    }
+  },
+  "$defs": {
+    "pairing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "provider", "consumer", "status"],
+      "properties": {
+        "contract": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$",
+          "description": "Contract kind this pairing applies to (matches a module's provides[].contract.kind / consumes[].contract.kind)."
+        },
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+/[a-z0-9-]+$",
+          "description": "Providing module's identity, as \"<metadata.category>/<metadata.name>\" (e.g. \"warehouse/postgres\"). Stable across profiles, unlike a profile-scoped module instance id or a source path."
+        },
+        "consumer": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+/[a-z0-9-]+$",
+          "description": "Consuming module's identity, as \"<metadata.category>/<metadata.name>\" (e.g. \"orchestration/dagster\")."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["tested", "unsupported"],
+          "description": "\"tested\": this exact provider/consumer pairing for this contract has been exercised together (e.g. by a profile under active CI coverage) and is known-good. \"unsupported\": this pairing is structurally compatible (same contract kind) but has been found NOT to work together in practice; validation reports this as an error."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Free-text context, e.g. which profile/test exercises a \"tested\" pairing, or why an \"unsupported\" pairing fails."
+        }
+      }
+    }
+  }
+}
