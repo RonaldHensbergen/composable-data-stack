@@ -148,12 +148,21 @@ jobs:
           set -euo pipefail
           image="${{ matrix.image.name }}"
           variant="${{ matrix.image.variant }}"
-          image_key="$image"
+          # The report filename always includes a non-empty variant suffix
+          # (it must match the "Scan image" step's `output:` path exactly),
+          # but the issue title/search key drops a "base" variant so it
+          # matches the `cds-<name>` fixture-key convention used elsewhere
+          # (see the "Select scan target" step and publish-images.yml).
+          file_key="$image"
           if [ -n "$variant" ]; then
+            file_key="${image}-${variant}"
+          fi
+          image_key="$image"
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
             image_key="${image}-${variant}"
           fi
           image_ref="${{ steps.ref.outputs.image-ref }}"
-          report="scan-${image_key}.txt"
+          report="scan-${file_key}.txt"
           label="vuln-scan"
           title="[vuln-scan] HIGH/CRITICAL findings in cds-${image_key}"
           # steps.scan.outcome == 'failure' also fires on transient Trivy/

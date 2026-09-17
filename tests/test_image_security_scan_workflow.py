@@ -244,6 +244,9 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         run = issues_step["run"]
         self.assertIn('label="vuln-scan"', run)
         self.assertIn('variant="${{ matrix.image.variant }}"', run)
+        self.assertIn('file_key="${image}-${variant}"', run)
+        self.assertIn('report="scan-${file_key}.txt"', run)
+        self.assertIn('if [ -n "$variant" ] && [ "$variant" != "base" ]; then', run)
         self.assertIn('image_key="${image}-${variant}"', run)
         self.assertIn('--label "$label"', run)
         self.assertIn("gh issue list", run)
