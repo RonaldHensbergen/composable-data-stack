@@ -15,6 +15,18 @@
 # and exp must be a valid date at most 90 days out. An expired exception
 # stops being ignored and fails the daily scan again.
 
+# CVE-2026-53612/53613/53614: util-linux (libuuid) HIGH findings on the
+# python:3.14-alpine base used by images/dagster/hardened/Dockerfile.
+# Fixed by util-linux 2.42.3-r0; the pinned base still ships
+# libuuid-2.42.1-r0. Renovate bumps the digest when upstream rebuilds;
+# drop these entries then.
+# owner:@RonaldHensbergen — mount TOCTOU ancestor directory swap
+CVE-2026-53612 exp:2026-11-15
+# owner:@RonaldHensbergen — nsenter mount namespace TOCTOU, same fix
+CVE-2026-53613 exp:2026-11-15
+# owner:@RonaldHensbergen — SUID mount nosuid/noexec bypass, same fix
+CVE-2026-53614 exp:2026-11-15
+
 # CVE-2026-76642/78408/78409/78410: util-linux (libuuid) HIGH findings on
 # the python:3.14-alpine base used by images/dagster/hardened/Dockerfile.
 # Fixed by util-linux 2.42.3-r0; the pinned python:3.14-alpine digest
