@@ -1,5 +1,7 @@
 import io
 import subprocess
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -37,6 +39,31 @@ class DefaultLogPathTest(unittest.TestCase):
 
 
 class RunStreamedTest(unittest.TestCase):
+    @patch("cli.up_runner.subprocess.Popen")
+    def test_timeout_kills_a_hung_process(self, mock_popen):
+        process = MagicMock()
+        process.poll.return_value = None
+        killed = threading.Event()
+        process.kill.side_effect = killed.set
+        process.wait.return_value = 0
+        process.stdout.__iter__.side_effect = lambda: (killed.wait(1), iter(()))[1]
+        mock_popen.return_value = process
+
+        started = time.monotonic()
+        returncode = run_streamed(
+            ["docker", "compose", "up"],
+            io.StringIO(),
+            echo=False,
+            timeout=0.05,
+        )
+
+        self.assertEqual(returncode, 124)
+        self.assertLess(time.monotonic() - started, 2)
+
+    def test_rejects_unsupported_executable(self):
+        with self.assertRaisesRegex(ValueError, "unsupported executable"):
+            run_streamed(["sh", "-c", "echo unsafe"], io.StringIO(), echo=False)
+
     @patch("cli.up_runner.subprocess.Popen")
     def test_writes_output_to_log_file_and_returns_exit_code(self, mock_popen):
         process = MagicMock()

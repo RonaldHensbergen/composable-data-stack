@@ -56,6 +56,46 @@ class AtomicWriteTest(unittest.TestCase):
 
             self.assertFalse(target.exists())
 
+    def test_overwrite_false_writes_when_target_is_absent(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "output.txt"
+            _atomic_write(target, "first writer", overwrite=False)
+            self.assertEqual(target.read_text(encoding="utf-8"), "first writer")
+
+    def test_overwrite_false_fails_closed_instead_of_silently_replacing_existing_target(self):
+        """The check-then-write race a caller-side path.exists() guard can't
+        close (a second writer creating `path` between the check and the
+        write) must not silently clobber the first writer's content:
+        overwrite=False uses os.link(), which fails atomically with
+        FileExistsError instead of replacing the file."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "output.txt"
+            target.write_text("winner of the race", encoding="utf-8")
+
+            with self.assertRaises(FileExistsError):
+                _atomic_write(target, "loser of the race", overwrite=False)
+
+            self.assertEqual(target.read_text(encoding="utf-8"), "winner of the race")
+
+    def test_overwrite_false_cleans_up_temp_file_on_race_failure(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "output.txt"
+            target.write_text("winner of the race", encoding="utf-8")
+
+            before = set(os.listdir(tmp_dir))
+            with self.assertRaises(FileExistsError):
+                _atomic_write(target, "loser of the race", overwrite=False)
+            after = set(os.listdir(tmp_dir))
+
+            self.assertEqual(before, after)
+
+    def test_overwrite_true_still_replaces_existing_target(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            target = Path(tmp_dir) / "output.txt"
+            target.write_text("old content", encoding="utf-8")
+            _atomic_write(target, "new content", overwrite=True)
+            self.assertEqual(target.read_text(encoding="utf-8"), "new content")
+
 
 if __name__ == "__main__":
     unittest.main()

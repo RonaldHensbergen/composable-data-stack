@@ -1,3 +1,4 @@
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -110,6 +111,53 @@ class DagsterEntrypointBackendGuardTest(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0)
             self.assertTrue(override_path.is_dir())
+
+
+class DagsterWorkspaceInstallTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        repo_root = Path(__file__).resolve().parent.parent
+        entrypoint = (repo_root / "images" / "dagster" / "entrypoint.sh").read_text(encoding="utf-8")
+        _, marker, remainder = entrypoint.partition('workspace_tmp="$DAGSTER_HOME/.workspace.yaml.tmp"')
+        if not marker:
+            raise AssertionError("entrypoint workspace installation block is missing")
+        install_body, separator, _ = remainder.partition("python /app/images/dagster/generate_config.py")
+        if not separator:
+            raise AssertionError("entrypoint workspace installation block has no end marker")
+        cls.install_snippet = marker + install_body
+
+    def test_workspace_install_is_restart_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dagster_home = Path(tmpdir) / "dagster-home"
+            dagster_home.mkdir()
+            source = Path(tmpdir) / "workspace.yaml"
+            source.write_text("load_from: []\n", encoding="utf-8")
+            source.chmod(0o444)
+            script = self.install_snippet.replace(
+                "/app/images/dagster/workspace.yaml",
+                shlex.quote(str(source)),
+            )
+
+            first = subprocess.run(
+                ["sh", "-eu", "-c", script],
+                env={"DAGSTER_HOME": str(dagster_home)},
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            second = subprocess.run(
+                ["sh", "-eu", "-c", script],
+                env={"DAGSTER_HOME": str(dagster_home)},
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            destination = dagster_home / "workspace.yaml"
+            self.assertEqual(destination.read_text(encoding="utf-8"), "load_from: []\n")
+            self.assertTrue(destination.stat().st_mode & 0o200)
 
 
 if __name__ == "__main__":

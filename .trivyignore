@@ -60,3 +60,40 @@ CVE-2026-78408 exp:2026-12-04
 CVE-2026-78409 exp:2026-12-04
 # owner:@RonaldHensbergen — restricted bind mount owner/group/mode pin bypass, same fix
 CVE-2026-78410 exp:2026-12-04
+
+# CVE-2026-41992/86145/89161/11822/11824/13221/42496/8376/42497/48962/57432/57433:
+# gzip, libpcre2-8-0, libsqlite3-0, and perl-base HIGH/CRITICAL findings on the
+# python:3.14-slim base used by images/dagster/base/Dockerfile. All are fixed by
+# trixie-security package versions (gzip 1.13-1+deb13u1, libpcre2-8-0
+# 10.46-1~deb13u2, libsqlite3-0 3.46.1-7+deb13u2, perl-base 5.40.1-6+deb13u1);
+# no python:3.14-slim digest ships them yet (checked 2026-09-12, same digest as
+# `docker pull python:3.14-slim` resolves to today). Already remediated in
+# images/dbt/Dockerfile and images/superset/base/Dockerfile via their apt-get
+# upgrade step; images/dagster/base/Dockerfile deliberately omits apt-get to
+# keep its runtime minimal/immutable (see tests/test_dagster_hardening.py), so
+# it waits on the Renovate-driven base image digest bump instead. Renovate
+# bumps the digest when upstream rebuilds; drop these entries then.
+# owner:@RonaldHensbergen — gzip: information disclosure via global buffer overflow in LZH decompression
+CVE-2026-41992 exp:2026-12-01
+# owner:@RonaldHensbergen — libpcre2-8-0: out-of-bounds write via crafted regular expressions, same fix
+CVE-2026-86145 exp:2026-12-01
+# owner:@RonaldHensbergen — libpcre2-8-0: memory corruption in pcre2_jit_match, same fix
+CVE-2026-89161 exp:2026-12-01
+# owner:@RonaldHensbergen — libsqlite3-0: arbitrary code execution via crafted FTS5 full-text search data, same fix
+CVE-2026-11822 exp:2026-12-01
+# owner:@RonaldHensbergen — libsqlite3-0: arbitrary code execution/crash via heap-based buffer overflow, same fix
+CVE-2026-11824 exp:2026-12-01
+# owner:@RonaldHensbergen — perl-base: incorrect regular expression processing via large regular expressions, same fix
+CVE-2026-13221 exp:2026-12-01
+# owner:@RonaldHensbergen — perl-base: perl-Archive-Tar path traversal via crafted symlinks, same fix
+CVE-2026-42496 exp:2026-12-01
+# owner:@RonaldHensbergen — perl-base: heap buffer overflow compiling regular expressions on 32-bit builds, same fix
+CVE-2026-8376 exp:2026-12-01
+# owner:@RonaldHensbergen — perl-base: perl-Archive-Tar arbitrary file modification via crafted hardlinks, same fix
+CVE-2026-42497 exp:2026-12-01
+# owner:@RonaldHensbergen — perl-base: perl-IO-Compress arbitrary code execution via attacker-controlled output glob, same fix
+CVE-2026-48962 exp:2026-12-01
+# owner:@RonaldHensbergen — perl-base: information disclosure via integer overflow in pack/unpack, same fix
+CVE-2026-57432 exp:2026-12-01
+# owner:@RonaldHensbergen — perl-base Storable: denial of service via signed integer overflow in deserialization, same fix
+CVE-2026-57433 exp:2026-12-01
