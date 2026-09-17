@@ -387,9 +387,7 @@ def _eval_condition(
             return False
         if exposure == "host-published" and ":" not in sval:
             return False
-        if exposure == "localhost-only" and not (
-            sval.startswith("127.0.0.1:") or sval.startswith("localhost:")
-        ):
+        if exposure == "localhost-only" and not _LOOPBACK_HOST_PORT_PREFIX_RE.match(sval):
             return False
 
     if "imageTagPolicy" in cond:
@@ -601,7 +599,7 @@ def _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan: dict[str, Any] | No
             parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
             if parsed is None:
                 continue
-            producer_id, provide_name = parsed
+            producer_id, _ = parsed
             contract = consumed.get("contract")
             if not isinstance(contract, dict) or contract.get("kind") != "http-service":
                 continue
@@ -611,17 +609,24 @@ def _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan: dict[str, Any] | No
     return fronted
 
 
+_LOOPBACK_HOST_RE = re.compile(r"^(127(?:\.\d{1,3}){3}|localhost|::1)$")
+_LOOPBACK_HOST_PORT_PREFIX_RE = re.compile(r"^(127(?:\.\d{1,3}){3}|localhost|\[::1\]):")
+
+
 def _port_is_non_local_host_exposure(port: Any) -> bool:
     if isinstance(port, int):
         return True
     if isinstance(port, str):
         value = port.strip()
-        if value.startswith("127.0.0.1:") or value.startswith("localhost:") or value.startswith("[::1]:"):
+        # Loopback covers the entire 127.0.0.0/8 range (not just 127.0.0.1),
+        # "localhost", and "[::1]" -- a bare 127.0.0.1 check would treat
+        # e.g. 127.0.0.2:8080 as externally reachable when it is not.
+        if _LOOPBACK_HOST_PORT_PREFIX_RE.match(value):
             return False
         return True
     if isinstance(port, dict):
         host_ip = str(port.get("host_ip", "")).strip().lower()
-        if host_ip in {"127.0.0.1", "localhost", "::1"}:
+        if _LOOPBACK_HOST_RE.match(host_ip):
             return False
         return "target" in port
     return False
@@ -643,6 +648,20 @@ def _plaintext_exposure_waiver_reason(profile: dict[str, Any]) -> str | None:
     return reason or None
 
 
+def _rule_enabled(rule_set: dict[str, Any], rule_id: str, key: str = "enabled", default: bool = True) -> bool:
+    """Return whether the rule with the given id has `key` set truthy.
+
+    Falls back to `default` if the rule set doesn't declare that rule id at
+    all (e.g. a minimal custom rule set that omits it entirely), so omission
+    doesn't silently disable code-enforced checks that don't otherwise
+    appear in a hand-written rule set.
+    """
+    for rule in rule_set.get("rules", []):
+        if rule.get("id") == rule_id:
+            return bool(rule.get(key, default))
+    return default
+
+
 def _check_production_plaintext_exposure(
     profile: dict[str, Any],
     profile_class: str,
@@ -650,7 +669,17 @@ def _check_production_plaintext_exposure(
     rendered_compose: dict[str, Any] | None,
     service_to_module: dict[str, str],
     redact_values: bool = False,
+    rule_enabled: bool = True,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
+    if not rule_enabled:
+        # CDS-SEC-074 is enforced entirely in code (see rule-set.json's
+        # $comment for it), not by the declarative match engine, but a
+        # custom rule set must still be able to turn it off by setting
+        # enabled: false on that rule id -- otherwise the metadata would be
+        # decorative and the check would run unconditionally regardless of
+        # what the rule set declares.
+        return [], []
+
     if profile_class != "prod":
         # The waiver only ever has an effect on a prod-class profile (below,
         # only reached when profile_class == "prod"); if one is declared here
@@ -708,10 +737,13 @@ def _check_production_plaintext_exposure(
     if not exposures:
         return [], []
 
+    # A module wired behind a TLS reverse-proxy is not thereby safe from an
+    # exposure recorded above: `exposures` only ever contains ports the
+    # backend's *own* Compose service publishes on a non-localhost address,
+    # so an attacker can always reach it directly and skip the proxy. Wired
+    # fronting must never suppress that independent publish -- it can only
+    # change the finding's message to call out the bypass explicitly.
     fronted_module_ids = _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan)
-    exposures = [entry for entry in exposures if entry["module"] not in fronted_module_ids]
-    if not exposures:
-        return [], []
 
     waiver_reason = _plaintext_exposure_waiver_reason(profile)
     if waiver_reason is not None:
@@ -732,16 +764,29 @@ def _check_production_plaintext_exposure(
             "severity": "high",
             "module": entry["module"],
             "message": (
-                "Production profile exposes a plaintext HTTP endpoint without a "
+                "Production profile exposes a plaintext HTTP endpoint that is "
+                "also independently published on the host, bypassing its "
+                "wired TLS reverse-proxy"
+                if entry["module"] in fronted_module_ids
+                else "Production profile exposes a plaintext HTTP endpoint without a "
                 "TLS reverse-proxy contract"
             ),
             "path": entry["path"],
             "value": _redact(entry["value"]) if redact_values else entry["value"],
-            "recommendation": [
-                "Route endpoint traffic through a module that provides reverse-proxy with protocol https.",
-                "Limit plaintext endpoint bindings to localhost-only interfaces.",
-                "If exposure is intentional, add spec.security.waivers.plaintextEndpointExposure.reason.",
-            ],
+            "recommendation": (
+                [
+                    "Stop publishing this port directly on the host; only the "
+                    "TLS reverse-proxy should be host-published.",
+                    "Limit plaintext endpoint bindings to localhost-only interfaces.",
+                    "If exposure is intentional, add spec.security.waivers.plaintextEndpointExposure.reason.",
+                ]
+                if entry["module"] in fronted_module_ids
+                else [
+                    "Route endpoint traffic through a module that provides reverse-proxy with protocol https.",
+                    "Limit plaintext endpoint bindings to localhost-only interfaces.",
+                    "If exposure is intentional, add spec.security.waivers.plaintextEndpointExposure.reason.",
+                ]
+            ),
         }
         for entry in exposures
     ]
@@ -941,10 +986,17 @@ def run_security_validation(
     # Planning and rendering the profile is only useful when some enabled
     # rule actually declares the "rendered-compose" scope -- e.g. a custom
     # rule set may omit CDS-SEC-070 entirely, in which case doing a full
-    # plan+render here would be wasted work on every security scan.
-    needs_rendered_compose = profile_class == "prod" or any(
-        rule.get("enabled", True) and set(rule.get("scope", [])) & _RENDERED_COMPOSE_SCOPES
-        for rule in rule_set["rules"]
+    # plan+render here would be wasted work on every security scan. The
+    # code-enforced CDS-SEC-074 check is scoped separately (it isn't scope-
+    # tagged for the declarative engine), so it only forces the same work
+    # when it is itself enabled for this rule set.
+    plaintext_exposure_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-074", key="codeEnforced")
+    needs_rendered_compose = (
+        (profile_class == "prod" and plaintext_exposure_rule_enabled)
+        or any(
+            rule.get("enabled", True) and set(rule.get("scope", [])) & _RENDERED_COMPOSE_SCOPES
+            for rule in rule_set["rules"]
+        )
     )
     rendered_plan = precomputed_render.plan if precomputed_render is not None else None
     if needs_rendered_compose:
@@ -988,6 +1040,7 @@ def run_security_validation(
         rendered_compose=rendered_compose,
         service_to_module=service_to_module,
         redact_values=redact_values,
+        rule_enabled=plaintext_exposure_rule_enabled,
     )
     findings.extend(plaintext_findings)
     

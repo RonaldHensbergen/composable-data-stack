@@ -808,7 +808,7 @@
     },
     {
       "id": "CDS-SEC-074",
-      "$comment": "Enforced entirely in code by _check_production_plaintext_exposure in cli/security.py, not the declarative match engine: it inspects the resolved plan's http-service/reverse-proxy contract wiring to decide whether a plaintext endpoint is actually fronted by a TLS reverse-proxy, then cross-references that against non-localhost published ports in the rendered Compose output. When spec.security.waivers.plaintextEndpointExposure.reason is set on a prod-class profile, this finding is suppressed and a W098 warning diagnostic carrying the waiver reason is emitted instead; on a non-prod profile the same waiver has no effect on this rule (see the info-level W099 diagnostic that flags a waiver set below prod class).",
+      "$comment": "Enforced entirely in code by _check_production_plaintext_exposure in cli/security.py, not the declarative match engine: it flags any non-localhost published port on the Compose service of a module that provides a plaintext (protocol: http) http-service contract. A wired TLS reverse-proxy consuming that contract (per the resolved plan's contract wiring) does not suppress the finding -- it only changes the finding's message, since the backend's own independent host publish still lets an attacker bypass the proxy; only removing the backend's direct host publish (leaving the proxy as the sole host-published entry point) avoids the finding. When spec.security.waivers.plaintextEndpointExposure.reason is set on a prod-class profile, this finding is suppressed and a W098 warning diagnostic carrying the waiver reason is emitted instead; on a non-prod profile the same waiver has no effect on this rule (see the info-level W099 diagnostic that flags a waiver set below prod class). `enabled` stays false because `scope: [\"none\"]` rules can never produce a declarative-engine finding (see the scope-none `enabled` invariant test); `codeEnforced` is the actual on/off switch for the code path above, defaulting to true, and also gates whether a prod-class scan is forced to plan+render for this rule alone.",
       "title": "Production profile exposes plaintext HTTP endpoint without TLS reverse-proxy",
       "severity": "high",
       "category": "network-exposure",
@@ -827,7 +827,8 @@
         "Limit plaintext endpoint bindings to localhost-only interfaces.",
         "If exposure is intentional, add spec.security.waivers.plaintextEndpointExposure.reason."
       ],
-      "enabled": false
+      "enabled": false,
+      "codeEnforced": true
     }
   ]
 }

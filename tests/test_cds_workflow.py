@@ -182,6 +182,17 @@ class ProductionPlaintextExposureWorkflowTest(unittest.TestCase):
                 self.assertIn(f"[PASS] {stage}", result.stdout)
             self.assertNotIn("CDS-SEC-074", result.stdout)
 
+        with self.subTest(case="wired tls reverse proxy but backend still publishes its own port"):
+            result = self._run_test("profile-with-tls-and-public-backend")
+            self.assertEqual(
+                result.returncode, 1,
+                "a plaintext backend that keeps its own non-localhost host "
+                "publish is still directly reachable, bypassing the proxy, "
+                f"even when fronted by a wired TLS reverse-proxy:\nstdout: {result.stdout}\nstderr: {result.stderr}",
+            )
+            self.assertIn("[FAIL] security", result.stdout)
+            self.assertIn("CDS-SEC-074", result.stdout)
+
         with self.subTest(case="missing tls reverse proxy"):
             result = self._run_test("profile-missing-tls")
             self.assertEqual(

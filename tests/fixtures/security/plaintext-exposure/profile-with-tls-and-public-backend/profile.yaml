@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=../../../../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: plaintext-exposure-with-tls-and-public-backend
+  environment: production
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    # `ingress` fronts `api`'s plaintext endpoint over TLS on 443, but
+    # `api` (apps/plain-api, not the internal-only variant) *also*
+    # publishes its own plaintext port directly on the host. Wired
+    # fronting does not remove that independent direct exposure -- an
+    # attacker can reach `api` on 8080 and skip the proxy entirely, so
+    # CDS-SEC-074 must still fire for `api`.
+    - id: ingress
+      source: network/secure-ingress
+      version: "0.1.0"
+      enabled: true
+      config:
+        backend:
+          contractRef: api.http-service
+    - id: api
+      source: apps/plain-api
+      version: "0.1.0"
+      enabled: true
+      config:
+        publicPort: 8080

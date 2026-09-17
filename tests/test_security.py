@@ -992,7 +992,10 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
         )
         self.assertEqual((findings, diags), ([], []))
 
-    def test_prod_exposure_fronted_by_wired_tls_reverse_proxy_is_silent(self):
+    def test_prod_exposure_fronted_by_wired_tls_reverse_proxy_still_reports(self):
+        # A wired TLS reverse-proxy does not remove the backend's own
+        # independent host-published port -- an attacker can still reach it
+        # directly and skip the proxy, so the finding must not be suppressed.
         plan = self._plan()
         plan["modules"].append({
             "id": "proxy",
@@ -1009,7 +1012,11 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
             rendered_compose=self._rendered_compose(),
             service_to_module={"api": "api"},
         )
-        self.assertEqual((findings, diags), ([], []))
+        self.assertEqual(diags, [])
+        self.assertEqual(len(findings), 1)
+        finding = findings[0]
+        self.assertEqual(finding["rule_id"], "CDS-SEC-074")
+        self.assertIn("bypassing its wired TLS reverse-proxy", finding["message"])
 
     def test_prod_exposure_with_waiver_emits_w098_and_no_findings(self):
         profile = {
