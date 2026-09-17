@@ -22,6 +22,14 @@
       "provenanceAttested": true,
       "sbomAttested": true
     },
+    "cds-dagster-hardened": {
+      "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
+      "tagPrefix": "hardened-",
+      "digest": "sha256:af741293fc3757f6baa6ea775b471d30f53d8913ba9c8be3ae8e7df68a064dba",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
+    },
     "cds-superset": {
       "repository": "ghcr.io/ronaldhensbergen/cds-superset",
       "digest": "sha256:9f8a7173b5efe7399dd1a5f559252977057847e10f4b474508832f75262d9bcb",

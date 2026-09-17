@@ -200,6 +200,8 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         ref_step = next(s for s in self._scan_steps() if s.get("id") == "ref")
         self.assertIn("tests/fixtures/signed-images.json", ref_step["run"])
         self.assertIn("github.event_name", ref_step["run"])
+        self.assertIn('"${{ matrix.image.variant }}"', ref_step["run"])
+        self.assertIn('key += f"-{variant}"', ref_step["run"])
         self.assertIn(
             "image-ref=cds/$tag:scan",
             ref_step["run"],
@@ -241,6 +243,8 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         self.assertTrue(scan_step.get("continue-on-error"))
         run = issues_step["run"]
         self.assertIn('label="vuln-scan"', run)
+        self.assertIn('variant="${{ matrix.image.variant }}"', run)
+        self.assertIn('image_key="${image}-${variant}"', run)
         self.assertIn('--label "$label"', run)
         self.assertIn("gh issue list", run)
         self.assertIn("in:title", run)
