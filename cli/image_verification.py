@@ -280,13 +280,14 @@ def _fixture_entry(
     fixture: dict[str, Any] | None,
     image_ref: str,
 ) -> dict[str, Any] | None:
-    """Return the fixture entry whose repository matches image_ref, if any."""
+    """Return the repository entry matching image_ref, preferring its digest."""
     if fixture is None:
         return None
     images = fixture.get("images", {})
     if not isinstance(images, dict):
         return None
     folded_image_ref = image_ref.casefold()
+    matches: list[dict[str, Any]] = []
     for entry in images.values():
         if not isinstance(entry, dict):
             continue
@@ -297,8 +298,16 @@ def _fixture_entry(
         if folded_image_ref == folded_repository or folded_image_ref.startswith(
             (folded_repository + "@", folded_repository + ":")
         ):
-            return entry
-    return None
+            matches.append(entry)
+    if not matches:
+        return None
+    if "@sha256:" in folded_image_ref:
+        ref_digest = folded_image_ref.rsplit("@", 1)[1]
+        for entry in matches:
+            digest = entry.get("digest")
+            if isinstance(digest, str) and digest.casefold() == ref_digest:
+                return entry
+    return matches[0]
 
 
 def _verification_findings(
