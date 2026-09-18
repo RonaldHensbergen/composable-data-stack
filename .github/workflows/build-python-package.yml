@@ -39,6 +39,37 @@ jobs:
           "$RUNNER_TEMP/cds-wheel/bin/python" -c \
             "from cli.security import _validate_rule_set; assert _validate_rule_set()['rules']"
 
+      - name: Generate CLI SBOM
+        # Generated from the same "$RUNNER_TEMP/cds-wheel" venv used for the
+        # smoke test above, which has only the built wheel and its declared
+        # runtime dependencies installed (no build/, twine, etc.), so the
+        # SBOM reflects what a user actually installs, not this workflow's
+        # own build tooling. Kept in a separate venv from cds-wheel so
+        # cyclonedx-bom itself never leaks into the SBOM it generates.
+        run: |
+          python -m venv "$RUNNER_TEMP/cdx-tools"
+          "$RUNNER_TEMP/cdx-tools/bin/pip" install --quiet cyclonedx-bom==7.4.0
+          "$RUNNER_TEMP/cdx-tools/bin/cyclonedx-py" environment \
+            "$RUNNER_TEMP/cds-wheel/bin/python" \
+            --pyproject pyproject.toml \
+            --output-format json \
+            --output-reproducible \
+            -o cli-sbom.cyclonedx.json
+
+      - name: Validate CLI SBOM
+        run: python scripts/validate_cli_sbom.py --sbom cli-sbom.cyclonedx.json
+
+      - name: Generate release artifact inventory
+        run: |
+          python scripts/generate_release_inventory.py \
+            --dist-dir dist \
+            --sbom-file cli-sbom.cyclonedx.json \
+            --commit-sha "$GITHUB_SHA" \
+            --source-ref "$GITHUB_REF_NAME" \
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --generated-by "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --output release-inventory.json
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
@@ -76,3 +107,13 @@ jobs:
           path: dist/
           if-no-files-found: error
           retention-days: 7
+
+      - name: Upload CLI SBOM and release artifact inventory
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: python-package-release-evidence
+          path: |
+            cli-sbom.cyclonedx.json
+            release-inventory.json
+          if-no-files-found: error
+          retention-days: 90
