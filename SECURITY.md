@@ -1,5 +1,9 @@
 # Security Policy
 
+See [`docs/cra-scope-decision.md`](docs/cra-scope-decision.md) for the
+project's current Cyber Resilience Act scope and accountable-role
+determination, and the conditions under which it must be reassessed.
+
 ## Supported Versions
 
 This project currently supports the latest code on the main branch.

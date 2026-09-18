@@ -95,6 +95,9 @@ Before publishing the GitHub release:
 - [ ] Each entry references its PR or issue number
 - [ ] Breaking changes are clearly marked and migration steps documented
 - [ ] Contributors credited where applicable
+- [ ] [`docs/cra-scope-decision.md`](docs/cra-scope-decision.md) reassessed
+  if any reassessment trigger listed there has occurred since the last
+  release
 
 ## Rollback
 
