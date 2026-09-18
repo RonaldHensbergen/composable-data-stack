@@ -6,6 +6,14 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- Remediated CVE-2026-89161 and other fixed Debian package vulnerabilities in
+  the Dagster base image by applying security upgrades during the runtime
+  build. Scheduled image scans and signed-image fixture refreshes now track
+  base and hardened variants independently instead of scanning the same
+  digest twice (#718, #719).
+
 ## [0.9.0] - 2026-09-12
 
 ### Removed

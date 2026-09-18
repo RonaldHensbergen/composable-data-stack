@@ -218,6 +218,10 @@ class PublishImagesWorkflowTest(unittest.TestCase):
             if s.get("name") == "Refresh signed-images fixture after successful publish"
         )
         self.assertIn("tests/fixtures/signed-images.json", refresh["run"])
+        self.assertIn('repo = entry["repository"]', refresh["run"])
+        self.assertIn("entry.get('tagPrefix', '')", refresh["run"])
+        self.assertNotIn("matrix.image.variant", refresh["run"])
+        self.assertIn("if tagged in tags:", refresh["run"])
         self.assertIn('["docker", "pull", tagged]', refresh["run"])
         self.assertIn(".RepoDigests 0", refresh["run"])
 
@@ -272,27 +276,26 @@ class PublishImagesWorkflowTest(unittest.TestCase):
             "tests/fixtures/signed-images.json still uses placeholder digests; "
             "refresh it from the latest publish-images run (docs/image-signing.md)",
         )
-        fixture_repos = {
-            entry["repository"]
-            for entry in fixture.get("images", {}).values()
-            if isinstance(entry, dict)
-        }
+        fixture_images = fixture.get("images", {})
         images_dir = repo_root / "images"
         published = []
         for entry in sorted(images_dir.iterdir()):
             if not entry.is_dir():
                 continue
             if (entry / "Dockerfile").is_file():
-                published.append(entry.name)
+                published.append(f"cds-{entry.name}")
                 continue
-            if any((variant_dir / "Dockerfile").is_file() for variant_dir in entry.iterdir() if variant_dir.is_dir()):
-                published.append(entry.name)
+            for variant_dir in entry.iterdir():
+                if not variant_dir.is_dir() or not (variant_dir / "Dockerfile").is_file():
+                    continue
+                suffix = "" if variant_dir.name == "base" else f"-{variant_dir.name}"
+                published.append(f"cds-{entry.name}{suffix}")
         self.assertTrue(published, "expected at least one published runtime image")
         for image in published:
             self.assertIn(
-                f"ghcr.io/{_OWNER}/cds-{image}",
-                fixture_repos,
-                f"signed-images fixture is missing an entry for the published {image} image",
+                image,
+                fixture_images,
+                f"signed-images fixture is missing an entry for the published {image}",
             )
 
     def test_ghcr_build_tags_alpine_alias_only_for_hardened_variant(self) -> None:

@@ -29,9 +29,15 @@ ENV DAGSTER_HOME=/opt/dagster/dagster_home \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN groupadd --system --gid 999 dagster && \
-    useradd --system --uid 999 --no-create-home --gid dagster dagster && \
-    install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage /var/run/dagster && \
+RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -e; \
+    groupadd --system --gid 999 dagster; \
+    useradd --system --uid 999 --no-create-home --gid dagster dagster; \
+    install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage /var/run/dagster; \
     python -m pip uninstall --yes pip 2>/dev/null || true
 
 WORKDIR /app
