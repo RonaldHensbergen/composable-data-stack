@@ -1,8 +1,12 @@
 name: Version Bump
 
 on:
-  push:
-    branches: [main]
+  schedule:
+    # Every Monday at 09:00 UTC. A single weekly bump PR (instead of one per
+    # push to main) so the accumulated Conventional Commits are reviewed and
+    # merged/tagged in one batch rather than opening/closing noisy PRs after
+    # nearly every merge.
+    - cron: "0 9 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -14,9 +18,6 @@ concurrency:
 
 jobs:
   version-bump:
-    # Skip when the triggering commit is itself a version-bump PR merge, to
-    # avoid this workflow endlessly proposing bumps on top of its own PRs.
-    if: "${{ !contains(github.event.head_commit.message, 'chore(release): bump version to') }}"
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -75,14 +76,20 @@ jobs:
           echo "current_version=${current}" >> "$GITHUB_OUTPUT"
           echo "next_version=${calculated}" >> "$GITHUB_OUTPUT"
 
+      - name: Date the CHANGELOG.md [Unreleased] section
+        if: steps.bump.outputs.changed == 'true'
+        run: python scripts/bump_changelog.py "${{ steps.bump.outputs.next_version }}"
+
       - name: Open a pull request to bump the version
         # main is a protected branch, so a direct `git push` here is
         # rejected. Route the bump through a PR instead, mirroring the
         # signed-images-fixture refresh job in publish-images.yml. This
-        # deliberately does NOT touch CHANGELOG.md or create a release tag:
-        # changelog entries stay hand-curated, and cutting a `vX.Y.Z` tag
-        # (which triggers release.yml/pypi.yml) remains a maintainer action
-        # once they're happy with the CHANGELOG for that version.
+        # bundles the CHANGELOG.md dating step (see scripts/bump_changelog.py)
+        # into the same PR as the pyproject.toml bump, so a single weekly PR
+        # is release-ready. It still does NOT create a release tag: cutting
+        # `vX.Y.Z` (which triggers release.yml/pypi.yml) remains a
+        # maintainer action once they're happy with the CHANGELOG for that
+        # version.
         if: steps.bump.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
@@ -95,12 +102,16 @@ jobs:
             [bitshifted/git-auto-semver](https://github.com/bitshifted/git-auto-semver).
 
 
-            Before merging, add a dated `## [${{ steps.bump.outputs.next_version }}] - YYYY-MM-DD`
-            section to `CHANGELOG.md` (moving the relevant `[Unreleased]`
-            entries beneath it); this workflow intentionally leaves the
-            changelog untouched. Merging this PR does not publish a release
-            by itself -- tag the merge commit `v${{ steps.bump.outputs.next_version }}`
-            and push the tag to trigger `release.yml`/`pypi.yml`.
+            The `[Unreleased]` section of `CHANGELOG.md` has already been
+            dated as `## [${{ steps.bump.outputs.next_version }}]` by
+            `scripts/bump_changelog.py`, with a fresh empty `[Unreleased]`
+            section above it for future PRs. Review the dated section for
+            accuracy before merging. Merging this PR does not publish a
+            release by itself -- tag the merge commit
+            `v${{ steps.bump.outputs.next_version }}` and push the tag to
+            trigger `release.yml`/`pypi.yml`.
           branch: chore/version-bump-${{ steps.bump.outputs.next_version }}
           delete-branch: true
-          add-paths: pyproject.toml
+          add-paths: |
+            pyproject.toml
+            CHANGELOG.md
