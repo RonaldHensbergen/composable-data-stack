@@ -89,6 +89,7 @@ These work but may have breaking changes in upcoming releases:
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
+- Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode (`start-dev`), backed by a consumed `sql-database` contract; not yet wired into a stable profile, no realm configuration (#680) or `oidc-provider` contract for other modules to consume (#681)
 - Profile: `local-dagster-postgres-superset-vault` — not tested thoroughly yet
 - `scripts/compose_to_module.py` — scaffolds a starter `module.yaml` from an existing `docker-compose.yml`
 - `scripts/ai_profile_review.py` — optional AI-assisted guardrail/simplification review for profiles
