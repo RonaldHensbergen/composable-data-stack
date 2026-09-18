@@ -753,7 +753,8 @@ def _check_production_plaintext_exposure(
             code="W098",
             message=(
                 "Applied plaintext endpoint exposure waiver for production profile "
-                f"(modules: {modules}): {waiver_reason}"
+                f"(modules: {modules}). See "
+                "spec.security.waivers.plaintextEndpointExposure.reason."
             ),
             path="spec.security.waivers.plaintextEndpointExposure",
         )]

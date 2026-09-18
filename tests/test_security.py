@@ -725,6 +725,55 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         finally:
             tmp_rule_set_path.unlink()
 
+    def test_codeenforced_false_disables_cds_sec_074_and_skips_forced_render(self):
+        """
+        A custom rule set setting CDS-SEC-074's `codeEnforced` to `false`
+        must both suppress the finding on a prod profile that would
+        otherwise trip it, and must not force the plan/render this rule
+        alone would otherwise require (issue #583 review: the codeEnforced
+        switch was previously untested at the run_security_validation
+        level).
+        """
+        profile_path = (
+            _REPO_ROOT
+            / "tests"
+            / "fixtures"
+            / "security"
+            / "plaintext-exposure"
+            / "profile-missing-tls"
+            / "profile.yaml"
+        )
+        env_path = profile_path.parent / ".env"
+
+        rule_set = json.loads(_RULE_SET_PATH.read_text())
+        for rule in rule_set["rules"]:
+            if rule["id"] == "CDS-SEC-074":
+                rule["codeEnforced"] = False
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False,
+        ) as tmp_rule_set:
+            json.dump(rule_set, tmp_rule_set)
+            tmp_rule_set_path = Path(tmp_rule_set.name)
+
+        try:
+            with unittest.mock.patch(
+                "cli.security.build_plan",
+                side_effect=AssertionError("build_plan should not be called"),
+            ):
+                findings, diags = run_security_validation(
+                    profile_path,
+                    _RULE_SCHEMA_PATH,
+                    tmp_rule_set_path,
+                    env_file=str(env_path),
+                )
+            self.assertEqual(
+                [f for f in findings if f["rule_id"] == "CDS-SEC-074"], [],
+            )
+            self.assertEqual([d.code for d in diags if d.code == "W098"], [])
+        finally:
+            tmp_rule_set_path.unlink()
+
 
 class ExtendsAwareSecurityScanTest(unittest.TestCase):
     """cds security must resolve `extends` even without --environment (issue #175)."""
@@ -1028,8 +1077,12 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
         )
         self.assertEqual(findings, [])
         self.assertEqual([d.code for d in diags], ["W098"])
-        self.assertIn("temporary", diags[0].message)
         self.assertIn("api", diags[0].message)
+        self.assertNotIn(
+            "temporary", diags[0].message,
+            "the waiver reason must not be echoed verbatim into a diagnostic "
+            "that print_diagnostics sends to stderr/CI logs",
+        )
 
     def test_prod_exposure_without_waiver_reports_cds_sec_074(self):
         findings, diags = _check_production_plaintext_exposure(
