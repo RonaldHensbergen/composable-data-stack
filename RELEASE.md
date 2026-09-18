@@ -61,6 +61,39 @@ The workflow uses GitHub OIDC (`id-token: write`) and must not be given a PyPI
 API token. TestPyPI publication does not publish or reserve the version on
 production PyPI.
 
+## Release Evidence
+
+Every tagged release attaches two machine-readable evidence files as
+permanent GitHub Release assets (not just short-lived CI artifacts):
+
+- `cli-sbom.cyclonedx.json` — a CycloneDX SBOM generated from a clean
+  install of the built wheel (`scripts/validate_cli_sbom.py` fails the
+  build if it doesn't parse, identify CDS by name/version, or list all
+  direct runtime dependencies).
+- `release-inventory.json` — ties the published wheel/sdist checksums to
+  the source commit, tag, and the SBOM above
+  (`scripts/generate_release_inventory.py`). It references, rather than
+  duplicates, the existing signed/attested evidence for CDS-published
+  runtime images (`tests/fixtures/signed-images.json`,
+  `docs/image-signing.md`), since those are versioned independently of the
+  CLI.
+
+Both are produced by the shared `build-python-package.yml` job and attached
+by `release.yml` when the GitHub release is created.
+
+**Retrieving evidence after CI artifacts expire:** the CI-produced
+`python-package-distributions` and `python-package-release-evidence`
+artifacts expire (7 and 90 days respectively). The GitHub Release page
+itself does not expire and is the durable source: download
+`cli-sbom.cyclonedx.json`/`release-inventory.json` directly from
+`https://github.com/RonaldHensbergen/composable-data-stack/releases/tag/vX.Y.Z`.
+
+**Access and disclosure:** both files are public, alongside every other
+release asset, and intentionally contain no more than a component/version
+inventory — no vulnerability findings, exploit details, or unpublished
+advisory information. Vulnerability handling follows `SECURITY.md`
+separately.
+
 ## Release Notes Template
 
 Use this structure when writing GitHub release notes. Copy relevant sections from `CHANGELOG.md` and remove any that are empty. Write entries in user-facing language. Describe the impact (not the implementation). Credit contributors by GitHub username where applicable (e.g. `— thanks @username`).
@@ -88,6 +121,8 @@ Before publishing the GitHub release:
 - [ ] `CHANGELOG.md` updated with all merged PRs since last release
 - [ ] Version bumped in `pyproject.toml`
 - [ ] Wheel and source distribution pass CI package checks
+- [ ] CLI SBOM and release artifact inventory generated, validated, and
+  attached to the GitHub release
 - [ ] TestPyPI artifact installed and smoke-tested
 - [ ] All CI checks green on `main`
 - [ ] No unresolved high-severity issues
