@@ -6,6 +6,20 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added a `cds security` rule (`CDS-SEC-074`) that flags production profiles
+  exposing a plaintext HTTP endpoint (a module providing an `http-service`
+  contract with `protocol: http`) that is host-published on a non-loopback
+  address without a wired TLS reverse-proxy in front of it. Fronting by a
+  `reverse-proxy` contract with `protocol: https` does not suppress the
+  finding if the backend independently publishes its own port, since that
+  remains directly reachable, bypassing the proxy. Profiles that intentionally
+  accept plaintext exposure can set
+  `spec.security.waivers.plaintextEndpointExposure.reason` (a required,
+  non-blank string) to downgrade the finding to a `W098` warning instead
+  (#576).
+
 ## [0.9.1] - 2026-09-18
 
 ### Fixed

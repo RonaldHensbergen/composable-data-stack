@@ -22,6 +22,7 @@ from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .planner import build_plan
 from .renderer import _compose_service_name, render_compose
+from .resolver import parse_contract_ref
 from .secrets import load_secrets_from_env
 from .security_common import SECRET_KEY_RE, SEVERITY_ORDER, infer_profile_class
 
@@ -328,6 +329,15 @@ _NON_SECRET_PATH_SUFFIXES = (
     "comment",
     "notes",
 )
+
+# Path-scoped (rather than bare key-suffix) exemptions from the high-entropy
+# secret heuristic. Unlike _NON_SECRET_PATH_SUFFIXES, these only suppress the
+# check for the exact documented field, so an unrelated key that happens to
+# end in "reason" (e.g. a genuine secret named "authFailureReason") is still
+# scanned normally.
+_NON_SECRET_PATH_PATTERNS = (
+    "spec.security.waivers.*.reason",
+)
 def _eval_condition(
     path: str,
     key: str,
@@ -337,8 +347,12 @@ def _eval_condition(
 ) -> bool:
     sval = "" if value is None else str(value)
 
-    # Never flag known metadata fields as secret-like
-    if cond.get("entropy") == "high" and key.lower().endswith(_NON_SECRET_PATH_SUFFIXES):
+    # Never flag known metadata fields, or the documented waiver reason
+    # field, as secret-like.
+    if cond.get("entropy") == "high" and (
+        key.lower().endswith(_NON_SECRET_PATH_SUFFIXES)
+        or _path_matches_any(path, _NON_SECRET_PATH_PATTERNS)
+    ):
         return False
     
     if "pathPatterns" in cond and not _path_matches_any(path, cond["pathPatterns"]):
@@ -373,9 +387,7 @@ def _eval_condition(
             return False
         if exposure == "host-published" and ":" not in sval:
             return False
-        if exposure == "localhost-only" and not (
-            sval.startswith("127.0.0.1:") or sval.startswith("localhost:")
-        ):
+        if exposure == "localhost-only" and not _LOOPBACK_HOST_PORT_PREFIX_RE.match(sval):
             return False
 
     if "imageTagPolicy" in cond:
@@ -529,6 +541,259 @@ def _map_service_to_module(plan: dict[str, Any] | None) -> dict[str, str]:
     return mapping
 
 
+def _module_provides_plaintext_http(module: dict[str, Any]) -> bool:
+    """Return whether any of this module's provided contracts is a plaintext
+    (protocol: http) http-service contract."""
+    provides = module.get("provides", {})
+    if not isinstance(provides, dict):
+        return False
+    return any(
+        isinstance(contract, dict)
+        and contract.get("kind") == "http-service"
+        and isinstance(contract.get("spec", {}), dict)
+        and str(contract.get("spec", {}).get("protocol", "")).lower() == "http"
+        for contract in provides.values()
+    )
+
+
+def _module_provides_tls_reverse_proxy(module: dict[str, Any]) -> bool:
+    provides = module.get("provides", {})
+    if not isinstance(provides, dict):
+        return False
+    for contract in provides.values():
+        if not isinstance(contract, dict):
+            continue
+        if contract.get("kind") != "reverse-proxy":
+            continue
+        spec = contract.get("spec", {})
+        if isinstance(spec, dict) and str(spec.get("protocol", "")).lower() == "https":
+            return True
+    return False
+
+
+def _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan: dict[str, Any] | None) -> set[str]:
+    """Return the ids of plan modules whose plaintext http-service contract is
+    actually consumed (per the plan's contract wiring) by another module that
+    itself provides a TLS (https) reverse-proxy contract.
+
+    Merely having *some* https reverse-proxy contract present anywhere in the
+    plan is not sufficient -- it must be wired to the specific plaintext
+    module via `consumes`/`mappedFrom`, otherwise an unrelated module
+    providing reverse-proxy/https would incorrectly suppress findings for a
+    plaintext endpoint it has no relationship to.
+    """
+    if not isinstance(plan, dict):
+        return set()
+
+    fronted: set[str] = set()
+    for module in plan.get("modules", []):
+        if not isinstance(module, dict) or not _module_provides_tls_reverse_proxy(module):
+            continue
+        consumes = module.get("consumes", {})
+        if not isinstance(consumes, dict):
+            continue
+        for consumed in consumes.values():
+            if not isinstance(consumed, dict):
+                continue
+            contract_ref = consumed.get("contractRef")
+            parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+            if parsed is None:
+                continue
+            producer_id, _ = parsed
+            contract = consumed.get("contract")
+            if not isinstance(contract, dict) or contract.get("kind") != "http-service":
+                continue
+            spec = contract.get("spec", {})
+            if isinstance(spec, dict) and str(spec.get("protocol", "")).lower() == "http":
+                fronted.add(producer_id)
+    return fronted
+
+
+_LOOPBACK_HOST_RE = re.compile(r"^(127(?:\.\d{1,3}){3}|localhost|::1)$")
+_LOOPBACK_HOST_PORT_PREFIX_RE = re.compile(r"^(127(?:\.\d{1,3}){3}|localhost|\[::1\]):")
+
+
+def _port_is_non_local_host_exposure(port: Any) -> bool:
+    if isinstance(port, int):
+        return True
+    if isinstance(port, str):
+        value = port.strip()
+        # Loopback covers the entire 127.0.0.0/8 range (not just 127.0.0.1),
+        # "localhost", and "[::1]" -- a bare 127.0.0.1 check would treat
+        # e.g. 127.0.0.2:8080 as externally reachable when it is not.
+        if _LOOPBACK_HOST_PORT_PREFIX_RE.match(value):
+            return False
+        return True
+    if isinstance(port, dict):
+        host_ip = str(port.get("host_ip", "")).strip().lower()
+        if _LOOPBACK_HOST_RE.match(host_ip):
+            return False
+        return "target" in port
+    return False
+
+
+def _plaintext_exposure_waiver_reason(profile: dict[str, Any]) -> str | None:
+    waiver = (
+        profile.get("spec", {})
+        .get("security", {})
+        .get("waivers", {})
+        .get("plaintextEndpointExposure")
+    )
+    if not isinstance(waiver, dict):
+        return None
+    reason = waiver.get("reason")
+    if not isinstance(reason, str):
+        return None
+    reason = reason.strip()
+    return reason or None
+
+
+def _rule_enabled(rule_set: dict[str, Any], rule_id: str, key: str = "enabled", default: bool = True) -> bool:
+    """Return whether the rule with the given id has `key` set truthy.
+
+    Falls back to `default` if the rule set doesn't declare that rule id at
+    all (e.g. a minimal custom rule set that omits it entirely), so omission
+    doesn't silently disable code-enforced checks that don't otherwise
+    appear in a hand-written rule set.
+    """
+    for rule in rule_set.get("rules", []):
+        if rule.get("id") == rule_id:
+            return bool(rule.get(key, default))
+    return default
+
+
+def _check_production_plaintext_exposure(
+    profile: dict[str, Any],
+    profile_class: str,
+    plan: dict[str, Any] | None,
+    rendered_compose: dict[str, Any] | None,
+    service_to_module: dict[str, str],
+    redact_values: bool = False,
+    rule_enabled: bool = True,
+) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
+    if not rule_enabled:
+        # CDS-SEC-074 is enforced entirely in code (see rule-set.json's
+        # $comment for it), not by the declarative match engine, but a
+        # custom rule set must still be able to turn it off by setting
+        # enabled: false on that rule id -- otherwise the metadata would be
+        # decorative and the check would run unconditionally regardless of
+        # what the rule set declares.
+        return [], []
+
+    if profile_class != "prod":
+        # The waiver only ever has an effect on a prod-class profile (below,
+        # only reached when profile_class == "prod"); if one is declared here
+        # anyway, it currently does nothing, so tell the author rather than
+        # staying silent about a waiver that "sleeps" until the profile is
+        # promoted to prod.
+        if _plaintext_exposure_waiver_reason(profile) is not None:
+            return [], [Diagnostic(
+                level="warning",
+                code="W099",
+                message=(
+                    "spec.security.waivers.plaintextEndpointExposure is set but has no "
+                    f"effect for profile class {profile_class!r}: CDS-SEC-074 and its waiver "
+                    "only apply to prod-class profiles."
+                ),
+                path="spec.security.waivers.plaintextEndpointExposure",
+            )]
+        return [], []
+
+    if not isinstance(plan, dict) or not isinstance(rendered_compose, dict):
+        return [], []
+
+    plaintext_modules = {
+        module.get("id")
+        for module in plan.get("modules", [])
+        if isinstance(module, dict)
+        and isinstance(module.get("id"), str)
+        and _module_provides_plaintext_http(module)
+    }
+    if not plaintext_modules:
+        return [], []
+
+    services = rendered_compose.get("services", {})
+    if not isinstance(services, dict):
+        return [], []
+
+    exposures: list[dict[str, Any]] = []
+    for service_name, service_def in services.items():
+        if not isinstance(service_def, dict):
+            continue
+        module_id = service_to_module.get(service_name, service_name)
+        if module_id not in plaintext_modules:
+            continue
+        ports = service_def.get("ports", [])
+        if not isinstance(ports, list):
+            ports = [ports]
+        for index, port in enumerate(ports):
+            if _port_is_non_local_host_exposure(port):
+                exposures.append({
+                    "module": module_id,
+                    "path": f"services.{service_name}.ports[{index}]",
+                    "value": port,
+                })
+
+    if not exposures:
+        return [], []
+
+    # A module wired behind a TLS reverse-proxy is not thereby safe from an
+    # exposure recorded above: `exposures` only ever contains ports the
+    # backend's *own* Compose service publishes on a non-localhost address,
+    # so an attacker can always reach it directly and skip the proxy. Wired
+    # fronting must never suppress that independent publish -- it can only
+    # change the finding's message to call out the bypass explicitly.
+    fronted_module_ids = _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan)
+
+    waiver_reason = _plaintext_exposure_waiver_reason(profile)
+    if waiver_reason is not None:
+        modules = ", ".join(sorted({entry["module"] for entry in exposures}))
+        return [], [Diagnostic(
+            level="warning",
+            code="W098",
+            message=(
+                "Applied plaintext endpoint exposure waiver for production profile "
+                f"(modules: {modules}). See "
+                "spec.security.waivers.plaintextEndpointExposure.reason."
+            ),
+            path="spec.security.waivers.plaintextEndpointExposure",
+        )]
+
+    findings = [
+        {
+            "rule_id": "CDS-SEC-074",
+            "severity": "high",
+            "module": entry["module"],
+            "message": (
+                "Production profile exposes a plaintext HTTP endpoint that is "
+                "also independently published on the host, bypassing its "
+                "wired TLS reverse-proxy"
+                if entry["module"] in fronted_module_ids
+                else "Production profile exposes a plaintext HTTP endpoint without a "
+                "TLS reverse-proxy contract"
+            ),
+            "path": entry["path"],
+            "value": _redact(entry["value"]) if redact_values else entry["value"],
+            "recommendation": (
+                [
+                    "Stop publishing this port directly on the host; only the "
+                    "TLS reverse-proxy should be host-published.",
+                    "Limit plaintext endpoint bindings to localhost-only interfaces.",
+                    "If exposure is intentional, add spec.security.waivers.plaintextEndpointExposure.reason.",
+                ]
+                if entry["module"] in fronted_module_ids
+                else [
+                    "Route endpoint traffic through a module that provides reverse-proxy with protocol https.",
+                    "Limit plaintext endpoint bindings to localhost-only interfaces.",
+                    "If exposure is intentional, add spec.security.waivers.plaintextEndpointExposure.reason.",
+                ]
+            ),
+        }
+        for entry in exposures
+    ]
+    return findings, []
+
+
 @dataclass(frozen=True)
 class PrecomputedRender:
     """
@@ -557,7 +822,7 @@ def _try_render_compose_for_scan(
     env_file: str | None,
     environment: str | None,
     precomputed: PrecomputedRender | None = None,
-) -> tuple[dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
     """
     Resolve the rendered Compose document (and its service->module map) used
     by "rendered-compose"-scoped rules.
@@ -589,7 +854,7 @@ def _try_render_compose_for_scan(
     plan = precomputed.plan
     rendered_compose_yaml = precomputed.rendered_compose_yaml
     if precomputed.failed and rendered_compose_yaml is None:
-        return None, {}, diagnostics
+        return None, None, {}, diagnostics
     try:
         if rendered_compose_yaml is None:
             if plan is None:
@@ -609,7 +874,7 @@ def _try_render_compose_for_scan(
                         ),
                         path="spec.modules",
                     ))
-                    return None, {}, diagnostics
+                    return None, None, {}, diagnostics
 
             rendered_compose_yaml, render_diags = render_compose(plan, env_file=env_file)
             render_errors = [d for d in render_diags if d.level == "error"]
@@ -625,11 +890,11 @@ def _try_render_compose_for_scan(
                     ),
                     path="spec.modules",
                 ))
-                return None, {}, diagnostics
+                return None, plan, {}, diagnostics
 
         rendered = yaml.safe_load(rendered_compose_yaml)
         service_to_module = _map_service_to_module(plan)
-        return (rendered if isinstance(rendered, dict) else None), service_to_module, diagnostics
+        return (rendered if isinstance(rendered, dict) else None), plan, service_to_module, diagnostics
     except Exception as exc:
         diagnostics.append(Diagnostic(
             level="warning",
@@ -640,7 +905,7 @@ def _try_render_compose_for_scan(
             ),
             path="spec.modules",
         ))
-        return None, {}, diagnostics
+        return None, plan, {}, diagnostics
 
 
 # ---------------------------------------------------------------------------
@@ -722,13 +987,21 @@ def run_security_validation(
     # Planning and rendering the profile is only useful when some enabled
     # rule actually declares the "rendered-compose" scope -- e.g. a custom
     # rule set may omit CDS-SEC-070 entirely, in which case doing a full
-    # plan+render here would be wasted work on every security scan.
-    needs_rendered_compose = any(
-        rule.get("enabled", True) and set(rule.get("scope", [])) & _RENDERED_COMPOSE_SCOPES
-        for rule in rule_set["rules"]
+    # plan+render here would be wasted work on every security scan. The
+    # code-enforced CDS-SEC-074 check is scoped separately (it isn't scope-
+    # tagged for the declarative engine), so it only forces the same work
+    # when it is itself enabled for this rule set.
+    plaintext_exposure_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-074", key="codeEnforced")
+    needs_rendered_compose = (
+        (profile_class == "prod" and plaintext_exposure_rule_enabled)
+        or any(
+            rule.get("enabled", True) and set(rule.get("scope", [])) & _RENDERED_COMPOSE_SCOPES
+            for rule in rule_set["rules"]
+        )
     )
+    rendered_plan = precomputed_render.plan if precomputed_render is not None else None
     if needs_rendered_compose:
-        rendered_compose, service_to_module, render_scan_diags = _try_render_compose_for_scan(
+        rendered_compose, rendered_plan, service_to_module, render_scan_diags = _try_render_compose_for_scan(
             profile_path, env_file, environment,
             precomputed=precomputed_render,
         )
@@ -761,6 +1034,16 @@ def run_security_validation(
             ))
 
     findings.extend(_check_secret_reuse(flat_profile + flat_env))
+    plaintext_findings, plaintext_diags = _check_production_plaintext_exposure(
+        profile=profile,
+        profile_class=profile_class,
+        plan=rendered_plan,
+        rendered_compose=rendered_compose,
+        service_to_module=service_to_module,
+        redact_values=redact_values,
+        rule_enabled=plaintext_exposure_rule_enabled,
+    )
+    findings.extend(plaintext_findings)
     
     findings.sort(key=lambda x: (
         SEVERITY_ORDER.get(x["severity"], 99),
@@ -769,4 +1052,4 @@ def run_security_validation(
         x["path"],
     ))
 
-    return findings, overlay_diags + secret_diags + render_scan_diags
+    return findings, overlay_diags + secret_diags + render_scan_diags + plaintext_diags

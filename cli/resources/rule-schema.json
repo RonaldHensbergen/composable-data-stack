@@ -231,6 +231,11 @@
         "enabled": {
           "type": "boolean",
           "default": true
+        },
+        "codeEnforced": {
+          "type": "boolean",
+          "default": true,
+          "description": "For a scope: [\"none\"] rule that is actually enforced entirely in code (not by the declarative match engine -- see the rule's $comment), this is the real on/off switch a custom rule set can flip to disable that code path. `enabled` stays false on such rules per the scope-none convention (it can never produce a declarative-engine finding), so `enabled` alone cannot represent whether the code-level check is active."
         }
       }
     }

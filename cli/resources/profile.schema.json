@@ -154,6 +154,21 @@
               }
             }
           }
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "waivers": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "plaintextEndpointExposure": {
+                  "$ref": "#/$defs/plaintextEndpointExposureWaiver"
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -229,6 +244,19 @@
         "driver": {
           "type": "string",
           "default": "bridge"
+        }
+      }
+    },
+    "plaintextEndpointExposureWaiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason"],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "Must contain at least one non-whitespace character; cli/security.py strips and treats an all-whitespace reason as unset (no waiver applied, so CDS-SEC-074 still fires), so a schema that only enforced minLength: 1 would silently accept a value the code then discards."
         }
       }
     }

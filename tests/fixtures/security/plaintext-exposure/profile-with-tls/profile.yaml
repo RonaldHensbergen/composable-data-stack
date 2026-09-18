@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=../../../../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: plaintext-exposure-with-tls
+  environment: production
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: ingress
+      source: network/secure-ingress
+      version: "0.1.0"
+      enabled: true
+      config:
+        backend:
+          contractRef: api.http-service
+    - id: api
+      # Not host-published: the only host-published entry point is
+      # `ingress` on 443. A backend that also publishes its own port
+      # directly is still reachable bypassing the proxy and must keep
+      # failing CDS-SEC-074 (see profile-with-tls-and-public-backend).
+      source: apps/plain-api-internal
+      version: "0.1.0"
+      enabled: true
+      config:
+        publicPort: 8080
