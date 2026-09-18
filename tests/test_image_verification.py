@@ -320,6 +320,21 @@ class FixtureVerificationTest(unittest.TestCase):
         mock_which.assert_not_called()
         self.assertEqual(findings, [])
 
+    def test_fixture_selects_digest_when_variants_share_a_repository(self) -> None:
+        hardened = {
+            **self.fixture["images"]["cds-dagster"],
+            "digest": _DIGEST_B,
+        }
+        self.fixture["images"]["cds-dagster-hardened"] = hardened
+
+        self.assertIs(
+            _fixture_entry(
+                self.fixture,
+                f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_B}",
+            ),
+            hardened,
+        )
+
     def test_local_build_entries_are_skipped_by_verification(self) -> None:
         with patch("cli.image_verification.shutil.which", return_value="/usr/bin/cosign") as mock_which:
             findings = _verification_findings(

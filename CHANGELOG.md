@@ -6,6 +6,25 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-18
+
+### Fixed
+
+- Remediated CVE-2026-89161 and other fixed Debian package vulnerabilities in
+  the Dagster base image by applying security upgrades during the runtime
+  build. Scheduled image scans and signed-image fixture refreshes now track
+  base and hardened variants independently instead of scanning the same
+  digest twice (#718, #719).
+- Replaced the SHA-1 branch-to-port hash used by the k3d local-dev harness
+  (`scripts/k8s/`) with SHA-256 (#698).
+- Hardened `helm`/`kubectl` invocations against CLI-supplied argument and
+  path issues flagged by SonarCloud: resolved CWE-88/CWE-22 risks in
+  CLI-supplied args and paths (#700), satisfied taint tracking for k8s
+  name/context validation (#701), resolved `--chart-dir` to an absolute path
+  before use in the `helm` command (#702), and validated the
+  `helm`/`kubectl` `--timeout` value before building the command argument
+  (#705).
+
 ## [0.9.0] - 2026-09-12
 
 ### Removed

@@ -13,9 +13,9 @@ tracked by issue #209.
 | Push to `main` touching `images/**` / weekly (Monday 04:17 UTC) | `publish-images.yml` | Rebuilds the images, **fails before push when HIGH/CRITICAL vulnerabilities are found** (trivy gate, `exit-code: 1`, `ignore-unfixed`; same `.trivyignore` exceptions as the PR scan), then signs, attests, and pushes them, and auto-refreshes `tests/fixtures/signed-images.json` via a PR (job `update-fixture`). |
 | Base image digest available upstream | Renovate | Opens PRs bumping the digest-pinned base images (`renovate.json`), which are then gated by the PR scan above. |
 
-Because the images re-resolve pip ranges (`>=`) and OS packages at build
-time, a weekly rebuild refreshes base layers even when the pinned base
-image digest has not changed.
+Because the images re-resolve pip ranges (`>=`) and explicitly upgrade OS
+packages at build time, a weekly rebuild picks up available security fixes
+even when a pinned base image digest has not changed.
 
 ## Versioning
 
@@ -37,11 +37,11 @@ Release object for them:
 - plus a `sha-<12-char-commit-sha>` tag (immutable, always pushed) and a
   `latest`/`<variant->latest` tag.
 
-To find the currently-published digest for a given image, look up
+To find the currently-published digest for a given image or variant, look up
 `tests/fixtures/signed-images.json`: it is refreshed automatically by the
 `update-fixture` job in `publish-images.yml` after every successful publish
-and records the repository, digest, and signing/attestation status for each
-published image.
+and records each variant's repository, tag prefix, digest, and
+signing/attestation status.
 
 ## Remediation SLA
 

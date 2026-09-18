@@ -30,7 +30,9 @@ class DagsterHardeningTest(unittest.TestCase):
         users = re.findall(r"^USER\s+(\S+)$", self.dockerfile, flags=re.MULTILINE)
 
         self.assertEqual(users[-1], "dagster")
-        self.assertNotIn("apt-get", self.dockerfile)
+        self.assertIn("apt-get update", self.dockerfile)
+        self.assertIn("apt-get upgrade -y --no-install-recommends", self.dockerfile)
+        self.assertIn("rm -rf /var/lib/apt/lists/*", self.dockerfile)
         self.assertNotIn("COPY . /app", self.dockerfile)
         self.assertNotIn("pip install", self.entrypoint)
         self.assertNotIn("dagster-docker", self.requirements)

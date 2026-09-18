@@ -1,9 +1,9 @@
 # 🚀 Composable Data Stack (CDS)
 
-> **Terraform for data platforms.**
-> Build, validate, secure, and evolve data stacks using modular components and explicit contracts.
+> **The modern data stack has a composition problem. CDS is an open framework
+> for building data platforms that can evolve without being rebuilt.**
 
-![Composable Data Stack logo](assets/branding/logo.svg)
+![Composable Data Stack logo](https://raw.githubusercontent.com/RonaldHensbergen/composable-data-stack/main/assets/branding/logo.svg)
 
 Project:
 
@@ -32,43 +32,122 @@ SonarCloud — Metrics:
 
 ---
 
-## 🧠 What Is CDS (In 1 Minute)
+You start with a straightforward goal: orchestrate some pipelines, store the
+data, and make it useful.
 
-Composable Data Stack (CDS) is a framework for defining and assembling data platforms from reusable modules such as orchestrators, warehouses, BI tools, and secrets providers.
+Then the tool decisions begin.
 
-## 🤝 Get Involved
+Airflow, Dagster, or Prefect? Iceberg, Delta, or Hudi? Superset or Metabase?
+Every choice opens another comparison, another integration, and another
+architecture diagram. Every diagram looks different. Every tool has its own
+configuration model, assumptions, and lifecycle. Before long, the platform is
+less a designed system than a collection of decisions held together by custom
+code and institutional memory.
 
-- **Star and follow** on GitHub: [RonaldHensbergen/composable-data-stack](https://github.com/RonaldHensbergen/composable-data-stack)
-- **Contribute**: open a discussion, file an issue, or send a PR to help shape CDS
-- **Proof it**: if you run it in a real workflow, share your feedback — good or bad
+The hardest question is no longer **"Which tool is best?"** It is **"How do
+these tools fit together, and can we change our minds later?"**
 
-> **Note:** Development helper tools are located in the `tools/` directory (git-ignored). See `tools/pr-cli/README.md` for PR creation scripts.
+## Why Data Platforms Have a Composition Problem
 
----
+The modern data ecosystem is excellent at producing capable tools and terrible
+at making them work as interchangeable parts.
+
+Teams are expected to assemble orchestration, storage, transformation,
+cataloging, observability, security, and BI into one dependable platform. But
+the boundaries between those tools are usually implicit. Connection details
+leak into environment variables. Service names become dependencies. Deployment
+logic assumes a specific vendor. Compatibility lives in a staff engineer's
+head—or is discovered during an incident.
+
+That fragmentation creates a familiar cycle:
+
+- evaluate an overwhelming number of tools
+- debate architecture instead of delivering data products
+- hand-build integrations that only one team understands
+- duplicate stacks across development, CI, and production
+- postpone upgrades because nobody knows what they will break
+- accept lock-in because replacing one component feels like replacing the
+  platform
+
+This is not primarily a tooling problem. **It is a composition problem.** We
+have many good components, but no shared way to declare what they provide,
+what they need, and whether a particular assembly is valid.
+
+## The Cost of Choosing Wrong
+
+A technology choice that looks local rarely stays local.
+
+Choose an orchestrator and its concepts spread into deployment, secrets,
+logging, and team workflows. Choose a table format and it constrains engines,
+catalogs, and migration paths. Choose a BI layer and dashboards become coupled
+to authentication, database behavior, and operational assumptions.
+
+The bill arrives later:
+
+- migrations become multi-quarter programs
+- upgrades become risky, manual compatibility exercises
+- platform teams maintain glue code instead of platform capabilities
+- product teams wait while engineers renegotiate architecture
+- vendors gain leverage because the cost of leaving keeps rising
+
+There is no universally correct stack, and pretending otherwise is expensive.
+The right choice today may be the wrong choice at a different scale, under a
+new regulatory constraint, or after the team learns more. A healthy platform
+must make change routine—not heroic.
+
+## What If Data Platforms Were Composable?
+
+What if a data platform described capabilities and interfaces before naming
+products?
+
+What if an orchestrator could request a database contract without hardcoding a
+specific database? What if a profile could declare a supported combination,
+validate it before deployment, and produce the runtime configuration? What if
+replacing a component meant satisfying the same contract instead of rebuilding
+every integration around it?
+
+That is the goal of **Composable Data Stack (CDS)**.
+
+CDS is an open-source framework for defining, validating, securing, and
+assembling data platforms from reusable components. Think of it as
+**Infrastructure as Code for the shape of a data platform**: the components,
+the interfaces between them, and the rules that make the whole stack coherent.
+
+CDS introduces three building blocks:
+
+- 🔧 **Modules** package reusable capabilities such as orchestration, storage,
+  BI, and secret management.
+- 🔗 **Contracts** define explicit, testable interfaces between those
+  capabilities.
+- 🧩 **Profiles** compose modules into supported, reproducible stacks.
+
+Instead of burying platform architecture in scripts and tribal knowledge, CDS
+makes it declarative. It answers:
+
+- **How do these tools fit together?** Through explicit contracts and declared
+  bindings.
+- **What happens if I replace a component later?** CDS validates the new
+  composition against the same requirements before runtime.
+- **How do I avoid vendor and technology lock-in?** Consumers depend on
+  capabilities, not hardcoded product identities.
+
+The result is composability without chaos, flexibility with guarantees, and a
+platform that can evolve without starting over.
 
 ## ⚡ Why CDS
 
-Instead of hardcoding integrations or relying on fragile pipelines, CDS introduces:
+Most teams are forced into one of two bad options:
 
-- 🔧 **Modules**: reusable components (Dagster, Postgres, Superset)
-- 🔗 **Contracts**: explicit interfaces between components
-- 🧩 **Profiles**: fully composed, runnable stacks
+|Approach|What You Gain|What It Costs|
+|---|---|---|
+|Monolithic stack|A consistent starting point|Rigid boundaries and an expensive exit|
+|Custom integrations|Freedom to choose every component|Fragile glue, inconsistent stacks, and hidden coupling|
+|CDS|Explicit composition and replaceable components|A contract and profile model the community maintains together|
 
-Think of it as Infrastructure as Code, but for data platforms.
-
-Modern data platforms force a trade-off:
-
-|Approach|Problem|
-|---|---|
-|Monolithic stack|Rigid, hard to evolve|
-|Custom pipelines|Flexible but fragile and inconsistent|
-
-CDS gives you the best of both:
-
-- composability without chaos
-- flexibility with guarantees
-- modularity with structure
-- no vendor lock-in by design
+CDS does not claim that every tool is interchangeable or that integration
+complexity disappears. It makes compatibility explicit, validates known
+constraints early, and gives the ecosystem a shared place to improve how tools
+compose.
 
 ---
 
@@ -76,10 +155,12 @@ CDS gives you the best of both:
 
 Use CDS if you:
 
+- expect your architecture to evolve as requirements change
 - want to swap tools (Airflow ↔ Dagster, Superset ↔ Metabase)
 - need reproducible environments across dev, CI, and prod
 - are building a platform for multiple teams
 - want contract-driven integration instead of implicit coupling
+- want to contribute to an open interoperability model for data tooling
 
 CDS may be overkill if:
 
@@ -88,7 +169,7 @@ CDS may be overkill if:
 
 ---
 
-## 🏗️ Example
+## 🏗️ See Composition in Practice
 
 The `local-dagster-postgres-superset` profile defines:
 
@@ -96,7 +177,7 @@ The `local-dagster-postgres-superset` profile defines:
 - Postgres -> storage
 - Superset -> BI
 
-### What CDS Does
+CDS then:
 
 1. Validates module definitions
 2. Resolves contract bindings
@@ -105,7 +186,8 @@ The `local-dagster-postgres-superset` profile defines:
 
 `cds plan` resolves the full dependency graph before runtime configuration is generated, ensuring all module interactions are valid and predictable.
 
-You can replace components without changing system behavior:
+The composition model creates a path to replace components while preserving
+the contracts the rest of the platform depends on:
 
 ```text
 Dagster -> Airflow
@@ -123,23 +205,7 @@ CDS wires modules through **contracts**, not direct dependencies. This section h
 
 Below, `local-dagster-postgres-superset` wires Dagster to Postgres to Superset through contracts:
 
-```mermaid
-flowchart TD
-    Dagster[Dagster]
-    Postgres[(Postgres)]
-    Superset[Superset]
-
-    Dagster -->|transformation-runner| Postgres
-    Postgres -->|warehouse-query| Superset
-
-    classDef tool stroke:#818cf8,fill:#eef2ff
-    classDef database stroke:#2dd4bf,fill:#f0fdfa
-    classDef viz stroke:#a78bfa,fill:#f5f3ff
-
-    class Dagster tool
-    class Postgres database
-    class Superset viz
-```
+![Dagster, Postgres, and Superset connected through contracts](https://raw.githubusercontent.com/RonaldHensbergen/composable-data-stack/main/docs/diagrams/architecture/architecture_overview.svg)
 
 ### Internal Flow
 
@@ -161,51 +227,7 @@ consumption in Superset), see
 [docs/profile-testing/test-plan.md](docs/profile-testing/test-plan.md) and
 [docs/profile-testing/failure-path-and-ci.md](docs/profile-testing/failure-path-and-ci.md).
 
-```mermaid
-flowchart TD
-    subgraph compile["Compile-time (cds)"]
-        direction TB
-        Profile[/profile.yaml/]
-        Validate[Validate]
-        Security["Security checks<br/>(cds test only)"]
-        Plan[Plan]
-        Render[Render]
-        Compose[/docker-compose.yaml/]
-        Stop1((stops here))
-
-        Profile --> Validate
-        Validate -->|structural + contract checks| Security
-        Security -->|rule-based checks| Plan
-        Plan -->|resolve + substitute| Render
-        Render --> Compose
-
-        Validate -.->|E020, E041, E042, E081| Stop1
-    end
-
-    subgraph runtime["Runtime (docker compose, cds up only)"]
-        direction TB
-        Build["docker compose build<br/>(skip with --no-build)"]
-        Up["docker compose up"]
-        Env[(".env file")]
-        Containers["running containers,<br/>real secret values injected"]
-
-        Build --> Up
-        Env -.->|resolves CDS_VAR| Up
-        Up --> Containers
-    end
-
-    Compose --> Build
-
-    classDef stage stroke:#818cf8,fill:#eef2ff
-    classDef artifact stroke:#2dd4bf,fill:#f0fdfa
-    classDef stop stroke:#f87171,fill:#fef2f2,stroke-dasharray: 3 3
-    classDef runtimeNode stroke:#a78bfa,fill:#f5f3ff
-
-    class Validate,Security,Plan,Render stage
-    class Profile,Compose artifact
-    class Stop1 stop
-    class Build,Up,Env,Containers runtimeNode
-```
+![CDS compile-time and runtime flow](https://raw.githubusercontent.com/RonaldHensbergen/composable-data-stack/main/docs/diagrams/processes/internal_flow.svg)
 
 This mirrors the [`cds` command table](#️-cli) below: `validate`, `plan`, and `render` are each callable on their own; `security` only runs as part of `cds test`, not `cds up`. Module and contract definitions follow the [Contract-First](#contract-first) design principle, so most of what "Validate" and "Plan" check comes directly from `module.yaml` and `profile.yaml`.
 
@@ -235,7 +257,7 @@ cds security local-dagster-postgres-superset
 
 ## 📦 What You Get
 
-When you run CDS:
+When a profile compiles, CDS produces:
 
 - validated module graph
 - resolved contract bindings
@@ -244,7 +266,9 @@ When you run CDS:
 - generated Helm chart for Kubernetes
 - reproducible stack definition
 
-This allows you to go from a declarative profile to a runnable local data stack.
+This turns a declarative platform design into a reproducible, runnable local
+data stack—and turns architectural assumptions into things the project can
+inspect, validate, and improve.
 
 ---
 
@@ -953,7 +977,20 @@ See [docs/support-policy.md](docs/support-policy.md) for OS support policy and p
 
 ## 🤝 Contributing
 
-Contributions are welcome.
+CDS will only become a useful interoperability layer if the people building and
+operating data platforms shape it together.
+
+- **Run a profile** and report what works, what breaks, and what is missing.
+- **Document compatibility** between providers and consumers with evidence.
+- **Add or improve modules** without coupling them to a specific stack.
+- **Strengthen the model** through contracts, validation, security rules, and
+  representative profiles.
+- **Star and follow** the
+  [repository](https://github.com/RonaldHensbergen/composable-data-stack) if
+  you want to track the project.
+
+Real-world feedback is especially valuable. CDS should reflect how platforms
+actually fail and evolve, not how architecture diagrams pretend they do.
 
 Please read these first:
 
@@ -965,12 +1002,8 @@ Please read these first:
 - [CHANGELOG.md](CHANGELOG.md)
 - [RELEASE.md](RELEASE.md)
 
-Good first contributions:
-
-- adding new modules
-- improving profile examples
-- extending contract definitions
-- adding validation or security rules
+Development helper tools are located in the gitignored `tools/` directory. See
+`tools/pr-cli/README.md` for PR creation scripts.
 
 ---
 
