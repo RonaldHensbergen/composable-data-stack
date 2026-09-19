@@ -30,6 +30,9 @@ SonarCloud — Metrics:
 [![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 [![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=RonaldHensbergen_composable-data-stack&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=RonaldHensbergen_composable-data-stack)
 
+<!-- markdownlint-disable-next-line MD034 -->
+https://github.com/user-attachments/assets/419bf638-e932-41fb-b070-e04394c5303d
+
 ---
 
 You start with a straightforward goal: orchestrate some pipelines, store the
