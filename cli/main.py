@@ -38,7 +38,7 @@ from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
 from .renderer import render_compose
 from .security import PrecomputedRender, run_security_validation
-from .security_common import SEVERITY_ORDER, infer_profile_class
+from .security_common import RULE_CATEGORIES, SEVERITY_ORDER, infer_profile_class
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .up_runner import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -645,6 +645,42 @@ def _add_environment_arg(subparser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_category_arg(subparser: argparse.ArgumentParser) -> None:
+    subparser.add_argument(
+        "--category",
+        dest="categories",
+        action="append",
+        choices=sorted(RULE_CATEGORIES),
+        default=None,
+        help=(
+            "Only report findings in this compliance-control category. Repeatable "
+            "(e.g. --category secrets --category network-exposure). Informational "
+            "readiness aid only; does not change which rules run or their "
+            "pass/fail outcome. See docs/security-rule-categories.md."
+        ),
+    )
+
+
+def _filter_findings_by_category(
+    findings: list[dict[str, Any]], categories: list[str] | None
+) -> list[dict[str, Any]]:
+    """
+    Filter findings for *display* by category. Callers must compute pass/fail
+    outcomes (e.g. exit codes) from the unfiltered findings list -- this
+    filter is a display-only convenience and must never change which rules
+    ran or their result (see docs/security-rule-categories.md).
+    """
+    if not categories:
+        return findings
+    wanted = set(categories)
+    return [f for f in findings if f.get("category") in wanted]
+
+
+def _format_finding_header(f: dict[str, Any]) -> str:
+    category = f.get("category") or "uncategorized"
+    return f"[{f['severity'].upper()}] {f['rule_id']} ({category}) {f['message']}"
+
+
 def _add_hardened_arg(subparser: argparse.ArgumentParser) -> None:
     subparser.add_argument(
         "--hardened",
@@ -1145,6 +1181,7 @@ def main() -> int:
     )
     _add_profile_arg(test_parser)
     _add_environment_arg(test_parser)
+    _add_category_arg(test_parser)
     test_parser.add_argument(
         "--target",
         choices=["compose", "helm"],
@@ -1259,6 +1296,15 @@ def main() -> int:
     security_parser = subparsers.add_parser("security", help="Run security validation on a profile")
     _add_profile_arg(security_parser)
     _add_environment_arg(security_parser)
+    _add_category_arg(security_parser)
+    security_parser.add_argument(
+        "--group-by-category",
+        action="store_true",
+        help=(
+            "Group findings under compliance-control category headings instead "
+            "of a single flat list. Display-only; does not affect the exit code."
+        ),
+    )
     security_parser.add_argument(
         "--target",
         choices=["compose", "helm"],
@@ -1941,8 +1987,8 @@ def main() -> int:
                     ))
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)
-                for f in findings:
-                    print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+                for f in _filter_findings_by_category(findings, args.categories):
+                    print(_format_finding_header(f))
                 # A W096 warning means rendered-compose-scoped rules (e.g.
                 # CDS-SEC-070) were silently skipped due to an unexpected
                 # error during rendering. Treat that the same as a failed
@@ -2286,6 +2332,8 @@ def main() -> int:
                 f["path"],
             ))
 
+        displayed_findings = _filter_findings_by_category(findings, args.categories)
+
         if not findings:
             if render_scan_skipped:
                 print("No security findings (some checks were skipped; see warnings above).")
@@ -2293,15 +2341,33 @@ def main() -> int:
             print("No security findings.")
             return 0
 
-        for f in findings:
-            print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
-            print(f"  object: {f['path']}")
-            print(f"  module: {f['module']}")
-            if f["value"] is not None:
-                print(f"  value: {f['value']}")
-            for rec in f["recommendation"]:
-                print(f"  fix: {rec}")
-            print()
+        if not displayed_findings:
+            print("No security findings in the selected categories.")
+        elif args.group_by_category:
+            for category in sorted({f.get("category") or "uncategorized" for f in displayed_findings}):
+                label = RULE_CATEGORIES.get(category, (category,))[0]
+                print(f"== {label} ({category}) ==")
+                for f in displayed_findings:
+                    if (f.get("category") or "uncategorized") != category:
+                        continue
+                    print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+                    print(f"  object: {f['path']}")
+                    print(f"  module: {f['module']}")
+                    if f["value"] is not None:
+                        print(f"  value: {f['value']}")
+                    for rec in f["recommendation"]:
+                        print(f"  fix: {rec}")
+                    print()
+        else:
+            for f in displayed_findings:
+                print(_format_finding_header(f))
+                print(f"  object: {f['path']}")
+                print(f"  module: {f['module']}")
+                if f["value"] is not None:
+                    print(f"  value: {f['value']}")
+                for rec in f["recommendation"]:
+                    print(f"  fix: {rec}")
+                print()
 
         # As above: a W096 warning means some rendered-compose-scoped rules
         # were skipped, so even when only non-high findings are present the

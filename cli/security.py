@@ -425,6 +425,7 @@ def _eval_condition(
 
 def _check_secret_reuse(
     flat_items: list[tuple[str, str, Any]],
+    category: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Detect the same secret value appearing under different keys.
@@ -448,6 +449,7 @@ def _check_secret_reuse(
             findings.append({
                 "rule_id": "CDS-SEC-013",
                 "severity": "medium",
+                "category": category,
                 "module": module_id,
                 "message": "The same secret appears reused across multiple services",
                 "path": path,
@@ -497,6 +499,7 @@ def _rule_matches(
             findings.append({
                 "rule_id": rule["id"],
                 "severity": rule["severity"],
+                "category": rule.get("category"),
                 "module": module_id,
                 "message": rule["message"],
                 "path": path,
@@ -670,6 +673,7 @@ def _check_production_plaintext_exposure(
     service_to_module: dict[str, str],
     redact_values: bool = False,
     rule_enabled: bool = True,
+    category: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     if not rule_enabled:
         # CDS-SEC-074 is enforced entirely in code (see rule-set.json's
@@ -763,6 +767,7 @@ def _check_production_plaintext_exposure(
         {
             "rule_id": "CDS-SEC-074",
             "severity": "high",
+            "category": category,
             "module": entry["module"],
             "message": (
                 "Production profile exposes a plaintext HTTP endpoint that is "
@@ -977,6 +982,8 @@ def run_security_validation(
             return [], overlay_diags
     rule_set = _validate_rule_set(rule_schema_path, rule_set_path)
 
+    rule_categories_by_id = {rule["id"]: rule.get("category") for rule in rule_set["rules"]}
+
     profile_class = "prod" if strict else infer_profile_class(profile)
 
     secrets, secret_diags = load_secrets_from_env(env_file)
@@ -1033,7 +1040,10 @@ def run_security_validation(
                 redact_values=redact_values,
             ))
 
-    findings.extend(_check_secret_reuse(flat_profile + flat_env))
+    findings.extend(_check_secret_reuse(
+        flat_profile + flat_env,
+        category=rule_categories_by_id.get("CDS-SEC-013"),
+    ))
     plaintext_findings, plaintext_diags = _check_production_plaintext_exposure(
         profile=profile,
         profile_class=profile_class,
@@ -1042,6 +1052,7 @@ def run_security_validation(
         service_to_module=service_to_module,
         redact_values=redact_values,
         rule_enabled=plaintext_exposure_rule_enabled,
+        category=rule_categories_by_id.get("CDS-SEC-074"),
     )
     findings.extend(plaintext_findings)
     
