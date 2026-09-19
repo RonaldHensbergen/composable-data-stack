@@ -6,7 +6,12 @@ determination, and the conditions under which it must be reassessed.
 
 ## Supported Versions
 
-This project currently supports the latest code on the main branch.
+Only the most recently published tagged release (`vX.Y.Z`) is supported.
+An untagged commit on `main` is never itself a supported release. See
+[`docs/security-support-policy.md`](docs/security-support-policy.md) for
+the full support-period determination, how long a release stays supported
+after being superseded, severity-based fix delivery targets, the emergency
+release path, and where security update history is retained.
 
 ## Reporting A Vulnerability
 
