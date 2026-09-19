@@ -22,3 +22,12 @@ For faster triage, include:
 ## Response Expectations
 
 Maintainers aim to provide an initial response within 72 hours for new issues.
+
+## Security Fixes And Supported Versions
+
+For which releases receive security fixes, how long a release stays
+supported, and how fixes are delivered, see
+[`docs/security-support-policy.md`](docs/security-support-policy.md) (and
+[`SECURITY.md`](SECURITY.md) for how to report a vulnerability). This is
+separate from [`docs/support-policy.md`](docs/support-policy.md), which
+covers supported host operating systems and tooling versions.

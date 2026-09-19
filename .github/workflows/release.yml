@@ -50,6 +50,14 @@ jobs:
             echo "_No CHANGELOG.md entry found for ${GITHUB_REF_NAME}. See the commit comparison below._" > release_notes.md
           fi
 
+      - name: Append support notice
+        run: |
+          printf '\n' >> release_notes.md
+          python scripts/render_support_notice.py "${GITHUB_REF_NAME}" >> release_notes.md
+
+      - name: Verify release notes include a support notice
+        run: python scripts/check_release_notes_support.py release_notes.md
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:

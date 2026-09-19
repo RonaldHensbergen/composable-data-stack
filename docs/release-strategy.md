@@ -90,6 +90,10 @@ Treat a skipped smoke test as an environment limitation, not as release validati
 - If a release breaks users, publish a hotfix quickly rather than waiting for the next weekly train.
 - Backfill tests for the regression before or alongside the hotfix.
 - Document the failure mode in the changelog and release notes.
+- For a security vulnerability specifically, follow the severity-based
+  delivery targets and emergency release path in
+  [`docs/security-support-policy.md`](security-support-policy.md#3-security-update-delivery)
+  rather than the general rollback steps above.
 
 ## Phase-Specific Recommendation
 

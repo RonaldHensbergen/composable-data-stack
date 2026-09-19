@@ -999,6 +999,7 @@ Please read these first:
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - [SECURITY.md](SECURITY.md)
 - [SUPPORT.md](SUPPORT.md)
+- [docs/security-support-policy.md](docs/security-support-policy.md)
 - [CHANGELOG.md](CHANGELOG.md)
 - [RELEASE.md](RELEASE.md)
 
