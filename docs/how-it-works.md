@@ -524,6 +524,7 @@ A few things worth noting:
 | `cli/validator.py` | Profile/module shape, config schemas, dependencies, contract bindings, outputs |
 | `cli/graph.py` | Dependency-graph cycle detection |
 | `cli/security.py` | Loads and evaluates `security/rule-set.json` findings |
+| `cli/security_common.py` | Shared severity/category vocabulary (`RULE_CATEGORIES`, see [`docs/security-rule-categories.md`](security-rule-categories.md)) for security findings |
 | `cli/planner.py` | `build_plan` — apply defaults, resolve contracts + secrets, emit plan |
 | `cli/resolver.py` | Parse `contractRef` and `secrets.*` references |
 | `cli/secrets.py` | Load `CDS_*` secrets from environment / `.env` |

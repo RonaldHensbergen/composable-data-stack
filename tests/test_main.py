@@ -416,6 +416,106 @@ class MainCLITest(unittest.TestCase):
 
         self.assertEqual(result, 1)
 
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_security_category_filter_only_affects_display_not_exit_code(
+        self, mock_validate, mock_run_security
+    ):
+        """--category is a display-only filter (docs/security-rule-categories.md):
+        it must never change the security scan's pass/fail outcome. Here a
+        high-severity finding lives outside the filtered category, so the
+        command must still exit non-zero even though that finding is hidden
+        from the printed output."""
+        mock_validate.return_value = []
+        mock_run_security.return_value = (
+            [
+                {
+                    "severity": "high",
+                    "rule_id": "CDS-SEC-074",
+                    "category": "network-exposure",
+                    "message": "plaintext exposure",
+                    "path": "services.api.ports[0]",
+                    "module": "api",
+                    "value": None,
+                    "recommendation": ["fix it"],
+                },
+                {
+                    "severity": "medium",
+                    "rule_id": "CDS-SEC-013",
+                    "category": "auth",
+                    "message": "secret reused",
+                    "path": "services.api.password",
+                    "module": "api",
+                    "value": None,
+                    "recommendation": ["fix it too"],
+                },
+            ],
+            [],
+        )
+
+        stdout = io.StringIO()
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            ["cds", "security", "local-dagster-postgres-superset", "--category", "auth"],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        output = stdout.getvalue()
+        self.assertEqual(result, 1)
+        self.assertIn("CDS-SEC-013", output)
+        self.assertNotIn("CDS-SEC-074", output)
+
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_security_group_by_category_prints_a_heading_per_category(
+        self, mock_validate, mock_run_security
+    ):
+        mock_validate.return_value = []
+        mock_run_security.return_value = (
+            [
+                {
+                    "severity": "high",
+                    "rule_id": "CDS-SEC-074",
+                    "category": "network-exposure",
+                    "message": "plaintext exposure",
+                    "path": "services.api.ports[0]",
+                    "module": "api",
+                    "value": None,
+                    "recommendation": ["fix it"],
+                },
+                {
+                    "severity": "medium",
+                    "rule_id": "CDS-SEC-013",
+                    "category": "auth",
+                    "message": "secret reused",
+                    "path": "services.api.password",
+                    "module": "api",
+                    "value": None,
+                    "recommendation": ["fix it too"],
+                },
+            ],
+            [],
+        )
+
+        stdout = io.StringIO()
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            ["cds", "security", "local-dagster-postgres-superset", "--group-by-category"],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        output = stdout.getvalue()
+        self.assertEqual(result, 1)
+        self.assertIn("(network-exposure)", output)
+        self.assertIn("(auth)", output)
+        self.assertLess(output.index("(auth)"), output.index("(network-exposure)"))
+
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_plan_saves_to_file_with_output_flag(self, mock_validate, mock_build_plan):

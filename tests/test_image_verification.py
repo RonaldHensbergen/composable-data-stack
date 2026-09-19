@@ -211,6 +211,11 @@ class StaticPolicyTest(unittest.TestCase):
         self.assertEqual(findings[0]["severity"], "medium")
         self.assertEqual(findings[0]["rule_id"], "CDS-SEC-050")
 
+    def test_findings_are_tagged_with_supply_chain_category(self) -> None:
+        findings = verify_images(_COMPOSE, _policy(mode="policy"))
+        self.assertTrue(findings)
+        self.assertTrue(all(f["category"] == "supply-chain" for f in findings))
+
 
 class DeferredImagePolicyFindingIdsTest(unittest.TestCase):
     """

@@ -117,6 +117,13 @@ def _finding(
     return {
         "rule_id": rule_id,
         "severity": severity,
+        # These checks aren't declared in cli/resources/rule-set.json (they
+        # inspect the plan's Kubernetes-specific implementation, which the
+        # declarative rule-set engine has no scope for), so the category is
+        # assigned directly rather than looked up from a rule-set entry. All
+        # five are pod/container runtime-posture checks -- see
+        # cli.security_common.RULE_CATEGORIES for the category vocabulary.
+        "category": "runtime-hardening",
         "message": message,
         "path": path,
         "module": module,

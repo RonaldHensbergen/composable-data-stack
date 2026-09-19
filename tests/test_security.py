@@ -11,6 +11,7 @@ from cli.diagnostics import Diagnostic
 from cli.security import (
     PrecomputedRender,
     _check_production_plaintext_exposure,
+    _check_secret_reuse,
     _eval_condition,
     _flatten_profile_by_module,
     _flatten_rendered_leak_surfaces,
@@ -32,12 +33,65 @@ _RULE_SCHEMA_PATH = _REPO_ROOT / "cli" / "resources" / "rule-schema.json"
 _RULE_SET_PATH = _REPO_ROOT / "cli" / "resources" / "rule-set.json"
 
 
+def _make_valid_rule() -> dict:
+    """A minimal rule satisfying every required rule-schema.json property."""
+    return {
+        "id": "CDS-SEC-999",
+        "title": "Test rule",
+        "severity": "low",
+        "category": "config-integrity",
+        "scope": ["profile"],
+        "match": {"all": [{"keyRegex": "test"}]},
+        "message": "Test message",
+        "whyItMatters": "Test rationale",
+        "recommendation": ["Do the test thing"],
+    }
+
+
 class BundledSecurityRulesTest(unittest.TestCase):
     def test_default_rule_set_is_available_as_package_data(self):
         rule_set = _validate_rule_set()
 
         self.assertEqual(rule_set["version"], "1.0.0")
         self.assertGreater(len(rule_set["rules"]), 0)
+
+    def test_every_bundled_rule_has_one_documented_category(self):
+        from cli.security_common import RULE_CATEGORIES
+
+        rule_set = _validate_rule_set()
+        for rule in rule_set["rules"]:
+            with self.subTest(rule_id=rule["id"]):
+                self.assertIn(rule.get("category"), RULE_CATEGORIES)
+
+    def test_rule_missing_category_fails_schema_validation(self):
+        schema = json.loads(_RULE_SCHEMA_PATH.read_text(encoding="utf-8"))
+        rule = _make_valid_rule()
+        del rule["category"]
+        rule_set = {"version": "1.0.0", "rules": [rule]}
+
+        with unittest.mock.patch(
+            "cli.security._load_json",
+            side_effect=[schema, rule_set],
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_rule_set(_RULE_SCHEMA_PATH, _RULE_SET_PATH)
+
+        self.assertIn("Rule-set validation failed", str(ctx.exception))
+
+    def test_rule_with_unrecognized_category_fails_schema_validation(self):
+        schema = json.loads(_RULE_SCHEMA_PATH.read_text(encoding="utf-8"))
+        rule = _make_valid_rule()
+        rule["category"] = "not-a-real-category"
+        rule_set = {"version": "1.0.0", "rules": [rule]}
+
+        with unittest.mock.patch(
+            "cli.security._load_json",
+            side_effect=[schema, rule_set],
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_rule_set(_RULE_SCHEMA_PATH, _RULE_SET_PATH)
+
+        self.assertIn("Rule-set validation failed", str(ctx.exception))
 
     def test_invalid_rule_set_raises_validation_error_with_paths(self):
         schema = json.loads(_RULE_SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -460,6 +514,34 @@ class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
                     )
 
 
+class SecretReuseCategoryTest(unittest.TestCase):
+    """_check_secret_reuse (CDS-SEC-013) is enforced entirely in code, so its
+    category must be supplied by the caller via rule-set lookup rather than
+    read off a match-engine rule; verify the parameter is threaded through."""
+
+    def test_reused_secret_is_tagged_with_the_caller_supplied_category(self):
+        flat_items = [
+            ("service-a", "password", "shared-value"),
+            ("service-b", "password", "shared-value"),
+        ]
+
+        findings = _check_secret_reuse(flat_items, category="auth")
+
+        self.assertEqual(len(findings), 2)
+        self.assertTrue(all(f["rule_id"] == "CDS-SEC-013" for f in findings))
+        self.assertTrue(all(f["category"] == "auth" for f in findings))
+
+    def test_category_defaults_to_none_when_not_supplied(self):
+        flat_items = [
+            ("service-a", "password", "shared-value"),
+            ("service-b", "password", "shared-value"),
+        ]
+
+        findings = _check_secret_reuse(flat_items)
+
+        self.assertTrue(all(f["category"] is None for f in findings))
+
+
 class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
     """
     Regression tests for CDS-SEC-070 (#297, #353).
@@ -801,6 +883,24 @@ class ExtendsAwareSecurityScanTest(unittest.TestCase):
         self.assertIn("services.superset.environment.ADMIN_USERNAME", hits)
         self.assertIn("services.superset.environment.ADMIN_PASSWORD", hits)
 
+    def test_findings_carry_the_rule_sets_declared_category(self):
+        profile_path = (
+            _REPO_ROOT
+            / "tests"
+            / "fixtures"
+            / "security"
+            / "extends-parent-secret"
+            / "profiles"
+            / "child"
+            / "profile.yaml"
+        )
+
+        findings, _ = run_security_validation(profile_path, _RULE_SCHEMA_PATH, _RULE_SET_PATH)
+
+        sec_010 = [f for f in findings if f["rule_id"] == "CDS-SEC-010"]
+        self.assertTrue(sec_010)
+        self.assertTrue(all(f["category"] == "auth" for f in sec_010))
+
     def test_returns_overlay_diagnostics_when_environment_overlay_resolution_fails(self):
         expected = [Diagnostic(level="error", code="E999", message="missing", path="spec")]
         with unittest.mock.patch(
@@ -1097,6 +1197,14 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
         self.assertEqual(finding["module"], "api")
         self.assertEqual(finding["path"], "services.api.ports[0]")
         self.assertEqual(finding["value"], "8080:8080")
+
+    def test_prod_exposure_passes_through_the_caller_supplied_category(self):
+        findings, _ = _check_production_plaintext_exposure(
+            profile={}, profile_class="prod", plan=self._plan(),
+            rendered_compose=self._rendered_compose(), service_to_module={"api": "api"},
+            category="network-exposure",
+        )
+        self.assertEqual(findings[0]["category"], "network-exposure")
 
     def test_prod_exposure_redacts_value_when_requested(self):
         findings, _ = _check_production_plaintext_exposure(

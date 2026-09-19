@@ -156,6 +156,12 @@ def _finding(
     return {
         "rule_id": rule_id,
         "severity": severity,
+        # Like cli.k8s_security's CDS-K8S-* findings, these aren't declared
+        # in cli/resources/rule-set.json (see docs/image-signing.md for why),
+        # so the category is assigned directly. Every finding here is an
+        # image-provenance/pinning/registry-trust check -- see
+        # cli.security_common.RULE_CATEGORIES for the category vocabulary.
+        "category": "supply-chain",
         "module": service,
         "message": message,
         "path": f"services.{service}.image",

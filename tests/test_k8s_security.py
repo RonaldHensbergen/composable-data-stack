@@ -65,6 +65,7 @@ class KubernetesSecurityTest(unittest.TestCase):
                 "CDS-K8S-005",
             },
         )
+        self.assertTrue(all(f["category"] == "runtime-hardening" for f in findings))
 
     def test_container_override_can_supply_security_context(self) -> None:
         plan = self.secure_plan()
