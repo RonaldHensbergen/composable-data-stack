@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=../../../../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: plain-api-internal
+  category: apps
+  version: "0.1.0"
+  displayName: Plain HTTP API test fixture (internal-only)
+  description: >-
+    Test-only plaintext HTTP endpoint module that is not published on the
+    host -- it is only reachable over the internal Compose network, e.g.
+    from a fronting reverse-proxy. Used to model the secure topology where
+    a TLS reverse-proxy is the only host-published entry point.
+spec:
+  runtime:
+    type: container
+    service:
+      name: plain-api-internal
+      ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - publicPort
+    properties:
+      publicPort:
+        type: integer
+  provides:
+    - name: http-service
+      contract:
+        kind: http-service
+        spec:
+          protocol: http
+          portFrom: spec.config.publicPort
+          connectionUri: "http://${service.host}:${config.publicPort}"
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        plain-api-internal:
+          image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+          command: ["sh", "-c", "sleep infinity"]

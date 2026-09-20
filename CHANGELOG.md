@@ -6,6 +6,39 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added a `cds security` rule (`CDS-SEC-074`) that flags production profiles
+  exposing a plaintext HTTP endpoint (a module providing an `http-service`
+  contract with `protocol: http`) that is host-published on a non-loopback
+  address without a wired TLS reverse-proxy in front of it. Fronting by a
+  `reverse-proxy` contract with `protocol: https` does not suppress the
+  finding if the backend independently publishes its own port, since that
+  remains directly reachable, bypassing the proxy. Profiles that intentionally
+  accept plaintext exposure can set
+  `spec.security.waivers.plaintextEndpointExposure.reason` (a required,
+  non-blank string) to downgrade the finding to a `W098` warning instead
+  (#576).
+
+## [0.9.1] - 2026-09-18
+
+### Fixed
+
+- Remediated CVE-2026-89161 and other fixed Debian package vulnerabilities in
+  the Dagster base image by applying security upgrades during the runtime
+  build. Scheduled image scans and signed-image fixture refreshes now track
+  base and hardened variants independently instead of scanning the same
+  digest twice (#718, #719).
+- Replaced the SHA-1 branch-to-port hash used by the k3d local-dev harness
+  (`scripts/k8s/`) with SHA-256 (#698).
+- Hardened `helm`/`kubectl` invocations against CLI-supplied argument and
+  path issues flagged by SonarCloud: resolved CWE-88/CWE-22 risks in
+  CLI-supplied args and paths (#700), satisfied taint tracking for k8s
+  name/context validation (#701), resolved `--chart-dir` to an absolute path
+  before use in the `helm` command (#702), and validated the
+  `helm`/`kubectl` `--timeout` value before building the command argument
+  (#705).
+
 ## [0.9.0] - 2026-09-12
 
 ### Removed
@@ -15,6 +48,7 @@ The format is based on Keep a Changelog.
 ### Added
 
 - Added a compatibility registry (`cli/resources/compatibility-registry.json` + `compatibility-registry.schema.json`) strengthening contract compatibility validation beyond plain `kind` matching: `validate_contract_bindings` now looks up each consumer/provider pairing (by `<category>/<name>` module identity) and reports a new `E043` error if the pairing is explicitly recorded as `unsupported`, even when the contract `kind` matches structurally. A pairing with no registry entry is unaffected (only structural `kind` matching applies); entries recorded as `tested` document known-good combinations, seeded here with the three pairings `profiles/local-dagster-postgres-superset/profile.yaml` already exercises in CI (#350).
+- Added a new `identity` module category and its first module, Keycloak (`modules/identity/keycloak/`): an identity/SSO provider running in development mode (`start-dev`), consuming a `sql-database` contract for its own metadata store and providing an `http-service` contract. Declares `productionSuitable: false`; realm configuration and an `oidc-provider` contract for other modules to consume are tracked as follow-ups (#680, #681) (#370).
 - Added a Kubernetes runtime target: `cds render`/`cds validate`/`cds security`/`cds test`/`cds up`/`cds down`/`cds state` now accept `--target helm` alongside the existing Docker Compose target. `cli/k8s_renderer.py` renders the resolved plan as a Helm chart (Secrets, ConfigMaps, Deployments/StatefulSets and PVCs, release-scoped Services), `cli/k8s_security.py` runs Kubernetes-specific security checks (effective per-container root/non-root posture), and `cli/k8s_runner.py` provides bounded `helm upgrade --install` plus `kubectl wait`/`rollout status` lifecycle operations. Includes a sibling-safe, per-worktree k3d local-dev harness (`scripts/k8s/`, `make k3d-*`) with an isolated k3s CI proof workflow, a TenderNed procurement-data Superset/Dagster analytics demo wired through the new target, and `docs/kubernetes.md` (#608).
 - Added `scripts/ai_profile_review.py`, an optional AI-assisted guardrail/simplification review for CDS profiles: it runs `cds validate`/`cds plan` and then asks an LLM to flag repository-convention violations and simplification opportunities not already covered by schema/contract validation, seeing only profile YAML and the resolved plan (secrets are always placeholders, never resolved values). Supports `--json` and `--dry-run`, and a vendored single-seam LLM client (`scripts/_vendor/llm/`) with three explicit providers (`copilot_cli`, `azure_openai`, `ollama`) and no silent fallback (#652).
 - Added `scripts/compose_to_module.py`, a scaffolding tool that automates the mechanical parts of `docs/from-docker-to-cds-profile.md`: it converts an existing `docker-compose.yml` into a starter `module.yaml`, lifting ports/environment into a `configSchema`, replacing literal values with `${config.*}` placeholders, and detecting secret references, hardcoded connection strings, and dependencies on other compose services (flagging well-known infra images for binding to an existing shared contract and provider module instead of being scaffolded anew) (#670).

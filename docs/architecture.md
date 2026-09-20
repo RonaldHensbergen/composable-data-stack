@@ -38,6 +38,7 @@ The platform is divided into logical layers.
 | Layer | Responsibility | Example modules |
 | --- | --- | --- |
 | **Secrets** | credentials, secret injection, key management | Vault |
+| **Identity** | authentication, SSO, and centrally revocable identity for admin-facing modules | Keycloak |
 | **Infrastructure services** | service coordination backends and support systems | KeyDB |
 | **Ingestion** | extract-load pipelines into the warehouse | dlt (experimental) |
 | **Storage / compute** | databases, warehouses, and processing engines | Postgres, DuckDB (experimental) |
@@ -99,47 +100,7 @@ A profile is the unit that should eventually become installable, testable, and s
 
 Two mechanisms are core to how CDS wires a stack together without leaking credentials or coupling modules directly: **secret refs** and **contract refs**. Both resolve through the same `validate → plan → render` pipeline (see the [README Internal Flow diagram](../README.md#internal-flow)).
 
-```mermaid
-flowchart TD
-    subgraph secrets["Secret ref flow"]
-        direction TB
-        S1["profile.yaml<br/>spec.secrets.values.NAME:<br/>env: CDS_VAR, required"]
-        S2["module config field:<br/>passwordFrom: secrets.NAME"]
-        S3["planner builds alias map:<br/>NAME -> CDS_VAR<br/>(name only, never the value)"]
-        S4["rendered compose:<br/>PASSWORD: ${CDS_VAR}"]
-        S1 --> S3
-        S3 --> S4
-        S2 --> S4
-    end
-
-    subgraph contracts["Contract ref flow"]
-        direction TB
-        C1["producer module.yaml<br/>spec.provides:<br/>name + contract.kind"]
-        C2["consumer module config:<br/>contractRef: module.contract"]
-        C3["parse_contract_ref splits<br/>module.contract into producer id + name"]
-        C4{"producer provides it,<br/>and kind matches?"}
-        C4b{"pairing recorded as<br/>unsupported in compatibility<br/>registry?"}
-        C5["contract merged into<br/>consumer's resolved config"]
-        C6["E041 unknown module/contract,<br/>or E042 kind mismatch"]
-        C7["E043 known-unsupported pairing"]
-
-        C1 --> C4
-        C2 --> C3
-        C3 --> C4
-        C4 -->|yes| C4b
-        C4 -->|no| C6
-        C4b -->|no| C5
-        C4b -->|yes| C7
-    end
-
-    classDef stage stroke:#818cf8,fill:#eef2ff
-    classDef sink stroke:#2dd4bf,fill:#f0fdfa
-    classDef stop stroke:#f87171,fill:#fef2f2,stroke-dasharray: 3 3
-
-    class S1,S2,C1,C2 stage
-    class S4,C5 sink
-    class C6,C7 stop
-```
+![Secret and contract resolution flow](https://raw.githubusercontent.com/RonaldHensbergen/composable-data-stack/main/docs/diagrams/architecture/secret_and_contract_resolution.svg)
 
 **End-to-end example** (from `profiles/local-dagster-postgres-superset/profile.yaml`):
 

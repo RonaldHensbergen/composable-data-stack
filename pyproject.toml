@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "composable-data-stack"
-version = "0.9.0"
+version = "0.9.1"
 description = "CLI for validating and composing composable data stack profiles"
 readme = "README.md"
 license = "Apache-2.0"
@@ -54,7 +54,7 @@ dev = [
   "coverage>=7.6",
   "bandit>=1.7",
   "pip-audit>=2.7",
-  "ruff==0.16.7",
+  "ruff==0.16.8",
 ]
 
 [project.scripts]

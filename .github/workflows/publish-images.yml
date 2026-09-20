@@ -76,7 +76,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - name: Lowercase image name
         id: name
@@ -241,7 +241,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
@@ -469,30 +469,30 @@ jobs:
       - name: Refresh signed-images fixture after successful publish
         run: |
           set -euo pipefail
-          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          variant="${{ matrix.image.variant }}"
-          prefix=""
-          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
-            prefix="${variant}-"
-          fi
-          tag="${prefix}sha-${GITHUB_SHA::12}"
-          python3 - "$owner" "$tag" <<'PY'
+          python3 <<'PY'
           import datetime as _dt
           import json
+          import os
           import pathlib
           import re
           import subprocess
-          import sys
 
-          owner, tag = sys.argv[1], sys.argv[2]
           fixture_path = pathlib.Path("tests/fixtures/signed-images.json")
           fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
 
           digest_re = re.compile(r"^sha256:[0-9a-f]{64}$")
           changed = {}
+          tags = {}
           for name in sorted(fixture["images"]):
-              repo = f"ghcr.io/{owner}/{name}"
+              entry = fixture["images"][name]
+              repo = entry["repository"]
+              tag = f"{entry.get('tagPrefix', '')}sha-{os.environ['GITHUB_SHA'][:12]}"
               tagged = f"{repo}:{tag}"
+              if tagged in tags:
+                  raise SystemExit(
+                      f"fixture entries {tags[tagged]} and {name} resolve to {tagged}"
+                  )
+              tags[tagged] = name
               subprocess.run(["docker", "pull", tagged], check=True, stdout=subprocess.DEVNULL)
               digested = subprocess.check_output(
                   ["docker", "inspect", "--format", "{{index .RepoDigests 0}}", tagged],
@@ -501,7 +501,6 @@ jobs:
               digest = digested.split("@")[-1]
               if not digest_re.match(digest):
                   raise SystemExit(f"unexpected digest for {name}: {digest}")
-              entry = fixture["images"][name]
               if entry.get("digest") != digest:
                   entry["digest"] = digest
                   changed[name] = digest

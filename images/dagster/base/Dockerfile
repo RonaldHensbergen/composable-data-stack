@@ -1,4 +1,4 @@
-FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS builder
+FROM python:3.14-slim@sha256:caaf356f40667c496d405780745b9ac25771c189a51dfcc42430d531ea09f8a2 AS builder
 
 ARG DB_BACKEND=postgres
 
@@ -18,7 +18,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt && \
     esac && \
     python -m pip uninstall --yes pip
 
-FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
+FROM python:3.14-slim@sha256:caaf356f40667c496d405780745b9ac25771c189a51dfcc42430d531ea09f8a2
 
 ARG DB_BACKEND=postgres
 
@@ -29,9 +29,15 @@ ENV DAGSTER_HOME=/opt/dagster/dagster_home \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN groupadd --system --gid 999 dagster && \
-    useradd --system --uid 999 --no-create-home --gid dagster dagster && \
-    install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage /var/run/dagster && \
+RUN apt-get update && \
+    apt-get upgrade -y --no-install-recommends && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -e; \
+    groupadd --system --gid 999 dagster; \
+    useradd --system --uid 999 --no-create-home --gid dagster dagster; \
+    install -d -o dagster -g dagster "$DAGSTER_HOME" /tmp/io_manager_storage /var/run/dagster; \
     python -m pip uninstall --yes pip 2>/dev/null || true
 
 WORKDIR /app
