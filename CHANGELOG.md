@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-21
+
 ### Added
 
 - Added a `cds security` rule (`CDS-SEC-074`) that flags production profiles
