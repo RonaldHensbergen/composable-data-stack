@@ -15,7 +15,7 @@ flowchart TD
         Plan -->|resolve + substitute| Render
         Render --> Compose
 
-        Validate -.->|E020, E041, E042, E081| Stop1
+        Validate -.->|E020, E041, E042, E043, E081| Stop1
     end
 
     subgraph runtime["Runtime (docker compose, cds up only)"]

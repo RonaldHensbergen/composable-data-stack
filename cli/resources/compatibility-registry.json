@@ -1,0 +1,31 @@
+{
+  "$schema": "compatibility-registry.schema.json",
+  "version": "1.0.0",
+  "metadata": {
+    "name": "cds-core-compatibility-registry",
+    "description": "Central record of module pairings known to have been tested together (\"tested\"), or known NOT to work together despite matching a contract's kind (\"unsupported\"). Kept as a single file rather than scattered across individual module.yaml documents so composition knowledge about the whole stack stays in one place (see issue #350). A pairing with no entry here is only structurally compatible (same contract kind); it is neither vouched for nor ruled out."
+  },
+  "pairings": [
+    {
+      "contract": "sql-database",
+      "provider": "warehouse/postgres",
+      "consumer": "orchestration/dagster",
+      "status": "tested",
+      "notes": "Exercised end-to-end by profiles/local-dagster-postgres-superset/profile.yaml, covered by the \"CDS Test (Stable Profile)\" CI workflow."
+    },
+    {
+      "contract": "sql-database",
+      "provider": "warehouse/postgres",
+      "consumer": "bi/superset",
+      "status": "tested",
+      "notes": "Exercised end-to-end by profiles/local-dagster-postgres-superset/profile.yaml, covered by the \"CDS Test (Stable Profile)\" CI workflow."
+    },
+    {
+      "contract": "cache-service",
+      "provider": "cache/keydb",
+      "consumer": "bi/superset",
+      "status": "tested",
+      "notes": "Exercised end-to-end by profiles/local-dagster-postgres-superset/profile.yaml, covered by the \"CDS Test (Stable Profile)\" CI workflow."
+    }
+  ]
+}

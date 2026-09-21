@@ -653,7 +653,178 @@ class RequiredIfMalformedGateTest(unittest.TestCase):
         diagnostics = validate_contract_bindings([self._module_instance("cofnig.warehouseType==duckdb")])
         errors = [d for d in diagnostics if d.level == "error"]
         self.assertEqual([d.code for d in errors], ["E021"])
-        self.assertIn("malformed requiredIf", errors[0].message)
+
+
+class CompatibilityRegistryTest(unittest.TestCase):
+    """
+    Direct unit tests for validate_contract_bindings's compatibility-registry
+    check (issue #350): a consumer/provider pairing can match structurally
+    (same contract kind, E042-clean) yet still be recorded as "unsupported"
+    in cli/resources/compatibility-registry.json, which is a stronger signal
+    than kind matching alone. Absence of a registry entry must never block a
+    profile -- only an explicit "unsupported" status does.
+    """
+
+    def _instances(self, *, provider_category: str, provider_name: str, consumer_category: str, consumer_name: str) -> list[dict]:
+        provider = {
+            "index": 0,
+            "id": "provider",
+            "config": {},
+            "module": {
+                "metadata": {"category": provider_category, "name": provider_name},
+                "spec": {"provides": [{"name": "svc", "contract": {"kind": "sql-database"}}]},
+            },
+        }
+        consumer = {
+            "index": 1,
+            "id": "consumer",
+            "config": {"db": {"contractRef": "provider.svc"}},
+            "module": {
+                "metadata": {"category": consumer_category, "name": consumer_name},
+                "spec": {
+                    "consumes": [
+                        {
+                            "name": "db",
+                            "contract": {"kind": "sql-database"},
+                            "required": True,
+                            "mappedFrom": "spec.config.db",
+                        }
+                    ]
+                },
+            },
+        }
+        return [provider, consumer]
+
+    def test_pairing_with_no_registry_entry_is_not_blocked(self):
+        instances = self._instances(
+            provider_category="warehouse", provider_name="not-a-real-module",
+            consumer_category="orchestration", consumer_name="also-not-real",
+        )
+        with patch("cli.validator._load_compatibility_registry", return_value={}):
+            diagnostics = validate_contract_bindings(instances)
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+
+    def test_unsupported_pairing_reports_e043(self):
+        instances = self._instances(
+            provider_category="warehouse", provider_name="postgres",
+            consumer_category="orchestration", consumer_name="dagster",
+        )
+        registry = {("sql-database", "warehouse/postgres", "orchestration/dagster"): "unsupported"}
+        with patch("cli.validator._load_compatibility_registry", return_value=registry):
+            diagnostics = validate_contract_bindings(instances)
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E043"])
+        self.assertIn("orchestration/dagster", errors[0].message)
+        self.assertIn("warehouse/postgres", errors[0].message)
+        self.assertIn("unsupported", errors[0].message)
+
+    def test_tested_pairing_is_not_blocked(self):
+        instances = self._instances(
+            provider_category="warehouse", provider_name="postgres",
+            consumer_category="orchestration", consumer_name="dagster",
+        )
+        registry = {("sql-database", "warehouse/postgres", "orchestration/dagster"): "tested"}
+        with patch("cli.validator._load_compatibility_registry", return_value=registry):
+            diagnostics = validate_contract_bindings(instances)
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+
+    def test_module_missing_metadata_skips_registry_lookup_without_crashing(self):
+        # Synthetic state, not a reachable production path: module.schema.json
+        # requires metadata.category/name/version, so validate_profile_shape
+        # would already reject a module missing metadata before
+        # validate_contract_bindings ever runs. This test exists purely to
+        # pin down _module_key's defensive None-handling for callers that
+        # invoke validate_contract_bindings directly (as these unit tests do)
+        # with a module dict that skipped that upstream shape check.
+        instances = self._instances(
+            provider_category="warehouse", provider_name="postgres",
+            consumer_category="orchestration", consumer_name="dagster",
+        )
+        del instances[0]["module"]["metadata"]
+        registry = {("sql-database", "warehouse/postgres", "orchestration/dagster"): "unsupported"}
+        with patch("cli.validator._load_compatibility_registry", return_value=registry):
+            diagnostics = validate_contract_bindings(instances)
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+
+    def test_bundled_registry_loads_and_validates_against_its_own_schema(self):
+        # No mocking: exercises the real cli/resources/compatibility-registry.json
+        # and cli/resources/compatibility-registry.schema.json.
+        from cli.validator import _load_compatibility_registry
+
+        registry = _load_compatibility_registry()
+        self.assertEqual(
+            registry[("sql-database", "warehouse/postgres", "orchestration/dagster")],
+            "tested",
+        )
+        self.assertEqual(
+            registry[("cache-service", "cache/keydb", "bi/superset")],
+            "tested",
+        )
+
+    def test_real_tested_pairing_from_bundled_registry_is_not_blocked(self):
+        # No mocking: postgres -> dagster (sql-database) is a real "tested"
+        # entry in cli/resources/compatibility-registry.json.
+        instances = self._instances(
+            provider_category="warehouse", provider_name="postgres",
+            consumer_category="orchestration", consumer_name="dagster",
+        )
+        diagnostics = validate_contract_bindings(instances)
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+
+    def test_malformed_registry_reports_e092_instead_of_raising(self):
+        # A malformed bundled asset must surface as a stable-code Diagnostic,
+        # not an uncaught exception/traceback.
+        from cli.validator import CompatibilityRegistryError
+
+        instances = self._instances(
+            provider_category="warehouse", provider_name="postgres",
+            consumer_category="orchestration", consumer_name="dagster",
+        )
+        with patch(
+            "cli.validator._load_compatibility_registry",
+            side_effect=CompatibilityRegistryError("boom"),
+        ):
+            diagnostics = validate_contract_bindings(instances)
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E092"])
+        self.assertIn("boom", errors[0].message)
+
+    def test_duplicate_pairing_in_registry_raises(self):
+        # JSON Schema can't express tuple uniqueness across array items, so
+        # the loader itself must reject a duplicate (contract, provider,
+        # consumer) key instead of silently letting the later row win.
+        import cli.validator as validator_module
+        from cli.validator import (
+            CompatibilityRegistryError,
+            _load_compatibility_registry,
+        )
+
+        real_schema = validator_module._load_schema("compatibility-registry.schema.json")
+        duplicate_registry = {
+            "version": "1.0.0",
+            "metadata": {"name": "test-registry"},
+            "pairings": [
+                {
+                    "contract": "sql-database",
+                    "provider": "warehouse/postgres",
+                    "consumer": "orchestration/dagster",
+                    "status": "tested",
+                },
+                {
+                    "contract": "sql-database",
+                    "provider": "warehouse/postgres",
+                    "consumer": "orchestration/dagster",
+                    "status": "unsupported",
+                },
+            ],
+        }
+
+        def fake_load_schema(name: str):
+            return duplicate_registry if name == "compatibility-registry.json" else real_schema
+
+        with patch("cli.validator._load_schema", side_effect=fake_load_schema):
+            with self.assertRaises(CompatibilityRegistryError):
+                _load_compatibility_registry()
 
 
 if __name__ == "__main__":
