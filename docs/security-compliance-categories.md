@@ -48,9 +48,10 @@ cds test <profile> --group-by-category
 ```
 
 `--category` is repeatable and only accepts values from the closed set
-above; it does not change which rules run or their pass/fail outcome, only
-which findings are printed and the exit code that follows from that
-(narrower) set. Findings produced outside of `rule-set.json` (e.g.
-`--target=helm` Kubernetes checks or `--verify-images` image verification
-findings) have no compliance category; they are grouped under
-`uncategorized` by `--group-by-category` and excluded by `--category`.
+above; it is a display-only filter and never changes which rules run,
+their pass/fail outcome, or the command's exit code -- a high-severity
+finding outside the requested category still fails the scan. Findings
+produced outside of `rule-set.json` (e.g. `--target=helm` Kubernetes
+checks or `--verify-images` image verification findings) have no
+compliance category; they are grouped under `uncategorized` by
+`--group-by-category` and excluded from the printed list by `--category`.

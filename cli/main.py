@@ -1201,8 +1201,9 @@ def main() -> int:
         action="append",
         choices=COMPLIANCE_CATEGORIES,
         help=(
-            "Only report security findings tagged with this compliance control "
-            "category (repeatable). See `cds security --help` for details."
+            "Only print security findings tagged with this compliance control "
+            "category (repeatable); does not affect the security stage's "
+            "pass/fail outcome. See `cds security --help` for details."
         ),
     )
     test_parser.add_argument(
@@ -1339,13 +1340,16 @@ def main() -> int:
         action="append",
         choices=COMPLIANCE_CATEGORIES,
         help=(
-            "Only report findings tagged with this compliance control category "
-            "(repeatable). Categories are an informational readiness aid for "
-            "organizing findings against a user's own risk assessment (e.g. "
-            "NIS2/Cyberbeveiligingswet), not a compliance certification -- see "
-            "docs/security-compliance-categories.md. Findings from outside "
-            "rule-set.json (e.g. --target=helm or --verify-images checks) have no "
-            "category and are excluded when this is set."
+            "Only print findings tagged with this compliance control category "
+            "(repeatable); does not change which rules run or the command's "
+            "exit code -- a high-severity finding outside the requested "
+            "category still fails the scan. Categories are an informational "
+            "readiness aid for organizing findings against a user's own risk "
+            "assessment (e.g. NIS2/Cyberbeveiligingswet), not a compliance "
+            "certification -- see docs/security-compliance-categories.md. "
+            "Findings from outside rule-set.json (e.g. --target=helm or "
+            "--verify-images checks) have no category and are excluded from "
+            "the printed list when this is set."
         ),
     )
     security_parser.add_argument(
@@ -2011,14 +2015,14 @@ def main() -> int:
                     ))
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)
-                findings = _filter_findings_by_category(findings, args.category)
+                displayed_findings = _filter_findings_by_category(findings, args.category)
                 if args.group_by_category:
-                    for category, group in _group_findings_by_category(findings).items():
+                    for category, group in _group_findings_by_category(displayed_findings).items():
                         print(f"== {category} ==")
                         for f in group:
                             print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
                 else:
-                    for f in findings:
+                    for f in displayed_findings:
                         print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
                 # A W096 warning means rendered-compose-scoped rules (e.g.
                 # CDS-SEC-070) were silently skipped due to an unexpected
@@ -2026,6 +2030,14 @@ def main() -> int:
                 # security stage rather than letting any non-high finding
                 # (or no finding at all) mask the fact that some checks
                 # never ran (GHSA-mx5p-cv63-6829).
+                #
+                # security_ok is intentionally computed from the full,
+                # unfiltered `findings`, not `displayed_findings`: --category
+                # is a display-only filter (see docs/security-compliance-
+                # categories.md), so narrowing what's printed must never
+                # narrow what counts as a failing scan -- that would let a
+                # real high-severity finding outside the requested category
+                # silently report success.
                 render_scan_skipped = any(d.code == "W096" for d in sec_diags)
                 security_ok = (
                     not render_scan_skipped
@@ -2370,14 +2382,18 @@ def main() -> int:
             print("No security findings.")
             return 0
 
-        findings = _filter_findings_by_category(findings, args.category)
+        # --category is a display-only filter (see docs/security-compliance-
+        # categories.md): it must never narrow what counts as a failing scan,
+        # only what gets printed. The exit code below is deliberately
+        # computed from the full, unfiltered `findings`, not
+        # `displayed_findings` -- otherwise a real high-severity finding
+        # outside the requested category would silently report success.
+        displayed_findings = _filter_findings_by_category(findings, args.category)
 
-        if not findings:
+        if not displayed_findings:
             print(f"No security findings in category: {', '.join(sorted(set(args.category)))}.")
-            return 0
-
-        if args.group_by_category:
-            for category, group in _group_findings_by_category(findings).items():
+        elif args.group_by_category:
+            for category, group in _group_findings_by_category(displayed_findings).items():
                 print(f"== {category} ==")
                 for f in group:
                     print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
@@ -2389,7 +2405,7 @@ def main() -> int:
                         print(f"  fix: {rec}")
                     print()
         else:
-            for f in findings:
+            for f in displayed_findings:
                 print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
                 print(f"  object: {f['path']}")
                 print(f"  module: {f['module']}")

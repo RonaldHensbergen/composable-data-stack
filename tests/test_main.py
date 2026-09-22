@@ -327,9 +327,16 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
-    def test_security_command_category_filter_with_no_matches_succeeds(
+    def test_security_command_category_filter_does_not_mask_a_high_severity_finding(
         self, mock_validate, mock_run_security
     ):
+        """
+        --category is a display-only filter (docs/security-compliance-
+        categories.md): it must never change the command's pass/fail
+        outcome. A high-severity finding outside the requested category
+        still fails the scan, even though it's excluded from what's
+        printed (#735 review).
+        """
         mock_validate.return_value = []
         mock_run_security.return_value = (
             [
@@ -342,6 +349,44 @@ class MainCLITest(unittest.TestCase):
                     "value": None,
                     "recommendation": ["Use a secret backend."],
                     "category": "secrets-management",
+                },
+            ],
+            [],
+        )
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds", "security", "local-dagster-postgres-superset",
+                "--category", "patching",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        output = stdout.getvalue()
+        self.assertEqual(result, 1, "a real high-severity finding must still fail the scan")
+        self.assertIn("No security findings in category", output)
+        self.assertNotIn("CDS-SEC-001", output)
+
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_security_command_category_filter_with_no_high_severity_findings_succeeds(
+        self, mock_validate, mock_run_security
+    ):
+        mock_validate.return_value = []
+        mock_run_security.return_value = (
+            [
+                {
+                    "rule_id": "CDS-SEC-012",
+                    "severity": "medium",
+                    "module": "postgres",
+                    "message": "Weak secret strength",
+                    "path": "password",
+                    "value": None,
+                    "recommendation": ["Use a stronger secret."],
+                    "category": "access-control",
                 },
             ],
             [],
@@ -2098,7 +2143,53 @@ spec:
 
         self.assertEqual(result, 0)
 
-    def test_test_command_helm_renders_and_scans_kubernetes_target(self):
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_test_command_category_filter_does_not_mask_a_high_severity_finding(
+        self, mock_validate, mock_security, mock_plan, mock_render
+    ):
+        """
+        --category is a display-only filter: a real high-severity finding
+        outside the requested category must still fail the "security"
+        stage/overall exit code, even though it's excluded from what's
+        printed (#735 review).
+        """
+        mock_validate.return_value = []
+        mock_security.return_value = (
+            [{
+                "severity": "high",
+                "rule_id": "CDS-SEC-001",
+                "message": "Hardcoded secret",
+                "path": "x",
+                "module": "x",
+                "value": None,
+                "recommendation": [],
+                "category": "secrets-management",
+            }],
+            [],
+        )
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds", "test", "local-dagster-postgres-superset",
+                "--category", "patching",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        output = stdout.getvalue()
+        self.assertEqual(result, 1, "a real high-severity finding must still fail cds test")
+        self.assertIn("[FAIL] security", output)
+        self.assertNotIn("CDS-SEC-001", output)
+
+
         plan = {"metadata": {"name": "cds-test"}, "modules": []}
         k8s_finding = {
             "severity": "high",
