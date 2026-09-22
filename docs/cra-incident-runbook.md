@@ -265,6 +265,11 @@ tracked as an accepted risk pending additional maintainers.
   determination and reassessment triggers.
 - [`docs/image-scanning.md`](image-scanning.md) — routine (non-incident)
   vulnerability scanning and remediation SLA for runtime images.
-- [`docs/support-policy.md`](support-policy.md) and
-  [`SUPPORT.md`](../SUPPORT.md) — supported versions and evidence retention
-  period.
+- [`docs/support-policy.md`](support-policy.md) — supported host platforms
+  and tooling (does not currently define version-support or retention
+  periods).
+- [`SUPPORT.md`](../SUPPORT.md) — general issue-reporting process and
+  response expectations.
+- [#731](https://github.com/RonaldHensbergen/composable-data-stack/issues/731) —
+  tracks the version-support and evidence-retention period this runbook
+  will adopt once defined; see [Evidence preservation](#evidence-preservation).
