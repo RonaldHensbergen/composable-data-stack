@@ -98,6 +98,10 @@ Before publishing the GitHub release:
 - [ ] [`docs/cra-scope-decision.md`](docs/cra-scope-decision.md) reassessed
   if any reassessment trigger listed there has occurred since the last
   release
+- [ ] For a security release, [`docs/cra-incident-runbook.md`](docs/cra-incident-runbook.md)'s
+  final-report deadlines (14 days for a vulnerability, one month for a
+  severe incident) are met and the public advisory is referenced in the
+  release notes
 
 ## Rollback
 
