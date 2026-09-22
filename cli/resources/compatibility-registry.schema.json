@@ -43,7 +43,7 @@
         "contract": {
           "type": "string",
           "pattern": "^[a-z0-9-]+$",
-          "description": "Contract kind this pairing applies to (matches a module's provides[].contract.kind / consumes[].contract.kind)."
+          "description": "Contract kind this pairing applies to (matches a module's provides[].contract.kind / consumes[].contract.kind), not a specific provide-name. A provider can expose several provide-names under the same kind (e.g. warehouse/postgres provides \"sql-database\", \"dagster-database\", and \"superset-database\", all kind \"sql-database\"); one row here is intended to cover the provider/consumer pair for all of them at this kind granularity. A row also carries no module version, so a \"tested\" status remains valid across version changes on either side (tracked as a follow-up, see issue #750)."
         },
         "provider": {
           "type": "string",

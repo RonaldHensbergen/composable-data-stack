@@ -408,7 +408,7 @@ sequenceDiagram
     end
     Plan->>Res: resolve_provided_contracts (per module)
     Plan->>Res: resolve_consumed_contracts (match refs to producers)
-    Note over Plan: emits E041/E042 on unknown module or kind mismatch,<br/>E043 on a compatibility-registry "unsupported" pairing
+    Note over Plan: emits E041 on unresolved binding/unknown producer<br/>(existence only -- a kind mismatch would already have stopped at<br/>validate with E042, as would a registry "unsupported" pairing with E043)
     Plan->>Plan: resolve_outputs (map profile outputs to contracts)
     Plan-->>CLI: plan { apiVersion: cds/v1alpha1, metadata,<br/>modules[], secrets, outputs }
 ```
