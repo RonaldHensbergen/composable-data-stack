@@ -38,7 +38,7 @@ from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
 from .renderer import render_compose
 from .security import PrecomputedRender, run_security_validation
-from .security_common import SEVERITY_ORDER, infer_profile_class
+from .security_common import COMPLIANCE_CATEGORIES, SEVERITY_ORDER, infer_profile_class
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .up_runner import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -875,6 +875,43 @@ def _unverifiable_image_finding(message: str) -> dict[str, Any]:
     }
 
 
+_UNCATEGORIZED_LABEL = "uncategorized"
+
+
+def _filter_findings_by_category(
+    findings: list[dict[str, Any]], categories: list[str] | None
+) -> list[dict[str, Any]]:
+    """
+    Restrict findings to the given compliance control categories.
+
+    Findings from outside rule-set.json (e.g. scan_k8s_security, image
+    verification) don't carry a "category" key at all; they're excluded
+    once a category filter is requested, since they can't be attributed to
+    any of the closed compliance categories.
+    """
+    if not categories:
+        return findings
+    wanted = set(categories)
+    return [f for f in findings if f.get("category") in wanted]
+
+
+def _group_findings_by_category(
+    findings: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Group findings by their compliance control category, preserving each
+    group's existing (severity/rule_id/...) ordering. Findings without a
+    "category" (sources outside rule-set.json) are grouped under
+    "uncategorized" rather than dropped, so --group-by-category still
+    accounts for every finding when combined with --target=helm or
+    --verify-images.
+    """
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for finding in findings:
+        grouped.setdefault(finding.get("category") or _UNCATEGORIZED_LABEL, []).append(finding)
+    return dict(sorted(grouped.items()))
+
+
 def _run_image_verification(
     profile_path: str,
     environment: str | None,
@@ -1159,6 +1196,20 @@ def main() -> int:
             "By default, values are redacted to avoid echoing real secrets to stdout/CI logs."
         ),
     )
+    test_parser.add_argument(
+        "--category",
+        action="append",
+        choices=COMPLIANCE_CATEGORIES,
+        help=(
+            "Only report security findings tagged with this compliance control "
+            "category (repeatable). See `cds security --help` for details."
+        ),
+    )
+    test_parser.add_argument(
+        "--group-by-category",
+        action="store_true",
+        help="Print security findings grouped by compliance control category instead of one flat list.",
+    )
     _add_hardened_arg(test_parser)
     _add_image_source_arg(test_parser)
 
@@ -1282,6 +1333,25 @@ def main() -> int:
             "key-managed) or the signed-images fixture (CDS_SIGNED_IMAGES_FIXTURE / "
             "tests/fixtures/signed-images.json) for offline verification."
         ),
+    )
+    security_parser.add_argument(
+        "--category",
+        action="append",
+        choices=COMPLIANCE_CATEGORIES,
+        help=(
+            "Only report findings tagged with this compliance control category "
+            "(repeatable). Categories are an informational readiness aid for "
+            "organizing findings against a user's own risk assessment (e.g. "
+            "NIS2/Cyberbeveiligingswet), not a compliance certification -- see "
+            "docs/security-compliance-categories.md. Findings from outside "
+            "rule-set.json (e.g. --target=helm or --verify-images checks) have no "
+            "category and are excluded when this is set."
+        ),
+    )
+    security_parser.add_argument(
+        "--group-by-category",
+        action="store_true",
+        help="Print findings grouped by compliance control category instead of one flat list.",
     )
 
     diff_parser = subparsers.add_parser(
@@ -1941,8 +2011,15 @@ def main() -> int:
                     ))
                 for diag in sec_diags:
                     print(diag.format(), file=sys.stderr)
-                for f in findings:
-                    print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+                findings = _filter_findings_by_category(findings, args.category)
+                if args.group_by_category:
+                    for category, group in _group_findings_by_category(findings).items():
+                        print(f"== {category} ==")
+                        for f in group:
+                            print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+                else:
+                    for f in findings:
+                        print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
                 # A W096 warning means rendered-compose-scoped rules (e.g.
                 # CDS-SEC-070) were silently skipped due to an unexpected
                 # error during rendering. Treat that the same as a failed
@@ -2293,15 +2370,34 @@ def main() -> int:
             print("No security findings.")
             return 0
 
-        for f in findings:
-            print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
-            print(f"  object: {f['path']}")
-            print(f"  module: {f['module']}")
-            if f["value"] is not None:
-                print(f"  value: {f['value']}")
-            for rec in f["recommendation"]:
-                print(f"  fix: {rec}")
-            print()
+        findings = _filter_findings_by_category(findings, args.category)
+
+        if not findings:
+            print(f"No security findings in category: {', '.join(sorted(set(args.category)))}.")
+            return 0
+
+        if args.group_by_category:
+            for category, group in _group_findings_by_category(findings).items():
+                print(f"== {category} ==")
+                for f in group:
+                    print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+                    print(f"  object: {f['path']}")
+                    print(f"  module: {f['module']}")
+                    if f["value"] is not None:
+                        print(f"  value: {f['value']}")
+                    for rec in f["recommendation"]:
+                        print(f"  fix: {rec}")
+                    print()
+        else:
+            for f in findings:
+                print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+                print(f"  object: {f['path']}")
+                print(f"  module: {f['module']}")
+                if f["value"] is not None:
+                    print(f"  value: {f['value']}")
+                for rec in f["recommendation"]:
+                    print(f"  fix: {rec}")
+                print()
 
         # As above: a W096 warning means some rendered-compose-scoped rules
         # were skipped, so even when only non-high findings are present the

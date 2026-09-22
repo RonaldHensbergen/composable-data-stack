@@ -5,6 +5,23 @@ from typing import Any
 
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
+# Closed set of informational compliance control categories a rule-set.json
+# rule can be tagged with (rule-schema.json's $defs.complianceCategory).
+# Kept here, rather than only in the schema, so cli/main.py can offer the
+# same set as --category choices without parsing the bundled JSON schema
+# just for that. See docs/security-compliance-categories.md for the
+# rationale behind each category and the "not a certification" disclaimer.
+COMPLIANCE_CATEGORIES = (
+    "access-control",
+    "secrets-management",
+    "network-exposure",
+    "encryption-in-transit",
+    "configuration-management",
+    "system-hardening",
+    "logging-monitoring",
+    "patching",
+)
+
 SECRET_KEY_RE = re.compile(r"(?i)(password|secret|token|key|credential|passwd|pwd)")
 
 _SECRET_KEY_WORDS = (

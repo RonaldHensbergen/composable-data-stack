@@ -8,6 +8,19 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added an informational `complianceCategory` field to every rule in
+  `cli/resources/rule-set.json` (validated by a new closed enum in
+  `cli/resources/rule-schema.json`), mapping each security finding onto a
+  compliance control category (e.g. `access-control`, `secrets-management`,
+  `network-exposure`, `encryption-in-transit`, `configuration-management`,
+  `system-hardening`, `logging-monitoring`, `patching`) so findings can be
+  organized against a user's own risk assessment (e.g. NIS2/
+  Cyberbeveiligingswet). `cds security` and `cds test` gained repeatable
+  `--category` filtering and a `--group-by-category` flag; this is
+  additive metadata only and does not change which rules run or their
+  pass/fail outcome. See `docs/security-compliance-categories.md` for the
+  category set, rationale, and an explicit disclaimer that this is a
+  readiness aid, not a compliance certification (#735).
 - Added a `cds security` rule (`CDS-SEC-074`) that flags production profiles
   exposing a plaintext HTTP endpoint (a module providing an `http-service`
   contract with `protocol: http`) that is host-published on a non-loopback

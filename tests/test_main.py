@@ -233,6 +233,134 @@ class MainCLITest(unittest.TestCase):
         mock_run_security.assert_called_once()
         self.assertEqual(mock_run_security.call_args.kwargs["profile_path"], Path(str(profile_file)))
 
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_security_command_category_filters_findings(self, mock_validate, mock_run_security):
+        mock_validate.return_value = []
+        mock_run_security.return_value = (
+            [
+                {
+                    "rule_id": "CDS-SEC-001",
+                    "severity": "high",
+                    "module": "postgres",
+                    "message": "Hardcoded secret",
+                    "path": "password",
+                    "value": None,
+                    "recommendation": ["Use a secret backend."],
+                    "category": "secrets-management",
+                },
+                {
+                    "rule_id": "CDS-SEC-010",
+                    "severity": "high",
+                    "module": "superset",
+                    "message": "Default admin credentials",
+                    "path": "adminPassword",
+                    "value": None,
+                    "recommendation": ["Set a strong admin password."],
+                    "category": "access-control",
+                },
+            ],
+            [],
+        )
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds", "security", "local-dagster-postgres-superset",
+                "--category", "access-control",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        output = stdout.getvalue()
+        self.assertEqual(result, 1)
+        self.assertIn("CDS-SEC-010", output)
+        self.assertNotIn("CDS-SEC-001", output)
+
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_security_command_group_by_category_prints_grouped_headers(
+        self, mock_validate, mock_run_security
+    ):
+        mock_validate.return_value = []
+        mock_run_security.return_value = (
+            [
+                {
+                    "rule_id": "CDS-SEC-001",
+                    "severity": "high",
+                    "module": "postgres",
+                    "message": "Hardcoded secret",
+                    "path": "password",
+                    "value": None,
+                    "recommendation": ["Use a secret backend."],
+                    "category": "secrets-management",
+                },
+                {
+                    "rule_id": "CDS-SEC-010",
+                    "severity": "high",
+                    "module": "superset",
+                    "message": "Default admin credentials",
+                    "path": "adminPassword",
+                    "value": None,
+                    "recommendation": ["Set a strong admin password."],
+                    "category": "access-control",
+                },
+            ],
+            [],
+        )
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys,
+            "argv",
+            ["cds", "security", "local-dagster-postgres-superset", "--group-by-category"],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        output = stdout.getvalue()
+        self.assertEqual(result, 1)
+        # "access-control" sorts before "secrets-management".
+        self.assertLess(output.index("== access-control =="), output.index("CDS-SEC-010"))
+        self.assertLess(output.index("== secrets-management =="), output.index("CDS-SEC-001"))
+
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_security_command_category_filter_with_no_matches_succeeds(
+        self, mock_validate, mock_run_security
+    ):
+        mock_validate.return_value = []
+        mock_run_security.return_value = (
+            [
+                {
+                    "rule_id": "CDS-SEC-001",
+                    "severity": "high",
+                    "module": "postgres",
+                    "message": "Hardcoded secret",
+                    "path": "password",
+                    "value": None,
+                    "recommendation": ["Use a secret backend."],
+                    "category": "secrets-management",
+                },
+            ],
+            [],
+        )
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds", "security", "local-dagster-postgres-superset",
+                "--category", "patching",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("No security findings in category", stdout.getvalue())
+
     @patch("cli.main.scan_k8s_security")
     @patch("cli.main.render_helm")
     @patch("cli.main.run_security_validation")
