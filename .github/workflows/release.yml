@@ -6,11 +6,19 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  build:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-python-package.yml
+
   release:
+    needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -50,6 +58,18 @@ jobs:
             echo "_No CHANGELOG.md entry found for ${GITHUB_REF_NAME}. See the commit comparison below._" > release_notes.md
           fi
 
+      - name: Download distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Download CLI SBOM and release artifact inventory
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: python-package-release-evidence
+          path: release-evidence/
+
       - name: Append support notice
         run: |
           printf '\n' >> release_notes.md
@@ -64,6 +84,15 @@ jobs:
           body_path: release_notes.md
           generate_release_notes: true
           draft: true
+          # SBOM and release-inventory are attached as permanent release
+          # assets, not just short-retention CI artifacts (see
+          # RELEASE.md#release-evidence), since the CI artifacts the build
+          # job produces expire long before this evidence is needed. The
+          # dist/ files themselves are not attached here: PyPI (pypi.yml)
+          # remains the authoritative distribution channel for them.
+          files: |
+            release-evidence/cli-sbom.cyclonedx.json
+            release-evidence/release-inventory.json
 
       - name: Verify the release was published, not left as a draft
         # softprops/action-gh-release@v3 has consistently published the
