@@ -884,10 +884,13 @@ def _filter_findings_by_category(
     """
     Restrict findings to the given compliance control categories.
 
-    Findings from outside rule-set.json (e.g. scan_k8s_security, image
-    verification) don't carry a "category" key at all; they're excluded
-    once a category filter is requested, since they can't be attributed to
-    any of the closed compliance categories.
+    Every finding source (the declarative rule-set engine, scan_k8s_security,
+    image verification) tags its findings with a "category" at generation
+    time (see cli.security.run_security_validation(), cli.k8s_security,
+    cli.image_verification), so this is a uniform key lookup; there is no
+    remaining source of genuinely uncategorized findings today, but a
+    missing "category" is still treated as excluded rather than raising, in
+    case a future finding source doesn't set one.
     """
     if not categories:
         return findings
@@ -900,16 +903,28 @@ def _group_findings_by_category(
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Group findings by their compliance control category, preserving each
-    group's existing (severity/rule_id/...) ordering. Findings without a
-    "category" (sources outside rule-set.json) are grouped under
-    "uncategorized" rather than dropped, so --group-by-category still
-    accounts for every finding when combined with --target=helm or
-    --verify-images.
+    group's existing (severity/rule_id/...) ordering. A finding without a
+    "category" is grouped under "uncategorized" rather than dropped, as a
+    defensive fallback (see _filter_findings_by_category()); in practice
+    every current finding source sets one.
     """
     grouped: dict[str, list[dict[str, Any]]] = {}
     for finding in findings:
         grouped.setdefault(finding.get("category") or _UNCATEGORIZED_LABEL, []).append(finding)
     return dict(sorted(grouped.items()))
+
+
+def _category_heading(category: str) -> str:
+    """
+    Render a "== <label> (<category>) ==" heading for --group-by-category,
+    falling back to just "== <category> ==" for the uncategorized bucket,
+    which has no COMPLIANCE_CATEGORIES entry.
+    """
+    entry = COMPLIANCE_CATEGORIES.get(category)
+    if entry is None:
+        return f"== {category} =="
+    label, _rationale = entry
+    return f"== {label} ({category}) =="
 
 
 def _run_image_verification(
@@ -1346,10 +1361,7 @@ def main() -> int:
             "category still fails the scan. Categories are an informational "
             "readiness aid for organizing findings against a user's own risk "
             "assessment (e.g. NIS2/Cyberbeveiligingswet), not a compliance "
-            "certification -- see docs/security-compliance-categories.md. "
-            "Findings from outside rule-set.json (e.g. --target=helm or "
-            "--verify-images checks) have no category and are excluded from "
-            "the printed list when this is set."
+            "certification -- see docs/security-compliance-categories.md."
         ),
     )
     security_parser.add_argument(
@@ -2018,7 +2030,7 @@ def main() -> int:
                 displayed_findings = _filter_findings_by_category(findings, args.category)
                 if args.group_by_category:
                     for category, group in _group_findings_by_category(displayed_findings).items():
-                        print(f"== {category} ==")
+                        print(_category_heading(category))
                         for f in group:
                             print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
                 else:
@@ -2394,7 +2406,7 @@ def main() -> int:
             print(f"No security findings in category: {', '.join(sorted(set(args.category)))}.")
         elif args.group_by_category:
             for category, group in _group_findings_by_category(displayed_findings).items():
-                print(f"== {category} ==")
+                print(_category_heading(category))
                 for f in group:
                     print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
                     print(f"  object: {f['path']}")

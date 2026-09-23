@@ -117,6 +117,15 @@ def _finding(
     return {
         "rule_id": rule_id,
         "severity": severity,
+        # These findings aren't declared in cli/resources/rule-set.json (the
+        # declarative rule-set engine has no scope for the plan's
+        # Kubernetes-specific implementation), so their compliance category
+        # can't be looked up the way cli.security.run_security_validation()
+        # does for rule-set findings. All five checks here are
+        # container/pod runtime-hardening posture checks, so tag them
+        # directly with the matching cli.security_common.COMPLIANCE_CATEGORIES
+        # value instead of leaving them uncategorized.
+        "category": "system-hardening",
         "message": message,
         "path": path,
         "module": module,

@@ -66,6 +66,27 @@ class KubernetesSecurityTest(unittest.TestCase):
             },
         )
 
+    def test_kubernetes_findings_are_tagged_with_system_hardening_category(self) -> None:
+        """
+        CDS-K8S-* findings aren't declared in rule-set.json, so they can't go
+        through cli.security.run_security_validation()'s rule_id ->
+        complianceCategory lookup; they must be tagged with the matching
+        cli.security_common.COMPLIANCE_CATEGORIES category directly at the
+        source so cds security --category/--group-by-category still account
+        for them.
+        """
+        plan = self.secure_plan()
+        service = plan["modules"][0]["implementation"]["compose"]["services"]["app"]
+        service.clear()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["podSecurityContext"] = {"runAsUser": 0}
+        workload["resources"] = {"app": {"requests": {"cpu": "10m"}}}
+
+        findings = scan_k8s_security(plan)
+
+        self.assertTrue(findings)
+        self.assertTrue(all(f["category"] == "system-hardening" for f in findings))
+
     def test_container_override_can_supply_security_context(self) -> None:
         plan = self.secure_plan()
         plan["modules"][0]["implementation"]["compose"]["services"]["app"].clear()

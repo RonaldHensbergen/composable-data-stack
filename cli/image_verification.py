@@ -156,6 +156,18 @@ def _finding(
     return {
         "rule_id": rule_id,
         "severity": severity,
+        # These findings aren't declared in cli/resources/rule-set.json (see
+        # docs/image-signing.md for why), so their compliance category can't
+        # be looked up the way cli.security.run_security_validation() does
+        # for rule-set findings. Every check here is about image tag/digest
+        # pinning, registry trust, or signature/provenance verification --
+        # i.e. keeping deployed images current, authentic, and traceable to
+        # a trusted build -- which is exactly the use case
+        # docs/security-compliance-categories.md documents "patching" for,
+        # so tag them directly with that
+        # cli.security_common.COMPLIANCE_CATEGORIES value instead of
+        # leaving them uncategorized.
+        "category": "patching",
         "module": service,
         "message": message,
         "path": f"services.{service}.image",

@@ -322,8 +322,13 @@ class MainCLITest(unittest.TestCase):
         output = stdout.getvalue()
         self.assertEqual(result, 1)
         # "access-control" sorts before "secrets-management".
-        self.assertLess(output.index("== access-control =="), output.index("CDS-SEC-010"))
-        self.assertLess(output.index("== secrets-management =="), output.index("CDS-SEC-001"))
+        self.assertLess(
+            output.index("== Access control (access-control) =="), output.index("CDS-SEC-010")
+        )
+        self.assertLess(
+            output.index("== Secrets management (secrets-management) =="),
+            output.index("CDS-SEC-001"),
+        )
 
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")

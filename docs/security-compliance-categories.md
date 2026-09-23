@@ -14,7 +14,11 @@ fields:
 
 `rule-schema.json` defines `complianceCategory` as a required, closed enum
 (`$defs.complianceCategory`); schema validation rejects a rule with a
-missing or unrecognized value.
+missing or unrecognized value. `cli.security_common.COMPLIANCE_CATEGORIES`
+is the single source of truth in code for the category set, each category's
+display label, and its rationale (the same rationale documented in the
+table below); `cds security --group-by-category` uses it to render a
+`"<label> (<category>)"` heading per group.
 
 ## Disclaimer
 
@@ -35,9 +39,9 @@ organization and whether CDS's checks satisfy them.
 | `network-exposure` | Rules about services being reachable from more of the network than intended (binding to `0.0.0.0`, externally published databases, non-local interfaces in a local profile). |
 | `encryption-in-transit` | Rules specifically about traffic confidentiality/integrity in transit (an authenticated service or a production endpoint served over plain HTTP without a TLS reverse-proxy). Kept separate from `network-exposure` because "who can reach it" and "is the channel encrypted" are usually assessed as distinct controls. |
 | `configuration-management` | Rules about configuration correctness and integrity (insecure fallback defaults, empty required secrets, unapproved secret binding targets, profile inheritance weakening secure defaults, non-production-suitable modules used in staging/production). |
-| `system-hardening` | Rules about container/runtime hardening (running as root, privileged/excess capabilities, writable root filesystem, sensitive host path mounts). |
+| `system-hardening` | Rules about container/runtime hardening (running as root, privileged/excess capabilities, writable root filesystem, sensitive host path mounts). Also covers the `cli/k8s_security.py` pod/container posture checks (`CDS-K8S-*`), which aren't declared in `rule-set.json` but are tagged with this category directly at their source since they check the same kind of runtime posture. |
 | `logging-monitoring` | Rules about security-relevant information not leaking into (or via) logs, command lines, or CLI output, which undermines the same logging/monitoring control it's meant to support. |
-| `patching` | Reserved for future image/dependency freshness rules (e.g. an `imageTagPolicy` rule requiring pinned or digest-verified images). No rule uses it yet. |
+| `patching` | Image/dependency freshness, provenance, and trust: tag/digest pinning, registry trust, and cosign signature/build-provenance verification. Also covers the `cli/image_verification.py` checks (`CDS-SEC-050`/`051`/`052`, `CDS-VER-*`), which aren't declared in `rule-set.json` (see [`docs/image-signing.md`](image-signing.md) for why) but are tagged with this category directly at their source. |
 
 ## Grouping and filtering findings
 
@@ -51,7 +55,8 @@ cds test <profile> --group-by-category
 above; it is a display-only filter and never changes which rules run,
 their pass/fail outcome, or the command's exit code -- a high-severity
 finding outside the requested category still fails the scan. Findings
-produced outside of `rule-set.json` (e.g. `--target=helm` Kubernetes
-checks or `--verify-images` image verification findings) have no
-compliance category; they are grouped under `uncategorized` by
-`--group-by-category` and excluded from the printed list by `--category`.
+produced outside of `rule-set.json` (`--target=helm` Kubernetes checks and
+`--verify-images` image verification findings) are also tagged with a
+category directly at their source (`system-hardening` and `patching`
+respectively, see the table above) so they participate in `--category`
+filtering and `--group-by-category` grouping like any other finding.

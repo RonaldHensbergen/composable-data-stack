@@ -20,7 +20,11 @@ The format is based on Keep a Changelog.
   additive metadata only and does not change which rules run or their
   pass/fail outcome. See `docs/security-compliance-categories.md` for the
   category set, rationale, and an explicit disclaimer that this is a
-  readiness aid, not a compliance certification (#735).
+  readiness aid, not a compliance certification (#735). Findings from
+  `--target=helm` Kubernetes checks and `--verify-images` image
+  verification, which aren't declared in `rule-set.json`, are tagged with
+  `system-hardening` and `patching` respectively so they participate in
+  `--category`/`--group-by-category` like any other finding (#735).
 - Added a `cds security` rule (`CDS-SEC-074`) that flags production profiles
   exposing a plaintext HTTP endpoint (a module providing an `http-service`
   contract with `protocol: http`) that is host-published on a non-loopback
