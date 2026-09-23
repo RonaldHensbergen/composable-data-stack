@@ -7,7 +7,9 @@ determination, and the conditions under which it must be reassessed.
 ## Supported Versions
 
 Only the most recently published tagged release (`vX.Y.Z`) is supported.
-An untagged commit on `main` is never itself a supported release. See
+A Critical/High-severity fix also applies to the immediately prior release
+during a 14-day grace period after being superseded. An untagged commit on
+`main` is never itself a supported release. See
 [`docs/security-support-policy.md`](docs/security-support-policy.md) for
 the full support-period determination, how long a release stays supported
 after being superseded, severity-based fix delivery targets, the emergency
