@@ -69,6 +69,7 @@ jobs:
         with:
           name: python-package-release-evidence
           path: release-evidence/
+
       - name: Append support notice
         run: |
           printf '\n' >> release_notes.md
