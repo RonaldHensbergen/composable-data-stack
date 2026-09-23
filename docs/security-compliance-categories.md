@@ -38,8 +38,8 @@ organization and whether CDS's checks satisfy them.
 | `secrets-management` | Rules about how secret material is stored, referenced, and handled (hardcoded secrets, secrets embedded in DSNs/URLs, inline key material, secrets leaking into generated files or file permissions). |
 | `network-exposure` | Rules about services being reachable from more of the network than intended (binding to `0.0.0.0`, externally published databases, non-local interfaces in a local profile). |
 | `encryption-in-transit` | Rules specifically about traffic confidentiality/integrity in transit (an authenticated service or a production endpoint served over plain HTTP without a TLS reverse-proxy). Kept separate from `network-exposure` because "who can reach it" and "is the channel encrypted" are usually assessed as distinct controls. |
-| `configuration-management` | Rules about configuration correctness and integrity (insecure fallback defaults, empty required secrets, unapproved secret binding targets, profile inheritance weakening secure defaults, non-production-suitable modules used in staging/production). |
-| `system-hardening` | Rules about container/runtime hardening (running as root, privileged/excess capabilities, writable root filesystem, sensitive host path mounts). Also covers the `cli/k8s_security.py` pod/container posture checks (`CDS-K8S-*`), which aren't declared in `rule-set.json` but are tagged with this category directly at their source since they check the same kind of runtime posture. |
+| `configuration-management` | Rules about configuration correctness and integrity (insecure fallback defaults, empty required secrets, unapproved secret binding targets, profile inheritance weakening secure defaults, non-production-suitable modules used in staging/production). Also covers `cli/k8s_security.py`'s `CDS-K8S-005` (missing resource requests/limits), which isn't declared in `rule-set.json` but is a configuration-completeness concern rather than runtime-hardening posture. |
+| `system-hardening` | Rules about container/runtime hardening (running as root, privileged/excess capabilities, writable root filesystem, sensitive host path mounts). Also covers `cli/k8s_security.py`'s pod/container posture checks `CDS-K8S-001`-`004`, which aren't declared in `rule-set.json` but are tagged with this category directly at their source since they check the same kind of runtime posture. |
 | `logging-monitoring` | Rules about security-relevant information not leaking into (or via) logs, command lines, or CLI output, which undermines the same logging/monitoring control it's meant to support. |
 | `patching` | Image/dependency freshness, provenance, and trust: tag/digest pinning, registry trust, and cosign signature/build-provenance verification. Also covers the `cli/image_verification.py` checks (`CDS-SEC-050`/`051`/`052`, `CDS-VER-*`), which aren't declared in `rule-set.json` (see [`docs/image-signing.md`](image-signing.md) for why) but are tagged with this category directly at their source. |
 
@@ -57,6 +57,7 @@ their pass/fail outcome, or the command's exit code -- a high-severity
 finding outside the requested category still fails the scan. Findings
 produced outside of `rule-set.json` (`--target=helm` Kubernetes checks and
 `--verify-images` image verification findings) are also tagged with a
-category directly at their source (`system-hardening` and `patching`
-respectively, see the table above) so they participate in `--category`
-filtering and `--group-by-category` grouping like any other finding.
+category directly at their source (`system-hardening`/`configuration-management`
+and `patching` respectively, see the table above) so they participate in
+`--category` filtering and `--group-by-category` grouping like any other
+finding.
