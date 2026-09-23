@@ -26,6 +26,18 @@ The format is based on Keep a Changelog.
   `system-hardening`/`configuration-management` and `patching` respectively
   so they participate in `--category`/`--group-by-category` like any other
   finding (#735).
+- Added an authoritative security support period and update policy
+  (`docs/security-support-policy.md`): only the latest tagged release is
+  supported, support ends 14 days after being superseded, and
+  Critical/High severity fixes get an emergency out-of-band release.
+  Every GitHub release now carries a machine-generated `## Support`
+  section (`scripts/render_support_notice.py`), verified before
+  publishing by `scripts/check_release_notes_support.py`. `SECURITY.md`,
+  `SUPPORT.md`, `RELEASE.md`, `docs/release-strategy.md`,
+  `docs/support-policy.md`, and `docs/cra-scope-decision.md` now cross-link
+  to it instead of separately describing (or omitting) support terms.
+  `SECURITY.md` now also defines the Critical/High/Medium/Low severity
+  scale referenced by the delivery targets (#731).
 - Added a `cds security` rule (`CDS-SEC-074`) that flags production profiles
   exposing a plaintext HTTP endpoint (a module providing an `http-service`
   contract with `protocol: http`) that is host-published on a non-loopback
@@ -56,6 +68,11 @@ The format is based on Keep a Changelog.
   before use in the `helm` command (#702), and validated the
   `helm`/`kubectl` `--timeout` value before building the command argument
   (#705).
+- Clarified `SECURITY.md`'s "Supported Versions" statement to mention the
+  14-day Critical/High-severity grace period for the immediately prior
+  release, matching what `docs/security-support-policy.md` §4 already
+  specifies, instead of the unqualified "only the latest release is
+  supported" claim (#731).
 
 ## [0.9.0] - 2026-09-12
 

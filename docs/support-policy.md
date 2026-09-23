@@ -2,6 +2,10 @@
 
 This document defines the supported host operating systems for running and contributing to Composable Data Stack (CDS), and known platform-specific limitations.
 
+> This document is about host platforms, not about which CDS *release* is
+> supported or how long it receives security fixes. For that, see
+> [`docs/security-support-policy.md`](security-support-policy.md).
+
 ---
 
 ## Supported Platforms
