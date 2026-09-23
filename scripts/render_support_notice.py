@@ -16,6 +16,12 @@ POLICY_URL = (
     "docs/security-support-policy.md"
 )
 
+# Deliberately short relative to the weekly release cadence in
+# docs/release-strategy.md: long enough to give operators time to notice
+# and apply a new release, short enough to keep the "single supported
+# release" model in docs/security-support-policy.md meaningful. Revisit at
+# the annual policy review (docs/security-support-policy.md#6-review-and-reassessment)
+# if the release cadence changes.
 GRACE_PERIOD_DAYS = 14
 
 
