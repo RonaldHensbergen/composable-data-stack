@@ -50,6 +50,11 @@ The format is based on Keep a Changelog.
   before use in the `helm` command (#702), and validated the
   `helm`/`kubectl` `--timeout` value before building the command argument
   (#705).
+- Clarified `SECURITY.md`'s "Supported Versions" statement to mention the
+  14-day Critical/High-severity grace period for the immediately prior
+  release, matching what `docs/security-support-policy.md` §4 already
+  specifies, instead of the unqualified "only the latest release is
+  supported" claim (#731).
 
 ## [0.9.0] - 2026-09-12
 
