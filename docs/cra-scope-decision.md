@@ -123,7 +123,7 @@ occurs:
 
 See [`docs/security-support-policy.md`](security-support-policy.md) for how
 a CRA support-period determination (Article 13(8)-(9)) is currently made and
-what changes if a reassessment trigger below occurs.
+what changes if a reassessment trigger above occurs.
 
 ## Ownership and review cadence
 
