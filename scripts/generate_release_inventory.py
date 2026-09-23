@@ -4,7 +4,8 @@
 Used by `.github/workflows/build-python-package.yml` to produce a single,
 machine-readable manifest that ties every published wheel/sdist to the
 source commit, version, a checksum, and the CLI SBOM generated for that
-build (see `scripts/generate_cli_sbom.py` / `scripts/validate_cli_sbom.py`).
+build (see the "Generate CLI SBOM" step in
+`.github/workflows/build-python-package.yml` and `scripts/validate_cli_sbom.py`).
 
 Runtime images under `images/**` are versioned and published independently
 of the CLI (see docs/image-scanning.md) and already carry their own

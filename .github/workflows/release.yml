@@ -85,8 +85,8 @@ jobs:
           draft: true
           # SBOM and release-inventory are attached as permanent release
           # assets, not just short-retention CI artifacts (see
-          # docs/packaging.md), since the CI artifacts the build job
-          # produces expire long before this evidence is needed. The
+          # RELEASE.md#release-evidence), since the CI artifacts the build
+          # job produces expire long before this evidence is needed. The
           # dist/ files themselves are not attached here: PyPI (pypi.yml)
           # remains the authoritative distribution channel for them.
           files: |

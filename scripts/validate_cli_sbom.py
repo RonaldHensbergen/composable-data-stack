@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Validate a CycloneDX SBOM for the CDS CLI distribution.
 
-Used by `.github/workflows/build-python-package.yml` after
-`scripts/generate_cli_sbom.py` produces the SBOM for a freshly-installed
-wheel, so a malformed or incomplete SBOM fails the build instead of being
-silently published. Also runnable locally:
+Used by `.github/workflows/build-python-package.yml` after the
+"Generate CLI SBOM" step (`cyclonedx-py environment ...`) produces the SBOM
+for a freshly-installed wheel, so a malformed or incomplete SBOM fails the
+build instead of being silently published. Also runnable locally:
 `python scripts/validate_cli_sbom.py --sbom cli-sbom.json`.
 
 Validates, independently of any particular SBOM *generator*:
