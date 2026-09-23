@@ -719,7 +719,7 @@ config:
       contractRef: postgres.sql-database
 ```
 
-The `contractRef` pattern is `<module-id>.<contract-name>`. During `validate`, the CLI checks that the producer module exists, provides the named contract, and declares the expected contract kind; failures produce `E041` for an unknown module or contract and `E042` for a kind mismatch. During `plan`, the CLI re-checks existence and merges the fields advertised by the provider into the consumer's resolved config. A validate-only run therefore confirms the binding but does not yet show the merged contract fields.
+The `contractRef` pattern is `<module-id>.<contract-name>`. During `validate`, the CLI checks that the producer module exists, provides the named contract, and declares the expected contract kind; failures produce `E041` for an unknown module or contract and `E042` for a kind mismatch. It then looks up the provider/consumer pairing in `cli/resources/compatibility-registry.json`; a pairing explicitly recorded as `unsupported` there fails with `E043` even though its `kind` matches structurally. During `plan`, the CLI re-checks existence and merges the fields advertised by the provider into the consumer's resolved config. A validate-only run therefore confirms the binding but does not yet show the merged contract fields.
 
 ### Example Profile
 

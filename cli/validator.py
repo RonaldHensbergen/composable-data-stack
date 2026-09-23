@@ -298,10 +298,98 @@ def walk_for_secret_refs(obj: Any, current_path: str, known_secrets: set[str], d
                 )
 
 
+class CompatibilityRegistryError(Exception):
+    """
+    Raised when the bundled compatibility registry (or its schema) can't be
+    loaded as a usable lookup: either it fails its own JSON Schema, or it
+    contains a duplicate (contract, provider, consumer) pairing that the
+    schema alone can't reject (JSON Schema has no way to express tuple
+    uniqueness across array items). Both are packaging bugs in the bundled
+    asset, not user input errors, but callers still need to turn this into a
+    Diagnostic with a stable code instead of letting a raw exception surface
+    as a traceback.
+    """
+
+
+def _load_compatibility_registry() -> dict[tuple[str, str, str], str]:
+    """
+    Loads and validates cli/resources/compatibility-registry.json (bundled
+    with the package, unlike shared/contracts/, so it's available whether
+    CDS is run from a checkout or an installed wheel), returning a lookup
+    of (contract kind, provider "<category>/<name>", consumer
+    "<category>/<name>") -> status ("tested" | "unsupported").
+
+    The key is the contract *kind*, not a specific provide-name: a module
+    can expose several provide-names under the same kind (e.g.
+    modules/warehouse/postgres provides "sql-database", "dagster-database",
+    and "superset-database", all with kind "sql-database"), and one registry
+    row is intended to cover all of them for a given provider/consumer pair.
+    This also means a row carries no module *version*: a "tested" row stays
+    valid even after either module ships a new version (tracked as a
+    follow-up, see issue #750).
+
+    Raises CompatibilityRegistryError if the bundled registry doesn't match
+    its own schema, or if it contains a duplicate (contract, provider,
+    consumer) pairing -- either is a packaging bug in the bundled asset, not
+    a user input error.
+    """
+    schema = _load_schema("compatibility-registry.schema.json")
+    registry = _load_schema("compatibility-registry.json")
+
+    validator = Draft202012Validator(schema)
+    errors = sorted(validator.iter_errors(registry), key=lambda e: list(e.path))
+    if errors:
+        msgs = [
+            f'{".".join(str(x) for x in err.path) or "<root>"}: {err.message}'
+            for err in errors
+        ]
+        raise CompatibilityRegistryError(
+            "Compatibility registry validation failed:\n  - " + "\n  - ".join(msgs)
+        )
+
+    lookup: dict[tuple[str, str, str], str] = {}
+    for index, pairing in enumerate(registry["pairings"]):
+        key = (pairing["contract"], pairing["provider"], pairing["consumer"])
+        if key in lookup:
+            contract, provider, consumer = key
+            raise CompatibilityRegistryError(
+                f"Compatibility registry has a duplicate pairing at pairings[{index}]: "
+                f'contract="{contract}", provider="{provider}", consumer="{consumer}" '
+                "is already recorded earlier in the file."
+            )
+        lookup[key] = pairing["status"]
+
+    return lookup
+
+
+def _module_key(module_def: dict[str, Any]) -> str | None:
+    """"<category>/<name>" identity for a module, stable across profiles (unlike
+    a profile-scoped instance id or a source path), used to look up
+    tested/unsupported pairings in the compatibility registry."""
+    metadata = module_def.get("metadata", {})
+    category = metadata.get("category")
+    name = metadata.get("name")
+    if not isinstance(category, str) or not isinstance(name, str) or not category or not name:
+        return None
+    return f"{category}/{name}"
+
+
 def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
     by_id = {m["id"]: m for m in module_instances}
+    try:
+        compatibility_registry: dict[tuple[str, str, str], str] | None = _load_compatibility_registry()
+    except CompatibilityRegistryError as exc:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E092",
+                message=f"Compatibility registry could not be loaded: {exc}",
+                path="cli/resources/compatibility-registry.json",
+            )
+        )
+        compatibility_registry = None
 
     for inst in module_instances:
         consumes = inst["module"].get("spec", {}).get("consumes", [])
@@ -426,6 +514,26 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                         path=f"spec.modules[{inst['index']}].config",
                     )
                 )
+                continue
+
+            provider_key = _module_key(producer["module"])
+            consumer_key = _module_key(inst["module"])
+            if compatibility_registry is not None and provider_key and consumer_key:
+                status = compatibility_registry.get((expected_kind, provider_key, consumer_key))
+                if status == "unsupported":
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E043",
+                            message=(
+                                f'Contract ref "{contract_ref}" pairs "{consumer_key}" (consumer) with '
+                                f'"{provider_key}" (provider) for contract "{expected_kind}": this pairing '
+                                'matches structurally but is recorded as unsupported in the compatibility '
+                                'registry (cli/resources/compatibility-registry.json).'
+                            ),
+                            path=f"spec.modules[{inst['index']}].config",
+                        )
+                    )
 
     return diagnostics
 

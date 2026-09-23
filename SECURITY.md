@@ -6,7 +6,14 @@ determination, and the conditions under which it must be reassessed.
 
 ## Supported Versions
 
-This project currently supports the latest code on the main branch.
+Only the most recently published tagged release (`vX.Y.Z`) is supported.
+A Critical/High-severity fix also applies to the immediately prior release
+during a 14-day grace period after being superseded. An untagged commit on
+`main` is never itself a supported release. See
+[`docs/security-support-policy.md`](docs/security-support-policy.md) for
+the full support-period determination, how long a release stays supported
+after being superseded, severity-based fix delivery targets, the emergency
+release path, and where security update history is retained.
 
 ## Reporting A Vulnerability
 
@@ -29,7 +36,26 @@ When reporting, include:
 
 - Initial acknowledgement: within 72 hours
 - Triage decision: within 7 days
-- Fix timeline: based on severity and exploitability
+- Fix timeline: based on severity and exploitability, using the scale below
+
+## Severity Triage
+
+Maintainers assign one of these levels during triage, based on
+exploitability and impact (informed by CVSS where applicable):
+
+- **Critical:** remotely exploitable with no/low complexity, leading to
+  arbitrary code execution, secret disclosure, or full host/data
+  compromise.
+- **High:** significant confidentiality/integrity/availability impact, but
+  requiring more complex conditions (e.g. non-default configuration, local
+  access) than Critical.
+- **Medium:** limited impact, or requiring substantial attacker
+  prerequisites (e.g. an already-compromised adjacent component).
+- **Low:** minimal impact (e.g. hardening gaps, defense-in-depth issues) or
+  only theoretical exploitability.
+
+See [`docs/security-support-policy.md`](docs/security-support-policy.md)
+for how each level maps to a fix-delivery target.
 
 ## Secret Handling Expectations
 

@@ -8,6 +8,18 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added an authoritative security support period and update policy
+  (`docs/security-support-policy.md`): only the latest tagged release is
+  supported, support ends 14 days after being superseded, and
+  Critical/High severity fixes get an emergency out-of-band release.
+  Every GitHub release now carries a machine-generated `## Support`
+  section (`scripts/render_support_notice.py`), verified before
+  publishing by `scripts/check_release_notes_support.py`. `SECURITY.md`,
+  `SUPPORT.md`, `RELEASE.md`, `docs/release-strategy.md`,
+  `docs/support-policy.md`, and `docs/cra-scope-decision.md` now cross-link
+  to it instead of separately describing (or omitting) support terms.
+  `SECURITY.md` now also defines the Critical/High/Medium/Low severity
+  scale referenced by the delivery targets (#731).
 - Added a `cds security` rule (`CDS-SEC-074`) that flags production profiles
   exposing a plaintext HTTP endpoint (a module providing an `http-service`
   contract with `protocol: http`) that is host-published on a non-loopback
@@ -38,6 +50,11 @@ The format is based on Keep a Changelog.
   before use in the `helm` command (#702), and validated the
   `helm`/`kubectl` `--timeout` value before building the command argument
   (#705).
+- Clarified `SECURITY.md`'s "Supported Versions" statement to mention the
+  14-day Critical/High-severity grace period for the immediately prior
+  release, matching what `docs/security-support-policy.md` §4 already
+  specifies, instead of the unqualified "only the latest release is
+  supported" claim (#731).
 
 ## [0.9.0] - 2026-09-12
 
@@ -47,6 +64,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a compatibility registry (`cli/resources/compatibility-registry.json` + `compatibility-registry.schema.json`) strengthening contract compatibility validation beyond plain `kind` matching: `validate_contract_bindings` now looks up each consumer/provider pairing (by `<category>/<name>` module identity) and reports a new `E043` error if the pairing is explicitly recorded as `unsupported`, even when the contract `kind` matches structurally. A pairing with no registry entry is unaffected (only structural `kind` matching applies); entries recorded as `tested` document known-good combinations, seeded here with the three pairings `profiles/local-dagster-postgres-superset/profile.yaml` already exercises in CI (#350).
 - Added a new `identity` module category and its first module, Keycloak (`modules/identity/keycloak/`): an identity/SSO provider running in development mode (`start-dev`), consuming a `sql-database` contract for its own metadata store and providing an `http-service` contract. Declares `productionSuitable: false`; realm configuration and an `oidc-provider` contract for other modules to consume are tracked as follow-ups (#680, #681) (#370).
 - Added a Kubernetes runtime target: `cds render`/`cds validate`/`cds security`/`cds test`/`cds up`/`cds down`/`cds state` now accept `--target helm` alongside the existing Docker Compose target. `cli/k8s_renderer.py` renders the resolved plan as a Helm chart (Secrets, ConfigMaps, Deployments/StatefulSets and PVCs, release-scoped Services), `cli/k8s_security.py` runs Kubernetes-specific security checks (effective per-container root/non-root posture), and `cli/k8s_runner.py` provides bounded `helm upgrade --install` plus `kubectl wait`/`rollout status` lifecycle operations. Includes a sibling-safe, per-worktree k3d local-dev harness (`scripts/k8s/`, `make k3d-*`) with an isolated k3s CI proof workflow, a TenderNed procurement-data Superset/Dagster analytics demo wired through the new target, and `docs/kubernetes.md` (#608).
 - Added `scripts/ai_profile_review.py`, an optional AI-assisted guardrail/simplification review for CDS profiles: it runs `cds validate`/`cds plan` and then asks an LLM to flag repository-convention violations and simplification opportunities not already covered by schema/contract validation, seeing only profile YAML and the resolved plan (secrets are always placeholders, never resolved values). Supports `--json` and `--dry-run`, and a vendored single-seam LLM client (`scripts/_vendor/llm/`) with three explicit providers (`copilot_cli`, `azure_openai`, `ollama`) and no silent fallback (#652).
