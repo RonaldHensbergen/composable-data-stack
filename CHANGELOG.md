@@ -8,6 +8,24 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added an informational `complianceCategory` field to every rule in
+  `cli/resources/rule-set.json` (validated by a new closed enum in
+  `cli/resources/rule-schema.json`), mapping each security finding onto a
+  compliance control category (e.g. `access-control`, `secrets-management`,
+  `network-exposure`, `encryption-in-transit`, `configuration-management`,
+  `system-hardening`, `logging-monitoring`, `patching`) so findings can be
+  organized against a user's own risk assessment (e.g. NIS2/
+  Cyberbeveiligingswet). `cds security` and `cds test` gained repeatable
+  `--category` filtering and a `--group-by-category` flag; this is
+  additive metadata only and does not change which rules run or their
+  pass/fail outcome. See `docs/security-compliance-categories.md` for the
+  category set, rationale, and an explicit disclaimer that this is a
+  readiness aid, not a compliance certification (#735). Findings from
+  `--target=helm` Kubernetes checks and `--verify-images` image
+  verification, which aren't declared in `rule-set.json`, are tagged with
+  `system-hardening`/`configuration-management` and `patching` respectively
+  so they participate in `--category`/`--group-by-category` like any other
+  finding (#735).
 - Added an authoritative security support period and update policy
   (`docs/security-support-policy.md`): only the latest tagged release is
   supported, support ends 14 days after being superseded, and

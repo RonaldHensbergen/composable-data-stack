@@ -1044,7 +1044,23 @@ def run_security_validation(
         rule_enabled=plaintext_exposure_rule_enabled,
     )
     findings.extend(plaintext_findings)
-    
+
+    # Attach each finding's informational compliance control category by
+    # looking it up on the matching rule, rather than threading it through
+    # every finding-generating helper above (declarative match engine,
+    # _check_secret_reuse, _check_production_plaintext_exposure): all of
+    # them ultimately produce a finding keyed by a rule_id that exists in
+    # rule_set["rules"], so a single rule_id -> complianceCategory lookup
+    # covers every source uniformly. Findings from sources outside
+    # rule-set.json (e.g. scan_k8s_security, image verification) aren't
+    # covered here; callers that merge those in should treat a missing
+    # "category" key as out of scope for compliance grouping.
+    rule_categories = {
+        rule["id"]: rule.get("complianceCategory") for rule in rule_set["rules"]
+    }
+    for finding in findings:
+        finding["category"] = rule_categories.get(finding["rule_id"])
+
     findings.sort(key=lambda x: (
         SEVERITY_ORDER.get(x["severity"], 99),
         x["rule_id"],

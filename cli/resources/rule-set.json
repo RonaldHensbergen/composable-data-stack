@@ -12,6 +12,7 @@
       "title": "Hardcoded secret-like value",
       "severity": "high",
       "category": "secrets",
+      "complianceCategory": "secrets-management",
       "scope": ["profile-raw", "module-values"],
       "match": {
         "all": [
@@ -36,6 +37,7 @@
       "title": "Secret embedded in URL or DSN",
       "severity": "high",
       "category": "secrets",
+      "complianceCategory": "secrets-management",
       "scope": ["profile-raw", "profile-resolved", "service-env"],
       "match": {
         "any": [
@@ -60,6 +62,7 @@
       "title": "Inline private key or high-entropy secret material",
       "severity": "high",
       "category": "secrets",
+      "complianceCategory": "secrets-management",
       "scope": ["profile-raw", "module-values"],
       "match": {
         "any": [
@@ -85,6 +88,7 @@
       "title": "Default or placeholder secret in non-local profile",
       "severity": "high",
       "category": "secrets",
+      "complianceCategory": "secrets-management",
       "scope": ["profile-raw", "profile-resolved", "service-env"],
       "match": {
         "all": [
@@ -123,6 +127,7 @@
       "title": "Secret interpolated into non-secret field",
       "severity": "high",
       "category": "secrets",
+      "complianceCategory": "secrets-management",
       "scope": ["profile-resolved", "bindings"],
       "match": {
         "all": [
@@ -155,6 +160,7 @@
       "title": "Resolved secret present in generated or CLI output",
       "severity": "high",
       "category": "secrets",
+      "complianceCategory": "secrets-management",
       "scope": ["none"],
       "match": {
         "any": [
@@ -180,6 +186,7 @@
       "title": "Default admin credentials",
       "severity": "high",
       "category": "auth",
+      "complianceCategory": "access-control",
       "scope": ["profile-resolved", "service-env"],
       "match": {
         "any": [
@@ -212,6 +219,7 @@
       "title": "Missing required authentication secret",
       "severity": "high",
       "category": "auth",
+      "complianceCategory": "access-control",
       "scope": ["profile-resolved", "service-env"],
       "match": {
         "all": [
@@ -242,6 +250,7 @@
       "title": "Weak secret strength",
       "severity": "high",
       "category": "auth",
+      "complianceCategory": "access-control",
       "scope": ["profile-raw", "profile-resolved", "service-env"],
       "match": {
         "any": [
@@ -277,6 +286,7 @@
       "title": "Secret reused across unrelated services",
       "severity": "medium",
       "category": "auth",
+      "complianceCategory": "access-control",
       "scope": ["profile-resolved", "service-env"],
       "match": {
         "all": [
@@ -301,6 +311,7 @@
       "title": "Admin or UI service bound to 0.0.0.0",
       "severity": "high",
       "category": "network-exposure",
+      "complianceCategory": "network-exposure",
       "scope": ["service"],
       "match": {
         "all": [
@@ -325,6 +336,7 @@
       "title": "Database service published externally",
       "severity": "high",
       "category": "network-exposure",
+      "complianceCategory": "network-exposure",
       "scope": ["service"],
       "match": {
         "all": [
@@ -349,6 +361,7 @@
       "title": "Non-local interface exposure in local profile",
       "severity": "medium",
       "category": "network-exposure",
+      "complianceCategory": "network-exposure",
       "scope": ["service"],
       "match": {
         "all": [
@@ -373,6 +386,7 @@
       "title": "Authenticated service uses plain HTTP",
       "severity": "medium",
       "category": "network-exposure",
+      "complianceCategory": "encryption-in-transit",
       "scope": ["service", "profile-resolved"],
       "match": {
         "any": [
@@ -400,6 +414,7 @@
       "title": "Generated file contains resolved secrets",
       "severity": "high",
       "category": "file-output-safety",
+      "complianceCategory": "secrets-management",
       "scope": ["none"],
       "match": {
         "any": [
@@ -426,6 +441,7 @@
       "title": "Env file path appears repository-managed or unmanaged",
       "severity": "medium",
       "category": "file-output-safety",
+      "complianceCategory": "secrets-management",
       "scope": ["service-env"],
       "match": {
         "any": [
@@ -451,6 +467,7 @@
       "title": "Secret file permissions too broad",
       "severity": "medium",
       "category": "file-output-safety",
+      "complianceCategory": "secrets-management",
       "scope": ["none"],
       "match": {
         "any": [
@@ -475,6 +492,7 @@
       "title": "Literal secret stored in profile instead of secret source",
       "severity": "medium",
       "category": "file-output-safety",
+      "complianceCategory": "secrets-management",
       "scope": ["profile-raw", "profile-resolved"],
       "match": {
         "all": [
@@ -499,6 +517,7 @@
       "title": "Unresolved env var falls back to insecure default",
       "severity": "high",
       "category": "config-integrity",
+      "complianceCategory": "configuration-management",
       "scope": ["profile-raw", "profile-resolved", "service-env"],
       "match": {
         "any": [
@@ -520,6 +539,7 @@
       "title": "Required env var resolves to empty secret",
       "severity": "high",
       "category": "config-integrity",
+      "complianceCategory": "configuration-management",
       "scope": ["profile-resolved", "service-env"],
       "match": {
         "all": [
@@ -544,6 +564,7 @@
       "title": "Binding injects secret into unapproved target",
       "severity": "high",
       "category": "config-integrity",
+      "complianceCategory": "configuration-management",
       "scope": ["bindings", "profile-resolved"],
       "match": {
         "all": [
@@ -568,6 +589,7 @@
       "title": "Profile inheritance weakens secure defaults",
       "severity": "medium",
       "category": "config-integrity",
+      "complianceCategory": "configuration-management",
       "scope": ["profile-resolved"],
       "match": {
         "any": [
@@ -593,6 +615,7 @@
       "title": "Container runs as root",
       "severity": "medium",
       "category": "runtime-hardening",
+      "complianceCategory": "system-hardening",
       "scope": ["runtime", "service"],
       "match": {
         "any": [
@@ -617,6 +640,7 @@
       "title": "Privileged container or excessive capabilities",
       "severity": "high",
       "category": "runtime-hardening",
+      "complianceCategory": "system-hardening",
       "scope": ["runtime", "service"],
       "match": {
         "any": [
@@ -648,6 +672,7 @@
       "title": "Writable root filesystem",
       "severity": "medium",
       "category": "runtime-hardening",
+      "complianceCategory": "system-hardening",
       "scope": ["runtime", "service"],
       "match": {
         "any": [
@@ -672,6 +697,7 @@
       "title": "Sensitive host path mount",
       "severity": "high",
       "category": "runtime-hardening",
+      "complianceCategory": "system-hardening",
       "scope": ["runtime", "service"],
       "match": {
         "any": [
@@ -704,6 +730,7 @@
       "title": "Secret appears in command args or log configuration",
       "severity": "high",
       "category": "observability-leakage",
+      "complianceCategory": "logging-monitoring",
       "scope": ["rendered-compose"],
       "match": {
         "any": [
@@ -732,6 +759,7 @@
       "title": "CLI plan or validate output prints secrets",
       "severity": "high",
       "category": "observability-leakage",
+      "complianceCategory": "logging-monitoring",
       "scope": ["none"],
       "match": {
         "any": [
@@ -760,6 +788,7 @@
       "title": "Debug mode enabled for sensitive service",
       "severity": "medium",
       "category": "observability-leakage",
+      "complianceCategory": "logging-monitoring",
       "scope": ["service", "service-env"],
       "match": {
         "any": [
@@ -786,6 +815,7 @@
       "title": "Non-production-suitable module used in a staging/production profile",
       "severity": "high",
       "category": "config-integrity",
+      "complianceCategory": "configuration-management",
       "scope": ["module-values"],
       "match": {
         "all": [
@@ -812,6 +842,7 @@
       "title": "Production profile exposes plaintext HTTP endpoint without TLS reverse-proxy",
       "severity": "high",
       "category": "network-exposure",
+      "complianceCategory": "encryption-in-transit",
       "scope": ["none"],
       "match": {
         "any": [

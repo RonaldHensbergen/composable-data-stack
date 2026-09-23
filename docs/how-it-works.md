@@ -534,7 +534,7 @@ A few things worth noting:
 | `cli/diagnostics.py` | `Diagnostic` (error code, level, YAML path, message) |
 | `cli/image_updates.py` | `cds list images` — check module images against registries |
 | `schemas/*.schema.json` | JSON Schemas for profiles and modules |
-| `security/rule-set.json` | Security rules (with `rule-schema.json` meta-schema) |
+| `security/rule-set.json` | Security rules (with `rule-schema.json` meta-schema); each rule's informational `complianceCategory` is documented in `docs/security-compliance-categories.md` |
 | `profiles/*/profile.yaml` | Runnable compositions |
 | `modules/**/module.yaml` | Reusable capability definitions (config schema, contracts, compose fragment) |
 

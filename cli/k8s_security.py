@@ -76,6 +76,7 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
                         f"{path}.resources.{container_name}",
                         module_id,
                         ["Declare both requests and limits for the container."],
+                        category="configuration-management",
                     ))
     return findings
 
@@ -113,10 +114,22 @@ def _finding(
     path: str,
     module: str,
     recommendation: list[str],
+    *,
+    category: str = "system-hardening",
 ) -> dict[str, Any]:
     return {
         "rule_id": rule_id,
         "severity": severity,
+        # These findings aren't declared in cli/resources/rule-set.json (the
+        # declarative rule-set engine has no scope for the plan's
+        # Kubernetes-specific implementation), so their compliance category
+        # can't be looked up the way cli.security.run_security_validation()
+        # does for rule-set findings. CDS-K8S-001-004 are container/pod
+        # runtime-hardening posture checks, so they default to the matching
+        # cli.security_common.COMPLIANCE_CATEGORIES value; CDS-K8S-005
+        # (resource requests/limits) overrides this below since it's a
+        # capacity-governance concern rather than runtime-hardening posture.
+        "category": category,
         "message": message,
         "path": path,
         "module": module,
