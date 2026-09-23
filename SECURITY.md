@@ -34,7 +34,26 @@ When reporting, include:
 
 - Initial acknowledgement: within 72 hours
 - Triage decision: within 7 days
-- Fix timeline: based on severity and exploitability
+- Fix timeline: based on severity and exploitability, using the scale below
+
+## Severity Triage
+
+Maintainers assign one of these levels during triage, based on
+exploitability and impact (informed by CVSS where applicable):
+
+- **Critical:** remotely exploitable with no/low complexity, leading to
+  arbitrary code execution, secret disclosure, or full host/data
+  compromise.
+- **High:** significant confidentiality/integrity/availability impact, but
+  requiring more complex conditions (e.g. non-default configuration, local
+  access) than Critical.
+- **Medium:** limited impact, or requiring substantial attacker
+  prerequisites (e.g. an already-compromised adjacent component).
+- **Low:** minimal impact (e.g. hardening gaps, defense-in-depth issues) or
+  only theoretical exploitability.
+
+See [`docs/security-support-policy.md`](docs/security-support-policy.md)
+for how each level maps to a fix-delivery target.
 
 ## Secret Handling Expectations
 

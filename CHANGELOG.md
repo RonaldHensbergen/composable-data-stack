@@ -17,7 +17,9 @@ The format is based on Keep a Changelog.
   publishing by `scripts/check_release_notes_support.py`. `SECURITY.md`,
   `SUPPORT.md`, `RELEASE.md`, `docs/release-strategy.md`,
   `docs/support-policy.md`, and `docs/cra-scope-decision.md` now cross-link
-  to it instead of separately describing (or omitting) support terms (#731).
+  to it instead of separately describing (or omitting) support terms.
+  `SECURITY.md` now also defines the Critical/High/Medium/Low severity
+  scale referenced by the delivery targets (#731).
 - Added a `cds security` rule (`CDS-SEC-074`) that flags production profiles
   exposing a plaintext HTTP endpoint (a module providing an `http-service`
   contract with `protocol: http`) that is host-published on a non-loopback
