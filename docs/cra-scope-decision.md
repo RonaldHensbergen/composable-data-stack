@@ -117,11 +117,13 @@ occurs:
 - Whether unrelated third-party commercial redistribution or bundling,
   outside the maintainer's knowledge or control, could affect this
   determination.
-- How a CRA support-period determination (Article 13(8)-(9)) would be made
-  if scope changes.
 - Which obligations would apply, and under what timeline, once a
   reassessment trigger occurs; this requires qualified legal advice at that
   time and is not resolved by this document.
+
+See [`docs/security-support-policy.md`](security-support-policy.md) for how
+a CRA support-period determination (Article 13(8)-(9)) is currently made and
+what changes if a reassessment trigger above occurs.
 
 ## Ownership and review cadence
 

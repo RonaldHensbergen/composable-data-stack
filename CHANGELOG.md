@@ -8,6 +8,18 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added an authoritative security support period and update policy
+  (`docs/security-support-policy.md`): only the latest tagged release is
+  supported, support ends 14 days after being superseded, and
+  Critical/High severity fixes get an emergency out-of-band release.
+  Every GitHub release now carries a machine-generated `## Support`
+  section (`scripts/render_support_notice.py`), verified before
+  publishing by `scripts/check_release_notes_support.py`. `SECURITY.md`,
+  `SUPPORT.md`, `RELEASE.md`, `docs/release-strategy.md`,
+  `docs/support-policy.md`, and `docs/cra-scope-decision.md` now cross-link
+  to it instead of separately describing (or omitting) support terms.
+  `SECURITY.md` now also defines the Critical/High/Medium/Low severity
+  scale referenced by the delivery targets (#731).
 - Added a `cds security` rule (`CDS-SEC-074`) that flags production profiles
   exposing a plaintext HTTP endpoint (a module providing an `http-service`
   contract with `protocol: http`) that is host-published on a non-loopback
