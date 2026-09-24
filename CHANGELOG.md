@@ -8,6 +8,14 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added an opt-in pinned image digest staleness check: `cds validate`/`cds
+  up --check-image-digests` (or `CDS_CHECK_IMAGE_DIGESTS=1`) compares each
+  module's digest-pinned image (e.g. `postgres:18@sha256:...`) against the
+  digest the registry currently publishes for that same tag and emits a
+  stable `W100` warning when they differ. Off by default so `validate`/
+  `render`/`up` stay network-free, and any lookup failure (offline, auth,
+  unsupported registry) is silently skipped rather than failing the
+  command (#736).
 - Added an informational `complianceCategory` field to every rule in
   `cli/resources/rule-set.json` (validated by a new closed enum in
   `cli/resources/rule-schema.json`), mapping each security finding onto a
