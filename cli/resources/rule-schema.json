@@ -49,6 +49,20 @@
         "observability-leakage"
       ]
     },
+    "complianceCategory": {
+      "type": "string",
+      "description": "Informational compliance control category this rule's finding maps onto (e.g. for a user's own NIS2/Cyberbeveiligingswet risk assessment). This is a readiness aid, not a legal or regulatory certification of the rule or category -- see docs/security-compliance-categories.md.",
+      "enum": [
+        "access-control",
+        "secrets-management",
+        "network-exposure",
+        "encryption-in-transit",
+        "configuration-management",
+        "system-hardening",
+        "logging-monitoring",
+        "patching"
+      ]
+    },
     "scopeItem": {
       "type": "string",
       "enum": [
@@ -183,6 +197,7 @@
         "title",
         "severity",
         "category",
+        "complianceCategory",
         "scope",
         "match",
         "message",
@@ -206,6 +221,9 @@
         },
         "category": {
           "$ref": "#/$defs/category"
+        },
+        "complianceCategory": {
+          "$ref": "#/$defs/complianceCategory"
         },
         "scope": {
           "type": "array",
@@ -254,6 +272,7 @@
           "title": "Hardcoded secret-like value",
           "severity": "high",
           "category": "secrets",
+          "complianceCategory": "secrets-management",
           "scope": ["profile-raw", "module-values", "service-env"],
           "match": {
             "all": [

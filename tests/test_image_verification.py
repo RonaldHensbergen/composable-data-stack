@@ -145,6 +145,19 @@ class StaticPolicyTest(unittest.TestCase):
         latest = [f for f in findings if f["rule_id"] == "CDS-SEC-050"]
         self.assertEqual(latest[0]["value"], "redis:latest")
 
+    def test_findings_are_tagged_with_patching_category(self) -> None:
+        """
+        Image verification findings aren't declared in rule-set.json, so
+        they can't go through cli.security.run_security_validation()'s
+        rule_id -> complianceCategory lookup; they must be tagged with the
+        matching cli.security_common.COMPLIANCE_CATEGORIES category
+        directly at the source so cds security --category/
+        --group-by-category still account for them.
+        """
+        findings = verify_images(_COMPOSE, _policy(mode="policy"))
+        self.assertTrue(findings)
+        self.assertTrue(all(f["category"] == "patching" for f in findings))
+
     def test_local_images_are_not_flagged(self) -> None:
         compose = yaml.safe_dump(
             {

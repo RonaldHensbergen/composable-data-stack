@@ -26,6 +26,7 @@ from cli.security import (
     _validate_rule_set,
     run_security_validation,
 )
+from cli.security_common import COMPLIANCE_CATEGORIES
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _RULE_SCHEMA_PATH = _REPO_ROOT / "cli" / "resources" / "rule-schema.json"
@@ -53,6 +54,47 @@ class BundledSecurityRulesTest(unittest.TestCase):
         message = str(ctx.exception)
         self.assertIn("Rule-set validation failed", message)
         self.assertIn("rules.0", message)
+
+    def test_every_rule_has_a_compliance_category_from_the_closed_set(self):
+        """
+        Acceptance criterion (#735): every rule in the bundled rule-set.json
+        has exactly one complianceCategory from the documented, closed set.
+        """
+        rule_set = _validate_rule_set()
+        for rule in rule_set["rules"]:
+            self.assertIn(
+                rule.get("complianceCategory"),
+                COMPLIANCE_CATEGORIES,
+                f"{rule['id']} is missing a recognized complianceCategory",
+            )
+
+    def test_schema_rejects_rule_missing_compliance_category(self):
+        schema = json.loads(_RULE_SCHEMA_PATH.read_text(encoding="utf-8"))
+        rule_set = json.loads(_RULE_SET_PATH.read_text(encoding="utf-8"))
+        del rule_set["rules"][0]["complianceCategory"]
+
+        with unittest.mock.patch(
+            "cli.security._load_json",
+            side_effect=[schema, rule_set],
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_rule_set(_RULE_SCHEMA_PATH, _RULE_SET_PATH)
+
+        self.assertIn("Rule-set validation failed", str(ctx.exception))
+
+    def test_schema_rejects_rule_with_unrecognized_compliance_category(self):
+        schema = json.loads(_RULE_SCHEMA_PATH.read_text(encoding="utf-8"))
+        rule_set = json.loads(_RULE_SET_PATH.read_text(encoding="utf-8"))
+        rule_set["rules"][0]["complianceCategory"] = "not-a-real-category"
+
+        with unittest.mock.patch(
+            "cli.security._load_json",
+            side_effect=[schema, rule_set],
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                _validate_rule_set(_RULE_SCHEMA_PATH, _RULE_SET_PATH)
+
+        self.assertIn("Rule-set validation failed", str(ctx.exception))
 
 
 class SecurityHelpersTest(unittest.TestCase):
@@ -516,6 +558,13 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
 
         self.assertEqual(len(hits), 3, f"unexpected extra/missing findings: {hits}")
 
+        # Every finding for a rule.set.json-backed rule id carries that
+        # rule's informational complianceCategory (#735), not just the
+        # declarative match-engine ones -- CDS-SEC-070 is itself scoped to
+        # "rendered-compose" (a declarative-engine scope), so this also
+        # covers the ordinary _rule_matches() path.
+        self.assertTrue(all(f["category"] == "logging-monitoring" for f in hits.values()))
+
     def test_does_not_flag_the_same_secret_passed_via_environment(self):
         profile_path = self._FIXTURE_ROOT / "profile-safe" / "profile.yaml"
         env_path = profile_path.parent / ".env"
@@ -773,6 +822,31 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
             self.assertEqual([d.code for d in diags if d.code == "W098"], [])
         finally:
             tmp_rule_set_path.unlink()
+
+    def test_cds_sec_074_finding_carries_its_compliance_category(self):
+        """
+        CDS-SEC-074 is enforced entirely in code (see its $comment), not by
+        the declarative match engine, so its finding must still pick up
+        complianceCategory via run_security_validation()'s rule_id lookup
+        (#735), the same as a declarative-engine finding.
+        """
+        fixture_root = _REPO_ROOT / "tests" / "fixtures" / "security" / "plaintext-exposure"
+        profile_path = fixture_root / "profile-missing-tls" / "profile.yaml"
+        env_path = profile_path.parent / ".env"
+
+        with unittest.mock.patch.dict(
+            os.environ, {"CDS_MODULE_PATH": str(fixture_root / "modules")}
+        ):
+            findings, _diags = run_security_validation(
+                profile_path,
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                env_file=str(env_path),
+            )
+
+        hits = [f for f in findings if f["rule_id"] == "CDS-SEC-074"]
+        self.assertTrue(hits, "expected CDS-SEC-074 to fire on this fixture")
+        self.assertTrue(all(f["category"] == "encryption-in-transit" for f in hits))
 
 
 class ExtendsAwareSecurityScanTest(unittest.TestCase):
