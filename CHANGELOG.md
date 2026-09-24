@@ -8,6 +8,17 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added [`docs/cra-incident-runbook.md`](docs/cra-incident-runbook.md), an
+  operational runbook for actively exploited vulnerabilities and severe
+  security incidents covering the decision tree, 24-hour/72-hour/14-day/
+  one-month deadlines, evidence preservation, the ENISA Single Reporting
+  Platform split between internal and submitted evidence, third-party
+  upstream coordination, user notification, and a tabletop exercise result.
+  Extended `SECURITY.md`'s coordinated vulnerability disclosure policy with
+  monitored-contact/intake ownership, severity triage and embargo handling,
+  and advisory publication, and cross-linked `RELEASE.md`'s checklist to
+  the runbook's final-report deadlines (#729).
+
 - Added an informational `complianceCategory` field to every rule in
   `cli/resources/rule-set.json` (validated by a new closed enum in
   `cli/resources/rule-schema.json`), mapping each security finding onto a
