@@ -67,6 +67,15 @@ def build_plan(
 
     Returns:
         Tuple of (plan, diagnostics)
+
+    This is a thin, path-based wrapper: it resolves profile_path's
+    extends/environment overlay chain (see cli.overlay), then delegates
+    everything else to build_plan_from_profile(), the profile-dict-based
+    entry point (issue #349). Callers that already have an assembled
+    profile in memory -- e.g. a runtime-generated profile that has not
+    (and may never) be written to disk -- can call
+    cli.overlay.resolve_extends_from_profile()/resolve_profile_from_profile()
+    plus build_plan_from_profile() directly instead of going through disk.
     """
     diagnostics: list[Diagnostic] = []
 
@@ -90,6 +99,74 @@ def build_plan(
     if profile is None:
         return None, diagnostics
 
+    plan, plan_diagnostics = build_plan_from_profile(
+        profile,
+        profile_file.parent,
+        env_file=env_file,
+        hardened=hardened,
+        image_source=image_source,
+        environment=environment,
+        provenance=provenance,
+        source_label=str(profile_file),
+    )
+    diagnostics.extend(plan_diagnostics)
+    return plan, diagnostics
+
+
+def build_plan_from_profile(
+    profile: dict[str, Any],
+    profile_dir: Path,
+    env_file: str | None = None,
+    hardened: bool = False,
+    image_source: str | None = None,
+    environment: str | None = None,
+    provenance: dict[str, str] | None = None,
+    source_label: str | None = None,
+) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
+    """
+    In-memory/dict-based counterpart to build_plan() (issue #349): builds a
+    resolved plan directly from an already-loaded/resolved profile dict,
+    without requiring it to be loaded from (or written to) disk first. This
+    is everything build_plan() does *after* resolving profile_path's
+    extends/environment overlay chain; build_plan(profile_path, ...) is a
+    thin wrapper around this function.
+
+    `profile` is expected to already be fully resolved -- i.e. its own
+    `extends` chain (if any) and any --environment overlay have already
+    been merged in, mirroring how build_plan() calls
+    cli.overlay.resolve_extends()/resolve_profile() before reaching this
+    point. Callers that need extends/environment support for an in-memory
+    profile should resolve it first via
+    cli.overlay.resolve_extends_from_profile()/resolve_profile_from_profile(),
+    then pass the result here.
+
+    Args:
+        profile: An already-loaded/resolved profile document (see above).
+        profile_dir: Directory used to anchor relative module `source:`
+            fields (see resolve_module_file()), exactly as a real profile
+            file's parent directory would. Must exist; does not need to
+            contain a profile.yaml of its own.
+        env_file: Optional path to .env file for secrets
+        hardened: See build_plan().
+        image_source: See build_plan().
+        environment: Optional environment overlay name to record on the
+            returned plan's "environment" field, purely for output
+            parity with build_plan() -- resolving an actual overlay must
+            happen before calling this function (see above).
+        provenance: Value provenance for the returned plan's "provenance"
+            field (see build_plan()); defaults to {} when the caller has no
+            extends/overlay resolution of its own to report.
+        source_label: Value to record on the returned plan's
+            "sourceProfile" field in place of a real file path (default:
+            "<in-memory profile>").
+
+    Returns:
+        Tuple of (plan, diagnostics)
+    """
+    diagnostics: list[Diagnostic] = []
+    provenance = provenance if provenance is not None else {}
+    source_label = source_label or "<in-memory profile>"
+
     spec = profile.get("spec", {})
     secrets, secret_diags = load_profile_secrets(spec.get("secrets"), env_file)
     diagnostics.extend(secret_diags)
@@ -97,10 +174,10 @@ def build_plan(
     modules = spec.get("modules", [])
     if not isinstance(modules, list):
         # Defensive guard: validate_profile() already rejects a non-list
-        # spec.modules (E010), but build_plan() is a public entry point that
-        # may be called directly (e.g. by tests/tools) without prior
-        # validation, so it must not crash with an unhandled TypeError from
-        # enumerate() on a non-iterable/scalar value.
+        # spec.modules (E010), but build_plan_from_profile() is a public
+        # entry point that may be called directly (e.g. by tests/tools)
+        # without prior validation, so it must not crash with an unhandled
+        # TypeError from enumerate() on a non-iterable/scalar value.
         diagnostics.append(Diagnostic(
             level="error",
             code="E010",
@@ -108,8 +185,6 @@ def build_plan(
             path="spec.modules",
         ))
         return None, diagnostics
-
-    profile_dir = profile_file.parent
 
     loaded_modules: list[dict[str, Any]] = []
     module_instances_by_id: dict[str, dict[str, Any]] = {}
@@ -245,7 +320,7 @@ def build_plan(
         "apiVersion": "cds/v1alpha1",
         "kind": "Plan",
         "metadata": deepcopy(profile.get("metadata", {})),
-        "sourceProfile": str(profile_file),
+        "sourceProfile": source_label,
         "environment": environment,
         "provenance": provenance,
         "runtime": spec.get("runtime", {}),
@@ -254,6 +329,68 @@ def build_plan(
         "modules": planned_modules,
     }
 
+    return plan, diagnostics
+
+
+def plan_generated_profile(
+    profile: dict[str, Any],
+    profile_dir: Path,
+    env_file: str | None = None,
+    environment: str | None = None,
+    hardened: bool = False,
+    image_source: str | None = None,
+    source_label: str | None = None,
+) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
+    """
+    One-call convenience wrapper (issue #349) around
+    cli.overlay.resolve_extends_from_profile()/resolve_profile_from_profile()
+    + build_plan_from_profile(): resolves `profile`'s own `extends` chain
+    and, if `environment` is set, its environments/<environment>.yaml
+    overlay, then builds a plan from the result -- all without requiring
+    `profile` to be loaded from (or written to) disk first. This mirrors
+    build_plan(profile_path, ...)'s own resolve-then-plan composition, but
+    for a profile that only exists in memory (e.g. one produced by
+    cli.main.generate_profile() and never written via
+    save_generated_profile()).
+
+    `profile_dir` anchors relative module `source:` fields and, if
+    `profile` declares `extends` or `environment` is set, `extends` parent
+    references and the environment overlay lookup, the same way a real
+    profile file's parent directory would. It must exist and, for
+    extends/environment support, reside under a "profiles/" root; it does
+    not need to contain a profile.yaml of its own.
+
+    Returns:
+        Tuple of (plan, diagnostics)
+    """
+    diagnostics: list[Diagnostic] = []
+    source_label = source_label or "<in-memory profile>"
+
+    # Local import: see build_plan()'s equivalent comment.
+    from .overlay import resolve_extends_from_profile, resolve_profile_from_profile
+
+    if environment is not None:
+        resolved, provenance, diags = resolve_profile_from_profile(
+            profile, profile_dir, environment, source_label
+        )
+    else:
+        resolved, provenance, diags = resolve_extends_from_profile(profile, profile_dir, source_label)
+    diagnostics.extend(diags)
+
+    if resolved is None:
+        return None, diagnostics
+
+    plan, plan_diagnostics = build_plan_from_profile(
+        resolved,
+        profile_dir,
+        env_file=env_file,
+        hardened=hardened,
+        image_source=image_source,
+        environment=environment,
+        provenance=provenance,
+        source_label=source_label,
+    )
+    diagnostics.extend(plan_diagnostics)
     return plan, diagnostics
 
 _CDS_VAR_PATTERN = re.compile(r"\$\{(CDS_[A-Z0-9_]+)\}")
