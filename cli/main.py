@@ -22,6 +22,7 @@ import yaml
 
 from .diagnostics import Diagnostic
 from .getter import GetError, _prepare_source_repository, fetch_profile, format_get_plan
+from .image_digest_check import is_enabled as image_digest_check_enabled
 from .image_updates import check_image_update, collect_module_images
 from .image_verification import (
     ImagePolicy,
@@ -50,7 +51,12 @@ from .up_runner import (
     stop_log_tail,
 )
 from .utils import _atomic_write
-from .validator import has_errors, validate_profile
+from .validator import (
+    has_errors,
+    load_module_instances,
+    validate_pinned_image_digests,
+    validate_profile,
+)
 
 
 def load_env_file(env_file: str = ".env") -> None:
@@ -927,6 +933,31 @@ def _category_heading(category: str) -> str:
     return f"== {label} ({category}) =="
 
 
+def _maybe_check_pinned_image_digests(
+    diagnostics: list[Diagnostic],
+    profile_path: str,
+    environment: str | None,
+    check_flag: bool,
+) -> list[Diagnostic]:
+    """
+    Appends pinned-image digest staleness warnings (W100, issue #736) when
+    the check is enabled via --check-image-digests or
+    CDS_CHECK_IMAGE_DIGESTS=1. Skipped whenever not enabled, or when the
+    profile already failed validation, so this stays a pure addition on top
+    of an otherwise-passing profile and never turns a validation failure
+    into a network call.
+    """
+    if not image_digest_check_enabled(check_flag) or has_errors(diagnostics):
+        return diagnostics
+    profile, _, resolve_diags = resolve_profile(profile_path, environment)
+    if profile is None or has_errors(resolve_diags):
+        return diagnostics
+    module_instances, load_diags = load_module_instances(Path(profile_path), profile)
+    if has_errors(load_diags):
+        return diagnostics
+    return diagnostics + validate_pinned_image_digests(module_instances)
+
+
 def _run_image_verification(
     profile_path: str,
     environment: str | None,
@@ -1060,6 +1091,15 @@ def main() -> int:
         default="compose",
         help="Validate target-specific requirements (default: compose).",
     )
+    validate_parser.add_argument(
+        "--check-image-digests",
+        action="store_true",
+        help=(
+            "Warn when a pinned image digest is behind the digest currently "
+            "published for that tag (W100). Requires network access; off by "
+            "default (also enabled via CDS_CHECK_IMAGE_DIGESTS=1)."
+        ),
+    )
 
     generate_profile_parser = subparsers.add_parser(
         "generate-profile",
@@ -1172,6 +1212,15 @@ def main() -> int:
     )
     _add_hardened_arg(up_parser)
     _add_image_source_arg(up_parser)
+    up_parser.add_argument(
+        "--check-image-digests",
+        action="store_true",
+        help=(
+            "Warn when a pinned image digest is behind the digest currently "
+            "published for that tag (W100). Requires network access; off by "
+            "default (also enabled via CDS_CHECK_IMAGE_DIGESTS=1)."
+        ),
+    )
 
     down_parser = subparsers.add_parser("down", help="Stop or uninstall a running profile")
     _add_profile_arg(down_parser)
@@ -1458,6 +1507,10 @@ def main() -> int:
                 _, render_diags = render_helm(plan)
                 diagnostics.extend(render_diags)
 
+        diagnostics = _maybe_check_pinned_image_digests(
+            diagnostics, profile_path, args.environment, args.check_image_digests
+        )
+
         if diagnostics:
             error_count = sum(1 for d in diagnostics if d.level == "error")
             warning_count = sum(1 for d in diagnostics if d.level == "warning")
@@ -1683,6 +1736,17 @@ def main() -> int:
             print_diagnostics(diagnostics)
             print("Cannot start stack because validation failed.")
             return 1
+
+        diagnostics = _maybe_check_pinned_image_digests(
+            diagnostics, profile_path, args.environment, args.check_image_digests
+        )
+        digest_warnings = [d for d in diagnostics if d.code == "W100"]
+        if digest_warnings:
+            print_diagnostics(digest_warnings)
+        # Print now (there's no later point on the success path that prints
+        # warnings), then drop them so a later failure's print_diagnostics()
+        # over all_diags doesn't show the same warning a second time.
+        diagnostics = [d for d in diagnostics if d.code != "W100"]
 
         env_file = str(resolve_env_file_path(profile_path))
         plan, plan_diags = build_plan(

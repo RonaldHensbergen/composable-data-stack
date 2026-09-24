@@ -11,6 +11,7 @@ from cli.validator import (
     validate_contract_file,
     validate_image_source_config,
     validate_observability_config,
+    validate_pinned_image_digests,
     validate_profile,
 )
 
@@ -360,6 +361,71 @@ class ImageSourceConfigValidationTest(unittest.TestCase):
 
             self.assertEqual([d for d in diagnostics if d.level == "error"], [])
             self.assertEqual([d.code for d in diagnostics if d.level == "warning"], ["W097"])
+
+
+class PinnedImageDigestValidationTest(unittest.TestCase):
+    def _instance(self, image, index=0, module_id="under-test"):
+        module = {
+            "spec": {
+                "implementation": {
+                    "compose": {"services": {"svc": {"image": image}}},
+                }
+            }
+        }
+        return {"index": index, "id": module_id, "module": module}
+
+    def test_module_without_pinned_image_is_unaffected(self):
+        instances = [self._instance("myapp:custom")]
+        self.assertEqual(validate_pinned_image_digests(instances), [])
+
+    @patch("cli.validator.check_digest_staleness")
+    def test_up_to_date_digest_is_not_reported(self, mock_check):
+        mock_check.return_value = {
+            "image": "postgres:18@sha256:" + "a" * 64,
+            "status": "up-to-date",
+            "latest_digest": "sha256:" + "a" * 64,
+        }
+        instances = [self._instance(f"postgres:18@sha256:{'a' * 64}")]
+        self.assertEqual(validate_pinned_image_digests(instances), [])
+
+    @patch("cli.validator.check_digest_staleness")
+    def test_stale_digest_is_a_warning(self, mock_check):
+        mock_check.return_value = {
+            "image": "postgres:18@sha256:" + "a" * 64,
+            "status": "stale",
+            "latest_digest": "sha256:" + "b" * 64,
+        }
+        instances = [self._instance(f"postgres:18@sha256:{'a' * 64}")]
+        diagnostics = validate_pinned_image_digests(instances)
+        self.assertEqual([d.code for d in diagnostics], ["W100"])
+        self.assertEqual(diagnostics[0].level, "warning")
+        self.assertIn("under-test", diagnostics[0].path)
+
+    @patch("cli.validator.check_digest_staleness")
+    def test_lookup_failure_is_skipped_not_reported(self, mock_check):
+        mock_check.return_value = {
+            "image": "postgres:18@sha256:" + "a" * 64,
+            "status": "lookup-failed",
+            "latest_digest": None,
+        }
+        instances = [self._instance(f"postgres:18@sha256:{'a' * 64}")]
+        self.assertEqual(validate_pinned_image_digests(instances), [])
+
+    @patch("cli.validator.check_digest_staleness")
+    def test_same_pinned_image_is_only_checked_once(self, mock_check):
+        mock_check.return_value = {
+            "image": "postgres:18@sha256:" + "a" * 64,
+            "status": "stale",
+            "latest_digest": "sha256:" + "b" * 64,
+        }
+        image = f"postgres:18@sha256:{'a' * 64}"
+        instances = [
+            self._instance(image, index=0, module_id="a"),
+            self._instance(image, index=1, module_id="b"),
+        ]
+        diagnostics = validate_pinned_image_digests(instances)
+        self.assertEqual(mock_check.call_count, 1)
+        self.assertEqual(len(diagnostics), 2)
 
 
 class ContractSchemaValidationTest(unittest.TestCase):
