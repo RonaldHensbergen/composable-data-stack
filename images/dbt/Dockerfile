@@ -1,4 +1,4 @@
-FROM python:3.14-slim@sha256:caaf356f40667c496d405780745b9ac25771c189a51dfcc42430d531ea09f8a2 AS builder
+FROM python:3.14-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1
@@ -27,7 +27,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt && \
     python -c "import dbt.adapters.postgres, dbt.adapters.duckdb" && \
     python -m pip uninstall --yes pip
 
-FROM python:3.14-slim@sha256:caaf356f40667c496d405780745b9ac25771c189a51dfcc42430d531ea09f8a2
+FROM python:3.14-slim@sha256:51dafde81dbdb6ebde285137a295cf18a47ca95234fe388a343719cb97305b3d
 
 ENV HOME=/home/dbt \
     PATH="/opt/venv/bin:$PATH" \
