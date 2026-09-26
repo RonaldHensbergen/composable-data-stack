@@ -1,1 +1,10 @@
 dagster-postgres==0.29.24
+# This Postgres storage adapter only declares psycopg2-binary (not
+# psycopg/psycopg3) as a dependency, but SQLAlchemy 2.1 switched the default
+# DBAPI for bare `postgresql://` URLs from psycopg2 to psycopg3, which isn't
+# installed here. Left unpinned, pip resolves the newest compatible
+# SQLAlchemy transitively and dagster-webserver/dagster-daemon crash at
+# startup with `ModuleNotFoundError: No module named 'psycopg'`. Pin below
+# 2.1 until this adapter depends on psycopg3 or its Postgres URL
+# construction pins the psycopg2 driver explicitly.
+sqlalchemy<2.1
