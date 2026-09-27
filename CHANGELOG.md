@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-27
+
 ### Added
 
 - Added an informational `complianceCategory` field to every rule in
