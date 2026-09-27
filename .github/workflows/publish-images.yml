@@ -417,18 +417,36 @@ jobs:
 
       - name: Verify signed image (self-check)
         run: |
-          cosign verify \
+          # Docker Hub's registry (unlike ghcr.io) is only eventually
+          # consistent for OCI referrers/attestations: a verify-attestation
+          # call made immediately after "cosign attest" can transiently see
+          # only a subset of the just-pushed attestations. Retry with
+          # backoff instead of failing the whole publish on a race.
+          retry() {
+            local attempts=6 delay=5 n=0
+            until "$@"; do
+              n=$((n + 1))
+              if [ "$n" -ge "$attempts" ]; then
+                return 1
+              fi
+              echo "Retrying (${n}/${attempts}) after Docker Hub propagation delay..." >&2
+              sleep "$delay"
+              delay=$((delay * 2))
+            done
+          }
+
+          retry cosign verify \
             --certificate-identity-regexp \
             '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "${{ steps.push.outputs.digest }}"
-          cosign verify-attestation \
+          retry cosign verify-attestation \
             --type cyclonedx \
             --certificate-identity-regexp \
             '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "${{ steps.push.outputs.digest }}"
-          cosign verify-attestation \
+          retry cosign verify-attestation \
             --type slsaprovenance \
             --certificate-identity-regexp \
             '^https://github\.com/${{ github.repository }}/\.github/workflows/publish-images\.yml@${{ github.ref }}$' \
