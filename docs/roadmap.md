@@ -129,6 +129,12 @@ platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
 - 📋 **NIS2-aligned `cds security` reporting** — extend the rule-set with
   operator-readiness checks per Article 21 measure category, gated on the
   scoping issue above (#774)
+- 📋 **Stale pinned-digest warning** — warn when a profile's pinned image
+  digest is behind the latest published, patched digest; cited by the NIS2
+  scoping issue's supply-chain-security gap (#736)
+- 📋 **Local audit trail** — retain a local audit trail of rendered/applied
+  stacks for user incident evidence, supporting NIS2 incident-reporting
+  timelines (#737)
 - 📋 **OpenLineage data-lineage for Dagster** — add a `lineage-sink` contract
   and wire Dagster's built-in OpenLineage integration to it, in support of
   IBDS/FDS "verantwoord datagebruik" provenance expectations; coordinate

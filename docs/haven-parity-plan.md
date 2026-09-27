@@ -336,7 +336,8 @@ adoption — the Federatief Datastelsel/IBDS data-sharing framework and
 Cyberbeveiligingswet/NIS2 operator obligations — under the **Dutch
 Public-Sector Data & Security Alignment** milestone. See
 [docs/roadmap.md](roadmap.md)'s "Dutch Public-Sector Alignment" section for
-the issue list (#771–#774). These are deliberately scoped separately from
+the full issue list (#736, #737, #771–#774, #779). These are deliberately
+scoped separately from
 Haven parity: Haven parity is "does CDS produce a Common Ground-shaped
 platform", while the NL alignment milestone is "does CDS help operators of
 that platform meet Dutch data-sharing and security-law obligations."
