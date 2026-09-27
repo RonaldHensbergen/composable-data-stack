@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -6,9 +8,11 @@ import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
+from cli.main import main
 from cli.report import (
     REPORT_DISCLAIMER,
     _build_image_evidence,
@@ -214,6 +218,192 @@ class SecretLeakCheckTest(unittest.TestCase):
             result, diagnostics = _check_no_leaked_secrets(_sample_plan(), compose, str(env_path))
             self.assertEqual(result["status"], "pass")
             self.assertEqual(result["checkedSecretCount"], 1)
+            self.assertEqual(diagnostics, [])
+
+
+class MainReportCommandTest(unittest.TestCase):
+    """In-process tests for cli.main's `report` handler (mocks
+    build_compliance_report so these don't depend on plan/render/.env
+    state -- that end-to-end path is covered by BuildComplianceReportTest
+    and ReportCLITest above)."""
+
+    def _canned_report(self, leak_status: str = "pass") -> dict:
+        return {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "ComplianceReport",
+            "generatedAt": "2026-09-27T09:49:56+00:00",
+            "profile": {
+                "sourceProfile": _PROFILE_FILE,
+                "name": _PROFILE_NAME,
+                "environment": "prod",
+            },
+            "modules": [
+                {"id": "postgres", "source": "modules/warehouse/postgres", "version": "0.1.0", "dependsOn": []},
+                {"id": "dagster", "source": "modules/orchestration/dagster", "version": "0.1.0", "dependsOn": ["postgres"]},
+            ],
+            "images": [
+                {
+                    "service": "postgres",
+                    "image": "postgres:18@sha256:" + "a" * 64,
+                    "digestPinned": True,
+                    "evidence": {
+                        "status": "available",
+                        "digest": "sha256:" + "a" * 64,
+                        "signed": True,
+                        "provenanceAttested": True,
+                        "sbomAttested": True,
+                        "source": str(_FIXTURE_PATH),
+                    },
+                },
+                {
+                    "service": "dagster",
+                    "image": "local/dagster:custom",
+                    "digestPinned": False,
+                    "evidence": {"status": "not-available", "reason": "Locally built image."},
+                },
+            ],
+            "topology": [
+                {
+                    "id": "postgres",
+                    "dependsOn": [],
+                    "provides": [{"name": "sql-database", "kind": "sql-database"}],
+                    "consumes": [],
+                },
+                {
+                    "id": "dagster",
+                    "dependsOn": ["postgres"],
+                    "provides": [],
+                    "consumes": [{
+                        "name": "analytics-database",
+                        "kind": "sql-database",
+                        "contractRef": "postgres.sql-database",
+                        "provider": "postgres",
+                    }],
+                },
+            ],
+            "secretLeakCheck": {
+                "status": leak_status,
+                "checkedSecretCount": 1,
+                "leakedSecretNames": ["CDS_DB_PASSWORD"] if leak_status == "fail" else [],
+            },
+            "disclaimer": REPORT_DISCLAIMER,
+        }
+
+    def _run_main(self, argv: list) -> tuple[int, str, str]:
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(sys, "argv", ["cds", *argv]), \
+             contextlib.redirect_stdout(stdout), \
+             contextlib.redirect_stderr(stderr):
+            code = main()
+        return code, stdout.getvalue(), stderr.getvalue()
+
+    def test_json_output_exit_zero_on_pass(self) -> None:
+        with patch("cli.main.build_compliance_report", return_value=(self._canned_report(), [])):
+            code, stdout, stderr = self._run_main(["report", _PROFILE_FILE, "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        parsed = json.loads(stdout)
+        self.assertEqual(parsed["kind"], "ComplianceReport")
+
+    def test_text_output_default_format(self) -> None:
+        with patch("cli.main.build_compliance_report", return_value=(self._canned_report(), [])):
+            code, stdout, _stderr = self._run_main(["report", _PROFILE_FILE])
+        self.assertEqual(code, 0)
+        self.assertIn("Compliance/Evidence Report", stdout)
+        self.assertIn("Environment: prod", stdout)
+        self.assertIn("dependsOn: postgres", stdout)
+        self.assertIn("evidence: signed=True", stdout)
+        self.assertIn("evidence: NOT AVAILABLE", stdout)
+        self.assertIn("consumes: analytics-database", stdout)
+        self.assertIn(REPORT_DISCLAIMER, stdout)
+
+    def test_text_output_lists_leaked_secret_names(self) -> None:
+        with patch("cli.main.build_compliance_report", return_value=(self._canned_report("fail"), [])):
+            code, stdout, _stderr = self._run_main(["report", _PROFILE_FILE])
+        self.assertEqual(code, 1)
+        self.assertIn("status=fail", stdout)
+        self.assertIn("leaked: CDS_DB_PASSWORD", stdout)
+
+    def test_diagnostics_go_to_stderr_not_stdout(self) -> None:
+        from cli.diagnostics import Diagnostic
+        diag = Diagnostic(level="warning", code="W101", message="no evidence", path="services.x.image")
+        with patch("cli.main.build_compliance_report", return_value=(self._canned_report(), [diag])):
+            code, stdout, stderr = self._run_main(["report", _PROFILE_FILE, "--json"])
+        self.assertEqual(code, 0)
+        self.assertIn("W101", stderr)
+        self.assertNotIn("W101", stdout)
+        json.loads(stdout)  # still valid JSON despite the warning
+
+    def test_exit_code_one_when_secret_leak_fails(self) -> None:
+        with patch("cli.main.build_compliance_report", return_value=(self._canned_report("fail"), [])):
+            code, stdout, _stderr = self._run_main(["report", _PROFILE_FILE, "--json"])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(stdout)["secretLeakCheck"]["status"], "fail")
+
+    def test_exit_code_one_when_report_is_none(self) -> None:
+        from cli.diagnostics import Diagnostic
+        diag = Diagnostic(level="error", code="E010", message="bad profile", path="spec.modules")
+        with patch("cli.main.build_compliance_report", return_value=(None, [diag])):
+            code, stdout, stderr = self._run_main(["report", _PROFILE_FILE])
+        self.assertEqual(code, 1)
+        self.assertIn("validate/plan/render failed", stderr)
+        self.assertIn("E010", stderr)
+        self.assertEqual(stdout, "")
+
+    def test_output_flag_writes_file_and_prints_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "report.json"
+            with patch("cli.main.build_compliance_report", return_value=(self._canned_report(), [])):
+                code, stdout, _stderr = self._run_main(
+                    ["report", _PROFILE_FILE, "--json", "--output", str(out_path)]
+                )
+            self.assertEqual(code, 0)
+            self.assertIn(f"Compliance report saved to {out_path}", stdout)
+            saved = json.loads(out_path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["kind"], "ComplianceReport")
+
+
+class BuildComplianceReportFailurePathsTest(unittest.TestCase):
+    """Covers build_compliance_report's early-return branches (validate,
+    plan, and render failures each return (None, diagnostics))."""
+
+    def test_returns_none_when_validate_has_errors(self) -> None:
+        from cli.diagnostics import Diagnostic
+        err = Diagnostic(level="error", code="E010", message="bad", path="spec.modules")
+        with patch("cli.report.validate_profile", return_value=[err]):
+            report, diagnostics = build_compliance_report(_PROFILE_FILE)
+        self.assertIsNone(report)
+        self.assertIn(err, diagnostics)
+
+    def test_returns_none_when_plan_fails(self) -> None:
+        from cli.diagnostics import Diagnostic
+        err = Diagnostic(level="error", code="E020", message="bad plan", path="spec")
+        with patch("cli.report.validate_profile", return_value=[]), \
+             patch("cli.report.build_plan", return_value=(None, [err])):
+            report, diagnostics = build_compliance_report(_PROFILE_FILE)
+        self.assertIsNone(report)
+        self.assertIn(err, diagnostics)
+
+    def test_returns_none_when_render_fails(self) -> None:
+        from cli.diagnostics import Diagnostic
+        err = Diagnostic(level="error", code="E030", message="bad render", path="spec")
+        with patch("cli.report.validate_profile", return_value=[]), \
+             patch("cli.report.build_plan", return_value=({"modules": [], "secrets": {}}, [])), \
+             patch("cli.report.render_compose", return_value=(None, [err])):
+            report, diagnostics = build_compliance_report(_PROFILE_FILE)
+        self.assertIsNone(report)
+        self.assertIn(err, diagnostics)
+
+
+class SecretLeakCheckEmptyValueTest(unittest.TestCase):
+    def test_declared_secret_with_empty_value_is_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            env_path = Path(tmp) / ".env"
+            env_path.write_text("CDS_DB_PASSWORD=\n", encoding="utf-8")
+            plan = {"secrets": {"db_password": "CDS_DB_PASSWORD"}}
+            result, diagnostics = _check_no_leaked_secrets(plan, "services: {}\n", str(env_path))
+            self.assertEqual(result["status"], "pass")
+            self.assertEqual(result["checkedSecretCount"], 0)
             self.assertEqual(diagnostics, [])
 
 
