@@ -16,6 +16,22 @@ The format is based on Keep a Changelog.
   `render`/`up` stay network-free, and any lookup failure (offline, auth,
   unsupported registry) is silently skipped rather than failing the
   command (#736).
+
+## [0.10.0] - 2026-09-27
+
+### Added
+
+- Added [`docs/cra-incident-runbook.md`](docs/cra-incident-runbook.md), an
+  operational runbook for actively exploited vulnerabilities and severe
+  security incidents covering the decision tree, 24-hour/72-hour/14-day/
+  one-month deadlines, evidence preservation, the ENISA Single Reporting
+  Platform split between internal and submitted evidence, third-party
+  upstream coordination, user notification, and a tabletop exercise result.
+  Extended `SECURITY.md`'s coordinated vulnerability disclosure policy with
+  monitored-contact/intake ownership, severity triage and embargo handling,
+  and advisory publication, and cross-linked `RELEASE.md`'s checklist to
+  the runbook's final-report deadlines (#729).
+
 - Added an informational `complianceCategory` field to every rule in
   `cli/resources/rule-set.json` (validated by a new closed enum in
   `cli/resources/rule-schema.json`), mapping each security finding onto a
@@ -57,6 +73,23 @@ The format is based on Keep a Changelog.
   `spec.security.waivers.plaintextEndpointExposure.reason` (a required,
   non-blank string) to downgrade the finding to a `W098` warning instead
   (#576).
+
+### Fixed
+
+- Pinned `sqlalchemy<2.1` in `images/dagster/requirements-postgres.txt`.
+  SQLAlchemy 2.1 changed the default DBAPI for bare `postgresql://` URLs
+  from `psycopg2` to `psycopg` (v3), which isn't installed alongside the
+  Postgres storage adapter's `psycopg2-binary` dependency, so
+  `dagster-webserver`/`dagster-daemon` crashed at startup with
+  `ModuleNotFoundError: No module named 'psycopg'` once pip resolved the
+  newest SQLAlchemy transitively (#754).
+- Retried the `publish-dockerhub` job's post-publish `cosign verify`/
+  `cosign verify-attestation` self-checks with backoff. Docker Hub's
+  OCI referrers/attestations endpoint is only eventually consistent, so a
+  verify call made immediately after `cosign attest` could transiently see
+  only a subset of the just-pushed attestations and fail the whole
+  `Publish Signed Images` job even though signing/attesting succeeded
+  (#760).
 
 ## [0.9.1] - 2026-09-18
 
