@@ -59,6 +59,13 @@ The format is based on Keep a Changelog.
   `dagster-webserver`/`dagster-daemon` crashed at startup with
   `ModuleNotFoundError: No module named 'psycopg'` once pip resolved the
   newest SQLAlchemy transitively (#754).
+- Retried the `publish-dockerhub` job's post-publish `cosign verify`/
+  `cosign verify-attestation` self-checks with backoff. Docker Hub's
+  OCI referrers/attestations endpoint is only eventually consistent, so a
+  verify call made immediately after `cosign attest` could transiently see
+  only a subset of the just-pushed attestations and fail the whole
+  `Publish Signed Images` job even though signing/attesting succeeded
+  (#760).
 
 ## [0.9.1] - 2026-09-18
 
