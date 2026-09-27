@@ -235,12 +235,12 @@ gap is narrower than section 2 suggested when this document was drafted:
 | 3.1 Kubernetes rendering target | **Done, pending merge** — implemented end-to-end with real k3d E2E verification | PR [#608](https://github.com/RonaldHensbergen/composable-data-stack/pull/608); originating issues [#65](https://github.com/RonaldHensbergen/composable-data-stack/issues/65), [#73](https://github.com/RonaldHensbergen/composable-data-stack/issues/73), [#74](https://github.com/RonaldHensbergen/composable-data-stack/issues/74), [#77](https://github.com/RonaldHensbergen/composable-data-stack/issues/77) should close on merge |
 | 3.1 follow-up: NetworkPolicy generation | Open, not started | [#75](https://github.com/RonaldHensbergen/composable-data-stack/issues/75) (partially — also covered secrets/PVC, which #608 did deliver) |
 | 3.1 follow-up: CI cluster validation (kind/k3d apply in CI, not just `helm lint`/`template`) | Open, not started | [#76](https://github.com/RonaldHensbergen/composable-data-stack/issues/76) |
-| 3.2 GitOps | Not started, no issue filed | — |
+| 3.2 GitOps | Filed, not started | [#767](https://github.com/RonaldHensbergen/composable-data-stack/issues/767) |
 | 3.3 Observability platform module | Contract/schema done; reference module open | Design closed via [#174](https://github.com/RonaldHensbergen/composable-data-stack/issues/174); module tracked by [#369](https://github.com/RonaldHensbergen/composable-data-stack/issues/369), [#662](https://github.com/RonaldHensbergen/composable-data-stack/issues/662) |
 | 3.4 Security platform modules | Pod/container hardening rules done; TLS/mesh/IAM open | Hardening in PR #608 (`cli/k8s_security.py`); TLS tracked by [#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580); identity tracked by [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) |
 | 3.5 Backup and restore | Not started, but scoped into 4 issues already | [#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210) (contracts), [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665) (Postgres), [#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668) (generic file/volume), [#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669) (object storage) |
-| 3.6 Database operators | Not started, no issue filed | — |
-| 3.7 Maturity model | Not started, no issue filed | — |
+| 3.6 Database operators | Filed, not started | [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) |
+| 3.7 Maturity model | Filed, not started | [#769](https://github.com/RonaldHensbergen/composable-data-stack/issues/769) |
 
 Notable duplicates closed in favor of the issues above:
 [#664](https://github.com/RonaldHensbergen/composable-data-stack/issues/664)
@@ -318,11 +318,25 @@ in parallel; Istio last.
 
 ## 8. Next steps
 
-- File issues for the three untracked workstreams — **3.2 GitOps**, **3.6
-  database operators**, and **3.7 maturity model** — using the module
-  recommendations in section 7, and link them from
+- ✅ Filed the three previously-untracked workstreams: **3.2 GitOps**
+  (#767), **3.6 database operators** (#768), and **3.7 maturity model**
+  (#769) — using the module recommendations in section 7, linked from
   [docs/roadmap.md](roadmap.md)'s Near-Term section.
 - Re-file or reopen focused follow-ups for the two 3.1 gaps PR #608 left
   open: NetworkPolicy generation (building on #75) and CI-based cluster
   validation (building on #76).
 - Track PR #608 to merge, then close issues #65/#73/#74/#77 as delivered.
+
+## 9. Related: Dutch public-sector alignment
+
+Haven parity (this document) is Common Ground's *technical platform*
+dimension. A separate, complementary set of issues tracks alignment with
+the *data-sharing and regulatory* dimensions specific to Dutch public-sector
+adoption — the Federatief Datastelsel/IBDS data-sharing framework and
+Cyberbeveiligingswet/NIS2 operator obligations — under the **Dutch
+Public-Sector Data & Security Alignment** milestone. See
+[docs/roadmap.md](roadmap.md)'s "Dutch Public-Sector Alignment" section for
+the issue list (#771–#774). These are deliberately scoped separately from
+Haven parity: Haven parity is "does CDS produce a Common Ground-shaped
+platform", while the NL alignment milestone is "does CDS help operators of
+that platform meet Dutch data-sharing and security-law obligations."
