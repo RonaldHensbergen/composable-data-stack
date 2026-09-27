@@ -37,6 +37,7 @@ from .overlay import resolve_extends, resolve_profile
 from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
 from .renderer import render_compose
+from .report import build_compliance_report
 from .security import PrecomputedRender, run_security_validation
 from .security_common import COMPLIANCE_CATEGORIES, SEVERITY_ORDER, infer_profile_class
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
@@ -91,10 +92,66 @@ def load_env_file(env_file: str = ".env") -> None:
                 os.environ[key] = value
 
 
-def print_diagnostics(diagnostics) -> None:
+def print_diagnostics(diagnostics, file=None) -> None:
     for d in diagnostics:
         prefix = "ERROR" if d.level == "error" else "WARN"
-        print(f"{prefix} {d.format()}\n")
+        print(f"{prefix} {d.format()}\n", file=file)
+
+
+def _format_compliance_report_text(report: dict[str, Any]) -> str:
+    """Render build_compliance_report()'s dict as a human-readable summary."""
+    lines: list[str] = []
+    profile = report.get("profile", {})
+    lines.append(f"== Compliance/Evidence Report: {profile.get('sourceProfile')} ==")
+    lines.append(f"Generated: {report.get('generatedAt')}")
+    if profile.get("environment"):
+        lines.append(f"Environment: {profile['environment']}")
+    lines.append("")
+
+    lines.append("-- Modules --")
+    for module in report.get("modules", []):
+        depends_on = f" (dependsOn: {', '.join(module['dependsOn'])})" if module.get("dependsOn") else ""
+        lines.append(f"  {module['id']}: source={module.get('source')} version={module.get('version')}{depends_on}")
+    lines.append("")
+
+    lines.append("-- Images --")
+    for image in report.get("images", []):
+        pinned = "digest-pinned" if image.get("digestPinned") else "NOT digest-pinned"
+        evidence = image.get("evidence", {})
+        if evidence.get("status") == "available":
+            evidence_summary = (
+                f"signed={evidence.get('signed')} provenanceAttested={evidence.get('provenanceAttested')} "
+                f"sbomAttested={evidence.get('sbomAttested')}"
+            )
+        else:
+            evidence_summary = f"NOT AVAILABLE ({evidence.get('reason')})"
+        lines.append(f"  {image['service']}: {image['image']} [{pinned}] evidence: {evidence_summary}")
+    lines.append("")
+
+    lines.append("-- Topology --")
+    for module in report.get("topology", []):
+        lines.append(f"  {module['id']}:")
+        if module.get("dependsOn"):
+            lines.append(f"    dependsOn: {', '.join(module['dependsOn'])}")
+        for provided in module.get("provides", []):
+            lines.append(f"    provides: {provided['name']} ({provided.get('kind')})")
+        for consumed in module.get("consumes", []):
+            lines.append(
+                f"    consumes: {consumed['name']} ({consumed.get('kind')}) from {consumed.get('provider')}"
+            )
+    lines.append("")
+
+    secret_check = report.get("secretLeakCheck", {})
+    lines.append("-- Secret Leak Check --")
+    lines.append(
+        f"  status={secret_check.get('status')} checkedSecretCount={secret_check.get('checkedSecretCount')}"
+    )
+    if secret_check.get("leakedSecretNames"):
+        lines.append(f"  leaked: {', '.join(secret_check['leakedSecretNames'])}")
+    lines.append("")
+
+    lines.append(f"NOTE: {report.get('disclaimer')}")
+    return "\n".join(lines)
 
 
 def _k8s_runtime_defaults(profile_path: str) -> tuple[str, str]:
@@ -1229,6 +1286,25 @@ def main() -> int:
     _add_hardened_arg(test_parser)
     _add_image_source_arg(test_parser)
 
+    report_parser = subparsers.add_parser(
+        "report",
+        help="Export a compliance/evidence report for a rendered stack",
+    )
+    _add_profile_arg(report_parser)
+    _add_environment_arg(report_parser)
+    _add_hardened_arg(report_parser)
+    _add_image_source_arg(report_parser)
+    report_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output the report as JSON instead of the human-readable text summary.",
+    )
+    report_parser.add_argument(
+        "--output",
+        "-o",
+        help="Save the report to file instead of printing it to stdout.",
+    )
+
     preflight_parser = subparsers.add_parser(
         "preflight",
         help="Check runtime prerequisites without starting the profile",
@@ -1434,9 +1510,9 @@ def main() -> int:
 
     args = parser.parse_args()
     environment_explicit = hasattr(args, "environment")
-    if args.command in {"validate", "plan", "render", "up", "test", "preflight", "init", "security"}:
+    if args.command in {"validate", "plan", "render", "up", "test", "preflight", "init", "security", "report"}:
         args.environment = getattr(args, "environment", None) or load_saved_environment()
-    if args.command in {"render", "up", "test"}:
+    if args.command in {"render", "up", "test", "report"}:
         args.image_source = getattr(args, "image_source", None) or load_saved_image_source()
     
     if args.command == "validate":
@@ -2088,6 +2164,46 @@ def main() -> int:
         all_passed = all(status == "PASS" for _, status in stages)
         print("\nAll stages passed." if all_passed else "\nOne or more stages failed.")
         return 0 if all_passed else 1
+
+    if args.command == "report":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        env_file = str(resolve_env_file_path(profile_path))
+        report, diagnostics = build_compliance_report(
+            profile_path,
+            env_file=env_file,
+            environment=args.environment,
+            hardened=args.hardened,
+            image_source=args.image_source,
+        )
+
+        if report is None:
+            print(f"Cannot build compliance report for {args.profile}: validate/plan/render failed.\n", file=sys.stderr)
+            print_diagnostics(diagnostics, file=sys.stderr)
+            return 1
+
+        if diagnostics:
+            # Diagnostics always go to stderr (not stdout) so --json output
+            # (and any --output file, which is built from the same
+            # output_text) stays parseable even when warnings/errors exist.
+            print_diagnostics(diagnostics, file=sys.stderr)
+
+        if args.json:
+            output_text = json.dumps(report, indent=2)
+        else:
+            output_text = _format_compliance_report_text(report)
+
+        if args.output:
+            _atomic_write(Path(args.output), output_text)
+            print(f"Compliance report saved to {args.output}")
+        else:
+            print(output_text)
+
+        return 1 if report["secretLeakCheck"]["status"] == "fail" else 0
 
     if args.command == "preflight":
         try:

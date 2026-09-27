@@ -6,6 +6,22 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added a `cds report` command that exports a compliance/evidence report
+  for a rendered stack: resolved module list (id/source/version/
+  dependsOn), linked signature/SBOM/provenance evidence per image (looked
+  up from the signed-images fixture, degrading gracefully with a `W101`
+  warning for locally-built or unlinkable images instead of failing), the
+  contract/topology graph, and a secret-leak check (`E119`) confirming no
+  declared secret value renders literally into Compose output instead of
+  a `${CDS_*}` placeholder. Supports human-readable text (default) or
+  `--json`, and `--output`/`-o` to save to a file; diagnostics are always
+  printed to stderr so `--json` output stays parseable. See
+  `docs/compliance-report.md`, which also carries the required disclaimer
+  that this is readiness evidence, not a legal compliance/conformity
+  certification (#734).
+
 ## [0.10.0] - 2026-09-27
 
 ### Added

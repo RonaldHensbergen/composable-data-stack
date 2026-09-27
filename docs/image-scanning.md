@@ -4,6 +4,10 @@ This document describes the continuous vulnerability management process for
 the runtime images built in this repository (`dagster`, `superset`), as
 tracked by issue #209.
 
+For an exportable summary of module/image evidence for a specific rendered
+stack (not this repository-wide scanning process), see
+[compliance-report.md](compliance-report.md) (`cds report`).
+
 ## Pipeline
 
 | Trigger | Workflow | What happens |
