@@ -104,6 +104,30 @@ These work but may have breaking changes in upcoming releases:
   - allow runtime-generated profiles for planning and composition beyond `cds generate-profile` (#349)
   - strengthen compatibility validation beyond plain contract `kind` matching (#350)
 - 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): Helm target lifecycle parity with Compose (#689), self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
+- 📋 **Haven parity — previously untracked workstreams** — the three [docs/haven-parity-plan.md](haven-parity-plan.md) gaps that had no issue filed: GitOps rendering/module support (#767), Kubernetes-native database operator pattern (#768), `cds maturity` profile-maturity report (#769)
+
+---
+
+## Dutch Public-Sector Alignment (FDS · Common Ground · NIS2)
+
+Tracked under the **Dutch Public-Sector Data & Security Alignment** milestone,
+distinct from the CRA product-security milestone above — these address the
+Federatief Datastelsel/IBDS data-sharing framework, Common Ground/Haven
+platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
+
+- 📋 **FDS data-provider alignment** — map CDS's `provides`/`consumes` contract
+  model to the Federatief Datastelsel Afsprakenstelsel's data-provider
+  basisafspraken; identify any missing shared contract (#773)
+- 📋 **Common Ground / Haven reference profile** — publish a mapping doc and a
+  reference profile combining existing/in-flight modules (identity, TLS,
+  database, observability) in a Haven-aligned shape (#772)
+- 📋 **Cyberbeveiligingswet/NIS2 scope** — record CDS's role as a software
+  supplier vs. the operator-level obligations of Cyberbeveiligingswet/NIS2
+  Article 21, cross-referenced against the CRA milestone so the two are not
+  conflated (#771)
+- 📋 **NIS2-aligned `cds security` reporting** — extend the rule-set with
+  operator-readiness checks per Article 21 measure category, gated on the
+  scoping issue above (#774)
 
 ---
 
