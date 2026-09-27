@@ -50,6 +50,16 @@ The format is based on Keep a Changelog.
   non-blank string) to downgrade the finding to a `W098` warning instead
   (#576).
 
+### Fixed
+
+- Pinned `sqlalchemy<2.1` in `images/dagster/requirements-postgres.txt`.
+  SQLAlchemy 2.1 changed the default DBAPI for bare `postgresql://` URLs
+  from `psycopg2` to `psycopg` (v3), which isn't installed alongside the
+  Postgres storage adapter's `psycopg2-binary` dependency, so
+  `dagster-webserver`/`dagster-daemon` crashed at startup with
+  `ModuleNotFoundError: No module named 'psycopg'` once pip resolved the
+  newest SQLAlchemy transitively (#754).
+
 ## [0.9.1] - 2026-09-18
 
 ### Fixed
