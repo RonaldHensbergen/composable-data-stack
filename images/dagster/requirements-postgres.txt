@@ -7,4 +7,4 @@ dagster-postgres==0.29.24
 # startup with `ModuleNotFoundError: No module named 'psycopg'`. Pin below
 # 2.1 until this adapter depends on psycopg3 or its Postgres URL
 # construction pins the psycopg2 driver explicitly.
-sqlalchemy<2.1
+sqlalchemy<2.2
