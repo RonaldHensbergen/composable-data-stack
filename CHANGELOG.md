@@ -6,6 +6,22 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- Reverted the `sqlalchemy` upper-bound pin in
+  `images/dagster/requirements-postgres.txt` from `<2.2` back to `<2.1`
+  after a Renovate bump to `<2.2` allowed SQLAlchemy 2.1.x to resolve,
+  which defaults bare `postgresql://` URLs to the psycopg3 driver instead
+  of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
+  with `ModuleNotFoundError: No module named 'psycopg'` (#781).
+
+### Changed
+
+- Added a Renovate `packageRule` disabling further updates to the
+  `sqlalchemy` pin in `images/dagster/requirements-postgres.txt` so it
+  cannot be widened past `<2.1` again until `dagster-postgres` supports
+  the psycopg3 driver (#781).
+
 ## [0.10.0] - 2026-09-27
 
 ### Added
