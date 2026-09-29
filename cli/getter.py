@@ -152,7 +152,7 @@ def _prepare_source_repository(
 
     By design, `cds get` downloads its source from GitHub: a bare `remote`
     defaults to this project's upstream repository, and any `owner/repo` or
-    `github.com/...` value is fetched as a tarball for `ref`.     Pass `local` to
+    `github.com/...` value is fetched as a tarball for `ref`. Pass `local` to
     explicitly use an existing local directory instead (e.g. an offline/dev
     checkout) -- `remote` and a non-default `ref` are rejected in that case.
     """
