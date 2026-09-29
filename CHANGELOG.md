@@ -21,10 +21,37 @@ The format is based on Keep a Changelog.
   `docs/compliance-report.md`, which also carries the required disclaimer
   that this is readiness evidence, not a legal compliance/conformity
   certification (#734).
+  
+### Fixed
+
+- Reverted the `sqlalchemy` upper-bound pin in
+  `images/dagster/requirements-postgres.txt` from `<2.2` back to `<2.1`
+  after a Renovate bump to `<2.2` allowed SQLAlchemy 2.1.x to resolve,
+  which defaults bare `postgresql://` URLs to the psycopg3 driver instead
+  of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
+  with `ModuleNotFoundError: No module named 'psycopg'` (#781).
+
+### Changed
+
+- Added a Renovate `packageRule` disabling further updates to the
+  `sqlalchemy` pin in `images/dagster/requirements-postgres.txt` so it
+  cannot be widened past `<2.1` again until `dagster-postgres` supports
+  the psycopg3 driver (#781).
 
 ## [0.10.0] - 2026-09-27
 
 ### Added
+
+- Added [`docs/cra-incident-runbook.md`](docs/cra-incident-runbook.md), an
+  operational runbook for actively exploited vulnerabilities and severe
+  security incidents covering the decision tree, 24-hour/72-hour/14-day/
+  one-month deadlines, evidence preservation, the ENISA Single Reporting
+  Platform split between internal and submitted evidence, third-party
+  upstream coordination, user notification, and a tabletop exercise result.
+  Extended `SECURITY.md`'s coordinated vulnerability disclosure policy with
+  monitored-contact/intake ownership, severity triage and embargo handling,
+  and advisory publication, and cross-linked `RELEASE.md`'s checklist to
+  the runbook's final-report deadlines (#729).
 
 - Added an informational `complianceCategory` field to every rule in
   `cli/resources/rule-set.json` (validated by a new closed enum in
