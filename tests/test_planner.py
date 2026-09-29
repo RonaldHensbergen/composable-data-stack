@@ -1148,6 +1148,16 @@ class PlannerRegressionTest(unittest.TestCase):
         )
         self.assertEqual(result, "redis://:secret@keydb:6379")
 
+    def test_substitute_string_if_nonempty_malformed_leaves_placeholder(self):
+        result = planner.substitute_string(
+            "redis://${ifNonempty:config.password}${service.host}:${config.port}",
+            {
+                "config": {"password": "secret", "port": 6379},
+                "service": {"host": "keydb"},
+            },
+        )
+        self.assertEqual(result, "redis://${ifNonempty:config.password}keydb:6379")
+
     def test_substitute_values_raises_max_nesting_depth_exceeded_on_deep_dict(self):
         obj: dict = {}
         node = obj

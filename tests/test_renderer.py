@@ -6,6 +6,7 @@ from unittest import mock
 
 import yaml
 
+from cli import renderer
 from cli.renderer import render_compose
 from cli.validator import has_errors
 
@@ -1236,6 +1237,21 @@ class SupersetImageSourceRenderingTest(unittest.TestCase):
         self.assertEqual(
             service["image"], "ghcr.io/ronaldhensbergen/cds-superset:sha-abcdef123456"
         )
+
+
+class IfNonemptyMalformedTest(unittest.TestCase):
+    """A malformed ifNonempty: expression (wrong comma count) must leave the
+    placeholder unresolved instead of crashing (issue #557)."""
+
+    def test_if_nonempty_malformed_leaves_placeholder(self):
+        result = renderer._substitute_string(
+            "redis://${ifNonempty:config.password}${service.host}:${config.port}",
+            {
+                "config": {"password": "secret", "port": 6379},
+                "service": {"host": "keydb"},
+            },
+        )
+        self.assertEqual(result, "redis://${ifNonempty:config.password}keydb:6379")
 
 
 if __name__ == "__main__":
