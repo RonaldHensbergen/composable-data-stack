@@ -997,10 +997,8 @@ Please read these first:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [docs/maintainer-merge-policy.md](docs/maintainer-merge-policy.md)
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- [SECURITY.md](SECURITY.md)
-- [SUPPORT.md](SUPPORT.md)
-- [docs/security-support-policy.md](docs/security-support-policy.md)
+- [LEGAL.md](LEGAL.md) — license, code of conduct, security, support, and
+  regulatory-compliance documentation index
 - [CHANGELOG.md](CHANGELOG.md)
 - [RELEASE.md](RELEASE.md)
 
@@ -1023,4 +1021,5 @@ Development helper tools are located in the gitignored `tools/` directory. See
 
 ## 📜 License
 
-See `LICENSE`.
+See `LICENSE`. For security, support, and regulatory-compliance
+documentation, see [LEGAL.md](LEGAL.md).
