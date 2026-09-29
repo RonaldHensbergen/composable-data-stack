@@ -1,5 +1,6 @@
 import importlib.util
 import sys
+import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -227,6 +228,16 @@ class BuildScaffoldTest(unittest.TestCase):
         compose = {"services": {"postgres": {"image": "postgres:16"}}}
         with self.assertRaises(SystemExit):
             compose_to_module.build_scaffold(compose, ["nope"], "x", "warehouse")
+
+    def test_malformed_yaml_raises_scaffold_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "docker-compose.yml"
+            bad.write_text("services:\n\tpostgres:\n    image: postgres:16\n", encoding="utf-8")
+            with self.assertRaises(SystemExit) as ctx:
+                compose_to_module._load_compose(bad)
+        message = str(ctx.exception)
+        self.assertIn("error:", message)
+        self.assertIn("docker-compose.yml", message)
 
     def test_generated_module_passes_schema_self_check(self) -> None:
         compose = {
