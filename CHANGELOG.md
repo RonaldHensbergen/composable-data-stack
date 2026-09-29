@@ -15,6 +15,12 @@ The format is based on Keep a Changelog.
   of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
   with `ModuleNotFoundError: No module named 'psycopg'` (#781).
 
+- Hardened `ifNonempty:` interpolation in `cli/planner.py` and
+  `cli/renderer.py` against malformed expressions, so a wrong comma count
+  now leaves the placeholder unresolved for the existing `E071` check
+  instead of crashing with `ValueError`, without changing any well-formed
+  expression (#557).
+  
 - Required `cds generate-profile` names to be a single relative path
   segment, so multi-segment names like `teams/checkout` now fail closed with
   `E115` instead of producing a profile invisible to `cds list profiles`,

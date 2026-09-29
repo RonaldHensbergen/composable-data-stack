@@ -540,7 +540,10 @@ def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
         return _resolve_expr(path.strip(), context) == expected.strip()
 
     if expr.startswith("ifNonempty:"):
-        path, prefix, suffix = expr[len("ifNonempty:"):].split(",", 2)
+        args = expr[len("ifNonempty:"):].split(",", 2)
+        if len(args) != 3:
+            return None
+        path, prefix, suffix = args
         value = _resolve_expr(path, context)
         if value is None or (isinstance(value, str) and not value.strip()):
             return ""
