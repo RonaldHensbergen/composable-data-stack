@@ -13,7 +13,7 @@ The format is based on Keep a Changelog.
   after a Renovate bump to `<2.2` allowed SQLAlchemy 2.1.x to resolve,
   which defaults bare `postgresql://` URLs to the psycopg3 driver instead
   of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
-   with `ModuleNotFoundError: No module named 'psycopg'` (#781).
+  with `ModuleNotFoundError: No module named 'psycopg'` (#781).
 
 - Wrapped malformed compose YAML parse errors in
   `scripts/compose_to_module.py` in `ScaffoldError`, so a bad
