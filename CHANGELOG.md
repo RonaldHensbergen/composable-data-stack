@@ -15,6 +15,11 @@ The format is based on Keep a Changelog.
   of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
   with `ModuleNotFoundError: No module named 'psycopg'` (#781).
 
+- Rejected `cds get --local` combined with an explicit `--ref`, which was
+  previously accepted silently while ignoring `--ref`, so the combination
+  now fails closed with a `GetError` matching the documented mutual
+  exclusivity, without changing `--local` with the default ref (#506).
+  
 - Wrapped malformed compose YAML parse errors in
   `scripts/compose_to_module.py` in `ScaffoldError`, so a bad
   `docker-compose.yml` input now fails with a clean `error:` message naming
