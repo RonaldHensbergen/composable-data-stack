@@ -15,6 +15,12 @@ The format is based on Keep a Changelog.
   of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
   with `ModuleNotFoundError: No module named 'psycopg'` (#781).
 
+- Wrapped malformed compose YAML parse errors in
+  `scripts/compose_to_module.py` in `ScaffoldError`, so a bad
+  `docker-compose.yml` input now fails with a clean `error:` message naming
+  the file and the parser error instead of an unhandled `yaml.YAMLError`
+  traceback, without changing any accepted input (#686).
+
 ### Changed
 
 - Added a Renovate `packageRule` disabling further updates to the

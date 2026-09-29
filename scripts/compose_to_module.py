@@ -445,7 +445,10 @@ class ModuleScaffold:
 def _load_compose(compose_path: Path) -> dict[str, Any]:
     if not compose_path.exists():
         raise ScaffoldError(f"compose file not found: {compose_path}")
-    data = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    try:
+        data = yaml.safe_load(compose_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ScaffoldError(f"cannot parse {compose_path} as YAML: {exc}") from exc
     if not isinstance(data, dict) or "services" not in data:
         raise ScaffoldError(f"{compose_path} does not look like a docker-compose file (no top-level 'services:')")
     return data
