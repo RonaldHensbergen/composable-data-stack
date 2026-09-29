@@ -20,6 +20,22 @@ The format is based on Keep a Changelog.
   now leaves the placeholder unresolved for the existing `E071` check
   instead of crashing with `ValueError`, without changing any well-formed
   expression (#557).
+  
+- Required `cds generate-profile` names to be a single relative path
+  segment, so multi-segment names like `teams/checkout` now fail closed with
+  `E115` instead of producing a profile invisible to `cds list profiles`,
+  without changing any accepted name (#678).
+  
+- Rejected `cds get --local` combined with an explicit `--ref`, which was
+  previously accepted silently while ignoring `--ref`, so the combination
+  now fails closed with a `GetError` matching the documented mutual
+  exclusivity, without changing `--local` with the default ref (#506).
+  
+- Wrapped malformed compose YAML parse errors in
+  `scripts/compose_to_module.py` in `ScaffoldError`, so a bad
+  `docker-compose.yml` input now fails with a clean `error:` message naming
+  the file and the parser error instead of an unhandled `yaml.YAMLError`
+  traceback, without changing any accepted input (#686).
 
 ### Changed
 

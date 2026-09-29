@@ -252,12 +252,12 @@ def save_generated_profile(
         ]
 
     name_path = Path(name)
-    if name_path.is_absolute() or ".." in name_path.parts:
+    if name_path.is_absolute() or ".." in name_path.parts or len(name_path.parts) != 1:
         return None, [
             Diagnostic(
                 level="error",
                 code="E115",
-                message=f'Generated profile name "{name}" must be a relative name without ".." segments.',
+                message=f'Generated profile name "{name}" must be a single relative path segment.',
                 path="metadata.name",
             )
         ]
