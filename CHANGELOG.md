@@ -15,6 +15,11 @@ The format is based on Keep a Changelog.
   of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
   with `ModuleNotFoundError: No module named 'psycopg'` (#781).
 
+- Required `cds generate-profile` names to be a single relative path
+  segment, so multi-segment names like `teams/checkout` now fail closed with
+  `E115` instead of producing a profile invisible to `cds list profiles`,
+  without changing any accepted name (#678).
+
 ### Changed
 
 - Added a Renovate `packageRule` disabling further updates to the
