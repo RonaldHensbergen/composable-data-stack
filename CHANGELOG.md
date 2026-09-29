@@ -15,6 +15,11 @@ The format is based on Keep a Changelog.
   of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
   with `ModuleNotFoundError: No module named 'psycopg'` (#781).
 
+- Rejected `cds get --local` combined with an explicit `--ref`, which was
+  previously accepted silently while ignoring `--ref`, so the combination
+  now fails closed with a `GetError` matching the documented mutual
+  exclusivity, without changing `--local` with the default ref (#506).
+
 ### Changed
 
 - Added a Renovate `packageRule` disabling further updates to the
