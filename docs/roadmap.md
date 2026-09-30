@@ -97,6 +97,41 @@ These work but may have breaking changes in upcoming releases:
 - 📋 **Dynamic Composition follow-up**
   - allow runtime-generated profiles for planning and composition beyond `cds generate-profile` (#349)
 - 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): Helm target lifecycle parity with Compose (#689), self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
+- 📋 **Haven parity — previously untracked workstreams** — the three [docs/haven-parity-plan.md](haven-parity-plan.md) gaps that had no issue filed: GitOps rendering/module support (#767), Kubernetes-native database operator pattern (#768), `cds maturity` profile-maturity report (#769)
+- 📋 **Zero-Trust, OpenTelemetry, OpenLineage** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink` contract + OpenTelemetry Collector reference module (#777)
+
+---
+
+## Dutch Public-Sector Alignment (FDS · Common Ground · NIS2)
+
+Tracked under the **Dutch Public-Sector Data & Security Alignment** milestone,
+distinct from the CRA product-security milestone above — these address the
+Federatief Datastelsel/IBDS data-sharing framework, Common Ground/Haven
+platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
+
+- 📋 **FDS data-provider alignment** — map CDS's `provides`/`consumes` contract
+  model to the Federatief Datastelsel Afsprakenstelsel's data-provider
+  basisafspraken; identify any missing shared contract (#773)
+- 📋 **Common Ground / Haven reference profile** — publish a mapping doc and a
+  reference profile combining existing/in-flight modules (identity, TLS,
+  database, observability) in a Haven-aligned shape (#772)
+- 📋 **Cyberbeveiligingswet/NIS2 scope** — record CDS's role as a software
+  supplier vs. the operator-level obligations of Cyberbeveiligingswet/NIS2
+  Article 21, cross-referenced against the CRA milestone so the two are not
+  conflated (#771)
+- 📋 **NIS2-aligned `cds security` reporting** — extend the rule-set with
+  operator-readiness checks per Article 21 measure category, gated on the
+  scoping issue above (#774)
+- 📋 **Stale pinned-digest warning** — warn when a profile's pinned image
+  digest is behind the latest published, patched digest; cited by the NIS2
+  scoping issue's supply-chain-security gap (#736)
+- 📋 **Local audit trail** — retain a local audit trail of rendered/applied
+  stacks for user incident evidence, supporting NIS2 incident-reporting
+  timelines (#737)
+- 📋 **OpenLineage data-lineage for Dagster** — add a `lineage-sink` contract
+  and wire Dagster's built-in OpenLineage integration to it, in support of
+  IBDS/FDS "verantwoord datagebruik" provenance expectations; coordinate
+  with the FDS mapping above (#779)
 
 ---
 
