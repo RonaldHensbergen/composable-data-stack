@@ -6,6 +6,7 @@ from unittest import mock
 
 import yaml
 
+from cli import renderer
 from cli.renderer import render_compose
 from cli.validator import has_errors
 
@@ -1236,6 +1237,31 @@ class SupersetImageSourceRenderingTest(unittest.TestCase):
         self.assertEqual(
             service["image"], "ghcr.io/ronaldhensbergen/cds-superset:sha-abcdef123456"
         )
+
+
+class SubstituteStringIfNonemptyTest(unittest.TestCase):
+    """Mirrors the planner-level ifNonempty: tests for the renderer's own
+    _resolve_expr copy (issue #559)."""
+
+    def test_if_nonempty_omits_affix_for_empty_password(self):
+        result = renderer._substitute_string(
+            "redis://${ifNonempty:config.password,:,@}${service.host}:${config.port}",
+            {
+                "config": {"password": "", "port": 6379},
+                "service": {"host": "keydb"},
+            },
+        )
+        self.assertEqual(result, "redis://keydb:6379")
+
+    def test_if_nonempty_includes_password_in_redis_uri(self):
+        result = renderer._substitute_string(
+            "redis://${ifNonempty:config.password,:,@}${service.host}:${config.port}",
+            {
+                "config": {"password": "secret", "port": 6379},
+                "service": {"host": "keydb"},
+            },
+        )
+        self.assertEqual(result, "redis://:secret@keydb:6379")
 
 
 if __name__ == "__main__":

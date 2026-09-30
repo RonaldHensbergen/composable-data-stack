@@ -147,6 +147,19 @@
         "before 6am on monday"
       ],
       "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Do not widen the sqlalchemy<2.1 upper-bound pin in images/dagster/requirements-postgres.txt: SQLAlchemy 2.1+ defaults bare postgresql:// URLs to the psycopg3 driver, which dagster-postgres does not install, crashing dagster-webserver/dagster-daemon at startup (see the comment in that file)",
+      "matchManagers": [
+        "pip_requirements"
+      ],
+      "matchFileNames": [
+        "images/dagster/requirements-postgres.txt"
+      ],
+      "matchPackageNames": [
+        "sqlalchemy"
+      ],
+      "enabled": false
     }
   ]
 }
