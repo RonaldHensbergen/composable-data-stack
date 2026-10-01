@@ -860,6 +860,54 @@
       ],
       "enabled": false,
       "codeEnforced": true
+    },
+    {
+      "id": "CDS-SEC-080",
+      "$comment": "Enforced entirely in code by _check_backup_target_binding in cli/security.py, not the declarative match engine: it flags a profile that includes a module providing a sql-database or file-database contract (durable state) when no module anywhere in the profile consumes a contract of kind backup-target. As of this rule's introduction no module in this repository provides a backup-target contract yet (see roadmap items tracked by issues #210, #665, #668, #669), so this finding is expected to fire for essentially every profile with a durable data store until a backup/restore-providing module exists and is wired -- this is treated as honest signal about a real, currently-unaddressed NIS2 Article 21(2)(c) business-continuity gap, not a bug. `enabled` stays false because `scope: [\"none\"]` rules can never produce a declarative-engine finding (see the scope-none `enabled` invariant test); `codeEnforced` is the actual on/off switch.",
+      "title": "Stateful module has no backup/restore target bound",
+      "severity": "medium",
+      "category": "business-continuity",
+      "complianceCategory": "business-continuity",
+      "scope": ["none"],
+      "match": {
+        "any": [
+          {
+            "pathPatterns": ["modules.*"]
+          }
+        ]
+      },
+      "message": "Profile has a module with durable state (sql-database or file-database) but no module consumes a backup-target contract",
+      "whyItMatters": "Durable data that is never backed up cannot be restored after accidental deletion, corruption, or ransomware, undermining business continuity.",
+      "recommendation": [
+        "Wire a backup/restore-capable module once one is available in this stack (see issues #210, #665, #668, #669).",
+        "Until then, document and operate an out-of-band backup process for this profile's stateful modules."
+      ],
+      "enabled": false,
+      "codeEnforced": true
+    },
+    {
+      "id": "CDS-SEC-081",
+      "$comment": "Enforced entirely in code by _check_admin_service_identity_binding in cli/security.py, not the declarative match engine: it flags a profile whose rendered Compose includes an admin-ui-type service (per the same _service_type_for_path heuristic CDS-SEC-020/023 use) when no module in the profile's source path is under modules/identity (or modules-experimental/identity). No identity-broker contract exists yet for principled per-service auth-binding checks (tracked by issue #370), so this is a coarse profile-wide presence check -- it does not confirm the identity module is actually wired to protect that specific admin-ui service, only that no identity/auth-category module is present in the profile at all. `enabled` stays false because `scope: [\"none\"]` rules can never produce a declarative-engine finding (see the scope-none `enabled` invariant test); `codeEnforced` is the actual on/off switch.",
+      "title": "Admin-facing service with no identity/auth module in profile",
+      "severity": "medium",
+      "category": "auth",
+      "complianceCategory": "access-control",
+      "scope": ["none"],
+      "match": {
+        "any": [
+          {
+            "serviceTypes": ["admin-ui"]
+          }
+        ]
+      },
+      "message": "Profile exposes an admin-facing service but includes no identity/auth module",
+      "whyItMatters": "Administrative interfaces without a bound identity/auth provider are more likely to rely on weak or default built-in credentials.",
+      "recommendation": [
+        "Bind an identity/auth module (e.g. modules/identity/keycloak) in front of admin-facing services.",
+        "If the admin-ui service has its own adequate authentication, document why no additional identity module is needed."
+      ],
+      "enabled": false,
+      "codeEnforced": true
     }
   ]
 }

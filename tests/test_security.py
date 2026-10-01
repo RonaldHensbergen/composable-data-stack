@@ -10,6 +10,8 @@ from pathlib import Path
 from cli.diagnostics import Diagnostic
 from cli.security import (
     PrecomputedRender,
+    _check_admin_service_identity_binding,
+    _check_backup_target_binding,
     _check_production_plaintext_exposure,
     _eval_condition,
     _flatten_profile_by_module,
@@ -476,6 +478,8 @@ class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
                 "CDS-SEC-032",
                 "CDS-SEC-071",
                 "CDS-SEC-074",
+                "CDS-SEC-080",
+                "CDS-SEC-081",
             },
         )
         for rule in deferred_rules:
@@ -1199,6 +1203,87 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["module"], "api")
         self.assertEqual(findings[0]["path"], "services.api.ports[0]")
+
+
+class BackupTargetBindingRuleTest(unittest.TestCase):
+    """Direct unit coverage for CDS-SEC-080's _check_backup_target_binding()."""
+
+    def test_disabled_rule_returns_no_findings(self):
+        plan = {"modules": [{"id": "db", "provides": {"db": {"kind": "sql-database"}}}]}
+        self.assertEqual(
+            _check_backup_target_binding(plan=plan, rule_enabled=False), [],
+        )
+
+    def test_non_mapping_plan_returns_no_findings(self):
+        self.assertEqual(_check_backup_target_binding(plan=None), [])
+        self.assertEqual(_check_backup_target_binding(plan={"modules": "oops"}), [])
+
+    def test_no_stateful_provider_returns_no_findings(self):
+        plan = {"modules": [{"id": "cache", "provides": {"cache": {"kind": "cache-service"}}}]}
+        self.assertEqual(_check_backup_target_binding(plan=plan), [])
+
+    def test_stateful_provider_without_backup_target_consumer_fires(self):
+        plan = {
+            "modules": [
+                {"id": "postgres", "provides": {"db": {"kind": "sql-database"}}},
+                {"id": "superset", "consumes": {"warehouse": {"contract": {"kind": "sql-database"}}}},
+            ]
+        }
+        findings = _check_backup_target_binding(plan=plan)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-SEC-080")
+
+    def test_stateful_provider_with_backup_target_consumer_does_not_fire(self):
+        plan = {
+            "modules": [
+                {"id": "postgres", "provides": {"db": {"kind": "sql-database"}}},
+                {"id": "backup", "consumes": {"source": {"contract": {"kind": "backup-target"}}}},
+            ]
+        }
+        self.assertEqual(_check_backup_target_binding(plan=plan), [])
+
+
+class AdminServiceIdentityBindingRuleTest(unittest.TestCase):
+    """Direct unit coverage for CDS-SEC-081's _check_admin_service_identity_binding()."""
+
+    def test_disabled_rule_returns_no_findings(self):
+        plan = {"modules": []}
+        rendered_compose = {"services": {"superset": {}}}
+        self.assertEqual(
+            _check_admin_service_identity_binding(
+                plan=plan, rendered_compose=rendered_compose, rule_enabled=False,
+            ), [],
+        )
+
+    def test_non_mapping_inputs_return_no_findings(self):
+        self.assertEqual(
+            _check_admin_service_identity_binding(plan=None, rendered_compose={"services": {}}), [],
+        )
+        self.assertEqual(
+            _check_admin_service_identity_binding(plan={"modules": []}, rendered_compose=None), [],
+        )
+
+    def test_no_admin_ui_service_returns_no_findings(self):
+        plan = {"modules": []}
+        rendered_compose = {"services": {"postgres": {}}}
+        self.assertEqual(
+            _check_admin_service_identity_binding(plan=plan, rendered_compose=rendered_compose), [],
+        )
+
+    def test_admin_ui_service_without_identity_module_fires(self):
+        plan = {"modules": [{"id": "postgres", "source": "modules/warehouse/postgres"}]}
+        rendered_compose = {"services": {"superset": {}}}
+        findings = _check_admin_service_identity_binding(plan=plan, rendered_compose=rendered_compose)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-SEC-081")
+        self.assertEqual(findings[0]["path"], "services.superset")
+
+    def test_admin_ui_service_with_identity_module_does_not_fire(self):
+        plan = {"modules": [{"id": "keycloak", "source": "modules/identity/keycloak"}]}
+        rendered_compose = {"services": {"superset": {}}}
+        self.assertEqual(
+            _check_admin_service_identity_binding(plan=plan, rendered_compose=rendered_compose), [],
+        )
 
 
 if __name__ == "__main__":
