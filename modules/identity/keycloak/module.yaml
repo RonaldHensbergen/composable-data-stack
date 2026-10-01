@@ -102,7 +102,7 @@ spec:
     compose:
       services:
         keycloak:
-          image: quay.io/keycloak/keycloak:26.7.5@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c
+          image: quay.io/keycloak/keycloak:26.8.0@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c
           user: "1000:0"
           init: true
           read_only: true
