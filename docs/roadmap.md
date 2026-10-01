@@ -115,10 +115,10 @@ platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
 - 📋 **Common Ground / Haven reference profile** — publish a mapping doc and a
   reference profile combining existing/in-flight modules (identity, TLS,
   database, observability) in a Haven-aligned shape (#772)
-- 📋 **Cyberbeveiligingswet/NIS2 scope** — record CDS's role as a software
+- ✅ **Cyberbeveiligingswet/NIS2 scope** — record CDS's role as a software
   supplier vs. the operator-level obligations of Cyberbeveiligingswet/NIS2
   Article 21, cross-referenced against the CRA milestone so the two are not
-  conflated (#771)
+  conflated (#771, see [docs/nis2-cyberbeveiligingswet-scope.md](nis2-cyberbeveiligingswet-scope.md))
 - 📋 **NIS2-aligned `cds security` reporting** — extend the rule-set with
   operator-readiness checks per Article 21 measure category, gated on the
   scoping issue above (#774)

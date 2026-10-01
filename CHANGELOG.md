@@ -8,6 +8,14 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added `docs/nis2-cyberbeveiligingswet-scope.md`, recording that CDS
+  itself is not an "essential"/"important" entity under NIS2/the
+  Cyberbeveiligingswet — that role falls on operators of profiles built
+  with CDS — and mapping each NIS2 Article 21(2) risk-management measure
+  category to existing CDS evidence (SBOM, rule-set compliance categories,
+  image signing) or an open gap, cross-referenced against the CRA scope
+  decision so the two regimes aren't conflated (#771).
+
 - Added a `cds report` command that exports a compliance/evidence report
   for a rendered stack: resolved module list (id/source/version/
   dependsOn), linked signature/SBOM/provenance evidence per image (looked
