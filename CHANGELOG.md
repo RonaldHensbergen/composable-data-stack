@@ -16,7 +16,9 @@ The format is based on Keep a Changelog.
   `render`/`up` stay network-free, and any lookup failure (offline, auth,
   unsupported registry) is silently skipped rather than failing the
   command (#736).
-  
+
+- Added true in-memory/dict-based profile planning entry points, closing the remaining gap in #349: `cli.overlay.resolve_extends_from_profile()`/`resolve_profile_from_profile()` and `cli.planner.build_plan_from_profile()`/`plan_generated_profile()` let a runtime-generated profile be validated and planned directly from a dict -- same `extends`/environment-overlay semantics and module `source:` resolution as the disk-based `resolve_extends()`/`resolve_profile()`/`build_plan()`, anchored to a directory that does not need to contain a `profile.yaml` of its own -- without ever writing it to disk first (#679).
+
 ### Fixed
 
 - Reverted the `sqlalchemy` upper-bound pin in
@@ -25,6 +27,22 @@ The format is based on Keep a Changelog.
   which defaults bare `postgresql://` URLs to the psycopg3 driver instead
   of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
   with `ModuleNotFoundError: No module named 'psycopg'` (#781).
+
+- Required `cds generate-profile` names to be a single relative path
+  segment, so multi-segment names like `teams/checkout` now fail closed with
+  `E115` instead of producing a profile invisible to `cds list profiles`,
+  without changing any accepted name (#678).
+  
+- Rejected `cds get --local` combined with an explicit `--ref`, which was
+  previously accepted silently while ignoring `--ref`, so the combination
+  now fails closed with a `GetError` matching the documented mutual
+  exclusivity, without changing `--local` with the default ref (#506).
+  
+- Wrapped malformed compose YAML parse errors in
+  `scripts/compose_to_module.py` in `ScaffoldError`, so a bad
+  `docker-compose.yml` input now fails with a clean `error:` message naming
+  the file and the parser error instead of an unhandled `yaml.YAMLError`
+  traceback, without changing any accepted input (#686).
 
 ### Changed
 
