@@ -8,6 +8,15 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added an opt-in pinned image digest staleness check: `cds validate`/`cds
+  up --check-image-digests` (or `CDS_CHECK_IMAGE_DIGESTS=1`) compares each
+  module's digest-pinned image (e.g. `postgres:18@sha256:...`) against the
+  digest the registry currently publishes for that same tag and emits a
+  stable `W100` warning when they differ. Off by default so `validate`/
+  `render`/`up` stay network-free, and any lookup failure (offline, auth,
+  unsupported registry) is silently skipped rather than failing the
+  command (#736).
+
 - Added true in-memory/dict-based profile planning entry points, closing the remaining gap in #349: `cli.overlay.resolve_extends_from_profile()`/`resolve_profile_from_profile()` and `cli.planner.build_plan_from_profile()`/`plan_generated_profile()` let a runtime-generated profile be validated and planned directly from a dict -- same `extends`/environment-overlay semantics and module `source:` resolution as the disk-based `resolve_extends()`/`resolve_profile()`/`build_plan()`, anchored to a directory that does not need to contain a `profile.yaml` of its own -- without ever writing it to disk first (#679).
 
 ### Fixed
