@@ -12,6 +12,11 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Bumped `dagster-postgres` from `0.29.24` to `0.29.25` in
+  `images/dagster/requirements-postgres.txt` to match the Renovate-bumped
+  `dagster`/`dagster-graphql`/`dagster-webserver` `1.13.25` release train;
+  the mismatched pin made `pip-audit`'s dependency resolution fail with
+  `ResolutionImpossible` (#799).
 - Reverted the `sqlalchemy` upper-bound pin in
   `images/dagster/requirements-postgres.txt` from `<2.2` back to `<2.1`
   after a Renovate bump to `<2.2` allowed SQLAlchemy 2.1.x to resolve,
