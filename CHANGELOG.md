@@ -15,15 +15,61 @@ The format is based on Keep a Changelog.
   category to existing CDS evidence (SBOM, rule-set compliance categories,
   image signing) or an open gap, cross-referenced against the CRA scope
   decision so the two regimes aren't conflated (#771).
-  
+
+- Added a `cds report` command that exports a compliance/evidence report
+  for a rendered stack: resolved module list (id/source/version/
+  dependsOn), linked signature/SBOM/provenance evidence per image (looked
+  up from the signed-images fixture, degrading gracefully with a `W101`
+  warning for locally-built or unlinkable images instead of failing), the
+  contract/topology graph, and a secret-leak check (`E119`) confirming no
+  declared secret value renders literally into Compose output instead of
+  a `${CDS_*}` placeholder. Supports human-readable text (default) or
+  `--json`, and `--output`/`-o` to save to a file; diagnostics are always
+  printed to stderr so `--json` output stays parseable. See
+  `docs/compliance-report.md`, which also carries the required disclaimer
+  that this is readiness evidence, not a legal compliance/conformity
+  certification (#734).
+
+- Added an opt-in pinned image digest staleness check: `cds validate`/`cds
+  up --check-image-digests` (or `CDS_CHECK_IMAGE_DIGESTS=1`) compares each
+  module's digest-pinned image (e.g. `postgres:18@sha256:...`) against the
+  digest the registry currently publishes for that same tag and emits a
+  stable `W100` warning when they differ. Off by default so `validate`/
+  `render`/`up` stay network-free, and any lookup failure (offline, auth,
+  unsupported registry) is silently skipped rather than failing the
+  command (#736).
+
+- Added true in-memory/dict-based profile planning entry points, closing the remaining gap in #349: `cli.overlay.resolve_extends_from_profile()`/`resolve_profile_from_profile()` and `cli.planner.build_plan_from_profile()`/`plan_generated_profile()` let a runtime-generated profile be validated and planned directly from a dict -- same `extends`/environment-overlay semantics and module `source:` resolution as the disk-based `resolve_extends()`/`resolve_profile()`/`build_plan()`, anchored to a directory that does not need to contain a `profile.yaml` of its own -- without ever writing it to disk first (#679).
+
 ### Fixed
 
+- Bumped `dagster-postgres` from `0.29.24` to `0.29.25` in
+  `images/dagster/requirements-postgres.txt` to match the Renovate-bumped
+  `dagster`/`dagster-graphql`/`dagster-webserver` `1.13.25` release train;
+  the mismatched pin made `pip-audit`'s dependency resolution fail with
+  `ResolutionImpossible` (#799).
 - Reverted the `sqlalchemy` upper-bound pin in
   `images/dagster/requirements-postgres.txt` from `<2.2` back to `<2.1`
   after a Renovate bump to `<2.2` allowed SQLAlchemy 2.1.x to resolve,
   which defaults bare `postgresql://` URLs to the psycopg3 driver instead
   of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
   with `ModuleNotFoundError: No module named 'psycopg'` (#781).
+
+- Required `cds generate-profile` names to be a single relative path
+  segment, so multi-segment names like `teams/checkout` now fail closed with
+  `E115` instead of producing a profile invisible to `cds list profiles`,
+  without changing any accepted name (#678).
+  
+- Rejected `cds get --local` combined with an explicit `--ref`, which was
+  previously accepted silently while ignoring `--ref`, so the combination
+  now fails closed with a `GetError` matching the documented mutual
+  exclusivity, without changing `--local` with the default ref (#506).
+  
+- Wrapped malformed compose YAML parse errors in
+  `scripts/compose_to_module.py` in `ScaffoldError`, so a bad
+  `docker-compose.yml` input now fails with a clean `error:` message naming
+  the file and the parser error instead of an unhandled `yaml.YAMLError`
+  traceback, without changing any accepted input (#686).
 
 ### Changed
 
