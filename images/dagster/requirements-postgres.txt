@@ -1,4 +1,4 @@
-dagster-postgres==0.29.24
+dagster-postgres==0.29.25
 # This Postgres storage adapter only declares psycopg2-binary (not
 # psycopg/psycopg3) as a dependency, but SQLAlchemy 2.1 switched the default
 # DBAPI for bare `postgresql://` URLs from psycopg2 to psycopg3, which isn't
