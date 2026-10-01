@@ -1242,6 +1242,21 @@ class BackupTargetBindingRuleTest(unittest.TestCase):
         }
         self.assertEqual(_check_backup_target_binding(plan=plan), [])
 
+    def test_non_mapping_module_and_consumed_entries_are_skipped(self):
+        plan = {
+            "modules": [
+                "not-a-dict",
+                {
+                    "id": "postgres",
+                    "provides": {"db": {"kind": "sql-database"}},
+                    "consumes": {"ignored": "not-a-dict"},
+                },
+            ]
+        }
+        findings = _check_backup_target_binding(plan=plan)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-SEC-080")
+
 
 class AdminServiceIdentityBindingRuleTest(unittest.TestCase):
     """Direct unit coverage for CDS-SEC-081's _check_admin_service_identity_binding()."""
@@ -1266,6 +1281,13 @@ class AdminServiceIdentityBindingRuleTest(unittest.TestCase):
     def test_no_admin_ui_service_returns_no_findings(self):
         plan = {"modules": []}
         rendered_compose = {"services": {"postgres": {}}}
+        self.assertEqual(
+            _check_admin_service_identity_binding(plan=plan, rendered_compose=rendered_compose), [],
+        )
+
+    def test_non_mapping_services_returns_no_findings(self):
+        plan = {"modules": []}
+        rendered_compose = {"services": "not-a-dict"}
         self.assertEqual(
             _check_admin_service_identity_binding(plan=plan, rendered_compose=rendered_compose), [],
         )
