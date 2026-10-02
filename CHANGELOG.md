@@ -100,6 +100,13 @@ The format is based on Keep a Changelog.
   the file and the parser error instead of an unhandled `yaml.YAMLError`
   traceback, without changing any accepted input (#686).
 
+- Fixed `cds init` printing the literal string "None" in its summary
+  message (e.g. "Initialized environment for None.") when the profile is
+  resolved via `CDS_PROFILE_PATH` or the saved `cds use`/`cds config`
+  default rather than passed as a CLI argument; it now reports the
+  actually-resolved profile name, matching the `cds preflight` hint on the
+  following line.
+
 ### Changed
 
 - Added a Renovate `packageRule` disabling further updates to the

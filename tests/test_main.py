@@ -1265,6 +1265,38 @@ class MainCLITest(unittest.TestCase):
         finally:
             output_file.unlink(missing_ok=True)
 
+    def test_init_reports_resolved_profile_name_when_arg_omitted(self):
+        """Regression test: when args.profile is None (profile resolved via
+        CDS_PROFILE_PATH or the saved config default rather than a CLI arg),
+        the summary message previously printed the literal string "None"
+        instead of the profile actually initialized."""
+        import tempfile
+
+        output_file = Path(tempfile.gettempdir()) / "cds-init-implicit-test.env"
+        output_file.unlink(missing_ok=True)
+        profile_path = (
+            Path(__file__).resolve().parent.parent
+            / "profiles"
+            / "local-dagster-postgres-superset"
+            / "profile.yaml"
+        )
+
+        try:
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(profile_path)}, clear=False
+            ), patch.object(
+                sys, "argv", ["cds", "init", "--output", str(output_file)]
+            ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+                result = main()
+
+            self.assertEqual(result, 0)
+            message = stdout.getvalue()
+            self.assertIn("Initialized environment for local-dagster-postgres-superset.", message)
+            self.assertIn("cds preflight local-dagster-postgres-superset", message)
+            self.assertNotIn("None", message)
+        finally:
+            output_file.unlink(missing_ok=True)
+
     def test_collect_profile_env_vars_honors_extends_without_environment_flag(self):
         # Regression test: _collect_profile_env_vars() previously called
         # load_yaml_file() directly when environment=None, bypassing

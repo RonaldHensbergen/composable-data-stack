@@ -2600,10 +2600,11 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
 
+        resolved_profile_name = args.profile or Path(profile_path).parent.name
         print(
-            f"Initialized environment for {args.profile}.\n"
+            f"Initialized environment for {resolved_profile_name}.\n"
             "Please edit the values in the .env file, then run "
-            f"`cds preflight {args.profile or Path(profile_path).parent.name}`."
+            f"`cds preflight {resolved_profile_name}`."
         )
         return 0
 
