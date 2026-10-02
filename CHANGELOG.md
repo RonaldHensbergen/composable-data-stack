@@ -15,6 +15,11 @@ The format is based on Keep a Changelog.
   of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
   with `ModuleNotFoundError: No module named 'psycopg'` (#781).
 
+- Included the discovered top-level entries in the `cds get` unexpected
+  tarball-layout error, so a malformed GitHub archive now reports what was
+  found instead of only the expected shape, without changing any accepted
+  archive (#507).
+
 ### Changed
 
 - Added a Renovate `packageRule` disabling further updates to the

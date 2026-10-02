@@ -217,7 +217,11 @@ def _download_github_repository(owner: str, repo: str, ref: str, work_dir: Path)
 
     extracted_entries = [entry for entry in extract_root.iterdir() if entry.is_dir()]
     if len(extracted_entries) != 1:
-        raise GetError(f"Unexpected archive layout for {owner}/{repo}@{ref}")
+        found = sorted(f"{e.name}/" if e.is_dir() else e.name for e in extract_root.iterdir())
+        raise GetError(
+            f"Unexpected archive layout for {owner}/{repo}@{ref}: "
+            f"expected exactly one top-level directory, found {found}"
+        )
     return extracted_entries[0]
 
 
