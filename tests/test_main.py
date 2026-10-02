@@ -2623,6 +2623,255 @@ spec:
         self.assertEqual(mock_helm_down.call_args.kwargs["namespace"], "prod-ns")
 
 
+class ComposeProfileCommandCLITest(unittest.TestCase):
+    """`cds compose-profile` (#807): merges a new module instance into an
+    existing profile on disk, resolving contract bindings/secrets, in
+    place of hand-editing profile.yaml before handing it to
+    `cds generate-profile`."""
+
+    def _write(self, path: Path, content: str) -> None:
+        import textwrap
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(textwrap.dedent(content), encoding="utf-8")
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.modules_root = self.root / "modules"
+        self.profiles_root = self.root / "profiles"
+        self.profile_dir = self.profiles_root / "demo"
+
+        self._write(
+            self.modules_root / "warehouse" / "postgres" / "module.yaml",
+            """
+            apiVersion: cds/v1alpha1
+            kind: Module
+            metadata:
+              name: postgres
+              category: warehouse
+              version: "0.1.0"
+            spec:
+              runtime:
+                type: container
+                service:
+                  name: postgres
+              configSchema:
+                type: object
+              provides:
+                - name: sql-database
+                  contract:
+                    kind: sql-database
+              implementation:
+                kind: docker-compose
+                compose:
+                  services: {}
+            """,
+        )
+        self._write(
+            self.modules_root / "identity" / "keycloak" / "module.yaml",
+            """
+            apiVersion: cds/v1alpha1
+            kind: Module
+            metadata:
+              name: keycloak
+              category: identity
+              version: "0.1.0"
+            spec:
+              runtime:
+                type: container
+                service:
+                  name: keycloak
+              configSchema:
+                type: object
+              consumes:
+                - name: metadata-database
+                  contract:
+                    kind: sql-database
+                  required: true
+                  mappedFrom: spec.config.metadataDatabase
+              provides:
+                - name: http-service
+                  contract:
+                    kind: http-service
+              implementation:
+                kind: docker-compose
+                compose:
+                  services: {}
+            """,
+        )
+        self._write(
+            self.profile_dir / "profile.yaml",
+            """
+            apiVersion: cds/v1alpha1
+            kind: Profile
+            metadata:
+              name: demo
+              environment: local
+            spec:
+              runtime:
+                type: docker-compose
+              modules:
+                - id: postgres
+                  source: warehouse/postgres
+                  version: "0.1.0"
+                  enabled: true
+                  config: {}
+              secrets:
+                provider:
+                  type: env
+                values: {}
+            """,
+        )
+
+    def _env(self):
+        return {"CDS_PROFILE_PATH": str(self.profiles_root), "CDS_MODULE_PATH": str(self.modules_root)}
+
+    def test_prints_merged_profile_to_stdout_by_default(self):
+        import yaml
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0)
+        printed = yaml.safe_load(stdout.getvalue())
+        ids = [m["id"] for m in printed["spec"]["modules"]]
+        self.assertEqual(ids, ["postgres", "keycloak"])
+        # Stdout preview must not mutate the on-disk profile.
+        on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
+        self.assertEqual([m["id"] for m in on_disk["spec"]["modules"]], ["postgres"])
+
+    def test_write_persists_merged_profile_back_to_profile_yaml(self):
+        import yaml
+
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--set",
+                "adminUser.passwordFrom=secrets.keycloak_admin_password",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                "--write",
+            ],
+        ), contextlib.redirect_stdout(io.StringIO()):
+            result = main()
+
+        self.assertEqual(result, 0)
+        on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
+        ids = [m["id"] for m in on_disk["spec"]["modules"]]
+        self.assertEqual(ids, ["postgres", "keycloak"])
+        self.assertEqual(
+            on_disk["spec"]["secrets"]["values"]["keycloak_admin_password"],
+            {"env": "CDS_KEYCLOAK_ADMIN_PASSWORD", "required": True},
+        )
+
+    def test_output_flag_writes_to_given_path_instead_of_stdout_or_source(self):
+        import yaml
+
+        output_path = self.root / "composed.yaml"
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--output",
+                str(output_path),
+            ],
+        ), contextlib.redirect_stdout(io.StringIO()):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertTrue(output_path.is_file())
+        written = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+        self.assertEqual([m["id"] for m in written["spec"]["modules"]], ["postgres", "keycloak"])
+        on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
+        self.assertEqual([m["id"] for m in on_disk["spec"]["modules"]], ["postgres"])
+
+    def test_no_provider_for_required_consume_fails_without_writing(self):
+        """Removing postgres leaves no sql-database provider in the profile,
+        so the required `metadata-database` consume entry must fail closed
+        (E125) instead of silently adding an unbindable module instance."""
+        import yaml
+
+        profile_file = self.profile_dir / "profile.yaml"
+        profile_doc = yaml.safe_load(profile_file.read_text(encoding="utf-8"))
+        profile_doc["spec"]["modules"] = []
+        profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            ["cds", "compose-profile", "demo", "--add-module", "identity/keycloak"],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("E125", stdout.getvalue())
+        self.assertNotIn("keycloak", profile_file.read_text(encoding="utf-8"))
+
+    def test_set_flag_overrides_additional_config_fields(self):
+        import yaml
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                "--set",
+                "httpPort=8081",
+                "--set",
+                "adminUser.username=admin",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0)
+        printed = yaml.safe_load(stdout.getvalue())
+        new_instance = printed["spec"]["modules"][-1]
+        self.assertEqual(new_instance["config"]["httpPort"], 8081)
+        self.assertEqual(new_instance["config"]["adminUser"]["username"], "admin")
+
+
 class CollectModuleImagesTest(unittest.TestCase):
 
     _ROOT = Path(__file__).parent.parent

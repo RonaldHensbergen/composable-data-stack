@@ -20,6 +20,7 @@ except ImportError:
 
 import yaml
 
+from .composer import compose_profile
 from .diagnostics import Diagnostic
 from .getter import GetError, _prepare_source_repository, fetch_profile, format_get_plan
 from .image_digest_check import is_enabled as image_digest_check_enabled
@@ -1230,6 +1231,76 @@ def main() -> int:
         help="Overwrite an existing profiles/<name>/profile.yaml",
     )
 
+    compose_profile_parser = subparsers.add_parser(
+        "compose-profile",
+        help="Merge a module instance into an existing profile, resolving contract bindings and secrets",
+    )
+    _add_profile_arg(compose_profile_parser)
+    compose_profile_parser.add_argument(
+        "--add-module",
+        required=True,
+        help="Module source to add, relative to a modules/ or modules-experimental/ root (e.g. modules/identity/keycloak)",
+    )
+    compose_profile_parser.add_argument(
+        "--id",
+        help="Module instance id (default: the module's metadata.name)",
+    )
+    compose_profile_parser.add_argument(
+        "--version",
+        help="Module instance version (default: the module's metadata.version)",
+    )
+    compose_profile_parser.add_argument(
+        "--bind",
+        action="append",
+        default=[],
+        metavar="NAME=MODULE_ID.CONTRACT",
+        help=(
+            "Explicitly bind a consume entry to an existing module's provided contract, e.g. "
+            "metadataDatabase=postgres.sql-database. Repeatable. Required when a consume entry's "
+            "contract kind has zero or more than one matching provider already in the profile."
+        ),
+    )
+    compose_profile_parser.add_argument(
+        "--set",
+        dest="config_set",
+        action="append",
+        default=[],
+        metavar="CONFIG.PATH=VALUE",
+        help="Set an additional config field on the new module instance, e.g. httpPort=8081. Repeatable.",
+    )
+    compose_profile_parser.add_argument(
+        "--secret",
+        action="append",
+        default=[],
+        metavar="ALIAS=ENV_VAR",
+        help=(
+            "Map a secret alias referenced by the new module's config (secrets.<alias>) to an "
+            "environment variable name, added to spec.secrets.values. Repeatable."
+        ),
+    )
+    compose_profile_parser.add_argument(
+        "--depends-on",
+        action="append",
+        default=[],
+        metavar="MODULE_ID",
+        help="Add an explicit dependsOn entry on top of any producer modules resolved from --bind/consumes. Repeatable.",
+    )
+    compose_profile_parser.add_argument(
+        "--disabled",
+        action="store_true",
+        help="Add the module instance with enabled: false",
+    )
+    compose_profile_parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write the merged profile back to the resolved profile.yaml (default: print to stdout)",
+    )
+    compose_profile_parser.add_argument(
+        "--output",
+        "-o",
+        help="Write the merged profile to this path instead of stdout or the original profile.yaml",
+    )
+
     plan_parser = subparsers.add_parser("plan", help="Build a resolved plan from a profile")
     _add_profile_arg(plan_parser)
     _add_environment_arg(plan_parser)
@@ -1696,6 +1767,88 @@ def main() -> int:
             return 1
 
         print(f"Profile written to {profile_path}")
+        return 0
+
+    if args.command == "compose-profile":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        profile_file = Path(profile_path)
+        document, _provenance, diagnostics = resolve_extends(profile_path)
+        if document is None or has_errors(diagnostics):
+            print_diagnostics(diagnostics)
+            print("Cannot compose module because the existing profile failed to resolve.")
+            return 1
+
+        def _split_kv(raw: str, flag: str) -> tuple[str, str] | None:
+            if "=" not in raw:
+                print(f'ERROR {flag} value "{raw}" must be in NAME=VALUE form.')
+                return None
+            name, _, value = raw.partition("=")
+            return name.strip(), value
+
+        bindings: dict[str, str] = {}
+        for raw in args.bind:
+            parsed = _split_kv(raw, "--bind")
+            if parsed is None:
+                return 1
+            bindings[parsed[0]] = parsed[1]
+
+        secret_env_names: dict[str, str] = {}
+        for raw in args.secret:
+            parsed = _split_kv(raw, "--secret")
+            if parsed is None:
+                return 1
+            secret_env_names[parsed[0]] = parsed[1]
+
+        config_settings: list[tuple[str, Any]] = []
+        for raw in args.config_set:
+            parsed = _split_kv(raw, "--set")
+            if parsed is None:
+                return 1
+            setting_path, raw_value = parsed
+            try:
+                value = yaml.safe_load(raw_value)
+            except yaml.YAMLError:
+                value = raw_value
+            config_settings.append((setting_path, value))
+
+        merged, diagnostics = compose_profile(
+            document,
+            profile_file.parent,
+            args.add_module,
+            instance_id=args.id,
+            version=args.version,
+            enabled=not args.disabled,
+            depends_on=args.depends_on,
+            config_settings=config_settings,
+            bindings=bindings,
+            secret_env_names=secret_env_names,
+            modules_root=Path(os.getenv("CDS_MODULE_PATH")) if os.getenv("CDS_MODULE_PATH") else None,
+        )
+
+        if diagnostics:
+            print_diagnostics(diagnostics)
+
+        if merged is None:
+            print("Compose failed.")
+            return 1
+
+        serialized = yaml.safe_dump(merged, sort_keys=False)
+
+        if args.output:
+            output_path = Path(args.output)
+            output_path.write_text(serialized, encoding="utf-8")
+            print(f"Composed profile written to {output_path}")
+        elif args.write:
+            profile_file.write_text(serialized, encoding="utf-8")
+            print(f"Composed profile written to {profile_file}")
+        else:
+            print(serialized, end="")
+
         return 0
 
     if args.command == "plan":

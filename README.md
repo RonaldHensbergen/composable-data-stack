@@ -748,6 +748,8 @@ runs, with a dedicated diagnostic code:
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 |cds security [profile]|Run rule-based security validation on a profile|
 |cds diff [profile] --from \<env\> --to \<env\>|Show effective configuration differences between two environment overlays, secrets never included|
+|cds generate-profile \<input\|-\> [--name \<name\>] [--force]|Persist a JSON/YAML profile document (file path or stdin) to `profiles/<name>/profile.yaml`|
+|cds compose-profile [profile] --add-module \<source\> [--bind \<name\>=\<moduleId.contract\>] [--set \<path\>=\<value\>] [--secret \<alias\>=\<ENV_VAR\>] [--write\|--output \<path\>]|Merge a new module instance into an existing profile, auto-resolving unambiguous contract bindings/dependencies and reporting ambiguous or missing ones|
 |cds use [profile] [--clear]|Save (show/clear) a default profile so it doesn't have to be passed to other commands|
 |cds config get\|set\|unset\|list|Manage persisted project defaults in `.cds/config.json`|
 |cds completion \<bash\|zsh\|powershell\>|Print shell setup instructions for tab-completion|
@@ -775,6 +777,21 @@ in `.cds/get-manifest.json` for future update workflows.
 can discover what's available in another repository (a fork, or an existing
 local checkout) before running `cds get` against it. Without these flags,
 `cds list` inspects the local project as before.
+
+`cds compose-profile` merges a new module instance into an existing profile
+instead of hand-editing its `profile.yaml`: it resolves each of the new
+module's `consumes` entries against contracts already `provides`d by the
+profile's existing modules, auto-binding when exactly one candidate matches
+a consume entry's contract kind (and adding the matching `dependsOn`
+automatically), or reporting an error naming the candidates when a consume
+entry has zero or multiple matches so you can disambiguate with
+`--bind <name>=<moduleId>.<providedContract>`. Use `--set <config.path>=<value>`
+for any other config field, and `--secret <alias>=<ENV_VAR>` for every
+`secrets.<alias>` reference the new module's config ends up using that isn't
+already defined on the profile. By default the merged profile is printed to
+stdout; pass `--write` to persist it back to the resolved `profile.yaml`, or
+`--output <path>` to write it elsewhere (e.g. before handing it to
+`cds generate-profile`).
 
 ### Project defaults
 

@@ -8,6 +8,23 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a `cds compose-profile` command that merges a new module instance
+  into an existing profile instead of requiring a hand-edited
+  `profile.yaml`: it resolves the new module's `consumes` entries against
+  contracts already `provides`d by the profile's existing modules,
+  auto-binding (and adding the matching `dependsOn`) when exactly one
+  candidate matches a consume entry's contract kind, and reporting an
+  error naming the candidates when a consume entry has zero or multiple
+  matches so the ambiguity can be resolved with `--bind
+  <name>=<moduleId>.<providedContract>`. `--set <config.path>=<value>`
+  sets any other config field, and `--secret <alias>=<ENV_VAR>` defines a
+  `secrets.<alias>` reference the new module's config ends up using.
+  Prints the merged profile to stdout by default; `--write` persists it
+  back to the resolved `profile.yaml`, and `--output <path>` writes it
+  elsewhere (e.g. before handing it to `cds generate-profile`). This is
+  the follow-up to #349 noted in `docs/roadmap.md`'s Near-Term section
+  ("beyond `cds generate-profile`") (#807).
+
 - Added `docs/nis2-cyberbeveiligingswet-scope.md`, recording that CDS
   itself is not an "essential"/"important" entity under NIS2/the
   Cyberbeveiligingswet — that role falls on operators of profiles built
