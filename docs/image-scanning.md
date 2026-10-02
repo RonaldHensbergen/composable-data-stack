@@ -4,6 +4,10 @@ This document describes the continuous vulnerability management process for
 the runtime images built in this repository (`dagster`, `superset`), as
 tracked by issue #209.
 
+For an exportable summary of module/image evidence for a specific rendered
+stack (not this repository-wide scanning process), see
+[compliance-report.md](compliance-report.md) (`cds report`).
+
 ## Pipeline
 
 | Trigger | Workflow | What happens |
@@ -88,6 +92,34 @@ An exception expires automatically: after `exp`, the finding is no longer
 ignored, the daily scan fails again, and the `vuln-scan` issue is refreshed.
 Review `.trivyignore` during the biweekly issue audit
 (`biweekly-issue-audit.yml`).
+
+## Pinned image digest staleness check
+
+The pipeline above only reaches whoever maintains a module's *source*.
+A user who has a module's third-party base image pinned to a specific
+digest (e.g. `postgres:18@sha256:...` in `modules/warehouse/postgres/module.yaml`)
+gets no in-tool signal when the registry republishes that same tag with a
+new, patched digest — only out-of-band registry/advisory monitoring
+surfaces it.
+
+`cds validate --check-image-digests` and `cds up --check-image-digests`
+(also enabled via `CDS_CHECK_IMAGE_DIGESTS=1`) close that gap: for every
+digest-pinned image in the resolved profile's modules, CDS queries the
+image's registry for the digest currently published for that tag and
+emits a `W100` warning when it differs from the pin. The check is:
+
+- **opt-in**, since it makes one network call per distinct pinned image;
+  `validate`/`render`/`up` stay network-free without the flag/env var.
+- **fail-safe**: an unreachable registry, auth failure, or unsupported
+  registry response is skipped silently — it is never reported as an
+  error and never fails the command.
+- a warning only, not a build gate: a stale pin does not block
+  `validate`/`up`, since an older, still-supported digest may be an
+  intentional choice.
+
+This surfaces the same "state of the art patching" signal the rest of
+this document tracks for CDS's own images, but for a user's *deployed*
+pinned digests rather than the images CDS publishes.
 
 ## Actions on a `vuln-scan` issue
 

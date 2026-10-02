@@ -91,6 +91,19 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             self.assertIsNone(result_path)
             self.assertEqual(diagnostics[0].code, "E115")
 
+    def test_rejects_multi_segment_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profiles_root = Path(tmpdir) / "profiles"
+            profile = self._profile()
+
+            result_path, diagnostics = save_generated_profile(
+                profile, profiles_root, name="teams/checkout"
+            )
+
+            self.assertIsNone(result_path)
+            self.assertEqual(len(diagnostics), 1)
+            self.assertEqual(diagnostics[0].code, "E115")
+
     def test_refuses_to_overwrite_existing_profile_without_force(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             profiles_root = Path(tmpdir) / "profiles"

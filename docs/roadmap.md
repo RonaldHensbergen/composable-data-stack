@@ -20,11 +20,6 @@ scope instead.
 - **Self-contained, low-risk** — small, well-scoped, no deep
   planner/renderer/contract knowledge required:
   - #535 Document `image.source` (build\|registry) in `docs/modules.md` and README (docs-only)
-  - #678 Fix `generate-profile` accepting multi-segment names `cds list profiles` can't discover
-  - #686 Wrap malformed compose YAML parse errors in `ScaffoldError`
-  - #506 Fix `cds get --ref` being silently ignored when combined with `--local`
-  - #507 Improve `cds get` error message on unexpected GitHub tarball layout
-  - #559 Add renderer-level test coverage for `ifNonempty:` interpolation
 - **`help wanted`** — scoped, but needs a design decision or more context read
   first; ask on the issue before starting:
   - #357 Implement or remove CDS-SEC-032 (secret file permission checks)
@@ -41,7 +36,6 @@ scope instead.
   - #206 Enforce database and cache authentication policies
   - #205 Add TLS and certificate-management contracts
   - #625 Lock pip dependencies to verified hashes across all Dockerfiles
-  - #557 Fix `ifNonempty:` expression crashing instead of producing a diagnostic
 
 New capability modules and contracts (S3-compatible object storage, log-sink,
 Keycloak realm/config, Grafana, DuckDB profile wiring, etc.) are tracked with
@@ -55,7 +49,7 @@ duplicated — none are currently assigned.
 
 ## Stable Components
 
-These are considered production-ready in the current release (v0.9.0):
+These are considered production-ready in the current release (v0.10.0):
 
 - `cds validate` — module and contract validation
 - `cds plan` — dependency resolution and execution planning
@@ -102,8 +96,42 @@ These work but may have breaking changes in upcoming releases:
 - 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
 - 📋 **Dynamic Composition follow-up**
   - allow runtime-generated profiles for planning and composition beyond `cds generate-profile` (#349)
-  - strengthen compatibility validation beyond plain contract `kind` matching (#350)
 - 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): Helm target lifecycle parity with Compose (#689), self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
+- 📋 **Haven parity — previously untracked workstreams** — the three [docs/haven-parity-plan.md](haven-parity-plan.md) gaps that had no issue filed: GitOps rendering/module support (#767), Kubernetes-native database operator pattern (#768), `cds maturity` profile-maturity report (#769)
+- 📋 **Zero-Trust, OpenTelemetry, OpenLineage** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink` contract + OpenTelemetry Collector reference module (#777)
+
+---
+
+## Dutch Public-Sector Alignment (FDS · Common Ground · NIS2)
+
+Tracked under the **Dutch Public-Sector Data & Security Alignment** milestone,
+distinct from the CRA product-security milestone above — these address the
+Federatief Datastelsel/IBDS data-sharing framework, Common Ground/Haven
+platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
+
+- 📋 **FDS data-provider alignment** — map CDS's `provides`/`consumes` contract
+  model to the Federatief Datastelsel Afsprakenstelsel's data-provider
+  basisafspraken; identify any missing shared contract (#773)
+- 📋 **Common Ground / Haven reference profile** — publish a mapping doc and a
+  reference profile combining existing/in-flight modules (identity, TLS,
+  database, observability) in a Haven-aligned shape (#772)
+- ✅ **Cyberbeveiligingswet/NIS2 scope** — record CDS's role as a software
+  supplier vs. the operator-level obligations of Cyberbeveiligingswet/NIS2
+  Article 21, cross-referenced against the CRA milestone so the two are not
+  conflated (#771, see [docs/nis2-cyberbeveiligingswet-scope.md](nis2-cyberbeveiligingswet-scope.md))
+- 📋 **NIS2-aligned `cds security` reporting** — extend the rule-set with
+  operator-readiness checks per Article 21 measure category, gated on the
+  scoping issue above (#774)
+- 📋 **Stale pinned-digest warning** — warn when a profile's pinned image
+  digest is behind the latest published, patched digest; cited by the NIS2
+  scoping issue's supply-chain-security gap (#736)
+- 📋 **Local audit trail** — retain a local audit trail of rendered/applied
+  stacks for user incident evidence, supporting NIS2 incident-reporting
+  timelines (#737)
+- 📋 **OpenLineage data-lineage for Dagster** — add a `lineage-sink` contract
+  and wire Dagster's built-in OpenLineage integration to it, in support of
+  IBDS/FDS "verantwoord datagebruik" provenance expectations; coordinate
+  with the FDS mapping above (#779)
 
 ---
 
@@ -112,8 +140,9 @@ These work but may have breaking changes in upcoming releases:
 Selected items shipped since v0.4.0 (see [CHANGELOG.md](../CHANGELOG.md) for the full history):
 
 - ✅ **Kubernetes/Helm rendering target** — new `--target helm` runtime alongside Compose, with a k3d local-dev harness and CI proof (#608)
+- ✅ **Strengthened contract compatibility validation** — bundled compatibility registry flags module pairings explicitly recorded as unsupported for a contract (`E043`), beyond plain contract `kind` matching (#350)
 - ✅ **`cds get`** — fetch profiles/modules from a GitHub repository, with symlink-safe extraction and tracking manifest (#493, #495, #474)
-- ✅ **`cds generate-profile`** — persist and validate a runtime-composed profile (#349 groundwork)
+- ✅ **`cds generate-profile`** — persist and validate a runtime-composed profile (initial groundwork toward dynamic composition; see the "Dynamic Composition follow-up" item below for remaining work)
 - ✅ **dbt promoted to stable** (`modules/transformation/dbt/`) with production-suitable hardening (#594)
 - ✅ **`cds config` / `cds use`** — persisted project-level defaults for `profile`, `environment`, `security.strict` (#383, #537)
 - ✅ **`cds list --remote/--ref/--local`** — discover profiles/modules/images in a remote repository before fetching (#500)

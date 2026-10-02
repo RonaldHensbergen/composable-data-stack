@@ -37,7 +37,10 @@ repository, in addition to `CONTRIBUTING.md`.
 - Use Python 3.14 or newer. Create a virtual environment and install the
   CLI with
   `python3 -m venv .venv && source .venv/bin/activate && python -m pip install -e .`.
-  Install `.[dev]` when running coverage, Bandit, or `pip-audit`.
+  Install `.[dev]` when running coverage, Bandit, or `pip-audit`. Install
+  `.[test]` (or `.[dev,test]`) before running the full test suite — it
+  pulls in `jinja2`, required by `tests/test_dagster_config_generation.py`,
+  without which that module fails to import.
 - Run the full repository test suite with
   `python scripts/run_tests_with_deprecation_gate.py`; `make check` runs
   `make lint` plus that test script (with

@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator
 
 from .diagnostics import Diagnostic
 from .graph import validate_dependency_graph
+from .image_digest_check import check_digest_staleness, collect_pinned_images_for_module
 from .loader import load_yaml_file, resolve_module_file
 from .resolver import (
     RequiredIfSyntaxError,
@@ -584,6 +585,56 @@ def validate_image_source_config(module_instances: list[dict[str, Any]]) -> list
                         "Pin an explicit published version instead for reproducible deploys."
                     ),
                     path=f"spec.modules[{inst['index']}].config.image.tag",
+                )
+            )
+
+    return diagnostics
+
+
+def validate_pinned_image_digests(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+    """
+    Checks a profile's digest-pinned images (e.g. `postgres:18@sha256:...`
+    in a module's compose template) against the digest the upstream
+    registry currently serves for that same tag (issue #736).
+
+    This performs one network call per distinct pinned image, so it is
+    opt-in: callers must gate invocation on
+    `image_digest_check.is_enabled(...)` (a `--check-image-digests` flag or
+    CDS_CHECK_IMAGE_DIGESTS=1) and are expected to skip calling this
+    function entirely otherwise, so `validate`/`render`/`up` stay
+    network-free by default. A lookup that cannot complete (offline, auth
+    failure, unsupported registry, ...) is silently skipped rather than
+    reported, per the issue's acceptance criteria: this check must never
+    fail a profile that would otherwise pass.
+    """
+    diagnostics: list[Diagnostic] = []
+    cache: dict[str, dict[str, Any]] = {}
+
+    for inst in module_instances:
+        module = inst.get("module")
+        if not isinstance(module, dict):
+            continue
+        for entry in collect_pinned_images_for_module(module):
+            image = entry["image"]
+            if image not in cache:
+                cache[image] = check_digest_staleness(image)
+            result = cache[image]
+
+            if result["status"] != "stale":
+                continue
+
+            latest_digest = result.get("latest_digest")
+            diagnostics.append(
+                Diagnostic(
+                    level="warning",
+                    code="W100",
+                    message=(
+                        f'Pinned image "{image}" in module "{inst["id"]}" is behind the '
+                        f"digest currently published for that tag ({latest_digest}). "
+                        "Rebuild/refresh the pin to pick up the patched image, or confirm "
+                        "the older digest is an intentional, still-supported pin."
+                    ),
+                    path=f"module:{inst['id']}.spec.implementation.compose.services.{entry['service']}.image",
                 )
             )
 
