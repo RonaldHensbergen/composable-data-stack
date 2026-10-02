@@ -793,6 +793,12 @@ stdout; pass `--write` to persist it back to the resolved `profile.yaml`, or
 `--output <path>` to write it elsewhere (e.g. before handing it to
 `cds generate-profile`).
 
+`--add-module <source>` must be written the same way as the `source:` values
+already in the target `profile.yaml` -- relative to the profile's own
+directory, not the repository root (e.g. `../../modules/identity/keycloak`
+for a profile under `profiles/<name>/`) -- unless `CDS_MODULE_PATH` is set, in
+which case it's relative to that root instead, matching `cds validate`.
+
 ### Project defaults
 
 `cds config` manages the gitignored `.cds/config.json` file (or the path in

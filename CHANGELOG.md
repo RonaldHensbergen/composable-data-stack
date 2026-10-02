@@ -21,9 +21,13 @@ The format is based on Keep a Changelog.
   `secrets.<alias>` reference the new module's config ends up using.
   Prints the merged profile to stdout by default; `--write` persists it
   back to the resolved `profile.yaml`, and `--output <path>` writes it
-  elsewhere (e.g. before handing it to `cds generate-profile`). This is
-  the follow-up to #349 noted in `docs/roadmap.md`'s Near-Term section
-  ("beyond `cds generate-profile`") (#807).
+  elsewhere (e.g. before handing it to `cds generate-profile`).
+  `--add-module <source>` is written the same way as existing
+  `spec.modules[].source` entries in the target `profile.yaml` (relative
+  to the profile's own directory, not the repository root, unless
+  `CDS_MODULE_PATH` is set). This is the follow-up to #349 noted in
+  `docs/roadmap.md`'s Near-Term section ("beyond `cds generate-profile`")
+  (#807).
 
 - Added `docs/nis2-cyberbeveiligingswet-scope.md`, recording that CDS
   itself is not an "essential"/"important" entity under NIS2/the

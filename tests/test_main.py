@@ -2757,6 +2757,45 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
         on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
         self.assertEqual([m["id"] for m in on_disk["spec"]["modules"]], ["postgres"])
 
+    def test_add_module_source_resolves_relative_to_profile_directory_without_module_path(self):
+        """Without CDS_MODULE_PATH, --add-module must be written the same way
+        as existing spec.modules[].source entries: relative to the profile's
+        own directory (e.g. "../../modules/identity/keycloak" for a profile
+        two levels under the repo root), not the repository root. This is a
+        regression test for the --add-module modules/identity/keycloak
+        --help example being wrong when CDS_MODULE_PATH isn't set."""
+        import yaml
+
+        profile_file = self.profile_dir / "profile.yaml"
+        profile_doc = yaml.safe_load(profile_file.read_text(encoding="utf-8"))
+        profile_doc["spec"]["modules"][0]["source"] = "../../modules/warehouse/postgres"
+        profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
+
+        stdout = io.StringIO()
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "../../modules/identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0, stdout.getvalue())
+        printed = yaml.safe_load(stdout.getvalue())
+        ids = [m["id"] for m in printed["spec"]["modules"]]
+        self.assertEqual(ids, ["postgres", "keycloak"])
+
     def test_write_persists_merged_profile_back_to_profile_yaml(self):
         import yaml
 

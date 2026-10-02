@@ -1239,7 +1239,12 @@ def main() -> int:
     compose_profile_parser.add_argument(
         "--add-module",
         required=True,
-        help="Module source to add, relative to a modules/ or modules-experimental/ root (e.g. modules/identity/keycloak)",
+        help=(
+            "Module source to add, written the same way as existing spec.modules[].source "
+            "entries in the target profile.yaml: relative to the profile's own directory "
+            "(e.g. ../../modules/identity/keycloak), not the repository root, unless "
+            "CDS_MODULE_PATH is set"
+        ),
     )
     compose_profile_parser.add_argument(
         "--id",
