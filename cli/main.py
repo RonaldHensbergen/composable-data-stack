@@ -1840,11 +1840,12 @@ def main() -> int:
         serialized = yaml.safe_dump(merged, sort_keys=False)
 
         if args.output:
-            output_path = Path(args.output)
-            output_path.write_text(serialized, encoding="utf-8")
+            output_path = Path(args.output).resolve()
+            _atomic_write(output_path, serialized)
             print(f"Composed profile written to {output_path}")
         elif args.write:
-            profile_file.write_text(serialized, encoding="utf-8")
+            profile_file = profile_file.resolve()
+            _atomic_write(profile_file, serialized)
             print(f"Composed profile written to {profile_file}")
         else:
             print(serialized, end="")
