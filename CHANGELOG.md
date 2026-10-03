@@ -8,6 +8,22 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Extended the security rule-set with two NIS2/Cyberbeveiligingswet
+  operator-readiness checks and a dedicated report mode: `CDS-SEC-080`
+  flags a profile with a durable data store (`sql-database`/
+  `file-database` provider) that has no `backup-target` contract consumer
+  bound anywhere (a known limitation until a backup-capable module
+  exists, tracked by #210/#665/#668/#669); `CDS-SEC-081` flags an
+  admin-facing service (e.g. Superset, Dagster's webserver) when no
+  identity/auth module (e.g. `modules/identity/keycloak`) is present in
+  the profile at all. Both are code-enforced (`scope: ["none"]`,
+  `codeEnforced: true`), tagged with a new `business-continuity`/
+  `access-control` compliance category, and participate in
+  `cds security --report nis2`, a new report mode that groups findings by
+  NIS2 Article 21(2) measure letter (a)-(j) instead of by raw compliance
+  category. See `docs/security-rules.md` and the updated
+  `docs/nis2-cyberbeveiligingswet-scope.md` gap table (#774).
+
 - Added `docs/nis2-cyberbeveiligingswet-scope.md`, recording that CDS
   itself is not an "essential"/"important" entity under NIS2/the
   Cyberbeveiligingswet — that role falls on operators of profiles built
