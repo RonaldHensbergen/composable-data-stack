@@ -1054,6 +1054,38 @@ class GitHubRemoteTest(unittest.TestCase):
 
             self.assertIn("Could not download", str(ctx.exception))
 
+    def test_fetch_profile_reports_entries_on_unexpected_archive_layout(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            _make_source_repo(source_root)
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+                archive.add(source_root, arcname="owner-demo-repo-aaa111")
+                archive.add(source_root, arcname="owner-demo-repo-bbb222")
+            archive_bytes = buffer.getvalue()
+
+            class _FakeResponse:
+                def __enter__(self_inner):
+                    return self_inner
+
+                def __exit__(self_inner, *exc_info):
+                    return False
+
+                def read(self_inner):
+                    return archive_bytes
+
+            def _fake_urlopen(request, timeout=30):
+                return _FakeResponse()
+
+            with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
+                with self.assertRaises(GetError) as ctx:
+                    fetch_profile("demo", destination_root=Path(dest_dir))
+
+            message = str(ctx.exception)
+            self.assertIn("Unexpected archive layout", message)
+            self.assertIn("owner-demo-repo-aaa111", message)
+            self.assertIn("owner-demo-repo-bbb222", message)
+
     def test_fetch_profile_rejects_unresolvable_remote(self) -> None:
         with tempfile.TemporaryDirectory() as dest_dir:
             with self.assertRaises(GetError) as ctx:

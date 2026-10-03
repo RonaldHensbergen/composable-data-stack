@@ -102,6 +102,11 @@ The format is based on Keep a Changelog.
   cannot be widened past `<2.1` again until `dagster-postgres` supports
   the psycopg3 driver (#781).
 
+- Included the discovered top-level entries in the `cds get` unexpected
+  tarball-layout error, so a malformed GitHub archive now reports what was
+  found instead of only the expected shape, without changing any accepted
+  archive (#507).
+
 ## [0.10.0] - 2026-09-27
 
 ### Added
