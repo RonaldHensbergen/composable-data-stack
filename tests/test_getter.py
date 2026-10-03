@@ -1112,6 +1112,22 @@ class GitHubRemoteTest(unittest.TestCase):
                 )
             self.assertIn("Specify only one of --remote and --local", str(ctx.exception))
 
+    def test_fetch_profile_rejects_local_with_explicit_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            with self.assertRaises(GetError) as ctx:
+                fetch_profile(
+                    "demo",
+                    ref="v2",
+                    local=str(source_root),
+                    destination_root=destination_root,
+                )
+            self.assertIn("--ref", str(ctx.exception))
+            self.assertIn("--local", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

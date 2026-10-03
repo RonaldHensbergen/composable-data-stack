@@ -154,11 +154,13 @@ def _prepare_source_repository(
     defaults to this project's upstream repository, and any `owner/repo` or
     `github.com/...` value is fetched as a tarball for `ref`. Pass `local` to
     explicitly use an existing local directory instead (e.g. an offline/dev
-    checkout) -- `remote`/`ref` are ignored in that case.
+    checkout) -- `remote` and a non-default `ref` are rejected in that case.
     """
     if local is not None:
         if remote is not None:
             raise GetError("Specify only one of --remote and --local")
+        if ref != DEFAULT_REF:
+            raise GetError(f"--ref {ref!r} is ignored with --local: specify only one of --local and --ref")
         yield _validate_source_repository(Path(local).expanduser())
         return
 
