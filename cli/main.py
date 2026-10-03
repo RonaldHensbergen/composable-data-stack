@@ -40,7 +40,12 @@ from .preflight import preflight_passed, run_preflight
 from .renderer import render_compose
 from .report import build_compliance_report
 from .security import PrecomputedRender, run_security_validation
-from .security_common import COMPLIANCE_CATEGORIES, SEVERITY_ORDER, infer_profile_class
+from .security_common import (
+    COMPLIANCE_CATEGORIES,
+    NIS2_ARTICLE_21_MEASURES,
+    SEVERITY_ORDER,
+    infer_profile_class,
+)
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .up_runner import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -1044,6 +1049,47 @@ def _category_heading(category: str) -> str:
     return f"== {label} ({category}) =="
 
 
+NIS2_REPORT_DISCLAIMER = (
+    "This report groups CDS's own `cds security` findings by NIS2/Cyberbeveiligingswet "
+    "Article 21(2) measure. It is a readiness aid, not a legal compliance or conformity "
+    "certification -- confirm applicability against your own regulatory obligations. See "
+    "docs/nis2-cyberbeveiligingswet-scope.md for the full gap analysis, including measures "
+    "(b), (e), (f), (g) that are out of CDS's product scope entirely."
+)
+
+
+def _group_findings_by_nis2_measure(
+    findings: list[dict[str, Any]],
+) -> list[tuple[str, str, str | None, list[dict[str, Any]]]]:
+    """
+    Group findings into NIS2 Article 21(2) measure (a)-(j) buckets, in that
+    fixed article order (not alphabetized, unlike --group-by-category),
+    using the NIS2_ARTICLE_21_MEASURES mapping. A finding whose category
+    maps to more than one measure (e.g. `access-control` maps to both (i)
+    and (j) today) appears under each; a finding whose category maps to
+    none of them is omitted here (every complianceCategory value maps to
+    at least one measure today).
+    """
+    by_category: dict[str, list[dict[str, Any]]] = {}
+    for finding in findings:
+        by_category.setdefault(finding.get("category"), []).append(finding)
+
+    groups: list[tuple[str, str, str | None, list[dict[str, Any]]]] = []
+    for letter, title, categories, note in NIS2_ARTICLE_21_MEASURES:
+        measure_findings: list[dict[str, Any]] = []
+        for category in categories:
+            measure_findings.extend(by_category.get(category, []))
+        measure_findings.sort(key=lambda f: (
+            SEVERITY_ORDER.get(f["severity"], 99), f["rule_id"], f["module"], f["path"],
+        ))
+        groups.append((letter, title, note, measure_findings))
+    return groups
+
+
+def _nis2_measure_heading(letter: str, title: str) -> str:
+    return f"== ({letter}) {title} =="
+
+
 def _maybe_check_pinned_image_digests(
     diagnostics: list[Diagnostic],
     profile_path: str,
@@ -1549,6 +1595,18 @@ def main() -> int:
         "--group-by-category",
         action="store_true",
         help="Print findings grouped by compliance control category instead of one flat list.",
+    )
+    security_parser.add_argument(
+        "--report",
+        choices=["nis2"],
+        help=(
+            "Print findings grouped by NIS2/Cyberbeveiligingswet Article 21(2) "
+            "measure instead of one flat list (mutually exclusive with "
+            "--group-by-category). This is a readiness aid organizing CDS's own "
+            "findings against that article's measure list, not a legal "
+            "compliance or conformity certification -- see "
+            "docs/nis2-cyberbeveiligingswet-scope.md."
+        ),
     )
 
     diff_parser = subparsers.add_parser(
@@ -2509,6 +2567,10 @@ def main() -> int:
             return 1
 
     if args.command == "security":
+        if args.report and args.group_by_category:
+            print("ERROR --report and --group-by-category are mutually exclusive.")
+            return 2
+
         try:
             profile_path = resolve_profile_path(args.profile)
         except ValueError as exc:
@@ -2649,6 +2711,24 @@ def main() -> int:
 
         if not displayed_findings:
             print(f"No security findings in category: {', '.join(sorted(set(args.category)))}.")
+        elif args.report == "nis2":
+            print(NIS2_REPORT_DISCLAIMER)
+            print()
+            for letter, title, note, group in _group_findings_by_nis2_measure(displayed_findings):
+                print(_nis2_measure_heading(letter, title))
+                if note:
+                    print(f"  note: {note}")
+                if not group:
+                    print("  No CDS findings map to this measure.")
+                for f in group:
+                    print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+                    print(f"  object: {f['path']}")
+                    print(f"  module: {f['module']}")
+                    if f["value"] is not None:
+                        print(f"  value: {f['value']}")
+                    for rec in f["recommendation"]:
+                        print(f"  fix: {rec}")
+                print()
         elif args.group_by_category:
             for category, group in _group_findings_by_category(displayed_findings).items():
                 print(_category_heading(category))
