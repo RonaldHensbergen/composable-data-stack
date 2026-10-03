@@ -1065,9 +1065,10 @@ def _group_findings_by_nis2_measure(
     Group findings into NIS2 Article 21(2) measure (a)-(j) buckets, in that
     fixed article order (not alphabetized, unlike --group-by-category),
     using the NIS2_ARTICLE_21_MEASURES mapping. A finding whose category
-    maps to more than one measure (currently none do) would appear under
-    each; a finding whose category maps to none of them is omitted here
-    (every complianceCategory value maps to at least one measure today).
+    maps to more than one measure (e.g. `access-control` maps to both (i)
+    and (j) today) appears under each; a finding whose category maps to
+    none of them is omitted here (every complianceCategory value maps to
+    at least one measure today).
     """
     by_category: dict[str, list[dict[str, Any]]] = {}
     for finding in findings:
