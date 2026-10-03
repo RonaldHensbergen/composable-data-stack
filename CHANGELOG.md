@@ -8,6 +8,19 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+### Added
+
+- Added a local, append-only audit trail of rendered/applied stacks:
+  `validate`, `render`, `up`, and `test` now append a JSON Lines entry to
+  `.cds/audit-log.jsonl` recording the timestamp, command, profile,
+  environment, resolved module versions/image references, and
+  success/failure/interrupted outcome. Only secret *alias* names are ever
+  recorded (never values), following the existing `${CDS_*}` placeholder
+  convention. Disable it per-invocation with `CDS_AUDIT_LOG_DISABLE=1` or
+  per-project with `cds config set audit.enabled false`. Distinct from
+  `cds get`'s `.cds/get-manifest.json`, which only tracks file provenance.
+  See `docs/audit-log.md` (#737).
+
 - Added `docs/nis2-cyberbeveiligingswet-scope.md`, recording that CDS
   itself is not an "essential"/"important" entity under NIS2/the
   Cyberbeveiligingswet — that role falls on operators of profiles built
