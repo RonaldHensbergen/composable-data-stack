@@ -377,6 +377,12 @@ def load_saved_image_source() -> str | None:
     return value if value in {"build", "registry"} else None
 
 
+def load_saved_target() -> str | None:
+    """Return the project-wide default --target override, if any."""
+    value = _config_value("target")
+    return value if value in {"compose", "helm"} else None
+
+
 def load_saved_profile() -> str | None:
     """Return the profile name saved via `cds use`, if any."""
     profile = _read_config().get("profile")
@@ -423,6 +429,8 @@ def set_config_value(key: str, value: str) -> Path:
         if not isinstance(image, dict):
             raise ConfigIOError("Config key 'image' must be a mapping.")
         image["source"] = value
+    elif key == "target":
+        data["target"] = value
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     return _write_config(data)
@@ -449,6 +457,10 @@ def unset_config_value(key: str) -> bool:
         del image["source"]
         if not image:
             del data["image"]
+    elif key == "target":
+        if "target" not in data:
+            return False
+        del data["target"]
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     _write_config(data)
@@ -795,6 +807,19 @@ def _add_image_source_arg(subparser: argparse.ArgumentParser) -> None:
             "config.image.tag explicitly. Modules without that config option "
             "are left unchanged. Falls back to `cds config get image.source` "
             "(see `cds config set image.source registry`) when omitted."
+        ),
+    )
+
+
+def _add_target_arg(subparser: argparse.ArgumentParser, help_text: str) -> None:
+    subparser.add_argument(
+        "--target",
+        choices=["compose", "helm"],
+        default=None,
+        help=(
+            f"{help_text} Falls back to `cds config get target` (see "
+            "`cds config set target helm`) when omitted, and to 'compose' "
+            "if that isn't set either."
         ),
     )
 
@@ -1242,12 +1267,7 @@ def main() -> int:
     validate_parser = subparsers.add_parser("validate", help="Validate a profile")
     _add_profile_arg(validate_parser)
     _add_environment_arg(validate_parser)
-    validate_parser.add_argument(
-        "--target",
-        choices=["compose", "helm"],
-        default="compose",
-        help="Validate target-specific requirements (default: compose).",
-    )
+    _add_target_arg(validate_parser, "Validate target-specific requirements.")
     validate_parser.add_argument(
         "--check-image-digests",
         action="store_true",
@@ -1296,14 +1316,10 @@ def main() -> int:
         help="Profile path/identifier or path to saved plan file. Uses CDS_PROFILE_PATH if set.",
     )
     _add_environment_arg(render_parser)
-    render_parser.add_argument(
-        "--target",
-        choices=["compose", "helm"],
-        default="compose",
-        help=(
-            "Render target. 'compose' writes a docker-compose.yml file (default); "
-            "'helm' writes a Helm chart DIRECTORY."
-        ),
+    _add_target_arg(
+        render_parser,
+        "Render target. 'compose' writes a docker-compose.yml file; "
+        "'helm' writes a Helm chart DIRECTORY.",
     )
     render_parser.add_argument(
         "--output",
@@ -1328,12 +1344,7 @@ def main() -> int:
     )
     _add_profile_arg(up_parser)
     _add_environment_arg(up_parser)
-    up_parser.add_argument(
-        "--target",
-        choices=["compose", "helm"],
-        default="compose",
-        help="Runtime target (default: compose).",
-    )
+    _add_target_arg(up_parser, "Runtime target.")
     up_parser.add_argument("--namespace", help="Kubernetes namespace (defaults to plan runtime namespace).")
     up_parser.add_argument("--release", help="Helm release name (defaults to profile name).")
     up_parser.add_argument("--kube-context", help="Explicit kube context without changing shared config.")
@@ -1382,9 +1393,7 @@ def main() -> int:
     down_parser = subparsers.add_parser("down", help="Stop or uninstall a running profile")
     _add_profile_arg(down_parser)
     _add_environment_arg(down_parser)
-    down_parser.add_argument(
-        "--target", choices=["compose", "helm"], default="compose", help="Runtime target."
-    )
+    _add_target_arg(down_parser, "Runtime target.")
     down_parser.add_argument("--namespace", help="Kubernetes namespace (defaults to profile runtime).")
     down_parser.add_argument("--release", help="Helm release name (defaults to profile name).")
     down_parser.add_argument("--kube-context", help="Explicit kube context.")
@@ -1404,12 +1413,7 @@ def main() -> int:
     )
     _add_profile_arg(test_parser)
     _add_environment_arg(test_parser)
-    test_parser.add_argument(
-        "--target",
-        choices=["compose", "helm"],
-        default="compose",
-        help="Runtime target included in the smoke validation (default: compose).",
-    )
+    _add_target_arg(test_parser, "Runtime target included in the smoke validation.")
     test_parser.add_argument(
         "--reveal-secrets",
         action="store_true",
@@ -1468,9 +1472,7 @@ def main() -> int:
     )
     _add_profile_arg(state_parser)
     _add_environment_arg(state_parser)
-    state_parser.add_argument(
-        "--target", choices=["compose", "helm"], default="compose", help="Runtime target."
-    )
+    _add_target_arg(state_parser, "Runtime target.")
     state_parser.add_argument("--namespace", help="Kubernetes namespace (defaults to profile runtime).")
     state_parser.add_argument("--release", help="Helm release name (defaults to profile name).")
     state_parser.add_argument("--kube-context", help="Explicit kube context.")
@@ -1553,12 +1555,7 @@ def main() -> int:
     security_parser = subparsers.add_parser("security", help="Run security validation on a profile")
     _add_profile_arg(security_parser)
     _add_environment_arg(security_parser)
-    security_parser.add_argument(
-        "--target",
-        choices=["compose", "helm"],
-        default="compose",
-        help="Include target-specific security checks (default: compose).",
-    )
+    _add_target_arg(security_parser, "Include target-specific security checks.")
     security_parser.add_argument(
         "--reveal-secrets",
         action="store_true",
@@ -1650,12 +1647,12 @@ def main() -> int:
     )
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_get_parser = config_subparsers.add_parser("get", help="Print a persisted setting")
-    config_get_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
+    config_get_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source", "target"])
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
-    config_set_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
+    config_set_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source", "target"])
     config_set_parser.add_argument("value")
     config_unset_parser = config_subparsers.add_parser("unset", help="Remove a persisted setting")
-    config_unset_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
+    config_unset_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source", "target"])
     config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
 
     completion_parser = subparsers.add_parser(
@@ -1677,6 +1674,8 @@ def main() -> int:
         args.environment = getattr(args, "environment", None) or load_saved_environment()
     if args.command in {"render", "up", "test", "report"}:
         args.image_source = getattr(args, "image_source", None) or load_saved_image_source()
+    if args.command in {"validate", "render", "up", "down", "test", "state", "security"}:
+        args.target = getattr(args, "target", None) or load_saved_target() or "compose"
     
     if args.command == "validate":
         try:
@@ -2832,6 +2831,11 @@ def main() -> int:
             elif args.key == "image.source":
                 if args.value not in {"build", "registry"}:
                     print("ERROR Config key 'image.source' must be 'build' or 'registry'.")
+                    return 1
+                value = args.value
+            elif args.key == "target":
+                if args.value not in {"compose", "helm"}:
+                    print("ERROR Config key 'target' must be 'compose' or 'helm'.")
                     return 1
                 value = args.value
             else:

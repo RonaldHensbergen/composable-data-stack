@@ -41,6 +41,12 @@ cds test local-dagster-postgres-superset --target helm
 cds render local-dagster-postgres-superset --target helm
 ```
 
+Working against the Helm target for an extended session? `cds config set target helm`
+persists it as the default for `validate`/`render`/`up`/`down`/`test`/`state`/`security`,
+so `--target helm` doesn't need repeating on every command (an explicit `--target`
+flag still overrides it). `cds config unset target` (or `cds config set target compose`)
+reverts to the Compose default.
+
 The default output directory is `chart/`. Use `--output` to choose another
 directory. CDS replaces a chart it generated previously as one atomic directory
 update. It refuses to replace unrelated content unless `--force` is present.
