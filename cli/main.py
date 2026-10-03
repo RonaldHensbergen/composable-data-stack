@@ -20,6 +20,7 @@ except ImportError:
 
 import yaml
 
+from . import audit_log
 from .diagnostics import Diagnostic
 from .getter import GetError, _prepare_source_repository, fetch_profile, format_get_plan
 from .image_digest_check import is_enabled as image_digest_check_enabled
@@ -102,6 +103,35 @@ def print_diagnostics(diagnostics, file=None) -> None:
     for d in diagnostics:
         prefix = "ERROR" if d.level == "error" else "WARN"
         print(f"{prefix} {d.format()}\n", file=file)
+
+
+def _record_audit(
+    command: str,
+    profile: str,
+    outcome: str,
+    *,
+    environment: str | None = None,
+    plan: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
+) -> None:
+    """Append a local audit-trail entry for a render/apply attempt (#737).
+
+    Never raises or changes control flow: audit logging is best-effort
+    local evidence and must not affect the outcome of the command it
+    observes.
+    """
+    try:
+        audit_log.record_entry(
+            command=command,
+            profile=profile,
+            outcome=outcome,
+            environment=environment,
+            plan=plan,
+            details=details,
+            config_disabled=load_saved_audit_disabled(),
+        )
+    except Exception as exc:  # pragma: no cover - defensive, see docstring
+        print(f"WARNING Audit log entry could not be recorded: {exc}", file=sys.stderr)
 
 
 def _format_compliance_report_text(report: dict[str, Any]) -> str:
@@ -372,6 +402,11 @@ def load_saved_image_source() -> str | None:
     return value if value in {"build", "registry"} else None
 
 
+def load_saved_audit_disabled() -> bool:
+    """Return whether this project has disabled the local audit log (#737)."""
+    return _config_value("audit.enabled") is False
+
+
 def load_saved_profile() -> str | None:
     """Return the profile name saved via `cds use`, if any."""
     profile = _read_config().get("profile")
@@ -418,6 +453,11 @@ def set_config_value(key: str, value: str) -> Path:
         if not isinstance(image, dict):
             raise ConfigIOError("Config key 'image' must be a mapping.")
         image["source"] = value
+    elif key == "audit.enabled":
+        audit = data.setdefault("audit", {})
+        if not isinstance(audit, dict):
+            raise ConfigIOError("Config key 'audit' must be a mapping.")
+        audit["enabled"] = value == "true"
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     return _write_config(data)
@@ -444,6 +484,13 @@ def unset_config_value(key: str) -> bool:
         del image["source"]
         if not image:
             del data["image"]
+    elif key == "audit.enabled":
+        audit = data.get("audit")
+        if not isinstance(audit, dict) or "enabled" not in audit:
+            return False
+        del audit["enabled"]
+        if not audit:
+            del data["audit"]
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     _write_config(data)
@@ -1592,12 +1639,18 @@ def main() -> int:
     )
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_get_parser = config_subparsers.add_parser("get", help="Print a persisted setting")
-    config_get_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
+    config_get_parser.add_argument(
+        "key", choices=["profile", "environment", "security.strict", "image.source", "audit.enabled"]
+    )
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
-    config_set_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
+    config_set_parser.add_argument(
+        "key", choices=["profile", "environment", "security.strict", "image.source", "audit.enabled"]
+    )
     config_set_parser.add_argument("value")
     config_unset_parser = config_subparsers.add_parser("unset", help="Remove a persisted setting")
-    config_unset_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
+    config_unset_parser.add_argument(
+        "key", choices=["profile", "environment", "security.strict", "image.source", "audit.enabled"]
+    )
     config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
 
     completion_parser = subparsers.add_parser(
@@ -1655,7 +1708,14 @@ def main() -> int:
         else:
             print("Profile is valid.")
 
-        return 1 if has_errors(diagnostics) else 0
+        validation_failed = has_errors(diagnostics)
+        _record_audit(
+            "validate",
+            args.profile,
+            "failure" if validation_failed else "success",
+            environment=args.environment,
+        )
+        return 1 if validation_failed else 0
 
     if args.command == "generate-profile":
         if args.input == "-":
@@ -1783,12 +1843,17 @@ def main() -> int:
                 code, render_diags = _render_helm_chart(plan, output_path, args.force)
                 all_diags = render_diags
                 if code != 0:
+                    _record_audit("render", str(source_profile), "failure", plan=plan)
                     return code
                 if has_errors(all_diags):
                     print_diagnostics(all_diags)
                     print("Render failed.")
+                    _record_audit("render", str(source_profile), "failure", plan=plan)
                     return 1
                 print(f"Rendered Helm chart written to {output_path}")
+                _record_audit(
+                    "render", str(source_profile), "success", plan=plan, details={"target": "helm", "output": output_path}
+                )
                 return 0
 
             compose_yaml, render_diags = render_compose(plan, output_path=output_path, env_file=env_file)
@@ -1797,9 +1862,13 @@ def main() -> int:
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Render failed.")
+                _record_audit("render", str(source_profile), "failure", plan=plan)
                 return 1
 
             print(f"Rendered compose file written to {output_path}")
+            _record_audit(
+                "render", str(source_profile), "success", plan=plan, details={"target": "compose", "output": output_path}
+            )
             return 0
         else:
             # Render from profile (original behavior)
@@ -1813,6 +1882,7 @@ def main() -> int:
             if has_errors(diagnostics):
                 print_diagnostics(diagnostics)
                 print("Cannot render because validation failed.")
+                _record_audit("render", profile_or_plan, "failure", environment=args.environment)
                 return 1
 
             env_file = str(resolve_env_file_path(profile_path))
@@ -1823,6 +1893,7 @@ def main() -> int:
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Cannot render because plan generation failed.")
+                _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
                 return 1
 
             output_path = args.output
@@ -1836,12 +1907,22 @@ def main() -> int:
                 code, render_diags = _render_helm_chart(plan, output_path, args.force)
                 all_diags = all_diags + render_diags
                 if code != 0:
+                    _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
                     return code
                 if has_errors(all_diags):
                     print_diagnostics(all_diags)
                     print("Render failed.")
+                    _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
                     return 1
                 print(f"Rendered Helm chart written to {output_path}")
+                _record_audit(
+                    "render",
+                    profile_or_plan,
+                    "success",
+                    environment=args.environment,
+                    plan=plan,
+                    details={"target": "helm", "output": output_path},
+                )
                 return 0
 
             compose_yaml, render_diags = render_compose(plan, output_path=output_path, env_file=env_file)
@@ -1850,9 +1931,18 @@ def main() -> int:
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Render failed.")
+                _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
                 return 1
 
             print(f"Rendered compose file written to {output_path}")
+            _record_audit(
+                "render",
+                profile_or_plan,
+                "success",
+                environment=args.environment,
+                plan=plan,
+                details={"target": "compose", "output": output_path},
+            )
 
             return 0
 
@@ -1888,6 +1978,7 @@ def main() -> int:
         if has_errors(all_diags):
             print_diagnostics(all_diags)
             print("Cannot start stack because plan generation failed.")
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
             return 1
 
         if args.target == "helm":
@@ -1898,6 +1989,7 @@ def main() -> int:
             if code != 0 or has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Cannot start stack because Helm rendering failed.")
+                _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                 return code or 1
 
             plan_release, plan_namespace = _helm_identity(
@@ -1929,14 +2021,23 @@ def main() -> int:
                     )
             except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
                 print(f"ERROR {exc}")
+                _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                 return 1
             if result != 0:
                 print(f"Helm deployment failed (exit {result}). See {log_path} for details.")
+                _record_audit(
+                    "up", args.profile, "failure", environment=args.environment, plan=plan,
+                    details={"target": "helm", "namespace": namespace, "release": release},
+                )
                 return result
             if args.detach:
                 print(f"Helm release {release} submitted in {namespace}. See {log_path} for details.")
             else:
                 print(f"Helm release {release} is ready in {namespace}. See {log_path} for details.")
+            _record_audit(
+                "up", args.profile, "success", environment=args.environment, plan=plan,
+                details={"target": "helm", "namespace": namespace, "release": release},
+            )
             return 0
 
         output_path = str(resolve_project_root(profile_path) / "docker-compose.yml")
@@ -1945,6 +2046,7 @@ def main() -> int:
         if has_errors(all_diags):
             print_diagnostics(all_diags)
             print("Cannot start stack because render failed.")
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
             return 1
 
         print(f"Rendered compose file written to {output_path}")
@@ -1988,6 +2090,7 @@ def main() -> int:
                     )
                     if build_returncode != 0:
                         print(f"Build failed (exit {build_returncode}). See {log_path} for details.")
+                        _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                         return build_returncode
 
                 print(f"Running: {' '.join(up_cmd)}")
@@ -1995,10 +2098,15 @@ def main() -> int:
                     up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
                     if up_returncode != 0:
                         print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                        _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                         return up_returncode
                     print(
                         f"Stack starting in the background. Run 'cds state' to check status; "
                         f"full output in {log_path}."
+                    )
+                    _record_audit(
+                        "up", args.profile, "success", environment=args.environment, plan=plan,
+                        details={"target": "compose", "detach": True},
                     )
                     return 0
 
@@ -2060,6 +2168,7 @@ def main() -> int:
                         f"\nStopped watching; the stack keeps running. "
                         f"Docker output logged to {log_path}."
                     )
+                    _record_audit("up", args.profile, "interrupted", environment=args.environment, plan=plan)
                     return 130
 
                 while True:
@@ -2070,15 +2179,18 @@ def main() -> int:
                         continue
                 if up_returncode != 0:
                     print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                    _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                     return up_returncode
         except KeyboardInterrupt:
             print(
                 f"\nInterrupted. The stack keeps running; "
                 f"Docker output logged to {log_path}."
             )
+            _record_audit("up", args.profile, "interrupted", environment=args.environment, plan=plan)
             return 130
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
             return 1
         finally:
             if log_tail_process is not None:
@@ -2089,9 +2201,14 @@ def main() -> int:
                 f"\nStack did not settle within {args.timeout:.0f}s, or a service is unhealthy. "
                 f"Run 'cds state' for the latest status; full output in {log_path}."
             )
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
             return 1
 
         print(f"\nStack is up. Full output in {log_path}.")
+        _record_audit(
+            "up", args.profile, "success", environment=args.environment, plan=plan,
+            details={"target": "compose"},
+        )
         return 0
 
     if args.command == "get":
@@ -2292,6 +2409,14 @@ def main() -> int:
 
         all_passed = all(status == "PASS" for _, status in stages)
         print("\nAll stages passed." if all_passed else "\nOne or more stages failed.")
+        _record_audit(
+            "test",
+            args.profile,
+            "success" if all_passed else "failure",
+            environment=args.environment,
+            plan=plan if plan_ok else None,
+            details={"stages": dict(stages)},
+        )
         return 0 if all_passed else 1
 
     if args.command == "report":
@@ -2752,6 +2877,11 @@ def main() -> int:
             elif args.key == "image.source":
                 if args.value not in {"build", "registry"}:
                     print("ERROR Config key 'image.source' must be 'build' or 'registry'.")
+                    return 1
+                value = args.value
+            elif args.key == "audit.enabled":
+                if args.value not in {"true", "false"}:
+                    print("ERROR Config key 'audit.enabled' must be true or false.")
                     return 1
                 value = args.value
             else:
