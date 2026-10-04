@@ -1,4 +1,4 @@
-FROM python:3.14-alpine@sha256:2e740b2c28a426e74f11396c05e38afb3191acced75045b8d62df573c1dc8ce8 AS builder
+FROM python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72 AS builder
 
 ARG DB_BACKEND=postgres
 
@@ -20,7 +20,7 @@ RUN python -m pip install --no-cache-dir -r requirements.txt && \
     esac && \
     python -m pip uninstall --yes pip
 
-FROM python:3.14-alpine@sha256:2e740b2c28a426e74f11396c05e38afb3191acced75045b8d62df573c1dc8ce8
+FROM python:3.14-alpine@sha256:f6a589d43c42b9e7f7dc67a12d37132491f362859a5d750607710cc56da3bc72
 
 ARG DB_BACKEND=postgres
 
