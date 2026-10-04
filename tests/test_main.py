@@ -3540,6 +3540,25 @@ class ConfigCommandCLITest(unittest.TestCase):
         self.assertIn("must be 'build' or 'registry'", output)
         self.assertFalse(self.config_path.exists())
 
+    def test_config_sets_gets_and_unsets_audit_enabled(self):
+        result, output = self._run(["set", "audit.enabled", "false"])
+        self.assertEqual(result, 0, output)
+        self.assertFalse(json.loads(self.config_path.read_text())["audit"]["enabled"])
+
+        result, output = self._run(["get", "audit.enabled"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(output.strip(), "false")
+
+        result, output = self._run(["unset", "audit.enabled"])
+        self.assertEqual(result, 0, output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_config_rejects_invalid_audit_enabled_value(self):
+        result, output = self._run(["set", "audit.enabled", "nope"])
+        self.assertEqual(result, 1)
+        self.assertIn("must be true or false", output)
+        self.assertFalse(self.config_path.exists())
+
     @patch("cli.main.run_security_validation", return_value=([], []))
     @patch("cli.main.validate_profile", return_value=[])
     def test_configured_security_strict_is_passed_to_security_checks(
@@ -3555,6 +3574,78 @@ class ConfigCommandCLITest(unittest.TestCase):
         self.assertEqual(result, 0, captured.getvalue())
         mock_validate.assert_called_once()
         self.assertTrue(mock_run_security.call_args.kwargs["strict"])
+
+
+class AuditLogCLIIntegrationTest(unittest.TestCase):
+    """`cds validate`/`cds render` must append a local audit-trail entry
+    (#737), and both the env-var and config disable paths must suppress
+    it."""
+
+    def setUp(self):
+        self.repo_root = Path(__file__).resolve().parent.parent
+        self.profiles_root = self.repo_root / "profiles"
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.project_root = Path(self.tmpdir.name)
+        self.original_cwd = Path.cwd()
+        os.chdir(self.project_root)
+        self.env_patch = patch.dict(
+            os.environ,
+            {
+                "CDS_PROFILE_PATH": str(self.profiles_root),
+                "CDS_CONFIG_PATH": str(self.project_root / ".cds" / "config.json"),
+            },
+            clear=False,
+        )
+        self.env_patch.start()
+
+    def tearDown(self):
+        self.env_patch.stop()
+        os.chdir(self.original_cwd)
+        self.tmpdir.cleanup()
+
+    def _audit_entries(self):
+        log_path = self.project_root / ".cds" / "audit-log.jsonl"
+        if not log_path.exists():
+            return []
+        return [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+
+    def test_validate_command_appends_audit_entry(self):
+        with patch.object(
+            sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
+        ), contextlib.redirect_stdout(io.StringIO()):
+            result = main()
+
+        self.assertEqual(result, 0)
+        entries = self._audit_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["command"], "validate")
+        self.assertEqual(entries[0]["outcome"], "success")
+        self.assertEqual(entries[0]["profile"], "local-dagster-postgres-superset")
+        # Never a secret value, only alias/env-var names (see cli/secrets.py).
+        for alias in entries[0]["secretAliases"]:
+            self.assertNotIn("=", alias)
+
+    def test_audit_log_disabled_via_env_var(self):
+        with patch.dict(os.environ, {"CDS_AUDIT_LOG_DISABLE": "true"}, clear=False):
+            with patch.object(
+                sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
+            ), contextlib.redirect_stdout(io.StringIO()):
+                main()
+
+        self.assertEqual(self._audit_entries(), [])
+
+    def test_audit_log_disabled_via_config(self):
+        with patch.object(
+            sys, "argv", ["cds", "config", "set", "audit.enabled", "false"]
+        ), contextlib.redirect_stdout(io.StringIO()):
+            main()
+
+        with patch.object(
+            sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
+        ), contextlib.redirect_stdout(io.StringIO()):
+            main()
+
+        self.assertEqual(self._audit_entries(), [])
 
 
 class CompletionCommandCLITest(unittest.TestCase):

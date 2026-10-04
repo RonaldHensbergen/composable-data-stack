@@ -8,6 +8,17 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a local, append-only audit trail of rendered/applied stacks:
+  `validate`, `render`, `up`, and `test` now append a JSON Lines entry to
+  `.cds/audit-log.jsonl` recording the timestamp, command, profile,
+  environment, resolved module versions/image references, and
+  success/failure/interrupted outcome. Only secret *alias* names are ever
+  recorded (never values), following the existing `${CDS_*}` placeholder
+  convention. Disable it per-invocation with `CDS_AUDIT_LOG_DISABLE=1` or
+  per-project with `cds config set audit.enabled false`. Distinct from
+  `cds get`'s `.cds/get-manifest.json`, which only tracks file provenance.
+  See `docs/audit-log.md` (#737).
+
 - Added `docs/cli-reference.md`, a standalone full command/flag reference
   for every `cds` subcommand (including `cds report`, which had been
   missing from the README's command table since its addition in #734),
