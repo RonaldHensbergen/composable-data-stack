@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-04
+
 ### Added
 
 - Extended the security rule-set with two NIS2/Cyberbeveiligingswet
