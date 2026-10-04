@@ -108,9 +108,11 @@ distinct from the CRA product-security milestone above — these address the
 Federatief Datastelsel/IBDS data-sharing framework, Common Ground/Haven
 platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
 
-- 📋 **FDS data-provider alignment** — map CDS's `provides`/`consumes` contract
+- ✅ **FDS data-provider alignment** — map CDS's `provides`/`consumes` contract
   model to the Federatief Datastelsel Afsprakenstelsel's data-provider
-  basisafspraken; identify any missing shared contract (#773)
+  basisafspraken; identify any missing shared contract (#773, see
+  [docs/fds-alignment.md](fds-alignment.md)). Gap identified: a new shared
+  contract expressing FDS-required dataset provider metadata (#825)
 - 📋 **Common Ground / Haven reference profile** — publish a mapping doc and a
   reference profile combining existing/in-flight modules (identity, TLS,
   database, observability) in a Haven-aligned shape (#772)
@@ -131,6 +133,9 @@ platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
   and wire Dagster's built-in OpenLineage integration to it, in support of
   IBDS/FDS "verantwoord datagebruik" provenance expectations; coordinate
   with the FDS mapping above (#779)
+- 📋 **FDS data-provider contract** — add a shared contract expressing
+  FDS-required dataset provider metadata (description, classification,
+  access conditions), the gap identified by the FDS mapping above (#825)
 
 ---
 

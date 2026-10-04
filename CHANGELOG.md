@@ -8,6 +8,16 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added `docs/fds-alignment.md`, mapping CDS's `provides`/`consumes`
+  contract model against the Federatief Datastelsel (FDS) Afsprakenstelsel's
+  data-provider basisafspraken (technical, semantic, legal, organisational
+  agreement domains). Concludes the technical/organisational domains are
+  reasonably served by existing contracts and the compliance report/audit
+  trail, but the semantic/legal domains have a gap: no shared contract
+  expresses FDS-required dataset-level provider metadata (description,
+  classification, access conditions). That gap is filed as a scoped
+  follow-up rather than solved inline (#825). See `docs/roadmap.md` (#773).
+
 - Added a local, append-only audit trail of rendered/applied stacks:
   `validate`, `render`, `up`, and `test` now append a JSON Lines entry to
   `.cds/audit-log.jsonl` recording the timestamp, command, profile,
