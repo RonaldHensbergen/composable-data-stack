@@ -29,6 +29,36 @@ The format is based on Keep a Changelog.
   `docs/roadmap.md`'s Near-Term section ("beyond `cds generate-profile`")
   (#807).
 
+### Fixed
+
+- `cds compose-profile --write` now refuses to run on a profile that
+  declares its own top-level `extends:` entry: resolving `extends`
+  flattens the parent/child chain, so writing the merged result back to
+  `profile.yaml` would silently discard the `extends` reference and
+  duplicate the parent's modules on disk. The command now errors and
+  points at `--output <path>` instead, which still works since it writes
+  the merged document elsewhere rather than overwriting the source (#808).
+
+## [0.11.0] - 2026-10-04
+
+### Added
+
+- Extended the security rule-set with two NIS2/Cyberbeveiligingswet
+  operator-readiness checks and a dedicated report mode: `CDS-SEC-080`
+  flags a profile with a durable data store (`sql-database`/
+  `file-database` provider) that has no `backup-target` contract consumer
+  bound anywhere (a known limitation until a backup-capable module
+  exists, tracked by #210/#665/#668/#669); `CDS-SEC-081` flags an
+  admin-facing service (e.g. Superset, Dagster's webserver) when no
+  identity/auth module (e.g. `modules/identity/keycloak`) is present in
+  the profile at all. Both are code-enforced (`scope: ["none"]`,
+  `codeEnforced: true`), tagged with a new `business-continuity`/
+  `access-control` compliance category, and participate in
+  `cds security --report nis2`, a new report mode that groups findings by
+  NIS2 Article 21(2) measure letter (a)-(j) instead of by raw compliance
+  category. See `docs/security-rules.md` and the updated
+  `docs/nis2-cyberbeveiligingswet-scope.md` gap table (#774).
+
 - Added `docs/nis2-cyberbeveiligingswet-scope.md`, recording that CDS
   itself is not an "essential"/"important" entity under NIS2/the
   Cyberbeveiligingswet — that role falls on operators of profiles built
@@ -62,16 +92,6 @@ The format is based on Keep a Changelog.
 
 - Added true in-memory/dict-based profile planning entry points, closing the remaining gap in #349: `cli.overlay.resolve_extends_from_profile()`/`resolve_profile_from_profile()` and `cli.planner.build_plan_from_profile()`/`plan_generated_profile()` let a runtime-generated profile be validated and planned directly from a dict -- same `extends`/environment-overlay semantics and module `source:` resolution as the disk-based `resolve_extends()`/`resolve_profile()`/`build_plan()`, anchored to a directory that does not need to contain a `profile.yaml` of its own -- without ever writing it to disk first (#679).
 
-### Fixed
-
-- `cds compose-profile --write` now refuses to run on a profile that
-  declares its own top-level `extends:` entry: resolving `extends`
-  flattens the parent/child chain, so writing the merged result back to
-  `profile.yaml` would silently discard the `extends` reference and
-  duplicate the parent's modules on disk. The command now errors and
-  points at `--output <path>` instead, which still works since it writes
-  the merged document elsewhere rather than overwriting the source (#808).
-
 ### Removed
 
 - Removed the stale `docs/plan/CRA_and_other_laws.md`, a duplicate of
@@ -82,6 +102,11 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Bumped the `urllib3` transitive dependency pinned in `uv.lock` from
+  `2.7.0` to `2.8.0`, resolving three Dependabot-reported advisories: an
+  HTTPS proxy TLS configuration bypass, an unbounded chunk-size-line
+  memory buffer in `HTTPResponse.stream()`/`read_chunked()`, and a
+  chunked-deflate decompression infinite loop.
 - Bumped `dagster-postgres` from `0.29.24` to `0.29.25` in
   `images/dagster/requirements-postgres.txt` to match the Renovate-bumped
   `dagster`/`dagster-graphql`/`dagster-webserver` `1.13.25` release train;
@@ -123,6 +148,11 @@ The format is based on Keep a Changelog.
   `sqlalchemy` pin in `images/dagster/requirements-postgres.txt` so it
   cannot be widened past `<2.1` again until `dagster-postgres` supports
   the psycopg3 driver (#781).
+
+- Included the discovered top-level entries in the `cds get` unexpected
+  tarball-layout error, so a malformed GitHub archive now reports what was
+  found instead of only the expected shape, without changing any accepted
+  archive (#507).
 
 ## [0.10.0] - 2026-09-27
 

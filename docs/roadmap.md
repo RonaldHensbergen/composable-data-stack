@@ -49,7 +49,7 @@ duplicated — none are currently assigned.
 
 ## Stable Components
 
-These are considered production-ready in the current release (v0.10.0):
+These are considered production-ready in the current release (v0.11.0):
 
 - `cds validate` — module and contract validation
 - `cds plan` — dependency resolution and execution planning

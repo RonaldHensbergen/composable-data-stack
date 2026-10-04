@@ -333,6 +333,82 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
+    def test_security_command_report_nis2_groups_findings_by_article_21_measure(
+        self, mock_validate, mock_run_security
+    ):
+        mock_validate.return_value = []
+        mock_run_security.return_value = (
+            [
+                {
+                    "rule_id": "CDS-SEC-080",
+                    "severity": "medium",
+                    "module": "profile",
+                    "message": "No backup-target bound",
+                    "path": "spec.modules",
+                    "value": None,
+                    "recommendation": ["Wire a backup module."],
+                    "category": "business-continuity",
+                },
+                {
+                    "rule_id": "CDS-SEC-010",
+                    "severity": "high",
+                    "module": "superset",
+                    "message": "Default admin credentials",
+                    "path": "adminPassword",
+                    "value": None,
+                    "recommendation": ["Set a strong admin password."],
+                    "category": "access-control",
+                },
+            ],
+            [],
+        )
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys,
+            "argv",
+            ["cds", "security", "local-dagster-postgres-superset", "--report", "nis2"],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        output = stdout.getvalue()
+        self.assertEqual(result, 1)
+        self.assertIn("NIS2/Cyberbeveiligingswet", output)
+        # (c) business continuity comes before (i) access control in
+        # article order, matching each finding's compliance category.
+        self.assertLess(
+            output.index("== (c) Business continuity"), output.index("CDS-SEC-080")
+        )
+        self.assertLess(
+            output.index("== (i) Human resources security"), output.index("CDS-SEC-010")
+        )
+        # (b) has no CDS findings mapped to it; it should still be listed.
+        self.assertIn("== (b) Incident handling ==", output)
+        self.assertIn("No CDS findings map to this measure.", output)
+
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
+    def test_security_command_report_and_group_by_category_are_mutually_exclusive(
+        self, mock_validate, mock_run_security
+    ):
+        stdout = io.StringIO()
+        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds", "security", "local-dagster-postgres-superset",
+                "--report", "nis2", "--group-by-category",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 2)
+        self.assertIn("mutually exclusive", stdout.getvalue())
+        mock_validate.assert_not_called()
+        mock_run_security.assert_not_called()
+
+    @patch("cli.main.run_security_validation")
+    @patch("cli.main.validate_profile")
     def test_security_command_category_filter_does_not_mask_a_high_severity_finding(
         self, mock_validate, mock_run_security
     ):

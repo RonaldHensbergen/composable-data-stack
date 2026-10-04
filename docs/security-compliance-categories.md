@@ -42,6 +42,7 @@ organization and whether CDS's checks satisfy them.
 | `system-hardening` | Rules about container/runtime hardening (running as root, privileged/excess capabilities, writable root filesystem, sensitive host path mounts). Also covers `cli/k8s_security.py`'s pod/container posture checks `CDS-K8S-001`-`004`, which aren't declared in `rule-set.json` but are tagged with this category directly at their source since they check the same kind of runtime posture. |
 | `logging-monitoring` | Rules about security-relevant information not leaking into (or via) logs, command lines, or CLI output, which undermines the same logging/monitoring control it's meant to support. |
 | `patching` | Image/dependency freshness, provenance, and trust: tag/digest pinning, registry trust, and cosign signature/build-provenance verification. Also covers the `cli/image_verification.py` checks (`CDS-SEC-050`/`051`/`052`, `CDS-VER-*`), which aren't declared in `rule-set.json` (see [`docs/image-signing.md`](image-signing.md) for why) but are tagged with this category directly at their source. |
+| `business-continuity` | Resilience of stateful services against data loss: whether a module holding durable state (a `sql-database`/`file-database` provider) has any `backup-target` contract consumer bound anywhere in the profile. |
 
 ## Grouping and filtering findings
 
@@ -50,6 +51,15 @@ cds security <profile> --group-by-category
 cds security <profile> --category secrets-management --category access-control
 cds test <profile> --group-by-category
 ```
+
+`cds security <profile> --report nis2` groups findings by NIS2/Cyberbeveiligingswet
+Article 21(2) measure instead, using the category-to-measure mapping in
+`cli.security_common.NIS2_ARTICLE_21_MEASURES`. It is mutually exclusive with
+`--group-by-category`; see [`docs/nis2-cyberbeveiligingswet-scope.md`](nis2-cyberbeveiligingswet-scope.md)
+for the full gap analysis this mapping summarizes, and
+[`docs/security-rules.md`](security-rules.md) for the two code-enforced
+rules (`CDS-SEC-080`, `CDS-SEC-081`) introduced specifically to give that
+report more direct evidence.
 
 `--category` is repeatable and only accepts values from the closed set
 above; it is a display-only filter and never changes which rules run,
