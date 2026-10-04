@@ -794,6 +794,130 @@ def _check_production_plaintext_exposure(
     return findings, []
 
 
+_STATEFUL_CONTRACT_KINDS = {"sql-database", "file-database"}
+
+
+def _check_backup_target_binding(
+    plan: dict[str, Any] | None,
+    rule_enabled: bool = True,
+) -> list[dict[str, Any]]:
+    """
+    CDS-SEC-080: flag a profile that has at least one module providing a
+    durable-state contract (sql-database or file-database) but where no
+    module anywhere in the profile consumes a backup-target contract.
+
+    No module in this repository provides a backup-target contract yet
+    (see roadmap items #210, #665, #668, #669), so this is expected to fire
+    on essentially every profile with a durable data store today -- that is
+    treated as honest signal about a real, currently-unaddressed gap, not a
+    bug. See rule-set.json's $comment on CDS-SEC-080 for the full rationale.
+    """
+    if not rule_enabled or not isinstance(plan, dict):
+        return []
+
+    modules = plan.get("modules", [])
+    if not isinstance(modules, list):
+        return []
+
+    has_stateful_provider = False
+    has_backup_target_consumer = False
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        for contract in module.get("provides", {}).values():
+            if isinstance(contract, dict) and contract.get("kind") in _STATEFUL_CONTRACT_KINDS:
+                has_stateful_provider = True
+        for consumed in module.get("consumes", {}).values():
+            if not isinstance(consumed, dict):
+                continue
+            if consumed.get("contract", {}).get("kind") == "backup-target":
+                has_backup_target_consumer = True
+
+    if not has_stateful_provider or has_backup_target_consumer:
+        return []
+
+    return [{
+        "rule_id": "CDS-SEC-080",
+        "severity": "medium",
+        "module": "profile",
+        "message": (
+            "Profile has a module with durable state (sql-database or "
+            "file-database) but no module consumes a backup-target contract"
+        ),
+        "path": "spec.modules",
+        "value": None,
+        "recommendation": [
+            "Wire a backup/restore-capable module once one is available in "
+            "this stack (see issues #210, #665, #668, #669).",
+            "Until then, document and operate an out-of-band backup process "
+            "for this profile's stateful modules.",
+        ],
+    }]
+
+
+_IDENTITY_SOURCE_SEGMENT_RE = re.compile(r"(?:^|/)(?:modules|modules-experimental)/identity(?:/|$)")
+
+
+def _check_admin_service_identity_binding(
+    plan: dict[str, Any] | None,
+    rendered_compose: dict[str, Any] | None,
+    rule_enabled: bool = True,
+) -> list[dict[str, Any]]:
+    """
+    CDS-SEC-081: flag a profile whose rendered Compose exposes an
+    admin-ui-type service (per the same `_service_type_for_path` heuristic
+    CDS-SEC-020/023 use) when no module in the profile is sourced from
+    `modules/identity` (or `modules-experimental/identity`).
+
+    This is a coarse profile-wide presence check, not a per-service wiring
+    check -- no identity-broker contract exists yet (tracked by #370) to
+    confirm the identity module actually protects that specific service.
+    See rule-set.json's $comment on CDS-SEC-081 for the full rationale.
+    """
+    if not rule_enabled or not isinstance(plan, dict) or not isinstance(rendered_compose, dict):
+        return []
+
+    services = rendered_compose.get("services", {})
+    if not isinstance(services, dict):
+        return []
+
+    admin_services = sorted(
+        service_name for service_name in services
+        if _service_type_for_path(f"services.{service_name}") == "admin-ui"
+    )
+    if not admin_services:
+        return []
+
+    modules = plan.get("modules", [])
+    has_identity_module = any(
+        isinstance(module, dict)
+        and isinstance(module.get("source"), str)
+        and _IDENTITY_SOURCE_SEGMENT_RE.search(module["source"])
+        for module in modules
+        if isinstance(modules, list)
+    )
+    if has_identity_module:
+        return []
+
+    return [
+        {
+            "rule_id": "CDS-SEC-081",
+            "severity": "medium",
+            "module": "profile",
+            "message": "Profile exposes an admin-facing service but includes no identity/auth module",
+            "path": f"services.{service_name}",
+            "value": None,
+            "recommendation": [
+                "Bind an identity/auth module (e.g. modules/identity/keycloak) "
+                "in front of admin-facing services.",
+                "If the admin-ui service has its own adequate authentication, "
+                "document why no additional identity module is needed.",
+            ],
+        }
+        for service_name in admin_services
+    ]
+
+
 @dataclass(frozen=True)
 class PrecomputedRender:
     """
@@ -992,8 +1116,12 @@ def run_security_validation(
     # tagged for the declarative engine), so it only forces the same work
     # when it is itself enabled for this rule set.
     plaintext_exposure_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-074", key="codeEnforced")
+    backup_target_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-080", key="codeEnforced")
+    admin_identity_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-081", key="codeEnforced")
     needs_rendered_compose = (
         (profile_class == "prod" and plaintext_exposure_rule_enabled)
+        or backup_target_rule_enabled
+        or admin_identity_rule_enabled
         or any(
             rule.get("enabled", True) and set(rule.get("scope", [])) & _RENDERED_COMPOSE_SCOPES
             for rule in rule_set["rules"]
@@ -1044,6 +1172,16 @@ def run_security_validation(
         rule_enabled=plaintext_exposure_rule_enabled,
     )
     findings.extend(plaintext_findings)
+
+    findings.extend(_check_backup_target_binding(
+        plan=rendered_plan,
+        rule_enabled=backup_target_rule_enabled,
+    ))
+    findings.extend(_check_admin_service_identity_binding(
+        plan=rendered_plan,
+        rendered_compose=rendered_compose,
+        rule_enabled=admin_identity_rule_enabled,
+    ))
 
     # Attach each finding's informational compliance control category by
     # looking it up on the matching rule, rather than threading it through

@@ -733,89 +733,11 @@ runs, with a dedicated diagnostic code:
 
 ## ⚙️ CLI
 
-|Command|Description|
-|---|---|
-|cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|
-|cds list profiles\|modules\|images [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>]|List available profiles, module sources, or module images and check for newer versions; add `--remote`/`--local` to inspect another repository before fetching from it|
-|cds init [profile]|Generate a project `.env` template from profile secret definitions|
-|cds validate [profile]|Validate modules and contracts; use `--target helm` for Kubernetes checks|
-|cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
-|cds plan [profile]|Resolve dependencies and generate an execution plan|
-|cds render [profile]|Generate Docker Compose or a Helm chart from a resolved plan|
-|cds up [profile]|Validate, plan, render, and start the Compose or Helm target; use `--target helm` for Kubernetes|
-|cds down [profile]|Stop Compose or uninstall a Helm release; Helm PVCs are retained by default|
-|cds state [profile]|Show Compose services or Kubernetes workloads grouped by health|
-|cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
-|cds security [profile]|Run rule-based security validation on a profile|
-|cds diff [profile] --from \<env\> --to \<env\>|Show effective configuration differences between two environment overlays, secrets never included|
-|cds use [profile] [--clear]|Save (show/clear) a default profile so it doesn't have to be passed to other commands|
-|cds config get\|set\|unset\|list|Manage persisted project defaults in `.cds/config.json`|
-|cds completion \<bash\|zsh\|powershell\>|Print shell setup instructions for tab-completion|
-
-`init`, `validate`, `preflight`, `plan`, `render`, `up`, `test`, and `security`
-all accept `--environment <name>` (or `-e <name>`) to merge
-`environments/<name>.yaml` over the base profile before resolving; see
-[Environment Overlays](#environment-overlays).
-
-`cds get` copies the selected `profiles/<name>/` tree, every referenced module
-directory, and any local build-context assets referenced by those modules'
-Dockerfiles. By design it downloads from GitHub rather than a local checkout:
-by default it fetches this project's upstream repository at the `main` branch,
-downloading a tarball via the GitHub API (no `git` binary required). Use
-`--remote <owner/repo>` (or a `github.com/...` URL) to fetch a fork, and
-`--ref <branch|tag|sha>` to select a specific revision. Pass `--local <dir>`
-to use an existing local directory instead of downloading (mutually exclusive
-with `--remote`/`--ref`) for offline/dev workflows. Use `--into` to choose a
-destination root, `--dry-run` to inspect the copy plan first, and `--force` to
-replace conflicting local files. Successful fetches record tracking metadata
-in `.cds/get-manifest.json` for future update workflows.
-
-`cds list profiles`, `cds list modules`, and `cds list images` accept the same
-`--remote`/`--ref`/`--local` source-repository selection as `cds get`, so you
-can discover what's available in another repository (a fork, or an existing
-local checkout) before running `cds get` against it. Without these flags,
-`cds list` inspects the local project as before.
-
-### Project defaults
-
-`cds config` manages the gitignored `.cds/config.json` file (or the path in
-`CDS_CONFIG_PATH`). Supported settings are `profile`, `environment`, and
-`security.strict`:
-
-```bash
-cds config set profile my-profile
-cds config set environment prod
-cds config set security.strict true
-cds config list
-```
-
-`profile` is stored as its resolved path, and `environment` is validated
-against that profile's `environments/` directory. `security.strict true`
-applies the existing production security rules even if the profile declares a
-local environment. `cds use` remains a shortcut for setting, showing, or
-clearing `profile`.
-
-CLI flags take precedence over these defaults. In particular,
-`--environment` overrides `config environment`; `CDS_PROFILE_PATH` continues
-to override the saved profile.
-
-`[profile]` accepts:
-
-| Form | Example |
-| ---- | ------- |
-| Profile name | `local-dagster-postgres-superset` |
-| Path to a `profile.yaml` file | `profiles/local-dagster-postgres-superset/profile.yaml` |
-| Path to a profiles root directory | `profiles/` |
-
-When `[profile]` is omitted, resolution falls back in order to: `CDS_PROFILE_PATH` if set (accepts the same three forms), then the default profile saved via `cds config set profile` (or `cds use <profile>`), then the single profile under `profiles/` if there is exactly one. An explicitly-set env var takes precedence over the persisted project default, matching common CLI convention (env vars are per-invocation and reflect the current session more reliably than a saved, gitignored default that's easy to forget about).
-
-To view the full list of options for any command, use the `--help` flag:
-
-```bash
-cds --help
-cds validate --help
-cds plan --help
-```
+See [docs/cli-reference.md](docs/cli-reference.md) for the full command
+table, flag reference, and `[profile]` resolution rules. The commands used in
+the [Quickstart](#-quickstart) above are `cds init`, `cds validate`,
+`cds preflight`, `cds security`, `cds plan`, `cds render`, and `cds up`; run
+`cds --help` or `cds <command> --help` for inline usage at any time.
 
 ---
 
@@ -1011,6 +933,7 @@ Development helper tools are located in the gitignored `tools/` directory. See
 ## 📖 Documentation
 
 - [Quickstart](README.md#-quickstart) — get running in 5 minutes
+- [CLI Reference](docs/cli-reference.md) — full command/flag table and `[profile]` resolution rules
 - [How CDS Works](docs/how-it-works.md) — C4 + sequence diagrams of the validate → plan → render engine
 - [Kubernetes Target](docs/kubernetes.md): Helm rendering and isolated local k3s workflow
 - [From Docker Compose to CDS Profile](docs/from-docker-to-cds-profile.md) — complete transformation guide

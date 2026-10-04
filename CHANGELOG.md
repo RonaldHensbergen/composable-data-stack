@@ -8,8 +8,6 @@ The format is based on Keep a Changelog.
 
 ### Added
 
-### Added
-
 - Added a local, append-only audit trail of rendered/applied stacks:
   `validate`, `render`, `up`, and `test` now append a JSON Lines entry to
   `.cds/audit-log.jsonl` recording the timestamp, command, profile,
@@ -20,6 +18,64 @@ The format is based on Keep a Changelog.
   per-project with `cds config set audit.enabled false`. Distinct from
   `cds get`'s `.cds/get-manifest.json`, which only tracks file provenance.
   See `docs/audit-log.md` (#737).
+
+- Added `docs/cli-reference.md`, a standalone full command/flag reference
+  for every `cds` subcommand (including `cds report`, which had been
+  missing from the README's command table since its addition in #734),
+  moved out of `README.md`'s `## ⚙️ CLI` section to keep the README
+  focused on onboarding/quickstart content. The README section is now a
+  short pointer to the new doc.
+
+- Added a `cds compose-profile` command that merges a new module instance
+  into an existing profile instead of requiring a hand-edited
+  `profile.yaml`: it resolves the new module's `consumes` entries against
+  contracts already `provides`d by the profile's existing modules,
+  auto-binding (and adding the matching `dependsOn`) when exactly one
+  candidate matches a consume entry's contract kind, and reporting an
+  error naming the candidates when a consume entry has zero or multiple
+  matches so the ambiguity can be resolved with `--bind
+  <name>=<moduleId>.<providedContract>`. `--set <config.path>=<value>`
+  sets any other config field, and `--secret <alias>=<ENV_VAR>` defines a
+  `secrets.<alias>` reference the new module's config ends up using.
+  Prints the merged profile to stdout by default; `--write` persists it
+  back to the resolved `profile.yaml`, and `--output <path>` writes it
+  elsewhere (e.g. before handing it to `cds generate-profile`).
+  `--add-module <source>` is written the same way as existing
+  `spec.modules[].source` entries in the target `profile.yaml` (relative
+  to the profile's own directory, not the repository root, unless
+  `CDS_MODULE_PATH` is set). This is the follow-up to #349 noted in
+  `docs/roadmap.md`'s Near-Term section ("beyond `cds generate-profile`")
+  (#807).
+
+### Fixed
+
+- `cds compose-profile --write` now refuses to run on a profile that
+  declares its own top-level `extends:` entry: resolving `extends`
+  flattens the parent/child chain, so writing the merged result back to
+  `profile.yaml` would silently discard the `extends` reference and
+  duplicate the parent's modules on disk. The command now errors and
+  points at `--output <path>` instead, which still works since it writes
+  the merged document elsewhere rather than overwriting the source (#808).
+
+## [0.11.0] - 2026-10-04
+
+### Added
+
+- Extended the security rule-set with two NIS2/Cyberbeveiligingswet
+  operator-readiness checks and a dedicated report mode: `CDS-SEC-080`
+  flags a profile with a durable data store (`sql-database`/
+  `file-database` provider) that has no `backup-target` contract consumer
+  bound anywhere (a known limitation until a backup-capable module
+  exists, tracked by #210/#665/#668/#669); `CDS-SEC-081` flags an
+  admin-facing service (e.g. Superset, Dagster's webserver) when no
+  identity/auth module (e.g. `modules/identity/keycloak`) is present in
+  the profile at all. Both are code-enforced (`scope: ["none"]`,
+  `codeEnforced: true`), tagged with a new `business-continuity`/
+  `access-control` compliance category, and participate in
+  `cds security --report nis2`, a new report mode that groups findings by
+  NIS2 Article 21(2) measure letter (a)-(j) instead of by raw compliance
+  category. See `docs/security-rules.md` and the updated
+  `docs/nis2-cyberbeveiligingswet-scope.md` gap table (#774).
 
 - Added `docs/nis2-cyberbeveiligingswet-scope.md`, recording that CDS
   itself is not an "essential"/"important" entity under NIS2/the
@@ -64,6 +120,11 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Bumped the `urllib3` transitive dependency pinned in `uv.lock` from
+  `2.7.0` to `2.8.0`, resolving three Dependabot-reported advisories: an
+  HTTPS proxy TLS configuration bypass, an unbounded chunk-size-line
+  memory buffer in `HTTPResponse.stream()`/`read_chunked()`, and a
+  chunked-deflate decompression infinite loop.
 - Bumped `dagster-postgres` from `0.29.24` to `0.29.25` in
   `images/dagster/requirements-postgres.txt` to match the Renovate-bumped
   `dagster`/`dagster-graphql`/`dagster-webserver` `1.13.25` release train;
@@ -92,12 +153,24 @@ The format is based on Keep a Changelog.
   the file and the parser error instead of an unhandled `yaml.YAMLError`
   traceback, without changing any accepted input (#686).
 
+- Fixed `cds init` printing the literal string "None" in its summary
+  message (e.g. "Initialized environment for None.") when the profile is
+  resolved via `CDS_PROFILE_PATH` or the saved `cds use`/`cds config`
+  default rather than passed as a CLI argument; it now reports the
+  actually-resolved profile name, matching the `cds preflight` hint on the
+  following line.
+
 ### Changed
 
 - Added a Renovate `packageRule` disabling further updates to the
   `sqlalchemy` pin in `images/dagster/requirements-postgres.txt` so it
   cannot be widened past `<2.1` again until `dagster-postgres` supports
   the psycopg3 driver (#781).
+
+- Included the discovered top-level entries in the `cds get` unexpected
+  tarball-layout error, so a malformed GitHub archive now reports what was
+  found instead of only the expected shape, without changing any accepted
+  archive (#507).
 
 ## [0.10.0] - 2026-09-27
 

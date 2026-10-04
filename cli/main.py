@@ -21,6 +21,7 @@ except ImportError:
 import yaml
 
 from . import audit_log
+from .composer import compose_profile
 from .diagnostics import Diagnostic
 from .getter import GetError, _prepare_source_repository, fetch_profile, format_get_plan
 from .image_digest_check import is_enabled as image_digest_check_enabled
@@ -34,14 +35,19 @@ from .image_verification import (
 from .k8s_renderer import render_helm
 from .k8s_runner import get_k8s_state, helm_down, helm_up
 from .k8s_security import scan_k8s_security
-from .loader import save_generated_profile
+from .loader import load_yaml_file, save_generated_profile
 from .overlay import _merge_profile_docs, resolve_extends, resolve_profile
 from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
 from .renderer import render_compose
 from .report import build_compliance_report
 from .security import PrecomputedRender, run_security_validation
-from .security_common import COMPLIANCE_CATEGORIES, SEVERITY_ORDER, infer_profile_class
+from .security_common import (
+    COMPLIANCE_CATEGORIES,
+    NIS2_ARTICLE_21_MEASURES,
+    SEVERITY_ORDER,
+    infer_profile_class,
+)
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .up_runner import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -1091,6 +1097,47 @@ def _category_heading(category: str) -> str:
     return f"== {label} ({category}) =="
 
 
+NIS2_REPORT_DISCLAIMER = (
+    "This report groups CDS's own `cds security` findings by NIS2/Cyberbeveiligingswet "
+    "Article 21(2) measure. It is a readiness aid, not a legal compliance or conformity "
+    "certification -- confirm applicability against your own regulatory obligations. See "
+    "docs/nis2-cyberbeveiligingswet-scope.md for the full gap analysis, including measures "
+    "(b), (e), (f), (g) that are out of CDS's product scope entirely."
+)
+
+
+def _group_findings_by_nis2_measure(
+    findings: list[dict[str, Any]],
+) -> list[tuple[str, str, str | None, list[dict[str, Any]]]]:
+    """
+    Group findings into NIS2 Article 21(2) measure (a)-(j) buckets, in that
+    fixed article order (not alphabetized, unlike --group-by-category),
+    using the NIS2_ARTICLE_21_MEASURES mapping. A finding whose category
+    maps to more than one measure (e.g. `access-control` maps to both (i)
+    and (j) today) appears under each; a finding whose category maps to
+    none of them is omitted here (every complianceCategory value maps to
+    at least one measure today).
+    """
+    by_category: dict[str, list[dict[str, Any]]] = {}
+    for finding in findings:
+        by_category.setdefault(finding.get("category"), []).append(finding)
+
+    groups: list[tuple[str, str, str | None, list[dict[str, Any]]]] = []
+    for letter, title, categories, note in NIS2_ARTICLE_21_MEASURES:
+        measure_findings: list[dict[str, Any]] = []
+        for category in categories:
+            measure_findings.extend(by_category.get(category, []))
+        measure_findings.sort(key=lambda f: (
+            SEVERITY_ORDER.get(f["severity"], 99), f["rule_id"], f["module"], f["path"],
+        ))
+        groups.append((letter, title, note, measure_findings))
+    return groups
+
+
+def _nis2_measure_heading(letter: str, title: str) -> str:
+    return f"== ({letter}) {title} =="
+
+
 def _maybe_check_pinned_image_digests(
     diagnostics: list[Diagnostic],
     profile_path: str,
@@ -1275,6 +1322,81 @@ def main() -> int:
         "--force",
         action="store_true",
         help="Overwrite an existing profiles/<name>/profile.yaml",
+    )
+
+    compose_profile_parser = subparsers.add_parser(
+        "compose-profile",
+        help="Merge a module instance into an existing profile, resolving contract bindings and secrets",
+    )
+    _add_profile_arg(compose_profile_parser)
+    compose_profile_parser.add_argument(
+        "--add-module",
+        required=True,
+        help=(
+            "Module source to add, written the same way as existing spec.modules[].source "
+            "entries in the target profile.yaml: relative to the profile's own directory "
+            "(e.g. ../../modules/identity/keycloak), not the repository root, unless "
+            "CDS_MODULE_PATH is set"
+        ),
+    )
+    compose_profile_parser.add_argument(
+        "--id",
+        help="Module instance id (default: the module's metadata.name)",
+    )
+    compose_profile_parser.add_argument(
+        "--version",
+        help="Module instance version (default: the module's metadata.version)",
+    )
+    compose_profile_parser.add_argument(
+        "--bind",
+        action="append",
+        default=[],
+        metavar="NAME=MODULE_ID.CONTRACT",
+        help=(
+            "Explicitly bind a consume entry to an existing module's provided contract, e.g. "
+            "metadataDatabase=postgres.sql-database. Repeatable. Required when a consume entry's "
+            "contract kind has zero or more than one matching provider already in the profile."
+        ),
+    )
+    compose_profile_parser.add_argument(
+        "--set",
+        dest="config_set",
+        action="append",
+        default=[],
+        metavar="CONFIG.PATH=VALUE",
+        help="Set an additional config field on the new module instance, e.g. httpPort=8081. Repeatable.",
+    )
+    compose_profile_parser.add_argument(
+        "--secret",
+        action="append",
+        default=[],
+        metavar="ALIAS=ENV_VAR",
+        help=(
+            "Map a secret alias referenced by the new module's config (secrets.<alias>) to an "
+            "environment variable name, added to spec.secrets.values. Repeatable."
+        ),
+    )
+    compose_profile_parser.add_argument(
+        "--depends-on",
+        action="append",
+        default=[],
+        metavar="MODULE_ID",
+        help="Add an explicit dependsOn entry on top of any producer modules resolved from --bind/consumes. Repeatable.",
+    )
+    compose_profile_parser.add_argument(
+        "--disabled",
+        action="store_true",
+        help="Add the module instance with enabled: false",
+    )
+    compose_profile_parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write the merged profile back to the resolved profile.yaml (default: print to stdout)",
+    )
+    compose_profile_parser.add_argument(
+        "--output",
+        "-o",
+        help="Write the merged profile to this path instead of stdout or the original profile.yaml",
     )
 
     plan_parser = subparsers.add_parser("plan", help="Build a resolved plan from a profile")
@@ -1597,6 +1719,18 @@ def main() -> int:
         action="store_true",
         help="Print findings grouped by compliance control category instead of one flat list.",
     )
+    security_parser.add_argument(
+        "--report",
+        choices=["nis2"],
+        help=(
+            "Print findings grouped by NIS2/Cyberbeveiligingswet Article 21(2) "
+            "measure instead of one flat list (mutually exclusive with "
+            "--group-by-category). This is a readiness aid organizing CDS's own "
+            "findings against that article's measure list, not a legal "
+            "compliance or conformity certification -- see "
+            "docs/nis2-cyberbeveiligingswet-scope.md."
+        ),
+    )
 
     diff_parser = subparsers.add_parser(
         "diff",
@@ -1756,6 +1890,100 @@ def main() -> int:
             return 1
 
         print(f"Profile written to {profile_path}")
+        return 0
+
+    if args.command == "compose-profile":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        profile_file = Path(profile_path)
+        raw_document, _raw_diagnostics = load_yaml_file(profile_file)
+        declares_extends = isinstance(raw_document, dict) and bool(raw_document.get("extends"))
+
+        document, _provenance, diagnostics = resolve_extends(profile_path)
+        if document is None or has_errors(diagnostics):
+            print_diagnostics(diagnostics)
+            print("Cannot compose module because the existing profile failed to resolve.")
+            return 1
+
+        def _split_kv(raw: str, flag: str) -> tuple[str, str] | None:
+            if "=" not in raw:
+                print(f'ERROR {flag} value "{raw}" must be in NAME=VALUE form.')
+                return None
+            name, _, value = raw.partition("=")
+            return name.strip(), value
+
+        bindings: dict[str, str] = {}
+        for raw in args.bind:
+            parsed = _split_kv(raw, "--bind")
+            if parsed is None:
+                return 1
+            bindings[parsed[0]] = parsed[1]
+
+        secret_env_names: dict[str, str] = {}
+        for raw in args.secret:
+            parsed = _split_kv(raw, "--secret")
+            if parsed is None:
+                return 1
+            secret_env_names[parsed[0]] = parsed[1]
+
+        config_settings: list[tuple[str, Any]] = []
+        for raw in args.config_set:
+            parsed = _split_kv(raw, "--set")
+            if parsed is None:
+                return 1
+            setting_path, raw_value = parsed
+            try:
+                value = yaml.safe_load(raw_value)
+            except yaml.YAMLError:
+                value = raw_value
+            config_settings.append((setting_path, value))
+
+        merged, diagnostics = compose_profile(
+            document,
+            profile_file.parent,
+            args.add_module,
+            instance_id=args.id,
+            version=args.version,
+            enabled=not args.disabled,
+            depends_on=args.depends_on,
+            config_settings=config_settings,
+            bindings=bindings,
+            secret_env_names=secret_env_names,
+            modules_root=Path(os.getenv("CDS_MODULE_PATH")) if os.getenv("CDS_MODULE_PATH") else None,
+        )
+
+        if diagnostics:
+            print_diagnostics(diagnostics)
+
+        if merged is None:
+            print("Compose failed.")
+            return 1
+
+        serialized = yaml.safe_dump(merged, sort_keys=False)
+
+        if args.output:
+            output_path = Path(args.output).resolve()
+            _atomic_write(output_path, serialized)
+            print(f"Composed profile written to {output_path}")
+        elif args.write:
+            if declares_extends:
+                print(
+                    f'ERROR "{profile_file}" declares "extends"; --write would overwrite it '
+                    "with the fully resolved (flattened) profile, discarding that reference and "
+                    "duplicating the parent profile's modules into it. Use --output <path> to "
+                    "write the merged profile elsewhere instead."
+                )
+                return 1
+            profile_file = profile_file.resolve()
+            _atomic_write(profile_file, serialized)
+            print(f"Composed profile written to {profile_file}")
+        else:
+            print(serialized, end="")
+
         return 0
 
     if args.command == "plan":
@@ -2566,10 +2794,11 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
 
+        resolved_profile_name = args.profile or Path(profile_path).parent.name
         print(
-            f"Initialized environment for {args.profile}.\n"
+            f"Initialized environment for {resolved_profile_name}.\n"
             "Please edit the values in the .env file, then run "
-            f"`cds preflight {args.profile or Path(profile_path).parent.name}`."
+            f"`cds preflight {resolved_profile_name}`."
         )
         return 0
 
@@ -2634,6 +2863,10 @@ def main() -> int:
             return 1
 
     if args.command == "security":
+        if args.report and args.group_by_category:
+            print("ERROR --report and --group-by-category are mutually exclusive.")
+            return 2
+
         try:
             profile_path = resolve_profile_path(args.profile)
         except ValueError as exc:
@@ -2774,6 +3007,24 @@ def main() -> int:
 
         if not displayed_findings:
             print(f"No security findings in category: {', '.join(sorted(set(args.category)))}.")
+        elif args.report == "nis2":
+            print(NIS2_REPORT_DISCLAIMER)
+            print()
+            for letter, title, note, group in _group_findings_by_nis2_measure(displayed_findings):
+                print(_nis2_measure_heading(letter, title))
+                if note:
+                    print(f"  note: {note}")
+                if not group:
+                    print("  No CDS findings map to this measure.")
+                for f in group:
+                    print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+                    print(f"  object: {f['path']}")
+                    print(f"  module: {f['module']}")
+                    if f["value"] is not None:
+                        print(f"  value: {f['value']}")
+                    for rec in f["recommendation"]:
+                        print(f"  fix: {rec}")
+                print()
         elif args.group_by_category:
             for category, group in _group_findings_by_category(displayed_findings).items():
                 print(_category_heading(category))
