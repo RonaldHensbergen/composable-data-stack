@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-04
+
 ### Added
 
 - Extended the security rule-set with two NIS2/Cyberbeveiligingswet
@@ -67,6 +69,11 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Bumped the `urllib3` transitive dependency pinned in `uv.lock` from
+  `2.7.0` to `2.8.0`, resolving three Dependabot-reported advisories: an
+  HTTPS proxy TLS configuration bypass, an unbounded chunk-size-line
+  memory buffer in `HTTPResponse.stream()`/`read_chunked()`, and a
+  chunked-deflate decompression infinite loop.
 - Bumped `dagster-postgres` from `0.29.24` to `0.29.25` in
   `images/dagster/requirements-postgres.txt` to match the Renovate-bumped
   `dagster`/`dagster-graphql`/`dagster-webserver` `1.13.25` release train;
