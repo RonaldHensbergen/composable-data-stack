@@ -59,6 +59,7 @@ These are considered production-ready in the current release (v0.11.0):
 - `cds test` — runs validate → security → plan → render in sequence; exercised in CI
 - `cds get` — fetch a profile and its module/runtime assets from a GitHub repository (`--remote`, `--ref`, `--local`), with tracking metadata under `.cds/`
 - `cds generate-profile` — persist a runtime/programmatically composed profile so it can be validated and planned like any hand-authored one
+- `cds compose-profile` — merge a new module instance into an existing profile, resolving unambiguous contract bindings/dependencies automatically and reporting ambiguous or missing ones (#807)
 - `cds list profiles` / `cds list modules` / `cds list images` — discover what's available locally or in a remote repository (`--remote`, `--ref`, `--local`)
 - `cds config` (`get`/`set`/`unset`/`list`) and `cds use` — persisted project-level defaults (`profile`, `environment`, `security.strict`)
 - `cds diff` — show effective configuration differences between two environment overlays of a profile (`--from`/`--to`)
@@ -94,8 +95,6 @@ These work but may have breaking changes in upcoming releases:
 
 - 📋 **Stabilize Vault-backed profile** — validate and harden `local-dagster-postgres-superset-vault` for regular use
 - 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
-- 📋 **Dynamic Composition follow-up**
-  - allow runtime-generated profiles for planning and composition beyond `cds generate-profile` (#349)
 - 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): Helm target lifecycle parity with Compose (#689), self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
 - 📋 **Haven parity — previously untracked workstreams** — the three [docs/haven-parity-plan.md](haven-parity-plan.md) gaps that had no issue filed: GitOps rendering/module support (#767), Kubernetes-native database operator pattern (#768), `cds maturity` profile-maturity report (#769)
 - 📋 **Zero-Trust, OpenTelemetry, OpenLineage** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink` contract + OpenTelemetry Collector reference module (#777)
@@ -142,7 +141,7 @@ Selected items shipped since v0.4.0 (see [CHANGELOG.md](../CHANGELOG.md) for the
 - ✅ **Kubernetes/Helm rendering target** — new `--target helm` runtime alongside Compose, with a k3d local-dev harness and CI proof (#608)
 - ✅ **Strengthened contract compatibility validation** — bundled compatibility registry flags module pairings explicitly recorded as unsupported for a contract (`E043`), beyond plain contract `kind` matching (#350)
 - ✅ **`cds get`** — fetch profiles/modules from a GitHub repository, with symlink-safe extraction and tracking manifest (#493, #495, #474)
-- ✅ **`cds generate-profile`** — persist and validate a runtime-composed profile (initial groundwork toward dynamic composition; see the "Dynamic Composition follow-up" item below for remaining work)
+- ✅ **`cds generate-profile`** / **`cds compose-profile`** — persist a runtime-composed profile, and merge a new module instance into an existing profile with automatic contract-binding/dependency resolution (#349, #807)
 - ✅ **dbt promoted to stable** (`modules/transformation/dbt/`) with production-suitable hardening (#594)
 - ✅ **`cds config` / `cds use`** — persisted project-level defaults for `profile`, `environment`, `security.strict` (#383, #537)
 - ✅ **`cds list --remote/--ref/--local`** — discover profiles/modules/images in a remote repository before fetching (#500)
