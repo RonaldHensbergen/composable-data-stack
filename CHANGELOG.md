@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-04
+
 ### Added
 
 - Extended the security rule-set with two NIS2/Cyberbeveiligingswet
@@ -75,6 +77,11 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Bumped the `urllib3` transitive dependency pinned in `uv.lock` from
+  `2.7.0` to `2.8.0`, resolving three Dependabot-reported advisories: an
+  HTTPS proxy TLS configuration bypass, an unbounded chunk-size-line
+  memory buffer in `HTTPResponse.stream()`/`read_chunked()`, and a
+  chunked-deflate decompression infinite loop.
 - Bumped `dagster-postgres` from `0.29.24` to `0.29.25` in
   `images/dagster/requirements-postgres.txt` to match the Renovate-bumped
   `dagster`/`dagster-graphql`/`dagster-webserver` `1.13.25` release train;
@@ -109,6 +116,11 @@ The format is based on Keep a Changelog.
   `sqlalchemy` pin in `images/dagster/requirements-postgres.txt` so it
   cannot be widened past `<2.1` again until `dagster-postgres` supports
   the psycopg3 driver (#781).
+
+- Included the discovered top-level entries in the `cds get` unexpected
+  tarball-layout error, so a malformed GitHub archive now reports what was
+  found instead of only the expected shape, without changing any accepted
+  archive (#507).
 
 ## [0.10.0] - 2026-09-27
 
