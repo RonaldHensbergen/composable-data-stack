@@ -13,10 +13,17 @@ The format is based on Keep a Changelog.
   data-provider basisafspraken (technical, semantic, legal, organisational
   agreement domains). Concludes the technical/organisational domains are
   reasonably served by existing contracts and the compliance report/audit
-  trail, but the semantic/legal domains have a gap: no shared contract
-  expresses FDS-required dataset-level provider metadata (description,
-  classification, access conditions). That gap is filed as a scoped
-  follow-up rather than solved inline (#825). See `docs/roadmap.md` (#773).
+  trail. See `docs/roadmap.md` (#773).
+
+- Added a shared `open-data-provider` contract
+  (`shared/contracts/open-data-provider.yaml`), closing the semantic/legal
+  gap identified by `docs/fds-alignment.md`: it expresses FDS-required
+  dataset provider metadata (`datasetId`, `title`, `description`,
+  `classification`, `accessConditions`, `licence`) in a profile-portable,
+  machine-checkable way, distinct from existing service-connection
+  contracts (`sql-database`, `cache-service`). The `postgres` module
+  demonstrates providing it via a new, opt-in `config.dataProvider` block
+  (empty/unset by default, so existing profiles are unaffected) (#825).
 
 - Added a local, append-only audit trail of rendered/applied stacks:
   `validate`, `render`, `up`, and `test` now append a JSON Lines entry to

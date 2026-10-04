@@ -69,8 +69,8 @@ disclosure without centralising the data itself.
 | FDS domain | What it asks of a data-aanbieder (per the public summary) | CDS support today | Gap |
 | --- | --- | --- | --- |
 | Technical | Disclose data via dataservices conforming to FDS's technical interoperability standards. | `shared/contracts/*.yaml` (e.g. `sql-database`, `cache-service`, `file-database`, `log-sink`) already define machine-checkable, versioned field-level interface contracts between modules, resolved at plan time via `provides.contracts`/`consumes`/profile `contractRef` binding (see `cli/validator.py`/`cli/planner.py`). This is the same category of mechanism FDS asks for — uniform, checkable service interfaces — just scoped today to inter-module wiring inside one profile, not to an external FDS dataservice endpoint. | No existing contract expresses an *externally disclosed* dataservice endpoint shape (e.g. an OGC API/REST dataservice per FDS's technical standards) as opposed to CDS's current internal service-to-service contracts. |
-| Semantic | Describe datasets and dataservices uniformly so they are findable across domains (standardised metadata vocabulary). | `module.yaml`'s `metadata.description`/`metadata.displayName` give human-readable prose for the *module catalog*, not a structured, profile-emitted dataset description. Nothing in the contract model captures dataset-level semantic metadata (title, theme/classification, standard identifier). | **Gap.** No shared contract captures FDS/DCAT-style dataset metadata (title, description, theme/classification, standard identifier scheme) in a profile-portable, machine-checkable way, distinct from existing service-connection contracts. |
-| Legal | Make access conditions (and, implicitly, licensing) for the disclosed data clear and consistent with privacy/security law. | The existing security rule-set (`cds security`/`cds test`), the NIS2/CRA scoping docs, and the secrets model (`secrets.<alias>` → `${CDS_*}`, never resolved into plans/rendered output) already give a baseline security/privacy evidence story an operator can point to. | **Gap.** No structured "access conditions"/license field exists anywhere in the contract or module config model; these terms, if declared at all today, would live outside CDS entirely (e.g. in an operator's own documentation). |
+| Semantic | Describe datasets and dataservices uniformly so they are findable across domains (standardised metadata vocabulary). | `module.yaml`'s `metadata.description`/`metadata.displayName` give human-readable prose for the *module catalog*; `shared/contracts/open-data-provider.yaml` (#825) now additionally captures dataset-level semantic metadata (`title`, `description`, `classification`) in a profile-portable, machine-checkable way, demonstrated via the `postgres` module's opt-in `config.dataProvider` block. | Closed (#825). Classification currently accepts any free-text string; adopting a standard vocabulary (e.g. DCAT-AP-NL themes) is left to the operator for now. |
+| Legal | Make access conditions (and, implicitly, licensing) for the disclosed data clear and consistent with privacy/security law. | The existing security rule-set (`cds security`/`cds test`), the NIS2/CRA scoping docs, and the secrets model (`secrets.<alias>` → `${CDS_*}`, never resolved into plans/rendered output) already give a baseline security/privacy evidence story an operator can point to. `shared/contracts/open-data-provider.yaml` (#825) adds `accessConditions`/`licence` fields. | Closed (#825). |
 | Organisational | Be accountable and controllable/auditable for the publication process and the data's quality. | `cds report` (#734, `docs/compliance-report.md`) aggregates module/image/topology/secret-leak evidence for a rendered stack, and the new local audit trail (#737, `docs/audit-log.md`) records a durable history of `validate`/`render`/`up`/`test` invocations. Both give an operator auditable evidence of what was rendered and deployed, and when. | Partially met. Neither mechanism lets a profile *declare* that it participates in the FDS as a specific data-aanbieder, or links its evidence to an FDS registration — there is no "this is an FDS-disclosed dataset" marker today. |
 
 ## Conclusion
@@ -78,19 +78,23 @@ disclosure without centralising the data itself.
 The **technical** and **organisational** domains are reasonably well served
 by CDS's existing contract/report/audit mechanisms, even though none of them
 were designed with FDS specifically in mind. The **semantic** and **legal**
-domains have a concrete gap: CDS has no shared contract that expresses
+domains had a concrete gap: CDS had no shared contract that expressed
 FDS-required *dataset-level* provider metadata (description, classification,
 access conditions/license) — only service-connection contracts
-(`sql-database`, `cache-service`, etc.) exist today, and those describe how
+(`sql-database`, `cache-service`, etc.) existed, and those describe how
 to *connect* to a backing service, not how to *describe and disclose* a
 dataset to the outside world.
 
-Per this issue's acceptance criteria, that gap is **not** solved inline
-here. It is filed as a separate, scoped follow-up:
-
-- **#825** — add a shared `open-data-provider` (or `data-catalog`) contract
-  expressing FDS-required provider metadata (dataset description,
-  classification, access conditions) in a profile-portable way.
+**Closed by #825**: `shared/contracts/open-data-provider.yaml` now expresses
+this metadata (`datasetId`, `title`, `description`, `classification`,
+`accessConditions`, `licence`), and the `postgres` module demonstrates
+providing it via an opt-in `config.dataProvider` block (empty/unset by
+default, so no existing profile is affected unless an operator populates
+it). No module in this repository *consumes* the contract, because the
+actual consumer of FDS provider metadata is the external FDS catalog, not
+another CDS module — binding this contract via a profile's `contractRef`
+would only make sense once a catalog-facing module/report exists to read
+it, which is a separate, larger scope than this gap-analysis issue.
 
 ## Deliberately out of scope
 
@@ -99,7 +103,8 @@ here. It is filed as a separate, scoped follow-up:
 - **Any FDS conformity/registration claim** — participating in the FDS as a
   registered data-aanbieder is an organisational/legal step outside CDS's
   scope as a compiler; this document only maps evidence CDS could help
-  produce.
+  produce. Populating `open-data-provider` fields does not register a
+  dataset with the FDS by itself.
 
 ## References
 

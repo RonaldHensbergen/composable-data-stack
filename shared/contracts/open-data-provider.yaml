@@ -1,0 +1,71 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: open-data-provider
+  category: shared
+  version: "0.1.0"
+  description: >
+    Shared contract describing the dataset-provider metadata a module
+    exposes about data it holds, for operators participating in the
+    Federatief Datastelsel (FDS) Afsprakenstelsel as a data-aanbieder.
+    See docs/fds-alignment.md (#773) for the gap analysis this closes.
+    Unlike sql-database/cache-service (which describe how to *connect* to
+    a backing service), this contract describes how to *disclose* a
+    dataset: title, classification, access conditions, and a stable
+    identifier. It carries metadata only -- it is not itself a dataservice
+    endpoint, and binding it does not register anything with the FDS; an
+    operator still performs that organisational step themselves.
+
+spec:
+  fields:
+    datasetId:
+      type: string
+      required: true
+      description: >
+        A stable identifier for the dataset, unique within the operator's
+        own namespace (e.g. a URI or slug). Used to track the same
+        dataset across FDS registrations/catalog entries over time.
+    title:
+      type: string
+      required: true
+      description: Short, human-readable dataset title.
+    description:
+      type: string
+      required: true
+      description: >
+        Longer-form description of the dataset's contents and purpose,
+        suitable for a data catalog entry.
+    classification:
+      type: string
+      required: false
+      description: >
+        Theme/classification for the dataset, ideally referencing a
+        standard vocabulary (e.g. a DCAT-AP-NL theme) so it is findable
+        domain-crossing, per the FDS Afsprakenstelsel's semantic
+        agreements. Empty string if not yet classified.
+    accessConditions:
+      type: string
+      required: true
+      description: >
+        Plain-language statement of the conditions under which other
+        organisations may access this dataset (e.g. "open", "restricted
+        to public-task organisations", "request-based"), per the FDS
+        Afsprakenstelsel's legal agreements.
+    licence:
+      type: string
+      required: false
+      description: >
+        Licence identifier or reference under which the dataset is made
+        available (e.g. a CC-BY-4.0 reference or a custom licence URL).
+        Empty string if not yet determined.
+  examples:
+    - datasetId: urn:example-municipality:datasets:address-register
+      title: Address register
+      description: >
+        Authoritative register of addresses within the municipality,
+        refreshed nightly from the source system.
+      classification: base-registration
+      accessConditions: restricted to public-task organisations
+      licence: ""
