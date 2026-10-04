@@ -34,7 +34,7 @@ from .image_verification import (
 from .k8s_renderer import render_helm
 from .k8s_runner import get_k8s_state, helm_down, helm_up
 from .k8s_security import scan_k8s_security
-from .loader import save_generated_profile
+from .loader import load_yaml_file, save_generated_profile
 from .overlay import _merge_profile_docs, resolve_extends, resolve_profile
 from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
@@ -1782,6 +1782,9 @@ def main() -> int:
             return 1
 
         profile_file = Path(profile_path)
+        raw_document, _raw_diagnostics = load_yaml_file(profile_file)
+        declares_extends = isinstance(raw_document, dict) and bool(raw_document.get("extends"))
+
         document, _provenance, diagnostics = resolve_extends(profile_path)
         if document is None or has_errors(diagnostics):
             print_diagnostics(diagnostics)
@@ -1849,6 +1852,14 @@ def main() -> int:
             _atomic_write(output_path, serialized)
             print(f"Composed profile written to {output_path}")
         elif args.write:
+            if declares_extends:
+                print(
+                    f'ERROR "{profile_file}" declares "extends"; --write would overwrite it '
+                    "with the fully resolved (flattened) profile, discarding that reference and "
+                    "duplicating the parent profile's modules into it. Use --output <path> to "
+                    "write the merged profile elsewhere instead."
+                )
+                return 1
             profile_file = profile_file.resolve()
             _atomic_write(profile_file, serialized)
             print(f"Composed profile written to {profile_file}")

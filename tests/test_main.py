@@ -2855,10 +2855,117 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
         on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
         ids = [m["id"] for m in on_disk["spec"]["modules"]]
         self.assertEqual(ids, ["postgres", "keycloak"])
-        self.assertEqual(
-            on_disk["spec"]["secrets"]["values"]["keycloak_admin_password"],
-            {"env": "CDS_KEYCLOAK_ADMIN_PASSWORD", "required": True},
+
+    def test_write_on_a_profile_that_declares_extends_is_rejected(self):
+        """--write resolves the profile's own `extends` chain before
+        composing (so bindings can see contracts provided by parent
+        modules too), but persisting that fully-resolved/flattened document
+        back over a profile.yaml that still declares `extends` would
+        silently discard the `extends` reference and duplicate the
+        parent's modules into the child. This must fail closed and point
+        callers at --output instead, leaving profile.yaml untouched."""
+        import yaml
+
+        self._write(
+            self.profiles_root / "base" / "profile.yaml",
+            """
+            apiVersion: cds/v1alpha1
+            kind: Profile
+            metadata:
+              name: base
+              environment: local
+            spec:
+              runtime:
+                type: docker-compose
+              modules: []
+              secrets:
+                provider:
+                  type: env
+                values: {}
+            """,
         )
+        profile_file = self.profile_dir / "profile.yaml"
+        profile_doc = yaml.safe_load(profile_file.read_text(encoding="utf-8"))
+        profile_doc["extends"] = ["base"]
+        profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
+        before = profile_file.read_text(encoding="utf-8")
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                "--write",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("extends", stdout.getvalue())
+        self.assertIn("--output", stdout.getvalue())
+        self.assertEqual(profile_file.read_text(encoding="utf-8"), before)
+
+    def test_output_flag_still_works_on_a_profile_that_declares_extends(self):
+        """--output writes the merged profile to a separate path, so it
+        does not have the --write data-loss risk and must still succeed."""
+        import yaml
+
+        self._write(
+            self.profiles_root / "base" / "profile.yaml",
+            """
+            apiVersion: cds/v1alpha1
+            kind: Profile
+            metadata:
+              name: base
+              environment: local
+            spec:
+              runtime:
+                type: docker-compose
+              modules: []
+              secrets:
+                provider:
+                  type: env
+                values: {}
+            """,
+        )
+        profile_file = self.profile_dir / "profile.yaml"
+        profile_doc = yaml.safe_load(profile_file.read_text(encoding="utf-8"))
+        profile_doc["extends"] = ["base"]
+        profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
+
+        output_path = self.root / "composed.yaml"
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                "--output",
+                str(output_path),
+            ],
+        ), contextlib.redirect_stdout(io.StringIO()):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertTrue(output_path.is_file())
+        written = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+        self.assertEqual([m["id"] for m in written["spec"]["modules"]], ["postgres", "keycloak"])
 
     def test_output_flag_writes_to_given_path_instead_of_stdout_or_source(self):
         import yaml

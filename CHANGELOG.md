@@ -62,6 +62,16 @@ The format is based on Keep a Changelog.
 
 - Added true in-memory/dict-based profile planning entry points, closing the remaining gap in #349: `cli.overlay.resolve_extends_from_profile()`/`resolve_profile_from_profile()` and `cli.planner.build_plan_from_profile()`/`plan_generated_profile()` let a runtime-generated profile be validated and planned directly from a dict -- same `extends`/environment-overlay semantics and module `source:` resolution as the disk-based `resolve_extends()`/`resolve_profile()`/`build_plan()`, anchored to a directory that does not need to contain a `profile.yaml` of its own -- without ever writing it to disk first (#679).
 
+### Fixed
+
+- `cds compose-profile --write` now refuses to run on a profile that
+  declares its own top-level `extends:` entry: resolving `extends`
+  flattens the parent/child chain, so writing the merged result back to
+  `profile.yaml` would silently discard the `extends` reference and
+  duplicate the parent's modules on disk. The command now errors and
+  points at `--output <path>` instead, which still works since it writes
+  the merged document elsewhere rather than overwriting the source (#808).
+
 ### Removed
 
 - Removed the stale `docs/plan/CRA_and_other_laws.md`, a duplicate of
