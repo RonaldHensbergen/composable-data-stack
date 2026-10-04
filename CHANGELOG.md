@@ -8,6 +8,13 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added `docs/cli-reference.md`, a standalone full command/flag reference
+  for every `cds` subcommand (including `cds report`, which had been
+  missing from the README's command table since its addition in #734),
+  moved out of `README.md`'s `## ⚙️ CLI` section to keep the README
+  focused on onboarding/quickstart content. The README section is now a
+  short pointer to the new doc.
+
 - Added a `cds compose-profile` command that merges a new module instance
   into an existing profile instead of requiring a hand-edited
   `profile.yaml`: it resolves the new module's `consumes` entries against
