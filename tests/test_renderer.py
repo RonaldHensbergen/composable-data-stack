@@ -468,6 +468,56 @@ class RendererRegressionTest(unittest.TestCase):
             resolved = (root / rewritten_source).resolve()
             self.assertEqual(resolved, (module_dir / "init-db.sql").resolve())
 
+    def test_render_compose_keeps_dot_slash_prefix_for_short_form_nested_bind_mount(self):
+        """Regression test: a short-form string volume ("./a/b:/target")
+        whose source does not resolve to an existing path on any local-path
+        base falls back to a project-root-relative candidate; relative_to()
+        then strips the leading "./", leaving a bare multi-segment path like
+        "a/b". Compose's short volume syntax only treats a source as a bind
+        mount when it starts with ".", "/", or "~"; without a "./" prefix,
+        Compose parses "a/b" as a named volume reference instead, and
+        `docker compose config` fails with "refers to undefined volume".
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
+
+            plan = {
+                "metadata": {"name": "cds-test"},
+                "sourceProfile": str(root / "profiles" / "local" / "profile.yaml"),
+                "modules": [
+                    {
+                        "id": "edge",
+                        "source": "../../modules/integration/edge",
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {
+                                "services": {
+                                    "edge": {
+                                        "image": "edge:latest",
+                                        "volumes": [
+                                            "./dynamic/config:/etc/edge/dynamic:ro",
+                                        ],
+                                    }
+                                }
+                            },
+                        },
+                    }
+                ],
+            }
+
+            output_path = str(root / "out.yml")
+            compose_yaml, diagnostics = render_compose(plan, output_path=output_path)
+
+            self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+            compose = yaml.safe_load(compose_yaml)
+            mount = compose["services"]["edge"]["volumes"][0]
+            source = mount.split(":")[0]
+            self.assertTrue(
+                source.startswith("./"),
+                f"expected a short-form bind source to keep its './' prefix, got {source!r}",
+            )
+
     def test_render_compose_falls_back_to_absolute_volume_source_on_cross_drive_relpath(self):
         """Regression test for the same Windows-only cross-drive bug as
         above, but in _rewrite_local_path (used for bind-mount volume
