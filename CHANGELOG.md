@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-05
+
 ### Added
 
 - Added a local, append-only audit trail of rendered/applied stacks:
