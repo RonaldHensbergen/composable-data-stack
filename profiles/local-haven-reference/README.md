@@ -70,8 +70,9 @@ browser warning). Traefik's own dashboard is on `http://127.0.0.1:8080`.
 
 - Stop the stack with `docker compose down` in the directory where the
   compose file was rendered, the default is `<project-root>/docker-compose.yml`
-- Add `-v` to also delete the named volume (`postgres-data`) and rebuild
-  the database from scratch
+- Add `-v` to also delete the named volumes (`postgres-data`,
+  `keycloak-quarkus`) and rebuild the database and Keycloak's Quarkus
+  cache from scratch
 
 ## Operational notes
 
