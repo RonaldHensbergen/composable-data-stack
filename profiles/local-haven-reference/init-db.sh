@@ -17,11 +17,8 @@ SELECT format('CREATE DATABASE %I', :'identity_db')
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = :'identity_db')
 \gexec
 
-DO $do$
-BEGIN
-  EXECUTE format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'identity_db', :'identity_user');
-END
-$do$;
+SELECT format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'identity_db', :'identity_user')
+\gexec
 
 \connect :identity_db
 GRANT ALL ON SCHEMA public TO :identity_user;

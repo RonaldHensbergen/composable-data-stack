@@ -84,6 +84,15 @@ The format is based on Keep a Changelog.
   certificate bind mounts, surfaced by the new `local-haven-reference`
   profile being the first to exercise them (#772).
 
+- `local-haven-reference`'s `init-db.sh` wrapped its `GRANT ALL
+  PRIVILEGES ON DATABASE ... TO ...` statement in a `DO $do$ ... $do$;`
+  block, but `psql`'s `:'var'` variable interpolation does not apply
+  inside dollar-quoted string literals, so the literal `:'identity_db'`
+  text was sent to Postgres and broke container startup
+  (`ERROR: syntax error at or near ":"`, `postgres` exiting on first
+  boot). Replaced it with the `SELECT format(...) \gexec` pattern used by
+  every other profile's `init-db.sh` (#772).
+
 - `cds compose-profile --write` now refuses to run on a profile that
   declares its own top-level `extends:` entry: resolving `extends`
   flattens the parent/child chain, so writing the merged result back to
