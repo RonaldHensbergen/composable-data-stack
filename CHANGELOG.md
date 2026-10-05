@@ -61,6 +61,12 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the `marquez-web` healthcheck in the experimental
+  `modules-experimental/observability/marquez` module always reporting
+  `unhealthy` under `cds up`: it shelled out to `bash -c '... /dev/tcp ...'`,
+  but the `marquez-web` image is BusyBox/Alpine-based and has no `bash`
+  binary. Switched to BusyBox-compatible `wget --spider` (#831).
+
 - `cds compose-profile --write` now refuses to run on a profile that
   declares its own top-level `extends:` entry: resolving `extends`
   flattens the parent/child chain, so writing the merged result back to

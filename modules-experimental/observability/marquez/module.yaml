@@ -178,13 +178,13 @@ spec:
             WEB_PORT: "${config.web.port}"
             REACT_APP_ADVANCED_SEARCH: "false"
           healthcheck:
+            # marquez-web runs a BusyBox/Alpine base image with no bash
+            # binary, so the bash+/dev/tcp trick used for marquez-api isn't
+            # available here; wget --spider is BusyBox-compatible.
             conditionallyEnabledFrom: config.healthcheck.enabled
             test:
               - CMD-SHELL
-              - >-
-                bash -c 'exec 3<>/dev/tcp/127.0.0.1/${config.web.port};
-                echo -e "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3;
-                cat <&3 | grep -q "200 OK"'
+              - wget --spider -q "http://127.0.0.1:${config.web.port}/"
             interval: 10s
             timeout: 5s
             retries: 10
