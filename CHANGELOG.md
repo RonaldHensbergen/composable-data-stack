@@ -8,6 +8,18 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a shared `lineage-sink` contract (`shared/contracts/lineage-sink.yaml`)
+  for vendor-neutral OpenLineage-compatible data-lineage backends, mirroring
+  the existing `log-sink` pattern. The `dagster` module gained an optional
+  `consumes` entry (`spec.config.lineageSink`) wiring `OPENLINEAGE_URL`,
+  `OPENLINEAGE_ENDPOINT`, `OPENLINEAGE_API_KEY`, and `OPENLINEAGE_NAMESPACE`
+  into all three Dagster services when bound, with no change for existing
+  profiles that leave it unbound. Added a new experimental reference
+  provider module, `modules-experimental/observability/marquez`, and a demo
+  profile, `profiles/local-dagster-postgres-marquez`, verifying the wiring
+  end-to-end against a live Marquez backend. See `docs/observability.md`
+  section 11 (#779).
+
 - Added a local, append-only audit trail of rendered/applied stacks:
   `validate`, `render`, `up`, and `test` now append a JSON Lines entry to
   `.cds/audit-log.jsonl` recording the timestamp, command, profile,
