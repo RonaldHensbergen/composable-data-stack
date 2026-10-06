@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "refreshRequired": false,
   "refreshInstructions": "Refreshed automatically by the update-fixture job in .github/workflows/publish-images.yml after each successful publish.",
-  "updated": "2026-10-05",
+  "updated": "2026-10-06",
   "source": "https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/publish-images.yml",
   "trustRoot": {
     "registries": [
@@ -17,7 +17,7 @@
   "images": {
     "cds-dagster": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
-      "digest": "sha256:1a3e56a36e5e26f20fd5d30977df42be5fe8d282b663cb811c4ceba063cdfc16",
+      "digest": "sha256:b6db02db4db30c93ab80113e85fae6b9fa15df619a4e2e63a6b9fe94d41d2a91",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
@@ -25,28 +25,28 @@
     "cds-dagster-hardened": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
       "tagPrefix": "hardened-",
-      "digest": "sha256:5bb5565d2e0697cfece906ed8149018f019a17e9416da9fbe682e68b4f253230",
+      "digest": "sha256:99579f101b209b55aab8c640e9aa8f3a227074dac085c1d90e2aa7721ac07d43",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-superset": {
       "repository": "ghcr.io/ronaldhensbergen/cds-superset",
-      "digest": "sha256:9ffbdca141dab19a1948dda9c1ba76d8f633d0d8c929825d4a46087a8cd616b1",
+      "digest": "sha256:4f744a5e9ce0b9bc514941d4e029a3d624811c0a1c62602cf19353de9dfe8882",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dbt": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dbt",
-      "digest": "sha256:98a0a62e54f89d8fea66306bfc77c6e614becfa8689fd4a9864f8f391cbeffd3",
+      "digest": "sha256:e7d5dadb328276c1b874fe9abb656682c8085edebe077a2eac03a4df84966df7",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dlt": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dlt",
-      "digest": "sha256:899e3a67b751dabfa4d624a400839be92cb1f2682c72ebbc79bbfa13f2916efc",
+      "digest": "sha256:e622d844624c682b784ed4289628f09d6f048aca921ecdd50f56480d0d0bc421",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
