@@ -1341,6 +1341,38 @@ class MainCLITest(unittest.TestCase):
         finally:
             output_file.unlink(missing_ok=True)
 
+    def test_init_reports_resolved_profile_name_when_arg_omitted(self):
+        """Regression test: when args.profile is None (profile resolved via
+        CDS_PROFILE_PATH or the saved config default rather than a CLI arg),
+        the summary message previously printed the literal string "None"
+        instead of the profile actually initialized."""
+        import tempfile
+
+        output_file = Path(tempfile.gettempdir()) / "cds-init-implicit-test.env"
+        output_file.unlink(missing_ok=True)
+        profile_path = (
+            Path(__file__).resolve().parent.parent
+            / "profiles"
+            / "local-dagster-postgres-superset"
+            / "profile.yaml"
+        )
+
+        try:
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(profile_path)}, clear=False
+            ), patch.object(
+                sys, "argv", ["cds", "init", "--output", str(output_file)]
+            ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+                result = main()
+
+            self.assertEqual(result, 0)
+            message = stdout.getvalue()
+            self.assertIn("Initialized environment for local-dagster-postgres-superset.", message)
+            self.assertIn("cds preflight local-dagster-postgres-superset", message)
+            self.assertNotIn("None", message)
+        finally:
+            output_file.unlink(missing_ok=True)
+
     def test_collect_profile_env_vars_honors_extends_without_environment_flag(self):
         # Regression test: _collect_profile_env_vars() previously called
         # load_yaml_file() directly when environment=None, bypassing
@@ -2699,6 +2731,401 @@ spec:
         self.assertEqual(mock_helm_down.call_args.kwargs["namespace"], "prod-ns")
 
 
+class ComposeProfileCommandCLITest(unittest.TestCase):
+    """`cds compose-profile` (#807): merges a new module instance into an
+    existing profile on disk, resolving contract bindings/secrets, in
+    place of hand-editing profile.yaml before handing it to
+    `cds generate-profile`."""
+
+    def _write(self, path: Path, content: str) -> None:
+        import textwrap
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(textwrap.dedent(content), encoding="utf-8")
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.modules_root = self.root / "modules"
+        self.profiles_root = self.root / "profiles"
+        self.profile_dir = self.profiles_root / "demo"
+
+        self._write(
+            self.modules_root / "warehouse" / "postgres" / "module.yaml",
+            """
+            apiVersion: cds/v1alpha1
+            kind: Module
+            metadata:
+              name: postgres
+              category: warehouse
+              version: "0.1.0"
+            spec:
+              runtime:
+                type: container
+                service:
+                  name: postgres
+              configSchema:
+                type: object
+              provides:
+                - name: sql-database
+                  contract:
+                    kind: sql-database
+              implementation:
+                kind: docker-compose
+                compose:
+                  services: {}
+            """,
+        )
+        self._write(
+            self.modules_root / "identity" / "keycloak" / "module.yaml",
+            """
+            apiVersion: cds/v1alpha1
+            kind: Module
+            metadata:
+              name: keycloak
+              category: identity
+              version: "0.1.0"
+            spec:
+              runtime:
+                type: container
+                service:
+                  name: keycloak
+              configSchema:
+                type: object
+              consumes:
+                - name: metadata-database
+                  contract:
+                    kind: sql-database
+                  required: true
+                  mappedFrom: spec.config.metadataDatabase
+              provides:
+                - name: http-service
+                  contract:
+                    kind: http-service
+              implementation:
+                kind: docker-compose
+                compose:
+                  services: {}
+            """,
+        )
+        self._write(
+            self.profile_dir / "profile.yaml",
+            """
+            apiVersion: cds/v1alpha1
+            kind: Profile
+            metadata:
+              name: demo
+              environment: local
+            spec:
+              runtime:
+                type: docker-compose
+              modules:
+                - id: postgres
+                  source: warehouse/postgres
+                  version: "0.1.0"
+                  enabled: true
+                  config: {}
+              secrets:
+                provider:
+                  type: env
+                values: {}
+            """,
+        )
+
+    def _env(self):
+        return {"CDS_PROFILE_PATH": str(self.profiles_root), "CDS_MODULE_PATH": str(self.modules_root)}
+
+    def test_prints_merged_profile_to_stdout_by_default(self):
+        import yaml
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0)
+        printed = yaml.safe_load(stdout.getvalue())
+        ids = [m["id"] for m in printed["spec"]["modules"]]
+        self.assertEqual(ids, ["postgres", "keycloak"])
+        # Stdout preview must not mutate the on-disk profile.
+        on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
+        self.assertEqual([m["id"] for m in on_disk["spec"]["modules"]], ["postgres"])
+
+    def test_add_module_source_resolves_relative_to_profile_directory_without_module_path(self):
+        """Without CDS_MODULE_PATH, --add-module must be written the same way
+        as existing spec.modules[].source entries: relative to the profile's
+        own directory (e.g. "../../modules/identity/keycloak" for a profile
+        two levels under the repo root), not the repository root. This is a
+        regression test for the --add-module modules/identity/keycloak
+        --help example being wrong when CDS_MODULE_PATH isn't set."""
+        import yaml
+
+        profile_file = self.profile_dir / "profile.yaml"
+        profile_doc = yaml.safe_load(profile_file.read_text(encoding="utf-8"))
+        profile_doc["spec"]["modules"][0]["source"] = "../../modules/warehouse/postgres"
+        profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
+
+        stdout = io.StringIO()
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "../../modules/identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0, stdout.getvalue())
+        printed = yaml.safe_load(stdout.getvalue())
+        ids = [m["id"] for m in printed["spec"]["modules"]]
+        self.assertEqual(ids, ["postgres", "keycloak"])
+
+    def test_write_persists_merged_profile_back_to_profile_yaml(self):
+        import yaml
+
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--set",
+                "adminUser.passwordFrom=secrets.keycloak_admin_password",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                "--write",
+            ],
+        ), contextlib.redirect_stdout(io.StringIO()):
+            result = main()
+
+        self.assertEqual(result, 0)
+        on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
+        ids = [m["id"] for m in on_disk["spec"]["modules"]]
+        self.assertEqual(ids, ["postgres", "keycloak"])
+
+    def test_write_on_a_profile_that_declares_extends_is_rejected(self):
+        """--write resolves the profile's own `extends` chain before
+        composing (so bindings can see contracts provided by parent
+        modules too), but persisting that fully-resolved/flattened document
+        back over a profile.yaml that still declares `extends` would
+        silently discard the `extends` reference and duplicate the
+        parent's modules into the child. This must fail closed and point
+        callers at --output instead, leaving profile.yaml untouched."""
+        import yaml
+
+        self._write(
+            self.profiles_root / "base" / "profile.yaml",
+            """
+            apiVersion: cds/v1alpha1
+            kind: Profile
+            metadata:
+              name: base
+              environment: local
+            spec:
+              runtime:
+                type: docker-compose
+              modules: []
+              secrets:
+                provider:
+                  type: env
+                values: {}
+            """,
+        )
+        profile_file = self.profile_dir / "profile.yaml"
+        profile_doc = yaml.safe_load(profile_file.read_text(encoding="utf-8"))
+        profile_doc["extends"] = ["base"]
+        profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
+        before = profile_file.read_text(encoding="utf-8")
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                "--write",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("extends", stdout.getvalue())
+        self.assertIn("--output", stdout.getvalue())
+        self.assertEqual(profile_file.read_text(encoding="utf-8"), before)
+
+    def test_output_flag_still_works_on_a_profile_that_declares_extends(self):
+        """--output writes the merged profile to a separate path, so it
+        does not have the --write data-loss risk and must still succeed."""
+        import yaml
+
+        self._write(
+            self.profiles_root / "base" / "profile.yaml",
+            """
+            apiVersion: cds/v1alpha1
+            kind: Profile
+            metadata:
+              name: base
+              environment: local
+            spec:
+              runtime:
+                type: docker-compose
+              modules: []
+              secrets:
+                provider:
+                  type: env
+                values: {}
+            """,
+        )
+        profile_file = self.profile_dir / "profile.yaml"
+        profile_doc = yaml.safe_load(profile_file.read_text(encoding="utf-8"))
+        profile_doc["extends"] = ["base"]
+        profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
+
+        output_path = self.root / "composed.yaml"
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                "--output",
+                str(output_path),
+            ],
+        ), contextlib.redirect_stdout(io.StringIO()):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertTrue(output_path.is_file())
+        written = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+        self.assertEqual([m["id"] for m in written["spec"]["modules"]], ["postgres", "keycloak"])
+
+    def test_output_flag_writes_to_given_path_instead_of_stdout_or_source(self):
+        import yaml
+
+        output_path = self.root / "composed.yaml"
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--output",
+                str(output_path),
+            ],
+        ), contextlib.redirect_stdout(io.StringIO()):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertTrue(output_path.is_file())
+        written = yaml.safe_load(output_path.read_text(encoding="utf-8"))
+        self.assertEqual([m["id"] for m in written["spec"]["modules"]], ["postgres", "keycloak"])
+        on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
+        self.assertEqual([m["id"] for m in on_disk["spec"]["modules"]], ["postgres"])
+
+    def test_no_provider_for_required_consume_fails_without_writing(self):
+        """Removing postgres leaves no sql-database provider in the profile,
+        so the required `metadata-database` consume entry must fail closed
+        (E125) instead of silently adding an unbindable module instance."""
+        import yaml
+
+        profile_file = self.profile_dir / "profile.yaml"
+        profile_doc = yaml.safe_load(profile_file.read_text(encoding="utf-8"))
+        profile_doc["spec"]["modules"] = []
+        profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            ["cds", "compose-profile", "demo", "--add-module", "identity/keycloak"],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("E125", stdout.getvalue())
+        self.assertNotIn("keycloak", profile_file.read_text(encoding="utf-8"))
+
+    def test_set_flag_overrides_additional_config_fields(self):
+        import yaml
+
+        stdout = io.StringIO()
+        with patch.dict(os.environ, self._env(), clear=False), patch.object(
+            sys,
+            "argv",
+            [
+                "cds",
+                "compose-profile",
+                "demo",
+                "--add-module",
+                "identity/keycloak",
+                "--bind",
+                "metadata-database=postgres.sql-database",
+                "--secret",
+                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                "--set",
+                "httpPort=8081",
+                "--set",
+                "adminUser.username=admin",
+            ],
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0)
+        printed = yaml.safe_load(stdout.getvalue())
+        new_instance = printed["spec"]["modules"][-1]
+        self.assertEqual(new_instance["config"]["httpPort"], 8081)
+        self.assertEqual(new_instance["config"]["adminUser"]["username"], "admin")
+
+
 class CollectModuleImagesTest(unittest.TestCase):
 
     _ROOT = Path(__file__).parent.parent
@@ -3132,6 +3559,25 @@ class ConfigCommandCLITest(unittest.TestCase):
         self.assertIn("must be 'compose' or 'helm'", output)
         self.assertFalse(self.config_path.exists())
 
+    def test_config_sets_gets_and_unsets_audit_enabled(self):
+        result, output = self._run(["set", "audit.enabled", "false"])
+        self.assertEqual(result, 0, output)
+        self.assertFalse(json.loads(self.config_path.read_text())["audit"]["enabled"])
+
+        result, output = self._run(["get", "audit.enabled"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(output.strip(), "false")
+
+        result, output = self._run(["unset", "audit.enabled"])
+        self.assertEqual(result, 0, output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_config_rejects_invalid_audit_enabled_value(self):
+        result, output = self._run(["set", "audit.enabled", "nope"])
+        self.assertEqual(result, 1)
+        self.assertIn("must be true or false", output)
+        self.assertFalse(self.config_path.exists())
+
     @patch("cli.main.run_security_validation", return_value=([], []))
     @patch("cli.main.validate_profile", return_value=[])
     def test_configured_security_strict_is_passed_to_security_checks(
@@ -3188,6 +3634,78 @@ class ConfigCommandCLITest(unittest.TestCase):
         self.assertEqual(result, 0, captured.getvalue())
         mock_build_plan.assert_not_called()
         mock_render_helm.assert_not_called()
+
+
+class AuditLogCLIIntegrationTest(unittest.TestCase):
+    """`cds validate`/`cds render` must append a local audit-trail entry
+    (#737), and both the env-var and config disable paths must suppress
+    it."""
+
+    def setUp(self):
+        self.repo_root = Path(__file__).resolve().parent.parent
+        self.profiles_root = self.repo_root / "profiles"
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.project_root = Path(self.tmpdir.name)
+        self.original_cwd = Path.cwd()
+        os.chdir(self.project_root)
+        self.env_patch = patch.dict(
+            os.environ,
+            {
+                "CDS_PROFILE_PATH": str(self.profiles_root),
+                "CDS_CONFIG_PATH": str(self.project_root / ".cds" / "config.json"),
+            },
+            clear=False,
+        )
+        self.env_patch.start()
+
+    def tearDown(self):
+        self.env_patch.stop()
+        os.chdir(self.original_cwd)
+        self.tmpdir.cleanup()
+
+    def _audit_entries(self):
+        log_path = self.project_root / ".cds" / "audit-log.jsonl"
+        if not log_path.exists():
+            return []
+        return [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+
+    def test_validate_command_appends_audit_entry(self):
+        with patch.object(
+            sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
+        ), contextlib.redirect_stdout(io.StringIO()):
+            result = main()
+
+        self.assertEqual(result, 0)
+        entries = self._audit_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["command"], "validate")
+        self.assertEqual(entries[0]["outcome"], "success")
+        self.assertEqual(entries[0]["profile"], "local-dagster-postgres-superset")
+        # Never a secret value, only alias/env-var names (see cli/secrets.py).
+        for alias in entries[0]["secretAliases"]:
+            self.assertNotIn("=", alias)
+
+    def test_audit_log_disabled_via_env_var(self):
+        with patch.dict(os.environ, {"CDS_AUDIT_LOG_DISABLE": "true"}, clear=False):
+            with patch.object(
+                sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
+            ), contextlib.redirect_stdout(io.StringIO()):
+                main()
+
+        self.assertEqual(self._audit_entries(), [])
+
+    def test_audit_log_disabled_via_config(self):
+        with patch.object(
+            sys, "argv", ["cds", "config", "set", "audit.enabled", "false"]
+        ), contextlib.redirect_stdout(io.StringIO()):
+            main()
+
+        with patch.object(
+            sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
+        ), contextlib.redirect_stdout(io.StringIO()):
+            main()
+
+        self.assertEqual(self._audit_entries(), [])
 
 
 class CompletionCommandCLITest(unittest.TestCase):

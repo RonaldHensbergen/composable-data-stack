@@ -13,9 +13,9 @@ Alignment**), by importance/dependency order, not by issue number.
 |5|5 - CRA|#730|~~Product SBOM + release inventory, needs new CI work; do before #734 since the report command should link real SBOM evidence, not placeholders.~~|Resolved by #740|
 |6|5 - CRA|#729|~~Vulnerability/incident runbook, mostly docs + a tabletop test, no dependencies.~~|Resolved by #755|
 |7|5 - CRA|#734|~~Exportable compliance/evidence report, consumes #730's SBOM links and #735's categories, so it's genuinely more useful once both exist.~~|Resolved by #766|
-|8|6 - NL|#774|**NIS2-aligned `cds security` reporting — extends the rule-set with Article 21 operator-readiness checks now that #771's gap analysis has landed.**|Ready|
+|8|6 - NL|#774|~~NIS2-aligned `cds security` reporting — extends the rule-set with Article 21 operator-readiness checks now that #771's gap analysis has landed.~~|Resolved by #804|
 |9|6 - NL|#736|~~Stale pinned-digest warning, independent; natural to do alongside #734 since it touches similar digest/registry knowledge from #730. Cited directly by #771's Article 21 supply-chain-security gap.~~|Resolved by #758|
-|10|6 - NL|#737|Local audit trail, independent; complements #734's evidence report and directly supports the 24h/72h incident-reporting evidence needs described in #771.|No CRA|
+|10|6 - NL|#737|~~Local audit trail, independent; complements #734's evidence report and directly supports the 24h/72h incident-reporting evidence needs described in #771.~~|Resolved by #810|
 |11|6 - NL|#773|FDS data-provider basisafspraken mapping — documentation/gap-analysis only, no dependency on the CRA chain; may spin off a follow-up contract issue once the gap analysis lands.|Ready|
 |12|6 - NL|#779|OpenLineage data-lineage contract + Dagster integration — coordinates with #773's gap analysis (may satisfy part of FDS's data-provider metadata basisafspraken); optionally reuses the OTel-collector work (#777, milestone 2) as its backend.|Ready, coordinate with #773|
 |13|6 - NL|#772|Common Ground/Haven reference profile and mapping doc — independent, reuses existing/in-flight modules (identity, TLS); lowest urgency of the NL set, no legal deadline behind it.|Ready|
