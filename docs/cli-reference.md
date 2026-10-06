@@ -79,21 +79,26 @@ which case it's relative to that root instead, matching `cds validate`.
 ## Project defaults (`cds config`)
 
 `cds config` manages the gitignored `.cds/config.json` file (or the path in
-`CDS_CONFIG_PATH`). Supported settings are `profile`, `environment`, and
-`security.strict`:
+`CDS_CONFIG_PATH`). Supported settings are `profile`, `environment`,
+`security.strict`, and `target`:
 
 ```bash
 cds config set profile my-profile
 cds config set environment prod
 cds config set security.strict true
+cds config set target helm
 cds config list
 ```
 
 `profile` is stored as its resolved path, and `environment` is validated
 against that profile's `environments/` directory. `security.strict true`
 applies the existing production security rules even if the profile declares a
-local environment. `cds use` remains a shortcut for setting, showing, or
-clearing `profile`.
+local environment. `target` (`compose` or `helm`) is the default runtime
+target used by `validate`, `render`, `up`, `down`, `test`, `state`, and
+`security` when their own `--target` flag is omitted -- handy when working
+against a Helm/Kubernetes profile for an extended session so `--target helm`
+doesn't need repeating on every command. `cds use` remains a shortcut for
+setting, showing, or clearing `profile`.
 
 CLI flags take precedence over these defaults. In particular,
 `--environment` overrides `config environment`; `CDS_PROFILE_PATH` continues

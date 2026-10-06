@@ -3540,6 +3540,25 @@ class ConfigCommandCLITest(unittest.TestCase):
         self.assertIn("must be 'build' or 'registry'", output)
         self.assertFalse(self.config_path.exists())
 
+    def test_config_sets_gets_and_unsets_target(self):
+        result, output = self._run(["set", "target", "helm"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(json.loads(self.config_path.read_text())["target"], "helm")
+
+        result, output = self._run(["get", "target"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(output.strip(), "helm")
+
+        result, output = self._run(["unset", "target"])
+        self.assertEqual(result, 0, output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_config_rejects_invalid_target_value(self):
+        result, output = self._run(["set", "target", "k8s"])
+        self.assertEqual(result, 1)
+        self.assertIn("must be 'compose' or 'helm'", output)
+        self.assertFalse(self.config_path.exists())
+
     def test_config_sets_gets_and_unsets_audit_enabled(self):
         result, output = self._run(["set", "audit.enabled", "false"])
         self.assertEqual(result, 0, output)
@@ -3574,6 +3593,47 @@ class ConfigCommandCLITest(unittest.TestCase):
         self.assertEqual(result, 0, captured.getvalue())
         mock_validate.assert_called_once()
         self.assertTrue(mock_run_security.call_args.kwargs["strict"])
+
+
+    @patch("cli.main.render_helm")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_configured_target_is_used_when_flag_omitted(
+        self, mock_validate, mock_build_plan, mock_render_helm
+    ):
+        plan = {"metadata": {"name": "test"}, "modules": []}
+        mock_build_plan.return_value = (plan, [])
+        mock_render_helm.return_value = ({}, [])
+        self._run(["set", "target", "helm"])
+
+        captured = io.StringIO()
+        with patch.object(
+            sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
+        ), contextlib.redirect_stdout(captured):
+            result = main()
+
+        self.assertEqual(result, 0, captured.getvalue())
+        mock_render_helm.assert_called_once_with(plan)
+
+    @patch("cli.main.render_helm")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_explicit_target_flag_overrides_configured_target(
+        self, mock_validate, mock_build_plan, mock_render_helm
+    ):
+        self._run(["set", "target", "helm"])
+
+        captured = io.StringIO()
+        with patch.object(
+            sys,
+            "argv",
+            ["cds", "validate", "local-dagster-postgres-superset", "--target", "compose"],
+        ), contextlib.redirect_stdout(captured):
+            result = main()
+
+        self.assertEqual(result, 0, captured.getvalue())
+        mock_build_plan.assert_not_called()
+        mock_render_helm.assert_not_called()
 
 
 class AuditLogCLIIntegrationTest(unittest.TestCase):

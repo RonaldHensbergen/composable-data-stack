@@ -110,6 +110,14 @@ The format is based on Keep a Changelog.
 
 - Added true in-memory/dict-based profile planning entry points, closing the remaining gap in #349: `cli.overlay.resolve_extends_from_profile()`/`resolve_profile_from_profile()` and `cli.planner.build_plan_from_profile()`/`plan_generated_profile()` let a runtime-generated profile be validated and planned directly from a dict -- same `extends`/environment-overlay semantics and module `source:` resolution as the disk-based `resolve_extends()`/`resolve_profile()`/`build_plan()`, anchored to a directory that does not need to contain a `profile.yaml` of its own -- without ever writing it to disk first (#679).
 
+- Added a persisted `target` project default via `cds config set target
+  compose|helm`: `validate`/`render`/`up`/`down`/`test`/`state`/`security`
+  now fall back to the configured value (and then to `compose`) whenever
+  their `--target` flag is omitted, so the Helm target no longer needs to
+  be repeated on every invocation. An explicit `--target` flag still
+  takes precedence, and `cds config unset target` reverts to the
+  built-in `compose` default (#811).
+
 ### Removed
 
 - Removed the stale `docs/plan/CRA_and_other_laws.md`, a duplicate of
