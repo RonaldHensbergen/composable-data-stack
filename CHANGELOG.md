@@ -8,6 +8,23 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added `docs/fds-alignment.md`, mapping CDS's `provides`/`consumes`
+  contract model against the Federatief Datastelsel (FDS) Afsprakenstelsel's
+  data-provider basisafspraken (technical, semantic, legal, organisational
+  agreement domains). Concludes the technical/organisational domains are
+  reasonably served by existing contracts and the compliance report/audit
+  trail. See `docs/roadmap.md` (#773).
+
+- Added a shared `open-data-provider` contract
+  (`shared/contracts/open-data-provider.yaml`), closing the semantic/legal
+  gap identified by `docs/fds-alignment.md`: it expresses FDS-required
+  dataset provider metadata (`datasetId`, `title`, `description`,
+  `classification`, `accessConditions`, `licence`) in a profile-portable,
+  machine-checkable way, distinct from existing service-connection
+  contracts (`sql-database`, `cache-service`). The `postgres` module
+  demonstrates providing it via a new, opt-in `config.dataProvider` block
+  (empty/unset by default, so existing profiles are unaffected) (#825).
+
 - Added a local, append-only audit trail of rendered/applied stacks:
   `validate`, `render`, `up`, and `test` now append a JSON Lines entry to
   `.cds/audit-log.jsonl` recording the timestamp, command, profile,
