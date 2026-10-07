@@ -131,10 +131,10 @@ platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
 - ✅ **Local audit trail** — retain a local audit trail of rendered/applied
   stacks for user incident evidence, supporting NIS2 incident-reporting
   timelines (#737, see [docs/audit-log.md](audit-log.md))
-- 📋 **OpenLineage data-lineage for Dagster** — add a `lineage-sink` contract
+- ✅ **OpenLineage data-lineage for Dagster** — add a `lineage-sink` contract
   and wire Dagster's built-in OpenLineage integration to it, in support of
   IBDS/FDS "verantwoord datagebruik" provenance expectations; coordinate
-  with the FDS mapping above (#779)
+  with the FDS mapping above (#779, #831; FDS follow-up #843)
 - ✅ **FDS data-provider contract** — add a shared `open-data-provider`
   contract expressing FDS-required dataset provider metadata (description,
   classification, access conditions), the gap identified by the FDS mapping
