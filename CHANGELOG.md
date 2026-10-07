@@ -8,6 +8,25 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a CRA release-evidence manifest and fail-closed conformity
+  readiness gate: `scripts/build_cra_release_evidence_manifest.py`
+  references (not duplicates) existing scope-decision, risk-assessment,
+  technical-documentation, SBOM, test-result, vulnerability-status,
+  support, user-instruction, and signature/provenance evidence into one
+  JSON document, always disabled (`conformityClaimEnabled: false`, no
+  automation can flip it), attached as a permanent GitHub Release asset
+  alongside the existing SBOM/release-inventory evidence.
+  `scripts/check_cra_release_gate.py` is a no-op unless that flag is
+  explicitly set, in which case it fails closed on any missing evidence.
+  Added `docs/cra-release-evidence-gate.md` (product classification
+  review against CRA Annex III/IV, the Annex VIII Part I
+  conformity-assessment route, and CE-marking/declaration explanation)
+  and draft-only, clearly-marked-invalid Annex II/V/VI templates
+  (`docs/cra-annex-ii-user-information-template.md`,
+  `docs/cra-annex-v-eu-declaration-of-conformity-template.md`,
+  `docs/cra-annex-vi-simplified-declaration-template.md`). None of this
+  asserts CRA conformity or CE marking for CDS today (#733).
+
 - Added a shared `lineage-sink` contract (`shared/contracts/lineage-sink.yaml`)
   for vendor-neutral OpenLineage-compatible data-lineage backends, mirroring
   the existing `log-sink` pattern. The `dagster` module gained an optional
