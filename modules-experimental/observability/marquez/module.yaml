@@ -1,0 +1,191 @@
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: marquez
+  category: observability
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: Marquez (experimental)
+  description: >
+    Reference OpenLineage backend (https://marquezproject.ai/), providing a
+    `lineage-sink` contract that orchestration/pipeline modules (e.g.
+    orchestration/dagster, stable) consume to ship run/job/dataset lineage
+    events. See docs/observability.md#data-lineage-the-lineage-sink-contract
+    for the vendor-neutral contract this implements, and #779 for the issue
+    this module closes. This module is marked experimental because it is a
+    single reference provider for a new contract shape, not because the
+    upstream Marquez project itself is immature. Full-text dataset search
+    (which requires an OpenSearch backend) is intentionally disabled; this
+    module only wires OpenLineage HTTP ingestion.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: marquez-api
+      ports:
+        - name: http
+          containerPort: 5000
+          protocol: TCP
+        - name: admin
+          containerPort: 5001
+          protocol: TCP
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - database
+    properties:
+      apiPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 5000
+
+      apiAdminPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 5001
+
+      web:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          port:
+            type: integer
+            minimum: 1
+            maximum: 65535
+            default: 3001
+
+      database:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
+      healthcheck:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+  consumes:
+    - name: database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.database
+
+  provides:
+    - name: lineage-sink
+      contract:
+        kind: lineage-sink
+        spec:
+          host: ${service.host}
+          port: ${config.apiPort}
+          protocol: http
+          ingestPath: /api/v1/lineage
+          connectionUri: http://${service.host}:${config.apiPort}
+          authToken: ""
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        marquez-api:
+          # Single-architecture (amd64) image; no multi-arch manifest is
+          # published upstream.
+          image: marquezproject/marquez:0.51.1@sha256:0721c976cff17d8b14f7949d85d6dac9c7ea37cb9fe857caa19833730fcb1a50
+          init: true
+          user: "1000:1000"
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 256
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,mode=1777
+          hostname: "${service.host}"
+          ports:
+            - "127.0.0.1:${config.apiPort}:5000"
+            - "127.0.0.1:${config.apiAdminPort}:5001"
+          volumes:
+            - type: bind
+              source: ../../../images/marquez/marquez.yml
+              target: /usr/src/app/marquez.yml
+              read_only: true
+          environment:
+            MARQUEZ_CONFIG: marquez.yml
+            MARQUEZ_PORT: "${config.apiPort}"
+            MARQUEZ_ADMIN_PORT: "${config.apiAdminPort}"
+            POSTGRES_HOST: "${bindings.database.host}"
+            POSTGRES_PORT: "${bindings.database.port}"
+            POSTGRES_DB: "${bindings.database.database}"
+            POSTGRES_USER: "${bindings.database.username}"
+            POSTGRES_PASSWORD: "${bindings.database.password}"
+          healthcheck:
+            conditionallyEnabledFrom: config.healthcheck.enabled
+            test:
+              - CMD-SHELL
+              - >-
+                bash -c 'exec 3<>/dev/tcp/127.0.0.1/${config.apiAdminPort};
+                echo -e "GET /healthcheck HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3;
+                cat <&3 | grep -q "200 OK"'
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 30s
+
+        marquez-web:
+          enabledFrom: config.web.enabled
+          image: marquezproject/marquez-web:0.51.1@sha256:7312112ca0e611b0a37b00d3da6a677485ae4a97622b23d3ae24d849a927868b
+          init: true
+          user: "1000:1000"
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 256
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,mode=1777
+          depends_on:
+            marquez-api:
+              condition: service_healthy
+          ports:
+            - "127.0.0.1:${config.web.port}:${config.web.port}"
+          environment:
+            MARQUEZ_HOST: "${service.host}"
+            MARQUEZ_PORT: "${config.apiPort}"
+            WEB_PORT: "${config.web.port}"
+            REACT_APP_ADVANCED_SEARCH: "false"
+          healthcheck:
+            # marquez-web runs a BusyBox/Alpine base image with no bash
+            # binary, so the bash+/dev/tcp trick used for marquez-api isn't
+            # available here; wget --spider is BusyBox-compatible.
+            conditionallyEnabledFrom: config.healthcheck.enabled
+            test:
+              - CMD-SHELL
+              - wget --spider -q "http://127.0.0.1:${config.web.port}/"
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 30s

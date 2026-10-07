@@ -121,6 +121,23 @@ spec:
             type: string
             pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
 
+      marquezDatabase:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          name:
+            type: string
+            minLength: 1
+            default: marquez
+          username:
+            type: string
+            minLength: 1
+            default: marquez
+          passwordFrom:
+            type: string
+            pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+
       dataProvider:
         type: object
         additionalProperties: false
@@ -184,6 +201,17 @@ spec:
           username: ${config.supersetDatabase.username}
           password: ${config.supersetDatabase.passwordFrom}
           connectionUri: postgresql://${config.supersetDatabase.username}:${config.supersetDatabase.passwordFrom}@${service.host}:${config.port}/${config.supersetDatabase.name}
+
+    - name: marquez-database
+      contract:
+        kind: sql-database
+        spec:
+          host: ${service.host}
+          port: ${config.port}
+          database: ${config.marquezDatabase.name}
+          username: ${config.marquezDatabase.username}
+          password: ${config.marquezDatabase.passwordFrom}
+          connectionUri: postgresql://${config.marquezDatabase.username}:${config.marquezDatabase.passwordFrom}@${service.host}:${config.port}/${config.marquezDatabase.name}
 
     - name: data-provider-metadata
       contract:
