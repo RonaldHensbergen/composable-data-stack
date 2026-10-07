@@ -1,0 +1,105 @@
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: local-haven-reference
+  environment: local
+  displayName: Local Haven/Common Ground Reference Stack
+  description: >
+    Reference profile showing CDS's module/contract/profile model wired into
+    a Haven-aligned shape: an identity provider (Keycloak), a TLS-terminating
+    reverse proxy (Traefik), and a sql-database provider (Postgres). See
+    docs/common-ground-alignment.md for the concept mapping. Experimental
+    while the Keycloak module lacks realm configuration (#680) and an
+    oidc-provider contract (#681).
+
+spec:
+  runtime:
+    type: docker-compose
+    namespace: cds-local
+    networks:
+      - name: cds-local
+        driver: bridge
+
+  modules:
+    - id: postgres
+      source: ../../modules/warehouse/postgres
+      version: "0.1.0"
+      enabled: true
+      config:
+        database: "${CDS_IDENTITY_DB_NAME}"
+        username: "${CDS_IDENTITY_DB_USER}"
+        passwordFrom: secrets.identity_db_password
+        superuserPasswordFrom: secrets.postgres_superuser_password
+        port: 5432
+        initDbScript: init-db.sh
+        initDbEnv:
+          IDENTITY_DB_NAME: config.database
+          IDENTITY_DB_USER: config.username
+          IDENTITY_DB_PASSWORD: config.passwordFrom
+        storage:
+          enabled: true
+          size: 2Gi
+        healthcheck:
+          enabled: true
+
+    - id: keycloak
+      source: ../../modules/identity/keycloak
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+      config:
+        httpPort: 8081
+        metadataDatabase:
+          contractRef: postgres.sql-database
+          driver: postgres
+        adminUser:
+          username: admin
+          passwordFrom: secrets.keycloak_admin_password
+        healthcheck:
+          enabled: true
+
+    - id: traefik
+      source: ../../modules/integration/traefik
+      version: "3.0.0"
+      enabled: true
+      dependsOn:
+        - keycloak
+      config:
+        log:
+          level: INFO
+        api:
+          dashboard: true
+        entryPoints:
+          web:
+            address: ":80"
+          websecure:
+            address: ":443"
+        fileProvider:
+          directory: /etc/traefik/dynamic
+          watch: true
+
+  secrets:
+    provider:
+      type: env
+    values:
+      postgres_superuser_password:
+        env: CDS_POSTGRES_SUPERUSER_PASSWORD
+        required: true
+      identity_db_password:
+        env: CDS_IDENTITY_DB_PASSWORD
+        required: true
+      keycloak_admin_password:
+        env: CDS_KEYCLOAK_ADMIN_PASSWORD
+        required: true
+
+  outputs:
+    contracts:
+      identityDatabase:
+        from: postgres.sql-database
+      identityApi:
+        from: keycloak.http-service
+      edge:
+        from: traefik.reverse-proxy

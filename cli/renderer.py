@@ -593,6 +593,18 @@ def _rewrite_service_volumes(
                     project_root=project_root,
                     compose_dir=compose_dir,
                 )
+                # Compose's short volume syntax only treats a source as a
+                # bind mount when it starts with ".", "/", or "~"; a bare
+                # relative path like "traefik/dynamic" (what relative_to()
+                # produces) is otherwise parsed as a named volume reference,
+                # which fails for any bind source that isn't already a
+                # single path segment. Re-add the "./" prefix so a rewritten
+                # multi-segment relative path stays an unambiguous bind.
+                if (
+                    rewritten_source != source
+                    and not rewritten_source.startswith((".", "/", "~"))
+                ):
+                    rewritten_source = f"./{rewritten_source}"
                 if rewritten_source != source:
                     item = f"{rewritten_source}:{parts[1]}"
         elif isinstance(item, dict):

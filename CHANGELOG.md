@@ -25,6 +25,14 @@ The format is based on Keep a Changelog.
   demonstrates providing it via a new, opt-in `config.dataProvider` block
   (empty/unset by default, so existing profiles are unaffected) (#825).
 
+- Published `docs/common-ground-alignment.md`, mapping CDS's
+  module/contract/profile model to Common Ground/Haven reference
+  architecture concepts, and added the `local-haven-reference` profile
+  combining the `postgres`, `keycloak`, and `traefik` modules in a
+  Haven-aligned identity/TLS-ingress/database shape; listed under
+  Experimental Components in `docs/roadmap.md` until Keycloak gains realm
+  configuration (#680) and an `oidc-provider` contract (#681) (#772).
+
 - Added a local, append-only audit trail of rendered/applied stacks:
   `validate`, `render`, `up`, and `test` now append a JSON Lines entry to
   `.cds/audit-log.jsonl` recording the timestamp, command, profile,
@@ -65,6 +73,25 @@ The format is based on Keep a Changelog.
   (#807).
 
 ### Fixed
+
+- `cli/renderer.py`'s short-form string volume rewriting (`"./a/b:/target"`)
+  now re-adds a `./` prefix when it rewrites a relative bind-mount source to
+  a multi-segment path (e.g. a project-root-relative fallback). Compose's
+  short volume syntax only treats a source starting with `.`, `/`, or `~`
+  as a bind mount; a bare rewritten path like `traefik/dynamic` was
+  otherwise parsed as a named volume reference, breaking `docker compose
+  config`/`cds up` for the `traefik` module's dynamic-config and
+  certificate bind mounts, surfaced by the new `local-haven-reference`
+  profile being the first to exercise them (#772).
+
+- `local-haven-reference`'s `init-db.sh` wrapped its `GRANT ALL
+  PRIVILEGES ON DATABASE ... TO ...` statement in a `DO $do$ ... $do$;`
+  block, but `psql`'s `:'var'` variable interpolation does not apply
+  inside dollar-quoted string literals, so the literal `:'identity_db'`
+  text was sent to Postgres and broke container startup
+  (`ERROR: syntax error at or near ":"`, `postgres` exiting on first
+  boot). Replaced it with the `SELECT format(...) \gexec` pattern used by
+  every other profile's `init-db.sh` (#772).
 
 - `cds compose-profile --write` now refuses to run on a profile that
   declares its own top-level `extends:` entry: resolving `extends`
