@@ -138,6 +138,36 @@ spec:
             type: string
             pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
 
+      dataProvider:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >
+          Optional FDS (Federatief Datastelsel) data-provider metadata for
+          a dataset held in this database, surfaced via the
+          open-data-provider contract (see docs/fds-alignment.md, #773).
+          Leave at defaults if this instance does not disclose data under
+          the FDS Afsprakenstelsel.
+        properties:
+          datasetId:
+            type: string
+            default: ""
+          title:
+            type: string
+            default: ""
+          description:
+            type: string
+            default: ""
+          classification:
+            type: string
+            default: ""
+          accessConditions:
+            type: string
+            default: ""
+          licence:
+            type: string
+            default: ""
+
   provides:
     - name: sql-database
       contract:
@@ -182,6 +212,17 @@ spec:
           username: ${config.marquezDatabase.username}
           password: ${config.marquezDatabase.passwordFrom}
           connectionUri: postgresql://${config.marquezDatabase.username}:${config.marquezDatabase.passwordFrom}@${service.host}:${config.port}/${config.marquezDatabase.name}
+
+    - name: data-provider-metadata
+      contract:
+        kind: open-data-provider
+        spec:
+          datasetId: ${config.dataProvider.datasetId}
+          title: ${config.dataProvider.title}
+          description: ${config.dataProvider.description}
+          classification: ${config.dataProvider.classification}
+          accessConditions: ${config.dataProvider.accessConditions}
+          licence: ${config.dataProvider.licence}
   implementation:
     kind: docker-compose
     targets:

@@ -84,8 +84,9 @@ These work but may have breaking changes in upcoming releases:
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
-- Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode (`start-dev`), backed by a consumed `sql-database` contract; not yet wired into a stable profile, no realm configuration (#680) or `oidc-provider` contract for other modules to consume (#681)
+- Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode (`start-dev`), backed by a consumed `sql-database` contract; wired into the `local-haven-reference` profile (#772), no realm configuration (#680) or `oidc-provider` contract for other modules to consume (#681)
 - Profile: `local-dagster-postgres-superset-vault` — not tested thoroughly yet
+- Profile: `local-haven-reference` — Common Ground/Haven-aligned reference stack (identity, TLS ingress, database), experimental while Keycloak lacks realm configuration/an `oidc-provider` contract (#772, see [docs/common-ground-alignment.md](common-ground-alignment.md))
 - `scripts/compose_to_module.py` — scaffolds a starter `module.yaml` from an existing `docker-compose.yml`
 - `scripts/ai_profile_review.py` — optional AI-assisted guardrail/simplification review for profiles
 
@@ -108,12 +109,15 @@ distinct from the CRA product-security milestone above — these address the
 Federatief Datastelsel/IBDS data-sharing framework, Common Ground/Haven
 platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
 
-- 📋 **FDS data-provider alignment** — map CDS's `provides`/`consumes` contract
+- ✅ **FDS data-provider alignment** — map CDS's `provides`/`consumes` contract
   model to the Federatief Datastelsel Afsprakenstelsel's data-provider
-  basisafspraken; identify any missing shared contract (#773)
-- 📋 **Common Ground / Haven reference profile** — publish a mapping doc and a
-  reference profile combining existing/in-flight modules (identity, TLS,
-  database, observability) in a Haven-aligned shape (#772)
+  basisafspraken; identify any missing shared contract (#773, see
+  [docs/fds-alignment.md](fds-alignment.md)). Gap closed by a new shared
+  contract expressing FDS-required dataset provider metadata (#825)
+- ✅ **Common Ground / Haven reference profile** — mapping doc and a
+  reference profile combining existing modules (identity, TLS, database) in
+  a Haven-aligned shape (#772, see [docs/common-ground-alignment.md](common-ground-alignment.md)
+  and [profiles/local-haven-reference](../profiles/local-haven-reference))
 - ✅ **Cyberbeveiligingswet/NIS2 scope** — record CDS's role as a software
   supplier vs. the operator-level obligations of Cyberbeveiligingswet/NIS2
   Article 21, cross-referenced against the CRA milestone so the two are not
@@ -131,6 +135,11 @@ platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
   and wire Dagster's built-in OpenLineage integration to it, in support of
   IBDS/FDS "verantwoord datagebruik" provenance expectations; coordinate
   with the FDS mapping above (#779)
+- ✅ **FDS data-provider contract** — add a shared `open-data-provider`
+  contract expressing FDS-required dataset provider metadata (description,
+  classification, access conditions), the gap identified by the FDS mapping
+  above; the `postgres` module demonstrates providing it via an opt-in
+  `config.dataProvider` block (#825)
 
 ---
 

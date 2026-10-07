@@ -20,6 +20,31 @@ The format is based on Keep a Changelog.
   end-to-end against a live Marquez backend. See `docs/observability.md`
   section 11 (#779).
 
+- Added `docs/fds-alignment.md`, mapping CDS's `provides`/`consumes`
+  contract model against the Federatief Datastelsel (FDS) Afsprakenstelsel's
+  data-provider basisafspraken (technical, semantic, legal, organisational
+  agreement domains). Concludes the technical/organisational domains are
+  reasonably served by existing contracts and the compliance report/audit
+  trail. See `docs/roadmap.md` (#773).
+
+- Added a shared `open-data-provider` contract
+  (`shared/contracts/open-data-provider.yaml`), closing the semantic/legal
+  gap identified by `docs/fds-alignment.md`: it expresses FDS-required
+  dataset provider metadata (`datasetId`, `title`, `description`,
+  `classification`, `accessConditions`, `licence`) in a profile-portable,
+  machine-checkable way, distinct from existing service-connection
+  contracts (`sql-database`, `cache-service`). The `postgres` module
+  demonstrates providing it via a new, opt-in `config.dataProvider` block
+  (empty/unset by default, so existing profiles are unaffected) (#825).
+
+- Published `docs/common-ground-alignment.md`, mapping CDS's
+  module/contract/profile model to Common Ground/Haven reference
+  architecture concepts, and added the `local-haven-reference` profile
+  combining the `postgres`, `keycloak`, and `traefik` modules in a
+  Haven-aligned identity/TLS-ingress/database shape; listed under
+  Experimental Components in `docs/roadmap.md` until Keycloak gains realm
+  configuration (#680) and an `oidc-provider` contract (#681) (#772).
+
 - Added a local, append-only audit trail of rendered/applied stacks:
   `validate`, `render`, `up`, and `test` now append a JSON Lines entry to
   `.cds/audit-log.jsonl` recording the timestamp, command, profile,
@@ -66,6 +91,25 @@ The format is based on Keep a Changelog.
   `unhealthy` under `cds up`: it shelled out to `bash -c '... /dev/tcp ...'`,
   but the `marquez-web` image is BusyBox/Alpine-based and has no `bash`
   binary. Switched to BusyBox-compatible `wget --spider` (#831).
+
+- `cli/renderer.py`'s short-form string volume rewriting (`"./a/b:/target"`)
+  now re-adds a `./` prefix when it rewrites a relative bind-mount source to
+  a multi-segment path (e.g. a project-root-relative fallback). Compose's
+  short volume syntax only treats a source starting with `.`, `/`, or `~`
+  as a bind mount; a bare rewritten path like `traefik/dynamic` was
+  otherwise parsed as a named volume reference, breaking `docker compose
+  config`/`cds up` for the `traefik` module's dynamic-config and
+  certificate bind mounts, surfaced by the new `local-haven-reference`
+  profile being the first to exercise them (#772).
+
+- `local-haven-reference`'s `init-db.sh` wrapped its `GRANT ALL
+  PRIVILEGES ON DATABASE ... TO ...` statement in a `DO $do$ ... $do$;`
+  block, but `psql`'s `:'var'` variable interpolation does not apply
+  inside dollar-quoted string literals, so the literal `:'identity_db'`
+  text was sent to Postgres and broke container startup
+  (`ERROR: syntax error at or near ":"`, `postgres` exiting on first
+  boot). Replaced it with the `SELECT format(...) \gexec` pattern used by
+  every other profile's `init-db.sh` (#772).
 
 - `cds compose-profile --write` now refuses to run on a profile that
   declares its own top-level `extends:` entry: resolving `extends`
@@ -127,6 +171,14 @@ The format is based on Keep a Changelog.
   command (#736).
 
 - Added true in-memory/dict-based profile planning entry points, closing the remaining gap in #349: `cli.overlay.resolve_extends_from_profile()`/`resolve_profile_from_profile()` and `cli.planner.build_plan_from_profile()`/`plan_generated_profile()` let a runtime-generated profile be validated and planned directly from a dict -- same `extends`/environment-overlay semantics and module `source:` resolution as the disk-based `resolve_extends()`/`resolve_profile()`/`build_plan()`, anchored to a directory that does not need to contain a `profile.yaml` of its own -- without ever writing it to disk first (#679).
+
+- Added a persisted `target` project default via `cds config set target
+  compose|helm`: `validate`/`render`/`up`/`down`/`test`/`state`/`security`
+  now fall back to the configured value (and then to `compose`) whenever
+  their `--target` flag is omitted, so the Helm target no longer needs to
+  be repeated on every invocation. An explicit `--target` flag still
+  takes precedence, and `cds config unset target` reverts to the
+  built-in `compose` default (#811).
 
 ### Removed
 

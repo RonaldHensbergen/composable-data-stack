@@ -1,0 +1,23 @@
+# Traefik dynamic (file provider) configuration routing the
+# local-haven-reference profile's TLS entrypoint to the Keycloak container.
+#
+# Traefik and Keycloak share the profile's Docker network, so the backend
+# is reached by its Compose service name ("keycloak"), no contract-based
+# auto-wiring is involved here (CDS has no reverse-proxy/http-service
+# binding mechanism yet, see docs/common-ground-alignment.md). Traefik's
+# own default self-signed certificate is used for the websecure entrypoint
+# since no certificate is supplied under ./certs/traefik.
+http:
+  routers:
+    keycloak:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - websecure
+      service: keycloak
+      tls: {}
+
+  services:
+    keycloak:
+      loadBalancer:
+        servers:
+          - url: "http://keycloak:8080"
