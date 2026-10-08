@@ -1314,5 +1314,50 @@ class SubstituteStringIfNonemptyTest(unittest.TestCase):
         self.assertEqual(result, "redis://:secret@keydb:6379")
 
 
+class IfNonemptyMalformedTest(unittest.TestCase):
+    """A malformed ifNonempty: expression (wrong comma count) must leave the
+    placeholder unresolved instead of crashing (issue #557)."""
+
+    def test_if_nonempty_malformed_leaves_placeholder(self):
+        result = renderer._substitute_string(
+            "redis://${ifNonempty:config.password}${service.host}:${config.port}",
+            {
+                "config": {"password": "secret", "port": 6379},
+                "service": {"host": "keydb"},
+            },
+        )
+        self.assertEqual(result, "redis://${ifNonempty:config.password}keydb:6379")
+
+    def test_malformed_if_nonempty_reports_e071_from_render_compose(self):
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "cache",
+                    "config": {"password": "secret", "port": 6379},
+                    "service": {"host": "keydb"},
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "keydb": {
+                                    "image": "eqalpha/keydb:latest",
+                                    "environment": {
+                                        "CONN": "redis://${ifNonempty:config.password}"
+                                        "${service.host}:${config.port}"
+                                    },
+                                }
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        _output, diagnostics = render_compose(plan)
+
+        self.assertIn("E071", [d.code for d in diagnostics if d.level == "error"])
+
+
 if __name__ == "__main__":
     unittest.main()

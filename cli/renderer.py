@@ -154,13 +154,13 @@ def render_compose(
 
 
 _UNRESOLVED_EXPRESSION_PATTERN = re.compile(
-    r"\$\{((?:config|bindings|service)\.[^}]*)\}"
+    r"\$\{((?:config|bindings|service)\.[^}]*|ifNonempty:[^}]*)\}"
 )
 
 
 def _check_unresolved_expressions(rendered_yaml: str) -> list[Diagnostic]:
     """
-    Detect leftover ${config.*}/${bindings.*}/${service.*} template expressions
+    Detect leftover ${config.*}/${bindings.*}/${service.*}/${ifNonempty:*} template expressions
     that survived rendering unresolved (e.g. an optional consumed contract that
     was never bound, but is unconditionally referenced by the module's
     template). These are always a rendering bug -- unlike ${CDS_*}/${VAR}
@@ -540,7 +540,10 @@ def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
         return _resolve_expr(path.strip(), context) == expected.strip()
 
     if expr.startswith("ifNonempty:"):
-        path, prefix, suffix = expr[len("ifNonempty:"):].split(",", 2)
+        args = expr[len("ifNonempty:"):].split(",", 2)
+        if len(args) != 3:
+            return None
+        path, prefix, suffix = args
         value = _resolve_expr(path, context)
         if value is None or (isinstance(value, str) and not value.strip()):
             return ""
