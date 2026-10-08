@@ -29,20 +29,18 @@ _PART_I_ITEMS = [
 _PART_II_ITEMS = [f"II.{n}" for n in range(1, 9)]
 
 _ISSUE_REF = re.compile(r"#\d+")
-_NON_APPLICABLE_JUSTIFICATION = re.compile(
-    r"non-applicable\s*\(justified\)[^|]*\u2014", re.IGNORECASE
-)
+_PLR_ID = re.compile(r"^PLR-\d{2}$")
 
 
-def _table_rows(lines: list[str], heading: str) -> list[str]:
+def _table_rows(lines: list[str], heading_prefix: str) -> list[str]:
     """Return the data rows (excluding header/separator) of the markdown
-    table that immediately follows the given ``##``/``###`` heading line."""
+    table that follows the first heading line starting with the prefix."""
     start = None
     for index, line in enumerate(lines):
-        if line.strip() == heading:
+        if line.strip().startswith(heading_prefix):
             start = index
             break
-    assert start is not None, f"heading {heading!r} not found"
+    assert start is not None, f"heading {heading_prefix!r} not found"
 
     rows = []
     in_table = False
@@ -81,19 +79,15 @@ class CraTraceabilityTest(unittest.TestCase):
         self.assertTrue(self.path.is_file(), "docs/cra-risk-assessment.md must exist")
 
     def _part_i_rows(self):
-        rows = _table_rows(
-            self.lines,
-            "## 2. Annex I Part I traceability — properties of products with"
-            " digital elements",
-        )
+        rows = _table_rows(self.lines, "## 2. Annex I Part I")
         return [_split_cells(row) for row in rows]
 
     def _part_ii_rows(self):
-        rows = _table_rows(
-            self.lines,
-            "## 3. Annex I Part II traceability — vulnerability handling"
-            " requirements",
-        )
+        rows = _table_rows(self.lines, "## 3. Annex I Part II")
+        return [_split_cells(row) for row in rows]
+
+    def _register_rows(self):
+        rows = _table_rows(self.lines, "## 1. Product-lifecycle risk register")
         return [_split_cells(row) for row in rows]
 
     def test_part_i_every_item_present_exactly_once(self) -> None:
@@ -127,26 +121,21 @@ class CraTraceabilityTest(unittest.TestCase):
                 )
                 lowered = disposition.lower()
                 is_implemented = lowered.startswith("implemented")
-                is_tracked_gap = "tracked gap" in lowered
+                is_tracked_gap = lowered.startswith("tracked gap")
                 is_non_applicable = lowered.startswith("non-applicable")
                 self.assertTrue(
                     is_implemented or is_tracked_gap or is_non_applicable,
                     f"{item_id} disposition {disposition!r} must start with "
-                    "'Implemented', contain 'Tracked gap', or start with "
-                    "'Non-applicable'",
+                    "'Implemented', 'Tracked gap', or 'Non-applicable'",
                 )
                 if is_tracked_gap:
                     related = cells[-2] if len(cells) >= 2 else ""
-                    has_issue_ref = _ISSUE_REF.search(
-                        disposition
-                    ) or _ISSUE_REF.search(related)
-                    acknowledges_unfiled = "not yet filed" in lowered
                     self.assertTrue(
-                        has_issue_ref or acknowledges_unfiled,
-                        f"{item_id} is a tracked gap and must either cite a "
+                        _ISSUE_REF.search(disposition)
+                        or _ISSUE_REF.search(related),
+                        f"{item_id} is a tracked gap and must cite a "
                         "'#<issue number>' reference (in the disposition or "
-                        "related-issue(s) cell), or explicitly state "
-                        "'not yet filed' if deliberately left unfiled",
+                        "related-issue(s) cell)",
                     )
                 if is_non_applicable:
                     self.assertIn(
@@ -155,6 +144,17 @@ class CraTraceabilityTest(unittest.TestCase):
                         f"{item_id} is non-applicable and must state a "
                         "justification after an em dash",
                     )
+
+    def test_register_rows_complete_and_gaps_have_issues(self) -> None:
+        rows = self._register_rows()
+        self.assertTrue(rows, "risk register must not be empty")
+        for cells in rows:
+            with self.subTest(item=cells[0]):
+                self.assertRegex(cells[0], _PLR_ID)
+                self.assertEqual(len(cells), 10, "register rows need 10 columns")
+                self.assertTrue(all(cells), "register cells must be non-empty")
+                if "tracked gap" in cells[5].lower() + cells[6].lower():
+                    self.assertRegex(cells[6], _ISSUE_REF)
 
     def test_part_i_dispositions_are_valid(self) -> None:
         self._assert_dispositions_valid(self._part_i_rows())
