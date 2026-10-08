@@ -70,6 +70,23 @@ jobs:
           name: python-package-release-evidence
           path: release-evidence/
 
+      - name: Build CRA release-evidence manifest
+        # Always disabled (conformityClaimEnabled: false) -- this makes no
+        # conformity or CE-marking claim. See
+        # docs/cra-release-evidence-gate.md and RELEASE.md#release-evidence.
+        run: |
+          python scripts/build_cra_release_evidence_manifest.py \
+            --commit-sha "${GITHUB_SHA}" \
+            --source-ref "${GITHUB_REF_NAME}" \
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --generated-by "https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --output release-evidence/cra-release-evidence-manifest.json
+
+      - name: Check CRA release gate
+        # Disabled by default, so this is a guaranteed no-op; it only fails
+        # if someone has deliberately set conformityClaimEnabled: true.
+        run: python scripts/check_cra_release_gate.py release-evidence/cra-release-evidence-manifest.json
+
       - name: Append support notice
         run: |
           printf '\n' >> release_notes.md
@@ -93,6 +110,7 @@ jobs:
           files: |
             release-evidence/cli-sbom.cyclonedx.json
             release-evidence/release-inventory.json
+            release-evidence/cra-release-evidence-manifest.json
 
       - name: Verify the release was published, not left as a draft
         # softprops/action-gh-release@v3 has consistently published the
