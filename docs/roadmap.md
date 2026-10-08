@@ -85,6 +85,7 @@ These work but may have breaking changes in upcoming releases:
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
 - Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode (`start-dev`), backed by a consumed `sql-database` contract; wired into the `local-haven-reference` profile (#772), no realm configuration (#680) or `oidc-provider` contract for other modules to consume (#681)
+- Module: Marquez (`modules-experimental/observability/marquez/`) — OpenLineage-compatible lineage backend, reference provider for the `lineage-sink` contract; demoed by `local-dagster-postgres-marquez` (#779)
 - Profile: `local-dagster-postgres-superset-vault` — not tested thoroughly yet
 - Profile: `local-haven-reference` — Common Ground/Haven-aligned reference stack (identity, TLS ingress, database), experimental while Keycloak lacks realm configuration/an `oidc-provider` contract (#772, see [docs/common-ground-alignment.md](common-ground-alignment.md))
 - `scripts/compose_to_module.py` — scaffolds a starter `module.yaml` from an existing `docker-compose.yml`
@@ -102,10 +103,35 @@ These work but may have breaking changes in upcoming releases:
 
 ---
 
+## Cyber Resilience Act Readiness
+
+Tracked under the **Cyber Resilience Act readiness** milestone: proactive
+engineering records for CDS's own product-security posture, not a claim of
+CRA scope or conformity (see [docs/cra-scope-decision.md](cra-scope-decision.md)):
+
+- ✅ **Scope decision, incident runbook, SBOM/release inventory, support
+  policy, compliance report** — #728, #729, #730, #731, #734, #735 (see
+  [docs/cra-incident-runbook.md](cra-incident-runbook.md),
+  [docs/security-support-policy.md](security-support-policy.md) and
+  [docs/compliance-report.md](compliance-report.md))
+- ✅ **Risk assessment and technical documentation** — product-lifecycle risk
+  register, Annex I traceability matrix and Annex VII index, with a CI check
+  (#732, see [docs/cra-risk-assessment.md](cra-risk-assessment.md) and
+  [docs/cra-technical-documentation.md](cra-technical-documentation.md))
+- 📋 **CRA release evidence gate** — release gate that requires the evidence
+  above before publishing (#733)
+- 📋 **CLI self-update notification** — notify users when a newer CDS CLI
+  release is available (#841)
+- 📋 **`cds get` source trust** — trusted-source allowlist and commit/digest
+  pinning for fetched bundles (#849)
+
+---
+
 ## Dutch Public-Sector Alignment (FDS · Common Ground · NIS2)
 
 Tracked under the **Dutch Public-Sector Data & Security Alignment** milestone,
-distinct from the CRA product-security milestone above — these address the
+distinct from the CRA product-security milestone above (see
+[Cyber Resilience Act Readiness](#cyber-resilience-act-readiness)) — these address the
 Federatief Datastelsel/IBDS data-sharing framework, Common Ground/Haven
 platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
 
