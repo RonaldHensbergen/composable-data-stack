@@ -49,7 +49,7 @@ duplicated — none are currently assigned.
 
 ## Stable Components
 
-These are considered production-ready in the current release (v0.10.0):
+These are considered production-ready in the current release (v0.11.0):
 
 - `cds validate` — module and contract validation
 - `cds plan` — dependency resolution and execution planning
@@ -59,6 +59,7 @@ These are considered production-ready in the current release (v0.10.0):
 - `cds test` — runs validate → security → plan → render in sequence; exercised in CI
 - `cds get` — fetch a profile and its module/runtime assets from a GitHub repository (`--remote`, `--ref`, `--local`), with tracking metadata under `.cds/`
 - `cds generate-profile` — persist a runtime/programmatically composed profile so it can be validated and planned like any hand-authored one
+- `cds compose-profile` — merge a new module instance into an existing profile, resolving unambiguous contract bindings/dependencies automatically and reporting ambiguous or missing ones (#807)
 - `cds list profiles` / `cds list modules` / `cds list images` — discover what's available locally or in a remote repository (`--remote`, `--ref`, `--local`)
 - `cds config` (`get`/`set`/`unset`/`list`) and `cds use` — persisted project-level defaults (`profile`, `environment`, `security.strict`)
 - `cds diff` — show effective configuration differences between two environment overlays of a profile (`--from`/`--to`)
@@ -83,8 +84,10 @@ These work but may have breaking changes in upcoming releases:
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
-- Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode (`start-dev`), backed by a consumed `sql-database` contract; not yet wired into a stable profile, no realm configuration (#680) or `oidc-provider` contract for other modules to consume (#681)
+- Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode (`start-dev`), backed by a consumed `sql-database` contract; wired into the `local-haven-reference` profile (#772), no realm configuration (#680) or `oidc-provider` contract for other modules to consume (#681)
+- Module: Marquez (`modules-experimental/observability/marquez/`) — OpenLineage-compatible lineage backend, reference provider for the `lineage-sink` contract; demoed by `local-dagster-postgres-marquez` (#779)
 - Profile: `local-dagster-postgres-superset-vault` — not tested thoroughly yet
+- Profile: `local-haven-reference` — Common Ground/Haven-aligned reference stack (identity, TLS ingress, database), experimental while Keycloak lacks realm configuration/an `oidc-provider` contract (#772, see [docs/common-ground-alignment.md](common-ground-alignment.md))
 - `scripts/compose_to_module.py` — scaffolds a starter `module.yaml` from an existing `docker-compose.yml`
 - `scripts/ai_profile_review.py` — optional AI-assisted guardrail/simplification review for profiles
 
@@ -94,9 +97,76 @@ These work but may have breaking changes in upcoming releases:
 
 - 📋 **Stabilize Vault-backed profile** — validate and harden `local-dagster-postgres-superset-vault` for regular use
 - 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
-- 📋 **Dynamic Composition follow-up**
-  - allow runtime-generated profiles for planning and composition beyond `cds generate-profile` (#349)
 - 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): Helm target lifecycle parity with Compose (#689), self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
+- 📋 **Haven parity — previously untracked workstreams** — the three [docs/haven-parity-plan.md](haven-parity-plan.md) gaps that had no issue filed: GitOps rendering/module support (#767), Kubernetes-native database operator pattern (#768), `cds maturity` profile-maturity report (#769)
+- 📋 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink` contract + OpenTelemetry Collector reference module (#777)
+
+---
+
+## Cyber Resilience Act Readiness
+
+Tracked under the **Cyber Resilience Act readiness** milestone: proactive
+engineering records for CDS's own product-security posture, not a claim of
+CRA scope or conformity (see [docs/cra-scope-decision.md](cra-scope-decision.md)):
+
+- ✅ **Scope decision, incident runbook, SBOM/release inventory, support
+  policy, compliance report** — #728, #729, #730, #731, #734, #735 (see
+  [docs/cra-incident-runbook.md](cra-incident-runbook.md),
+  [docs/security-support-policy.md](security-support-policy.md) and
+  [docs/compliance-report.md](compliance-report.md))
+- ✅ **Risk assessment and technical documentation** — product-lifecycle risk
+  register, Annex I traceability matrix and Annex VII index, with a CI check
+  (#732, see [docs/cra-risk-assessment.md](cra-risk-assessment.md) and
+  [docs/cra-technical-documentation.md](cra-technical-documentation.md))
+- ✅ **CRA release evidence gate** — release-evidence manifest and fail-closed
+  conformity gate, disabled by default, with draft Annex II/V/VI templates
+  (#733, see [docs/cra-release-evidence-gate.md](cra-release-evidence-gate.md))
+- 📋 **CLI self-update notification** — notify users when a newer CDS CLI
+  release is available (#841)
+- 📋 **`cds get` source trust** — trusted-source allowlist and commit/digest
+  pinning for fetched bundles (#849)
+
+---
+
+## Dutch Public-Sector Alignment (FDS · Common Ground · NIS2)
+
+Tracked under the **Dutch Public-Sector Data & Security Alignment** milestone,
+distinct from the CRA product-security milestone above (see
+[Cyber Resilience Act Readiness](#cyber-resilience-act-readiness)) — these address the
+Federatief Datastelsel/IBDS data-sharing framework, Common Ground/Haven
+platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
+
+- ✅ **FDS data-provider alignment** — map CDS's `provides`/`consumes` contract
+  model to the Federatief Datastelsel Afsprakenstelsel's data-provider
+  basisafspraken; identify any missing shared contract (#773, see
+  [docs/fds-alignment.md](fds-alignment.md)). Gap closed by a new shared
+  contract expressing FDS-required dataset provider metadata (#825)
+- ✅ **Common Ground / Haven reference profile** — mapping doc and a
+  reference profile combining existing modules (identity, TLS, database) in
+  a Haven-aligned shape (#772, see [docs/common-ground-alignment.md](common-ground-alignment.md)
+  and [profiles/local-haven-reference](../profiles/local-haven-reference))
+- ✅ **Cyberbeveiligingswet/NIS2 scope** — record CDS's role as a software
+  supplier vs. the operator-level obligations of Cyberbeveiligingswet/NIS2
+  Article 21, cross-referenced against the CRA milestone so the two are not
+  conflated (#771, see [docs/nis2-cyberbeveiligingswet-scope.md](nis2-cyberbeveiligingswet-scope.md))
+- ✅ **NIS2-aligned `cds security` reporting** — extend the rule-set with
+  operator-readiness checks per Article 21 measure category, gated on the
+  scoping issue above (#774)
+- ✅ **Stale pinned-digest warning** — warn when a profile's pinned image
+  digest is behind the latest published, patched digest; cited by the NIS2
+  scoping issue's supply-chain-security gap (#736, #758)
+- ✅ **Local audit trail** — retain a local audit trail of rendered/applied
+  stacks for user incident evidence, supporting NIS2 incident-reporting
+  timelines (#737, see [docs/audit-log.md](audit-log.md))
+- ✅ **OpenLineage data-lineage for Dagster** — add a `lineage-sink` contract
+  and wire Dagster's built-in OpenLineage integration to it, in support of
+  IBDS/FDS "verantwoord datagebruik" provenance expectations; coordinate
+  with the FDS mapping above (#779, #831; FDS follow-up #843)
+- ✅ **FDS data-provider contract** — add a shared `open-data-provider`
+  contract expressing FDS-required dataset provider metadata (description,
+  classification, access conditions), the gap identified by the FDS mapping
+  above; the `postgres` module demonstrates providing it via an opt-in
+  `config.dataProvider` block (#825)
 
 ---
 
@@ -107,7 +177,7 @@ Selected items shipped since v0.4.0 (see [CHANGELOG.md](../CHANGELOG.md) for the
 - ✅ **Kubernetes/Helm rendering target** — new `--target helm` runtime alongside Compose, with a k3d local-dev harness and CI proof (#608)
 - ✅ **Strengthened contract compatibility validation** — bundled compatibility registry flags module pairings explicitly recorded as unsupported for a contract (`E043`), beyond plain contract `kind` matching (#350)
 - ✅ **`cds get`** — fetch profiles/modules from a GitHub repository, with symlink-safe extraction and tracking manifest (#493, #495, #474)
-- ✅ **`cds generate-profile`** — persist and validate a runtime-composed profile (initial groundwork toward dynamic composition; see the "Dynamic Composition follow-up" item below for remaining work)
+- ✅ **`cds generate-profile`** / **`cds compose-profile`** — persist a runtime-composed profile, and merge a new module instance into an existing profile with automatic contract-binding/dependency resolution (#349, #807)
 - ✅ **dbt promoted to stable** (`modules/transformation/dbt/`) with production-suitable hardening (#594)
 - ✅ **`cds config` / `cds use`** — persisted project-level defaults for `profile`, `environment`, `security.strict` (#383, #537)
 - ✅ **`cds list --remote/--ref/--local`** — discover profiles/modules/images in a remote repository before fetching (#500)

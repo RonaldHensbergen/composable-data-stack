@@ -322,6 +322,22 @@ def _fixture_entry(
     return matches[0]
 
 
+def lookup_image_evidence(
+    image_ref: str, fixture_path: Path | None
+) -> dict[str, Any] | None:
+    """
+    Return the signed-images fixture entry (repository, digest, signed,
+    provenanceAttested, sbomAttested) matching image_ref, or None when no
+    fixture is configured/loadable or no matching entry exists.
+
+    Public wrapper around `_load_fixture`/`_fixture_entry` for callers
+    outside this module (e.g. `cli.report`'s compliance report) that need
+    read-only evidence lookup without pulling in cosign/live-verification.
+    """
+    fixture, _error = _load_fixture(fixture_path)
+    return _fixture_entry(fixture, image_ref)
+
+
 def _verification_findings(
     images: list[tuple[str, str, bool]],
     policy: ImagePolicy,

@@ -8,6 +8,10 @@ cosign signing, CycloneDX SBOM attestation, and SLSA provenance attestation
 steps; only the registry, image naming/tagging scheme, and credentials
 differ (see below).
 
+For an exportable summary of this signature/SBOM/provenance evidence linked
+against a specific rendered stack, see
+[compliance-report.md](compliance-report.md) (`cds report`).
+
 ## Registry and naming
 
 ### GHCR

@@ -127,7 +127,7 @@ spec:
             # see renovate.json's customManagers. Used as the base (non-
             # variant-prefixed) tag when `cds render/up/test --image-source
             # registry` is passed without an explicit config.image.tag.
-            default: "1.13.24"
+            default: "1.13.25"
             description: >
               Registry tag to pull when image.source is "registry", e.g. a
               version published by .github/workflows/publish-images.yml
@@ -165,6 +165,26 @@ spec:
 
       analyticsDatabase:
         $ref: "#/$defs/contractBinding"
+
+      lineageSink:
+        $ref: "#/$defs/contractBinding"
+
+      openlineageNamespace:
+        type: string
+        minLength: 1
+        default: dagster
+        description: >-
+          OPENLINEAGE_NAMESPACE convention value, available to any
+          OpenLineage producer the profile's Dagster code location runs
+          (e.g. a job/op using the `openlineage-python` client directly).
+          CDS only wires the connection details (OPENLINEAGE_URL,
+          OPENLINEAGE_ENDPOINT, OPENLINEAGE_API_KEY) and this convention
+          value; it does not ship or run an OpenLineage producer itself --
+          the official `openlineage-dagster` integration package is
+          currently incompatible with modern Dagster releases (it imports
+          the removed `dagster.core` module path), so user code should
+          either use `openlineage-python` directly or track that
+          upstream package for a fix.
 
       sharedData:
         type: object
@@ -246,6 +266,12 @@ spec:
         kind: sql-database
       required: false
       mappedFrom: spec.config.analyticsDatabase
+
+    - name: lineage-sink
+      contract:
+        kind: lineage-sink
+      required: false
+      mappedFrom: spec.config.lineageSink
 
     - name: run-storage
       contract:
@@ -354,6 +380,10 @@ spec:
             CDS_ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
             CDS_ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
             CDS_ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
+            OPENLINEAGE_URL: "${ifNonempty:bindings.lineage-sink.connectionUri,,}"
+            OPENLINEAGE_ENDPOINT: "${ifNonempty:bindings.lineage-sink.ingestPath,,}"
+            OPENLINEAGE_API_KEY: "${ifNonempty:bindings.lineage-sink.authToken,,}"
+            OPENLINEAGE_NAMESPACE: "${config.openlineageNamespace}"
         dagster-webserver:
           build:
             context: ../../../
@@ -408,6 +438,10 @@ spec:
             ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
             ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
             ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
+            OPENLINEAGE_URL: "${ifNonempty:bindings.lineage-sink.connectionUri,,}"
+            OPENLINEAGE_ENDPOINT: "${ifNonempty:bindings.lineage-sink.ingestPath,,}"
+            OPENLINEAGE_API_KEY: "${ifNonempty:bindings.lineage-sink.authToken,,}"
+            OPENLINEAGE_NAMESPACE: "${config.openlineageNamespace}"
           healthcheck:
             conditionallyEnabledFrom: config.healthcheck.enabled
             test:
@@ -486,6 +520,10 @@ spec:
             CDS_ANALYTICS_DB_USER: "${bindings.analytics-database.username}"
             CDS_ANALYTICS_DB_PASSWORD: "${bindings.analytics-database.password}"
             CDS_ANALYTICS_DB_CONNECTION_URI: "${bindings.analytics-database.connectionUri}"
+            OPENLINEAGE_URL: "${ifNonempty:bindings.lineage-sink.connectionUri,,}"
+            OPENLINEAGE_ENDPOINT: "${ifNonempty:bindings.lineage-sink.ingestPath,,}"
+            OPENLINEAGE_API_KEY: "${ifNonempty:bindings.lineage-sink.authToken,,}"
+            OPENLINEAGE_NAMESPACE: "${config.openlineageNamespace}"
 
       volumes:
         dagster-io-manager-storage: {}

@@ -81,6 +81,15 @@ permanent GitHub Release assets (not just short-lived CI artifacts):
 Both are produced by the shared `build-python-package.yml` job and attached
 by `release.yml` when the GitHub release is created.
 
+A third file, `cra-release-evidence-manifest.json`, is built by
+`release.yml` itself (`scripts/build_cra_release_evidence_manifest.py`) and
+attached alongside the other two. It references (not duplicates) this
+evidence plus the scope decision, risk assessment, technical documentation,
+support policy, and vulnerability-scanning status, for a future CRA
+conformity assessment. It always has `conformityClaimEnabled: false` and
+makes no conformity or CE-marking claim for the release — see
+`docs/cra-release-evidence-gate.md`.
+
 **Retrieving evidence after CI artifacts expire:** the CI-produced
 `python-package-distributions` and `python-package-release-evidence`
 artifacts expire (7 and 90 days respectively). The GitHub Release page

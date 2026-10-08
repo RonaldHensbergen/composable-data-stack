@@ -6,8 +6,229 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added a CRA release-evidence manifest and fail-closed conformity
+  readiness gate: `scripts/build_cra_release_evidence_manifest.py`
+  references (not duplicates) existing scope-decision, risk-assessment,
+  technical-documentation, SBOM, test-result, vulnerability-status,
+  support, user-instruction, and signature/provenance evidence into one
+  JSON document, always disabled (`conformityClaimEnabled: false`, no
+  automation can flip it), attached as a permanent GitHub Release asset
+  alongside the existing SBOM/release-inventory evidence.
+  `scripts/check_cra_release_gate.py` is a no-op unless that flag is
+  explicitly set, in which case it fails closed on any missing evidence.
+  Added `docs/cra-release-evidence-gate.md` (product classification
+  review against CRA Annex III/IV, the Annex VIII Part I
+  conformity-assessment route, and CE-marking/declaration explanation)
+  and draft-only, clearly-marked-invalid Annex II/V/VI templates
+  (`docs/cra-annex-ii-user-information-template.md`,
+  `docs/cra-annex-v-eu-declaration-of-conformity-template.md`,
+  `docs/cra-annex-vi-simplified-declaration-template.md`). None of this
+  asserts CRA conformity or CE marking for CDS today (#733).
+
+- Added a shared `lineage-sink` contract (`shared/contracts/lineage-sink.yaml`)
+  for vendor-neutral OpenLineage-compatible data-lineage backends, mirroring
+  the existing `log-sink` pattern. The `dagster` module gained an optional
+  `consumes` entry (`spec.config.lineageSink`) wiring `OPENLINEAGE_URL`,
+  `OPENLINEAGE_ENDPOINT`, `OPENLINEAGE_API_KEY`, and `OPENLINEAGE_NAMESPACE`
+  into all three Dagster services when bound, with no change for existing
+  profiles that leave it unbound. Added a new experimental reference
+  provider module, `modules-experimental/observability/marquez`, and a demo
+  profile, `profiles/local-dagster-postgres-marquez`, verifying the wiring
+  end-to-end against a live Marquez backend. See `docs/observability.md`
+  section 11 (#779).
+
+- Added `docs/cra-risk-assessment.md` (a product-lifecycle risk register
+  plus a full Annex I Part I/Part II traceability matrix mapping CDS's
+  design, release, and maintenance controls to the Cyber Resilience Act's
+  essential requirements) and `docs/cra-technical-documentation.md` (an
+  Annex VII technical-documentation index pointing each required point at
+  the existing CDS artifact that would serve as evidence). Added
+  `tests/test_cra_traceability.py`, a CI check that every Annex I item
+  appears exactly once with a valid, non-empty disposition (implemented
+  evidence, a tracked gap, or a justified non-applicability) (#732).
+
+- Added `docs/fds-alignment.md`, mapping CDS's `provides`/`consumes`
+  contract model against the Federatief Datastelsel (FDS) Afsprakenstelsel's
+  data-provider basisafspraken (technical, semantic, legal, organisational
+  agreement domains). Concludes the technical/organisational domains are
+  reasonably served by existing contracts and the compliance report/audit
+  trail. See `docs/roadmap.md` (#773).
+
+- Added a shared `open-data-provider` contract
+  (`shared/contracts/open-data-provider.yaml`), closing the semantic/legal
+  gap identified by `docs/fds-alignment.md`: it expresses FDS-required
+  dataset provider metadata (`datasetId`, `title`, `description`,
+  `classification`, `accessConditions`, `licence`) in a profile-portable,
+  machine-checkable way, distinct from existing service-connection
+  contracts (`sql-database`, `cache-service`). The `postgres` module
+  demonstrates providing it via a new, opt-in `config.dataProvider` block
+  (empty/unset by default, so existing profiles are unaffected) (#825).
+
+- Published `docs/common-ground-alignment.md`, mapping CDS's
+  module/contract/profile model to Common Ground/Haven reference
+  architecture concepts, and added the `local-haven-reference` profile
+  combining the `postgres`, `keycloak`, and `traefik` modules in a
+  Haven-aligned identity/TLS-ingress/database shape; listed under
+  Experimental Components in `docs/roadmap.md` until Keycloak gains realm
+  configuration (#680) and an `oidc-provider` contract (#681) (#772).
+
+- Added a local, append-only audit trail of rendered/applied stacks:
+  `validate`, `render`, `up`, and `test` now append a JSON Lines entry to
+  `.cds/audit-log.jsonl` recording the timestamp, command, profile,
+  environment, resolved module versions/image references, and
+  success/failure/interrupted outcome. Only secret *alias* names are ever
+  recorded (never values), following the existing `${CDS_*}` placeholder
+  convention. Disable it per-invocation with `CDS_AUDIT_LOG_DISABLE=1` or
+  per-project with `cds config set audit.enabled false`. Distinct from
+  `cds get`'s `.cds/get-manifest.json`, which only tracks file provenance.
+  See `docs/audit-log.md` (#737).
+
+- Added `docs/cli-reference.md`, a standalone full command/flag reference
+  for every `cds` subcommand (including `cds report`, which had been
+  missing from the README's command table since its addition in #734),
+  moved out of `README.md`'s `## ⚙️ CLI` section to keep the README
+  focused on onboarding/quickstart content. The README section is now a
+  short pointer to the new doc.
+
+- Added a `cds compose-profile` command that merges a new module instance
+  into an existing profile instead of requiring a hand-edited
+  `profile.yaml`: it resolves the new module's `consumes` entries against
+  contracts already `provides`d by the profile's existing modules,
+  auto-binding (and adding the matching `dependsOn`) when exactly one
+  candidate matches a consume entry's contract kind, and reporting an
+  error naming the candidates when a consume entry has zero or multiple
+  matches so the ambiguity can be resolved with `--bind
+  <name>=<moduleId>.<providedContract>`. `--set <config.path>=<value>`
+  sets any other config field, and `--secret <alias>=<ENV_VAR>` defines a
+  `secrets.<alias>` reference the new module's config ends up using.
+  Prints the merged profile to stdout by default; `--write` persists it
+  back to the resolved `profile.yaml`, and `--output <path>` writes it
+  elsewhere (e.g. before handing it to `cds generate-profile`).
+  `--add-module <source>` is written the same way as existing
+  `spec.modules[].source` entries in the target `profile.yaml` (relative
+  to the profile's own directory, not the repository root, unless
+  `CDS_MODULE_PATH` is set). This is the follow-up to #349 noted in
+  `docs/roadmap.md`'s Near-Term section ("beyond `cds generate-profile`")
+  (#807).
+
 ### Fixed
 
+- Fixed the `marquez-web` healthcheck in the experimental
+  `modules-experimental/observability/marquez` module always reporting
+  `unhealthy` under `cds up`: it shelled out to `bash -c '... /dev/tcp ...'`,
+  but the `marquez-web` image is BusyBox/Alpine-based and has no `bash`
+  binary. Switched to BusyBox-compatible `wget --spider` (#831).
+
+- `cli/renderer.py`'s short-form string volume rewriting (`"./a/b:/target"`)
+  now re-adds a `./` prefix when it rewrites a relative bind-mount source to
+  a multi-segment path (e.g. a project-root-relative fallback). Compose's
+  short volume syntax only treats a source starting with `.`, `/`, or `~`
+  as a bind mount; a bare rewritten path like `traefik/dynamic` was
+  otherwise parsed as a named volume reference, breaking `docker compose
+  config`/`cds up` for the `traefik` module's dynamic-config and
+  certificate bind mounts, surfaced by the new `local-haven-reference`
+  profile being the first to exercise them (#772).
+
+- `local-haven-reference`'s `init-db.sh` wrapped its `GRANT ALL
+  PRIVILEGES ON DATABASE ... TO ...` statement in a `DO $do$ ... $do$;`
+  block, but `psql`'s `:'var'` variable interpolation does not apply
+  inside dollar-quoted string literals, so the literal `:'identity_db'`
+  text was sent to Postgres and broke container startup
+  (`ERROR: syntax error at or near ":"`, `postgres` exiting on first
+  boot). Replaced it with the `SELECT format(...) \gexec` pattern used by
+  every other profile's `init-db.sh` (#772).
+
+- `cds compose-profile --write` now refuses to run on a profile that
+  declares its own top-level `extends:` entry: resolving `extends`
+  flattens the parent/child chain, so writing the merged result back to
+  `profile.yaml` would silently discard the `extends` reference and
+  duplicate the parent's modules on disk. The command now errors and
+  points at `--output <path>` instead, which still works since it writes
+  the merged document elsewhere rather than overwriting the source (#808).
+
+## [0.11.0] - 2026-10-04
+
+### Added
+
+- Extended the security rule-set with two NIS2/Cyberbeveiligingswet
+  operator-readiness checks and a dedicated report mode: `CDS-SEC-080`
+  flags a profile with a durable data store (`sql-database`/
+  `file-database` provider) that has no `backup-target` contract consumer
+  bound anywhere (a known limitation until a backup-capable module
+  exists, tracked by #210/#665/#668/#669); `CDS-SEC-081` flags an
+  admin-facing service (e.g. Superset, Dagster's webserver) when no
+  identity/auth module (e.g. `modules/identity/keycloak`) is present in
+  the profile at all. Both are code-enforced (`scope: ["none"]`,
+  `codeEnforced: true`), tagged with a new `business-continuity`/
+  `access-control` compliance category, and participate in
+  `cds security --report nis2`, a new report mode that groups findings by
+  NIS2 Article 21(2) measure letter (a)-(j) instead of by raw compliance
+  category. See `docs/security-rules.md` and the updated
+  `docs/nis2-cyberbeveiligingswet-scope.md` gap table (#774).
+
+- Added `docs/nis2-cyberbeveiligingswet-scope.md`, recording that CDS
+  itself is not an "essential"/"important" entity under NIS2/the
+  Cyberbeveiligingswet — that role falls on operators of profiles built
+  with CDS — and mapping each NIS2 Article 21(2) risk-management measure
+  category to existing CDS evidence (SBOM, rule-set compliance categories,
+  image signing) or an open gap, cross-referenced against the CRA scope
+  decision so the two regimes aren't conflated (#771).
+
+- Added a `cds report` command that exports a compliance/evidence report
+  for a rendered stack: resolved module list (id/source/version/
+  dependsOn), linked signature/SBOM/provenance evidence per image (looked
+  up from the signed-images fixture, degrading gracefully with a `W101`
+  warning for locally-built or unlinkable images instead of failing), the
+  contract/topology graph, and a secret-leak check (`E119`) confirming no
+  declared secret value renders literally into Compose output instead of
+  a `${CDS_*}` placeholder. Supports human-readable text (default) or
+  `--json`, and `--output`/`-o` to save to a file; diagnostics are always
+  printed to stderr so `--json` output stays parseable. See
+  `docs/compliance-report.md`, which also carries the required disclaimer
+  that this is readiness evidence, not a legal compliance/conformity
+  certification (#734).
+
+- Added an opt-in pinned image digest staleness check: `cds validate`/`cds
+  up --check-image-digests` (or `CDS_CHECK_IMAGE_DIGESTS=1`) compares each
+  module's digest-pinned image (e.g. `postgres:18@sha256:...`) against the
+  digest the registry currently publishes for that same tag and emits a
+  stable `W100` warning when they differ. Off by default so `validate`/
+  `render`/`up` stay network-free, and any lookup failure (offline, auth,
+  unsupported registry) is silently skipped rather than failing the
+  command (#736).
+
+- Added true in-memory/dict-based profile planning entry points, closing the remaining gap in #349: `cli.overlay.resolve_extends_from_profile()`/`resolve_profile_from_profile()` and `cli.planner.build_plan_from_profile()`/`plan_generated_profile()` let a runtime-generated profile be validated and planned directly from a dict -- same `extends`/environment-overlay semantics and module `source:` resolution as the disk-based `resolve_extends()`/`resolve_profile()`/`build_plan()`, anchored to a directory that does not need to contain a `profile.yaml` of its own -- without ever writing it to disk first (#679).
+
+- Added a persisted `target` project default via `cds config set target
+  compose|helm`: `validate`/`render`/`up`/`down`/`test`/`state`/`security`
+  now fall back to the configured value (and then to `compose`) whenever
+  their `--target` flag is omitted, so the Helm target no longer needs to
+  be repeated on every invocation. An explicit `--target` flag still
+  takes precedence, and `cds config unset target` reverts to the
+  built-in `compose` default (#811).
+
+### Removed
+
+- Removed the stale `docs/plan/CRA_and_other_laws.md`, a duplicate of
+  `docs/plan/cra-and-nl-law-sequencing.md` left behind when two in-flight
+  PRs independently modified the pre-rename and post-rename filenames;
+  the surviving sequencing doc's statuses are refreshed to reflect
+  #729/#734/#736/#771 now being resolved and #774 no longer blocked.
+
+### Fixed
+
+- Bumped the `urllib3` transitive dependency pinned in `uv.lock` from
+  `2.7.0` to `2.8.0`, resolving three Dependabot-reported advisories: an
+  HTTPS proxy TLS configuration bypass, an unbounded chunk-size-line
+  memory buffer in `HTTPResponse.stream()`/`read_chunked()`, and a
+  chunked-deflate decompression infinite loop.
+- Bumped `dagster-postgres` from `0.29.24` to `0.29.25` in
+  `images/dagster/requirements-postgres.txt` to match the Renovate-bumped
+  `dagster`/`dagster-graphql`/`dagster-webserver` `1.13.25` release train;
+  the mismatched pin made `pip-audit`'s dependency resolution fail with
+  `ResolutionImpossible` (#799).
 - Reverted the `sqlalchemy` upper-bound pin in
   `images/dagster/requirements-postgres.txt` from `<2.2` back to `<2.1`
   after a Renovate bump to `<2.2` allowed SQLAlchemy 2.1.x to resolve,
@@ -37,12 +258,24 @@ The format is based on Keep a Changelog.
   the file and the parser error instead of an unhandled `yaml.YAMLError`
   traceback, without changing any accepted input (#686).
 
+- Fixed `cds init` printing the literal string "None" in its summary
+  message (e.g. "Initialized environment for None.") when the profile is
+  resolved via `CDS_PROFILE_PATH` or the saved `cds use`/`cds config`
+  default rather than passed as a CLI argument; it now reports the
+  actually-resolved profile name, matching the `cds preflight` hint on the
+  following line.
+
 ### Changed
 
 - Added a Renovate `packageRule` disabling further updates to the
   `sqlalchemy` pin in `images/dagster/requirements-postgres.txt` so it
   cannot be widened past `<2.1` again until `dagster-postgres` supports
   the psycopg3 driver (#781).
+
+- Included the discovered top-level entries in the `cds get` unexpected
+  tarball-layout error, so a malformed GitHub archive now reports what was
+  found instead of only the expected shape, without changing any accepted
+  archive (#507).
 
 ## [0.10.0] - 2026-09-27
 

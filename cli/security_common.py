@@ -64,7 +64,62 @@ COMPLIANCE_CATEGORIES = {
         "digest-verified images, signature/build-provenance verification, "
         "trusted registries).",
     ),
+    "business-continuity": (
+        "Business continuity",
+        "Resilience of stateful services against data loss (no backup/"
+        "restore target wired for a service that holds durable data).",
+    ),
 }
+
+# Maps each NIS2/Cyberbeveiligingswet Article 21(2) measure letter to the
+# complianceCategory values whose findings give an operator direct evidence
+# for that measure, for `cds security --report nis2`. This mirrors (and must
+# be kept in sync with) the gap-analysis table in
+# docs/nis2-cyberbeveiligingswet-scope.md -- that doc is the narrative
+# source of truth for *why* each mapping holds (and which measures are out
+# of CDS's product scope entirely, e.g. (b), (e), (f), (g)), this is just
+# its machine-usable form. A letter with an empty category list has no
+# CDS rule-set evidence today; the report still lists it so the operator
+# sees the full Article 21(2) checklist, not just the parts CDS covers.
+NIS2_ARTICLE_21_MEASURES = (
+    (
+        "a", "Policies on risk analysis and information system security",
+        (),
+        "Every `cds security` finding, across all categories below, is "
+        "machine-checked input to this policy -- see the full finding list "
+        "and docs/security-compliance-categories.md.",
+    ),
+    (
+        "b", "Incident handling", (),
+        "Out of CDS's product scope (an operator incident-handling "
+        "procedure, not a rendered-artifact property). See SECURITY.md and "
+        "docs/security-support-policy.md for CDS's own process.",
+    ),
+    ("c", "Business continuity (backup management, disaster recovery, crisis management)", ("business-continuity",), None),
+    ("d", "Supply chain security", ("patching",), None),
+    (
+        "e", "Security in acquisition, development and maintenance, incl. vulnerability handling", (),
+        "Out of CDS's product scope. See SECURITY.md and "
+        "docs/security-support-policy.md for CDS's own secure-maintenance practice.",
+    ),
+    (
+        "f", "Policies/procedures to assess the effectiveness of risk-management measures", (),
+        "Re-running `cds security`/`cds test` gives a repeatable, "
+        "versionable check of whether a profile's measures still pass.",
+    ),
+    (
+        "g", "Basic cyber hygiene practices and cybersecurity training", (),
+        "Out of CDS's product scope (an operator organisational practice, "
+        "not a rendered-artifact property).",
+    ),
+    ("h", "Policies/procedures on cryptography and encryption", ("encryption-in-transit", "secrets-management"), None),
+    ("i", "Human resources security, access control policies, asset management", ("access-control",), None),
+    (
+        "j", "MFA/continuous authentication, secured communications", ("access-control",),
+        "modules/identity/keycloak can provide MFA-capable authentication "
+        "to a profile; this is opt-in, not a default.",
+    ),
+)
 
 SECRET_KEY_RE = re.compile(r"(?i)(password|secret|token|key|credential|passwd|pwd)")
 

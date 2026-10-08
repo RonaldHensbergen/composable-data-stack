@@ -20,8 +20,11 @@ except ImportError:
 
 import yaml
 
+from . import audit_log
+from .composer import compose_profile
 from .diagnostics import Diagnostic
 from .getter import GetError, _prepare_source_repository, fetch_profile, format_get_plan
+from .image_digest_check import is_enabled as image_digest_check_enabled
 from .image_updates import check_image_update, collect_module_images
 from .image_verification import (
     ImagePolicy,
@@ -32,13 +35,19 @@ from .image_verification import (
 from .k8s_renderer import render_helm
 from .k8s_runner import get_k8s_state, helm_down, helm_up
 from .k8s_security import scan_k8s_security
-from .loader import save_generated_profile
-from .overlay import resolve_extends, resolve_profile
+from .loader import load_yaml_file, save_generated_profile
+from .overlay import _merge_profile_docs, resolve_extends, resolve_profile
 from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
 from .renderer import render_compose
+from .report import build_compliance_report
 from .security import PrecomputedRender, run_security_validation
-from .security_common import COMPLIANCE_CATEGORIES, SEVERITY_ORDER, infer_profile_class
+from .security_common import (
+    COMPLIANCE_CATEGORIES,
+    NIS2_ARTICLE_21_MEASURES,
+    SEVERITY_ORDER,
+    infer_profile_class,
+)
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .up_runner import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -50,7 +59,12 @@ from .up_runner import (
     stop_log_tail,
 )
 from .utils import _atomic_write
-from .validator import has_errors, validate_profile
+from .validator import (
+    has_errors,
+    load_module_instances,
+    validate_pinned_image_digests,
+    validate_profile,
+)
 
 
 def load_env_file(env_file: str = ".env") -> None:
@@ -91,25 +105,164 @@ def load_env_file(env_file: str = ".env") -> None:
                 os.environ[key] = value
 
 
-def print_diagnostics(diagnostics) -> None:
+def print_diagnostics(diagnostics, file=None) -> None:
     for d in diagnostics:
         prefix = "ERROR" if d.level == "error" else "WARN"
-        print(f"{prefix} {d.format()}\n")
+        print(f"{prefix} {d.format()}\n", file=file)
 
 
-def _k8s_runtime_defaults(profile_path: str) -> tuple[str, str]:
-    """Read non-secret Helm defaults without planning or loading environment values."""
-    fallback_release = Path(profile_path).parent.name or "cds"
+def _record_audit(
+    command: str,
+    profile: str,
+    outcome: str,
+    *,
+    environment: str | None = None,
+    plan: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
+) -> None:
+    """Append a local audit-trail entry for a render/apply attempt (#737).
+
+    Never raises or changes control flow: audit logging is best-effort
+    local evidence and must not affect the outcome of the command it
+    observes.
+    """
     try:
-        document = yaml.safe_load(Path(profile_path).read_text(encoding="utf-8")) or {}
-    except (OSError, UnicodeDecodeError, yaml.YAMLError):
-        return fallback_release, "cds-local"
-    release = str((document.get("metadata") or {}).get("name") or fallback_release)
-    namespace = str(
-        (((document.get("spec") or {}).get("runtime") or {}).get("namespace"))
-        or "cds-local"
+        audit_log.record_entry(
+            command=command,
+            profile=profile,
+            outcome=outcome,
+            environment=environment,
+            plan=plan,
+            details=details,
+            config_disabled=load_saved_audit_disabled(),
+        )
+    except Exception as exc:  # pragma: no cover - defensive, see docstring
+        print(f"WARNING Audit log entry could not be recorded: {exc}", file=sys.stderr)
+
+
+def _format_compliance_report_text(report: dict[str, Any]) -> str:
+    """Render build_compliance_report()'s dict as a human-readable summary."""
+    lines: list[str] = []
+    profile = report.get("profile", {})
+    lines.append(f"== Compliance/Evidence Report: {profile.get('sourceProfile')} ==")
+    lines.append(f"Generated: {report.get('generatedAt')}")
+    if profile.get("environment"):
+        lines.append(f"Environment: {profile['environment']}")
+    lines.append("")
+
+    lines.append("-- Modules --")
+    for module in report.get("modules", []):
+        depends_on = f" (dependsOn: {', '.join(module['dependsOn'])})" if module.get("dependsOn") else ""
+        lines.append(f"  {module['id']}: source={module.get('source')} version={module.get('version')}{depends_on}")
+    lines.append("")
+
+    lines.append("-- Images --")
+    for image in report.get("images", []):
+        pinned = "digest-pinned" if image.get("digestPinned") else "NOT digest-pinned"
+        evidence = image.get("evidence", {})
+        if evidence.get("status") == "available":
+            evidence_summary = (
+                f"signed={evidence.get('signed')} provenanceAttested={evidence.get('provenanceAttested')} "
+                f"sbomAttested={evidence.get('sbomAttested')}"
+            )
+        else:
+            evidence_summary = f"NOT AVAILABLE ({evidence.get('reason')})"
+        lines.append(f"  {image['service']}: {image['image']} [{pinned}] evidence: {evidence_summary}")
+    lines.append("")
+
+    lines.append("-- Topology --")
+    for module in report.get("topology", []):
+        lines.append(f"  {module['id']}:")
+        if module.get("dependsOn"):
+            lines.append(f"    dependsOn: {', '.join(module['dependsOn'])}")
+        for provided in module.get("provides", []):
+            lines.append(f"    provides: {provided['name']} ({provided.get('kind')})")
+        for consumed in module.get("consumes", []):
+            lines.append(
+                f"    consumes: {consumed['name']} ({consumed.get('kind')}) from {consumed.get('provider')}"
+            )
+    lines.append("")
+
+    secret_check = report.get("secretLeakCheck", {})
+    lines.append("-- Secret Leak Check --")
+    lines.append(
+        f"  status={secret_check.get('status')} checkedSecretCount={secret_check.get('checkedSecretCount')}"
     )
+    if secret_check.get("leakedSecretNames"):
+        lines.append(f"  leaked: {', '.join(secret_check['leakedSecretNames'])}")
+    lines.append("")
+
+    lines.append(f"NOTE: {report.get('disclaimer')}")
+    return "\n".join(lines)
+
+
+def _helm_identity(
+    metadata: dict[str, Any] | None,
+    runtime: dict[str, Any] | None,
+    profile_path: str,
+) -> tuple[str, str]:
+    """
+    Shared release/namespace fallback rule: release from metadata.name (or
+    the profile's directory name), namespace from runtime.namespace (or
+    "cds-local"). `metadata`/`runtime` can come either from a fully built
+    plan (`up`) or from a best-effort document resolution (`down`/`state`)
+    as long as both use this same rule, so a stack brought up with a given
+    --environment is torn down/inspected against the same release and
+    namespace.
+    """
+    fallback_release = Path(profile_path).parent.name or "cds"
+    release = str((metadata or {}).get("name") or fallback_release)
+    namespace = str((runtime or {}).get("namespace") or "cds-local")
     return release, namespace
+
+
+def _resolve_profile_document_best_effort(
+    profile_path: str, environment: str | None = None
+) -> dict[str, Any]:
+    """
+    Resolves a profile's `extends` chain and, if given, an `--environment`
+    overlay, WITHOUT running the full validate_loaded_profile() gate that
+    resolve_profile() applies. This is deliberate: down/state must be able
+    to resolve the release/namespace a stack was brought up under even if
+    the profile has since been edited into an invalid state (e.g. an
+    unrelated module config error) -- falling back to generic defaults in
+    that case would target the wrong release/namespace instead of tearing
+    down (or reporting on) the one that's actually running.
+    """
+    document, provenance, diagnostics = resolve_extends(profile_path)
+    if document is None or any(d.level == "error" for d in diagnostics):
+        return {}
+
+    if not environment:
+        return document
+
+    profile_file = Path(profile_path)
+    overlay_file = profile_file.parent / "environments" / f"{environment}.yaml"
+    if not overlay_file.is_file():
+        return document
+
+    try:
+        overlay = yaml.safe_load(overlay_file.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return document
+
+    merged, merge_diagnostics = _merge_profile_docs(
+        document, overlay, str(profile_file), str(overlay_file), provenance
+    )
+    if merge_diagnostics:
+        return document
+    return merged
+
+
+def _k8s_runtime_defaults(profile_path: str, environment: str | None = None) -> tuple[str, str]:
+    """
+    Read non-secret Helm defaults without planning, using the same
+    release/namespace rule the built plan uses (`_helm_identity`), so
+    `down`/`state` target the same release an `up --environment ...` run
+    created.
+    """
+    document = _resolve_profile_document_best_effort(profile_path, environment)
+    return _helm_identity(document.get("metadata"), (document.get("spec") or {}).get("runtime"), profile_path)
 
 
 def profile_completer(prefix, parsed_args, **kwargs):
@@ -255,6 +408,17 @@ def load_saved_image_source() -> str | None:
     return value if value in {"build", "registry"} else None
 
 
+def load_saved_target() -> str | None:
+    """Return the project-wide default --target override, if any."""
+    value = _config_value("target")
+    return value if value in {"compose", "helm"} else None
+
+
+def load_saved_audit_disabled() -> bool:
+    """Return whether this project has disabled the local audit log (#737)."""
+    return _config_value("audit.enabled") is False
+
+
 def load_saved_profile() -> str | None:
     """Return the profile name saved via `cds use`, if any."""
     profile = _read_config().get("profile")
@@ -301,6 +465,13 @@ def set_config_value(key: str, value: str) -> Path:
         if not isinstance(image, dict):
             raise ConfigIOError("Config key 'image' must be a mapping.")
         image["source"] = value
+    elif key == "target":
+        data["target"] = value
+    elif key == "audit.enabled":
+        audit = data.setdefault("audit", {})
+        if not isinstance(audit, dict):
+            raise ConfigIOError("Config key 'audit' must be a mapping.")
+        audit["enabled"] = value == "true"
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     return _write_config(data)
@@ -327,6 +498,17 @@ def unset_config_value(key: str) -> bool:
         del image["source"]
         if not image:
             del data["image"]
+    elif key == "target":
+        if "target" not in data:
+            return False
+        del data["target"]
+    elif key == "audit.enabled":
+        audit = data.get("audit")
+        if not isinstance(audit, dict) or "enabled" not in audit:
+            return False
+        del audit["enabled"]
+        if not audit:
+            del data["audit"]
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     _write_config(data)
@@ -677,6 +859,19 @@ def _add_image_source_arg(subparser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_target_arg(subparser: argparse.ArgumentParser, help_text: str) -> None:
+    subparser.add_argument(
+        "--target",
+        choices=["compose", "helm"],
+        default=None,
+        help=(
+            f"{help_text} Falls back to `cds config get target` (see "
+            "`cds config set target helm`) when omitted, and to 'compose' "
+            "if that isn't set either."
+        ),
+    )
+
+
 def _collect_profile_env_vars(
     profile_path: str, environment: str | None = None
 ) -> tuple[list[str], set[str]]:
@@ -927,6 +1122,72 @@ def _category_heading(category: str) -> str:
     return f"== {label} ({category}) =="
 
 
+NIS2_REPORT_DISCLAIMER = (
+    "This report groups CDS's own `cds security` findings by NIS2/Cyberbeveiligingswet "
+    "Article 21(2) measure. It is a readiness aid, not a legal compliance or conformity "
+    "certification -- confirm applicability against your own regulatory obligations. See "
+    "docs/nis2-cyberbeveiligingswet-scope.md for the full gap analysis, including measures "
+    "(b), (e), (f), (g) that are out of CDS's product scope entirely."
+)
+
+
+def _group_findings_by_nis2_measure(
+    findings: list[dict[str, Any]],
+) -> list[tuple[str, str, str | None, list[dict[str, Any]]]]:
+    """
+    Group findings into NIS2 Article 21(2) measure (a)-(j) buckets, in that
+    fixed article order (not alphabetized, unlike --group-by-category),
+    using the NIS2_ARTICLE_21_MEASURES mapping. A finding whose category
+    maps to more than one measure (e.g. `access-control` maps to both (i)
+    and (j) today) appears under each; a finding whose category maps to
+    none of them is omitted here (every complianceCategory value maps to
+    at least one measure today).
+    """
+    by_category: dict[str, list[dict[str, Any]]] = {}
+    for finding in findings:
+        by_category.setdefault(finding.get("category"), []).append(finding)
+
+    groups: list[tuple[str, str, str | None, list[dict[str, Any]]]] = []
+    for letter, title, categories, note in NIS2_ARTICLE_21_MEASURES:
+        measure_findings: list[dict[str, Any]] = []
+        for category in categories:
+            measure_findings.extend(by_category.get(category, []))
+        measure_findings.sort(key=lambda f: (
+            SEVERITY_ORDER.get(f["severity"], 99), f["rule_id"], f["module"], f["path"],
+        ))
+        groups.append((letter, title, note, measure_findings))
+    return groups
+
+
+def _nis2_measure_heading(letter: str, title: str) -> str:
+    return f"== ({letter}) {title} =="
+
+
+def _maybe_check_pinned_image_digests(
+    diagnostics: list[Diagnostic],
+    profile_path: str,
+    environment: str | None,
+    check_flag: bool,
+) -> list[Diagnostic]:
+    """
+    Appends pinned-image digest staleness warnings (W100, issue #736) when
+    the check is enabled via --check-image-digests or
+    CDS_CHECK_IMAGE_DIGESTS=1. Skipped whenever not enabled, or when the
+    profile already failed validation, so this stays a pure addition on top
+    of an otherwise-passing profile and never turns a validation failure
+    into a network call.
+    """
+    if not image_digest_check_enabled(check_flag) or has_errors(diagnostics):
+        return diagnostics
+    profile, _, resolve_diags = resolve_profile(profile_path, environment)
+    if profile is None or has_errors(resolve_diags):
+        return diagnostics
+    module_instances, load_diags = load_module_instances(Path(profile_path), profile)
+    if has_errors(load_diags):
+        return diagnostics
+    return diagnostics + validate_pinned_image_digests(module_instances)
+
+
 def _run_image_verification(
     profile_path: str,
     environment: str | None,
@@ -1054,11 +1315,15 @@ def main() -> int:
     validate_parser = subparsers.add_parser("validate", help="Validate a profile")
     _add_profile_arg(validate_parser)
     _add_environment_arg(validate_parser)
+    _add_target_arg(validate_parser, "Validate target-specific requirements.")
     validate_parser.add_argument(
-        "--target",
-        choices=["compose", "helm"],
-        default="compose",
-        help="Validate target-specific requirements (default: compose).",
+        "--check-image-digests",
+        action="store_true",
+        help=(
+            "Warn when a pinned image digest is behind the digest currently "
+            "published for that tag (W100). Requires network access; off by "
+            "default (also enabled via CDS_CHECK_IMAGE_DIGESTS=1)."
+        ),
     )
 
     generate_profile_parser = subparsers.add_parser(
@@ -1077,6 +1342,81 @@ def main() -> int:
         "--force",
         action="store_true",
         help="Overwrite an existing profiles/<name>/profile.yaml",
+    )
+
+    compose_profile_parser = subparsers.add_parser(
+        "compose-profile",
+        help="Merge a module instance into an existing profile, resolving contract bindings and secrets",
+    )
+    _add_profile_arg(compose_profile_parser)
+    compose_profile_parser.add_argument(
+        "--add-module",
+        required=True,
+        help=(
+            "Module source to add, written the same way as existing spec.modules[].source "
+            "entries in the target profile.yaml: relative to the profile's own directory "
+            "(e.g. ../../modules/identity/keycloak), not the repository root, unless "
+            "CDS_MODULE_PATH is set"
+        ),
+    )
+    compose_profile_parser.add_argument(
+        "--id",
+        help="Module instance id (default: the module's metadata.name)",
+    )
+    compose_profile_parser.add_argument(
+        "--version",
+        help="Module instance version (default: the module's metadata.version)",
+    )
+    compose_profile_parser.add_argument(
+        "--bind",
+        action="append",
+        default=[],
+        metavar="NAME=MODULE_ID.CONTRACT",
+        help=(
+            "Explicitly bind a consume entry to an existing module's provided contract, e.g. "
+            "metadataDatabase=postgres.sql-database. Repeatable. Required when a consume entry's "
+            "contract kind has zero or more than one matching provider already in the profile."
+        ),
+    )
+    compose_profile_parser.add_argument(
+        "--set",
+        dest="config_set",
+        action="append",
+        default=[],
+        metavar="CONFIG.PATH=VALUE",
+        help="Set an additional config field on the new module instance, e.g. httpPort=8081. Repeatable.",
+    )
+    compose_profile_parser.add_argument(
+        "--secret",
+        action="append",
+        default=[],
+        metavar="ALIAS=ENV_VAR",
+        help=(
+            "Map a secret alias referenced by the new module's config (secrets.<alias>) to an "
+            "environment variable name, added to spec.secrets.values. Repeatable."
+        ),
+    )
+    compose_profile_parser.add_argument(
+        "--depends-on",
+        action="append",
+        default=[],
+        metavar="MODULE_ID",
+        help="Add an explicit dependsOn entry on top of any producer modules resolved from --bind/consumes. Repeatable.",
+    )
+    compose_profile_parser.add_argument(
+        "--disabled",
+        action="store_true",
+        help="Add the module instance with enabled: false",
+    )
+    compose_profile_parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write the merged profile back to the resolved profile.yaml (default: print to stdout)",
+    )
+    compose_profile_parser.add_argument(
+        "--output",
+        "-o",
+        help="Write the merged profile to this path instead of stdout or the original profile.yaml",
     )
 
     plan_parser = subparsers.add_parser("plan", help="Build a resolved plan from a profile")
@@ -1099,14 +1439,10 @@ def main() -> int:
         help="Profile path/identifier or path to saved plan file. Uses CDS_PROFILE_PATH if set.",
     )
     _add_environment_arg(render_parser)
-    render_parser.add_argument(
-        "--target",
-        choices=["compose", "helm"],
-        default="compose",
-        help=(
-            "Render target. 'compose' writes a docker-compose.yml file (default); "
-            "'helm' writes a Helm chart DIRECTORY."
-        ),
+    _add_target_arg(
+        render_parser,
+        "Render target. 'compose' writes a docker-compose.yml file; "
+        "'helm' writes a Helm chart DIRECTORY.",
     )
     render_parser.add_argument(
         "--output",
@@ -1131,12 +1467,7 @@ def main() -> int:
     )
     _add_profile_arg(up_parser)
     _add_environment_arg(up_parser)
-    up_parser.add_argument(
-        "--target",
-        choices=["compose", "helm"],
-        default="compose",
-        help="Runtime target (default: compose).",
-    )
+    _add_target_arg(up_parser, "Runtime target.")
     up_parser.add_argument("--namespace", help="Kubernetes namespace (defaults to plan runtime namespace).")
     up_parser.add_argument("--release", help="Helm release name (defaults to profile name).")
     up_parser.add_argument("--kube-context", help="Explicit kube context without changing shared config.")
@@ -1172,12 +1503,20 @@ def main() -> int:
     )
     _add_hardened_arg(up_parser)
     _add_image_source_arg(up_parser)
+    up_parser.add_argument(
+        "--check-image-digests",
+        action="store_true",
+        help=(
+            "Warn when a pinned image digest is behind the digest currently "
+            "published for that tag (W100). Requires network access; off by "
+            "default (also enabled via CDS_CHECK_IMAGE_DIGESTS=1)."
+        ),
+    )
 
     down_parser = subparsers.add_parser("down", help="Stop or uninstall a running profile")
     _add_profile_arg(down_parser)
-    down_parser.add_argument(
-        "--target", choices=["compose", "helm"], default="compose", help="Runtime target."
-    )
+    _add_environment_arg(down_parser)
+    _add_target_arg(down_parser, "Runtime target.")
     down_parser.add_argument("--namespace", help="Kubernetes namespace (defaults to profile runtime).")
     down_parser.add_argument("--release", help="Helm release name (defaults to profile name).")
     down_parser.add_argument("--kube-context", help="Explicit kube context.")
@@ -1197,12 +1536,7 @@ def main() -> int:
     )
     _add_profile_arg(test_parser)
     _add_environment_arg(test_parser)
-    test_parser.add_argument(
-        "--target",
-        choices=["compose", "helm"],
-        default="compose",
-        help="Runtime target included in the smoke validation (default: compose).",
-    )
+    _add_target_arg(test_parser, "Runtime target included in the smoke validation.")
     test_parser.add_argument(
         "--reveal-secrets",
         action="store_true",
@@ -1229,6 +1563,25 @@ def main() -> int:
     _add_hardened_arg(test_parser)
     _add_image_source_arg(test_parser)
 
+    report_parser = subparsers.add_parser(
+        "report",
+        help="Export a compliance/evidence report for a rendered stack",
+    )
+    _add_profile_arg(report_parser)
+    _add_environment_arg(report_parser)
+    _add_hardened_arg(report_parser)
+    _add_image_source_arg(report_parser)
+    report_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output the report as JSON instead of the human-readable text summary.",
+    )
+    report_parser.add_argument(
+        "--output",
+        "-o",
+        help="Save the report to file instead of printing it to stdout.",
+    )
+
     preflight_parser = subparsers.add_parser(
         "preflight",
         help="Check runtime prerequisites without starting the profile",
@@ -1241,9 +1594,8 @@ def main() -> int:
         help="Show running service status grouped by health",
     )
     _add_profile_arg(state_parser)
-    state_parser.add_argument(
-        "--target", choices=["compose", "helm"], default="compose", help="Runtime target."
-    )
+    _add_environment_arg(state_parser)
+    _add_target_arg(state_parser, "Runtime target.")
     state_parser.add_argument("--namespace", help="Kubernetes namespace (defaults to profile runtime).")
     state_parser.add_argument("--release", help="Helm release name (defaults to profile name).")
     state_parser.add_argument("--kube-context", help="Explicit kube context.")
@@ -1326,12 +1678,7 @@ def main() -> int:
     security_parser = subparsers.add_parser("security", help="Run security validation on a profile")
     _add_profile_arg(security_parser)
     _add_environment_arg(security_parser)
-    security_parser.add_argument(
-        "--target",
-        choices=["compose", "helm"],
-        default="compose",
-        help="Include target-specific security checks (default: compose).",
-    )
+    _add_target_arg(security_parser, "Include target-specific security checks.")
     security_parser.add_argument(
         "--reveal-secrets",
         action="store_true",
@@ -1368,6 +1715,18 @@ def main() -> int:
         "--group-by-category",
         action="store_true",
         help="Print findings grouped by compliance control category instead of one flat list.",
+    )
+    security_parser.add_argument(
+        "--report",
+        choices=["nis2"],
+        help=(
+            "Print findings grouped by NIS2/Cyberbeveiligingswet Article 21(2) "
+            "measure instead of one flat list (mutually exclusive with "
+            "--group-by-category). This is a readiness aid organizing CDS's own "
+            "findings against that article's measure list, not a legal "
+            "compliance or conformity certification -- see "
+            "docs/nis2-cyberbeveiligingswet-scope.md."
+        ),
     )
 
     diff_parser = subparsers.add_parser(
@@ -1411,12 +1770,18 @@ def main() -> int:
     )
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_get_parser = config_subparsers.add_parser("get", help="Print a persisted setting")
-    config_get_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
+    config_get_parser.add_argument(
+        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
+    )
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
-    config_set_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
+    config_set_parser.add_argument(
+        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
+    )
     config_set_parser.add_argument("value")
     config_unset_parser = config_subparsers.add_parser("unset", help="Remove a persisted setting")
-    config_unset_parser.add_argument("key", choices=["profile", "environment", "security.strict", "image.source"])
+    config_unset_parser.add_argument(
+        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
+    )
     config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
 
     completion_parser = subparsers.add_parser(
@@ -1434,10 +1799,12 @@ def main() -> int:
 
     args = parser.parse_args()
     environment_explicit = hasattr(args, "environment")
-    if args.command in {"validate", "plan", "render", "up", "test", "preflight", "init", "security"}:
+    if args.command in {"validate", "plan", "render", "up", "test", "preflight", "init", "security", "down", "state", "report"}:
         args.environment = getattr(args, "environment", None) or load_saved_environment()
-    if args.command in {"render", "up", "test"}:
+    if args.command in {"render", "up", "test", "report"}:
         args.image_source = getattr(args, "image_source", None) or load_saved_image_source()
+    if args.command in {"validate", "render", "up", "down", "test", "state", "security"}:
+        args.target = getattr(args, "target", None) or load_saved_target() or "compose"
     
     if args.command == "validate":
         try:
@@ -1458,6 +1825,10 @@ def main() -> int:
                 _, render_diags = render_helm(plan)
                 diagnostics.extend(render_diags)
 
+        diagnostics = _maybe_check_pinned_image_digests(
+            diagnostics, profile_path, args.environment, args.check_image_digests
+        )
+
         if diagnostics:
             error_count = sum(1 for d in diagnostics if d.level == "error")
             warning_count = sum(1 for d in diagnostics if d.level == "warning")
@@ -1470,7 +1841,14 @@ def main() -> int:
         else:
             print("Profile is valid.")
 
-        return 1 if has_errors(diagnostics) else 0
+        validation_failed = has_errors(diagnostics)
+        _record_audit(
+            "validate",
+            args.profile,
+            "failure" if validation_failed else "success",
+            environment=args.environment,
+        )
+        return 1 if validation_failed else 0
 
     if args.command == "generate-profile":
         if args.input == "-":
@@ -1511,6 +1889,100 @@ def main() -> int:
             return 1
 
         print(f"Profile written to {profile_path}")
+        return 0
+
+    if args.command == "compose-profile":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        profile_file = Path(profile_path)
+        raw_document, _raw_diagnostics = load_yaml_file(profile_file)
+        declares_extends = isinstance(raw_document, dict) and bool(raw_document.get("extends"))
+
+        document, _provenance, diagnostics = resolve_extends(profile_path)
+        if document is None or has_errors(diagnostics):
+            print_diagnostics(diagnostics)
+            print("Cannot compose module because the existing profile failed to resolve.")
+            return 1
+
+        def _split_kv(raw: str, flag: str) -> tuple[str, str] | None:
+            if "=" not in raw:
+                print(f'ERROR {flag} value "{raw}" must be in NAME=VALUE form.')
+                return None
+            name, _, value = raw.partition("=")
+            return name.strip(), value
+
+        bindings: dict[str, str] = {}
+        for raw in args.bind:
+            parsed = _split_kv(raw, "--bind")
+            if parsed is None:
+                return 1
+            bindings[parsed[0]] = parsed[1]
+
+        secret_env_names: dict[str, str] = {}
+        for raw in args.secret:
+            parsed = _split_kv(raw, "--secret")
+            if parsed is None:
+                return 1
+            secret_env_names[parsed[0]] = parsed[1]
+
+        config_settings: list[tuple[str, Any]] = []
+        for raw in args.config_set:
+            parsed = _split_kv(raw, "--set")
+            if parsed is None:
+                return 1
+            setting_path, raw_value = parsed
+            try:
+                value = yaml.safe_load(raw_value)
+            except yaml.YAMLError:
+                value = raw_value
+            config_settings.append((setting_path, value))
+
+        merged, diagnostics = compose_profile(
+            document,
+            profile_file.parent,
+            args.add_module,
+            instance_id=args.id,
+            version=args.version,
+            enabled=not args.disabled,
+            depends_on=args.depends_on,
+            config_settings=config_settings,
+            bindings=bindings,
+            secret_env_names=secret_env_names,
+            modules_root=Path(os.getenv("CDS_MODULE_PATH")) if os.getenv("CDS_MODULE_PATH") else None,
+        )
+
+        if diagnostics:
+            print_diagnostics(diagnostics)
+
+        if merged is None:
+            print("Compose failed.")
+            return 1
+
+        serialized = yaml.safe_dump(merged, sort_keys=False)
+
+        if args.output:
+            output_path = Path(args.output).resolve()
+            _atomic_write(output_path, serialized)
+            print(f"Composed profile written to {output_path}")
+        elif args.write:
+            if declares_extends:
+                print(
+                    f'ERROR "{profile_file}" declares "extends"; --write would overwrite it '
+                    "with the fully resolved (flattened) profile, discarding that reference and "
+                    "duplicating the parent profile's modules into it. Use --output <path> to "
+                    "write the merged profile elsewhere instead."
+                )
+                return 1
+            profile_file = profile_file.resolve()
+            _atomic_write(profile_file, serialized)
+            print(f"Composed profile written to {profile_file}")
+        else:
+            print(serialized, end="")
+
         return 0
 
     if args.command == "plan":
@@ -1598,12 +2070,17 @@ def main() -> int:
                 code, render_diags = _render_helm_chart(plan, output_path, args.force)
                 all_diags = render_diags
                 if code != 0:
+                    _record_audit("render", str(source_profile), "failure", plan=plan)
                     return code
                 if has_errors(all_diags):
                     print_diagnostics(all_diags)
                     print("Render failed.")
+                    _record_audit("render", str(source_profile), "failure", plan=plan)
                     return 1
                 print(f"Rendered Helm chart written to {output_path}")
+                _record_audit(
+                    "render", str(source_profile), "success", plan=plan, details={"target": "helm", "output": output_path}
+                )
                 return 0
 
             compose_yaml, render_diags = render_compose(plan, output_path=output_path, env_file=env_file)
@@ -1612,9 +2089,13 @@ def main() -> int:
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Render failed.")
+                _record_audit("render", str(source_profile), "failure", plan=plan)
                 return 1
 
             print(f"Rendered compose file written to {output_path}")
+            _record_audit(
+                "render", str(source_profile), "success", plan=plan, details={"target": "compose", "output": output_path}
+            )
             return 0
         else:
             # Render from profile (original behavior)
@@ -1628,6 +2109,7 @@ def main() -> int:
             if has_errors(diagnostics):
                 print_diagnostics(diagnostics)
                 print("Cannot render because validation failed.")
+                _record_audit("render", profile_or_plan, "failure", environment=args.environment)
                 return 1
 
             env_file = str(resolve_env_file_path(profile_path))
@@ -1638,6 +2120,7 @@ def main() -> int:
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Cannot render because plan generation failed.")
+                _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
                 return 1
 
             output_path = args.output
@@ -1651,12 +2134,22 @@ def main() -> int:
                 code, render_diags = _render_helm_chart(plan, output_path, args.force)
                 all_diags = all_diags + render_diags
                 if code != 0:
+                    _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
                     return code
                 if has_errors(all_diags):
                     print_diagnostics(all_diags)
                     print("Render failed.")
+                    _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
                     return 1
                 print(f"Rendered Helm chart written to {output_path}")
+                _record_audit(
+                    "render",
+                    profile_or_plan,
+                    "success",
+                    environment=args.environment,
+                    plan=plan,
+                    details={"target": "helm", "output": output_path},
+                )
                 return 0
 
             compose_yaml, render_diags = render_compose(plan, output_path=output_path, env_file=env_file)
@@ -1665,9 +2158,18 @@ def main() -> int:
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Render failed.")
+                _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
                 return 1
 
             print(f"Rendered compose file written to {output_path}")
+            _record_audit(
+                "render",
+                profile_or_plan,
+                "success",
+                environment=args.environment,
+                plan=plan,
+                details={"target": "compose", "output": output_path},
+            )
 
             return 0
 
@@ -1684,6 +2186,17 @@ def main() -> int:
             print("Cannot start stack because validation failed.")
             return 1
 
+        diagnostics = _maybe_check_pinned_image_digests(
+            diagnostics, profile_path, args.environment, args.check_image_digests
+        )
+        digest_warnings = [d for d in diagnostics if d.code == "W100"]
+        if digest_warnings:
+            print_diagnostics(digest_warnings)
+        # Print now (there's no later point on the success path that prints
+        # warnings), then drop them so a later failure's print_diagnostics()
+        # over all_diags doesn't show the same warning a second time.
+        diagnostics = [d for d in diagnostics if d.code != "W100"]
+
         env_file = str(resolve_env_file_path(profile_path))
         plan, plan_diags = build_plan(
             profile_path, env_file=env_file, environment=args.environment, hardened=args.hardened, image_source=args.image_source
@@ -1692,6 +2205,7 @@ def main() -> int:
         if has_errors(all_diags):
             print_diagnostics(all_diags)
             print("Cannot start stack because plan generation failed.")
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
             return 1
 
         if args.target == "helm":
@@ -1702,10 +2216,19 @@ def main() -> int:
             if code != 0 or has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Cannot start stack because Helm rendering failed.")
+                _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                 return code or 1
 
-            namespace = args.namespace or plan.get("runtime", {}).get("namespace") or "cds-local"
-            release = args.release or plan.get("metadata", {}).get("name") or "cds"
+            plan_release, plan_namespace = _helm_identity(
+                plan.get("metadata"), plan.get("runtime"), profile_path
+            )
+            namespace = args.namespace or plan_namespace
+            release = args.release or plan_release
+            if args.no_build:
+                print(
+                    "NOTE --no-build has no effect with --target helm: "
+                    "the Helm target does not build local images yet."
+                )
             log_path = (
                 Path(args.log_file) if args.log_file else default_log_path(Path(profile_path).parent.name)
             ).resolve()
@@ -1721,17 +2244,27 @@ def main() -> int:
                         timeout=args.timeout,
                         detach=args.detach,
                         log_file=log_file,
+                        use_color=(not args.no_color) and sys.stdout.isatty(),
                     )
             except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
                 print(f"ERROR {exc}")
+                _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                 return 1
             if result != 0:
                 print(f"Helm deployment failed (exit {result}). See {log_path} for details.")
+                _record_audit(
+                    "up", args.profile, "failure", environment=args.environment, plan=plan,
+                    details={"target": "helm", "namespace": namespace, "release": release},
+                )
                 return result
             if args.detach:
                 print(f"Helm release {release} submitted in {namespace}. See {log_path} for details.")
             else:
                 print(f"Helm release {release} is ready in {namespace}. See {log_path} for details.")
+            _record_audit(
+                "up", args.profile, "success", environment=args.environment, plan=plan,
+                details={"target": "helm", "namespace": namespace, "release": release},
+            )
             return 0
 
         output_path = str(resolve_project_root(profile_path) / "docker-compose.yml")
@@ -1740,6 +2273,7 @@ def main() -> int:
         if has_errors(all_diags):
             print_diagnostics(all_diags)
             print("Cannot start stack because render failed.")
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
             return 1
 
         print(f"Rendered compose file written to {output_path}")
@@ -1783,6 +2317,7 @@ def main() -> int:
                     )
                     if build_returncode != 0:
                         print(f"Build failed (exit {build_returncode}). See {log_path} for details.")
+                        _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                         return build_returncode
 
                 print(f"Running: {' '.join(up_cmd)}")
@@ -1790,10 +2325,15 @@ def main() -> int:
                     up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
                     if up_returncode != 0:
                         print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                        _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                         return up_returncode
                     print(
                         f"Stack starting in the background. Run 'cds state' to check status; "
                         f"full output in {log_path}."
+                    )
+                    _record_audit(
+                        "up", args.profile, "success", environment=args.environment, plan=plan,
+                        details={"target": "compose", "detach": True},
                     )
                     return 0
 
@@ -1855,6 +2395,7 @@ def main() -> int:
                         f"\nStopped watching; the stack keeps running. "
                         f"Docker output logged to {log_path}."
                     )
+                    _record_audit("up", args.profile, "interrupted", environment=args.environment, plan=plan)
                     return 130
 
                 while True:
@@ -1865,15 +2406,18 @@ def main() -> int:
                         continue
                 if up_returncode != 0:
                     print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
+                    _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                     return up_returncode
         except KeyboardInterrupt:
             print(
                 f"\nInterrupted. The stack keeps running; "
                 f"Docker output logged to {log_path}."
             )
+            _record_audit("up", args.profile, "interrupted", environment=args.environment, plan=plan)
             return 130
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
             return 1
         finally:
             if log_tail_process is not None:
@@ -1884,9 +2428,14 @@ def main() -> int:
                 f"\nStack did not settle within {args.timeout:.0f}s, or a service is unhealthy. "
                 f"Run 'cds state' for the latest status; full output in {log_path}."
             )
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
             return 1
 
         print(f"\nStack is up. Full output in {log_path}.")
+        _record_audit(
+            "up", args.profile, "success", environment=args.environment, plan=plan,
+            details={"target": "compose"},
+        )
         return 0
 
     if args.command == "get":
@@ -1923,7 +2472,7 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
         project_root = resolve_project_root(profile_path)
-        profile_release, profile_namespace = _k8s_runtime_defaults(profile_path)
+        profile_release, profile_namespace = _k8s_runtime_defaults(profile_path, args.environment)
         log_path = (
             Path(args.log_file) if args.log_file else default_log_path(f"down-{Path(profile_path).parent.name}")
         ).resolve()
@@ -2087,7 +2636,55 @@ def main() -> int:
 
         all_passed = all(status == "PASS" for _, status in stages)
         print("\nAll stages passed." if all_passed else "\nOne or more stages failed.")
+        _record_audit(
+            "test",
+            args.profile,
+            "success" if all_passed else "failure",
+            environment=args.environment,
+            plan=plan if plan_ok else None,
+            details={"stages": dict(stages)},
+        )
         return 0 if all_passed else 1
+
+    if args.command == "report":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        env_file = str(resolve_env_file_path(profile_path))
+        report, diagnostics = build_compliance_report(
+            profile_path,
+            env_file=env_file,
+            environment=args.environment,
+            hardened=args.hardened,
+            image_source=args.image_source,
+        )
+
+        if report is None:
+            print(f"Cannot build compliance report for {args.profile}: validate/plan/render failed.\n", file=sys.stderr)
+            print_diagnostics(diagnostics, file=sys.stderr)
+            return 1
+
+        if diagnostics:
+            # Diagnostics always go to stderr (not stdout) so --json output
+            # (and any --output file, which is built from the same
+            # output_text) stays parseable even when warnings/errors exist.
+            print_diagnostics(diagnostics, file=sys.stderr)
+
+        if args.json:
+            output_text = json.dumps(report, indent=2)
+        else:
+            output_text = _format_compliance_report_text(report)
+
+        if args.output:
+            _atomic_write(Path(args.output), output_text)
+            print(f"Compliance report saved to {args.output}")
+        else:
+            print(output_text)
+
+        return 1 if report["secretLeakCheck"]["status"] == "fail" else 0
 
     if args.command == "preflight":
         try:
@@ -2139,7 +2736,7 @@ def main() -> int:
             return 1
 
         if args.target == "helm":
-            profile_release, profile_namespace = _k8s_runtime_defaults(profile_path)
+            profile_release, profile_namespace = _k8s_runtime_defaults(profile_path, args.environment)
             try:
                 services = get_k8s_state(
                     args.namespace or profile_namespace,
@@ -2196,10 +2793,11 @@ def main() -> int:
             print(f"ERROR {exc}")
             return 1
 
+        resolved_profile_name = args.profile or Path(profile_path).parent.name
         print(
-            f"Initialized environment for {args.profile}.\n"
+            f"Initialized environment for {resolved_profile_name}.\n"
             "Please edit the values in the .env file, then run "
-            f"`cds preflight {args.profile or Path(profile_path).parent.name}`."
+            f"`cds preflight {resolved_profile_name}`."
         )
         return 0
 
@@ -2264,6 +2862,10 @@ def main() -> int:
             return 1
 
     if args.command == "security":
+        if args.report and args.group_by_category:
+            print("ERROR --report and --group-by-category are mutually exclusive.")
+            return 2
+
         try:
             profile_path = resolve_profile_path(args.profile)
         except ValueError as exc:
@@ -2404,6 +3006,24 @@ def main() -> int:
 
         if not displayed_findings:
             print(f"No security findings in category: {', '.join(sorted(set(args.category)))}.")
+        elif args.report == "nis2":
+            print(NIS2_REPORT_DISCLAIMER)
+            print()
+            for letter, title, note, group in _group_findings_by_nis2_measure(displayed_findings):
+                print(_nis2_measure_heading(letter, title))
+                if note:
+                    print(f"  note: {note}")
+                if not group:
+                    print("  No CDS findings map to this measure.")
+                for f in group:
+                    print(f"[{f['severity'].upper()}] {f['rule_id']} {f['message']}")
+                    print(f"  object: {f['path']}")
+                    print(f"  module: {f['module']}")
+                    if f["value"] is not None:
+                        print(f"  value: {f['value']}")
+                    for rec in f["recommendation"]:
+                        print(f"  fix: {rec}")
+                print()
         elif args.group_by_category:
             for category, group in _group_findings_by_category(displayed_findings).items():
                 print(_category_heading(category))
@@ -2507,6 +3127,16 @@ def main() -> int:
             elif args.key == "image.source":
                 if args.value not in {"build", "registry"}:
                     print("ERROR Config key 'image.source' must be 'build' or 'registry'.")
+                    return 1
+                value = args.value
+            elif args.key == "target":
+                if args.value not in {"compose", "helm"}:
+                    print("ERROR Config key 'target' must be 'compose' or 'helm'.")
+                    return 1
+                value = args.value
+            elif args.key == "audit.enabled":
+                if args.value not in {"true", "false"}:
+                    print("ERROR Config key 'audit.enabled' must be true or false.")
                     return 1
                 value = args.value
             else:

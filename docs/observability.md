@@ -200,3 +200,70 @@ baseline questions the correlation fields above are meant to answer:
   short-retention.
 - A second database/credential/adapter API for event storage — reuse
   #219/#167.
+
+## 11. Data lineage: the `lineage-sink` contract
+
+[`shared/contracts/lineage-sink.yaml`](../shared/contracts/lineage-sink.yaml)
+mirrors the `log-sink` contract (see section 5) for data-lineage events:
+a vendor-neutral contract (`kind: lineage-sink`) that an
+[OpenLineage](https://openlineage.io/)-compatible backend module can
+provide — `host`, `port`, `protocol`, `ingestPath`, a pre-composed
+`connectionUri`, and an optional `authToken`. Nothing in the CLI hardcodes a
+specific lineage backend; a provider could be backed by Marquez,
+OpenMetadata, DataHub, or any other service that accepts the OpenLineage
+HTTP event API.
+
+The `connectionUri` field exists because `${ifNonempty:...}` placeholder
+substitution (used by optional contract bindings, see below) does not
+re-template its own output — a consumer cannot compose a URL from separate
+`protocol`/`host`/`port` placeholders if the binding might be unset, so the
+contract requires providers to expose one ready-to-use base URL.
+
+### Dagster's optional `consumes` entry
+
+`modules/orchestration/dagster/module.yaml` declares an optional
+`consumes` entry for `lineage-sink` (`required: false`, bound via
+`spec.config.lineageSink`). When a profile binds it, all three Dagster
+compose services (`user-code`, `dagster-webserver`, `dagster-daemon`)
+receive:
+
+| Environment variable | Source |
+| --- | --- |
+| `OPENLINEAGE_URL` | `bindings.lineage-sink.connectionUri` |
+| `OPENLINEAGE_ENDPOINT` | `bindings.lineage-sink.ingestPath` |
+| `OPENLINEAGE_API_KEY` | `bindings.lineage-sink.authToken` |
+| `OPENLINEAGE_NAMESPACE` | `config.openlineageNamespace` (default `dagster`) |
+
+These are wrapped in `${ifNonempty:...}`, so existing profiles that don't
+bind `lineage-sink` keep rendering with empty values and no behavior change
+— this is purely additive, non-breaking wiring.
+
+**Caveat:** at the time this contract was added, the upstream
+`openlineage-dagster` integration package (PyPI) is incompatible with the
+Dagster version this module pins — it imports a module path
+(`dagster.core.definitions.sensor_definition`) that no longer exists in
+current Dagster releases. CDS therefore only wires the connection
+environment variables above; it does not ship a working auto-instrumented
+Dagster sensor. Emitting real lineage events still requires user-authored
+job/op code that uses the `openlineage-python` client directly (reading
+`OPENLINEAGE_URL`/`OPENLINEAGE_API_KEY` via
+`OpenLineageClient.from_environment()`), the same "wire the infrastructure,
+not the pipeline code" philosophy CDS already applies to the `dlt`
+experimental module.
+
+### Reference provider: the `marquez` experimental module
+
+[`modules-experimental/observability/marquez`](../modules-experimental/observability/marquez/module.yaml)
+is a reference implementation proving the `lineage-sink` contract is
+concretely implementable: it consumes a `sql-database` contract and
+provides `lineage-sink`, running Marquez's `marquez-api` and `marquez-web`
+services with pinned image digests and the same container-hardening
+baseline as other modules (read-only root filesystem, dropped capabilities,
+non-root UID, `tmpfs` for `/tmp`).
+
+[`profiles/local-dagster-postgres-marquez`](../profiles/local-dagster-postgres-marquez/README.md)
+is a demo profile wiring `postgres` + `marquez` + `dagster` together and
+documents how to verify ingestion end-to-end by posting sample OpenLineage
+events directly to Marquez's API (bypassing the broken
+`openlineage-dagster` package), since Dagster's OpenLineage producer
+integration isn't functional upstream today.

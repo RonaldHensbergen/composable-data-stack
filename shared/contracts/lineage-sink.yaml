@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: lineage-sink
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared, vendor-neutral contract describing the values an
+    OpenLineage-compatible backend exposes so pipeline/orchestration modules
+    can emit dataset lineage events without the profile hardcoding a specific
+    lineage provider. Mirrors the existing `log-sink` contract pattern (see
+    docs/observability.md) but targets the OpenLineage HTTP transport
+    (https://openlineage.io/) rather than a generic log collector. A module
+    provides this contract when it exposes an OpenLineage-compatible
+    receiver (e.g. Marquez); pipeline/orchestration modules consume it to
+    ship run/job/dataset lineage events.
+
+spec:
+  fields:
+    host:
+      type: string
+      required: true
+      description: Hostname or service name clients use to reach the lineage backend.
+    port:
+      type: integer
+      required: true
+      description: TCP port the backend's OpenLineage HTTP API listens on.
+    protocol:
+      type: string
+      required: true
+      description: Wire protocol used to reach the API, e.g. "http" or "https".
+    ingestPath:
+      type: string
+      required: true
+      description: >-
+        Path of the OpenLineage HTTP transport endpoint (e.g.
+        "/api/v1/lineage"), appended to `connectionUri` by clients that
+        split base URL and endpoint (e.g. Dagster's OPENLINEAGE_ENDPOINT).
+    connectionUri:
+      type: string
+      required: true
+      description: >-
+        Fully composed base URL ("<protocol>://<host>:<port>") a client
+        connects to, mirroring the `connectionUri` field on
+        `sql-database`/`cache-service`. Consumers that want the full
+        OpenLineage transport URL instead should build it themselves from
+        this value and `ingestPath`.
+    authToken:
+      type: string
+      required: false
+      description: >-
+        Secret reference or runtime placeholder for a bearer token/API key,
+        when the backend requires authenticated ingestion. Empty string when
+        the backend accepts unauthenticated requests (e.g. a local/dev
+        Marquez instance).
+  examples:
+    - host: marquez
+      port: 5000
+      protocol: http
+      ingestPath: /api/v1/lineage
+      connectionUri: http://marquez:5000
+      authToken: ""

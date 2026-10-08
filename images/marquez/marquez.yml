@@ -1,0 +1,36 @@
+# Marquez server configuration bind-mounted into the official
+# marquezproject/marquez image at /usr/src/app/marquez.yml (see
+# modules-experimental/observability/marquez/module.yaml). Based on the
+# upstream marquez.example.yml, trimmed to the options CDS actually sets via
+# environment variables so values stay in one place (the module's `consumes`
+# binding to a sql-database contract and config.*), instead of duplicating
+# them here. Search/OpenSearch support is disabled -- this reference module
+# only wires the OpenLineage HTTP ingestion API, not full-text dataset search.
+
+server:
+  applicationConnectors:
+    - type: http
+      port: ${MARQUEZ_PORT:-5000}
+      httpCompliance: RFC7230_LEGACY
+  adminConnectors:
+    - type: http
+      port: ${MARQUEZ_ADMIN_PORT:-5001}
+
+db:
+  driverClass: org.postgresql.Driver
+  url: jdbc:postgresql://${POSTGRES_HOST:-localhost}:${POSTGRES_PORT:-5432}/${POSTGRES_DB}
+  user: ${POSTGRES_USER}
+  password: ${POSTGRES_PASSWORD}
+
+migrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
+
+graphql:
+  enabled: ${GRAPHQL_ENABLED:-true}
+
+logging:
+  level: ${LOG_LEVEL:-INFO}
+  appenders:
+    - type: console
+
+search:
+  enabled: false

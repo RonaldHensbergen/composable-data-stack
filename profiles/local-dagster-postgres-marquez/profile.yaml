@@ -1,0 +1,143 @@
+# profiles/local-dagster-postgres-marquez/profile.yaml
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: local-dagster-postgres-marquez
+  environment: local
+  displayName: Local Dagster + Postgres + Marquez
+  description: >
+    Minimal local development stack demonstrating the `lineage-sink`
+    contract: Dagster wired to a Marquez (OpenLineage) reference backend.
+    See docs/observability.md#data-lineage-the-lineage-sink-contract
+    and #779.
+
+spec:
+  runtime:
+    type: docker-compose
+    namespace: cds-local
+    networks:
+      - name: cds-local
+        driver: bridge
+
+  modules:
+    - id: postgres
+      source: ../../modules/warehouse/postgres
+      version: "0.1.0"
+      enabled: true
+      config:
+        database: "${CDS_ANALYTICS_DB_NAME}"
+        username: "${CDS_ANALYTICS_DB_USER}"
+        passwordFrom: secrets.analytics_db_password
+        superuserPasswordFrom: secrets.postgres_superuser_password
+        port: 5432
+        initDbScript: init-db.sh
+        initDbEnv:
+          ANALYTICS_DB_NAME: config.database
+          ANALYTICS_DB_USER: config.username
+          ANALYTICS_DB_PASSWORD: config.passwordFrom
+          DAGSTER_DB_NAME: config.dagsterDatabase.name
+          DAGSTER_DB_USER: config.dagsterDatabase.username
+          DAGSTER_DB_PASSWORD: config.dagsterDatabase.passwordFrom
+          MARQUEZ_DB_NAME: config.marquezDatabase.name
+          MARQUEZ_DB_USER: config.marquezDatabase.username
+          MARQUEZ_DB_PASSWORD: config.marquezDatabase.passwordFrom
+        dagsterDatabase:
+          name: "${CDS_DAGSTER_DB_NAME}"
+          username: "${CDS_DAGSTER_DB_USER}"
+          passwordFrom: secrets.dagster_db_password
+        marquezDatabase:
+          name: "${CDS_MARQUEZ_DB_NAME}"
+          username: "${CDS_MARQUEZ_DB_USER}"
+          passwordFrom: secrets.marquez_db_password
+        storage:
+          enabled: true
+          size: 5Gi
+        healthcheck:
+          enabled: true
+
+    - id: marquez
+      source: ../../modules-experimental/observability/marquez
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+      config:
+        apiPort: 5000
+        apiAdminPort: 5001
+        web:
+          enabled: true
+          port: 3001
+        database:
+          contractRef: postgres.marquez-database
+        healthcheck:
+          enabled: true
+
+    - id: dagster
+      source: ../../modules/orchestration/dagster
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+        - marquez
+      config:
+        webPort: 3000
+        kubernetesService:
+          type: NodePort
+          nodePort: 30300
+        daemon:
+          enabled: true
+        homeDir: /opt/dagster/dagster_home
+        analyticsDatabase:
+          contractRef: postgres.sql-database
+        lineageSink:
+          contractRef: marquez.lineage-sink
+        openlineageNamespace: cds-local
+        sharedData:
+          hostPath: ./workdirs/shared-data
+          containerPath: /app/data/cds
+        definitionsFile:
+          hostPath: ./workdirs/dagster/definitions.py
+          containerPath: /app/workdirs/dagster/definitions.py
+        tenderAnalyticsFile:
+          hostPath: ./workdirs/dagster/tender_analytics.py
+          containerPath: /app/workdirs/dagster/tender_analytics.py
+        storage:
+          backend: postgres
+          runStorage:
+            contractRef: postgres.dagster-database
+          eventLogStorage:
+            contractRef: postgres.dagster-database
+          scheduleStorage:
+            contractRef: postgres.dagster-database
+        runLauncher:
+          type: default
+        healthcheck:
+          enabled: true
+
+  secrets:
+    provider:
+      type: env
+    values:
+      postgres_superuser_password:
+        env: CDS_POSTGRES_SUPERUSER_PASSWORD
+        required: true
+      analytics_db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
+        required: true
+      dagster_db_password:
+        env: CDS_DAGSTER_DB_PASSWORD
+        required: true
+      marquez_db_password:
+        env: CDS_MARQUEZ_DB_PASSWORD
+        required: true
+
+  outputs:
+    contracts:
+      warehouse:
+        from: postgres.sql-database
+      orchestrationApi:
+        from: dagster.http-service
+      lineageApi:
+        from: marquez.lineage-sink
