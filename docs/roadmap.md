@@ -118,8 +118,9 @@ CRA scope or conformity (see [docs/cra-scope-decision.md](cra-scope-decision.md)
   register, Annex I traceability matrix and Annex VII index, with a CI check
   (#732, see [docs/cra-risk-assessment.md](cra-risk-assessment.md) and
   [docs/cra-technical-documentation.md](cra-technical-documentation.md))
-- 📋 **CRA release evidence gate** — release gate that requires the evidence
-  above before publishing (#733)
+- ✅ **CRA release evidence gate** — release-evidence manifest and fail-closed
+  conformity gate, disabled by default, with draft Annex II/V/VI templates
+  (#733, see [docs/cra-release-evidence-gate.md](cra-release-evidence-gate.md))
 - 📋 **CLI self-update notification** — notify users when a newer CDS CLI
   release is available (#841)
 - 📋 **`cds get` source trust** — trusted-source allowlist and commit/digest

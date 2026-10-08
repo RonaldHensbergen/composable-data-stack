@@ -20,7 +20,7 @@ Alignment**), by importance/dependency order, not by issue number.
 |12|6 - NL|#779|~~OpenLineage data-lineage contract + Dagster integration — coordinates with #773's gap analysis (may satisfy part of FDS's data-provider metadata basisafspraken); optionally reuses the OTel-collector work (#777, milestone 2) as its backend.~~|Resolved by #831|
 |13|6 - NL|#772|~~Common Ground/Haven reference profile and mapping doc — independent, reuses existing/in-flight modules (identity, TLS); lowest urgency of the NL set, no legal deadline behind it.~~|Resolved by #830|
 |14|5 - CRA|#732|~~CRA risk assessment & technical documentation, deliberately last-but-one: it's a traceability matrix that's supposed to reference existing controls/evidence rather than restate them, so it's far more tractable once #729–731 and #737 already exist to cite~~|Resolved by #842|
-|15|5 - CRA|#733|CRA release evidence gate, hard-blocked: its own acceptance criteria say it can't close until #728 (done), #729, #730, #731, and #732 are all complete, so it must be last regardless of effort.|In review (#847)|
+|15|5 - CRA|#733|CRA release evidence gate, hard-blocked: its own acceptance criteria say it can't close until #728 (done), #729, #730, #731, and #732 are all complete, so it must be last regardless of effort.|Resolved by #847|
 
 ## Notes
 
