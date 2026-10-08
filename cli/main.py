@@ -23,7 +23,13 @@ import yaml
 from . import audit_log
 from .composer import compose_profile
 from .diagnostics import Diagnostic
-from .getter import GetError, _prepare_source_repository, fetch_profile, format_get_plan
+from .getter import (
+    GetError,
+    _prepare_source_repository,
+    fetch_profile,
+    format_get_plan,
+    parse_allowed_sources,
+)
 from .image_digest_check import is_enabled as image_digest_check_enabled
 from .image_updates import check_image_update, collect_module_images
 from .image_verification import (
@@ -419,6 +425,20 @@ def load_saved_audit_disabled() -> bool:
     return _config_value("audit.enabled") is False
 
 
+def load_allowed_get_sources() -> list[str]:
+    """Return the trusted `cds get`/`cds list --remote` sources (#849).
+
+    `CDS_GET_ALLOWED_SOURCES` wins over the project's `get.allowedSources`
+    setting; both are comma-separated `owner` or `owner/repo` entries. An empty
+    result means no allowlist is enforced.
+    """
+    env_value = os.environ.get("CDS_GET_ALLOWED_SOURCES")
+    if env_value is not None:
+        return parse_allowed_sources(env_value)
+    saved = _config_value("get.allowedSources")
+    return parse_allowed_sources(saved if isinstance(saved, str) else None)
+
+
 def load_saved_profile() -> str | None:
     """Return the profile name saved via `cds use`, if any."""
     profile = _read_config().get("profile")
@@ -472,6 +492,11 @@ def set_config_value(key: str, value: str) -> Path:
         if not isinstance(audit, dict):
             raise ConfigIOError("Config key 'audit' must be a mapping.")
         audit["enabled"] = value == "true"
+    elif key == "get.allowedSources":
+        get_settings = data.setdefault("get", {})
+        if not isinstance(get_settings, dict):
+            raise ConfigIOError("Config key 'get' must be a mapping.")
+        get_settings["allowedSources"] = value
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     return _write_config(data)
@@ -509,6 +534,13 @@ def unset_config_value(key: str) -> bool:
         del audit["enabled"]
         if not audit:
             del data["audit"]
+    elif key == "get.allowedSources":
+        get_settings = data.get("get")
+        if not isinstance(get_settings, dict) or "allowedSources" not in get_settings:
+            return False
+        del get_settings["allowedSources"]
+        if not get_settings:
+            del data["get"]
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     _write_config(data)
@@ -767,7 +799,9 @@ def _resolve_list_source_roots(remote: str | None, ref: str, local: str | None):
     if remote is None and local is None:
         yield get_profiles_root(), get_modules_root()
         return
-    with _prepare_source_repository(remote, ref, local) as source_repo:
+    with _prepare_source_repository(
+        remote, ref, local, allowed_sources=load_allowed_get_sources()
+    ) as source_repo:
         yield source_repo / "profiles", source_repo / "modules"
 
 
@@ -1643,6 +1677,13 @@ def main() -> int:
         help="Branch, tag, or commit to fetch from --remote (default: main)",
     )
     get_parser.add_argument(
+        "--commit",
+        help=(
+            "Pin the fetch to this commit SHA (7-40 hex characters); fails if "
+            "--ref resolves to a different commit"
+        ),
+    )
+    get_parser.add_argument(
         "--local",
         help=(
             "Use an existing local directory as the source repository instead of "
@@ -1771,16 +1812,16 @@ def main() -> int:
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_get_parser = config_subparsers.add_parser("get", help="Print a persisted setting")
     config_get_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
+        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled", "get.allowedSources"]
     )
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
     config_set_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
+        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled", "get.allowedSources"]
     )
     config_set_parser.add_argument("value")
     config_unset_parser = config_subparsers.add_parser("unset", help="Remove a persisted setting")
     config_unset_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
+        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled", "get.allowedSources"]
     )
     config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
 
@@ -2448,6 +2489,8 @@ def main() -> int:
                 destination_root=Path(args.into) if args.into else None,
                 force=args.force,
                 dry_run=args.dry_run,
+                allowed_sources=load_allowed_get_sources(),
+                commit=args.commit,
             )
         except GetError as exc:
             print(f"ERROR {exc}", file=sys.stderr)
@@ -3137,6 +3180,14 @@ def main() -> int:
             elif args.key == "audit.enabled":
                 if args.value not in {"true", "false"}:
                     print("ERROR Config key 'audit.enabled' must be true or false.")
+                    return 1
+                value = args.value
+            elif args.key == "get.allowedSources":
+                if not parse_allowed_sources(args.value):
+                    print(
+                        "ERROR Config key 'get.allowedSources' must list at least one "
+                        "comma-separated 'owner' or 'owner/repo'."
+                    )
                     return 1
                 value = args.value
             else:

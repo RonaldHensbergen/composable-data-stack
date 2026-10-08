@@ -8,7 +8,7 @@ import shutil
 import sys
 import tarfile
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -30,6 +30,8 @@ _GITHUB_URL_PATTERN = re.compile(
     r"^(?:https?://|git@)?(?:www\.)?github\.com[/:](?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
 )
 _GITHUB_SHORTHAND_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_COMMIT_PIN_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
+_FULL_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 _TRACKING_FILE = Path(".cds") / "get-manifest.json"
 _SKIP_DIRS = {
@@ -56,6 +58,39 @@ class GetError(RuntimeError):
     """Raised when `cds get` cannot complete safely."""
 
 
+def parse_allowed_sources(raw: str | None) -> list[str]:
+    """Parse a comma-separated allowlist of `owner` or `owner/repo` entries."""
+    if not raw:
+        return []
+    return [entry.strip().lower() for entry in raw.split(",") if entry.strip()]
+
+
+def _check_source_allowed(owner: str, repo: str, allowed_sources: Sequence[str] | None) -> None:
+    """Fail closed when an allowlist is configured and the source is not on it.
+
+    `None`/empty means no allowlist (unrestricted). An entry is either an
+    owner (trusts every repository of that owner) or an exact `owner/repo`.
+    """
+    if not allowed_sources:
+        return
+    normalized = {entry.lower() for entry in allowed_sources}
+    if owner.lower() in normalized or f"{owner}/{repo}".lower() in normalized:
+        return
+    raise GetError(
+        f"Source {owner}/{repo} is not in the trusted-source allowlist "
+        f"({', '.join(sorted(normalized))}). Add it with `cds config set "
+        "get.allowedSources` or CDS_GET_ALLOWED_SOURCES to fetch from it."
+    )
+
+
+def _validate_commit_pin(pin: str) -> str:
+    if not _COMMIT_PIN_PATTERN.match(pin):
+        raise GetError(
+            f"Invalid --commit {pin!r}: expected a 7-40 character hexadecimal commit SHA"
+        )
+    return pin.lower()
+
+
 @dataclass(frozen=True)
 class CopyAction:
     source: Path
@@ -72,10 +107,14 @@ def fetch_profile(
     destination_root: Path | None = None,
     force: bool = False,
     dry_run: bool = False,
+    allowed_sources: Sequence[str] | None = None,
+    commit: str | None = None,
 ) -> tuple[list[CopyAction], Path, list[str]]:
     target_root = (destination_root or Path.cwd()).expanduser().resolve()
 
-    with _prepare_source_repository(remote, ref, local) as source_repo:
+    with _prepare_source(
+        remote, ref, local, allowed_sources=allowed_sources, commit=commit
+    ) as (source_repo, resolved_commit):
         profile_path = _resolve_source_profile_path(source_repo, profile)
         asset_roots = _collect_asset_roots(source_repo, profile_path)
 
@@ -109,6 +148,8 @@ def fetch_profile(
             local=local,
             actions=actions,
             asset_roots=asset_roots,
+            resolved_commit=resolved_commit,
+            pinned_commit=commit.lower() if commit else None,
         )
     return actions, target_root / _TRACKING_FILE, conflicts
 
@@ -146,22 +187,56 @@ def format_get_plan(
 
 @contextmanager
 def _prepare_source_repository(
-    remote: str | None, ref: str, local: str | None
+    remote: str | None,
+    ref: str,
+    local: str | None,
+    *,
+    allowed_sources: Sequence[str] | None = None,
+    commit: str | None = None,
 ) -> Iterator[Path]:
     """Resolve the source repository containing a `profiles/` tree.
+
+    See `_prepare_source` for the trust and pinning options; this variant
+    yields only the repository path.
+    """
+    with _prepare_source(
+        remote, ref, local, allowed_sources=allowed_sources, commit=commit
+    ) as (source_repo, _resolved_commit):
+        yield source_repo
+
+
+@contextmanager
+def _prepare_source(
+    remote: str | None,
+    ref: str,
+    local: str | None,
+    *,
+    allowed_sources: Sequence[str] | None = None,
+    commit: str | None = None,
+) -> Iterator[tuple[Path, str | None]]:
+    """Resolve the source repository and the commit it was fetched at.
 
     By design, `cds get` downloads its source from GitHub: a bare `remote`
     defaults to this project's upstream repository, and any `owner/repo` or
     `github.com/...` value is fetched as a tarball for `ref`. Pass `local` to
     explicitly use an existing local directory instead (e.g. an offline/dev
-    checkout) -- `remote` and a non-default `ref` are rejected in that case.
+    checkout) -- `remote`, a non-default `ref` and `commit` are rejected in
+    that case.
+
+    `allowed_sources` optionally restricts which `owner`/`owner/repo` may be
+    fetched, and `commit` pins the fetched archive to a commit SHA (full or
+    abbreviated, at least 7 characters); both fail closed before anything is
+    copied.
     """
+    pin = _validate_commit_pin(commit) if commit is not None else None
     if local is not None:
         if remote is not None:
             raise GetError("Specify only one of --remote and --local")
         if ref != DEFAULT_REF:
             raise GetError(f"--ref {ref!r} is ignored with --local: specify only one of --local and --ref")
-        yield _validate_source_repository(Path(local).expanduser())
+        if pin is not None:
+            raise GetError("--commit applies only to GitHub sources: specify only one of --local and --commit")
+        yield _validate_source_repository(Path(local).expanduser()), None
         return
 
     candidate = remote or DEFAULT_REMOTE
@@ -173,9 +248,23 @@ def _prepare_source_repository(
             "local directory instead."
         )
     owner, repo = parsed
+    _check_source_allowed(owner, repo, allowed_sources)
     with tempfile.TemporaryDirectory(prefix="cds-get-") as tmp_dir:
-        extracted = _download_github_repository(owner, repo, ref, Path(tmp_dir))
-        yield _validate_source_repository(extracted)
+        extracted, resolved_commit = _download_github_repository(
+            owner, repo, ref, Path(tmp_dir)
+        )
+        if pin is not None:
+            if resolved_commit is None:
+                raise GetError(
+                    f"Could not determine the commit of {owner}/{repo}@{ref}; "
+                    f"refusing to fetch because --commit {pin} could not be verified"
+                )
+            if not resolved_commit.startswith(pin):
+                raise GetError(
+                    f"{owner}/{repo}@{ref} resolved to commit {resolved_commit}, "
+                    f"which does not match the pinned --commit {pin}"
+                )
+        yield _validate_source_repository(extracted), resolved_commit
 
 
 def _parse_github_remote(remote: str) -> tuple[str, str] | None:
@@ -189,7 +278,15 @@ def _parse_github_remote(remote: str) -> tuple[str, str] | None:
     return None
 
 
-def _download_github_repository(owner: str, repo: str, ref: str, work_dir: Path) -> Path:
+def _download_github_repository(
+    owner: str, repo: str, ref: str, work_dir: Path
+) -> tuple[Path, str | None]:
+    """Download and extract a GitHub tarball; return it with its commit SHA.
+
+    The commit comes from the archive's pax `comment` header (the full SHA
+    GitHub embeds), falling back to the abbreviated SHA in the top-level
+    directory name.
+    """
     url = f"https://api.github.com/repos/{owner}/{repo}/tarball/{ref}"
     request = Request(url, headers={"User-Agent": "composable-data-stack-cds-get"})
     try:
@@ -209,8 +306,12 @@ def _download_github_repository(owner: str, repo: str, ref: str, work_dir: Path)
 
     extract_root = work_dir / "extracted"
     extract_root.mkdir(parents=True, exist_ok=True)
+    commit: str | None = None
     try:
         with tarfile.open(archive_path) as archive:
+            comment = archive.pax_headers.get("comment", "")
+            if _FULL_SHA_PATTERN.match(comment):
+                commit = comment
             archive.extractall(extract_root, filter="data")
     except tarfile.TarError as exc:
         raise GetError(
@@ -225,7 +326,11 @@ def _download_github_repository(owner: str, repo: str, ref: str, work_dir: Path)
             f"Unexpected archive layout for {owner}/{repo}@{ref}: "
             f"expected exactly one top-level directory, found {found}"
         )
-    return extracted_entries[0]
+    if commit is None:
+        suffix = extracted_entries[0].name.rsplit("-", 1)[-1].lower()
+        if _COMMIT_PIN_PATTERN.match(suffix):
+            commit = suffix
+    return extracted_entries[0], commit
 
 
 def _validate_source_repository(candidate: Path) -> Path:
@@ -769,6 +874,8 @@ def _write_tracking_manifest(
     local: str | None,
     actions: list[CopyAction],
     asset_roots: list[Path],
+    resolved_commit: str | None = None,
+    pinned_commit: str | None = None,
 ) -> None:
     manifest_path = target_root / _TRACKING_FILE
     manifest = _read_tracking_manifest(manifest_path)
@@ -778,6 +885,8 @@ def _write_tracking_manifest(
         "sourceProfile": profile_path.relative_to(source_repo).as_posix(),
         "remote": local or remote or DEFAULT_REMOTE,
         "ref": None if local else ref,
+        "commit": resolved_commit,
+        "pinnedCommit": pinned_commit,
         "fetchedAt": datetime.now(UTC).isoformat(),
         "assetRoots": [
             _asset_root_relative_path(asset_root, source_repo) for asset_root in asset_roots

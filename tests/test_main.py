@@ -19,6 +19,7 @@ from cli.main import (
     generate_profile,
     list_modules,
     list_profiles,
+    load_allowed_get_sources,
     load_env_file,
     load_saved_profile,
     main,
@@ -3576,6 +3577,29 @@ class ConfigCommandCLITest(unittest.TestCase):
         result, output = self._run(["set", "audit.enabled", "nope"])
         self.assertEqual(result, 1)
         self.assertIn("must be true or false", output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_config_sets_gets_and_unsets_get_allowed_sources(self):
+        result, output = self._run(["set", "get.allowedSources", "owner,owner/repo"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(
+            json.loads(self.config_path.read_text())["get"]["allowedSources"], "owner,owner/repo"
+        )
+        with patch.dict(os.environ):
+            os.environ.pop("CDS_GET_ALLOWED_SOURCES", None)
+            self.assertEqual(load_allowed_get_sources(), ["owner", "owner/repo"])
+
+        with patch.dict(os.environ, {"CDS_GET_ALLOWED_SOURCES": "other"}):
+            self.assertEqual(load_allowed_get_sources(), ["other"])
+
+        result, output = self._run(["unset", "get.allowedSources"])
+        self.assertEqual(result, 0, output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_config_rejects_empty_get_allowed_sources(self):
+        result, output = self._run(["set", "get.allowedSources", " , "])
+        self.assertEqual(result, 1)
+        self.assertIn("get.allowedSources", output)
         self.assertFalse(self.config_path.exists())
 
     @patch("cli.main.run_security_validation", return_value=([], []))
