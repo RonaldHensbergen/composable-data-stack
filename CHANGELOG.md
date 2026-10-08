@@ -39,6 +39,16 @@ The format is based on Keep a Changelog.
   end-to-end against a live Marquez backend. See `docs/observability.md`
   section 11 (#779).
 
+- Added `docs/cra-risk-assessment.md` (a product-lifecycle risk register
+  plus a full Annex I Part I/Part II traceability matrix mapping CDS's
+  design, release, and maintenance controls to the Cyber Resilience Act's
+  essential requirements) and `docs/cra-technical-documentation.md` (an
+  Annex VII technical-documentation index pointing each required point at
+  the existing CDS artifact that would serve as evidence). Added
+  `tests/test_cra_traceability.py`, a CI check that every Annex I item
+  appears exactly once with a valid, non-empty disposition (implemented
+  evidence, a tracked gap, or a justified non-applicability) (#732).
+
 - Added `docs/fds-alignment.md`, mapping CDS's `provides`/`consumes`
   contract model against the Federatief Datastelsel (FDS) Afsprakenstelsel's
   data-provider basisafspraken (technical, semantic, legal, organisational

@@ -25,9 +25,12 @@ or by accident.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 _REQUIRED_EVIDENCE_REFS = [
     "scopeDecision",
@@ -42,10 +45,41 @@ _REQUIRED_EVIDENCE_REFS = [
     "signaturesProvenance",
 ]
 
+# Evidence entries that point at files in this repository (the others are
+# per-release assets or CI URLs and cannot be checked against the checkout).
+_REPO_FILE_EVIDENCE = [
+    "scopeDecision",
+    "riskAssessment",
+    "technicalDocumentation",
+    "vulnerabilityStatus",
+    "supportInformation",
+    "userInstructions",
+    "signaturesProvenance",
+]
+
 _VALID_CLASSIFICATIONS = {"default", "important", "critical"}
+_DRAFT_MARKER = "NOT VALID"
 
 
-def check_manifest(manifest: dict[str, object]) -> list[str]:
+def _is_url(ref: object) -> bool:
+    return isinstance(ref, str) and ref.startswith(("https://", "http://"))
+
+
+def _check_repo_file(ref: object, label: str, repo_root: Path) -> list[str]:
+    """Check a non-URL ref resolves to a file inside the repository and is not a draft."""
+    if _is_url(ref) or not isinstance(ref, str) or not ref:
+        return []
+    path = (repo_root / ref).resolve()
+    if not path.is_relative_to(repo_root.resolve()):
+        return [f"{label} points outside the repository: {ref!r}"]
+    if not path.is_file():
+        return [f"{label} does not exist in the repository: {ref!r}"]
+    if _DRAFT_MARKER in path.read_text(encoding="utf-8", errors="replace")[:2000]:
+        return [f"{label} still carries a DRAFT / {_DRAFT_MARKER} marking: {ref!r}"]
+    return []
+
+
+def check_manifest(manifest: dict[str, object], repo_root: Path = REPO_ROOT) -> list[str]:
     """Return a list of human-readable problems; empty means the gate passes.
 
     Only called when the manifest has opted into strict checking (see
@@ -61,6 +95,8 @@ def check_manifest(manifest: dict[str, object]) -> list[str]:
         entry = evidence.get(key)
         if not isinstance(entry, dict) or not entry.get("ref"):
             problems.append(f"evidence.{key}.ref is missing or empty")
+        elif key in _REPO_FILE_EVIDENCE:
+            problems.extend(_check_repo_file(entry["ref"], f"evidence.{key}.ref", repo_root))
 
     classification = manifest.get("classification")
     if not isinstance(classification, dict):
@@ -90,6 +126,10 @@ def check_manifest(manifest: dict[str, object]) -> list[str]:
         )
     if not declaration.get("ref"):
         problems.append("declarationOfConformity.ref is missing or empty")
+    else:
+        problems.extend(
+            _check_repo_file(declaration["ref"], "declarationOfConformity.ref", repo_root)
+        )
 
     approvals = manifest.get("approvals")
     if not isinstance(approvals, list) or not approvals:
@@ -102,6 +142,12 @@ def check_manifest(manifest: dict[str, object]) -> list[str]:
             for field in ("name", "role", "date"):
                 if not approval.get(field):
                     problems.append(f"approvals[{index}].{field} is missing or empty")
+            date = approval.get("date")
+            if date:
+                try:
+                    datetime.date.fromisoformat(str(date))
+                except ValueError:
+                    problems.append(f"approvals[{index}].date must be an ISO date (YYYY-MM-DD)")
 
     return problems
 
@@ -119,7 +165,14 @@ def main() -> int:
         print(f"::error::manifest not found: {args.manifest}", file=sys.stderr)
         return 1
 
-    manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"::error::could not read manifest {args.manifest}: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(manifest, dict):
+        print(f"::error::manifest {args.manifest} must be a JSON object", file=sys.stderr)
+        return 1
 
     if not gate_is_enabled(manifest):
         print(

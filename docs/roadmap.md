@@ -85,6 +85,7 @@ These work but may have breaking changes in upcoming releases:
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
 - Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode (`start-dev`), backed by a consumed `sql-database` contract; wired into the `local-haven-reference` profile (#772), no realm configuration (#680) or `oidc-provider` contract for other modules to consume (#681)
+- Module: Marquez (`modules-experimental/observability/marquez/`) — OpenLineage-compatible lineage backend, reference provider for the `lineage-sink` contract; demoed by `local-dagster-postgres-marquez` (#779)
 - Profile: `local-dagster-postgres-superset-vault` — not tested thoroughly yet
 - Profile: `local-haven-reference` — Common Ground/Haven-aligned reference stack (identity, TLS ingress, database), experimental while Keycloak lacks realm configuration/an `oidc-provider` contract (#772, see [docs/common-ground-alignment.md](common-ground-alignment.md))
 - `scripts/compose_to_module.py` — scaffolds a starter `module.yaml` from an existing `docker-compose.yml`
@@ -98,14 +99,39 @@ These work but may have breaking changes in upcoming releases:
 - 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
 - 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): Helm target lifecycle parity with Compose (#689), self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
 - 📋 **Haven parity — previously untracked workstreams** — the three [docs/haven-parity-plan.md](haven-parity-plan.md) gaps that had no issue filed: GitOps rendering/module support (#767), Kubernetes-native database operator pattern (#768), `cds maturity` profile-maturity report (#769)
-- 📋 **Zero-Trust, OpenTelemetry, OpenLineage** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink` contract + OpenTelemetry Collector reference module (#777)
+- 📋 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink` contract + OpenTelemetry Collector reference module (#777)
+
+---
+
+## Cyber Resilience Act Readiness
+
+Tracked under the **Cyber Resilience Act readiness** milestone: proactive
+engineering records for CDS's own product-security posture, not a claim of
+CRA scope or conformity (see [docs/cra-scope-decision.md](cra-scope-decision.md)):
+
+- ✅ **Scope decision, incident runbook, SBOM/release inventory, support
+  policy, compliance report** — #728, #729, #730, #731, #734, #735 (see
+  [docs/cra-incident-runbook.md](cra-incident-runbook.md),
+  [docs/security-support-policy.md](security-support-policy.md) and
+  [docs/compliance-report.md](compliance-report.md))
+- ✅ **Risk assessment and technical documentation** — product-lifecycle risk
+  register, Annex I traceability matrix and Annex VII index, with a CI check
+  (#732, see [docs/cra-risk-assessment.md](cra-risk-assessment.md) and
+  [docs/cra-technical-documentation.md](cra-technical-documentation.md))
+- 📋 **CRA release evidence gate** — release gate that requires the evidence
+  above before publishing (#733)
+- 📋 **CLI self-update notification** — notify users when a newer CDS CLI
+  release is available (#841)
+- 📋 **`cds get` source trust** — trusted-source allowlist and commit/digest
+  pinning for fetched bundles (#849)
 
 ---
 
 ## Dutch Public-Sector Alignment (FDS · Common Ground · NIS2)
 
 Tracked under the **Dutch Public-Sector Data & Security Alignment** milestone,
-distinct from the CRA product-security milestone above — these address the
+distinct from the CRA product-security milestone above (see
+[Cyber Resilience Act Readiness](#cyber-resilience-act-readiness)) — these address the
 Federatief Datastelsel/IBDS data-sharing framework, Common Ground/Haven
 platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
 
@@ -122,19 +148,19 @@ platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
   supplier vs. the operator-level obligations of Cyberbeveiligingswet/NIS2
   Article 21, cross-referenced against the CRA milestone so the two are not
   conflated (#771, see [docs/nis2-cyberbeveiligingswet-scope.md](nis2-cyberbeveiligingswet-scope.md))
-- 📋 **NIS2-aligned `cds security` reporting** — extend the rule-set with
+- ✅ **NIS2-aligned `cds security` reporting** — extend the rule-set with
   operator-readiness checks per Article 21 measure category, gated on the
   scoping issue above (#774)
-- 📋 **Stale pinned-digest warning** — warn when a profile's pinned image
+- ✅ **Stale pinned-digest warning** — warn when a profile's pinned image
   digest is behind the latest published, patched digest; cited by the NIS2
-  scoping issue's supply-chain-security gap (#736)
+  scoping issue's supply-chain-security gap (#736, #758)
 - ✅ **Local audit trail** — retain a local audit trail of rendered/applied
   stacks for user incident evidence, supporting NIS2 incident-reporting
   timelines (#737, see [docs/audit-log.md](audit-log.md))
-- 📋 **OpenLineage data-lineage for Dagster** — add a `lineage-sink` contract
+- ✅ **OpenLineage data-lineage for Dagster** — add a `lineage-sink` contract
   and wire Dagster's built-in OpenLineage integration to it, in support of
   IBDS/FDS "verantwoord datagebruik" provenance expectations; coordinate
-  with the FDS mapping above (#779)
+  with the FDS mapping above (#779, #831; FDS follow-up #843)
 - ✅ **FDS data-provider contract** — add a shared `open-data-provider`
   contract expressing FDS-required dataset provider metadata (description,
   classification, access conditions), the gap identified by the FDS mapping

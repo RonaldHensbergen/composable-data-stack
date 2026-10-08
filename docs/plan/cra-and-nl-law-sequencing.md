@@ -17,10 +17,10 @@ Alignment**), by importance/dependency order, not by issue number.
 |9|6 - NL|#736|~~Stale pinned-digest warning, independent; natural to do alongside #734 since it touches similar digest/registry knowledge from #730. Cited directly by #771's Article 21 supply-chain-security gap.~~|Resolved by #758|
 |10|6 - NL|#737|~~Local audit trail, independent; complements #734's evidence report and directly supports the 24h/72h incident-reporting evidence needs described in #771.~~|Resolved by #810|
 |11|6 - NL|#773|~~FDS data-provider basisafspraken mapping — documentation/gap-analysis only, no dependency on the CRA chain; may spin off a follow-up contract issue once the gap analysis lands.~~|Resolved by #826|
-|12|6 - NL|#779|OpenLineage data-lineage contract + Dagster integration — coordinates with #773's gap analysis (may satisfy part of FDS's data-provider metadata basisafspraken); optionally reuses the OTel-collector work (#777, milestone 2) as its backend.|In review (#831)|
+|12|6 - NL|#779|~~OpenLineage data-lineage contract + Dagster integration — coordinates with #773's gap analysis (may satisfy part of FDS's data-provider metadata basisafspraken); optionally reuses the OTel-collector work (#777, milestone 2) as its backend.~~|Resolved by #831|
 |13|6 - NL|#772|~~Common Ground/Haven reference profile and mapping doc — independent, reuses existing/in-flight modules (identity, TLS); lowest urgency of the NL set, no legal deadline behind it.~~|Resolved by #830|
-|14|5 - CRA|#732|CRA risk assessment & technical documentation, deliberately last-but-one: it's a traceability matrix that's supposed to reference existing controls/evidence rather than restate them, so it's far more tractable once #729–731 and #737 already exist to cite.|In review (#842)|
-|15|5 - CRA|#733|CRA release evidence gate, hard-blocked: its own acceptance criteria say it can't close until #728 (done), #729, #730, #731, and #732 are all complete, so it must be last regardless of effort.|In review, blocked on #732 merging|
+|14|5 - CRA|#732|~~CRA risk assessment & technical documentation, deliberately last-but-one: it's a traceability matrix that's supposed to reference existing controls/evidence rather than restate them, so it's far more tractable once #729–731 and #737 already exist to cite~~|Resolved by #842|
+|15|5 - CRA|#733|CRA release evidence gate, hard-blocked: its own acceptance criteria say it can't close until #728 (done), #729, #730, #731, and #732 are all complete, so it must be last regardless of effort.|In review (#847)|
 
 ## Notes
 

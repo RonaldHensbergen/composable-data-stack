@@ -34,6 +34,14 @@ def pyproject_name_and_version(pyproject_path: Path) -> tuple[str, str]:
     return project["name"], project["version"]
 
 
+_REPO_URL = "https://github.com/RonaldHensbergen/composable-data-stack"
+
+
+def _repo_doc(commit_sha: str, path: str) -> dict[str, str]:
+    """Evidence pointer to a repository file, plus a permalink pinned to the release commit."""
+    return {"ref": path, "url": f"{_REPO_URL}/blob/{commit_sha}/{path}"}
+
+
 def build_manifest(
     *,
     name: str,
@@ -45,19 +53,16 @@ def build_manifest(
     generated_at: str,
     generated_by: str,
 ) -> dict[str, object]:
-    commit_url = (
-        "https://github.com/RonaldHensbergen/composable-data-stack/commit/"
-        f"{commit_sha}/checks"
-    )
+    commit_url = f"{_REPO_URL}/commit/{commit_sha}/checks"
     return {
         "schemaVersion": 1,
         "product": {"name": name, "version": version},
         "sourceCommit": commit_sha,
         "sourceRef": source_ref,
         "evidence": {
-            "scopeDecision": {"ref": "docs/cra-scope-decision.md"},
-            "riskAssessment": {"ref": "docs/cra-risk-assessment.md"},
-            "technicalDocumentation": {"ref": "docs/cra-technical-documentation.md"},
+            "scopeDecision": _repo_doc(commit_sha, "docs/cra-scope-decision.md"),
+            "riskAssessment": _repo_doc(commit_sha, "docs/cra-risk-assessment.md"),
+            "technicalDocumentation": _repo_doc(commit_sha, "docs/cra-technical-documentation.md"),
             "sbom": {"ref": sbom_file},
             "releaseInventory": {"ref": release_inventory_file},
             "testResults": {
@@ -65,12 +70,12 @@ def build_manifest(
                 "note": "CI run(s) for this commit; full unit-test suite, Bandit, pip-audit (.github/workflows/ci.yml).",
             },
             "vulnerabilityStatus": {
-                "ref": "docs/image-scanning.md",
+                **_repo_doc(commit_sha, "docs/image-scanning.md"),
                 "note": "Runtime images are rescanned daily and on every change; status is not a static per-release snapshot.",
             },
-            "supportInformation": {"ref": "docs/security-support-policy.md"},
-            "userInstructions": {"ref": "README.md"},
-            "signaturesProvenance": {"ref": "docs/image-signing.md"},
+            "supportInformation": _repo_doc(commit_sha, "docs/security-support-policy.md"),
+            "userInstructions": _repo_doc(commit_sha, "README.md"),
+            "signaturesProvenance": _repo_doc(commit_sha, "docs/image-signing.md"),
         },
         "classification": {
             "category": "default",

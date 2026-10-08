@@ -96,6 +96,12 @@ another CDS module — binding this contract via a profile's `contractRef`
 would only make sense once a catalog-facing module/report exists to read
 it, which is a separate, larger scope than this gap-analysis issue.
 
+Whether the `lineage-sink` contract (#779, see
+[`docs/observability.md`](observability.md) section 11) satisfies any
+provenance expectations of these basisafspraken is tracked by #843. A
+profile-level "FDS-disclosed dataset" declaration (Organisational row) is
+tracked by #844, and a standard classification vocabulary by #845.
+
 ## Deliberately out of scope
 
 - **Data-consumer (afnemer) basisafspraken** — not yet published; revisit

@@ -107,10 +107,18 @@ Structure follows Regulation (EU) 2024/2847, Annex II.
   attached to every GitHub Release) and
   [`docs/image-scanning.md`](image-scanning.md) (runtime-image SBOMs).
 
+## 10. Retention
+
+Per Article 13(18), this information and these instructions must be kept
+at the disposal of users and market surveillance authorities for at least
+10 years after the product is placed on the market or for the support
+period, whichever is longer, and, where provided online, remain accessible
+and available online for that period.
+
 ---
 
 ## References
 
-- Regulation (EU) 2024/2847, Annex II.
+- Regulation (EU) 2024/2847, Annex II, Article 13(18).
 - [`docs/cra-release-evidence-gate.md`](cra-release-evidence-gate.md),
   [`docs/cra-scope-decision.md`](cra-scope-decision.md).

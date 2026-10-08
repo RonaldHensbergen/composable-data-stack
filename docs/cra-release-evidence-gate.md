@@ -57,7 +57,9 @@ that evidence, built by
 [`scripts/build_cra_release_evidence_manifest.py`](../scripts/build_cra_release_evidence_manifest.py)
 and checked by
 [`scripts/check_cra_release_gate.py`](../scripts/check_cra_release_gate.py)
-(§6). It references:
+(§6). Entries that point at repository files also carry a `url`
+permalink pinned to the release commit (`blob/<sha>/<path>`), so the
+evidence resolves to the exact state that was released. It references:
 
 | Manifest field | Evidence it points to |
 | --- | --- |
@@ -142,12 +144,13 @@ assessment based on internal control (Module A)**:
 **Escalation conditions requiring a different route** (a notified body or
 third-party assessment under a different Annex VIII part): the product
 classification in §2 changes to "important" (Annex III) or "critical"
-(Annex IV). An "important"-category product free and open-source product
-can, under the CRA, still use Module A if its technical documentation is
-made public — which CDS's already is, by virtue of being a public
-open-source repository — but this document does not pre-decide that
-outcome; it would need to be re-assessed against the specific Annex
-III/IV category triggering the change.
+(Annex IV). Which route then applies depends on the specific category
+(Annex III Class I vs. Class II, or Annex IV) and on the conditions in
+Article 32 of the CRA (for example, whether harmonised standards have been
+applied, and the provisions for free and open-source software whose
+technical documentation is made public). This document does not
+pre-decide that outcome; it must be re-assessed against Article 32 and the
+specific category triggering the change.
 
 ## 4. CE marking and declaration of conformity
 
@@ -208,8 +211,12 @@ reads a manifest and enforces exactly one rule, mechanically:
   classification (§2) and conformity-assessment route (§3) to be filled
   in, the EU declaration of conformity status to be exactly `"approved"`
   with a reference, and at least one named approval
-  (`name`/`role`/`date`). Missing any of these fails the check (exit `1`)
-  and lists exactly what's missing.
+  (`name`/`role`/ISO `date`). Repository-file references must resolve to an
+  existing file inside the repository, and neither they nor the declaration
+  reference may still carry a `DRAFT — NOT VALID` marking. Missing any of
+  these fails the check (exit `1`) and lists exactly what's missing. An
+  unreadable, invalid, or non-object manifest also fails with a clear
+  error rather than a traceback.
 
 This mechanism satisfies the acceptance criterion that the gate "remains
 disabled for legal claims by default and cannot accidentally emit a CE
@@ -223,10 +230,13 @@ missing fields.
 
 ## 7. Retention
 
-Per Article 13(20), the EU declaration of conformity and the technical
-documentation must be kept available to national authorities for **10
-years after the product with digital elements was placed on the market,
-or for the support period (whichever is longer)**.
+Per Article 13(13), the EU declaration of conformity and the technical
+documentation must be kept at the disposal of market surveillance
+authorities for **at least 10 years after the product with digital
+elements was placed on the market, or for the support period (whichever is
+longer)**. Per Article 13(18), the Annex II information and instructions to
+the user are subject to the same retention period and must remain
+accessible to users and authorities (online, if provided online).
 
 This document, [`docs/cra-technical-documentation.md`](cra-technical-documentation.md),
 and the templates in §5 are stored in git and retained the same way as
@@ -242,7 +252,7 @@ unlike short-retention CI artifacts.
 ## 8. Dependency closure and review cadence
 
 Per this issue's acceptance criteria, #733 cannot close until all of the
-following are complete:
+following are complete (as of this writing, all are):
 
 | Issue | Topic | Status |
 | --- | --- | --- |
@@ -250,7 +260,7 @@ following are complete:
 | [#729](https://github.com/RonaldHensbergen/composable-data-stack/issues/729) | Vulnerability/incident reporting runbook | Resolved by #755 |
 | [#730](https://github.com/RonaldHensbergen/composable-data-stack/issues/730) | Product SBOM | Resolved by #740 |
 | [#731](https://github.com/RonaldHensbergen/composable-data-stack/issues/731) | Support/update policy | Resolved by #742 |
-| [#732](https://github.com/RonaldHensbergen/composable-data-stack/issues/732) | Risk assessment/technical documentation | In review (#842) |
+| [#732](https://github.com/RonaldHensbergen/composable-data-stack/issues/732) | Risk assessment/technical documentation | Resolved by #842 |
 
 This document (and the rest of #733's scope) must also be revisited
 immediately upon:

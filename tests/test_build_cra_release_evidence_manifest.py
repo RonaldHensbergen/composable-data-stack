@@ -50,6 +50,22 @@ class BuildManifestTest(unittest.TestCase):
         self.assertEqual(evidence["releaseInventory"]["ref"], "release-inventory.json")
         self.assertIn("abc123", evidence["testResults"]["ref"])
 
+    def test_repo_document_evidence_has_commit_pinned_permalink(self) -> None:
+        evidence = self._manifest()["evidence"]
+        for key in (
+            "scopeDecision",
+            "riskAssessment",
+            "technicalDocumentation",
+            "vulnerabilityStatus",
+            "supportInformation",
+            "userInstructions",
+            "signaturesProvenance",
+        ):
+            with self.subTest(key=key):
+                self.assertTrue(
+                    evidence[key]["url"].endswith(f"/blob/abc123/{evidence[key]['ref']}")
+                )
+
     def test_classification_defaults_to_default_category(self) -> None:
         manifest = self._manifest()
         self.assertEqual(manifest["classification"]["category"], "default")
