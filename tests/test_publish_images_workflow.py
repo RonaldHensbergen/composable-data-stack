@@ -298,6 +298,56 @@ class PublishImagesWorkflowTest(unittest.TestCase):
                 f"signed-images fixture is missing an entry for the published {image}",
             )
 
+    def test_signed_images_fixture_covers_every_dockerhub_published_image(self) -> None:
+        repo_root = Path(__file__).resolve().parent.parent
+        fixture = json.loads(
+            (repo_root / "tests" / "fixtures" / "signed-images.json").read_text(encoding="utf-8")
+        )
+        entries = {
+            (entry["repository"], entry.get("tagPrefix", "")): entry
+            for entry in fixture["images"].values()
+        }
+        expected = []
+        for image_dir in sorted((repo_root / "images").iterdir()):
+            if (image_dir / "Dockerfile").is_file():
+                expected.append((image_dir.name, ""))
+                continue
+            for variant_dir in sorted(image_dir.iterdir()):
+                if variant_dir.is_dir() and (variant_dir / "Dockerfile").is_file():
+                    prefix = "" if variant_dir.name == "base" else f"{variant_dir.name}-"
+                    expected.append((image_dir.name, prefix))
+        self.assertTrue(expected)
+        for name, prefix in expected:
+            key = (f"docker.io/ronaldsoeverein/{name}", prefix)
+            self.assertIn(key, entries, f"signed-images fixture is missing Docker Hub entry {key}")
+            entry = entries[key]
+            for flag in ("signed", "provenanceAttested", "sbomAttested"):
+                self.assertTrue(entry[flag], f"{key} {flag} must be true")
+
+    def test_signed_images_fixture_covers_default_registry_module_images(self) -> None:
+        repo_root = Path(__file__).resolve().parent.parent
+        fixture = json.loads(
+            (repo_root / "tests" / "fixtures" / "signed-images.json").read_text(encoding="utf-8")
+        )
+        repositories = {entry["repository"] for entry in fixture["images"].values()}
+        for module in ("orchestration/dagster", "bi/superset"):
+            text = (repo_root / "modules" / module / "module.yaml").read_text(encoding="utf-8")
+            for repo in set(re.findall(r"docker\.io/ronaldsoeverein/[a-z0-9-]+", text)):
+                self.assertIn(repo, repositories, f"{module} default image {repo} has no fixture entry")
+
+    def test_update_fixture_waits_for_both_registries_and_logs_into_dockerhub(self) -> None:
+        job = self.jobs["update-fixture"]
+        self.assertIn("publish-dockerhub", job["needs"])
+        self.assertIn("needs.publish-dockerhub.result == 'success'", job["if"])
+        self.assertTrue(
+            any(
+                s.get("with", {}).get("username") == "ronaldsoeverein"
+                and "RONALDSOEVEREIN_LOGIN" in str(s["with"].get("password", ""))
+                for s in job["steps"]
+            ),
+            "update-fixture must log into Docker Hub",
+        )
+
     def test_ghcr_build_tags_alpine_alias_only_for_hardened_variant(self) -> None:
         # Structural guard for the "hardened" -> "alpine-" tag alias
         # (ghcr.io publish job's "Build image for publication" step): a

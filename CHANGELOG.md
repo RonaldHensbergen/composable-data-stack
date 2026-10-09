@@ -115,6 +115,13 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Added the Docker Hub-published images (`dagster`, `dagster` hardened,
+  `superset`, `dbt`, `dlt` under `docker.io/ronaldsoeverein/`) to
+  `tests/fixtures/signed-images.json` and made the `update-fixture` job
+  refresh them after `publish-dockerhub` succeeds, so `cds report` finds
+  signature/SBOM/provenance evidence for default `image.source: registry`
+  pulls instead of always emitting W101 (#824).
+
 - Fixed the `marquez-web` healthcheck in the experimental
   `modules-experimental/observability/marquez` module always reporting
   `unhealthy` under `cds up`: it shelled out to `bash -c '... /dev/tcp ...'`,
