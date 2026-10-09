@@ -441,7 +441,9 @@ def load_allowed_get_sources() -> list[str]:
 
     `CDS_GET_ALLOWED_SOURCES` wins over the project's `get.allowedSources`
     setting; both are comma-separated `owner` or `owner/repo` entries. An empty
-    result means no allowlist is enforced.
+    result means no allowlist is enforced. A blank environment value is
+    ignored, but `CDS_GET_ALLOWED_SOURCES=*` explicitly allows any source for
+    a single run, overriding a saved allowlist.
     """
     env_sources = parse_allowed_sources(os.environ.get("CDS_GET_ALLOWED_SOURCES"))
     if env_sources:

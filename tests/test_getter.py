@@ -1244,18 +1244,61 @@ class GetSourceTrustTest(unittest.TestCase):
             entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"]["demo"]
             self.assertEqual(entry["commit"], self.FULL_SHA[:7])
 
-    def test_commit_pin_longer_than_abbreviated_archive_commit_reports_it(self) -> None:
+    def _fetch_with_api(self, archive_bytes: bytes, dest_dir: str, api_body: bytes, **kwargs):
+        def fake_urlopen(request, timeout=None):
+            body = api_body if "/commits/" in request.full_url else archive_bytes
+
+            class _Resp:
+                def __enter__(self_inner):
+                    return self_inner
+
+                def __exit__(self_inner, *exc_info):
+                    return False
+
+                def read(self_inner):
+                    return body
+
+            return _Resp()
+
+        with patch("cli.getter.urlopen", side_effect=fake_urlopen):
+            return fetch_profile("demo", destination_root=Path(dest_dir), **kwargs)
+
+    def test_commit_pin_verified_via_api_when_archive_has_only_abbreviated_sha(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             _make_source_repo(Path(source_dir))
-            with self.assertRaises(GetError) as ctx:
-                self._fetch(
+            _, manifest_path, _ = self._fetch_with_api(
+                self._tarball(Path(source_dir), with_comment=False),
+                dest_dir,
+                self.FULL_SHA.encode(),
+                remote="owner/repo",
+                commit=self.FULL_SHA,
+            )
+            entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"]["demo"]
+            self.assertEqual(entry["commit"], self.FULL_SHA)
+
+    def test_commit_pin_rejects_api_sha_that_disagrees_with_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            _make_source_repo(Path(source_dir))
+            with self.assertRaises(GetError):
+                self._fetch_with_api(
                     self._tarball(Path(source_dir), with_comment=False),
                     dest_dir,
+                    ("f" * 40).encode(),
                     remote="owner/repo",
                     commit=self.FULL_SHA,
                 )
-            self.assertIn("abbreviated", str(ctx.exception))
             self.assertEqual(list(Path(dest_dir).iterdir()), [])
+
+    def test_allowlist_wildcard_allows_any_source(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            _make_source_repo(Path(source_dir))
+            actions, _, _ = self._fetch(
+                self._tarball(Path(source_dir)),
+                dest_dir,
+                remote="anyone/repo",
+                allowed_sources=["*"],
+            )
+            self.assertGreater(len(actions), 0)
 
     def test_commit_pin_rejects_invalid_values_and_local_sources(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:

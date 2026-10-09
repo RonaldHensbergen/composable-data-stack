@@ -70,11 +70,13 @@ def _check_source_allowed(owner: str, repo: str, allowed_sources: Sequence[str] 
     """Fail closed when an allowlist is configured and the source is not on it.
 
     `None`/empty means no allowlist (unrestricted). An entry is either an
-    owner (trusts every repository of that owner) or an exact `owner/repo`.
+    owner (trusts every repository of that owner) or an exact `owner/repo`; `*` explicitly allows any source.
     """
     if not allowed_sources:
         return
     normalized = {entry.lower() for entry in allowed_sources}
+    if "*" in normalized:
+        return
     if owner.lower() in normalized or f"{owner}/{repo}".lower() in normalized:
         return
     raise GetError(
@@ -260,11 +262,8 @@ def _prepare_source(
                     f"Could not determine the commit of {owner}/{repo}@{ref}; "
                     f"refusing to fetch because --commit {pin} could not be verified"
                 )
-            if len(resolved_commit) < len(pin) and pin.startswith(resolved_commit):
-                raise GetError(
-                    f"Could only verify the abbreviated commit {resolved_commit} of "
-                    f"{owner}/{repo}@{ref}, which is too short to verify --commit {pin}"
-                )
+            if len(resolved_commit) < len(pin):
+                resolved_commit = _expand_abbreviated_commit(owner, repo, ref, resolved_commit)
             if not resolved_commit.startswith(pin):
                 raise GetError(
                     f"{owner}/{repo}@{ref} resolved to commit {resolved_commit}, "
@@ -282,6 +281,36 @@ def _parse_github_remote(remote: str) -> tuple[str, str] | None:
         owner, repo = candidate.split("/", 1)
         return owner, repo
     return None
+
+
+def _expand_abbreviated_commit(owner: str, repo: str, ref: str, abbreviated: str) -> str:
+    """Resolve `ref` to its full SHA via the GitHub API, checked against the archive.
+
+    Used only when an archive lacks the full-SHA pax header, so a pin longer
+    than the abbreviated directory-name SHA can still be verified.
+    """
+    url = f"https://api.github.com/repos/{owner}/{repo}/commits/{ref}"
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "composable-data-stack-cds-get",
+            "Accept": "application/vnd.github.sha",
+        },
+    )
+    try:
+        with urlopen(request, timeout=30) as response:  # nosec B310 - fixed https GitHub API host  # noqa: S310
+            full = response.read().decode("utf-8").strip().lower()
+    except (HTTPError, URLError, UnicodeDecodeError) as exc:
+        raise GetError(
+            f"Could only determine the abbreviated commit {abbreviated} of "
+            f"{owner}/{repo}@{ref} and could not resolve the full SHA to verify --commit"
+        ) from exc
+    if not _FULL_SHA_PATTERN.match(full) or not full.startswith(abbreviated):
+        raise GetError(
+            f"{owner}/{repo}@{ref} resolved to a commit that does not match the "
+            f"downloaded archive ({abbreviated}); refusing to verify --commit"
+        )
+    return full
 
 
 def _download_github_repository(
