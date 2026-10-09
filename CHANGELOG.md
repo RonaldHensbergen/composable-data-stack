@@ -234,7 +234,13 @@ The format is based on Keep a Changelog.
   after a Renovate bump to `<2.2` allowed SQLAlchemy 2.1.x to resolve,
   which defaults bare `postgresql://` URLs to the psycopg3 driver instead
   of psycopg2 and crashed `dagster-webserver`/`dagster-daemon` at startup
-  with `ModuleNotFoundError: No module named 'psycopg'` (#781).
+   with `ModuleNotFoundError: No module named 'psycopg'` (#781).
+
+- Validated `compose_to_module` `--name`/`--category` against the
+  `^[a-z0-9-]+$` module-id pattern before writing anything to disk, and
+  confined the derived default output path under `modules/`, so invalid
+  names fail fast and traversal values can no longer escape the modules
+  tree, without changing explicit `--output` handling (#685).
 
 - Hardened `ifNonempty:` interpolation in `cli/planner.py` and
   `cli/renderer.py` against malformed expressions, so a wrong comma count
