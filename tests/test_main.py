@@ -3592,6 +3592,10 @@ class ConfigCommandCLITest(unittest.TestCase):
         with patch.dict(os.environ, {"CDS_GET_ALLOWED_SOURCES": "other"}):
             self.assertEqual(load_allowed_get_sources(), ["other"])
 
+        for blank in ("", "  , "):
+            with self.subTest(blank=blank), patch.dict(os.environ, {"CDS_GET_ALLOWED_SOURCES": blank}):
+                self.assertEqual(load_allowed_get_sources(), ["owner", "owner/repo"])
+
         result, output = self._run(["unset", "get.allowedSources"])
         self.assertEqual(result, 0, output)
         self.assertFalse(self.config_path.exists())

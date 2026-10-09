@@ -1204,11 +1204,11 @@ class GetSourceTrustTest(unittest.TestCase):
                 self._tarball(Path(source_dir)),
                 dest_dir,
                 remote="owner/repo",
-                commit=self.FULL_SHA[:10].upper(),
+                commit=self.FULL_SHA[:12].upper(),
             )
             entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"]["demo"]
             self.assertEqual(entry["commit"], self.FULL_SHA)
-            self.assertEqual(entry["pinnedCommit"], self.FULL_SHA[:10])
+            self.assertEqual(entry["pinnedCommit"], self.FULL_SHA[:12])
 
     def test_unpinned_fetch_still_records_resolved_commit(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
@@ -1233,22 +1233,34 @@ class GetSourceTrustTest(unittest.TestCase):
             self.assertIn("does not match", str(ctx.exception))
             self.assertEqual(list(Path(dest_dir).iterdir()), [])
 
-    def test_commit_pin_falls_back_to_directory_suffix_without_pax_header(self) -> None:
+    def test_unpinned_fetch_falls_back_to_directory_suffix_without_pax_header(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             _make_source_repo(Path(source_dir))
             _, manifest_path, _ = self._fetch(
                 self._tarball(Path(source_dir), with_comment=False),
                 dest_dir,
                 remote="owner/repo",
-                commit=self.FULL_SHA[:7],
             )
             entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"]["demo"]
             self.assertEqual(entry["commit"], self.FULL_SHA[:7])
 
+    def test_commit_pin_longer_than_abbreviated_archive_commit_reports_it(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            _make_source_repo(Path(source_dir))
+            with self.assertRaises(GetError) as ctx:
+                self._fetch(
+                    self._tarball(Path(source_dir), with_comment=False),
+                    dest_dir,
+                    remote="owner/repo",
+                    commit=self.FULL_SHA,
+                )
+            self.assertIn("abbreviated", str(ctx.exception))
+            self.assertEqual(list(Path(dest_dir).iterdir()), [])
+
     def test_commit_pin_rejects_invalid_values_and_local_sources(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             _make_source_repo(Path(source_dir))
-            for bad in ("main", "abc", "zzzzzzzz"):
+            for bad in ("main", "abc", "zzzzzzzz", self.FULL_SHA[:7]):
                 with self.subTest(commit=bad), self.assertRaises(GetError):
                     fetch_profile(
                         "demo", local=source_dir, destination_root=Path(dest_dir), commit=bad

@@ -425,6 +425,17 @@ def load_saved_audit_disabled() -> bool:
     return _config_value("audit.enabled") is False
 
 
+_CONFIG_KEYS = [
+    "profile",
+    "environment",
+    "security.strict",
+    "image.source",
+    "target",
+    "audit.enabled",
+    "get.allowedSources",
+]
+
+
 def load_allowed_get_sources() -> list[str]:
     """Return the trusted `cds get`/`cds list --remote` sources (#849).
 
@@ -432,9 +443,9 @@ def load_allowed_get_sources() -> list[str]:
     setting; both are comma-separated `owner` or `owner/repo` entries. An empty
     result means no allowlist is enforced.
     """
-    env_value = os.environ.get("CDS_GET_ALLOWED_SOURCES")
-    if env_value is not None:
-        return parse_allowed_sources(env_value)
+    env_sources = parse_allowed_sources(os.environ.get("CDS_GET_ALLOWED_SOURCES"))
+    if env_sources:
+        return env_sources
     saved = _config_value("get.allowedSources")
     return parse_allowed_sources(saved if isinstance(saved, str) else None)
 
@@ -1679,7 +1690,7 @@ def main() -> int:
     get_parser.add_argument(
         "--commit",
         help=(
-            "Pin the fetch to this commit SHA (7-40 hex characters); fails if "
+            "Pin the fetch to this commit SHA (12-40 hex characters); fails if "
             "--ref resolves to a different commit"
         ),
     )
@@ -1812,16 +1823,16 @@ def main() -> int:
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_get_parser = config_subparsers.add_parser("get", help="Print a persisted setting")
     config_get_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled", "get.allowedSources"]
+        "key", choices=_CONFIG_KEYS
     )
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
     config_set_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled", "get.allowedSources"]
+        "key", choices=_CONFIG_KEYS
     )
     config_set_parser.add_argument("value")
     config_unset_parser = config_subparsers.add_parser("unset", help="Remove a persisted setting")
     config_unset_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled", "get.allowedSources"]
+        "key", choices=_CONFIG_KEYS
     )
     config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
 

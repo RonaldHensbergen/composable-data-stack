@@ -30,7 +30,8 @@ _GITHUB_URL_PATTERN = re.compile(
     r"^(?:https?://|git@)?(?:www\.)?github\.com[/:](?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
 )
 _GITHUB_SHORTHAND_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-_COMMIT_PIN_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
+_COMMIT_PIN_PATTERN = re.compile(r"^[0-9a-fA-F]{12,40}$")
+_ABBREVIATED_SHA_PATTERN = re.compile(r"^[0-9a-f]{7,40}$")
 _FULL_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 _TRACKING_FILE = Path(".cds") / "get-manifest.json"
@@ -86,7 +87,7 @@ def _check_source_allowed(owner: str, repo: str, allowed_sources: Sequence[str] 
 def _validate_commit_pin(pin: str) -> str:
     if not _COMMIT_PIN_PATTERN.match(pin):
         raise GetError(
-            f"Invalid --commit {pin!r}: expected a 7-40 character hexadecimal commit SHA"
+            f"Invalid --commit {pin!r}: expected a 12-40 character hexadecimal commit SHA"
         )
     return pin.lower()
 
@@ -225,7 +226,7 @@ def _prepare_source(
 
     `allowed_sources` optionally restricts which `owner`/`owner/repo` may be
     fetched, and `commit` pins the fetched archive to a commit SHA (full or
-    abbreviated, at least 7 characters); both fail closed before anything is
+    abbreviated, at least 12 characters); both fail closed before anything is
     copied.
     """
     pin = _validate_commit_pin(commit) if commit is not None else None
@@ -258,6 +259,11 @@ def _prepare_source(
                 raise GetError(
                     f"Could not determine the commit of {owner}/{repo}@{ref}; "
                     f"refusing to fetch because --commit {pin} could not be verified"
+                )
+            if len(resolved_commit) < len(pin) and pin.startswith(resolved_commit):
+                raise GetError(
+                    f"Could only verify the abbreviated commit {resolved_commit} of "
+                    f"{owner}/{repo}@{ref}, which is too short to verify --commit {pin}"
                 )
             if not resolved_commit.startswith(pin):
                 raise GetError(
@@ -328,7 +334,7 @@ def _download_github_repository(
         )
     if commit is None:
         suffix = extracted_entries[0].name.rsplit("-", 1)[-1].lower()
-        if _COMMIT_PIN_PATTERN.match(suffix):
+        if _ABBREVIATED_SHA_PATTERN.match(suffix):
             commit = suffix
     return extracted_entries[0], commit
 
