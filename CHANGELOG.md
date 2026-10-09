@@ -115,6 +115,11 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Made `release.yml` publish the GitHub release explicitly (`gh release edit
+  --draft=false`, retried) instead of relying on `action-gh-release` to do
+  so, which intermittently left releases as unpublished drafts and failed
+  the workflow (#765).
+
 - Fixed the `marquez-web` healthcheck in the experimental
   `modules-experimental/observability/marquez` module always reporting
   `unhealthy` under `cds up`: it shelled out to `bash -c '... /dev/tcp ...'`,
