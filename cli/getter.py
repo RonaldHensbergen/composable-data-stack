@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from .loader import load_yaml_file, resolve_module_dir
@@ -289,7 +290,7 @@ def _expand_abbreviated_commit(owner: str, repo: str, ref: str, abbreviated: str
     Used only when an archive lacks the full-SHA pax header, so a pin longer
     than the abbreviated directory-name SHA can still be verified.
     """
-    url = f"https://api.github.com/repos/{owner}/{repo}/commits/{ref}"
+    url = f"https://api.github.com/repos/{owner}/{repo}/commits/{quote(ref, safe='/')}"
     request = Request(
         url,
         headers={
@@ -322,7 +323,7 @@ def _download_github_repository(
     GitHub embeds), falling back to the abbreviated SHA in the top-level
     directory name.
     """
-    url = f"https://api.github.com/repos/{owner}/{repo}/tarball/{ref}"
+    url = f"https://api.github.com/repos/{owner}/{repo}/tarball/{quote(ref, safe='/')}"
     request = Request(url, headers={"User-Agent": "composable-data-stack-cds-get"})
     try:
         with urlopen(request, timeout=30) as response:  # nosec B310 - fixed https GitHub API host  # noqa: S310

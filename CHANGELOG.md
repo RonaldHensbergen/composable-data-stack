@@ -11,8 +11,10 @@ The format is based on Keep a Changelog.
 - Added opt-in source trust for `cds get`: a trusted-source allowlist
   (`cds config set get.allowedSources` or `CDS_GET_ALLOWED_SOURCES`,
   also enforced for `cds list --remote`) and `cds get --commit <sha>`
-  pinning that fails closed on a mismatch. The resolved commit SHA is now
-  recorded in `.cds/get-manifest.json` (#849).
+  pinning (12-40 hex characters) that fails closed on a mismatch, verifying
+  via the GitHub API when an archive lacks the full SHA.
+  `CDS_GET_ALLOWED_SOURCES=*` allows any source for a single run. The
+  resolved commit SHA is now recorded in `.cds/get-manifest.json` (#849).
 
 - Added a CRA release-evidence manifest and fail-closed conformity
   readiness gate: `scripts/build_cra_release_evidence_manifest.py`
