@@ -72,7 +72,6 @@ from .validator import (
     validate_profile,
 )
 
-
 _ENV_FILE_DENYLIST = frozenset({"CDS_GET_ALLOWED_SOURCES"})
 
 
