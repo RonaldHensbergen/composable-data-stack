@@ -1,9 +1,7 @@
-"""Regression tests for the vault profile's init-db.sh bootstrap script.
+"""Guards for the vault profile's init-db.sh bootstrap script (#836).
 
-Guards the defects fixed under #836 without needing Docker: psql
-`:'var'` interpolation does not apply inside `DO $do$` dollar-quoted
-bodies, every referenced psql variable must be passed with `-v`, and all
-roles must come from configuration (no hardcoded role names).
+psql `:'var'` interpolation does not apply inside `DO $do$` bodies, so
+these tests pin the script shape that keeps bootstrap working.
 """
 
 import re
@@ -64,11 +62,8 @@ class VaultInitDbTest(unittest.TestCase):
 
 
 class VaultInitDbWiringTest(unittest.TestCase):
-    """Proves, without Docker, that the rendered vault profile actually
-    delivers the fixed script and its variables to the postgres container:
-    init-db.sh is mounted into /docker-entrypoint-initdb.d/ and every
-    variable the script reads is present in the service environment
-    (passwords as ${CDS_*} placeholders, never resolved values)."""
+    """Render-level proof (no Docker): the vault profile mounts init-db.sh
+    into postgres and delivers every variable the script reads."""
 
     def test_rendered_postgres_service_mounts_script_and_env(self) -> None:
         self.assertTrue(VAULT_PROFILE.exists(), f"Vault profile not found at {VAULT_PROFILE}")
