@@ -354,6 +354,17 @@ class MainArgValidationTest(unittest.TestCase):
         )
         self.assertEqual(compose_to_module._default_output_path("warehouse", "postgres"), expected)
 
+    def test_main_rejects_name_with_trailing_newline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(SystemExit) as ctx:
+                compose_to_module.main([
+                    "--compose", self._compose_file(tmpdir),
+                    "--service", "db",
+                    "--name", "postgres\n",
+                    "--category", "warehouse",
+                    "--output", "-",
+                ])
+            self.assertIn("--name", str(ctx.exception))
 
     @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
     def test_main_symlink_escape_writes_nothing_outside(self) -> None:

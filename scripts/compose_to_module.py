@@ -527,7 +527,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     for flag, value in (("--name", args.name), ("--category", args.category)):
-        if not _MODULE_ID_PATTERN.match(value):
+        if not _MODULE_ID_PATTERN.fullmatch(value):
             raise ScaffoldError(
                 f'{flag} "{value}" must match the module-id pattern ^[a-z0-9-]+$ '
                 "(lowercase letters, digits, hyphens)."
