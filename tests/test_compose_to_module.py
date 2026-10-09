@@ -355,5 +355,26 @@ class MainArgValidationTest(unittest.TestCase):
         self.assertEqual(compose_to_module._default_output_path("warehouse", "postgres"), expected)
 
 
+    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
+    def test_main_symlink_escape_writes_nothing_outside(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, unittest.mock.patch.object(
+            compose_to_module, "REPO_ROOT", Path(tmpdir)
+        ):
+            outside = Path(tmpdir) / "outside"
+            outside.mkdir()
+            modules_root = Path(tmpdir) / "modules"
+            modules_root.mkdir()
+            (modules_root / "warehouse").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(SystemExit) as ctx:
+                compose_to_module.main([
+                    "--compose", self._compose_file(tmpdir),
+                    "--service", "db",
+                    "--name", "postgres",
+                    "--category", "warehouse",
+                ])
+            self.assertIn("modules", str(ctx.exception))
+            self.assertFalse((outside / "postgres" / "module.yaml").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
