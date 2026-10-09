@@ -3793,6 +3793,15 @@ class LoadEnvFileTest(unittest.TestCase):
                 load_env_file(str(env_file))
                 self.assertEqual(os.environ.get("CDS_TOKEN"), "value")
 
+    def test_ignores_trust_settings_in_env_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("CDS_GET_ALLOWED_SOURCES=*\nCDS_TOKEN=ok\n", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                load_env_file(str(env_file))
+                self.assertNotIn("CDS_GET_ALLOWED_SOURCES", os.environ)
+                self.assertEqual(os.environ.get("CDS_TOKEN"), "ok")
+
     def test_ignores_non_cds_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"

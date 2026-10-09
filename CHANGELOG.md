@@ -13,7 +13,8 @@ The format is based on Keep a Changelog.
   also enforced for `cds list --remote`) and `cds get --commit <sha>`
   pinning (12-40 hex characters) that fails closed on a mismatch, verifying
   via the GitHub API when an archive lacks the full SHA.
-  `CDS_GET_ALLOWED_SOURCES=*` allows any source for a single run. The
+  `CDS_GET_ALLOWED_SOURCES=*` allows any source for a single run; the
+  variable is never read from `.env`. The
   resolved commit SHA is now recorded in `.cds/get-manifest.json` (#849).
 
 - Added a CRA release-evidence manifest and fail-closed conformity

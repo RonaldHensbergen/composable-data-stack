@@ -73,6 +73,9 @@ from .validator import (
 )
 
 
+_ENV_FILE_DENYLIST = frozenset({"CDS_GET_ALLOWED_SOURCES"})
+
+
 def load_env_file(env_file: str = ".env") -> None:
     """Load environment variables from a .env file."""
     env_path = Path(env_file)
@@ -105,6 +108,10 @@ def load_env_file(env_file: str = ".env") -> None:
                 value = value[1:-1]
             # Only accept CDS_* keys - arbitrary .env keys are ignored
             if not key.startswith("CDS_"):
+                continue
+            # Trust settings must come from the real environment or saved
+            # config, never from a .env that may belong to an untrusted checkout
+            if key in _ENV_FILE_DENYLIST:
                 continue
             # Only set if not already in environment
             if key and not os.environ.get(key):
