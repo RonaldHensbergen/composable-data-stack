@@ -20,7 +20,7 @@ except ImportError:
 
 import yaml
 
-from . import audit_log
+from . import audit_log, update_check
 from .composer import compose_profile
 from .diagnostics import Diagnostic
 from .getter import GetError, _prepare_source_repository, fetch_profile, format_get_plan
@@ -1292,6 +1292,17 @@ def _render_helm_chart(plan, output_dir, force):
 
 
 def main() -> int:
+    try:
+        return _run()
+    finally:
+        try:
+            if "check-update" not in sys.argv[1:2]:
+                update_check.maybe_notify(_cds_version())
+        except Exception:  # nosec B110  # noqa: S110
+            pass
+
+
+def _run() -> int:
     # Load .env file if it exists
     load_env_file()
     
@@ -1783,6 +1794,14 @@ def main() -> int:
         "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
     )
     config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
+
+    subparsers.add_parser(
+        "check-update",
+        help=(
+            "Check PyPI for a newer CDS release (the only network call is an "
+            "anonymous query of the public PyPI index)"
+        ),
+    )
 
     completion_parser = subparsers.add_parser(
         "completion",
@@ -3158,6 +3177,18 @@ def main() -> int:
             print(f"Unset {args.key} ({get_config_path()})")
         else:
             print(f"Config key '{args.key}' is not set.")
+        return 0
+
+    if args.command == "check-update":
+        current = _cds_version()
+        latest = update_check.latest_version(use_cache=False)
+        if latest is None:
+            print("ERROR Could not determine the latest CDS release from PyPI.")
+            return 1
+        if update_check.is_newer(latest, current):
+            print(update_check.format_notice(current, latest))
+        else:
+            print(f"CDS {current} is up to date (latest release: {latest}).")
         return 0
 
     if args.command == "completion":

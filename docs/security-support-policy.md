@@ -109,6 +109,14 @@ changes (for example, adopting a stable `1.0` LTS branch).
   (watch the repository or the Releases RSS feed), `CHANGELOG.md`, and
   GitHub Security Advisories filed against this repository. `SUPPORT.md`
   and `SECURITY.md` link to this document for the current mechanism.
+- **In-CLI update notice (opt-in):** `cds check-update` compares the
+  installed version with the latest PyPI release. Setting
+  `CDS_CHECK_UPDATES=1` additionally prints a non-blocking notice on stderr
+  after any command when a newer release exists (cached for 24 hours in
+  `~/.cache/cds/update-check.json`). Nothing is checked by default, so there
+  is no telemetry; the only request is an anonymous query of the public PyPI
+  index and no profile or project content is sent. Leave the variable unset
+  to disable it.
 
 ## 4. End-of-support communication
 
