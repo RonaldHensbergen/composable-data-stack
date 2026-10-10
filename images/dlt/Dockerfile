@@ -12,7 +12,7 @@ COPY images/dlt/requirements.txt ./
 # lists vendored build dependencies (e.g. msgpack, setuptools) at versions
 # Trivy flags as vulnerable even though dlt never imports them. Matches
 # images/dagster/base/Dockerfile's and images/dbt/Dockerfile's pattern.
-RUN python -m pip install --no-cache-dir -r requirements.txt && \
+RUN python -m pip install --no-cache-dir --require-hashes -r requirements.txt && \
     python -m pip uninstall --yes pip
 
 FROM python:3.14-slim@sha256:a2b82f3c48559aa0a8446d9af49826b6e2b2016f4cd2afabfe6013ec53729170

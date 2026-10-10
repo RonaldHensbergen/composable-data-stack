@@ -34,7 +34,7 @@ one-shot job, loading into a consumed `sql-database` contract (e.g. the
 
 ## Why no destination beyond Postgres yet?
 
-`images/dlt/requirements.txt` pins `dlt[postgres]`, matching the only
+`images/dlt/requirements.in` pins `dlt[postgres]` (compiled to the hash-locked `requirements.txt`; regenerate with `uv pip compile --generate-hashes --no-annotate --python-version 3.14 -o requirements.txt requirements.in`), matching the only
 warehouse module CDS currently ships (`modules/warehouse/postgres`). Add the
 relevant `dlt[<destination>]` extra and a new `DESTINATION__<NAME>__...` env
 var if/when another warehouse module is added.
