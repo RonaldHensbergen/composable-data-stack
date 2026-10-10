@@ -58,7 +58,7 @@ lock from that directory (the Python version matches the image's
 interpreter: 3.14, or 3.10 for `superset`):
 
 ```bash
-uv pip compile --generate-hashes --no-annotate --python-version 3.14 \
+uv pip compile --generate-hashes --python-version 3.14 \
   -o requirements.txt requirements.in
 ```
 
