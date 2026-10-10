@@ -50,6 +50,42 @@
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
+    },
+    "dockerhub-dagster": {
+      "repository": "docker.io/ronaldsoeverein/dagster",
+      "digest": "sha256:16e59fd31e58613ef6b99af028a5b023e472cd5c7698fb693a5460ac74bd209e",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
+    },
+    "dockerhub-dagster-hardened": {
+      "repository": "docker.io/ronaldsoeverein/dagster",
+      "tagPrefix": "hardened-",
+      "digest": "sha256:35f39ca05178e332d9917674c96b8eb09a25d9f6bbc4fafe94b5404493126135",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
+    },
+    "dockerhub-superset": {
+      "repository": "docker.io/ronaldsoeverein/superset",
+      "digest": "sha256:6d93d9c55c069ab950d6c0ace3a450ab1fd88fb8b1c267c37994b241d7fa1f43",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
+    },
+    "dockerhub-dbt": {
+      "repository": "docker.io/ronaldsoeverein/dbt",
+      "digest": "sha256:0c01cacaa9adf418d5ee9354655702c899d1f8d1021ceadb4b9fa76f519ada5f",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
+    },
+    "dockerhub-dlt": {
+      "repository": "docker.io/ronaldsoeverein/dlt",
+      "digest": "sha256:1e434eee9d15e2567b9baa9754494c888ae21b000e240b0d41ddacce5a0dda0d",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
     }
   }
 }

@@ -115,6 +115,13 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Added the Docker Hub-published images (`dagster`, `dagster` hardened,
+  `superset`, `dbt`, `dlt` under `docker.io/ronaldsoeverein/`) to
+  `tests/fixtures/signed-images.json` and made the `update-fixture` job
+  refresh them after `publish-dockerhub` succeeds, so `cds report` finds
+  signature/SBOM/provenance evidence for default `image.source: registry`
+  pulls instead of always emitting W101 (#824).
+
 - Tagged GitHub releases are now explicitly published after creation, even
   when the release action leaves them as drafts. Release notes, attached
   assets, and the separate PyPI publishing flow remain unchanged (#765).
