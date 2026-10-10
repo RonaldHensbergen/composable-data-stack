@@ -165,6 +165,14 @@ The format is based on Keep a Changelog.
   names fail fast and traversal values can no longer escape the modules
   tree, without changing explicit `--output` handling (#685).
 
+### Changed
+
+- Hash-locked the `dlt` image's Python dependencies: `images/dlt/requirements.in`
+  lists the direct pin, `requirements.txt` is compiled with
+  `uv pip compile --generate-hashes`, and the Dockerfile installs with
+  `pip install --require-hashes`, so unverified transitive packages fail the
+  build (SonarCloud python:S8544; first image of the rollout) (#625).
+
 ## [0.11.0] - 2026-10-04
 
 ### Added
