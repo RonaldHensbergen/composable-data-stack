@@ -6,7 +6,7 @@ common ones (`validate`, `plan`, `render`, `up`), see the
 
 |Command|Description|
 |---|---|
-|cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|
+|cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--commit \<sha\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|
 |cds list profiles\|modules\|images [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>]|List available profiles, module sources, or module images and check for newer versions; add `--remote`/`--local` to inspect another repository before fetching from it|
 |cds init [profile]|Generate a project `.env` template from profile secret definitions|
 |cds validate [profile]|Validate modules and contracts; use `--target helm` for Kubernetes checks|
@@ -44,7 +44,21 @@ to use an existing local directory instead of downloading (mutually exclusive
 with `--remote`/`--ref`) for offline/dev workflows. Use `--into` to choose a
 destination root, `--dry-run` to inspect the copy plan first, and `--force` to
 replace conflicting local files. Successful fetches record tracking metadata
-in `.cds/get-manifest.json` for future update workflows.
+in `.cds/get-manifest.json` (including the resolved commit SHA) for future
+update workflows.
+
+Source trust is opt-in. Set `cds config set get.allowedSources
+"owner,owner/repo"` (or the `CDS_GET_ALLOWED_SOURCES` environment variable,
+which takes precedence when non-empty) to restrict `cds get` and `cds list --remote` to the
+listed owners or exact repositories; anything else fails before downloading.
+`CDS_GET_ALLOWED_SOURCES` is read only from the process environment, never from
+`.env`. Set `CDS_GET_ALLOWED_SOURCES=*` to allow any source for a single run despite a
+saved allowlist. The check applies to the requested `owner/repo`, not to any repository GitHub
+redirects it to, and `--local` sources are not subject to it.
+The upstream default remote is only allowed if it is on the list. Pass
+`--commit <sha>` (12-40 hex characters; a full SHA is recommended) to pin a fetch: it fails closed, without
+writing anything, if `--ref` resolves to a different commit. `--commit` cannot
+be combined with `--local`.
 
 ## `cds list`
 

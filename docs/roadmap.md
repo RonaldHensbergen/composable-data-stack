@@ -123,8 +123,8 @@ CRA scope or conformity (see [docs/cra-scope-decision.md](cra-scope-decision.md)
   (#733, see [docs/cra-release-evidence-gate.md](cra-release-evidence-gate.md))
 - 📋 **CLI self-update notification** — notify users when a newer CDS CLI
   release is available (#841)
-- 📋 **`cds get` source trust** — trusted-source allowlist and commit/digest
-  pinning for fetched bundles (#849)
+- ✅ **`cds get` source trust** — opt-in trusted-source allowlist and commit
+  SHA pinning for fetched bundles (#849)
 
 ---
 

@@ -19,6 +19,7 @@ from cli.main import (
     generate_profile,
     list_modules,
     list_profiles,
+    load_allowed_get_sources,
     load_env_file,
     load_saved_profile,
     main,
@@ -3578,6 +3579,36 @@ class ConfigCommandCLITest(unittest.TestCase):
         self.assertIn("must be true or false", output)
         self.assertFalse(self.config_path.exists())
 
+    def test_config_sets_gets_and_unsets_get_allowed_sources(self):
+        result, output = self._run(["set", "get.allowedSources", "owner,owner/repo"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(
+            json.loads(self.config_path.read_text())["get"]["allowedSources"], "owner,owner/repo"
+        )
+        with patch.dict(os.environ):
+            os.environ.pop("CDS_GET_ALLOWED_SOURCES", None)
+            self.assertEqual(load_allowed_get_sources(), ["owner", "owner/repo"])
+
+        with patch.dict(os.environ, {"CDS_GET_ALLOWED_SOURCES": "other"}):
+            self.assertEqual(load_allowed_get_sources(), ["other"])
+
+        with patch.dict(os.environ, {"CDS_GET_ALLOWED_SOURCES": "*"}):
+            self.assertEqual(load_allowed_get_sources(), ["*"])
+
+        for blank in ("", "  , "):
+            with self.subTest(blank=blank), patch.dict(os.environ, {"CDS_GET_ALLOWED_SOURCES": blank}):
+                self.assertEqual(load_allowed_get_sources(), ["owner", "owner/repo"])
+
+        result, output = self._run(["unset", "get.allowedSources"])
+        self.assertEqual(result, 0, output)
+        self.assertFalse(self.config_path.exists())
+
+    def test_config_rejects_empty_get_allowed_sources(self):
+        result, output = self._run(["set", "get.allowedSources", " , "])
+        self.assertEqual(result, 1)
+        self.assertIn("get.allowedSources", output)
+        self.assertFalse(self.config_path.exists())
+
     @patch("cli.main.run_security_validation", return_value=([], []))
     @patch("cli.main.validate_profile", return_value=[])
     def test_configured_security_strict_is_passed_to_security_checks(
@@ -3761,6 +3792,15 @@ class LoadEnvFileTest(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=True):
                 load_env_file(str(env_file))
                 self.assertEqual(os.environ.get("CDS_TOKEN"), "value")
+
+    def test_ignores_trust_settings_in_env_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("CDS_GET_ALLOWED_SOURCES=*\nCDS_TOKEN=ok\n", encoding="utf-8")
+            with patch.dict(os.environ, {}, clear=True):
+                load_env_file(str(env_file))
+                self.assertNotIn("CDS_GET_ALLOWED_SOURCES", os.environ)
+                self.assertEqual(os.environ.get("CDS_TOKEN"), "ok")
 
     def test_ignores_non_cds_keys(self):
         with tempfile.TemporaryDirectory() as tmpdir:
