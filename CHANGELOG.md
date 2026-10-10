@@ -115,10 +115,9 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
-- Made `release.yml` publish the GitHub release explicitly (`gh release edit
-  --draft=false`, retried) instead of relying on `action-gh-release` to do
-  so, which intermittently left releases as unpublished drafts and failed
-  the workflow (#765).
+- Tagged GitHub releases are now explicitly published after creation, even
+  when the release action leaves them as drafts. Release notes, attached
+  assets, and the separate PyPI publishing flow remain unchanged (#765).
 
 - Fixed the `marquez-web` healthcheck in the experimental
   `modules-experimental/observability/marquez` module always reporting
