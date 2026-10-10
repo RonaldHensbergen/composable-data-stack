@@ -112,23 +112,33 @@ jobs:
             release-evidence/release-inventory.json
             release-evidence/cra-release-evidence-manifest.json
 
-      - name: Verify the release was published, not left as a draft
-        # softprops/action-gh-release@v3 has consistently published the
-        # release outright (not left it in draft state) for every tag this
-        # repo has pushed so far, despite `draft: true` above -- this is
-        # believed to be a quirk of the action reusing/finalizing the
-        # release record for an existing tag rather than intentional
-        # behavior we can rely on long-term. Fail loudly instead of
-        # silently leaving an unpublished draft if that ever changes, since
-        # PyPI publishing in pypi.yml is a separate, independent workflow
-        # and does not depend on this GitHub release existing/being public.
+      - name: Publish the release and verify it is not left as a draft
+        # `draft: true` lets the assets above be attached before the
+        # release becomes public. softprops/action-gh-release sometimes
+        # leaves the release as a draft anyway (v0.9.0, v0.10.0, v0.11.0),
+        # so publish it explicitly instead of relying on that behavior;
+        # `--draft=false` is a no-op when the release is already public.
+        # Retry briefly in case the release record is not yet visible to
+        # the API, then fail loudly if it is still a draft. PyPI publishing
+        # in pypi.yml is a separate, independent workflow and does not
+        # depend on this GitHub release existing/being public.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            if gh release edit "${GITHUB_REF_NAME}" --draft=false; then
+              break
+            fi
+            if [ "${attempt}" -eq 5 ]; then
+              echo "::error::Could not publish release ${GITHUB_REF_NAME}: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
           is_draft="$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft)"
           if [ "${is_draft}" = "true" ]; then
-            echo "::error::Release ${GITHUB_REF_NAME} was created as a draft and needs to be published manually: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+            echo "::error::Release ${GITHUB_REF_NAME} is still a draft and needs to be published manually: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
             exit 1
           fi
           echo "OK: release ${GITHUB_REF_NAME} is published."
