@@ -282,6 +282,14 @@ The format is based on Keep a Changelog.
   actually-resolved profile name, matching the `cds preflight` hint on the
   following line.
 
+- Fixed the vault profile's `init-db.sh` bootstrap, which failed on a
+  fresh database: passed the four missing `psql` variables, made all
+  three roles config-driven (including the previously uncreated Dagster
+  role), dropped the redundant hardcoded `analytics` role, and replaced
+  the `DO $do$` block (where `psql` interpolation does not apply) with
+  `SELECT format(...) \gexec` grants, without changing any database,
+  role, or privilege that gets created (#836).
+
 - Bound the Keycloak module's published host port to `127.0.0.1`, so the
   admin console is reachable from the local machine only, matching the
   localhost-only convention used by the Postgres module; Dagster and
