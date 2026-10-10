@@ -46,7 +46,7 @@ class VaultInitDbTest(unittest.TestCase):
         text = _read_script()
         header, _, body = text.partition("<<'SQL'")
         defined = set(re.findall(r"^\s*-v\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", header, re.M))
-        referenced = set(re.findall(r":'([A-Za-z_][A-Za-z0-9_]*)'", body))
+        referenced = set(re.findall(r":['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]", body))
         referenced |= set(re.findall(r"(?<![':]):([A-Za-z_][A-Za-z0-9_]*)", body))
         self.assertTrue(referenced, "expected psql variable references in init-db.sh")
         self.assertEqual(
