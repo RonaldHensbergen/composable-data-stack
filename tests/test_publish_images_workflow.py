@@ -1,9 +1,13 @@
 import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
 import yaml
+
+from cli.planner import build_plan
+from cli.renderer import render_compose
 
 _OWNER = "ronaldhensbergen"
 _ON_KEY = True
@@ -325,15 +329,44 @@ class PublishImagesWorkflowTest(unittest.TestCase):
                 self.assertTrue(entry[flag], f"{key} {flag} must be true")
 
     def test_signed_images_fixture_covers_default_registry_module_images(self) -> None:
+        # Render the real dagster+superset profile with `--image-source
+        # registry` (and no explicit config.image.tag/registry overrides)
+        # so this checks the image references the renderer actually
+        # produces for the default registry configuration, rather than
+        # regex-scanning module.yaml's documentation text.
         repo_root = Path(__file__).resolve().parent.parent
         fixture = json.loads(
             (repo_root / "tests" / "fixtures" / "signed-images.json").read_text(encoding="utf-8")
         )
         repositories = {entry["repository"] for entry in fixture["images"].values()}
-        for module in ("orchestration/dagster", "bi/superset"):
-            text = (repo_root / "modules" / module / "module.yaml").read_text(encoding="utf-8")
-            for repo in set(re.findall(r"docker\.io/ronaldsoeverein/[a-z0-9-]+", text)):
-                self.assertIn(repo, repositories, f"{module} default image {repo} has no fixture entry")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text(
+                "\n".join(
+                    f"{name}=placeholder"
+                    for name in (
+                        "CDS_POSTGRES_SUPERUSER_PASSWORD",
+                        "CDS_ANALYTICS_DB_PASSWORD",
+                        "CDS_DAGSTER_DB_PASSWORD",
+                        "CDS_SUPERSET_DB_PASSWORD",
+                        "CDS_SUPERSET_SECRET_KEY",
+                        "CDS_SUPERSET_ADMIN_PASSWORD",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            profile_path = repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+            plan, plan_diags = build_plan(str(profile_path), env_file=str(env_file), image_source="registry")
+            self.assertIsNotNone(plan)
+            self.assertEqual([d for d in plan_diags if d.level == "error"], [])
+            compose_yaml, render_diags = render_compose(plan, env_file=str(env_file))
+            self.assertEqual([d for d in render_diags if d.level == "error"], [])
+
+        rendered_images = set(re.findall(r"docker\.io/ronaldsoeverein/[a-z0-9-]+(?=:)", compose_yaml))
+        self.assertTrue(rendered_images, "expected at least one rendered Docker Hub image reference")
+        for repo in rendered_images:
+            self.assertIn(repo, repositories, f"rendered default registry image {repo} has no fixture entry")
 
     def test_update_fixture_waits_for_both_registries_and_logs_into_dockerhub(self) -> None:
         job = self.jobs["update-fixture"]
