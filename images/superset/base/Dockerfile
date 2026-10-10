@@ -16,7 +16,7 @@ RUN apt-get update \
 
 COPY images/superset/requirements.txt /tmp/superset-requirements.txt
 RUN uv pip install --python /app/.venv/bin/python --no-cache --upgrade \
-      -r /tmp/superset-requirements.txt
+      --require-hashes -r /tmp/superset-requirements.txt
 
 # The application uses /app/.venv; remove unused system packaging tools and their
 # vendored metadata so scanners do not report packages that cannot run.

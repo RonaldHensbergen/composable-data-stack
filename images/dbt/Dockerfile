@@ -23,7 +23,7 @@ COPY images/dbt/requirements.txt ./
 # requirements.txt currently pins dbt-postgres/dbt-duckdb to older minors
 # than dbt-core (see requirements.txt) -- neither adapter has shipped a
 # release matching dbt-core's minor yet.
-RUN python -m pip install --no-cache-dir -r requirements.txt && \
+RUN python -m pip install --no-cache-dir --require-hashes -r requirements.txt && \
     python -c "import dbt.adapters.postgres, dbt.adapters.duckdb" && \
     python -m pip uninstall --yes pip
 

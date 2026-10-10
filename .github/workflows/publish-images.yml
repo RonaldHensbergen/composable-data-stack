@@ -250,13 +250,13 @@ jobs:
         run: |
           case "${{ matrix.image.name }}" in
             dagster)
-              base_version="$(grep -m1 '^dagster==' images/dagster/requirements.txt | cut -d= -f3)"
+              base_version="$(grep -m1 '^dagster==' images/dagster/requirements.in | cut -d= -f3)"
               ;;
             superset)
               base_version="$(grep -m1 '^FROM apache/superset:' images/superset/base/Dockerfile | sed -E 's#^FROM apache/superset:([^@[:space:]]+).*#\1#')"
               ;;
             dbt)
-              base_version="$(grep -m1 '^dbt-core==' images/dbt/requirements.txt | cut -d= -f3)"
+              base_version="$(grep -m1 '^dbt-core==' images/dbt/requirements.in | cut -d= -f3)"
               ;;
             dlt)
               base_version="$(grep -m1 '^dlt\[postgres\]==' images/dlt/requirements.in | sed -E 's/^dlt\[postgres\]==([^[:space:]]+).*/\1/')"

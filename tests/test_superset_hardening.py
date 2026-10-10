@@ -47,19 +47,20 @@ class SupersetHardeningTest(unittest.TestCase):
         for line in requirements.splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
-                for op in (">=", "=="):
-                    if op in line:
-                        pkg, _, ver = line.partition(op)
-                        pinned[pkg.strip().lower()] = tuple(
-                            int(x) for x in ver.strip().split(".")
-                        )
-                        break
+                match = re.match(
+                    r"^([A-Za-z0-9._-]+)\s*(?:>=|==)\s*([0-9]+(?:\.[0-9]+)*)", line
+                )
+                if match:
+                    pkg, ver = match.groups()
+                    pinned[re.sub(r"[-_.]+", "-", pkg.lower())] = tuple(
+                        int(x) for x in ver.split(".")
+                    )
 
         min_versions = {
             "mako": "1.3.12",
             "pyjwt": "2.13.0",
             "cryptography": "48.0.1",
-            "jaraco.context": "6.1.0",
+            "jaraco-context": "6.1.0",
             "msgpack": "1.2.1",
             "pillow": "12.3.0",
             "pyopenssl": "26.0.0",
