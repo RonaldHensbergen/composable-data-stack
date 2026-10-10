@@ -167,11 +167,14 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
-- Hash-locked the `dlt` image's Python dependencies: `images/dlt/requirements.in`
-  lists the direct pin, `requirements.txt` is compiled with
-  `uv pip compile --generate-hashes`, and the Dockerfile installs with
-  `pip install --require-hashes`, so unverified transitive packages fail the
-  build (SonarCloud python:S8544; first image of the rollout) (#625).
+- Hash-locked the Python dependencies of the `dlt`, `dagster`, `dbt`, and
+  `superset` images: each `requirements*.in` lists the direct dependencies,
+  `requirements*.txt` is compiled with `uv pip compile --generate-hashes`,
+  and the Dockerfiles install with `--require-hashes`, so unverified
+  transitive packages fail the build (SonarCloud python:S8544). The Dagster
+  image now installs a single self-contained lock per database backend, and
+  Renovate maintains the locks through its `pip-compile` manager. See
+  `docs/image-scanning.md` (#625).
 
 ## [0.11.0] - 2026-10-04
 
