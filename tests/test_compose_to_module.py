@@ -317,5 +317,75 @@ class PortFieldNameDedupTest(unittest.TestCase):
         self.assertEqual(props["httpPort2"]["default"], 8080)
 
 
+class MainArgValidationTest(unittest.TestCase):
+    def _compose_file(self, tmpdir: str) -> str:
+        compose = Path(tmpdir) / "docker-compose.yml"
+        compose.write_text("services:\n  db:\n    image: postgres:16\n", encoding="utf-8")
+        return str(compose)
+
+    def test_main_rejects_invalid_name_before_writing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = str(Path(tmpdir) / "module.yaml")
+            with self.assertRaises(SystemExit) as ctx:
+                compose_to_module.main([
+                    "--compose", self._compose_file(tmpdir),
+                    "--service", "db",
+                    "--name", "Bad Name!",
+                    "--category", "warehouse",
+                    "--output", output,
+                ])
+            self.assertIn("--name", str(ctx.exception))
+            self.assertFalse(Path(output).exists())
+
+    def test_main_rejects_traversal_category(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(SystemExit) as ctx:
+                compose_to_module.main([
+                    "--compose", self._compose_file(tmpdir),
+                    "--service", "db",
+                    "--name", "passwd",
+                    "--category", "../../etc",
+                ])
+            self.assertIn("--category", str(ctx.exception))
+
+    def test_default_output_path_stays_under_modules(self) -> None:
+        expected = (
+            compose_to_module.REPO_ROOT / "modules" / "warehouse" / "postgres" / "module.yaml"
+        )
+        self.assertEqual(compose_to_module._default_output_path("warehouse", "postgres"), expected)
+
+    def test_main_rejects_name_with_trailing_newline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with self.assertRaises(SystemExit) as ctx:
+                compose_to_module.main([
+                    "--compose", self._compose_file(tmpdir),
+                    "--service", "db",
+                    "--name", "postgres\n",
+                    "--category", "warehouse",
+                    "--output", "-",
+                ])
+            self.assertIn("--name", str(ctx.exception))
+
+    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
+    def test_main_symlink_escape_writes_nothing_outside(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, unittest.mock.patch.object(
+            compose_to_module, "REPO_ROOT", Path(tmpdir)
+        ):
+            outside = Path(tmpdir) / "outside"
+            outside.mkdir()
+            modules_root = Path(tmpdir) / "modules"
+            modules_root.mkdir()
+            (modules_root / "warehouse").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(SystemExit) as ctx:
+                compose_to_module.main([
+                    "--compose", self._compose_file(tmpdir),
+                    "--service", "db",
+                    "--name", "postgres",
+                    "--category", "warehouse",
+                ])
+            self.assertIn("modules", str(ctx.exception))
+            self.assertFalse((outside / "postgres" / "module.yaml").exists())
+
+
 if __name__ == "__main__":
     unittest.main()
