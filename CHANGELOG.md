@@ -115,6 +115,10 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Tagged GitHub releases are now explicitly published after creation, even
+  when the release action leaves them as drafts. Release notes, attached
+  assets, and the separate PyPI publishing flow remain unchanged (#765).
+
 - Fixed the `marquez-web` healthcheck in the experimental
   `modules-experimental/observability/marquez` module always reporting
   `unhealthy` under `cds up`: it shelled out to `bash -c '... /dev/tcp ...'`,
