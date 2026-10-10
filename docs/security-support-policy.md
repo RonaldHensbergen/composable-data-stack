@@ -111,11 +111,16 @@ changes (for example, adopting a stable `1.0` LTS branch).
   and `SECURITY.md` link to this document for the current mechanism.
 - **In-CLI update notice (opt-in):** `cds check-update` compares the
   installed version with the latest PyPI release. Setting
-  `CDS_CHECK_UPDATES=1` additionally prints a non-blocking notice on stderr
+  `CDS_CHECK_UPDATES=1` additionally prints a non-failing notice on stderr
   after any command when a newer release exists (cached for 24 hours in
-  `~/.cache/cds/update-check.json`). Nothing is checked by default, so there
-  is no telemetry; the only request is an anonymous query of the public PyPI
-  index and no profile or project content is sent. Leave the variable unset
+  `~/.cache/cds/update-check.json`, or `%LOCALAPPDATA%\cds\update-check.json`
+  on Windows without `XDG_CACHE_HOME` set). "Non-failing" means a PyPI
+  lookup failure or timeout never errors the command; on a cache miss the
+  lookup is still a synchronous network request (up to a few seconds,
+  bounded by a short timeout) before the command's own output appears.
+  Nothing is checked by default, so there is no telemetry; the only request
+  is an anonymous query of the public PyPI index and no profile or project
+  content is sent. Leave the variable unset
   to disable it.
 
 ## 4. End-of-support communication

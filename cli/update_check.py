@@ -31,7 +31,12 @@ def is_enabled() -> bool:
 
 def _cache_path() -> Path:
     base = os.getenv("XDG_CACHE_HOME")
-    root = Path(base) if base else Path.home() / ".cache"
+    if base:
+        root = Path(base)
+    elif sys.platform == "win32" and os.getenv("LOCALAPPDATA"):
+        root = Path(os.environ["LOCALAPPDATA"])
+    else:
+        root = Path.home() / ".cache"
     return root / "cds" / "update-check.json"
 
 
@@ -102,7 +107,13 @@ def format_notice(current: str, latest: str) -> str:
 
 
 def maybe_notify(current: str) -> None:
-    """Print a non-blocking stderr notice when opted in and outdated."""
+    """Print a non-failing stderr notice when opted in and outdated.
+
+    "Non-failing" means a PyPI lookup failure/timeout is always swallowed
+    and never affects the calling command's output or exit code. On a
+    cache miss this still makes a synchronous network request (bounded by
+    `_TIMEOUT`) before returning, so it is not asynchronous/non-blocking.
+    """
     if not is_enabled() or current == "unknown":
         return
     latest = latest_version()

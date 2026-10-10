@@ -1291,12 +1291,16 @@ def _render_helm_chart(plan, output_dir, force):
     return 0, diags
 
 
+_UPDATE_NOTICE_SUPPRESSING_ARGS = frozenset({"-h", "--help", "-v", "--version"})
+
+
 def main() -> int:
     try:
         return _run()
     finally:
         try:
-            if "check-update" not in sys.argv[1:2]:
+            argv_tail = sys.argv[1:]
+            if "check-update" not in argv_tail[:1] and _UPDATE_NOTICE_SUPPRESSING_ARGS.isdisjoint(argv_tail):
                 update_check.maybe_notify(_cds_version())
         except Exception:  # nosec B110  # noqa: S110
             pass
