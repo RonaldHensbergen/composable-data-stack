@@ -59,6 +59,12 @@ jobs:
         run: |
           python -m unittest tests.test_compose_runtime_smoke -v
 
+      - name: Run Vault init-db runtime proof (render -> up postgres -> psql checks -> down)
+        env:
+          CDS_RUN_DOCKER_SMOKE: "1"
+        run: |
+          python -m unittest tests.test_vault_init_db_runtime -v
+
       - name: Ensure Docker Compose cleanup runs even on failure
         if: always()
         run: |
