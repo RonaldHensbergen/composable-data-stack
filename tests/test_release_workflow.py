@@ -17,6 +17,11 @@ class ReleaseWorkflowTest(unittest.TestCase):
         run = self.steps[publish]["run"]
         self.assertIn('gh release edit "${GITHUB_REF_NAME}" --draft=false', run)
         self.assertIn("isDraft", run)
+        self.assertIn("for attempt in 1 2 3 4 5; do", run)
+        self.assertIn("sleep $((attempt * 5))", run)
+        self.assertIn("Could not publish release", run)
+        self.assertIn('if [ "${is_draft}" = "true" ]; then', run)
+        self.assertIn("exit 1", run)
 
 
 if __name__ == "__main__":
