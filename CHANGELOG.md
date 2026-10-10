@@ -271,6 +271,11 @@ The format is based on Keep a Changelog.
   actually-resolved profile name, matching the `cds preflight` hint on the
   following line.
 
+- Bound the Keycloak module's published host port to `127.0.0.1`, so the
+  admin console is reachable from the local machine only, matching the
+  localhost-only convention used by the Postgres module; Dagster and
+  Superset are unchanged (#832).
+
 ### Changed
 
 - Added a Renovate `packageRule` disabling further updates to the
