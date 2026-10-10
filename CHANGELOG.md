@@ -273,6 +273,11 @@ The format is based on Keep a Changelog.
   `SELECT format(...) \gexec` grants, without changing any database,
   role, or privilege that gets created (#836).
 
+- Bound the Keycloak module's published host port to `127.0.0.1`, so the
+  admin console is reachable from the local machine only, matching the
+  localhost-only convention used by the Postgres module; Dagster and
+  Superset are unchanged (#832).
+
 ### Changed
 
 - Added a Renovate `packageRule` disabling further updates to the
