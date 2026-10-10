@@ -132,12 +132,22 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
             f"logs:\n{self._redact(self._logs(compose_file, env_file, env), env)}"
         )
 
+    @staticmethod
+    def _env_value(env_file: Path, name: str) -> str:
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            if line.startswith(name + "="):
+                return line.split("=", 1)[1]
+        raise AssertionError(f"{name} missing from proof env file")
+
     def _psql(self, compose_file: Path, env_file: Path, env: dict[str, str], sql: str,
               user: str = "postgres", dbname: str = "postgres", password: str | None = None) -> str:
         command = [*self._compose(compose_file, env_file), "exec", "-T"]
         run_env = dict(env)
-        if password is not None:
-            command += ["-e", f"PGPASSWORD={password}"]
+        resolved = password
+        if resolved is None and user == "postgres":
+            resolved = self._env_value(env_file, "CDS_POSTGRES_SUPERUSER_PASSWORD")
+        if resolved is not None:
+            command += ["-e", f"PGPASSWORD={resolved}"]
         command += [SERVICE, "psql", "-U", user, "-d", dbname, "-tAc", sql]
         result = subprocess.run(command, env=run_env, capture_output=True, text=True, timeout=120)
         if result.returncode != 0:
@@ -246,7 +256,10 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
 
                 for _prefix, (dbname, username, password) in DBS.items():
                     self.assertEqual(
-                        self._psql(                        compose_file, env_file, env, "SELECT 1;", user=username, dbname=dbname, password=password),
+                        self._psql(
+                            compose_file, env_file, env, "SELECT 1;",
+                            user=username, dbname=dbname, password=password,
+                        ),
                         "1",
                     )
 
