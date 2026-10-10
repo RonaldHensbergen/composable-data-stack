@@ -153,6 +153,12 @@ The format is based on Keep a Changelog.
   points at `--output <path>` instead, which still works since it writes
   the merged document elsewhere rather than overwriting the source (#808).
 
+- Validated `compose_to_module` `--name`/`--category` against the
+  `^[a-z0-9-]+$` module-id pattern before writing anything to disk, and
+  confined the derived default output path under `modules/`, so invalid
+  names fail fast and traversal values can no longer escape the modules
+  tree, without changing explicit `--output` handling (#685).
+
 ## [0.11.0] - 2026-10-04
 
 ### Added
@@ -269,6 +275,11 @@ The format is based on Keep a Changelog.
   default rather than passed as a CLI argument; it now reports the
   actually-resolved profile name, matching the `cds preflight` hint on the
   following line.
+
+- Bound the Keycloak module's published host port to `127.0.0.1`, so the
+  admin console is reachable from the local machine only, matching the
+  localhost-only convention used by the Postgres module; Dagster and
+  Superset are unchanged (#832).
 
 ### Changed
 
