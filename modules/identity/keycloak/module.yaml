@@ -33,12 +33,11 @@ spec:
         maximum: 65535
         default: 8080
         description: >
-          Host port published for keycloak's container port 8080. Published
-          on all interfaces (0.0.0.0), matching the house pattern used by
-          modules/orchestration/dagster and modules/bi/superset; this makes
-          the admin console reachable from the LAN, not just localhost.
-          Front this module with a reverse-proxy/ingress module before
-          exposing it beyond a trusted local network.
+          Host port published for keycloak's container port 8080. Bound to
+          127.0.0.1 (localhost-only), matching modules/warehouse/postgres;
+          the admin console is reachable from the local machine only. Use
+          an SSH tunnel, port-forward, or a reverse-proxy/ingress module
+          for access beyond localhost.
       metadataDatabase:
         type: object
         additionalProperties: false
@@ -118,7 +117,7 @@ spec:
           command:
             - start-dev
           ports:
-            - "${config.httpPort}:8080"
+            - "127.0.0.1:${config.httpPort}:8080"
           environment:
             KC_DB: "${config.metadataDatabase.driver}"
             KC_DB_URL_HOST: "${bindings.metadata-database.host}"

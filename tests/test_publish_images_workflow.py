@@ -1,9 +1,13 @@
 import json
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
 import yaml
+
+from cli.planner import build_plan
+from cli.renderer import render_compose
 
 _OWNER = "ronaldhensbergen"
 _ON_KEY = True
@@ -297,6 +301,85 @@ class PublishImagesWorkflowTest(unittest.TestCase):
                 fixture_images,
                 f"signed-images fixture is missing an entry for the published {image}",
             )
+
+    def test_signed_images_fixture_covers_every_dockerhub_published_image(self) -> None:
+        repo_root = Path(__file__).resolve().parent.parent
+        fixture = json.loads(
+            (repo_root / "tests" / "fixtures" / "signed-images.json").read_text(encoding="utf-8")
+        )
+        entries = {
+            (entry["repository"], entry.get("tagPrefix", "")): entry
+            for entry in fixture["images"].values()
+        }
+        expected = []
+        for image_dir in sorted((repo_root / "images").iterdir()):
+            if (image_dir / "Dockerfile").is_file():
+                expected.append((image_dir.name, ""))
+                continue
+            for variant_dir in sorted(image_dir.iterdir()):
+                if variant_dir.is_dir() and (variant_dir / "Dockerfile").is_file():
+                    prefix = "" if variant_dir.name == "base" else f"{variant_dir.name}-"
+                    expected.append((image_dir.name, prefix))
+        self.assertTrue(expected)
+        for name, prefix in expected:
+            key = (f"docker.io/ronaldsoeverein/{name}", prefix)
+            self.assertIn(key, entries, f"signed-images fixture is missing Docker Hub entry {key}")
+            entry = entries[key]
+            for flag in ("signed", "provenanceAttested", "sbomAttested"):
+                self.assertTrue(entry[flag], f"{key} {flag} must be true")
+
+    def test_signed_images_fixture_covers_default_registry_module_images(self) -> None:
+        # Render the real dagster+superset profile with `--image-source
+        # registry` (and no explicit config.image.tag/registry overrides)
+        # so this checks the image references the renderer actually
+        # produces for the default registry configuration, rather than
+        # regex-scanning module.yaml's documentation text.
+        repo_root = Path(__file__).resolve().parent.parent
+        fixture = json.loads(
+            (repo_root / "tests" / "fixtures" / "signed-images.json").read_text(encoding="utf-8")
+        )
+        repositories = {entry["repository"] for entry in fixture["images"].values()}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text(
+                "\n".join(
+                    f"{name}=placeholder"
+                    for name in (
+                        "CDS_POSTGRES_SUPERUSER_PASSWORD",
+                        "CDS_ANALYTICS_DB_PASSWORD",
+                        "CDS_DAGSTER_DB_PASSWORD",
+                        "CDS_SUPERSET_DB_PASSWORD",
+                        "CDS_SUPERSET_SECRET_KEY",
+                        "CDS_SUPERSET_ADMIN_PASSWORD",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            profile_path = repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+            plan, plan_diags = build_plan(str(profile_path), env_file=str(env_file), image_source="registry")
+            self.assertIsNotNone(plan)
+            self.assertEqual([d for d in plan_diags if d.level == "error"], [])
+            compose_yaml, render_diags = render_compose(plan, env_file=str(env_file))
+            self.assertEqual([d for d in render_diags if d.level == "error"], [])
+
+        rendered_images = set(re.findall(r"docker\.io/ronaldsoeverein/[a-z0-9-]+(?=:)", compose_yaml))
+        self.assertTrue(rendered_images, "expected at least one rendered Docker Hub image reference")
+        for repo in rendered_images:
+            self.assertIn(repo, repositories, f"rendered default registry image {repo} has no fixture entry")
+
+    def test_update_fixture_waits_for_both_registries_and_logs_into_dockerhub(self) -> None:
+        job = self.jobs["update-fixture"]
+        self.assertIn("publish-dockerhub", job["needs"])
+        self.assertIn("needs.publish-dockerhub.result == 'success'", job["if"])
+        self.assertTrue(
+            any(
+                s.get("with", {}).get("username") == "ronaldsoeverein"
+                and "RONALDSOEVEREIN_LOGIN" in str(s["with"].get("password", ""))
+                for s in job["steps"]
+            ),
+            "update-fixture must log into Docker Hub",
+        )
 
     def test_ghcr_build_tags_alpine_alias_only_for_hardened_variant(self) -> None:
         # Structural guard for the "hardened" -> "alpine-" tag alias

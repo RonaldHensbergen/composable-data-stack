@@ -47,6 +47,7 @@ MODULE_SCHEMA_PATH = REPO_ROOT / "cli" / "resources" / "module.schema.json"
 
 _SECRET_NAME_HINT = re.compile(r"(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|APIKEY|API_KEY)", re.IGNORECASE)
 _ENV_INTERPOLATION = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)(:-[^}]*)?\}$")
+_MODULE_ID_PATTERN = re.compile(r"^[a-z0-9-]+$")
 _KNOWN_PORT_NAMES = {
     5432: "postgres",
     3306: "mysql",
@@ -442,6 +443,14 @@ class ModuleScaffold:
         return module
 
 
+def _default_output_path(category: str, name: str) -> Path:
+    output_path = REPO_ROOT / "modules" / category / name / "module.yaml"
+    modules_root = (REPO_ROOT / "modules").resolve()
+    if not output_path.resolve().is_relative_to(modules_root):
+        raise ScaffoldError(f"derived output path escapes the modules tree: {output_path}")
+    return output_path
+
+
 def _load_compose(compose_path: Path) -> dict[str, Any]:
     if not compose_path.exists():
         raise ScaffoldError(f"compose file not found: {compose_path}")
@@ -517,6 +526,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true", help="Overwrite an existing output file")
     args = parser.parse_args(argv)
 
+    for flag, value in (("--name", args.name), ("--category", args.category)):
+        if not _MODULE_ID_PATTERN.fullmatch(value):
+            raise ScaffoldError(
+                f'{flag} "{value}" must match the module-id pattern ^[a-z0-9-]+$ '
+                "(lowercase letters, digits, hyphens)."
+            )
+
     compose = _load_compose(args.compose)
     scaffold = build_scaffold(compose, args.services, args.name, args.category)
     module = scaffold.to_module_dict()
@@ -525,7 +541,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.output == "-":
         print(rendered)
     else:
-        output_path = Path(args.output) if args.output else REPO_ROOT / "modules" / args.category / args.name / "module.yaml"
+        if args.output:
+            output_path = Path(args.output)
+        else:
+            output_path = _default_output_path(args.category, args.name)
         if output_path.exists() and not args.force:
             raise ScaffoldError(f"{output_path} already exists (pass --force to overwrite)")
         output_path.parent.mkdir(parents=True, exist_ok=True)

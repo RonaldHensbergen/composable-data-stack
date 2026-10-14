@@ -43,6 +43,24 @@ warnings.filterwarnings("error", category=DeprecationWarning, module=r"test_.*$"
 # Everything else (third-party dependencies) keeps the default behavior.
 
 
+# Placeholder secrets matching the CI test job, so profile-based workflow tests
+# pass locally without a populated environment. Real values are never overridden.
+_TEST_SECRET_DEFAULTS = {
+    "CDS_ANALYTICS_DB_NAME": "analytics",
+    "CDS_ANALYTICS_DB_PASSWORD": "analytics_testpass",
+    "CDS_ANALYTICS_DB_USER": "analytics",
+    "CDS_DAGSTER_DB_NAME": "dagster",
+    "CDS_DAGSTER_DB_PASSWORD": "dagster_testpass",
+    "CDS_DAGSTER_DB_USER": "dagster",
+    "CDS_POSTGRES_SUPERUSER_PASSWORD": "postgres_testpass",
+    "CDS_SUPERSET_ADMIN_PASSWORD": "admin_testpass",
+    "CDS_SUPERSET_DB_NAME": "superset",
+    "CDS_SUPERSET_DB_PASSWORD": "superset_testpass",
+    "CDS_SUPERSET_DB_USER": "superset",
+    "CDS_SUPERSET_SECRET_KEY": "ci-only-superset-secret-key",
+}
+
+
 class TestTimeoutError(TimeoutError):
     """Raised inside a test that exceeds its configured wall-clock limit."""
 
@@ -90,6 +108,8 @@ def apply_test_timeouts(
 
 
 def main() -> int:
+    for key, value in _TEST_SECRET_DEFAULTS.items():
+        os.environ.setdefault(key, value)
     loader = unittest.TestLoader()
     suite = loader.discover(start_dir="tests", pattern="test_*.py")
     timeout_seconds = float(os.environ.get("CDS_TEST_TIMEOUT_SECONDS", "60"))
