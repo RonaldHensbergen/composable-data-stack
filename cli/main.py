@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import subprocess  # nosec B404
@@ -1299,16 +1300,24 @@ _UPDATE_NOTICE_SUPPRESSING_ARGS = frozenset({
 })
 
 
+_LOGGER = logging.getLogger(__name__)
+
+
+def _maybe_notify_update() -> None:
+    try:
+        argv_tail = sys.argv[1:]
+        if argv_tail[:1] == ["check-update"] or not _UPDATE_NOTICE_SUPPRESSING_ARGS.isdisjoint(argv_tail):
+            return
+        update_check.maybe_notify(_cds_version())
+    except Exception:
+        _LOGGER.debug("Automatic update notice failed", exc_info=True)
+
+
 def main() -> int:
     try:
         return _run()
     finally:
-        try:
-            argv_tail = sys.argv[1:]
-            if "check-update" not in argv_tail[:1] and _UPDATE_NOTICE_SUPPRESSING_ARGS.isdisjoint(argv_tail):
-                update_check.maybe_notify(_cds_version())
-        except Exception:  # nosec B110  # noqa: S110
-            pass
+        _maybe_notify_update()
 
 
 def _run() -> int:
@@ -1808,7 +1817,7 @@ def _run() -> int:
         "check-update",
         help=(
             "Check PyPI for a newer CDS release (the only network call is an "
-            "anonymous query of the public PyPI index)"
+            "unauthenticated query of the public PyPI index)"
         ),
     )
 
@@ -3192,7 +3201,7 @@ def _run() -> int:
         current = _cds_version()
         latest = update_check.latest_version(use_cache=False)
         if latest is None:
-            print("ERROR Could not determine the latest CDS release from PyPI.")
+            print("ERROR Could not determine the latest CDS release from PyPI.", file=sys.stderr)
             return 1
         if update_check.is_newer(latest, current):
             print(update_check.format_notice(current, latest))

@@ -2,7 +2,7 @@
 
 Never runs by default (CDS has no default-on network calls). It runs only
 for the explicit `cds check-update` command or when CDS_CHECK_UPDATES=1.
-The only request made is an anonymous GET of the public PyPI JSON index
+The only request made is an unauthenticated GET of the public PyPI JSON index
 for this package; no profile or project content is transmitted.
 """
 from __future__ import annotations

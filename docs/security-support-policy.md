@@ -119,7 +119,7 @@ changes (for example, adopting a stable `1.0` LTS branch).
   lookup is still a synchronous network request (up to a few seconds,
   bounded by a short timeout) before the command's own output appears.
   Nothing is checked by default, so there is no telemetry; the only request
-  is an anonymous query of the public PyPI index and no profile or project
+  is an unauthenticated query of the public PyPI index and no profile or project
   content is sent. Leave the variable unset
   to disable it.
 
