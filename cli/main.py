@@ -1291,7 +1291,12 @@ def _render_helm_chart(plan, output_dir, force):
     return 0, diags
 
 
-_UPDATE_NOTICE_SUPPRESSING_ARGS = frozenset({"-h", "--help", "-v", "--version"})
+_UPDATE_NOTICE_SUPPRESSING_ARGS = frozenset({
+    "-h",
+    "--help",
+    "-v",
+    "--version",
+})
 
 
 def main() -> int:
