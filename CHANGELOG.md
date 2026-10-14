@@ -11,7 +11,6 @@ The format is based on Keep a Changelog.
 - Added an opt-in CDS CLI update notice: `cds check-update` queries the
   public PyPI index on demand, and `CDS_CHECK_UPDATES=1` prints a
   non-failing stderr notice (24h cache) when a newer release exists.
-
   Nothing is checked by default (#841).
 - Added a CRA release-evidence manifest and fail-closed conformity
   readiness gate: `scripts/build_cra_release_evidence_manifest.py`
