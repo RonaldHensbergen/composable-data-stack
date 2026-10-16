@@ -1,0 +1,4 @@
+# Build requirement of the dbt-core-experimental-parser sdist (a download-at-install
+# shim that has no wheel on PyPI). It is installed from this hash lock and the
+# sdist is built with --no-build-isolation, so pip never fetches it unhashed.
+packaging>=24

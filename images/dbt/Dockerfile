@@ -7,7 +7,7 @@ WORKDIR /app
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-COPY images/dbt/requirements.txt ./
+COPY images/dbt/requirements-build.txt images/dbt/requirements.txt ./
 # Uninstall pip once dependencies are installed. pip bundles its own
 # internal CycloneDX SBOM (pip/_vendor/bom.cdx.json) listing its *vendored*
 # build dependencies (e.g. msgpack, setuptools) at versions Trivy flags as
@@ -23,7 +23,14 @@ COPY images/dbt/requirements.txt ./
 # requirements.txt currently pins dbt-postgres/dbt-duckdb to older minors
 # than dbt-core (see requirements.txt) -- neither adapter has shipped a
 # release matching dbt-core's minor yet.
-RUN python -m pip install --no-cache-dir --require-hashes -r requirements.txt && \
+#
+# dbt-core-experimental-parser publishes only an sdist (a download-at-install
+# shim whose build backend verifies the wheel it fetches against a sha256 in
+# the hash-verified sdist). Its only build requirement, packaging, is
+# installed from requirements-build.txt and the build runs with
+# --no-build-isolation, so pip never fetches build dependencies unhashed.
+RUN python -m pip install --no-cache-dir --require-hashes -r requirements-build.txt && \
+    python -m pip install --no-cache-dir --no-build-isolation --require-hashes -r requirements.txt && \
     python -c "import dbt.adapters.postgres, dbt.adapters.duckdb" && \
     python -m pip uninstall --yes pip
 

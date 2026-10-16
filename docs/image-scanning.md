@@ -67,6 +67,20 @@ the Postgres storage packages (and the `sqlalchemy<2.1` cap); recompile both.
 Renovate maintains these through its `pip-compile` manager, which reads the
 `uv pip compile` header in each lock file.
 
+Two supporting locks follow the same rules: `images/superset/requirements-uv.txt`
+(the `uv` that performs the hash-verified Superset install) and
+`images/dbt/requirements-build.txt` (`packaging`, the only build requirement of
+`dbt-core-experimental-parser`). That package publishes only an sdist, a
+download-at-install shim whose build backend verifies the wheel it fetches
+against a sha256 shipped in the hash-verified sdist. The dbt image installs the
+build lock first and then builds with `--no-build-isolation`, so pip never
+fetches build requirements unhashed. The `dlt`, Dagster base, and Superset
+installs refuse source builds (`--only-binary=:all:` / `--no-build`); the
+Alpine-based hardened Dagster image cannot, because some dependencies have no
+musllinux wheels. Superset's lock intentionally raises some packages (for CVE
+fixes) beyond ranges `apache-superset` declares, so `uv pip check` is not used
+as a gate.
+
 The locks are compiled on Linux for the images' `linux/amd64` platform; compile
 them on Linux (or in a Linux container) so platform-specific dependencies are
 resolved for the right target. CI runs `scripts/check_image_locks.py` to

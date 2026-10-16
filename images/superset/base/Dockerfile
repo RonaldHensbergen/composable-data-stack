@@ -1,11 +1,11 @@
 FROM apache/superset:6.1.0@sha256:16b50bbef6648912a79e3293d418fefa743ce555d36c5af6b85d859119ed7f88
 
-ARG UV_VERSION=0.11.26
-
 USER root
 
+# uv does the hash-verified install below, so install it from a hash lock too.
+COPY images/superset/requirements-uv.txt /tmp/uv-requirements.txt
 RUN /usr/local/bin/python -m pip install --no-cache-dir --upgrade \
-      "uv==${UV_VERSION}" \
+      --require-hashes -r /tmp/uv-requirements.txt \
     && /usr/local/bin/uv --version \
     && /usr/local/bin/uvx --version
 
@@ -14,9 +14,11 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# The lock deliberately raises some packages beyond ranges apache-superset
+# declares (CVE fixes), so `uv pip check` would flag them by design.
 COPY images/superset/requirements.txt /tmp/superset-requirements.txt
 RUN uv pip install --python /app/.venv/bin/python --no-cache --upgrade \
-      --require-hashes -r /tmp/superset-requirements.txt
+      --no-build --require-hashes -r /tmp/superset-requirements.txt
 
 # The application uses /app/.venv; remove unused system packaging tools and their
 # vendored metadata so scanners do not report packages that cannot run.

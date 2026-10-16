@@ -87,9 +87,10 @@ class SupersetHardeningTest(unittest.TestCase):
         dockerfile = (
             self.repo_root / "images" / "superset" / "base" / "Dockerfile"
         ).read_text(encoding="utf-8")
-        version_match = re.search(
-            r"(?m)^ARG UV_VERSION=(\d+)\.(\d+)\.(\d+)$", dockerfile
-        )
+        uv_lock = (
+            self.repo_root / "images" / "superset" / "requirements-uv.txt"
+        ).read_text(encoding="utf-8")
+        version_match = re.search(r"(?m)^uv==(\d+)\.(\d+)\.(\d+) \\$", uv_lock)
 
         self.assertIsNotNone(version_match)
         self.assertGreaterEqual(
@@ -98,7 +99,7 @@ class SupersetHardeningTest(unittest.TestCase):
             "uv 0.11.26 is the first release embedding quinn-proto 0.11.15",
         )
         self.assertIn("/usr/local/bin/python -m pip install", dockerfile)
-        self.assertIn('"uv==${UV_VERSION}"', dockerfile)
+        self.assertIn("--require-hashes -r /tmp/uv-requirements.txt", dockerfile)
 
     def test_image_provides_the_registered_service_worker(self) -> None:
         dockerfile = (
