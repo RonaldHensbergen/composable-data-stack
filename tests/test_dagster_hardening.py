@@ -47,6 +47,16 @@ class DagsterHardeningTest(unittest.TestCase):
                 self.assertEqual(service["build"]["args"]["DB_BACKEND"], "${config.storage.backend}")
                 self.assertEqual(service["environment"]["DB_BACKEND"], "${config.storage.backend}")
 
+    def test_dockerfiles_install_hash_locked_requirements(self) -> None:
+        for variant in ("base", "hardened"):
+            with self.subTest(variant=variant):
+                dockerfile = (self.repo_root / "images" / "dagster" / variant / "Dockerfile").read_text(
+                    encoding="utf-8"
+                )
+                self.assertNotRegex(dockerfile, r"pip install (?!.*--require-hashes)[^\n]*-r requirements")
+                self.assertIn("--require-hashes -r requirements-postgres.txt", dockerfile)
+                self.assertIn("--require-hashes -r requirements.txt", dockerfile)
+
     def test_vulnerable_python_packages_are_patched(self) -> None:
         pinned: dict[str, tuple[int, ...]] = {}
         for line in self.requirements.splitlines():
@@ -56,7 +66,7 @@ class DagsterHardeningTest(unittest.TestCase):
             match = re.match(r"^([A-Za-z0-9._-]+)\s*(>=|==)\s*([0-9]+(?:\.[0-9]+)*)", line)
             if match:
                 pkg, _, ver = match.groups()
-                normalized_pkg = pkg.lower()
+                normalized_pkg = re.sub(r"[-_.]+", "-", pkg.lower())
                 version = tuple(int(x) for x in ver.strip().split("."))
                 pinned[normalized_pkg] = max(pinned.get(normalized_pkg, (0,)), version)
 

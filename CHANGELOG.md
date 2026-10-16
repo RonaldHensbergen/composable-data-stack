@@ -178,6 +178,22 @@ The format is based on Keep a Changelog.
   names fail fast and traversal values can no longer escape the modules
   tree, without changing explicit `--output` handling (#685).
 
+### Changed
+
+- Hash-locked the Python dependencies of the `dlt`, `dagster`, `dbt`, and
+  `superset` images: each `requirements*.in` lists the direct dependencies,
+  `requirements*.txt` is compiled with `uv pip compile --generate-hashes`,
+  and the Dockerfiles install with `--require-hashes`, so unverified
+  transitive packages fail the build (SonarCloud python:S8544). The Dagster
+  image now installs a single self-contained lock per database backend, and
+  Renovate maintains the locks through its `pip-compile` manager. CI now
+  audits each lock with `pip-audit --require-hashes` (including transitive
+  dependencies) and fails when a lock is out of date with its `.in` file.
+  Superset's `uv` is installed from a hash lock, and the dbt image builds its
+  sdist-only dependency with hashed build requirements and
+  `--no-build-isolation`. See
+  `docs/image-scanning.md` (#625).
+
 ## [0.11.0] - 2026-10-04
 
 ### Added

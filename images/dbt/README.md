@@ -21,7 +21,7 @@ Python 3.14 at import time (`mashumaro.exceptions.UnserializableField: Field
 "schema" of type Optional[str] in JSONObjectSchema is not serializable`) due
 to a `mashumaro`/typing incompatibility upstream. Verified locally with the
 currently pinned `dbt-core==1.11.12` / `dbt-postgres==1.11.0` (see
-`images/dbt/requirements.txt`): it crashes on 3.14, but installs and runs
+`images/dbt/requirements.in`): it crashes on 3.14, but installs and runs
 cleanly on `python:3.13-slim` (confirmed with `dbt --version` exiting `0`
 with no traceback), which is the smallest possible downgrade from the repo's
 usual base. Revisit this pin once dbt Labs ships a 3.14-compatible
