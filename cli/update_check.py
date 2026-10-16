@@ -40,20 +40,27 @@ def _cache_path() -> Path:
     return root / "cds" / "update-check.json"
 
 
-def _parse_version(value: str) -> tuple[int, ...] | None:
-    match = re.fullmatch(r"v?(\d+(?:\.\d+)*)", value.strip())
+def _parse_version(value: str) -> tuple[tuple[int, ...], bool] | None:
+    """Return (release numbers, is_prerelease) or None when unparseable."""
+    match = re.fullmatch(r"v?(\d+(?:\.\d+)*)((?:a|b|rc|\.?dev|\.?post)\d*.*)?", value.strip())
     if not match:
         return None
-    return tuple(int(part) for part in match.group(1).split("."))
+    return tuple(int(part) for part in match.group(1).split(".")), bool(match.group(2))
 
 
 def is_newer(latest: str, current: str) -> bool:
-    """True when `latest` is a strictly newer final release than `current`."""
-    latest_v, current_v = _parse_version(latest), _parse_version(current)
-    if latest_v is None or current_v is None:
+    """True when `latest` is a strictly newer final release than `current`.
+
+    A pre-release of the same base version counts as older than its final.
+    """
+    latest_p, current_p = _parse_version(latest), _parse_version(current)
+    if latest_p is None or current_p is None or latest_p[1]:
         return False
+    latest_v, current_v = latest_p[0], current_p[0]
     width = max(len(latest_v), len(current_v))
     pad = lambda v: v + (0,) * (width - len(v))  # noqa: E731
+    if current_p[1]:
+        return pad(latest_v) >= pad(current_v)
     return pad(latest_v) > pad(current_v)
 
 

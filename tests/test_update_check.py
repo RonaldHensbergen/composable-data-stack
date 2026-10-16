@@ -16,6 +16,9 @@ class UpdateCheckTest(unittest.TestCase):
         self.assertFalse(update_check.is_newer("0.9.2", "0.9.2"))
         self.assertFalse(update_check.is_newer("0.9.1", "0.9.2"))
         self.assertFalse(update_check.is_newer("1.0rc1", "0.9"))
+        self.assertTrue(update_check.is_newer("1.0", "1.0rc1"))
+        self.assertTrue(update_check.is_newer("1.1", "1.0rc1"))
+        self.assertFalse(update_check.is_newer("0.9", "1.0rc1"))
 
     def test_disabled_by_default_makes_no_network_call(self):
         with mock.patch.dict(os.environ, {}, clear=False):
@@ -38,14 +41,17 @@ class UpdateCheckTest(unittest.TestCase):
                 self.assertIn("CHANGELOG.md", buf.getvalue())
 
     def test_up_to_date_and_failure_are_silent(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {update_check.ENV_VAR: "1", "XDG_CACHE_HOME": tmp}
-        ):
-            for latest in ("0.1.0", None):
+        for latest in ("0.1.0", None):
+            with self.subTest(latest=latest), tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+                os.environ, {update_check.ENV_VAR: "1", "XDG_CACHE_HOME": tmp}
+            ):
                 buf = io.StringIO()
-                with mock.patch.object(update_check, "fetch_latest_version", return_value=latest):
+                with mock.patch.object(
+                    update_check, "fetch_latest_version", return_value=latest
+                ) as fetch:
                     with redirect_stderr(buf):
                         update_check.maybe_notify("0.1.0")
+                fetch.assert_called_once()
                 self.assertEqual(buf.getvalue(), "")
 
     def test_fetch_failure_returns_none(self):
