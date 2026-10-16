@@ -17,6 +17,10 @@ The format is based on Keep a Changelog.
   variable is never read from `.env`. The
   resolved commit SHA is now recorded in `.cds/get-manifest.json` (#849).
 
+- Added an opt-in CDS CLI update notice: `cds check-update` queries the
+  public PyPI index on demand, and `CDS_CHECK_UPDATES=1` prints a
+  non-failing stderr notice (24h cache) when a newer release exists.
+  Nothing is checked by default (#841).
 - Added a CRA release-evidence manifest and fail-closed conformity
   readiness gate: `scripts/build_cra_release_evidence_manifest.py`
   references (not duplicates) existing scope-decision, risk-assessment,
@@ -124,6 +128,17 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Added the Docker Hub-published images (`dagster`, `dagster` hardened,
+  `superset`, `dbt`, `dlt` under `docker.io/ronaldsoeverein/`) to
+  `tests/fixtures/signed-images.json` and made the `update-fixture` job
+  refresh them after `publish-dockerhub` succeeds, so `cds report` finds
+  signature/SBOM/provenance evidence for default `image.source: registry`
+  pulls instead of always emitting W101 (#824).
+
+- Tagged GitHub releases are now explicitly published after creation, even
+  when the release action leaves them as drafts. Release notes, attached
+  assets, and the separate PyPI publishing flow remain unchanged (#765).
+
 - Fixed the `marquez-web` healthcheck in the experimental
   `modules-experimental/observability/marquez` module always reporting
   `unhealthy` under `cds up`: it shelled out to `bash -c '... /dev/tcp ...'`,
@@ -156,6 +171,12 @@ The format is based on Keep a Changelog.
   duplicate the parent's modules on disk. The command now errors and
   points at `--output <path>` instead, which still works since it writes
   the merged document elsewhere rather than overwriting the source (#808).
+
+- Validated `compose_to_module` `--name`/`--category` against the
+  `^[a-z0-9-]+$` module-id pattern before writing anything to disk, and
+  confined the derived default output path under `modules/`, so invalid
+  names fail fast and traversal values can no longer escape the modules
+  tree, without changing explicit `--output` handling (#685).
 
 ## [0.11.0] - 2026-10-04
 
@@ -273,6 +294,19 @@ The format is based on Keep a Changelog.
   default rather than passed as a CLI argument; it now reports the
   actually-resolved profile name, matching the `cds preflight` hint on the
   following line.
+
+- Fixed the vault profile's `init-db.sh` bootstrap, which failed on a
+  fresh database: passed the four missing `psql` variables, made all
+  three roles config-driven (including the previously uncreated Dagster
+  role), dropped the redundant hardcoded `analytics` role, and replaced
+  the `DO $do$` block (where `psql` interpolation does not apply) with
+  `SELECT format(...) \gexec` grants, without changing any database,
+  role, or privilege that gets created (#836).
+
+- Bound the Keycloak module's published host port to `127.0.0.1`, so the
+  admin console is reachable from the local machine only, matching the
+  localhost-only convention used by the Postgres module; Dagster and
+  Superset are unchanged (#832).
 
 ### Changed
 

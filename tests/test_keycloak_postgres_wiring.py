@@ -30,7 +30,18 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 class KeycloakPostgresWiringTest(unittest.TestCase):
     """Wires the real keycloak and postgres modules together and renders them."""
 
-    def _write_profile(self, profile_dir: Path) -> Path:
+    def _write_profile(self, profile_dir: Path, http_port: int | None = None) -> Path:
+        keycloak_config: dict = {
+            "metadataDatabase": {
+                "contractRef": "postgres.sql-database",
+            },
+            "adminUser": {
+                "username": "admin",
+                "passwordFrom": "secrets.keycloak_admin_password",
+            },
+        }
+        if http_port is not None:
+            keycloak_config["httpPort"] = http_port
         profile = {
             "apiVersion": "cds/v1alpha1",
             "kind": "Profile",
@@ -57,15 +68,7 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                         "version": "0.1.0",
                         "enabled": True,
                         "dependsOn": ["postgres"],
-                        "config": {
-                            "metadataDatabase": {
-                                "contractRef": "postgres.sql-database",
-                            },
-                            "adminUser": {
-                                "username": "admin",
-                                "passwordFrom": "secrets.keycloak_admin_password",
-                            },
-                        },
+                        "config": keycloak_config,
                     },
                 ],
                 "secrets": {
@@ -163,6 +166,47 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                     "${CDS_KEYCLOAK_ADMIN_PASSWORD}",
                 )
                 self.assertEqual(keycloak_env["KC_BOOTSTRAP_ADMIN_USERNAME"], "admin")
+
+    def test_host_port_binds_localhost_and_honors_config(self):
+        with tempfile.TemporaryDirectory() as root:
+            profile_dir = Path(root)
+            profile_file = self._write_profile(profile_dir, http_port=8180)
+
+            env_file = profile_dir / ".env"
+            env_file.write_text(
+                "CDS_IDENTITY_DB_PASSWORD=identity_testpass\n"
+                "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser_testpass\n"
+                "CDS_KEYCLOAK_ADMIN_PASSWORD=admin_testpass\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict(
+                "os.environ", {"CDS_MODULE_PATH": str(_REPO_ROOT)}, clear=False
+            ):
+                diagnostics = validate_profile(str(profile_file))
+                self.assertEqual(
+                    [d for d in diagnostics if d.level == "error"], [],
+                    msg=f"unexpected validation errors: {diagnostics}",
+                )
+
+                plan, plan_diags = build_plan(str(profile_file), env_file=str(env_file))
+                self.assertIsNotNone(plan)
+                self.assertEqual(
+                    [d for d in plan_diags if d.level == "error"], [],
+                    msg=f"unexpected plan errors: {plan_diags}",
+                )
+
+                output, render_diags = render_compose(plan, env_file=str(env_file))
+                self.assertEqual(
+                    [d for d in render_diags if d.level == "error"], [],
+                    msg=f"unexpected render errors: {render_diags}",
+                )
+
+                compose = yaml.safe_load(output)
+                self.assertEqual(
+                    compose["services"]["keycloak"]["ports"],
+                    ["127.0.0.1:8180:8080"],
+                )
 
 
 if __name__ == "__main__":

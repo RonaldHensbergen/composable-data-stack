@@ -468,8 +468,8 @@ jobs:
     # publish, so digest verification in the repo never drifts from what was
     # signed and attested. Committing only the fixture cannot re-trigger this
     # workflow (the push paths do not include tests/fixtures).
-    needs: publish
-    if: ${{ always() && needs.publish.result == 'success' }}
+    needs: [publish, publish-dockerhub]
+    if: ${{ always() && needs.publish.result == 'success' && needs.publish-dockerhub.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -483,6 +483,11 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ronaldsoeverein
+          password: ${{ secrets.RONALDSOEVEREIN_LOGIN }}
 
       - name: Refresh signed-images fixture after successful publish
         run: |
