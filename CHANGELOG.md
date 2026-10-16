@@ -8,6 +8,14 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added code-enforced, literal-value secret scanning for the formerly
+  deferred rules CDS-SEC-006 (rendered Compose model), CDS-SEC-030
+  (generated files) and CDS-SEC-071 (CLI output): `cds render`/`cds up`
+  now refuse to write `docker-compose.yml` or Helm chart files containing
+  a resolved secret (error `E096`), `cds plan`/`validate`/`test`/`security`
+  redact such values from output with a `W102` warning, and `cds security`
+  reports CDS-SEC-006 findings. CDS-SEC-006 now covers only rendered
+  Compose output; its file and CLI halves moved to CDS-SEC-030/071 (#356).
 - Added an opt-in CDS CLI update notice: `cds check-update` queries the
   public PyPI index on demand, and `CDS_CHECK_UPDATES=1` prints a
   non-failing stderr notice (24h cache) when a newer release exists.
