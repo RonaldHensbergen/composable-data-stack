@@ -22,7 +22,6 @@ scope instead.
   - #535 Document `image.source` (build\|registry) in `docs/modules.md` and README (docs-only)
 - **`help wanted`** — scoped, but needs a design decision or more context read
   first; ask on the issue before starting:
-  - #357 Implement or remove CDS-SEC-032 (secret file permission checks)
   - #356 Implement or remove CDS-SEC-006/030/071 (secret scanning of generated artifacts and CLI output)
   - #142 Add a runnable Airflow profile example
 - **`area:docs`** — low risk, no test suite to satisfy:

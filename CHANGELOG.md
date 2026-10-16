@@ -8,6 +8,10 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
+  file readable or writable by group or others (new `file-permissions`
+  rule scope and `permissions` condition; skipped on Windows), and
+  `cds init` explicitly creates `.env` as owner-only (`0600`) (#357).
 - Added an opt-in CDS CLI update notice: `cds check-update` queries the
   public PyPI index on demand, and `CDS_CHECK_UPDATES=1` prints a
   non-failing stderr notice (24h cache) when a newer release exists.
