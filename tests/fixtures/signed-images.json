@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "refreshRequired": false,
   "refreshInstructions": "Refreshed automatically by the update-fixture job in .github/workflows/publish-images.yml after each successful publish.",
-  "updated": "2026-10-10",
+  "updated": "2026-10-12",
   "source": "https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/publish-images.yml",
   "trustRoot": {
     "registries": [
@@ -17,7 +17,7 @@
   "images": {
     "cds-dagster": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
-      "digest": "sha256:5776332304028993f463f71fea3a23a6832785ccaf1a2412a3f69bde4d149fb5",
+      "digest": "sha256:209cfc45c8080cfd5cd35571c7d0dc6a9ae7941e15977fc44b89f936337d4bca",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
@@ -25,35 +25,35 @@
     "cds-dagster-hardened": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
       "tagPrefix": "hardened-",
-      "digest": "sha256:bfd9061e5641d0e350c6d40f14ca752325e68b546bd0a3d4eccbaf2c6b056537",
+      "digest": "sha256:852d7acbfb6adffc00a571771ab70a7800b81ade5df07442385679271f7feeaf",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-superset": {
       "repository": "ghcr.io/ronaldhensbergen/cds-superset",
-      "digest": "sha256:0da990b531a690210c7f851a871f264cb506095eb1036b08330a62305cff2bf8",
+      "digest": "sha256:747084510d3f5502dc3c3ba02d9dd84a5c56a58f1e5f3e0ab6218be3ed80051d",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dbt": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dbt",
-      "digest": "sha256:23f8db8326d6fa4ce4a0fab0080f5283e60f68864ad13cdcc0537d1f74de4143",
+      "digest": "sha256:08042bcb7fb2bae5a8a0cd1b4fe324478e4c0d570917fecd6c018a372279e0bb",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dlt": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dlt",
-      "digest": "sha256:2f496525a71e03f31b33e37342b948abc48b695435ab5eb957632ef90532b2cb",
+      "digest": "sha256:84ce43dd57c1cc6375915113cb7bbb0b0199bf5027d7f6f79b63a175f52d354b",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "dockerhub-dagster": {
       "repository": "docker.io/ronaldsoeverein/dagster",
-      "digest": "sha256:1ca05f33ca8b2b29aa0f002664fd2ef962556fff0dc0508ae5b71504d083b51f",
+      "digest": "sha256:23920ee9956d95aac4f74c7eac8abb04185c34e73ee5a735c68c93516d019550",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
@@ -61,28 +61,28 @@
     "dockerhub-dagster-hardened": {
       "repository": "docker.io/ronaldsoeverein/dagster",
       "tagPrefix": "hardened-",
-      "digest": "sha256:47e0ede69d9277a211fa9cbfa987f4db7dde928f075370bcaa7b79d24ec1d752",
+      "digest": "sha256:b4741e8b169389df35d6df1af694f803466d35de87debcbaa033eff41178648a",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "dockerhub-superset": {
       "repository": "docker.io/ronaldsoeverein/superset",
-      "digest": "sha256:e9ceb333f9392cd4e9e0d9ef3c21ef25bb44cebfcfdefa5b02a554b864efe279",
+      "digest": "sha256:967ba0339b6bfd0fed85beb1a1ab10e94919dbe25556581d2ac01e17e2729da5",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "dockerhub-dbt": {
       "repository": "docker.io/ronaldsoeverein/dbt",
-      "digest": "sha256:298b2e5a393b9fefaf6bd874fde61fcdb25d2f63b36697d985b3145ab3051e77",
+      "digest": "sha256:3367afd7779de80981651cd3fd4d6e8ac45c507a30124085919cd80a869064ce",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "dockerhub-dlt": {
       "repository": "docker.io/ronaldsoeverein/dlt",
-      "digest": "sha256:8934d99cf9f567baa048923bd2671b2152e05d72e63edd4c74bba34469d666c0",
+      "digest": "sha256:2defd0492e03b52904346a467e5383ce85732db7390e65ef1994ef0eb83bc88b",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import re
 import subprocess  # nosec B404
@@ -20,10 +21,16 @@ except ImportError:
 
 import yaml
 
-from . import audit_log
+from . import audit_log, update_check
 from .composer import compose_profile
 from .diagnostics import Diagnostic
-from .getter import GetError, _prepare_source_repository, fetch_profile, format_get_plan
+from .getter import (
+    GetError,
+    _prepare_source_repository,
+    fetch_profile,
+    format_get_plan,
+    parse_allowed_sources,
+)
 from .image_digest_check import is_enabled as image_digest_check_enabled
 from .image_updates import check_image_update, collect_module_images
 from .image_verification import (
@@ -66,6 +73,8 @@ from .validator import (
     validate_profile,
 )
 
+_ENV_FILE_DENYLIST = frozenset({"CDS_GET_ALLOWED_SOURCES"})
+
 
 def load_env_file(env_file: str = ".env") -> None:
     """Load environment variables from a .env file."""
@@ -99,6 +108,10 @@ def load_env_file(env_file: str = ".env") -> None:
                 value = value[1:-1]
             # Only accept CDS_* keys - arbitrary .env keys are ignored
             if not key.startswith("CDS_"):
+                continue
+            # Trust settings must come from the real environment or saved
+            # config, never from a .env that may belong to an untrusted checkout
+            if key in _ENV_FILE_DENYLIST:
                 continue
             # Only set if not already in environment
             if key and not os.environ.get(key):
@@ -419,6 +432,33 @@ def load_saved_audit_disabled() -> bool:
     return _config_value("audit.enabled") is False
 
 
+_CONFIG_KEYS = [
+    "profile",
+    "environment",
+    "security.strict",
+    "image.source",
+    "target",
+    "audit.enabled",
+    "get.allowedSources",
+]
+
+
+def load_allowed_get_sources() -> list[str]:
+    """Return the trusted `cds get`/`cds list --remote` sources (#849).
+
+    `CDS_GET_ALLOWED_SOURCES` wins over the project's `get.allowedSources`
+    setting; both are comma-separated `owner` or `owner/repo` entries. An empty
+    result means no allowlist is enforced. A blank environment value is
+    ignored, but `CDS_GET_ALLOWED_SOURCES=*` explicitly allows any source for
+    a single run, overriding a saved allowlist.
+    """
+    env_sources = parse_allowed_sources(os.environ.get("CDS_GET_ALLOWED_SOURCES"))
+    if env_sources:
+        return env_sources
+    saved = _config_value("get.allowedSources")
+    return parse_allowed_sources(saved if isinstance(saved, str) else None)
+
+
 def load_saved_profile() -> str | None:
     """Return the profile name saved via `cds use`, if any."""
     profile = _read_config().get("profile")
@@ -472,6 +512,11 @@ def set_config_value(key: str, value: str) -> Path:
         if not isinstance(audit, dict):
             raise ConfigIOError("Config key 'audit' must be a mapping.")
         audit["enabled"] = value == "true"
+    elif key == "get.allowedSources":
+        get_settings = data.setdefault("get", {})
+        if not isinstance(get_settings, dict):
+            raise ConfigIOError("Config key 'get' must be a mapping.")
+        get_settings["allowedSources"] = value
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     return _write_config(data)
@@ -509,6 +554,13 @@ def unset_config_value(key: str) -> bool:
         del audit["enabled"]
         if not audit:
             del data["audit"]
+    elif key == "get.allowedSources":
+        get_settings = data.get("get")
+        if not isinstance(get_settings, dict) or "allowedSources" not in get_settings:
+            return False
+        del get_settings["allowedSources"]
+        if not get_settings:
+            del data["get"]
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     _write_config(data)
@@ -767,7 +819,9 @@ def _resolve_list_source_roots(remote: str | None, ref: str, local: str | None):
     if remote is None and local is None:
         yield get_profiles_root(), get_modules_root()
         return
-    with _prepare_source_repository(remote, ref, local) as source_repo:
+    with _prepare_source_repository(
+        remote, ref, local, allowed_sources=load_allowed_get_sources()
+    ) as source_repo:
         yield source_repo / "profiles", source_repo / "modules"
 
 
@@ -1291,7 +1345,35 @@ def _render_helm_chart(plan, output_dir, force):
     return 0, diags
 
 
+_UPDATE_NOTICE_SUPPRESSING_ARGS = frozenset({
+    "-h",
+    "--help",
+    "-v",
+    "--version",
+})
+
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def _maybe_notify_update() -> None:
+    try:
+        argv_tail = sys.argv[1:]
+        if argv_tail[:1] == ["check-update"] or not _UPDATE_NOTICE_SUPPRESSING_ARGS.isdisjoint(argv_tail):
+            return
+        update_check.maybe_notify(_cds_version())
+    except Exception:
+        _LOGGER.debug("Automatic update notice failed", exc_info=True)
+
+
 def main() -> int:
+    try:
+        return _run()
+    finally:
+        _maybe_notify_update()
+
+
+def _run() -> int:
     # Load .env file if it exists
     load_env_file()
     
@@ -1643,6 +1725,13 @@ def main() -> int:
         help="Branch, tag, or commit to fetch from --remote (default: main)",
     )
     get_parser.add_argument(
+        "--commit",
+        help=(
+            "Pin the fetch to this commit SHA (12-40 hex characters); fails if "
+            "--ref resolves to a different commit"
+        ),
+    )
+    get_parser.add_argument(
         "--local",
         help=(
             "Use an existing local directory as the source repository instead of "
@@ -1770,19 +1859,21 @@ def main() -> int:
     )
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_get_parser = config_subparsers.add_parser("get", help="Print a persisted setting")
-    config_get_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
-    )
+    config_get_parser.add_argument("key", choices=_CONFIG_KEYS)
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
-    config_set_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
-    )
+    config_set_parser.add_argument("key", choices=_CONFIG_KEYS)
     config_set_parser.add_argument("value")
     config_unset_parser = config_subparsers.add_parser("unset", help="Remove a persisted setting")
-    config_unset_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
-    )
+    config_unset_parser.add_argument("key", choices=_CONFIG_KEYS)
     config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
+
+    subparsers.add_parser(
+        "check-update",
+        help=(
+            "Check PyPI for a newer CDS release (the only network call is an "
+            "unauthenticated query of the public PyPI index)"
+        ),
+    )
 
     completion_parser = subparsers.add_parser(
         "completion",
@@ -2448,6 +2539,8 @@ def main() -> int:
                 destination_root=Path(args.into) if args.into else None,
                 force=args.force,
                 dry_run=args.dry_run,
+                allowed_sources=load_allowed_get_sources(),
+                commit=args.commit,
             )
         except GetError as exc:
             print(f"ERROR {exc}", file=sys.stderr)
@@ -3139,6 +3232,21 @@ def main() -> int:
                     print("ERROR Config key 'audit.enabled' must be true or false.")
                     return 1
                 value = args.value
+            elif args.key == "get.allowedSources":
+                entries = parse_allowed_sources(args.value)
+                if "*" in entries:
+                    print(
+                        "ERROR Config key 'get.allowedSources' does not accept '*'; "
+                        "set CDS_GET_ALLOWED_SOURCES=* for a single run instead."
+                    )
+                    return 1
+                if not entries:
+                    print(
+                        "ERROR Config key 'get.allowedSources' must list at least one "
+                        "comma-separated 'owner' or 'owner/repo'."
+                    )
+                    return 1
+                value = args.value
             else:
                 value = args.value
             try:
@@ -3158,6 +3266,18 @@ def main() -> int:
             print(f"Unset {args.key} ({get_config_path()})")
         else:
             print(f"Config key '{args.key}' is not set.")
+        return 0
+
+    if args.command == "check-update":
+        current = _cds_version()
+        latest = update_check.latest_version(use_cache=False)
+        if latest is None:
+            print("ERROR Could not determine the latest CDS release from PyPI.", file=sys.stderr)
+            return 1
+        if update_check.is_newer(latest, current):
+            print(update_check.format_notice(current, latest))
+        else:
+            print(f"CDS {current} is up to date (latest release: {latest}).")
         return 0
 
     if args.command == "completion":

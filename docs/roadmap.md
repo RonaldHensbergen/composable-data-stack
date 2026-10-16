@@ -80,7 +80,7 @@ These are considered production-ready in the current release (v0.11.0):
 
 These work but may have breaking changes in upcoming releases:
 
-- **Kubernetes/Helm rendering target** (`--target helm` on `render`/`validate`/`security`/`up`/`down`/`state`/`test`) — `cli/k8s_renderer.py`, `cli/k8s_security.py`, and `cli/k8s_runner.py` render a Helm chart and manage its lifecycle via `helm upgrade --install`; includes a k3d-based local-dev harness and a TenderNed demo profile (#608). Still missing the platform baseline (GitOps, observability, backup, network policy) tracked in [docs/haven-parity-plan.md](haven-parity-plan.md) and issues #689/#690/#75/#77.
+- **Kubernetes/Helm rendering target** (`--target helm` on `render`/`validate`/`security`/`up`/`down`/`state`/`test`) — `cli/k8s_renderer.py`, `cli/k8s_security.py`, and `cli/k8s_runner.py` render a Helm chart and manage its lifecycle via `helm upgrade --install`; includes a k3d-based local-dev harness and a TenderNed demo profile (#608). Still missing the platform baseline (GitOps, observability, backup, network policy) tracked in [docs/haven-parity-plan.md](haven-parity-plan.md) and issues #690/#75/#77.
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
@@ -97,7 +97,7 @@ These work but may have breaking changes in upcoming releases:
 
 - 📋 **Stabilize Vault-backed profile** — validate and harden `local-dagster-postgres-superset-vault` for regular use
 - 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
-- 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): Helm target lifecycle parity with Compose (#689), self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
+- 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
 - 📋 **Haven parity — previously untracked workstreams** — the three [docs/haven-parity-plan.md](haven-parity-plan.md) gaps that had no issue filed: GitOps rendering/module support (#767), Kubernetes-native database operator pattern (#768), `cds maturity` profile-maturity report (#769)
 - 📋 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink` contract + OpenTelemetry Collector reference module (#777)
 
@@ -123,8 +123,8 @@ CRA scope or conformity (see [docs/cra-scope-decision.md](cra-scope-decision.md)
   (#733, see [docs/cra-release-evidence-gate.md](cra-release-evidence-gate.md))
 - 📋 **CLI self-update notification** — notify users when a newer CDS CLI
   release is available (#841)
-- 📋 **`cds get` source trust** — trusted-source allowlist and commit/digest
-  pinning for fetched bundles (#849)
+- ✅ **`cds get` source trust** — opt-in trusted-source allowlist and commit
+  SHA pinning for fetched bundles (#849)
 
 ---
 
@@ -174,6 +174,7 @@ platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
 
 Selected items shipped since v0.4.0 (see [CHANGELOG.md](../CHANGELOG.md) for the full history):
 
+- ✅ **Compose/Helm lifecycle parity** — `cds up`/`down`/`state` behave consistently across the Compose and Helm targets (#689)
 - ✅ **Kubernetes/Helm rendering target** — new `--target helm` runtime alongside Compose, with a k3d local-dev harness and CI proof (#608)
 - ✅ **Strengthened contract compatibility validation** — bundled compatibility registry flags module pairings explicitly recorded as unsupported for a contract (`E043`), beyond plain contract `kind` matching (#350)
 - ✅ **`cds get`** — fetch profiles/modules from a GitHub repository, with symlink-safe extraction and tracking manifest (#493, #495, #474)
