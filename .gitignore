@@ -214,6 +214,9 @@ docker-compose.yml
 docker-compose.yaml
 docker-compose.vault-proof.yml
 
+# Container logs collected by the Docker smoke test on failure
+/smoke-logs/
+
 # Generated Helm output and per-worktree local-cluster credentials
 /chart/
 /.k3d/

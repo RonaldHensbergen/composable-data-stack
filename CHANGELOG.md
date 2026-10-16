@@ -6,6 +6,13 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a flaky Superset init failure (duplicate-key error while creating the
+  metadata tables) when the web process starts concurrently, by retrying the
+  idempotent init steps a bounded number of times, and added container-log
+  capture to the Docker runtime smoke test on failure.
+
 ## [0.12.0] - 2026-10-16
 
 ### Added
