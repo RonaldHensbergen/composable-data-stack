@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import logging
 import os
@@ -1336,9 +1338,12 @@ def _install_output_redaction(args: argparse.Namespace) -> None:
     declared: set[str] = set()
     env_file = None
     try:
-        profile_path = resolve_profile_path(args.profile)
-        env_file = str(resolve_env_file_path(profile_path))
-        declared = _collect_profile_env_vars(profile_path, getattr(args, "environment", None))[1]
+        # The command resolves the profile itself and prints any warning;
+        # don't print it a second time from this pre-pass.
+        with contextlib.redirect_stdout(io.StringIO()):
+            profile_path = resolve_profile_path(args.profile)
+            env_file = str(resolve_env_file_path(profile_path))
+            declared = _collect_profile_env_vars(profile_path, getattr(args, "environment", None))[1]
     except (ValueError, OSError):
         pass
     secret_values = resolved_secret_values(declared, env_file)

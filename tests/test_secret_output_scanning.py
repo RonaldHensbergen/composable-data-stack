@@ -60,6 +60,15 @@ class SecretLeakHelpersTest(unittest.TestCase):
             )
             self.assertIn("CDS_REGION_NAME", declared)
 
+    def test_environment_secrets_survive_unreadable_env_file(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
+            os.environ, {"CDS_API_TOKEN": "a-long-token-value"}, clear=True
+        ):
+            unreadable = Path(tmp) / "env-dir"
+            unreadable.mkdir()
+            values = secret_leak.resolved_secret_values(env_file=str(unreadable))
+        self.assertEqual(values, {"CDS_API_TOKEN": "a-long-token-value"})
+
     def test_stream_redacts_value_split_across_writes(self):
         sink, hits = io.StringIO(), set()
         stream = secret_leak.RedactingStream(sink, {"CDS_A": "alpha-secret-1"}, hits)

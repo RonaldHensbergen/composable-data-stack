@@ -9,6 +9,7 @@ leak: CDS only ever renders `${CDS_*}` placeholders, never resolved values.
 from __future__ import annotations
 
 import io
+import os
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -62,6 +63,11 @@ def resolved_secret_values(
     """
     declared = declared_env_names or frozenset()
     values, _ = load_secrets_from_env(Path(env_file) if env_file else None)
+    # load_secrets_from_env returns nothing when the env file is unreadable,
+    # which would silently drop environment-provided secrets; fail closed.
+    for name, value in os.environ.items():
+        if name.startswith("CDS_"):
+            values.setdefault(name, value)
     result: dict[str, str] = {}
     for name, value in values.items():
         if name in _NON_SECRET_ENV_NAMES or len(value) < MIN_SECRET_LENGTH:
