@@ -1830,18 +1830,12 @@ def main() -> int:
     )
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_get_parser = config_subparsers.add_parser("get", help="Print a persisted setting")
-    config_get_parser.add_argument(
-        "key", choices=_CONFIG_KEYS
-    )
+    config_get_parser.add_argument("key", choices=_CONFIG_KEYS)
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
-    config_set_parser.add_argument(
-        "key", choices=_CONFIG_KEYS
-    )
+    config_set_parser.add_argument("key", choices=_CONFIG_KEYS)
     config_set_parser.add_argument("value")
     config_unset_parser = config_subparsers.add_parser("unset", help="Remove a persisted setting")
-    config_unset_parser.add_argument(
-        "key", choices=_CONFIG_KEYS
-    )
+    config_unset_parser.add_argument("key", choices=_CONFIG_KEYS)
     config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
 
     completion_parser = subparsers.add_parser(
@@ -3202,7 +3196,14 @@ def main() -> int:
                     return 1
                 value = args.value
             elif args.key == "get.allowedSources":
-                if not parse_allowed_sources(args.value):
+                entries = parse_allowed_sources(args.value)
+                if "*" in entries:
+                    print(
+                        "ERROR Config key 'get.allowedSources' does not accept '*'; "
+                        "set CDS_GET_ALLOWED_SOURCES=* for a single run instead."
+                    )
+                    return 1
+                if not entries:
                     print(
                         "ERROR Config key 'get.allowedSources' must list at least one "
                         "comma-separated 'owner' or 'owner/repo'."

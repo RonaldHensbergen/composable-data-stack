@@ -57,8 +57,8 @@ saved allowlist. The check applies to the requested `owner/repo`, not to any rep
 redirects it to, and `--local` sources are not subject to it.
 The upstream default remote is only allowed if it is on the list. Pass
 `--commit <sha>` (12-40 hex characters; a full SHA is recommended) to pin a fetch: it fails closed, without
-writing anything, if `--ref` resolves to a different commit. `--commit` cannot
-be combined with `--local`.
+writing anything, if `--ref` resolves to a different commit, so to pin an older
+commit also pass it as `--ref <sha>`. `--commit` cannot be combined with `--local`.
 
 ## `cds list`
 

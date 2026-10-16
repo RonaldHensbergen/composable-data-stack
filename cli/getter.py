@@ -71,7 +71,8 @@ def _check_source_allowed(owner: str, repo: str, allowed_sources: Sequence[str] 
     """Fail closed when an allowlist is configured and the source is not on it.
 
     `None`/empty means no allowlist (unrestricted). An entry is either an
-    owner (trusts every repository of that owner) or an exact `owner/repo`; `*` explicitly allows any source.
+    owner (trusts every repository of that owner) or an exact `owner/repo`;
+    `*` explicitly allows any source.
     """
     if not allowed_sources:
         return

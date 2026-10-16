@@ -3609,6 +3609,12 @@ class ConfigCommandCLITest(unittest.TestCase):
         self.assertIn("get.allowedSources", output)
         self.assertFalse(self.config_path.exists())
 
+    def test_config_rejects_wildcard_get_allowed_sources(self):
+        result, output = self._run(["set", "get.allowedSources", "owner,*"])
+        self.assertEqual(result, 1)
+        self.assertIn("CDS_GET_ALLOWED_SOURCES", output)
+        self.assertFalse(self.config_path.exists())
+
     @patch("cli.main.run_security_validation", return_value=([], []))
     @patch("cli.main.validate_profile", return_value=[])
     def test_configured_security_strict_is_passed_to_security_checks(
