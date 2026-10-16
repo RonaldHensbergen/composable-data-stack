@@ -186,7 +186,9 @@ The format is based on Keep a Changelog.
   and the Dockerfiles install with `--require-hashes`, so unverified
   transitive packages fail the build (SonarCloud python:S8544). The Dagster
   image now installs a single self-contained lock per database backend, and
-  Renovate maintains the locks through its `pip-compile` manager. See
+  Renovate maintains the locks through its `pip-compile` manager. CI now
+  audits each lock with `pip-audit --require-hashes` (including transitive
+  dependencies) and fails when a lock is out of date with its `.in` file. See
   `docs/image-scanning.md` (#625).
 
 ## [0.11.0] - 2026-10-04

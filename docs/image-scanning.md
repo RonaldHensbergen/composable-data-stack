@@ -67,6 +67,13 @@ the Postgres storage packages (and the `sqlalchemy<2.1` cap); recompile both.
 Renovate maintains these through its `pip-compile` manager, which reads the
 `uv pip compile` header in each lock file.
 
+The locks are compiled on Linux for the images' `linux/amd64` platform; compile
+them on Linux (or in a Linux container) so platform-specific dependencies are
+resolved for the right target. CI runs `scripts/check_image_locks.py` to
+recompile every lock from its header and fails if `git diff` is non-empty, and
+`pip-audit --require-hashes` audits each lock, transitive dependencies
+included.
+
 ## Remediation SLA
 
 | Severity | Remediation target |
