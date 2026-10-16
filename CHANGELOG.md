@@ -8,6 +8,15 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added opt-in source trust for `cds get`: a trusted-source allowlist
+  (`cds config set get.allowedSources` or `CDS_GET_ALLOWED_SOURCES`,
+  also enforced for `cds list --remote`) and `cds get --commit <sha>`
+  pinning (12-40 hex characters) that fails closed on a mismatch, verifying
+  via the GitHub API when an archive lacks the full SHA.
+  `CDS_GET_ALLOWED_SOURCES=*` allows any source for a single run; the
+  variable is never read from `.env`. The
+  resolved commit SHA is now recorded in `.cds/get-manifest.json` (#849).
+
 - Added an opt-in CDS CLI update notice: `cds check-update` queries the
   public PyPI index on demand, and `CDS_CHECK_UPDATES=1` prints a
   non-failing stderr notice (24h cache) when a newer release exists.
