@@ -16,6 +16,9 @@ summarizes them for readers who aren't grepping the JSON directly.
 | `CDS-SEC-074` | Production profile exposes plaintext HTTP endpoint without TLS reverse-proxy | `_check_production_plaintext_exposure` |
 | `CDS-SEC-080` | Stateful module has no backup/restore target bound | `_check_backup_target_binding` |
 | `CDS-SEC-081` | Admin-facing service with no identity/auth module in profile | `_check_admin_service_identity_binding` |
+| `CDS-SEC-006` | Resolved secret present in rendered Compose output | `_check_rendered_secret_values` |
+| `CDS-SEC-030` | Generated file contains resolved secrets | `cli.secret_leak.check_generated_text` (called by `render_compose`/`render_helm`) |
+| `CDS-SEC-071` | CLI plan or validate output prints secrets | `cli.secret_leak.RedactingStream` (installed by `cli/main.py`) |
 
 This document only covers `CDS-SEC-080` and `CDS-SEC-081` (introduced by
 [#774](https://github.com/RonaldHensbergen/composable-data-stack/issues/774));
@@ -56,6 +59,27 @@ by [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370))
 to confirm the identity module actually fronts/protects that specific
 admin-facing service -- the rule only confirms that *some* identity/auth
 module is present somewhere in the profile.
+
+## CDS-SEC-006 / CDS-SEC-030 / CDS-SEC-071: resolved secrets in output
+
+CDS only ever renders `${CDS_*}` placeholders, so the literal value of a
+known secret appearing in output means it was pasted into profile/module
+config instead of referenced as `secrets.<alias>`. These three rules look
+for those literal values (declared under `spec.secrets.values`, or any
+secret-named `CDS_*` variable, of at least 8 characters) on three surfaces:
+
+- `CDS-SEC-006`: the rendered Compose model, reported as a finding by
+  `cds security`/`cds test`.
+- `CDS-SEC-030`: generated files. `cds render`/`cds up` refuse to write
+  `docker-compose.yml` or any Helm chart file containing a secret and fail
+  with error `E096`.
+- `CDS-SEC-071`: `cds plan`, `validate`, `test` and `security` output has
+  secret values replaced with `***REDACTED***`, followed by warning `W102`
+  on stderr. `--reveal-secrets` (where offered) disables this.
+
+**Known limitations:** shorter values and values CDS cannot see (not in
+`.env`/the environment) are not detected, and neither are transformed
+copies such as base64-encoded values.
 
 ## Reporting
 
