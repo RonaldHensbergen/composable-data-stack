@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 from dataclasses import dataclass
 from importlib.resources import files
 from importlib.resources.abc import Traversable
@@ -39,6 +40,15 @@ _ENV_SCOPES = {
     "service",
     "runtime",
 }
+
+# Rules in this scope are matched against the permission bits of secret-bearing
+# files on disk (currently the .env file), not their contents.
+_FILE_PERMISSION_SCOPES = {
+    "file-permissions",
+}
+
+_GROUP_ACCESS_BITS = stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP
+_OTHER_ACCESS_BITS = stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH
 
 # Rules in this scope are matched against the *rendered* Compose service
 # definitions (command/entrypoint/logging), not the profile or .env inputs.
@@ -201,6 +211,50 @@ def _flatten_env_inputs(
         scan_path = _normalize_scan_path(env_path)
         items.append(("<env>", scan_path, scan_path))
     return items
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def _flatten_file_permissions(env_file: str | None) -> list[tuple[str, str, Any]]:
+    """
+    Emit the POSIX permission bits of the secret-bearing .env file as a
+    synthetic item whose value is the octal mode string (e.g. "0644").
+
+    POSIX mode bits don't describe access on Windows, so nothing is emitted
+    there rather than reporting meaningless (and always-broad) modes. A file
+    that can't be stat'ed is skipped: the missing/unreadable case is already
+    reported by the env loader.
+    """
+    if _is_windows():
+        return []
+    env_path = Path(env_file) if env_file is not None else Path(".env")
+    try:
+        mode = stat.S_IMODE(env_path.stat().st_mode)
+    except OSError:
+        return []
+    return [("<env>", f"{_normalize_scan_path(env_path)}.permissions", f"{mode:04o}")]
+
+
+def _permission_mode(value: str) -> int | None:
+    try:
+        return int(value, 8)
+    except ValueError:
+        return None
+
+
+def _permissions_match(policy: str, value: str) -> bool:
+    mode = _permission_mode(value)
+    if mode is None:
+        return False
+    if policy == "world-readable":
+        return bool(mode & _OTHER_ACCESS_BITS)
+    if policy == "group-readable":
+        return bool(mode & _GROUP_ACCESS_BITS)
+    if policy == "owner-only":
+        return not mode & (_GROUP_ACCESS_BITS | _OTHER_ACCESS_BITS)
+    return False
 
 
 def _flatten_rendered_leak_surfaces(
@@ -377,6 +431,8 @@ def _eval_condition(
         return False
     if "minLength" in cond and len(sval) < cond["minLength"]:
         return False
+    if "permissions" in cond and not _permissions_match(cond["permissions"], sval):
+        return False
     if "serviceTypes" in cond and _service_type_for_path(path) not in cond["serviceTypes"]:
         return False
 
@@ -500,7 +556,8 @@ def _rule_matches(
                 "module": module_id,
                 "message": rule["message"],
                 "path": path,
-                "value": _redact(value) if redact_values else value,
+                # A file mode is not sensitive and is the whole point of the finding.
+                "value": _redact(value) if redact_values and not path.endswith(".permissions") else value,
                 "recommendation": rule["recommendation"],
             })
 
@@ -1107,6 +1164,7 @@ def run_security_validation(
 
     flat_profile = _flatten_profile_by_module(profile, profile_dir=profile_path.parent)
     flat_env = _flatten_env_inputs(secrets, env_file)
+    flat_permissions = _flatten_file_permissions(env_file)
 
     # Planning and rendering the profile is only useful when some enabled
     # rule actually declares the "rendered-compose" scope -- e.g. a custom
@@ -1152,6 +1210,12 @@ def run_security_validation(
         if rule_scopes & _ENV_SCOPES:
             findings.extend(_rule_matches(
                 rule, flat_env, profile_class,
+                redact_values=redact_values,
+            ))
+
+        if rule_scopes & _FILE_PERMISSION_SCOPES:
+            findings.extend(_rule_matches(
+                rule, flat_permissions, profile_class,
                 redact_values=redact_values,
             ))
 

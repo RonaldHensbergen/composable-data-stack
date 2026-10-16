@@ -189,7 +189,7 @@ more of the follow-up issues.
 | T14 | Sensitive host path mounted into a container (e.g. `/`, `/etc`, Docker socket) | A | `CDS-SEC-063` | Covered by rule for known patterns. |
 | T15 | Missing seccomp/AppArmor confinement, container escapes via kernel syscall abuse | A | None enforced today | **Medium-High** — no declarative confinement profile support. **Owning issue: #207.** |
 | T16 | Non-rootless Docker daemon socket exposed, any container-breakout yields host root | A | Documented nowhere yet | **High** for shared/multi-tenant hosts. **Owning issue: #211.** |
-| T17 | Host itself unpatched, exposed daemon API, weak file permissions on `.env`/config | A | `CDS-SEC-032` (secret file permissions) is defined but `scope: ["none"]`, so it is not evaluated | **Medium** — no host hardening baseline published, and the one host-adjacent rule isn't actually enforced yet. **Owning issue: #211.** |
+| T17 | Host itself unpatched, exposed daemon API, weak file permissions on `.env`/config | A | `CDS-SEC-032` flags a group- or world-accessible `.env` (POSIX only; skipped on Windows), and `cds init` writes `.env` as `0600` | **Medium** — no host hardening baseline published; only the `.env` file is checked, not other host config. **Owning issue: #211.** |
 | T18 | Development web server (e.g. Flask dev server, Django `runserver`) used as the production HTTP entrypoint — no worker model, verbose debug pages, poor concurrency/DoS resistance | A/B | None enforced | **Medium-High.** **Owning issue: #216.** |
 
 ### 5.4 Supply chain
