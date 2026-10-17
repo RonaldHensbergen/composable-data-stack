@@ -6,6 +6,14 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added a versioned Docker host and daemon hardening baseline
+  (`docs/docker-host-hardening.md`) separating CDS-enforced controls from
+  operator responsibilities, and advisory `host.*` checks in `cds preflight`
+  for rootless mode, user namespaces, seccomp, logging, live restore, and
+  daemon socket exposure (#211).
+
 ### Fixed
 
 - Fixed a flaky Superset init failure (duplicate-key error while creating the
