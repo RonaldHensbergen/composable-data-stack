@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
+import stat
 import socket
 import subprocess  # nosec B404
 from dataclasses import dataclass
@@ -88,15 +90,126 @@ def _check_runtime(runtime: dict[str, Any]) -> list[PreflightCheck]:
             "Docker Compose is unavailable. Install the Compose plugin.",
         )
     )
-    checks.append(
-        _run_runtime_command(
-            ["docker", "info"],
-            "runtime.daemon",
-            "Docker daemon is reachable.",
-            "Docker daemon is unreachable. Start Docker and verify access with `docker info`.",
-        )
-    )
+    daemon_check, docker_info = _check_daemon()
+    checks.append(daemon_check)
+    if docker_info is not None:
+        checks.extend(_check_host_hardening(docker_info))
     return checks
+
+
+def _check_daemon() -> tuple[PreflightCheck, dict[str, Any] | None]:
+    """Probe the daemon with one `docker info` call; also return its parsed JSON."""
+    try:
+        result = subprocess.run(  # nosec B603  # noqa: S603
+            ["docker", "info", "--format", "{{json .}}"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        result = None
+
+    if result is None or result.returncode != 0:
+        return (
+            PreflightCheck(
+                "FAIL",
+                "runtime.daemon",
+                "Docker daemon is unreachable. Start Docker and verify access with `docker info`.",
+            ),
+            None,
+        )
+
+    info: dict[str, Any] | None = None
+    try:
+        parsed = json.loads(result.stdout or "")
+    except (TypeError, ValueError):
+        parsed = None
+    if isinstance(parsed, dict):
+        info = parsed
+    return PreflightCheck("PASS", "runtime.daemon", "Docker daemon is reachable."), info
+
+
+def _check_host_hardening(info: dict[str, Any]) -> list[PreflightCheck]:
+    """
+    Inspect host/daemon settings from `docker info` without privileged access.
+
+    All findings are advisory (PASS/WARN): the host baseline in
+    docs/docker-host-hardening.md is an operator responsibility, so these
+    checks never fail preflight.
+    """
+    raw_options = info.get("SecurityOptions")
+    options = {str(o) for o in raw_options} if isinstance(raw_options, list) else set()
+    rootless = "name=rootless" in options
+    checks = [
+        _host_check(
+            rootless,
+            "host.rootless",
+            "Docker daemon runs in rootless mode.",
+            "Docker daemon runs as root. Prefer rootless mode (HOST-001).",
+        ),
+        _host_check(
+            rootless or "name=userns" in options,
+            "host.userns",
+            "User namespace isolation is active.",
+            "User namespace remapping is not enabled (HOST-002).",
+        ),
+        _host_check(
+            any(o.startswith("name=seccomp") for o in options)
+            and "name=seccomp,profile=unconfined" not in options,
+            "host.seccomp",
+            "Daemon default seccomp profile is active.",
+            "Daemon default seccomp profile is not active (HOST-003).",
+        ),
+        _host_check(
+            info.get("LoggingDriver") not in {None, "", "none"},
+            "host.logging",
+            f'Daemon logging driver is "{info.get("LoggingDriver")}". '
+            "Verify log rotation in daemon.json (HOST-004).",
+            "Daemon logging driver is disabled; container logs are not retained (HOST-004).",
+        ),
+        _host_check(
+            info.get("LiveRestoreEnabled") is True,
+            "host.live-restore",
+            "Live restore is enabled.",
+            "Live restore is not enabled; daemon restarts stop containers (HOST-005).",
+        ),
+    ]
+    checks.append(_check_socket_exposure())
+    return checks
+
+
+def _host_check(ok: bool, name: str, pass_message: str, warn_message: str) -> PreflightCheck:
+    return PreflightCheck("PASS" if ok else "WARN", name, pass_message if ok else warn_message)
+
+
+def _check_socket_exposure() -> PreflightCheck:
+    docker_host = os.environ.get("DOCKER_HOST", "").strip()
+    if docker_host.lower().startswith(("tcp://", "http://")):
+        if os.environ.get("DOCKER_TLS_VERIFY", "").strip():
+            return PreflightCheck(
+                "PASS", "host.socket", "Daemon is reached over TCP with TLS verification."
+            )
+        return PreflightCheck(
+            "WARN",
+            "host.socket",
+            "DOCKER_HOST uses TCP without DOCKER_TLS_VERIFY; "
+            "an unauthenticated daemon socket grants root on the host (HOST-006).",
+        )
+
+    socket_path = Path(docker_host.removeprefix("unix://") or "/var/run/docker.sock")
+    try:
+        mode = socket_path.stat().st_mode
+    except OSError:
+        return PreflightCheck(
+            "PASS", "host.socket", "Daemon socket permissions were not inspectable."
+        )
+    if mode & stat.S_IWOTH:
+        return PreflightCheck(
+            "WARN",
+            "host.socket",
+            f"Daemon socket {socket_path} is world-writable (HOST-006).",
+        )
+    return PreflightCheck("PASS", "host.socket", "Daemon socket is not world-writable.")
 
 
 def _run_runtime_command(

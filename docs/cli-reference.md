@@ -10,7 +10,7 @@ common ones (`validate`, `plan`, `render`, `up`), see the
 |cds list profiles\|modules\|images [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>]|List available profiles, module sources, or module images and check for newer versions; add `--remote`/`--local` to inspect another repository before fetching from it|
 |cds init [profile]|Generate a project `.env` template from profile secret definitions|
 |cds validate [profile]|Validate modules and contracts; use `--target helm` for Kubernetes checks|
-|cds preflight [profile]|Check runtime tools, required environment values, and host ports without starting services|
+|cds preflight [profile]|Check runtime tools, required environment values, host ports, and advisory Docker host hardening ([baseline](docker-host-hardening.md)) without starting services|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
 |cds render [profile]|Generate Docker Compose or a Helm chart from a resolved plan|
 |cds up [profile]|Validate, plan, render, and start the Compose or Helm target; use `--target helm` for Kubernetes|
