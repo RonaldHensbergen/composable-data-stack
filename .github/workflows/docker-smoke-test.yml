@@ -59,6 +59,15 @@ jobs:
         run: |
           python -m unittest tests.test_compose_runtime_smoke -v
 
+      - name: Upload smoke test container logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: smoke-test-container-logs
+          path: smoke-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Run Vault init-db runtime proof (render -> up postgres -> psql checks -> down)
         env:
           CDS_RUN_DOCKER_SMOKE: "1"

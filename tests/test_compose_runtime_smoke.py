@@ -141,6 +141,9 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
             self.assertNotEqual(second_run_id, first_run_id)
             self.assertEqual(self._offers_snapshot(env), first_snapshot)
             self._verify_postgres_outage_recovery(env, first_snapshot)
+        except BaseException:
+            self._dump_stack_diagnostics(env)
+            raise
         finally:
             if os.getenv("CDS_KEEP_DOCKER_STACK") != "1":
                 subprocess.run(
@@ -225,6 +228,38 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
                 stderr=self._redact(last_result.stderr, env),
             )
         )
+
+    def _dump_stack_diagnostics(self, env: dict[str, str]) -> None:
+        """Print and save container state and logs so CI failures are debuggable.
+
+        Best effort: never raises, so it cannot mask the original failure.
+        """
+        sections = []
+        for title, args in (
+            ("docker compose ps -a", ["ps", "-a"]),
+            ("docker compose logs", ["logs", "--no-color", "--tail", "300"]),
+        ):
+            try:
+                result = subprocess.run(
+                    ["docker", "compose", "-f", str(self.compose_file), *args],
+                    cwd=self.repo_root,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                output = result.stdout + result.stderr
+            except (OSError, subprocess.SubprocessError) as exc:
+                output = f"could not collect: {exc}"
+            sections.append(f"===== {title} =====\n{self._redact(output, env)}")
+        report = "\n".join(sections)
+        print(report, file=sys.stderr)
+        try:
+            log_dir = self.repo_root / "smoke-logs"
+            log_dir.mkdir(exist_ok=True)
+            (log_dir / "compose.log").write_text(report, encoding="utf-8")
+        except OSError:
+            pass
 
     @staticmethod
     def _redact(value: str, env: dict[str, str]) -> str:

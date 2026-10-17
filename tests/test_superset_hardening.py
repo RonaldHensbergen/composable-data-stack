@@ -157,6 +157,8 @@ class SupersetHardeningTest(unittest.TestCase):
         self.assertNotIn("entrypoint", web_service)
         self.assertIn("superset db upgrade", init_script)
         self.assertIn("superset init", init_script)
+        self.assertIn("retry superset db upgrade", init_script)
+        self.assertIn("retry superset init", init_script)
         self.assertNotIn("superset db upgrade", web_script)
         self.assertNotIn("superset init", web_script)
 
