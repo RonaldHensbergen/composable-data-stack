@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
 import json
+import os
 import re
 import shutil
-import stat
 import socket
+import stat
 import subprocess  # nosec B404
 from dataclasses import dataclass
 from pathlib import Path
