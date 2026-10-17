@@ -532,6 +532,7 @@ class HostHardeningTest(unittest.TestCase):
             check = _check_socket_exposure()
         self.assertEqual(check.status, "WARN")
 
+    @unittest.skipIf(os.name == "nt", "POSIX file modes are not enforced on Windows")
     def test_world_writable_socket_warns(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             sock = Path(tmpdir) / "docker.sock"

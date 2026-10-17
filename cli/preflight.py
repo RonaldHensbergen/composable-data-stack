@@ -99,9 +99,10 @@ def _check_runtime(runtime: dict[str, Any]) -> list[PreflightCheck]:
 
 def _check_daemon() -> tuple[PreflightCheck, dict[str, Any] | None]:
     """Probe the daemon with one `docker info` call; also return its parsed JSON."""
+    command = ["docker", "info", "--format", "{{json .}}"]
     try:
         result = subprocess.run(  # nosec B603  # noqa: S603
-            ["docker", "info", "--format", "{{json .}}"],
+            command,
             capture_output=True,
             text=True,
             timeout=15,
