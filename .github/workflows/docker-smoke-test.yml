@@ -66,6 +66,7 @@ jobs:
           name: smoke-test-container-logs
           path: smoke-logs/
           if-no-files-found: ignore
+          retention-days: 7
 
       - name: Run Vault init-db runtime proof (render -> up postgres -> psql checks -> down)
         env:
