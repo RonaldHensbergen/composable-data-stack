@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import logging
 import os
@@ -48,6 +50,11 @@ from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
 from .renderer import render_compose
 from .report import build_compliance_report
+from .secret_leak import (
+    CLI_OUTPUT_REDACTED_CODE,
+    RedactingStream,
+    resolved_secret_values,
+)
 from .security import PrecomputedRender, run_security_validation
 from .security_common import (
     COMPLIANCE_CATEGORIES,
@@ -1320,7 +1327,7 @@ def _run_image_verification(
         return [_unverifiable_image_finding(f"Image verification failed unexpectedly: {e}")]
 
 
-def _render_helm_chart(plan, output_dir, force):
+def _render_helm_chart(plan, output_dir, force, env_file=None):
     """
     Render the Helm chart for a plan and report where it landed.
 
@@ -1341,7 +1348,7 @@ def _render_helm_chart(plan, output_dir, force):
                 "like a CDS-generated chart. Pass --force to overwrite it."
             )
             return 1, []
-    files, diags = render_helm(plan, output_dir=str(target_dir))
+    files, diags = render_helm(plan, output_dir=str(target_dir), env_file=env_file)
     return 0, diags
 
 
@@ -1366,10 +1373,74 @@ def _maybe_notify_update() -> None:
         _LOGGER.debug("Automatic update notice failed", exc_info=True)
 
 
+_REDACTED_OUTPUT_COMMANDS = frozenset({"validate", "plan", "test", "security"})
+_output_redaction: tuple[Any, Any, set[str]] | None = None
+
+
+def _install_output_redaction(args: argparse.Namespace) -> None:
+    """CDS-SEC-071: redact resolved secret values from this command's stdout/stderr.
+
+    Runs for commands that print plans, diagnostics or findings, unless the
+    user explicitly asked for unredacted output with --reveal-secrets.
+    Failing to work out the secret set must not leave output unprotected, so
+    it falls back to the secret-named CDS_* variables alone.
+    """
+    global _output_redaction
+    if args.command not in _REDACTED_OUTPUT_COMMANDS or getattr(args, "reveal_secrets", False):
+        return
+    declared: set[str] = set()
+    env_file = None
+    try:
+        # The command resolves the profile itself and prints any warning;
+        # don't print it a second time from this pre-pass.
+        with contextlib.redirect_stdout(io.StringIO()):
+            profile_path = resolve_profile_path(args.profile)
+            env_file = str(resolve_env_file_path(profile_path))
+            declared = _collect_profile_env_vars(profile_path, getattr(args, "environment", None))[1]
+    except Exception:  # noqa: BLE001 - redaction must never break the command itself
+        _LOGGER.debug("Could not collect declared secrets for output redaction", exc_info=True)
+    secret_values = resolved_secret_values(declared, env_file)
+    if not secret_values:
+        return
+    hits: set[str] = set()
+    _output_redaction = (sys.stdout, sys.stderr, hits)
+    sys.stdout = RedactingStream(sys.stdout, secret_values, hits)
+    sys.stderr = RedactingStream(sys.stderr, secret_values, hits)
+
+
+def _finish_output_redaction() -> None:
+    global _output_redaction
+    if _output_redaction is None:
+        return
+    original_stdout, original_stderr, hits = _output_redaction
+    _output_redaction = None
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, RedactingStream):
+            stream.finish()
+        else:
+            stream.flush()
+    sys.stdout, sys.stderr = original_stdout, original_stderr
+    if hits:
+        print(
+            Diagnostic(
+                level="warning",
+                code=CLI_OUTPUT_REDACTED_CODE,
+                message=(
+                    "[CDS-SEC-071] Output contained the resolved value of "
+                    f"{', '.join(sorted(hits))}; it was redacted. Find where the literal "
+                    "value is being copied into config and use a secrets.<alias> reference instead."
+                ),
+                path="cli-output",
+            ).format(),
+            file=sys.stderr,
+        )
+
+
 def main() -> int:
     try:
         return _run()
     finally:
+        _finish_output_redaction()
         _maybe_notify_update()
 
 
@@ -1897,6 +1968,8 @@ def _run() -> int:
     if args.command in {"validate", "render", "up", "down", "test", "state", "security"}:
         args.target = getattr(args, "target", None) or load_saved_target() or "compose"
     
+    _install_output_redaction(args)
+
     if args.command == "validate":
         try:
             profile_path = resolve_profile_path(args.profile)
@@ -2158,7 +2231,7 @@ def _run() -> int:
 
             env_file = str(resolve_env_file_path(str(source_profile)))
             if args.target == "helm":
-                code, render_diags = _render_helm_chart(plan, output_path, args.force)
+                code, render_diags = _render_helm_chart(plan, output_path, args.force, env_file=env_file)
                 all_diags = render_diags
                 if code != 0:
                     _record_audit("render", str(source_profile), "failure", plan=plan)
@@ -2222,7 +2295,7 @@ def _run() -> int:
                 )
 
             if args.target == "helm":
-                code, render_diags = _render_helm_chart(plan, output_path, args.force)
+                code, render_diags = _render_helm_chart(plan, output_path, args.force, env_file=env_file)
                 all_diags = all_diags + render_diags
                 if code != 0:
                     _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
@@ -2302,7 +2375,7 @@ def _run() -> int:
         if args.target == "helm":
             project_root = resolve_project_root(profile_path)
             chart_dir = (Path(args.chart_dir) if args.chart_dir else project_root / "chart").resolve()
-            code, render_diags = _render_helm_chart(plan, chart_dir, force=True)
+            code, render_diags = _render_helm_chart(plan, chart_dir, force=True, env_file=env_file)
             all_diags.extend(render_diags)
             if code != 0 or has_errors(all_diags):
                 print_diagnostics(all_diags)

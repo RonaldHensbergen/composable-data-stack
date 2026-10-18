@@ -38,6 +38,11 @@ from .renderer import (
     _resolve_project_root,
     _substitute_values,
 )
+from .secret_leak import (
+    check_generated_text,
+    declared_secret_env_names,
+    resolved_secret_values,
+)
 from .utils import _atomic_write
 
 CHART_API_VERSION = "v2"
@@ -73,12 +78,14 @@ class K8sRenderError(Exception):
 def render_helm(
     plan: dict[str, Any],
     output_dir: str | None = None,
+    env_file: str | None = None,
 ) -> tuple[dict[str, str], list[Diagnostic]]:
     """
     Render a Helm chart from a resolved plan.
 
     Returns a mapping of chart-relative path -> file contents, plus diagnostics.
-    Files are written to `output_dir` when given.
+    Files are written to `output_dir` when given, unless an error was found
+    (including a resolved secret value in any chart file, CDS-SEC-030).
     """
     diagnostics: list[Diagnostic] = []
     metadata = plan.get("metadata", {})
@@ -183,6 +190,11 @@ def render_helm(
 
     diagnostics.extend(_check_unresolved(files))
     diagnostics.extend(_check_secret_references(files, secret_keys))
+    secret_values = resolved_secret_values(declared_secret_env_names(plan), env_file)
+    for relative_path, content in files.items():
+        diagnostics.extend(check_generated_text(
+            content, f"{output_dir or 'chart'}/{relative_path}", secret_values
+        ))
 
     if output_dir and not any(
         diagnostic.level == "error" for diagnostic in diagnostics
