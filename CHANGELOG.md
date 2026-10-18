@@ -13,6 +13,11 @@ The format is based on Keep a Changelog.
   override) select seccomp, AppArmor and SELinux settings that `cds render`
   writes into each service's `security_opt`; invalid or unsupported values
   fail validation with error `E127` (#207).
+- Added code-enforced rules CDS-SEC-090 (production runtime policy:
+  capabilities, privilege escalation, non-root user and read-only root
+  filesystem evaluated together, with a reasoned
+  `spec.security.waivers.runtimePolicy` waiver) and CDS-SEC-091 (disabled
+  seccomp/AppArmor/SELinux confinement) for production profiles (#207).
 
 ### Fixed
 
