@@ -6,6 +6,14 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added declarative runtime confinement: `spec.security.runtime.confinement`
+  (profile default) and `modules[].security.confinement` (per-module
+  override) select seccomp, AppArmor and SELinux settings that `cds render`
+  writes into each service's `security_opt`; invalid or unsupported values
+  fail validation with error `E127` (#207).
+
 ### Fixed
 
 - Fixed a flaky Superset init failure (duplicate-key error while creating the

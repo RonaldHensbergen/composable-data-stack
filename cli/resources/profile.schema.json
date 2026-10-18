@@ -159,6 +159,15 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "runtime": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "confinement": {
+                  "$ref": "#/$defs/runtimeConfinement"
+                }
+              }
+            },
             "waivers": {
               "type": "object",
               "additionalProperties": false,
@@ -204,6 +213,37 @@
         },
         "config": {
           "type": "object"
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confinement": {
+              "$ref": "#/$defs/runtimeConfinement"
+            }
+          }
+        }
+      }
+    },
+    "runtimeConfinement": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Declarative runtime confinement rendered into each service's security_opt. See docs/runtime-confinement.md.",
+      "properties": {
+        "seccomp": {
+          "type": "string",
+          "description": "'default', 'unconfined' or 'file:<JSON profile relative to the profile directory>'."
+        },
+        "apparmor": {
+          "type": "string",
+          "description": "'runtime/default', 'unconfined' or the name of a host-loaded AppArmor profile."
+        },
+        "selinux": {
+          "description": "'disable' or a list of labels such as 'type:container_t'.",
+          "oneOf": [
+            {"const": "disable"},
+            {"type": "array", "minItems": 1, "items": {"type": "string"}}
+          ]
         }
       }
     },

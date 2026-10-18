@@ -8,6 +8,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from .confinement import validate_confinement
 from .diagnostics import Diagnostic
 from .graph import validate_dependency_graph
 from .image_digest_check import check_digest_staleness, collect_pinned_images_for_module
@@ -66,7 +67,26 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_image_source_config(module_instances))
     diagnostics.extend(validate_outputs(profile, module_instances))
     diagnostics.extend(validate_observability_config(profile, module_instances))
+    diagnostics.extend(validate_confinement_config(profile, profile_file))
 
+    return diagnostics
+
+
+def validate_confinement_config(profile: dict[str, Any], profile_file: Path) -> list[Diagnostic]:
+    """Validate spec.security.runtime.confinement and per-module security.confinement."""
+    spec = profile.get("spec", {})
+    base_dir = profile_file.parent
+    runtime = (spec.get("security") or {}).get("runtime") or {}
+    diagnostics = validate_confinement(
+        runtime.get("confinement"), "spec.security.runtime.confinement", base_dir
+    )
+    for index, instance in enumerate(spec.get("modules") or []):
+        if not isinstance(instance, dict):
+            continue
+        confinement = (instance.get("security") or {}).get("confinement")
+        diagnostics.extend(validate_confinement(
+            confinement, f"spec.modules[{index}].security.confinement", base_dir
+        ))
     return diagnostics
 
 

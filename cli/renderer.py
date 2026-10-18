@@ -13,6 +13,7 @@ from typing import Any
 
 import yaml
 
+from .confinement import apply_confinement, effective_confinement, profile_confinement
 from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
@@ -130,6 +131,13 @@ def render_compose(
                 path=f'module:{module.get("id")}.implementation.compose',
             ))
             continue
+
+        module_confinement = effective_confinement(
+            profile_confinement(plan),
+            (module.get("security") or {}).get("confinement"),
+        )
+        for service_def in rendered_services.values():
+            apply_confinement(service_def, module_confinement, compose_dir, profile_dir)
 
         # Handle initDbEnv for postgres service (merge additional env vars)
         _merge_init_db_env(rendered_services, module, secrets)
