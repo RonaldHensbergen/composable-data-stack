@@ -12,10 +12,11 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY images/dagster/requirements*.txt ./
-RUN python -m pip install --no-cache-dir -r requirements.txt && \
-    case "$DB_BACKEND" in \
-      postgres) python -m pip install --no-cache-dir -r requirements-postgres.txt ;; \
-      sqlite|mysql) ;; \
+# requirements-postgres.txt is a self-contained, hash-locked superset of
+# requirements.txt (it carries the sqlalchemy<2.1 cap), so install exactly one.
+RUN case "$DB_BACKEND" in \
+      postgres) python -m pip install --no-cache-dir --require-hashes -r requirements-postgres.txt ;; \
+      sqlite|mysql) python -m pip install --no-cache-dir --require-hashes -r requirements.txt ;; \
       *) echo "Unsupported Dagster database backend: $DB_BACKEND" >&2; exit 1 ;; \
     esac && \
     python -m pip uninstall --yes pip

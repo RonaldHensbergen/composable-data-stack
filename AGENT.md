@@ -145,3 +145,26 @@ repository, in addition to `CONTRIBUTING.md`.
   runtime smoke behavior.
 - Keep LF endings for source, YAML, and documentation; PowerShell/batch
   files are the intentional CRLF exceptions defined by `.gitattributes`.
+
+## Maintainer Preferences And Memories
+
+- Follow Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`) for
+  commits and PR merge commit subjects; the Version Bump workflow
+  (`git-auto-semver`) only reads first-parent subjects, so plain
+  "Merge pull request" subjects cause missed minor/major bumps.
+- Release flow: the Version Bump workflow opens a bump PR (and dates the
+  changelog); after it merges, a maintainer pushes the `vX.Y.Z` tag, which
+  triggers `release.yml` and `pypi.yml`.
+- Do not update `docs/plan/milestone-issue-sequencing.md`; sequencing is
+  tracked in the GitHub Project.
+- The generated root `docker-compose.yml` is always gitignored.
+- Use the new GitHub Projects (`gh project`), never classic Projects APIs.
+- PRs do not get labels; issues do.
+- Prefer improving security over taking a shortcut when the two conflict.
+- Self-review changes before creating a pull request.
+- In PR reviews, use inline (line-level) comments whenever possible.
+- "Can this PR be merged?" asks for a quality check (tests, lint, CI,
+  review substance), not GitHub's mergeable status.
+- Break complex tasks into smaller, self-contained subtasks.
+- After finishing work, list the follow-up steps the maintainer must take
+  (manual actions, merges, tags, checks).
