@@ -47,7 +47,7 @@ class PreflightTest(unittest.TestCase):
 
         self.assertTrue(preflight_passed(checks))
         self.assertNotIn("top-secret", " ".join(check.message for check in checks))
-        self.assertEqual(mock_run.call_count, 2)
+        self.assertEqual(mock_run.call_count, 3)
 
     @patch("cli.preflight.shutil.which", return_value=None)
     def test_fails_when_runtime_cli_is_missing(self, _mock_which) -> None:

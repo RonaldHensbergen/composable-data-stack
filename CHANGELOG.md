@@ -6,6 +6,13 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added a `runtime.rootless` check to `cds preflight` that reports whether
+  the Docker daemon is rootless (warning on production-class profiles when
+  it is not), and documented rootless Docker compatibility expectations in
+  `docs/rootless-docker.md` (#207).
+
 ### Fixed
 
 - Fixed a flaky Superset init failure (duplicate-key error while creating the

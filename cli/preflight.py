@@ -45,7 +45,7 @@ def run_preflight(
     strict: bool = False,
 ) -> list[PreflightCheck]:
     checks: list[PreflightCheck] = []
-    checks.extend(_check_runtime(plan.get("runtime", {})))
+    checks.extend(_check_runtime(plan.get("runtime", {}), plan))
     checks.extend(_check_environment(compose_yaml, env_file))
     checks.extend(_check_ports(compose_yaml))
     checks.extend(_check_images(plan, compose_yaml, strict=strict))
@@ -56,7 +56,7 @@ def preflight_passed(checks: list[PreflightCheck]) -> bool:
     return not any(check.status == "FAIL" for check in checks)
 
 
-def _check_runtime(runtime: dict[str, Any]) -> list[PreflightCheck]:
+def _check_runtime(runtime: dict[str, Any], plan: dict[str, Any] | None = None) -> list[PreflightCheck]:
     runtime_type = runtime.get("type")
     if runtime_type != "docker-compose":
         return [
@@ -96,7 +96,37 @@ def _check_runtime(runtime: dict[str, Any]) -> list[PreflightCheck]:
             "Docker daemon is unreachable. Start Docker and verify access with `docker info`.",
         )
     )
+    if checks[-1].status == "PASS":
+        checks.append(_check_rootless(plan or {}))
     return checks
+
+
+def _check_rootless(plan: dict[str, Any]) -> PreflightCheck:
+    """Report whether the Docker daemon runs rootless (docs/rootless-docker.md)."""
+    name = "runtime.rootless"
+    try:
+        result = subprocess.run(  # nosec B603  # noqa: S603
+            ["docker", "info", "--format", "{{json .SecurityOptions}}"],  # nosec B607  # noqa: S607
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        result = None
+    if result is None or result.returncode != 0:
+        return PreflightCheck("WARN", name, "Could not determine whether the Docker daemon is rootless.")
+    if "name=rootless" in (result.stdout or ""):
+        return PreflightCheck("PASS", name, "Docker daemon runs in rootless mode.")
+    if infer_profile_class(plan) == "prod":
+        return PreflightCheck(
+            "WARN",
+            name,
+            "Docker daemon is not rootless: a container breakout yields host root. "
+            "Use rootless Docker for production hosts (see docs/rootless-docker.md).",
+        )
+    return PreflightCheck(
+        "PASS", name, "Docker daemon is not rootless (recommended for production hosts)."
+    )
 
 
 def _run_runtime_command(
