@@ -12,6 +12,35 @@ The format is based on Keep a Changelog.
   file readable or writable by group or others (new `file-permissions`
   rule scope and `permissions` condition; skipped on Windows), and
   `cds init` explicitly creates `.env` as owner-only (`0600`) (#357).
+
+### Fixed
+
+- Fixed a flaky Superset init failure (duplicate-key error while creating the
+  metadata tables) when the web process starts concurrently, by retrying the
+  idempotent init steps a bounded number of times, and added container-log
+  capture to the Docker runtime smoke test on failure (#890).
+
+## [0.12.0] - 2026-10-16
+
+### Added
+
+- Added code-enforced, literal-value secret scanning for the formerly
+  deferred rules CDS-SEC-006 (rendered Compose model), CDS-SEC-030
+  (generated files) and CDS-SEC-071 (CLI output): `cds render`/`cds up`
+  now refuse to write `docker-compose.yml` or Helm chart files containing
+  a resolved secret (error `E096`), `cds plan`/`validate`/`test`/`security`
+  redact such values from output with a `W102` warning, and `cds security`
+  reports CDS-SEC-006 findings. CDS-SEC-006 now covers only rendered
+  Compose output; its file and CLI halves moved to CDS-SEC-030/071 (#356).
+- Added opt-in source trust for `cds get`: a trusted-source allowlist
+  (`cds config set get.allowedSources` or `CDS_GET_ALLOWED_SOURCES`,
+  also enforced for `cds list --remote`) and `cds get --commit <sha>`
+  pinning (12-40 hex characters) that fails closed on a mismatch, verifying
+  via the GitHub API when an archive lacks the full SHA.
+  `CDS_GET_ALLOWED_SOURCES=*` allows any source for a single run; the
+  variable is never read from `.env`. The
+  resolved commit SHA is now recorded in `.cds/get-manifest.json` (#849).
+
 - Added an opt-in CDS CLI update notice: `cds check-update` queries the
   public PyPI index on demand, and `CDS_CHECK_UPDATES=1` prints a
   non-failing stderr notice (24h cache) when a newer release exists.
@@ -172,6 +201,22 @@ The format is based on Keep a Changelog.
   confined the derived default output path under `modules/`, so invalid
   names fail fast and traversal values can no longer escape the modules
   tree, without changing explicit `--output` handling (#685).
+
+### Changed
+
+- Hash-locked the Python dependencies of the `dlt`, `dagster`, `dbt`, and
+  `superset` images: each `requirements*.in` lists the direct dependencies,
+  `requirements*.txt` is compiled with `uv pip compile --generate-hashes`,
+  and the Dockerfiles install with `--require-hashes`, so unverified
+  transitive packages fail the build (SonarCloud python:S8544). The Dagster
+  image now installs a single self-contained lock per database backend, and
+  Renovate maintains the locks through its `pip-compile` manager. CI now
+  audits each lock with `pip-audit --require-hashes` (including transitive
+  dependencies) and fails when a lock is out of date with its `.in` file.
+  Superset's `uv` is installed from a hash lock, and the dbt image builds its
+  sdist-only dependency with hashed build requirements and
+  `--no-build-isolation`. See
+  `docs/image-scanning.md` (#625).
 
 ## [0.11.0] - 2026-10-04
 

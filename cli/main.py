@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import logging
 import os
@@ -24,7 +26,13 @@ import yaml
 from . import audit_log, update_check
 from .composer import compose_profile
 from .diagnostics import Diagnostic
-from .getter import GetError, _prepare_source_repository, fetch_profile, format_get_plan
+from .getter import (
+    GetError,
+    _prepare_source_repository,
+    fetch_profile,
+    format_get_plan,
+    parse_allowed_sources,
+)
 from .image_digest_check import is_enabled as image_digest_check_enabled
 from .image_updates import check_image_update, collect_module_images
 from .image_verification import (
@@ -42,6 +50,11 @@ from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
 from .renderer import render_compose
 from .report import build_compliance_report
+from .secret_leak import (
+    CLI_OUTPUT_REDACTED_CODE,
+    RedactingStream,
+    resolved_secret_values,
+)
 from .security import PrecomputedRender, run_security_validation
 from .security_common import (
     COMPLIANCE_CATEGORIES,
@@ -66,6 +79,8 @@ from .validator import (
     validate_pinned_image_digests,
     validate_profile,
 )
+
+_ENV_FILE_DENYLIST = frozenset({"CDS_GET_ALLOWED_SOURCES"})
 
 
 def load_env_file(env_file: str = ".env") -> None:
@@ -100,6 +115,10 @@ def load_env_file(env_file: str = ".env") -> None:
                 value = value[1:-1]
             # Only accept CDS_* keys - arbitrary .env keys are ignored
             if not key.startswith("CDS_"):
+                continue
+            # Trust settings must come from the real environment or saved
+            # config, never from a .env that may belong to an untrusted checkout
+            if key in _ENV_FILE_DENYLIST:
                 continue
             # Only set if not already in environment
             if key and not os.environ.get(key):
@@ -420,6 +439,33 @@ def load_saved_audit_disabled() -> bool:
     return _config_value("audit.enabled") is False
 
 
+_CONFIG_KEYS = [
+    "profile",
+    "environment",
+    "security.strict",
+    "image.source",
+    "target",
+    "audit.enabled",
+    "get.allowedSources",
+]
+
+
+def load_allowed_get_sources() -> list[str]:
+    """Return the trusted `cds get`/`cds list --remote` sources (#849).
+
+    `CDS_GET_ALLOWED_SOURCES` wins over the project's `get.allowedSources`
+    setting; both are comma-separated `owner` or `owner/repo` entries. An empty
+    result means no allowlist is enforced. A blank environment value is
+    ignored, but `CDS_GET_ALLOWED_SOURCES=*` explicitly allows any source for
+    a single run, overriding a saved allowlist.
+    """
+    env_sources = parse_allowed_sources(os.environ.get("CDS_GET_ALLOWED_SOURCES"))
+    if env_sources:
+        return env_sources
+    saved = _config_value("get.allowedSources")
+    return parse_allowed_sources(saved if isinstance(saved, str) else None)
+
+
 def load_saved_profile() -> str | None:
     """Return the profile name saved via `cds use`, if any."""
     profile = _read_config().get("profile")
@@ -473,6 +519,11 @@ def set_config_value(key: str, value: str) -> Path:
         if not isinstance(audit, dict):
             raise ConfigIOError("Config key 'audit' must be a mapping.")
         audit["enabled"] = value == "true"
+    elif key == "get.allowedSources":
+        get_settings = data.setdefault("get", {})
+        if not isinstance(get_settings, dict):
+            raise ConfigIOError("Config key 'get' must be a mapping.")
+        get_settings["allowedSources"] = value
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     return _write_config(data)
@@ -510,6 +561,13 @@ def unset_config_value(key: str) -> bool:
         del audit["enabled"]
         if not audit:
             del data["audit"]
+    elif key == "get.allowedSources":
+        get_settings = data.get("get")
+        if not isinstance(get_settings, dict) or "allowedSources" not in get_settings:
+            return False
+        del get_settings["allowedSources"]
+        if not get_settings:
+            del data["get"]
     else:
         raise ValueError(f"Unknown config key '{key}'.")
     _write_config(data)
@@ -768,7 +826,9 @@ def _resolve_list_source_roots(remote: str | None, ref: str, local: str | None):
     if remote is None and local is None:
         yield get_profiles_root(), get_modules_root()
         return
-    with _prepare_source_repository(remote, ref, local) as source_repo:
+    with _prepare_source_repository(
+        remote, ref, local, allowed_sources=load_allowed_get_sources()
+    ) as source_repo:
         yield source_repo / "profiles", source_repo / "modules"
 
 
@@ -1271,7 +1331,7 @@ def _run_image_verification(
         return [_unverifiable_image_finding(f"Image verification failed unexpectedly: {e}")]
 
 
-def _render_helm_chart(plan, output_dir, force):
+def _render_helm_chart(plan, output_dir, force, env_file=None):
     """
     Render the Helm chart for a plan and report where it landed.
 
@@ -1292,7 +1352,7 @@ def _render_helm_chart(plan, output_dir, force):
                 "like a CDS-generated chart. Pass --force to overwrite it."
             )
             return 1, []
-    files, diags = render_helm(plan, output_dir=str(target_dir))
+    files, diags = render_helm(plan, output_dir=str(target_dir), env_file=env_file)
     return 0, diags
 
 
@@ -1317,10 +1377,74 @@ def _maybe_notify_update() -> None:
         _LOGGER.debug("Automatic update notice failed", exc_info=True)
 
 
+_REDACTED_OUTPUT_COMMANDS = frozenset({"validate", "plan", "test", "security"})
+_output_redaction: tuple[Any, Any, set[str]] | None = None
+
+
+def _install_output_redaction(args: argparse.Namespace) -> None:
+    """CDS-SEC-071: redact resolved secret values from this command's stdout/stderr.
+
+    Runs for commands that print plans, diagnostics or findings, unless the
+    user explicitly asked for unredacted output with --reveal-secrets.
+    Failing to work out the secret set must not leave output unprotected, so
+    it falls back to the secret-named CDS_* variables alone.
+    """
+    global _output_redaction
+    if args.command not in _REDACTED_OUTPUT_COMMANDS or getattr(args, "reveal_secrets", False):
+        return
+    declared: set[str] = set()
+    env_file = None
+    try:
+        # The command resolves the profile itself and prints any warning;
+        # don't print it a second time from this pre-pass.
+        with contextlib.redirect_stdout(io.StringIO()):
+            profile_path = resolve_profile_path(args.profile)
+            env_file = str(resolve_env_file_path(profile_path))
+            declared = _collect_profile_env_vars(profile_path, getattr(args, "environment", None))[1]
+    except Exception:  # noqa: BLE001 - redaction must never break the command itself
+        _LOGGER.debug("Could not collect declared secrets for output redaction", exc_info=True)
+    secret_values = resolved_secret_values(declared, env_file)
+    if not secret_values:
+        return
+    hits: set[str] = set()
+    _output_redaction = (sys.stdout, sys.stderr, hits)
+    sys.stdout = RedactingStream(sys.stdout, secret_values, hits)
+    sys.stderr = RedactingStream(sys.stderr, secret_values, hits)
+
+
+def _finish_output_redaction() -> None:
+    global _output_redaction
+    if _output_redaction is None:
+        return
+    original_stdout, original_stderr, hits = _output_redaction
+    _output_redaction = None
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, RedactingStream):
+            stream.finish()
+        else:
+            stream.flush()
+    sys.stdout, sys.stderr = original_stdout, original_stderr
+    if hits:
+        print(
+            Diagnostic(
+                level="warning",
+                code=CLI_OUTPUT_REDACTED_CODE,
+                message=(
+                    "[CDS-SEC-071] Output contained the resolved value of "
+                    f"{', '.join(sorted(hits))}; it was redacted. Find where the literal "
+                    "value is being copied into config and use a secrets.<alias> reference instead."
+                ),
+                path="cli-output",
+            ).format(),
+            file=sys.stderr,
+        )
+
+
 def main() -> int:
     try:
         return _run()
     finally:
+        _finish_output_redaction()
         _maybe_notify_update()
 
 
@@ -1676,6 +1800,13 @@ def _run() -> int:
         help="Branch, tag, or commit to fetch from --remote (default: main)",
     )
     get_parser.add_argument(
+        "--commit",
+        help=(
+            "Pin the fetch to this commit SHA (12-40 hex characters); fails if "
+            "--ref resolves to a different commit"
+        ),
+    )
+    get_parser.add_argument(
         "--local",
         help=(
             "Use an existing local directory as the source repository instead of "
@@ -1803,18 +1934,12 @@ def _run() -> int:
     )
     config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
     config_get_parser = config_subparsers.add_parser("get", help="Print a persisted setting")
-    config_get_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
-    )
+    config_get_parser.add_argument("key", choices=_CONFIG_KEYS)
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
-    config_set_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
-    )
+    config_set_parser.add_argument("key", choices=_CONFIG_KEYS)
     config_set_parser.add_argument("value")
     config_unset_parser = config_subparsers.add_parser("unset", help="Remove a persisted setting")
-    config_unset_parser.add_argument(
-        "key", choices=["profile", "environment", "security.strict", "image.source", "target", "audit.enabled"]
-    )
+    config_unset_parser.add_argument("key", choices=_CONFIG_KEYS)
     config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
 
     subparsers.add_parser(
@@ -1847,6 +1972,8 @@ def _run() -> int:
     if args.command in {"validate", "render", "up", "down", "test", "state", "security"}:
         args.target = getattr(args, "target", None) or load_saved_target() or "compose"
     
+    _install_output_redaction(args)
+
     if args.command == "validate":
         try:
             profile_path = resolve_profile_path(args.profile)
@@ -2108,7 +2235,7 @@ def _run() -> int:
 
             env_file = str(resolve_env_file_path(str(source_profile)))
             if args.target == "helm":
-                code, render_diags = _render_helm_chart(plan, output_path, args.force)
+                code, render_diags = _render_helm_chart(plan, output_path, args.force, env_file=env_file)
                 all_diags = render_diags
                 if code != 0:
                     _record_audit("render", str(source_profile), "failure", plan=plan)
@@ -2172,7 +2299,7 @@ def _run() -> int:
                 )
 
             if args.target == "helm":
-                code, render_diags = _render_helm_chart(plan, output_path, args.force)
+                code, render_diags = _render_helm_chart(plan, output_path, args.force, env_file=env_file)
                 all_diags = all_diags + render_diags
                 if code != 0:
                     _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
@@ -2252,7 +2379,7 @@ def _run() -> int:
         if args.target == "helm":
             project_root = resolve_project_root(profile_path)
             chart_dir = (Path(args.chart_dir) if args.chart_dir else project_root / "chart").resolve()
-            code, render_diags = _render_helm_chart(plan, chart_dir, force=True)
+            code, render_diags = _render_helm_chart(plan, chart_dir, force=True, env_file=env_file)
             all_diags.extend(render_diags)
             if code != 0 or has_errors(all_diags):
                 print_diagnostics(all_diags)
@@ -2489,6 +2616,8 @@ def _run() -> int:
                 destination_root=Path(args.into) if args.into else None,
                 force=args.force,
                 dry_run=args.dry_run,
+                allowed_sources=load_allowed_get_sources(),
+                commit=args.commit,
             )
         except GetError as exc:
             print(f"ERROR {exc}", file=sys.stderr)
@@ -3178,6 +3307,21 @@ def _run() -> int:
             elif args.key == "audit.enabled":
                 if args.value not in {"true", "false"}:
                     print("ERROR Config key 'audit.enabled' must be true or false.")
+                    return 1
+                value = args.value
+            elif args.key == "get.allowedSources":
+                entries = parse_allowed_sources(args.value)
+                if "*" in entries:
+                    print(
+                        "ERROR Config key 'get.allowedSources' does not accept '*'; "
+                        "set CDS_GET_ALLOWED_SOURCES=* for a single run instead."
+                    )
+                    return 1
+                if not entries:
+                    print(
+                        "ERROR Config key 'get.allowedSources' must list at least one "
+                        "comma-separated 'owner' or 'owner/repo'."
+                    )
                     return 1
                 value = args.value
             else:

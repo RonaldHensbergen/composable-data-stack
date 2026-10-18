@@ -3,6 +3,11 @@
   "extends": [
     "config:recommended"
   ],
+  "pip-compile": {
+    "managerFilePatterns": [
+      "/^images/.+/requirements.*\\.txt$/"
+    ]
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -149,11 +154,23 @@
       "minimumReleaseAge": "3 days"
     },
     {
-      "description": "Do not widen the sqlalchemy<2.1 upper-bound pin in images/dagster/requirements-postgres.txt: SQLAlchemy 2.1+ defaults bare postgresql:// URLs to the psycopg3 driver, which dagster-postgres does not install, crashing dagster-webserver/dagster-daemon at startup (see the comment in that file)",
+      "description": "Image requirements*.txt files are hash-locked uv pip compile outputs managed by the pip-compile manager (via the requirements*.in sources); do not also treat them as plain pip_requirements files",
       "matchManagers": [
         "pip_requirements"
       ],
       "matchFileNames": [
+        "images/**/requirements*.txt"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Do not widen the sqlalchemy<2.1 upper-bound pin in images/dagster/requirements-postgres.in: SQLAlchemy 2.1+ defaults bare postgresql:// URLs to the psycopg3 driver, which dagster-postgres does not install, crashing dagster-webserver/dagster-daemon at startup (see the comment in that file)",
+      "matchManagers": [
+        "pip-compile",
+        "pip_requirements"
+      ],
+      "matchFileNames": [
+        "images/dagster/requirements-postgres.in",
         "images/dagster/requirements-postgres.txt"
       ],
       "matchPackageNames": [

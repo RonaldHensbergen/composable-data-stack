@@ -22,7 +22,6 @@ scope instead.
   - #535 Document `image.source` (build\|registry) in `docs/modules.md` and README (docs-only)
 - **`help wanted`** — scoped, but needs a design decision or more context read
   first; ask on the issue before starting:
-  - #356 Implement or remove CDS-SEC-006/030/071 (secret scanning of generated artifacts and CLI output)
   - #142 Add a runnable Airflow profile example
 - **`area:docs`** — low risk, no test suite to satisfy:
   - #77 Publish Kubernetes docs, migration guide, and example profiles
@@ -122,8 +121,8 @@ CRA scope or conformity (see [docs/cra-scope-decision.md](cra-scope-decision.md)
   (#733, see [docs/cra-release-evidence-gate.md](cra-release-evidence-gate.md))
 - 📋 **CLI self-update notification** — notify users when a newer CDS CLI
   release is available (#841)
-- 📋 **`cds get` source trust** — trusted-source allowlist and commit/digest
-  pinning for fetched bundles (#849)
+- ✅ **`cds get` source trust** — opt-in trusted-source allowlist and commit
+  SHA pinning for fetched bundles (#849)
 
 ---
 

@@ -33,10 +33,10 @@ the authoritative release record for images — there is no separate GitHub
 Release object for them:
 
 - a base version derived from the pinned upstream dependency (`dagster==`
-  in `images/dagster/requirements.txt`, `FROM apache/superset:` in
+  in `images/dagster/requirements.in`, `FROM apache/superset:` in
   `images/superset/base/Dockerfile`, `dbt-core==` in
-  `images/dbt/requirements.txt`, `dlt[postgres]==` in
-  `images/dlt/requirements.txt`),
+  `images/dbt/requirements.in`, `dlt[postgres]==` in
+  `images/dlt/requirements.in`),
 - an optional `<variant>-` prefix for non-default image variants,
 - plus a `sha-<12-char-commit-sha>` tag (immutable, always pushed) and a
   `latest`/`<variant->latest` tag.
@@ -46,6 +46,47 @@ To find the currently-published digest for a given image or variant, look up
 `update-fixture` job in `publish-images.yml` after every successful publish
 and records each variant's repository, tag prefix, digest, and
 signing/attestation status.
+
+## Hash-locked Python dependencies
+
+Every runtime image that installs Python packages (`dagster`, `dbt`, `dlt`,
+and the `superset` overlay) installs from a hash-locked `requirements.txt`
+using `--require-hashes`, so an unpinned or hash-mismatched transitive
+dependency fails the build instead of silently resolving. Edit the direct
+dependencies in the neighboring `requirements*.in` file and regenerate the
+lock from that directory (the Python version matches the image's
+interpreter: 3.14, or 3.10 for `superset`):
+
+```bash
+uv pip compile --generate-hashes --python-version 3.14 \
+  -o requirements.txt requirements.in
+```
+
+`images/dagster/requirements-postgres.in` includes `requirements.in` and adds
+the Postgres storage packages (and the `sqlalchemy<2.1` cap); recompile both.
+Renovate maintains these through its `pip-compile` manager, which reads the
+`uv pip compile` header in each lock file.
+
+Two supporting locks follow the same rules: `images/superset/requirements-uv.txt`
+(the `uv` that performs the hash-verified Superset install) and
+`images/dbt/requirements-build.txt` (`packaging`, the only build requirement of
+`dbt-core-experimental-parser`). That package publishes only an sdist, a
+download-at-install shim whose build backend verifies the wheel it fetches
+against a sha256 shipped in the hash-verified sdist. The dbt image installs the
+build lock first and then builds with `--no-build-isolation`, so pip never
+fetches build requirements unhashed. The `dlt`, Dagster base, and Superset
+installs refuse source builds (`--only-binary=:all:` / `--no-build`); the
+Alpine-based hardened Dagster image cannot, because some dependencies have no
+musllinux wheels. Superset's lock intentionally raises some packages (for CVE
+fixes) beyond ranges `apache-superset` declares, so `uv pip check` is not used
+as a gate.
+
+The locks are compiled on Linux for the images' `linux/amd64` platform; compile
+them on Linux (or in a Linux container) so platform-specific dependencies are
+resolved for the right target. CI runs `scripts/check_image_locks.py` to
+recompile every lock from its header and fails if `git diff` is non-empty, and
+`pip-audit --require-hashes` audits each lock, transitive dependencies
+included.
 
 ## Remediation SLA
 

@@ -47,19 +47,20 @@ class SupersetHardeningTest(unittest.TestCase):
         for line in requirements.splitlines():
             line = line.strip()
             if line and not line.startswith("#"):
-                for op in (">=", "=="):
-                    if op in line:
-                        pkg, _, ver = line.partition(op)
-                        pinned[pkg.strip().lower()] = tuple(
-                            int(x) for x in ver.strip().split(".")
-                        )
-                        break
+                match = re.match(
+                    r"^([A-Za-z0-9._-]+)\s*(?:>=|==)\s*([0-9]+(?:\.[0-9]+)*)", line
+                )
+                if match:
+                    pkg, ver = match.groups()
+                    pinned[re.sub(r"[-_.]+", "-", pkg.lower())] = tuple(
+                        int(x) for x in ver.split(".")
+                    )
 
         min_versions = {
             "mako": "1.3.12",
             "pyjwt": "2.13.0",
             "cryptography": "48.0.1",
-            "jaraco.context": "6.1.0",
+            "jaraco-context": "6.1.0",
             "msgpack": "1.2.1",
             "pillow": "12.3.0",
             "pyopenssl": "26.0.0",
@@ -86,9 +87,10 @@ class SupersetHardeningTest(unittest.TestCase):
         dockerfile = (
             self.repo_root / "images" / "superset" / "base" / "Dockerfile"
         ).read_text(encoding="utf-8")
-        version_match = re.search(
-            r"(?m)^ARG UV_VERSION=(\d+)\.(\d+)\.(\d+)$", dockerfile
-        )
+        uv_lock = (
+            self.repo_root / "images" / "superset" / "requirements-uv.txt"
+        ).read_text(encoding="utf-8")
+        version_match = re.search(r"(?m)^uv==(\d+)\.(\d+)\.(\d+) \\$", uv_lock)
 
         self.assertIsNotNone(version_match)
         self.assertGreaterEqual(
@@ -97,7 +99,7 @@ class SupersetHardeningTest(unittest.TestCase):
             "uv 0.11.26 is the first release embedding quinn-proto 0.11.15",
         )
         self.assertIn("/usr/local/bin/python -m pip install", dockerfile)
-        self.assertIn('"uv==${UV_VERSION}"', dockerfile)
+        self.assertIn("--require-hashes -r /tmp/uv-requirements.txt", dockerfile)
 
     def test_image_provides_the_registered_service_worker(self) -> None:
         dockerfile = (
@@ -155,6 +157,8 @@ class SupersetHardeningTest(unittest.TestCase):
         self.assertNotIn("entrypoint", web_service)
         self.assertIn("superset db upgrade", init_script)
         self.assertIn("superset init", init_script)
+        self.assertIn("retry superset db upgrade", init_script)
+        self.assertIn("retry superset init", init_script)
         self.assertNotIn("superset db upgrade", web_script)
         self.assertNotIn("superset init", web_script)
 

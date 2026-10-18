@@ -16,6 +16,11 @@ import yaml
 from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
+from .secret_leak import (
+    check_generated_text,
+    declared_secret_env_names,
+    resolved_secret_values,
+)
 from .utils import _atomic_write
 
 
@@ -30,12 +35,12 @@ def render_compose(
     Args:
         plan:        Composition plan.
         output_path: Optional output file path.
-        env_file:    Reserved for compatibility; not used.
+        env_file:    .env path used to look up resolved secret values so the
+                     output file is never written if it would contain one.
 
     Returns:
         Tuple of (output_yaml, diagnostics).
     """
-    _ = env_file
     diagnostics: list[Diagnostic] = []
     secrets = plan.get("secrets", {})
     compose_dir = Path(output_path).resolve().parent if output_path else Path.cwd().resolve()
@@ -146,9 +151,17 @@ def render_compose(
     diagnostics.extend(_check_unresolved_expressions(output))
 
     if output_path:
-        path = Path(output_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(path, output)
+        # CDS-SEC-030: scan before writing so a leaking file never lands on disk.
+        leak_diags = check_generated_text(
+            output,
+            output_path,
+            resolved_secret_values(declared_secret_env_names(plan), env_file),
+        )
+        diagnostics.extend(leak_diags)
+        if not leak_diags:
+            path = Path(output_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _atomic_write(path, output)
 
     return output, diagnostics
 

@@ -24,6 +24,11 @@ from .loader import load_yaml_file, resolve_module_file
 from .planner import build_plan
 from .renderer import _compose_service_name, render_compose
 from .resolver import parse_contract_ref
+from .secret_leak import (
+    declared_secret_env_names,
+    find_secret_leaks,
+    resolved_secret_values,
+)
 from .secrets import load_secrets_from_env
 from .security_common import SECRET_KEY_RE, SEVERITY_ORDER, infer_profile_class
 
@@ -719,6 +724,56 @@ def _rule_enabled(rule_set: dict[str, Any], rule_id: str, key: str = "enabled", 
     return default
 
 
+def _profile_declared_secret_env_names(profile: dict[str, Any]) -> set[str]:
+    values = profile.get("spec", {}).get("secrets", {}).get("values", {})
+    if not isinstance(values, dict):
+        return set()
+    return {
+        definition["env"]
+        for definition in values.values()
+        if isinstance(definition, dict) and isinstance(definition.get("env"), str)
+    }
+
+
+def _check_rendered_secret_values(
+    rendered_compose: dict[str, Any] | None,
+    service_to_module: dict[str, str],
+    secret_values: dict[str, str],
+    rule: dict[str, Any] | None,
+    redact_values: bool,
+    rule_enabled: bool,
+) -> list[dict[str, Any]]:
+    """CDS-SEC-006: a resolved secret value appears in the rendered Compose model.
+
+    Enforced in code (see the rule's $comment): CDS renders only ``${CDS_*}``
+    placeholders, so the literal value of a known secret anywhere in the
+    rendered document -- keys or values -- means it was copied in from
+    config rather than referenced.
+    """
+    if not rule_enabled or rule is None or not isinstance(rendered_compose, dict) or not secret_values:
+        return []
+
+    findings: list[dict[str, Any]] = []
+    for path, value in _flatten(rendered_compose):
+        if not isinstance(value, str):
+            continue
+        leaked = sorted({name for name, _ in find_secret_leaks(value, secret_values)})
+        if not leaked:
+            continue
+        parts = path.split(".")
+        module_id = service_to_module.get(parts[1], parts[1]) if parts[0] == "services" and len(parts) > 1 else "<rendered>"
+        findings.append({
+            "rule_id": rule["id"],
+            "severity": rule["severity"],
+            "module": module_id,
+            "message": f"{rule['message']} ({', '.join(leaked)})",
+            "path": path,
+            "value": _redact(value) if redact_values else value,
+            "recommendation": rule["recommendation"],
+        })
+    return findings
+
+
 def _check_production_plaintext_exposure(
     profile: dict[str, Any],
     profile_class: str,
@@ -1176,8 +1231,10 @@ def run_security_validation(
     plaintext_exposure_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-074", key="codeEnforced")
     backup_target_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-080", key="codeEnforced")
     admin_identity_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-081", key="codeEnforced")
+    rendered_secret_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-006", key="codeEnforced")
     needs_rendered_compose = (
         (profile_class == "prod" and plaintext_exposure_rule_enabled)
+        or rendered_secret_rule_enabled
         or backup_target_rule_enabled
         or admin_identity_rule_enabled
         or any(
@@ -1236,6 +1293,21 @@ def run_security_validation(
         rule_enabled=plaintext_exposure_rule_enabled,
     )
     findings.extend(plaintext_findings)
+
+    rendered_secret_rule = next(
+        (rule for rule in rule_set["rules"] if rule.get("id") == "CDS-SEC-006"), None
+    )
+    findings.extend(_check_rendered_secret_values(
+        rendered_compose=rendered_compose,
+        service_to_module=service_to_module,
+        secret_values=resolved_secret_values(
+            _profile_declared_secret_env_names(profile) | declared_secret_env_names(rendered_plan),
+            env_file,
+        ),
+        rule=rendered_secret_rule,
+        redact_values=redact_values,
+        rule_enabled=rendered_secret_rule_enabled,
+    ))
 
     findings.extend(_check_backup_target_binding(
         plan=rendered_plan,
