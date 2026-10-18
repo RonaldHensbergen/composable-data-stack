@@ -104,9 +104,10 @@ def _check_runtime(runtime: dict[str, Any], plan: dict[str, Any] | None = None) 
 def _check_rootless(plan: dict[str, Any]) -> PreflightCheck:
     """Report whether the Docker daemon runs rootless (docs/rootless-docker.md)."""
     name = "runtime.rootless"
+    command = ["docker", "info", "--format", "{{json .SecurityOptions}}"]
     try:
         result = subprocess.run(  # nosec B603  # noqa: S603
-            ["docker", "info", "--format", "{{json .SecurityOptions}}"],  # nosec B607  # noqa: S607
+            command,
             capture_output=True,
             text=True,
             timeout=15,
