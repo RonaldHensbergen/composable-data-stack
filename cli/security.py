@@ -557,7 +557,7 @@ def _rule_matches(
                 "message": rule["message"],
                 "path": path,
                 # A file mode is not sensitive and is the whole point of the finding.
-                "value": _redact(value) if redact_values and not path.endswith(".permissions") else value,
+                "value": _redact(value) if redact_values and "file-permissions" not in rule.get("scope", []) else value,
                 "recommendation": rule["recommendation"],
             })
 

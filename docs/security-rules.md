@@ -57,6 +57,19 @@ to confirm the identity module actually fronts/protects that specific
 admin-facing service -- the rule only confirms that *some* identity/auth
 module is present somewhere in the profile.
 
+## CDS-SEC-032: `.env` file readable by group or others
+
+Data-driven (`file-permissions` scope), not listed in the table above.
+Flags a `.env` with any group/other permission bit set (POSIX only;
+skipped on Windows). Notes:
+
+- Enabled for every profile class, so a default-umask `0644` `.env` is
+  flagged; run `chmod 600 .env` (files written by `cds init` are already
+  `0600`). Intentionally group-readable setups (e.g. `0640`) are flagged too.
+- Filesystems that do not store POSIX modes (WSL `/mnt/c`, some container
+  or network mounts) report `0777` and will always trigger the rule; keep
+  the `.env` on a native Linux filesystem.
+
 ## Reporting
 
 Both rules are tagged with a `complianceCategory`

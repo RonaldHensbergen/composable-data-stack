@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from cli.main import _write_env_file
-from cli.security import _validate_rule_set, run_security_validation
+from cli.security import _rule_matches, _validate_rule_set, run_security_validation
 
 _FIXTURE = (
     Path(__file__).resolve().parent / "fixtures" / "security" / "profile-scoped-env" / "profile.yaml"
@@ -71,6 +71,23 @@ class SecretFilePermissionsTest(unittest.TestCase):
             finally:
                 os.umask(old_umask)
             self.assertEqual(stat.S_IMODE(out.stat().st_mode), 0o600)
+
+
+class PermissionsKeyRedactionTest(unittest.TestCase):
+    def test_config_key_named_permissions_is_still_redacted(self):
+        rule = {
+            "id": "CDS-SEC-TEST",
+            "severity": "high",
+            "message": "m",
+            "recommendation": "r",
+            "scope": ["config"],
+            "match": {"any": [{"valueRegex": ".+"}]},
+        }
+        items = [("mod", "spec.config.permissions", "hunter2-secret")]
+        with mock.patch("cli.security._eval_condition", return_value=True):
+            findings = _rule_matches(rule, items, "local", redact_values=True)
+        self.assertEqual(len(findings), 1)
+        self.assertNotIn("hunter2-secret", findings[0]["value"])
 
 
 class RuleDeclarationTest(unittest.TestCase):
