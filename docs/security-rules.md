@@ -79,7 +79,8 @@ secret-named `CDS_*` variable, of at least 8 characters) on three surfaces:
 
 **Known limitations:** shorter values and values CDS cannot see (not in
 `.env`/the environment) are not detected, and neither are transformed
-copies such as base64-encoded values.
+copies such as base64-encoded values. In CLI output, multi-line secrets
+are redacted line by line (lines of at least 8 characters).
 
 ## Reporting
 

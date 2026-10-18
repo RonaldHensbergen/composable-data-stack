@@ -63,8 +63,8 @@ def resolved_secret_values(
     """
     declared = declared_env_names or frozenset()
     values, _ = load_secrets_from_env(Path(env_file) if env_file else None)
-    # load_secrets_from_env returns nothing when the env file is unreadable,
-    # which would silently drop environment-provided secrets; fail closed.
+    # load_secrets_from_env returns nothing when the env file is unreadable;
+    # always merging the process environment keeps that case fail-closed.
     for name, value in os.environ.items():
         if name.startswith("CDS_"):
             values.setdefault(name, value)
@@ -114,6 +114,21 @@ def check_generated_text(
     return diagnostics
 
 
+def _redaction_candidates(secret_values: dict[str, str]) -> list[tuple[str, str]]:
+    """Secret values, longest first, plus each long line of multi-line values.
+
+    Output is redacted line by line, so a multi-line secret (e.g. a PEM key)
+    can only be caught through its individual lines.
+    """
+    candidates: list[tuple[str, str]] = []
+    for name, value in secret_values.items():
+        candidates.append((name, value))
+        if "\n" in value:
+            stripped = (line.strip() for line in value.splitlines())
+            candidates.extend((name, line) for line in stripped if len(line) >= MIN_SECRET_LENGTH)
+    return sorted(candidates, key=lambda item: -len(item[1]))
+
+
 def redact_text(text: str, secret_values: dict[str, str]) -> tuple[str, set[str]]:
     """Replace literal secret values with a marker; return (text, names hit).
 
@@ -121,7 +136,7 @@ def redact_text(text: str, secret_values: dict[str, str]) -> tuple[str, set[str]
     as a substring is still fully redacted.
     """
     hit: set[str] = set()
-    for name, value in sorted(secret_values.items(), key=lambda item: -len(item[1])):
+    for name, value in _redaction_candidates(secret_values):
         if value in text:
             hit.add(name)
             text = text.replace(value, REDACTED)
@@ -163,11 +178,28 @@ class RedactingStream(io.TextIOBase):
         return len(text)
 
     def flush(self) -> None:
-        # A secret never spans a flush boundary in practice, and holding a
-        # partial line back would break prompts.
+        # Hold back only a tail that could be the start of a secret so a value
+        # split across a flush is still caught; prompts are unaffected.
+        keep = self._partial_secret_suffix()
+        cut = len(self._buffer) - keep
+        self._emit(self._buffer[:cut])
+        self._buffer = self._buffer[cut:]
+        self._wrapped.flush()
+
+    def finish(self) -> None:
+        """Emit everything still buffered; call once before unwrapping."""
         self._emit(self._buffer)
         self._buffer = ""
         self._wrapped.flush()
+
+    def _partial_secret_suffix(self) -> int:
+        longest = 0
+        for _, value in _redaction_candidates(self._secrets):
+            for size in range(min(len(value) - 1, len(self._buffer)), longest, -1):
+                if self._buffer.endswith(value[:size]):
+                    longest = size
+                    break
+        return longest
 
     def _emit(self, text: str) -> None:
         if not text:

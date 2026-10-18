@@ -79,6 +79,31 @@ class SecretLeakHelpersTest(unittest.TestCase):
         self.assertEqual(sink.getvalue(), f"token={secret_leak.REDACTED}\n")
         self.assertEqual(hits, {"CDS_A"})
 
+    def test_stream_redacts_value_split_across_flush(self):
+        sink, hits = io.StringIO(), set()
+        stream = secret_leak.RedactingStream(sink, {"CDS_A": "alpha-secret-1"}, hits)
+        stream.write("token=alpha-")
+        stream.flush()
+        stream.write("secret-1\n")
+        stream.finish()
+        self.assertEqual(sink.getvalue(), f"token={secret_leak.REDACTED}\n")
+
+    def test_stream_flush_does_not_hold_back_prompts(self):
+        sink = io.StringIO()
+        stream = secret_leak.RedactingStream(sink, {"CDS_A": "alpha-secret-1"}, set())
+        stream.write("Continue? [y/N] ")
+        stream.flush()
+        self.assertEqual(sink.getvalue(), "Continue? [y/N] ")
+
+    def test_stream_redacts_lines_of_multiline_secret(self):
+        sink, hits = io.StringIO(), set()
+        key = "-----BEGIN KEY-----\nabcdefghijkl\n-----END KEY-----"
+        stream = secret_leak.RedactingStream(sink, {"CDS_KEY": key}, hits)
+        stream.write("k:\nabcdefghijkl\n")
+        stream.finish()
+        self.assertNotIn("abcdefghijkl", sink.getvalue())
+        self.assertEqual(hits, {"CDS_KEY"})
+
 
 class GeneratedFileScanTest(unittest.TestCase):
     """CDS-SEC-030."""

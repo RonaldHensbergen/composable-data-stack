@@ -1344,8 +1344,8 @@ def _install_output_redaction(args: argparse.Namespace) -> None:
             profile_path = resolve_profile_path(args.profile)
             env_file = str(resolve_env_file_path(profile_path))
             declared = _collect_profile_env_vars(profile_path, getattr(args, "environment", None))[1]
-    except (ValueError, OSError):
-        pass
+    except Exception:  # noqa: BLE001 - redaction must never break the command itself
+        _LOGGER.debug("Could not collect declared secrets for output redaction", exc_info=True)
     secret_values = resolved_secret_values(declared, env_file)
     if not secret_values:
         return
@@ -1362,7 +1362,10 @@ def _finish_output_redaction() -> None:
     original_stdout, original_stderr, hits = _output_redaction
     _output_redaction = None
     for stream in (sys.stdout, sys.stderr):
-        stream.flush()
+        if isinstance(stream, RedactingStream):
+            stream.finish()
+        else:
+            stream.flush()
     sys.stdout, sys.stderr = original_stdout, original_stderr
     if hits:
         print(
