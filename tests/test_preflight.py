@@ -532,6 +532,29 @@ class HostHardeningTest(unittest.TestCase):
             check = _check_socket_exposure()
         self.assertEqual(check.status, "WARN")
 
+    def test_tls_verify_set_to_any_value_counts_as_enabled(self) -> None:
+        env = {"DOCKER_HOST": "tcp://h:2376", "DOCKER_TLS_VERIFY": "0"}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertEqual(_check_socket_exposure().status, "PASS")
+
+    def test_ssh_docker_host_passes_without_stat(self) -> None:
+        with patch.dict(os.environ, {"DOCKER_HOST": "ssh://user@host"}, clear=True):
+            self.assertEqual(_check_socket_exposure().status, "PASS")
+
+    def test_uninspectable_socket_is_omitted(self) -> None:
+        with patch.dict(os.environ, {"DOCKER_HOST": "unix:///nonexistent/docker.sock"}, clear=True):
+            self.assertIsNone(_check_socket_exposure())
+        with patch.dict(os.environ, {"DOCKER_HOST": "npipe:////./pipe/docker_engine"}, clear=True):
+            self.assertIsNone(_check_socket_exposure())
+
+    def test_docker_desktop_skips_host_checks(self) -> None:
+        info = {**self.HARDENED, "OperatingSystem": "Docker Desktop", "SecurityOptions": []}
+        self.assertEqual(_check_host_hardening(info), [])
+
+    def test_logging_pass_message_does_not_claim_rotation_verified(self) -> None:
+        message = self._by_name(self.HARDENED)["host.logging"].message
+        self.assertIn("not verified", message)
+
     @unittest.skipIf(os.name == "nt", "POSIX file modes are not enforced on Windows")
     def test_world_writable_socket_warns(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

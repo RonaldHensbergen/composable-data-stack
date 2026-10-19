@@ -8,6 +8,10 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
+  file readable or writable by group or others (new `file-permissions`
+  rule scope and `permissions` condition; skipped on Windows), and
+  `cds init` explicitly creates `.env` as owner-only (`0600`) (#357).
 - Added a versioned Docker host and daemon hardening baseline
   (`docs/docker-host-hardening.md`) separating CDS-enforced controls from
   operator responsibilities, and advisory `host.*` checks in `cds preflight`
@@ -25,6 +29,14 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added code-enforced, literal-value secret scanning for the formerly
+  deferred rules CDS-SEC-006 (rendered Compose model), CDS-SEC-030
+  (generated files) and CDS-SEC-071 (CLI output): `cds render`/`cds up`
+  now refuse to write `docker-compose.yml` or Helm chart files containing
+  a resolved secret (error `E096`), `cds plan`/`validate`/`test`/`security`
+  redact such values from output with a `W102` warning, and `cds security`
+  reports CDS-SEC-006 findings. CDS-SEC-006 now covers only rendered
+  Compose output; its file and CLI halves moved to CDS-SEC-030/071 (#356).
 - Added opt-in source trust for `cds get`: a trusted-source allowlist
   (`cds config set get.allowedSources` or `CDS_GET_ALLOWED_SOURCES`,
   also enforced for `cds list --remote`) and `cds get --commit <sha>`

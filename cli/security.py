@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 from dataclasses import dataclass
 from importlib.resources import files
 from importlib.resources.abc import Traversable
@@ -23,6 +24,11 @@ from .loader import load_yaml_file, resolve_module_file
 from .planner import build_plan
 from .renderer import _compose_service_name, render_compose
 from .resolver import parse_contract_ref
+from .secret_leak import (
+    declared_secret_env_names,
+    find_secret_leaks,
+    resolved_secret_values,
+)
 from .secrets import load_secrets_from_env
 from .security_common import SECRET_KEY_RE, SEVERITY_ORDER, infer_profile_class
 
@@ -39,6 +45,15 @@ _ENV_SCOPES = {
     "service",
     "runtime",
 }
+
+# Rules in this scope are matched against the permission bits of secret-bearing
+# files on disk (currently the .env file), not their contents.
+_FILE_PERMISSION_SCOPES = {
+    "file-permissions",
+}
+
+_GROUP_ACCESS_BITS = stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP
+_OTHER_ACCESS_BITS = stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH
 
 # Rules in this scope are matched against the *rendered* Compose service
 # definitions (command/entrypoint/logging), not the profile or .env inputs.
@@ -201,6 +216,50 @@ def _flatten_env_inputs(
         scan_path = _normalize_scan_path(env_path)
         items.append(("<env>", scan_path, scan_path))
     return items
+
+
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
+def _flatten_file_permissions(env_file: str | None) -> list[tuple[str, str, Any]]:
+    """
+    Emit the POSIX permission bits of the secret-bearing .env file as a
+    synthetic item whose value is the octal mode string (e.g. "0644").
+
+    POSIX mode bits don't describe access on Windows, so nothing is emitted
+    there rather than reporting meaningless (and always-broad) modes. A file
+    that can't be stat'ed is skipped: the missing/unreadable case is already
+    reported by the env loader.
+    """
+    if _is_windows():
+        return []
+    env_path = Path(env_file) if env_file is not None else Path(".env")
+    try:
+        mode = stat.S_IMODE(env_path.stat().st_mode)
+    except OSError:
+        return []
+    return [("<env>", f"{_normalize_scan_path(env_path)}.permissions", f"{mode:04o}")]
+
+
+def _permission_mode(value: str) -> int | None:
+    try:
+        return int(value, 8)
+    except ValueError:
+        return None
+
+
+def _permissions_match(policy: str, value: str) -> bool:
+    mode = _permission_mode(value)
+    if mode is None:
+        return False
+    if policy == "world-readable":
+        return bool(mode & _OTHER_ACCESS_BITS)
+    if policy == "group-readable":
+        return bool(mode & _GROUP_ACCESS_BITS)
+    if policy == "owner-only":
+        return not mode & (_GROUP_ACCESS_BITS | _OTHER_ACCESS_BITS)
+    return False
 
 
 def _flatten_rendered_leak_surfaces(
@@ -377,6 +436,8 @@ def _eval_condition(
         return False
     if "minLength" in cond and len(sval) < cond["minLength"]:
         return False
+    if "permissions" in cond and not _permissions_match(cond["permissions"], sval):
+        return False
     if "serviceTypes" in cond and _service_type_for_path(path) not in cond["serviceTypes"]:
         return False
 
@@ -500,7 +561,8 @@ def _rule_matches(
                 "module": module_id,
                 "message": rule["message"],
                 "path": path,
-                "value": _redact(value) if redact_values else value,
+                # A file mode is not sensitive and is the whole point of the finding.
+                "value": _redact(value) if redact_values and "file-permissions" not in rule.get("scope", []) else value,
                 "recommendation": rule["recommendation"],
             })
 
@@ -660,6 +722,56 @@ def _rule_enabled(rule_set: dict[str, Any], rule_id: str, key: str = "enabled", 
         if rule.get("id") == rule_id:
             return bool(rule.get(key, default))
     return default
+
+
+def _profile_declared_secret_env_names(profile: dict[str, Any]) -> set[str]:
+    values = profile.get("spec", {}).get("secrets", {}).get("values", {})
+    if not isinstance(values, dict):
+        return set()
+    return {
+        definition["env"]
+        for definition in values.values()
+        if isinstance(definition, dict) and isinstance(definition.get("env"), str)
+    }
+
+
+def _check_rendered_secret_values(
+    rendered_compose: dict[str, Any] | None,
+    service_to_module: dict[str, str],
+    secret_values: dict[str, str],
+    rule: dict[str, Any] | None,
+    redact_values: bool,
+    rule_enabled: bool,
+) -> list[dict[str, Any]]:
+    """CDS-SEC-006: a resolved secret value appears in the rendered Compose model.
+
+    Enforced in code (see the rule's $comment): CDS renders only ``${CDS_*}``
+    placeholders, so the literal value of a known secret anywhere in the
+    rendered document -- keys or values -- means it was copied in from
+    config rather than referenced.
+    """
+    if not rule_enabled or rule is None or not isinstance(rendered_compose, dict) or not secret_values:
+        return []
+
+    findings: list[dict[str, Any]] = []
+    for path, value in _flatten(rendered_compose):
+        if not isinstance(value, str):
+            continue
+        leaked = sorted({name for name, _ in find_secret_leaks(value, secret_values)})
+        if not leaked:
+            continue
+        parts = path.split(".")
+        module_id = service_to_module.get(parts[1], parts[1]) if parts[0] == "services" and len(parts) > 1 else "<rendered>"
+        findings.append({
+            "rule_id": rule["id"],
+            "severity": rule["severity"],
+            "module": module_id,
+            "message": f"{rule['message']} ({', '.join(leaked)})",
+            "path": path,
+            "value": _redact(value) if redact_values else value,
+            "recommendation": rule["recommendation"],
+        })
+    return findings
 
 
 def _check_production_plaintext_exposure(
@@ -1107,6 +1219,7 @@ def run_security_validation(
 
     flat_profile = _flatten_profile_by_module(profile, profile_dir=profile_path.parent)
     flat_env = _flatten_env_inputs(secrets, env_file)
+    flat_permissions = _flatten_file_permissions(env_file)
 
     # Planning and rendering the profile is only useful when some enabled
     # rule actually declares the "rendered-compose" scope -- e.g. a custom
@@ -1118,8 +1231,10 @@ def run_security_validation(
     plaintext_exposure_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-074", key="codeEnforced")
     backup_target_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-080", key="codeEnforced")
     admin_identity_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-081", key="codeEnforced")
+    rendered_secret_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-006", key="codeEnforced")
     needs_rendered_compose = (
         (profile_class == "prod" and plaintext_exposure_rule_enabled)
+        or rendered_secret_rule_enabled
         or backup_target_rule_enabled
         or admin_identity_rule_enabled
         or any(
@@ -1155,6 +1270,12 @@ def run_security_validation(
                 redact_values=redact_values,
             ))
 
+        if rule_scopes & _FILE_PERMISSION_SCOPES:
+            findings.extend(_rule_matches(
+                rule, flat_permissions, profile_class,
+                redact_values=redact_values,
+            ))
+
         if rule_scopes & _RENDERED_COMPOSE_SCOPES:
             findings.extend(_rule_matches(
                 rule, flat_rendered, profile_class,
@@ -1172,6 +1293,21 @@ def run_security_validation(
         rule_enabled=plaintext_exposure_rule_enabled,
     )
     findings.extend(plaintext_findings)
+
+    rendered_secret_rule = next(
+        (rule for rule in rule_set["rules"] if rule.get("id") == "CDS-SEC-006"), None
+    )
+    findings.extend(_check_rendered_secret_values(
+        rendered_compose=rendered_compose,
+        service_to_module=service_to_module,
+        secret_values=resolved_secret_values(
+            _profile_declared_secret_env_names(profile) | declared_secret_env_names(rendered_plan),
+            env_file,
+        ),
+        rule=rendered_secret_rule,
+        redact_values=redact_values,
+        rule_enabled=rendered_secret_rule_enabled,
+    ))
 
     findings.extend(_check_backup_target_binding(
         plan=rendered_plan,

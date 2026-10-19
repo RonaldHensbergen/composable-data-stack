@@ -138,6 +138,10 @@ def _check_host_hardening(info: dict[str, Any]) -> list[PreflightCheck]:
     docs/docker-host-hardening.md is an operator responsibility, so these
     checks never fail preflight.
     """
+    # Docker Desktop's daemon runs in a managed VM the operator cannot harden.
+    if "docker desktop" in str(info.get("OperatingSystem", "")).lower():
+        return []
+
     raw_options = info.get("SecurityOptions")
     options = {str(o) for o in raw_options} if isinstance(raw_options, list) else set()
     rootless = "name=rootless" in options
@@ -164,8 +168,8 @@ def _check_host_hardening(info: dict[str, Any]) -> list[PreflightCheck]:
         _host_check(
             info.get("LoggingDriver") not in {None, "", "none"},
             "host.logging",
-            f'Daemon logging driver is "{info.get("LoggingDriver")}". '
-            "Verify log rotation in daemon.json (HOST-004).",
+            f'Daemon logging driver "{info.get("LoggingDriver")}" is enabled '
+            "(log rotation is not verified; check daemon.json, HOST-004).",
             "Daemon logging driver is disabled; container logs are not retained (HOST-004).",
         ),
         _host_check(
@@ -175,7 +179,9 @@ def _check_host_hardening(info: dict[str, Any]) -> list[PreflightCheck]:
             "Live restore is not enabled; daemon restarts stop containers (HOST-005).",
         ),
     ]
-    checks.append(_check_socket_exposure())
+    socket_check = _check_socket_exposure()
+    if socket_check is not None:
+        checks.append(socket_check)
     return checks
 
 
@@ -183,9 +189,12 @@ def _host_check(ok: bool, name: str, pass_message: str, warn_message: str) -> Pr
     return PreflightCheck("PASS" if ok else "WARN", name, pass_message if ok else warn_message)
 
 
-def _check_socket_exposure() -> PreflightCheck:
+def _check_socket_exposure() -> PreflightCheck | None:
+    """Return None when the socket cannot be meaningfully inspected."""
     docker_host = os.environ.get("DOCKER_HOST", "").strip()
-    if docker_host.lower().startswith(("tcp://", "http://")):
+    scheme = docker_host.lower().split("://", 1)[0] if "://" in docker_host else ""
+    if scheme in {"tcp", "http"}:
+        # Docker treats any non-empty DOCKER_TLS_VERIFY value as enabled.
         if os.environ.get("DOCKER_TLS_VERIFY", "").strip():
             return PreflightCheck(
                 "PASS", "host.socket", "Daemon is reached over TCP with TLS verification."
@@ -196,14 +205,16 @@ def _check_socket_exposure() -> PreflightCheck:
             "DOCKER_HOST uses TCP without DOCKER_TLS_VERIFY; "
             "an unauthenticated daemon socket grants root on the host (HOST-006).",
         )
+    if scheme == "ssh":
+        return PreflightCheck("PASS", "host.socket", "Daemon is reached over SSH.")
+    if scheme not in {"", "unix"} or os.name == "nt":
+        return None
 
     socket_path = Path(docker_host.removeprefix("unix://") or "/var/run/docker.sock")
     try:
         mode = socket_path.stat().st_mode
     except OSError:
-        return PreflightCheck(
-            "PASS", "host.socket", "Daemon socket permissions were not inspectable."
-        )
+        return None
     if mode & stat.S_IWOTH:
         return PreflightCheck(
             "WARN",

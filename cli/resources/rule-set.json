@@ -156,8 +156,8 @@
     },
     {
       "id": "CDS-SEC-006",
-      "$comment": "Deferred: this rule is about secrets leaking into rendered Compose, generated artifacts, or CLI text output after resolution. The current scanner only flattens profile inputs and loaded .env secrets, so enabling a non-'none' scope here would still never inspect the output surfaces this rule names.",
-      "title": "Resolved secret present in generated or CLI output",
+      "$comment": "Enforced entirely in code by _check_rendered_secret_values in cli/security.py, not the declarative match engine: it looks for the literal value of every known secret (declared under spec.secrets.values or a secret-named CDS_* variable of at least 8 characters, per cli/secret_leak.py) anywhere in the rendered Compose model. CDS only ever renders ${CDS_*} placeholders, so a literal value means a secret was copied into config. The match block below is therefore documentation only. This rule was split by #356: written files are CDS-SEC-030 and printed CLI output is CDS-SEC-071. `enabled` stays false because `scope: [\"none\"]` rules can never produce a declarative-engine finding (see the scope-none `enabled` invariant test); `codeEnforced` is the actual on/off switch.",
+      "title": "Resolved secret present in rendered Compose output",
       "severity": "high",
       "category": "secrets",
       "complianceCategory": "secrets-management",
@@ -173,13 +173,14 @@
           }
         ]
       },
-      "message": "Rendered or planned output appears to contain a resolved secret",
+      "message": "Rendered Compose output contains a resolved secret value",
       "whyItMatters": "Generated artifacts are often stored, shared, or captured by CI systems.",
       "recommendation": [
         "Redact secrets in plan and render output.",
         "Avoid writing resolved secret values to generated files."
       ],
-      "enabled": false
+      "enabled": false,
+      "codeEnforced": true
     },
     {
       "id": "CDS-SEC-010",
@@ -410,7 +411,7 @@
     },
     {
       "id": "CDS-SEC-030",
-      "$comment": "Deferred: this rule needs an on-disk generated-file scan after render/write. The current matcher only sees profile values and loaded .env secrets, not file contents created by cds render or cds up.",
+      "$comment": "Enforced entirely in code by cli.secret_leak.check_generated_text, called from render_compose (docker-compose.yml) and render_helm (every chart file) before anything is written: if the content contains the literal value of a known secret (same value set as CDS-SEC-006) the file is not written and error E096 is reported, so cds render and cds up fail closed. `enabled` stays false because `scope: [\"none\"]` rules can never produce a declarative-engine finding; `codeEnforced` is the actual on/off switch. The match block below is documentation only.",
       "title": "Generated file contains resolved secrets",
       "severity": "high",
       "category": "file-output-safety",
@@ -433,7 +434,8 @@
         "Redact generated output or write secret references only.",
         "Keep rendered artifacts free of resolved secrets."
       ],
-      "enabled": false
+      "enabled": false,
+      "codeEnforced": true
     },
     {
       "id": "CDS-SEC-031",
@@ -463,12 +465,12 @@
     },
     {
       "id": "CDS-SEC-032",
-      "$comment": "Deferred: the rule schema exposes a permissions condition, but cli/security.py does not evaluate it and the scanner does not stat files on disk. Supporting this needs file metadata collection plus condition evaluation for actual mode bits.",
+      "$comment": "Evaluated against the \"file-permissions\" scope: _flatten_file_permissions in cli/security.py stats the .env file the scan loads secrets from and emits its octal mode (e.g. \"0644\") as a synthetic <path>.permissions item; the \"permissions\" condition then flags any group (\"group-readable\") or other (\"world-readable\") read/write/execute bit, i.e. anything broader than owner-only. POSIX only: on Windows (os.name == \"nt\") no item is emitted, so the rule never fires there rather than reporting meaningless modes. A missing .env emits nothing. Secret files CDS itself writes (cds init) are created owner-only (0600). Filesystems without POSIX modes (e.g. WSL /mnt/c) report 0777 and always trigger the rule.",
       "title": "Secret file permissions too broad",
       "severity": "medium",
       "category": "file-output-safety",
       "complianceCategory": "secrets-management",
-      "scope": ["none"],
+      "scope": ["file-permissions"],
       "match": {
         "any": [
           {
@@ -485,7 +487,7 @@
         "Set permissions to owner-only for files containing secrets.",
         "Tighten file creation umask for generated secret artifacts."
       ],
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "CDS-SEC-033",
@@ -755,7 +757,7 @@
     },
     {
       "id": "CDS-SEC-071",
-      "$comment": "Deferred: this rule is about literal CLI plan/validate output text, which is produced after formatting findings/diagnostics. The current matcher has no capture of stdout/stderr or rendered plan text to scan.",
+      "$comment": "Enforced entirely in code: cds plan, validate, test and security wrap stdout/stderr in cli.secret_leak.RedactingStream, which replaces the literal value of any known secret (same value set as CDS-SEC-006) with ***REDACTED*** before it is printed and then warns (W102) on stderr that redaction happened. Passing --reveal-secrets (where offered) disables the wrapper. `enabled` stays false because `scope: [\"none\"]` rules can never produce a declarative-engine finding; `codeEnforced` is the actual on/off switch. The match block below is documentation only.",
       "title": "CLI plan or validate output prints secrets",
       "severity": "high",
       "category": "observability-leakage",
@@ -781,7 +783,8 @@
         "Redact sensitive output by default.",
         "Provide explicit unsafe flags for debugging only."
       ],
-      "enabled": false
+      "enabled": false,
+      "codeEnforced": true
     },
     {
       "id": "CDS-SEC-072",

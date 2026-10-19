@@ -38,7 +38,19 @@ cross-links this document rather than duplicating it.
 `DOCKER_HOST`/`DOCKER_TLS_VERIFY` environment, and `stat`s the daemon socket.
 It needs no privileged containers and no extra permissions beyond access to
 the daemon. Host findings are advisory (`PASS` or `WARN`) and never fail
-preflight, because they describe the operator-owned host.
+preflight, because they describe the operator-owned host. They apply to
+every profile class; production-class gating of the rootless result is
+handled separately by the rootless preflight check.
+
+Limits of the checks:
+
+- Docker Desktop (macOS/Windows) runs the daemon in a managed VM, so host
+  checks are skipped there.
+- `host.socket` is only reported when the socket can be inspected: a TCP
+  `DOCKER_HOST` (TLS is considered enabled when `DOCKER_TLS_VERIFY` is set to
+  any non-empty value, as Docker itself does), an `ssh://` host, or a local
+  Unix socket on POSIX. Other transports are omitted rather than reported as
+  `PASS`.
 
 ```text
 [PASS] host.rootless: Docker daemon runs in rootless mode.

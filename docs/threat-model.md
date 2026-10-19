@@ -136,10 +136,11 @@ Named boundaries used throughout this document:
   ever writes to disk or stdout. The actual control here is the
   placeholder-rendering code path itself (`cli/renderer.py` `_resolve_expr`,
   which emits `${CDS_*}` and never a resolved value) plus its regression
-  tests; `CDS-SEC-006`, `CDS-SEC-030`, and `CDS-SEC-071` describe the intended
-  policy but are not evaluated (`scope: ["none"]`, and `030`/`071` are also
-  `enabled: false`), so the rule engine skips them entirely (`cli/security.py`
-  scope filtering) rather than actively enforcing this boundary.
+  tests. Three code-enforced rules (`cli/secret_leak.py`) back it up by
+  looking for the literal value of every known secret: `CDS-SEC-006` in the
+  rendered Compose model, `CDS-SEC-030` in generated files (refused before
+  they are written), and `CDS-SEC-071` in `cds plan`/`validate`/`test`/
+  `security` output (redacted before it is printed).
 
 ## 4. Threat actors
 
@@ -164,7 +165,7 @@ more of the follow-up issues.
 | # | Attack path | Boundary | Current control | Residual risk / owning issue |
 | --- | --- | --- | --- | --- |
 | T1 | Hardcoded secret committed to a profile/module YAML | D | `CDS-SEC-001`–`004`, `CDS-SEC-033` | Detection only for known patterns; no repo-wide secret scanning in CI. Tracked outside this milestone. |
-| T2 | Resolved secret leaks into `cds plan`/`validate` stdout or a generated Compose file | D | Placeholder rendering (`cli/renderer.py`) + regression tests; `CDS-SEC-006`/`030`/`071` are policy intent, not evaluated (`scope: ["none"]`; `030`/`071` also `enabled: false`) | Covered by the placeholder-rendering control and its regression tests, not by the rule engine. Re-verify under #216 process-manager change (new log surfaces). |
+| T2 | Resolved secret leaks into `cds plan`/`validate` stdout or a generated Compose file | D | Placeholder rendering (`cli/renderer.py`) + regression tests; code-enforced literal-value scans: `CDS-SEC-006` (rendered Compose), `CDS-SEC-030` (files refused before write, error `E096`), `CDS-SEC-071` (CLI output redacted, warning `W102`) | Covered for known secrets of at least 8 characters (declared under `spec.secrets.values` or secret-named `CDS_*` variables). Secrets that only exist outside CDS's environment, and transformed (e.g. base64-encoded) values, are not detected. Re-verify under #216 process-manager change (new log surfaces). |
 | T3 | Secret passed via container `command:` args, visible in `docker inspect`/process list | B/D | `CDS-SEC-070` evaluated against rendered Compose `command`/`entrypoint`/`healthcheck`/`logging` fields (`"rendered-compose"` scope; fixed by #353, closing #297) | Covered for unresolved `${CDS_*}` placeholders leaking into these fields. Literal hardcoded secrets in those fields (not routed through `${CDS_*}`) remain out of scope — see the rule's `$comment` in `rule-set.json`. |
 | T4 | Weak/default/reused credentials (DB, admin UI, cache) | B | `CDS-SEC-010`–`012` active and fully functional (#292's dead branch was removed by #344); `CDS-SEC-013` is `enabled: false` | Partial coverage only — `CDS-SEC-013` is not active. **Owning issue: #206.** |
 | T5 | No authentication required on relational DB / cache in production | B | None enforced today; `keydb` password field exists but `connectionUri` doesn't embed it (#291) | **High** — no production-mode enforcement that auth is mandatory. **Owning issue: #206.** |
@@ -189,7 +190,7 @@ more of the follow-up issues.
 | T14 | Sensitive host path mounted into a container (e.g. `/`, `/etc`, Docker socket) | A | `CDS-SEC-063` | Covered by rule for known patterns. |
 | T15 | Missing seccomp/AppArmor confinement, container escapes via kernel syscall abuse | A | None enforced today | **Medium-High** — no declarative confinement profile support. **Owning issue: #207.** |
 | T16 | Non-rootless Docker daemon socket exposed, any container-breakout yields host root | A | Documented nowhere yet | **High** for shared/multi-tenant hosts. **Owning issue: #211.** |
-| T17 | Host itself unpatched, exposed daemon API, weak file permissions on `.env`/config | A | `CDS-SEC-032` (secret file permissions) is defined but `scope: ["none"]`, so it is not evaluated | **Medium** — no host hardening baseline published, and the one host-adjacent rule isn't actually enforced yet. **Owning issue: #211.** |
+| T17 | Host itself unpatched, exposed daemon API, weak file permissions on `.env`/config | A | `CDS-SEC-032` flags a group- or world-accessible `.env` (POSIX only; skipped on Windows), and `cds init` writes `.env` as `0600` | **Medium** — no host hardening baseline published; only the `.env` file is checked, not other host config. **Owning issue: #211.** |
 | T18 | Development web server (e.g. Flask dev server, Django `runserver`) used as the production HTTP entrypoint — no worker model, verbose debug pages, poor concurrency/DoS resistance | A/B | None enforced | **Medium-High.** **Owning issue: #216.** |
 
 ### 5.4 Supply chain

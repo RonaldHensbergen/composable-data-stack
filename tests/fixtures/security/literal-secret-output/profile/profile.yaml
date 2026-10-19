@@ -1,0 +1,25 @@
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: literal-secret-output
+  environment: local
+
+spec:
+  runtime:
+    type: docker-compose
+
+  modules:
+    - id: fake-literal
+      source: ../modules/secrets/fake-literal
+      version: "0.1.0"
+      enabled: true
+      config:
+        setting: fixture-secret-value
+
+  secrets:
+    provider:
+      type: env
+    values:
+      fake_token:
+        env: CDS_FAKE_TOKEN
+        required: true
