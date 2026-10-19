@@ -111,14 +111,11 @@ def _check_daemon() -> tuple[PreflightCheck, dict[str, Any] | None]:
         result = None
 
     if result is None or result.returncode != 0:
-        return (
-            PreflightCheck(
-                "FAIL",
-                "runtime.daemon",
-                "Docker daemon is unreachable. Start Docker and verify access with `docker info`.",
-            ),
-            None,
-        )
+        message = "Docker daemon is unreachable. Start Docker and verify access with `docker info`."
+        detail = ((result.stderr or "").strip().splitlines() or [""])[0][:200] if result else ""
+        if detail:
+            message = f"{message} ({detail})"
+        return PreflightCheck("FAIL", "runtime.daemon", message), None
 
     info: dict[str, Any] | None = None
     try:
@@ -179,7 +176,7 @@ def _check_host_hardening(info: dict[str, Any]) -> list[PreflightCheck]:
             "Live restore is not enabled; daemon restarts stop containers (HOST-005).",
         ),
     ]
-    socket_check = _check_socket_exposure()
+    socket_check = _check_socket_exposure(rootless=rootless)
     if socket_check is not None:
         checks.append(socket_check)
     return checks
@@ -189,9 +186,24 @@ def _host_check(ok: bool, name: str, pass_message: str, warn_message: str) -> Pr
     return PreflightCheck("PASS" if ok else "WARN", name, pass_message if ok else warn_message)
 
 
-def _check_socket_exposure() -> PreflightCheck | None:
+def _uses_non_default_context() -> bool:
+    """True when the Docker CLI targets a named context (possibly a remote daemon)."""
+    context = os.environ.get("DOCKER_CONTEXT", "").strip()
+    if not context:
+        config_dir = Path(os.environ.get("DOCKER_CONFIG") or Path.home() / ".docker")
+        try:
+            config = json.loads((config_dir / "config.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        context = str(config.get("currentContext", "")).strip() if isinstance(config, dict) else ""
+    return context not in {"", "default"}
+
+
+def _check_socket_exposure(rootless: bool = False) -> PreflightCheck | None:
     """Return None when the socket cannot be meaningfully inspected."""
     docker_host = os.environ.get("DOCKER_HOST", "").strip()
+    if not docker_host and _uses_non_default_context():
+        return None
     scheme = docker_host.lower().split("://", 1)[0] if "://" in docker_host else ""
     if scheme in {"tcp", "http"}:
         # Docker treats any non-empty DOCKER_TLS_VERIFY value as enabled.
@@ -210,7 +222,11 @@ def _check_socket_exposure() -> PreflightCheck | None:
     if scheme not in {"", "unix"} or os.name == "nt":
         return None
 
-    socket_path = Path(docker_host.removeprefix("unix://") or "/var/run/docker.sock")
+    default_socket = "/var/run/docker.sock"
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "").strip()
+    if rootless and runtime_dir:
+        default_socket = str(Path(runtime_dir) / "docker.sock")
+    socket_path = Path(docker_host.removeprefix("unix://") or default_socket)
     try:
         mode = socket_path.stat().st_mode
     except OSError:

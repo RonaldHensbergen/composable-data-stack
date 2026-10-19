@@ -506,6 +506,11 @@ class HostHardeningTest(unittest.TestCase):
         "LiveRestoreEnabled": True,
     }
 
+    def setUp(self) -> None:
+        self._context_patch = patch("cli.preflight._uses_non_default_context", return_value=False)
+        self._context_patch.start()
+        self.addCleanup(patch.stopall)
+
     def _by_name(self, info):
         return {c.name: c for c in _check_host_hardening(info)}
 
@@ -546,6 +551,42 @@ class HostHardeningTest(unittest.TestCase):
             self.assertIsNone(_check_socket_exposure())
         with patch.dict(os.environ, {"DOCKER_HOST": "npipe:////./pipe/docker_engine"}, clear=True):
             self.assertIsNone(_check_socket_exposure())
+
+    @unittest.skipIf(os.name == "nt", "POSIX file modes are not enforced on Windows")
+    def test_named_docker_context_omits_local_socket_check(self) -> None:
+        self._context_patch.stop()
+        with patch.dict(os.environ, {"DOCKER_CONTEXT": "remote-prod"}, clear=True):
+            self.assertIsNone(_check_socket_exposure())
+
+    @unittest.skipIf(os.name == "nt", "POSIX file modes are not enforced on Windows")
+    def test_current_context_in_config_file_omits_socket_check(self) -> None:
+        self._context_patch.stop()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "config.json").write_text('{"currentContext": "remote"}', encoding="utf-8")
+            with patch.dict(os.environ, {"DOCKER_CONFIG": tmpdir}, clear=True):
+                self.assertIsNone(_check_socket_exposure())
+
+    @unittest.skipIf(os.name == "nt", "POSIX file modes are not enforced on Windows")
+    def test_rootless_daemon_socket_is_read_from_xdg_runtime_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sock = Path(tmpdir) / "docker.sock"
+            sock.touch()
+            sock.chmod(0o666)
+            env = {"XDG_RUNTIME_DIR": tmpdir, "DOCKER_CONFIG": tmpdir}
+            with patch.dict(os.environ, env, clear=True):
+                self.assertEqual(_check_socket_exposure(rootless=True).status, "WARN")
+
+    @patch("cli.preflight.subprocess.run")
+    @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
+    def test_unreachable_daemon_failure_includes_stderr_detail(self, _which, mock_run) -> None:
+        mock_run.side_effect = [
+            subprocess.CompletedProcess([], 0),
+            subprocess.CompletedProcess([], 1, stdout="", stderr="permission denied on docker.sock\n"),
+        ]
+        checks = run_preflight({"runtime": {"type": "docker-compose"}}, "services: {}\n", Path("missing.env"))
+        daemon = next(c for c in checks if c.name == "runtime.daemon")
+        self.assertEqual(daemon.status, "FAIL")
+        self.assertIn("permission denied", daemon.message)
 
     def test_docker_desktop_skips_host_checks(self) -> None:
         info = {**self.HARDENED, "OperatingSystem": "Docker Desktop", "SecurityOptions": []}

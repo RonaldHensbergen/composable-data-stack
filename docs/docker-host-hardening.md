@@ -50,7 +50,10 @@ Limits of the checks:
   `DOCKER_HOST` (TLS is considered enabled when `DOCKER_TLS_VERIFY` is set to
   any non-empty value, as Docker itself does), an `ssh://` host, or a local
   Unix socket on POSIX. Other transports are omitted rather than reported as
-  `PASS`.
+  `PASS`. It is also omitted when the Docker CLI targets a named context
+  (`DOCKER_CONTEXT` or `currentContext` in `config.json`), since the daemon
+  may be remote. For a rootless daemon without `DOCKER_HOST`, the socket at
+  `$XDG_RUNTIME_DIR/docker.sock` is inspected.
 
 ```text
 [PASS] host.rootless: Docker daemon runs in rootless mode.
