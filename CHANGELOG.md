@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-19
+
 ### Fixed
 
 - Fixed a flaky Superset init failure (duplicate-key error while creating the
