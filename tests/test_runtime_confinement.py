@@ -6,7 +6,8 @@ from pathlib import Path
 
 import yaml
 
-from cli.confinement import validate_confinement
+from cli.confinement import apply_confinement, validate_confinement
+from cli.k8s_renderer import render_helm
 from cli.planner import build_plan
 from cli.renderer import render_compose
 from cli.validator import validate_profile
@@ -74,6 +75,58 @@ class ConfinementRenderTest(_ProfileCase):
         path = self._profile()
         self.assertNotIn("seccomp=unconfined", self._render(path).get("security_opt", []))
 
+    def test_unrelated_security_opt_is_kept_and_matching_keys_replaced(self):
+        service = {
+            "security_opt": ["no-new-privileges:true", "apparmor=old", "label:disable"]
+        }
+        apply_confinement(
+            service,
+            {"apparmor": "cds-custom", "selinux": ["type:container_t"]},
+            Path("/c"),
+            Path("/c"),
+        )
+        self.assertEqual(
+            service["security_opt"],
+            ["no-new-privileges:true", "apparmor=cds-custom", "label=type:container_t"],
+        )
+
+    def test_seccomp_default_clears_module_set_value_only(self):
+        service = {"security_opt": ["seccomp=unconfined", "no-new-privileges:true"]}
+        apply_confinement(service, {"seccomp": "default"}, Path("/c"), Path("/c"))
+        self.assertEqual(service["security_opt"], ["no-new-privileges:true"])
+
+    def test_module_level_seccomp_file_is_rendered_relative_to_compose_file(self):
+        path = self._profile(
+            module_security={"confinement": {"seccomp": "file:seccomp.json"}},
+            seccomp_file=True,
+        )
+        self.assertIn("seccomp:../seccomp.json", self._render(path)["security_opt"])
+
+    def test_plan_with_escaping_seccomp_path_is_rejected_at_render_time(self):
+        path = self._profile(
+            {"runtime": {"confinement": {"seccomp": "file:seccomp.json"}}},
+            seccomp_file=True,
+        )
+        plan, _ = build_plan(str(path), env_file=str(path.parent / ".env"))
+        plan["security"]["runtime"]["confinement"]["seccomp"] = "file:../../etc/x.json"
+        _, diags = render_compose(plan, output_path=str(path.parent / "out" / "c.yml"))
+        self.assertIn("E127", [d.code for d in diags if d.level == "error"])
+
+
+class ConfinementHelmWarningTest(_ProfileCase):
+    def test_helm_render_warns_that_confinement_is_not_rendered(self):
+        plan = {
+            "metadata": {"name": "demo"},
+            "security": {"runtime": {"confinement": {"apparmor": "runtime/default"}}},
+            "modules": [],
+        }
+        _, diags = render_helm(plan)
+        self.assertIn("W127", [d.code for d in diags if d.level == "warning"])
+
+    def test_helm_render_is_silent_without_confinement(self):
+        _, diags = render_helm({"metadata": {"name": "demo"}, "modules": []})
+        self.assertNotIn("W127", [d.code for d in diags])
+
 
 class ConfinementValidationTest(_ProfileCase):
     def test_valid_profile_passes_validation(self):
@@ -87,6 +140,8 @@ class ConfinementValidationTest(_ProfileCase):
             ({"seccomp": "bogus"}, "seccomp"),
             ({"seccomp": "file:../escape.json"}, "seccomp"),
             ({"seccomp": "file:/etc/x.json"}, "seccomp"),
+            ({"seccomp": "file:\\etc\\x.json"}, "seccomp"),
+            ({"seccomp": "file:C:x.json"}, "seccomp"),
             ({"seccomp": "file:missing.json"}, "seccomp"),
             ({"apparmor": "bad name;rm"}, "apparmor"),
             ({"selinux": ["nonsense"]}, "selinux"),
@@ -100,6 +155,11 @@ class ConfinementValidationTest(_ProfileCase):
                 diags = validate_confinement(block, "c", base)
                 self.assertTrue(diags)
                 self.assertTrue(all(d.code == "E127" and d.path == f"c.{key}" for d in diags))
+
+    def test_invalid_selinux_string_reports_e127_not_a_schema_error(self):
+        path = self._profile({"runtime": {"confinement": {"selinux": "foo"}}})
+        codes = [d.code for d in validate_profile(str(path)) if d.level == "error"]
+        self.assertEqual(codes, ["E127"])
 
     def test_invalid_module_confinement_fails_validation(self):
         path = self._profile(module_security={"confinement": {"apparmor": "x y"}})

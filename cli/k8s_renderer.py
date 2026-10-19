@@ -28,6 +28,7 @@ from typing import Any
 
 import yaml
 
+from .confinement import plan_declares_confinement
 from .diagnostics import Diagnostic
 from .renderer import (
     _build_context,
@@ -112,6 +113,20 @@ def render_helm(
         )
     if unsupported:
         return {}, diagnostics
+
+    if plan_declares_confinement(plan):
+        diagnostics.append(
+            Diagnostic(
+                level="warning",
+                code="W127",
+                message=(
+                    "Runtime confinement (seccomp/AppArmor/SELinux) is only rendered for "
+                    "the compose target; it has no effect on the Helm chart. "
+                    "Kubernetes security contexts are tracked under #65."
+                ),
+                path="spec.security.runtime.confinement",
+            )
+        )
 
     # Service names must be known before any workload renders, because
     # ${k8s.service.*} can point forward to a workload declared later.

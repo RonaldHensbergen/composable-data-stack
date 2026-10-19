@@ -12,7 +12,8 @@ The format is based on Keep a Changelog.
   (profile default) and `modules[].security.confinement` (per-module
   override) select seccomp, AppArmor and SELinux settings that `cds render`
   writes into each service's `security_opt`; invalid or unsupported values
-  fail validation with error `E127` (#207).
+  fail validation with error `E127`, and `--target=helm` warns (`W127`)
+  that confinement is not rendered for Kubernetes (#207).
 
 ### Fixed
 

@@ -17,6 +17,7 @@ INVALID_CONFINEMENT_CODE = "E127"
 CONFINEMENT_KEYS = ("seccomp", "apparmor", "selinux")
 
 _APPARMOR_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
+_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _SELINUX_LABEL_RE = re.compile(r"^(user|role|type|level):[A-Za-z0-9_.,:-]+$")
 
 
@@ -30,6 +31,18 @@ def profile_confinement(profile_or_plan: dict[str, Any] | None) -> dict[str, Any
     runtime = (security or {}).get("runtime") if isinstance(security, dict) else None
     block = (runtime or {}).get("confinement") if isinstance(runtime, dict) else None
     return block if isinstance(block, dict) else {}
+
+
+def plan_declares_confinement(plan: dict[str, Any] | None) -> bool:
+    """True when the profile or any module instance sets confinement."""
+    if profile_confinement(plan):
+        return True
+    return any(
+        isinstance((module.get("security") or {}).get("confinement"), dict)
+        and (module.get("security") or {}).get("confinement")
+        for module in (plan or {}).get("modules") or []
+        if isinstance(module, dict)
+    )
 
 
 def effective_confinement(
@@ -88,7 +101,14 @@ def _validate_seccomp(value: Any, path: str, base_dir: Path | None) -> list[Diag
             path,
         )]
     relative = value[5:]
-    if Path(relative).is_absolute() or ".." in Path(relative).parts:
+    # Reject rooted and drive-qualified paths explicitly: they are not
+    # "absolute" to pathlib on every platform (e.g. "/x" on Windows).
+    if (
+        Path(relative).is_absolute()
+        or relative.startswith(("/", "\\"))
+        or _DRIVE_RE.match(relative)
+        or ".." in Path(relative).parts
+    ):
         return [_error(
             "seccomp file profiles must be relative paths inside the profile directory.", path
         )]

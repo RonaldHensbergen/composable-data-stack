@@ -13,7 +13,12 @@ from typing import Any
 
 import yaml
 
-from .confinement import apply_confinement, effective_confinement, profile_confinement
+from .confinement import (
+    apply_confinement,
+    effective_confinement,
+    profile_confinement,
+    validate_confinement,
+)
 from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
@@ -136,6 +141,13 @@ def render_compose(
             profile_confinement(plan),
             (module.get("security") or {}).get("confinement"),
         )
+        # Plans can be loaded from files, so re-check what validate already checked.
+        confinement_diags = validate_confinement(
+            module_confinement, f'module:{module.get("id")}.security.confinement', profile_dir
+        )
+        if confinement_diags:
+            diagnostics.extend(confinement_diags)
+            continue
         for service_def in rendered_services.values():
             apply_confinement(service_def, module_confinement, compose_dir, profile_dir)
 

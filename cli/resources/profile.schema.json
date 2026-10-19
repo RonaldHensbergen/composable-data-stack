@@ -240,10 +240,7 @@
         },
         "selinux": {
           "description": "'disable' or a list of labels such as 'type:container_t'.",
-          "oneOf": [
-            {"const": "disable"},
-            {"type": "array", "minItems": 1, "items": {"type": "string"}}
-          ]
+          "type": ["string", "array"]
         }
       }
     },
