@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import socket
+import stat
 import subprocess  # nosec B404
 from dataclasses import dataclass
 from pathlib import Path
@@ -88,23 +90,16 @@ def _check_runtime(runtime: dict[str, Any], plan: dict[str, Any] | None = None) 
             "Docker Compose is unavailable. Install the Compose plugin.",
         )
     )
-    checks.append(
-        _run_runtime_command(
-            ["docker", "info"],
-            "runtime.daemon",
-            "Docker daemon is reachable.",
-            "Docker daemon is unreachable. Start Docker and verify access with `docker info`.",
-        )
-    )
-    if checks[-1].status == "PASS":
-        checks.append(_check_rootless(plan or {}))
+    daemon_check, docker_info = _check_daemon()
+    checks.append(daemon_check)
+    if docker_info is not None:
+        checks.extend(_check_host_hardening(docker_info, production=infer_profile_class(plan or {}) == "prod"))
     return checks
 
 
-def _check_rootless(plan: dict[str, Any]) -> PreflightCheck:
-    """Report whether the Docker daemon runs rootless (docs/rootless-docker.md)."""
-    name = "runtime.rootless"
-    command = ["docker", "info", "--format", "{{json .SecurityOptions}}"]
+def _check_daemon() -> tuple[PreflightCheck, dict[str, Any] | None]:
+    """Probe the daemon with one `docker info` call; also return its parsed JSON."""
+    command = ["docker", "info", "--format", "{{json .}}"]
     try:
         result = subprocess.run(  # nosec B603  # noqa: S603
             command,
@@ -114,20 +109,138 @@ def _check_rootless(plan: dict[str, Any]) -> PreflightCheck:
         )
     except (OSError, subprocess.TimeoutExpired):
         result = None
+
     if result is None or result.returncode != 0:
-        return PreflightCheck("WARN", name, "Could not determine whether the Docker daemon is rootless.")
-    if "name=rootless" in (result.stdout or ""):
-        return PreflightCheck("PASS", name, "Docker daemon runs in rootless mode.")
-    if infer_profile_class(plan) == "prod":
+        message = "Docker daemon is unreachable. Start Docker and verify access with `docker info`."
+        detail = ((result.stderr or "").strip().splitlines() or [""])[0][:200] if result else ""
+        if detail:
+            message = f"{message} ({detail})"
+        return PreflightCheck("FAIL", "runtime.daemon", message), None
+
+    info: dict[str, Any] | None = None
+    try:
+        parsed = json.loads(result.stdout or "")
+    except (TypeError, ValueError):
+        parsed = None
+    if isinstance(parsed, dict):
+        info = parsed
+    return PreflightCheck("PASS", "runtime.daemon", "Docker daemon is reachable."), info
+
+
+def _check_host_hardening(info: dict[str, Any], production: bool = True) -> list[PreflightCheck]:
+    """
+    Inspect host/daemon settings from `docker info` without privileged access.
+
+    All findings are advisory (PASS/WARN): the host baseline in
+    docs/docker-host-hardening.md is an operator responsibility, so these
+    checks never fail preflight.
+    """
+    # Docker Desktop's daemon runs in a managed VM the operator cannot harden.
+    if "docker desktop" in str(info.get("OperatingSystem", "")).lower():
+        return []
+
+    raw_options = info.get("SecurityOptions")
+    options = {str(o) for o in raw_options} if isinstance(raw_options, list) else set()
+    rootless = "name=rootless" in options
+    checks = [
+        _host_check(
+            rootless or not production,
+            "host.rootless",
+            "Docker daemon runs in rootless mode."
+            if rootless
+            else "Docker daemon is not rootless (recommended for production hosts, HOST-001).",
+            "Docker daemon runs as root: a container breakout yields host root. "
+            "Use rootless Docker for production hosts (HOST-001, see docs/rootless-docker.md).",
+        ),
+        _host_check(
+            rootless or "name=userns" in options,
+            "host.userns",
+            "User namespace isolation is active.",
+            "User namespace remapping is not enabled (HOST-002).",
+        ),
+        _host_check(
+            any(o.startswith("name=seccomp") for o in options)
+            and "name=seccomp,profile=unconfined" not in options,
+            "host.seccomp",
+            "Daemon default seccomp profile is active.",
+            "Daemon default seccomp profile is not active (HOST-003).",
+        ),
+        _host_check(
+            info.get("LoggingDriver") not in {None, "", "none"},
+            "host.logging",
+            f'Daemon logging driver "{info.get("LoggingDriver")}" is enabled '
+            "(log rotation is not verified; check daemon.json, HOST-004).",
+            "Daemon logging driver is disabled; container logs are not retained (HOST-004).",
+        ),
+        _host_check(
+            info.get("LiveRestoreEnabled") is True,
+            "host.live-restore",
+            "Live restore is enabled.",
+            "Live restore is not enabled; daemon restarts stop containers (HOST-005).",
+        ),
+    ]
+    socket_check = _check_socket_exposure(rootless=rootless)
+    if socket_check is not None:
+        checks.append(socket_check)
+    return checks
+
+
+def _host_check(ok: bool, name: str, pass_message: str, warn_message: str) -> PreflightCheck:
+    return PreflightCheck("PASS" if ok else "WARN", name, pass_message if ok else warn_message)
+
+
+def _uses_non_default_context() -> bool:
+    """True when the Docker CLI targets a named context (possibly a remote daemon)."""
+    context = os.environ.get("DOCKER_CONTEXT", "").strip()
+    if not context:
+        config_dir = Path(os.environ.get("DOCKER_CONFIG") or Path.home() / ".docker")
+        try:
+            config = json.loads((config_dir / "config.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        context = str(config.get("currentContext", "")).strip() if isinstance(config, dict) else ""
+    return context not in {"", "default"}
+
+
+def _check_socket_exposure(rootless: bool = False) -> PreflightCheck | None:
+    """Return None when the socket cannot be meaningfully inspected."""
+    docker_host = os.environ.get("DOCKER_HOST", "").strip()
+    if not docker_host and _uses_non_default_context():
+        return None
+    scheme = docker_host.lower().split("://", 1)[0] if "://" in docker_host else ""
+    if scheme in {"tcp", "http"}:
+        # Docker treats any non-empty DOCKER_TLS_VERIFY value as enabled.
+        if os.environ.get("DOCKER_TLS_VERIFY", "").strip():
+            return PreflightCheck(
+                "PASS", "host.socket", "Daemon is reached over TCP with TLS verification."
+            )
         return PreflightCheck(
             "WARN",
-            name,
-            "Docker daemon is not rootless: a container breakout yields host root. "
-            "Use rootless Docker for production hosts (see docs/rootless-docker.md).",
+            "host.socket",
+            "DOCKER_HOST uses TCP without DOCKER_TLS_VERIFY; "
+            "an unauthenticated daemon socket grants root on the host (HOST-006).",
         )
-    return PreflightCheck(
-        "PASS", name, "Docker daemon is not rootless (recommended for production hosts)."
-    )
+    if scheme == "ssh":
+        return PreflightCheck("PASS", "host.socket", "Daemon is reached over SSH.")
+    if scheme not in {"", "unix"} or os.name == "nt":
+        return None
+
+    default_socket = "/var/run/docker.sock"
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", "").strip()
+    if rootless and runtime_dir:
+        default_socket = str(Path(runtime_dir) / "docker.sock")
+    socket_path = Path(docker_host.removeprefix("unix://") or default_socket)
+    try:
+        mode = socket_path.stat().st_mode
+    except OSError:
+        return None
+    if mode & stat.S_IWOTH:
+        return PreflightCheck(
+            "WARN",
+            "host.socket",
+            f"Daemon socket {socket_path} is world-writable (HOST-006).",
+        )
+    return PreflightCheck("PASS", "host.socket", "Daemon socket is not world-writable.")
 
 
 def _run_runtime_command(

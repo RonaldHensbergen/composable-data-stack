@@ -8,15 +8,18 @@ deployment mode for production hosts (threat T16 in
 
 ## Check your host
 
-`cds preflight` reports the daemon mode as `runtime.rootless`:
+`cds preflight` reports the daemon mode as `host.rootless`:
 
-- `PASS` — the daemon runs rootless.
+- `PASS` — the daemon runs rootless, or it is rootful on a non-production
+  profile (a recommendation only).
 - `WARN` on production-class profiles — the daemon is rootful.
-- `WARN` — the mode could not be determined (`docker info` failed).
+- No `host.*` results are reported when `docker info` fails (the
+  `runtime.daemon` check fails instead) or on Docker Desktop.
 
 The same information is available with
 `docker info --format '{{json .SecurityOptions}}'`, which contains
-`name=rootless` for a rootless daemon.
+`name=rootless` for a rootless daemon. See also the
+[host hardening baseline](docker-host-hardening.md).
 
 ## Compatibility expectations
 
