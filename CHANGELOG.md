@@ -12,6 +12,11 @@ The format is based on Keep a Changelog.
   file readable or writable by group or others (new `file-permissions`
   rule scope and `permissions` condition; skipped on Windows), and
   `cds init` explicitly creates `.env` as owner-only (`0600`) (#357).
+- Added a versioned Docker host and daemon hardening baseline
+  (`docs/docker-host-hardening.md`) separating CDS-enforced controls from
+  operator responsibilities, and advisory `host.*` checks in `cds preflight`
+  for rootless mode, user namespaces, seccomp, logging, live restore, and
+  daemon socket exposure (#211).
 
 ### Fixed
 
