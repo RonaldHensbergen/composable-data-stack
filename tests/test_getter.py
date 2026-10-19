@@ -13,6 +13,7 @@ from unittest.mock import patch
 from cli.getter import (
     DEFAULT_REMOTE,
     GetError,
+    _extract_dockerfile_instruction_sources,
     _parse_github_remote,
     fetch_profile,
     format_get_plan,
@@ -948,6 +949,19 @@ COPY ../outside/secret.txt /app/secret.txt
             destination_entrypoint = destination_root / "images" / "demo" / "entrypoint.sh"
             mode = stat.S_IMODE(destination_entrypoint.stat().st_mode)
             self.assertEqual(mode, 0o755)
+
+
+class DockerfileRootedSourceTest(unittest.TestCase):
+    def test_rooted_copy_source_is_skipped_on_every_platform(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            _write(root / "a.txt", "x")
+            for rooted in ("/abs", "\\abs"):
+                with self.subTest(rooted=rooted):
+                    result = _extract_dockerfile_instruction_sources(
+                        root, root / "Dockerfile", f"COPY {rooted} a.txt /dst"
+                    )
+                    self.assertEqual({p.name for p in result}, {"a.txt"})
 
 
 class GitHubRemoteTest(unittest.TestCase):
