@@ -26,7 +26,7 @@ The format is based on Keep a Changelog.
   capture to the Docker runtime smoke test on failure (#890).
 - Fixed `cds get` crashing with an uncaught `NotImplementedError` on Windows
   when a Dockerfile `COPY`/`ADD` source starts with a rooted path such as
-  `/abs`; such sources are now skipped like other absolute paths (#TBD).
+  `/abs`; such sources are now skipped like other absolute paths (#904).
 
 ## [0.12.0] - 2026-10-16
 
