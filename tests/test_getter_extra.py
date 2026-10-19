@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 import tarfile
 import tempfile
 import unittest
@@ -509,8 +510,12 @@ class DockerfileParsingTest(unittest.TestCase):
         self.assertEqual(self._sources("COPY --link"), set())
 
     def test_skipped_and_special_sources(self) -> None:
-        line = "COPY . https://x/y http://x/y ${ARG} /abs missing *.txt /dst"
+        line = "COPY . https://x/y http://x/y ${ARG} missing *.txt /dst"
         self.assertEqual(self._sources(line), {".", "a.txt"})
+
+    @unittest.skipIf(os.name == "nt", "POSIX-style absolute paths are not absolute on Windows")
+    def test_absolute_source_skipped(self) -> None:
+        self.assertEqual(self._sources("COPY /abs a.txt /dst"), {"a.txt"})
 
     def test_missing_literal_source_ignored(self) -> None:
         self.assertEqual(self._sources("COPY nope /dst"), set())
