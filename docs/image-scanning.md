@@ -55,7 +55,7 @@ using `--require-hashes`, so an unpinned or hash-mismatched transitive
 dependency fails the build instead of silently resolving. Edit the direct
 dependencies in the neighboring `requirements*.in` file and regenerate the
 lock from that directory (the Python version matches the image's
-interpreter: 3.14, or 3.10 for `superset`):
+interpreter: 3.14, or 3.11 for `superset`):
 
 ```bash
 uv pip compile --generate-hashes --python-version 3.14 \

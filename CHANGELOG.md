@@ -27,6 +27,11 @@ The format is based on Keep a Changelog.
 - Fixed `cds get` crashing with an uncaught `NotImplementedError` on Windows
   when a Dockerfile `COPY`/`ADD` source starts with a rooted path such as
   `/abs`; such sources are now skipped like other absolute paths (#904).
+- Bumped the Superset image's hash-locked `uv` to 0.13.4 to resolve
+  PYSEC-2026-4321 flagged by `pip-audit` (#907).
+- Moved the Superset image to the `apache/superset:6.1.0-py311` base and
+  re-locked its dependencies for Python 3.11, which allows Pillow 13.0.0 and
+  resolves the Pillow advisories flagged by `pip-audit` (#907).
 
 ## [0.12.0] - 2026-10-16
 
