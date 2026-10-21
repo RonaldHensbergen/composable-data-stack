@@ -1,4 +1,4 @@
-FROM apache/superset:6.1.0@sha256:16b50bbef6648912a79e3293d418fefa743ce555d36c5af6b85d859119ed7f88
+FROM apache/superset:6.1.0-py311@sha256:95b060f3450f3314019700642c20d2149dc0e0b41d65c0ef8a1bd8018fbf385c
 
 USER root
 
@@ -23,13 +23,13 @@ RUN uv pip install --python /app/.venv/bin/python --no-cache --upgrade \
 # The application uses /app/.venv; remove unused system packaging tools and their
 # vendored metadata so scanners do not report packages that cannot run.
 RUN rm -rf \
-      /usr/local/lib/python3.10/site-packages/pip \
-      /usr/local/lib/python3.10/site-packages/pip-*.dist-info \
-      /usr/local/lib/python3.10/site-packages/setuptools \
-      /usr/local/lib/python3.10/site-packages/setuptools-*.dist-info \
-      /usr/local/lib/python3.10/site-packages/wheel \
-      /usr/local/lib/python3.10/site-packages/wheel-*.dist-info \
-    && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.10 /usr/local/bin/wheel
+      /usr/local/lib/python3.11/site-packages/pip \
+      /usr/local/lib/python3.11/site-packages/pip-*.dist-info \
+      /usr/local/lib/python3.11/site-packages/setuptools \
+      /usr/local/lib/python3.11/site-packages/setuptools-*.dist-info \
+      /usr/local/lib/python3.11/site-packages/wheel \
+      /usr/local/lib/python3.11/site-packages/wheel-*.dist-info \
+    && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.11 /usr/local/bin/wheel
 
 COPY --chown=superset:superset --chmod=0444 images/superset/superset_config.py /app/pythonpath/superset_config.py
 COPY --chown=superset:superset --chmod=0444 images/superset/service-worker.js /app/superset/static/service-worker.js
