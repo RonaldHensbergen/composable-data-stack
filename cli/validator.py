@@ -66,6 +66,7 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_image_source_config(module_instances))
     diagnostics.extend(validate_outputs(profile, module_instances))
     diagnostics.extend(validate_observability_config(profile, module_instances))
+    diagnostics.extend(validate_backup_config(profile, module_instances))
 
     return diagnostics
 
@@ -859,3 +860,175 @@ def validate_observability_config(profile: dict[str, Any], module_instances: lis
         )
 
     return diagnostics
+
+
+_BACKUP_CATEGORY_WORKLOAD_CLASSES = {
+    "warehouse": "warehouse",
+    "orchestration": "orchestration-metadata",
+    "bi": "bi-metadata",
+}
+
+
+def required_backup_workload_classes(module_instances: list[dict[str, Any]]) -> list[str]:
+    """
+    Workload classes a production profile must cover: `configuration` always,
+    plus one class per enabled module category that holds state worth backing
+    up (warehouse data, orchestration metadata, BI metadata).
+    """
+    required = {"configuration"}
+    for inst in module_instances:
+        if inst.get("instance", {}).get("enabled") is False:
+            continue
+        category = inst["module"].get("metadata", {}).get("category")
+        workload_class = _BACKUP_CATEGORY_WORKLOAD_CLASSES.get(category)
+        if workload_class:
+            required.add(workload_class)
+    return sorted(required)
+
+
+def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+    """
+    Validates the optional spec.backup block (see #210 / docs/backup-restore.md).
+
+    Shape (types, bounds, enums) is enforced by profile.schema.json (E010);
+    this checks the cross-document rules: encryption keys must reference a
+    declared secret alias, a pinned target must resolve to a backup-target
+    provider, and production profiles must declare encrypted, restore-verified
+    backup policies for every workload class they run.
+    """
+    diagnostics: list[Diagnostic] = []
+    spec = profile.get("spec", {})
+    backup = spec.get("backup")
+    is_production = profile.get("metadata", {}).get("environment") == "production"
+
+    if backup is None:
+        if is_production:
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E133",
+                    "Production profiles must declare spec.backup with a policy per workload class "
+                    f"({', '.join(required_backup_workload_classes(module_instances))}).",
+                    "spec.backup",
+                )
+            )
+        return diagnostics
+
+    if not isinstance(backup, dict):
+        return diagnostics  # shape error already reported as E010
+
+    seen: set[str] = set()
+    for index, policy in enumerate(backup.get("policies", [])):
+        if not isinstance(policy, dict):
+            continue
+        workload_class = policy.get("workloadClass")
+        if workload_class in seen:
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E130",
+                    f'Duplicate backup policy for workload class "{workload_class}".',
+                    f"spec.backup.policies[{index}].workloadClass",
+                )
+            )
+        seen.add(workload_class)
+
+    encryption = backup.get("encryption")
+    if isinstance(encryption, dict) and is_secret_ref(encryption.get("keyFrom")):
+        alias = secret_name_from_ref(encryption["keyFrom"])
+        if alias not in spec.get("secrets", {}).get("values", {}):
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E131",
+                    f'Backup encryption key ref "{encryption["keyFrom"]}" is not defined in spec.secrets.values.',
+                    "spec.backup.encryption.keyFrom",
+                )
+            )
+
+    target = backup.get("target")
+    if isinstance(target, dict) and isinstance(target.get("contractRef"), str):
+        diagnostics.extend(_validate_backup_target_ref(target["contractRef"], module_instances))
+
+    if is_production:
+        path = "spec.backup"
+        if not isinstance(encryption, dict):
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E134",
+                    "Production backups must be encrypted: declare spec.backup.encryption.keyFrom.",
+                    f"{path}.encryption",
+                )
+            )
+        missing = [c for c in required_backup_workload_classes(module_instances) if c not in seen]
+        if missing:
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E133",
+                    f"Production backup policies are missing workload classes: {', '.join(missing)}.",
+                    f"{path}.policies",
+                )
+            )
+        for index, policy in enumerate(backup.get("policies", [])):
+            if isinstance(policy, dict) and "restoreVerification" not in policy:
+                diagnostics.append(
+                    Diagnostic(
+                        "error",
+                        "E135",
+                        f'Production backup policy "{policy.get("workloadClass")}" must declare restoreVerification.',
+                        f"{path}.policies[{index}].restoreVerification",
+                    )
+                )
+
+    return diagnostics
+
+
+def _validate_backup_target_ref(contract_ref: str, module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+    path = "spec.backup.target.contractRef"
+    parsed = parse_contract_ref(contract_ref)
+    if parsed is None:
+        return [
+            Diagnostic(
+                "error",
+                "E132",
+                f'Invalid backup target contractRef "{contract_ref}". Expected "<module-id>.<contract-name>".',
+                path,
+            )
+        ]
+
+    module_id, provide_name = parsed
+    producer = next((m for m in module_instances if m["id"] == module_id), None)
+    if producer is None:
+        return [
+            Diagnostic(
+                "error", "E132", f'Backup target contractRef "{contract_ref}" points to unknown module "{module_id}".', path
+            )
+        ]
+
+    provides = producer["module"].get("spec", {}).get("provides", [])
+    matched = next((p for p in provides if p.get("name") == provide_name), None)
+    if matched is None:
+        return [
+            Diagnostic(
+                "error",
+                "E132",
+                f'Backup target contractRef "{contract_ref}" points to module "{module_id}", '
+                f'but it does not provide "{provide_name}".',
+                path,
+            )
+        ]
+
+    actual_kind = matched.get("contract", {}).get("kind")
+    if actual_kind != "backup-target":
+        return [
+            Diagnostic(
+                "error",
+                "E132",
+                f'Backup target contractRef "{contract_ref}" resolves to contract kind "{actual_kind}", '
+                'expected "backup-target".',
+                path,
+            )
+        ]
+    return []

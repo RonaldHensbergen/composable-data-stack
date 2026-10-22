@@ -12,3 +12,41 @@ spec:
       config:
         storage:
           size: 20Gi
+
+  # Production profiles must declare encrypted backup policies per workload
+  # class (see docs/backup-restore.md). The storage provider stays open: add
+  # spec.backup.target.contractRef once a backup-target provider module is used.
+  secrets:
+    values:
+      backup_encryption_key:
+        env: CDS_BACKUP_ENCRYPTION_KEY
+        required: true
+
+  backup:
+    encryption:
+      keyFrom: secrets.backup_encryption_key
+    policies:
+      - workloadClass: warehouse
+        retentionDays: 30
+        rpoMinutes: 60
+        rtoMinutes: 240
+        restoreVerification:
+          frequencyDays: 30
+      - workloadClass: orchestration-metadata
+        retentionDays: 30
+        rpoMinutes: 60
+        rtoMinutes: 240
+        restoreVerification:
+          frequencyDays: 30
+      - workloadClass: bi-metadata
+        retentionDays: 30
+        rpoMinutes: 1440
+        rtoMinutes: 480
+        restoreVerification:
+          frequencyDays: 90
+      - workloadClass: configuration
+        retentionDays: 90
+        rpoMinutes: 1440
+        rtoMinutes: 120
+        restoreVerification:
+          frequencyDays: 90

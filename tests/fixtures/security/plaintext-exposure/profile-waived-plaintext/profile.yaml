@@ -18,3 +18,18 @@ spec:
     waivers:
       plaintextEndpointExposure:
         reason: approved waiver
+  secrets:
+    values:
+      backup_key:
+        env: CDS_BACKUP_KEY
+        required: false
+  backup:
+    encryption:
+      keyFrom: secrets.backup_key
+    policies:
+      - workloadClass: configuration
+        retentionDays: 30
+        rpoMinutes: 1440
+        rtoMinutes: 120
+        restoreVerification:
+          frequencyDays: 90

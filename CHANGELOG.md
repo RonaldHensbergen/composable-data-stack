@@ -8,6 +8,19 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a vendor-neutral `backup-target` shared contract and an optional
+  `spec.backup` profile block (per-workload-class retention, RPO/RTO,
+  secret-referenced encryption, and restore-verification settings) with
+  validation codes `E130`-`E135`, documented in `docs/backup-restore.md`
+  (#210).
+
+### Changed
+
+- **Breaking:** profiles with `metadata.environment: production` must now
+  declare `spec.backup` with encrypted, restore-verified policies for every
+  workload class they run, or `cds validate` fails with `E133`-`E135`; the
+  example `prod` overlay declares them (#210).
+
 - Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
   file readable or writable by group or others (new `file-permissions`
   rule scope and `permissions` condition; skipped on Windows), and
