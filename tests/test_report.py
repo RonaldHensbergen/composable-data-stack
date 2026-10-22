@@ -22,10 +22,11 @@ from cli.report import (
     build_compliance_report,
 )
 
+from tests.hermetic_project import find_cds, hermetic_env, init_env, make_project
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PROFILE_NAME = "local-dagster-postgres-superset"
 _PROFILE_FILE = str(_REPO_ROOT / "profiles" / _PROFILE_NAME / "profile.yaml")
-_PROFILE_ENV_FILE = _REPO_ROOT / ".env"
 _FIXTURE_PATH = _REPO_ROOT / "tests" / "fixtures" / "signed-images.json"
 
 
@@ -414,27 +415,23 @@ class BuildComplianceReportTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls._created_env = False
-        if not _PROFILE_ENV_FILE.exists():
-            init = subprocess.run(
-                [sys.executable, "-m", "cli.main", "init", _PROFILE_NAME],
-                cwd=str(_REPO_ROOT),
-                capture_output=True,
-                text=True,
-            )
-            if init.returncode != 0:
-                raise RuntimeError(f"cds init failed:\n{init.stdout}\n{init.stderr}")
-            cls._created_env = True
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.project = Path(cls._tmp.name)
+        cls.profile_file = str(make_project(cls.project, _PROFILE_NAME))
+        init_env(find_cds(), cls.project, _PROFILE_NAME)
 
     @classmethod
     def tearDownClass(cls) -> None:
-        if cls._created_env and _PROFILE_ENV_FILE.exists():
-            _PROFILE_ENV_FILE.unlink()
+        cls._tmp.cleanup()
 
     def test_report_assembles_modules_images_topology_and_passes_secret_check(self) -> None:
-        report, diagnostics = build_compliance_report(
-            _PROFILE_FILE, env_file=str(_PROFILE_ENV_FILE)
-        )
+        clean_environ = {
+            k: v for k, v in os.environ.items() if not k.startswith("CDS_")
+        }
+        with patch.dict(os.environ, clean_environ, clear=True):
+            report, diagnostics = build_compliance_report(
+                self.profile_file, env_file=str(self.project / ".env")
+            )
         self.assertIsNotNone(report, f"report build failed: {diagnostics}")
         self.assertEqual(report["kind"], "ComplianceReport")
         self.assertEqual(report["disclaimer"], REPORT_DISCLAIMER)
@@ -461,41 +458,23 @@ class ReportCLITest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.cds = cls._find_cds()
-        cls._created_env = False
-        if not _PROFILE_ENV_FILE.exists():
-            init = subprocess.run(
-                cls.cds + ["init", _PROFILE_NAME],
-                cwd=str(_REPO_ROOT),
-                capture_output=True,
-                text=True,
-            )
-            if init.returncode != 0:
-                raise RuntimeError(f"cds init failed:\n{init.stdout}\n{init.stderr}")
-            cls._created_env = True
+        cls.cds = find_cds()
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.project = Path(cls._tmp.name)
+        make_project(cls.project, _PROFILE_NAME)
+        init_env(cls.cds, cls.project, _PROFILE_NAME)
 
     @classmethod
     def tearDownClass(cls) -> None:
-        if cls._created_env and _PROFILE_ENV_FILE.exists():
-            _PROFILE_ENV_FILE.unlink()
-
-    @staticmethod
-    def _find_cds() -> list:
-        venv_dir = _REPO_ROOT / ".venv"
-        venv_cds = venv_dir / ("Scripts/cds.exe" if sys.platform == "win32" else "bin/cds")
-        if venv_cds.exists():
-            return [str(venv_cds)]
-        return [sys.executable, "-m", "cli.main"]
+        cls._tmp.cleanup()
 
     def _run(self, *args) -> subprocess.CompletedProcess:
-        env = os.environ.copy()
-        env.pop("CDS_PROFILE_PATH", None)
         return subprocess.run(
             self.cds + ["report", _PROFILE_NAME, *args],
-            cwd=str(_REPO_ROOT),
+            cwd=str(self.project),
             capture_output=True,
             text=True,
-            env=env,
+            env=hermetic_env(),
         )
 
     def test_text_output_includes_disclaimer(self) -> None:
