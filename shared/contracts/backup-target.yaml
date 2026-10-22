@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: backup-target
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared, vendor-neutral contract describing a place backups can be written
+    to and restored from, so a profile's backup policies (spec.backup) do not
+    hardcode a storage provider. Providers expose connection details only;
+    encryption keys and storage credentials are supplied through profile
+    secrets and never appear in contract fields. See docs/backup-restore.md.
+
+spec:
+  fields:
+    endpoint:
+      type: string
+      required: true
+      description: Hostname, service name, or URL clients use to reach the backup repository.
+    repository:
+      type: string
+      required: true
+      description: Repository, bucket, or path within the provider that holds backup artifacts.
+    protocol:
+      type: string
+      required: true
+      description: Transfer protocol, e.g. "s3", "sftp", "rest", or "file".
+    encrypted:
+      type: boolean
+      required: true
+      description: Whether the provider encrypts artifacts client-side before storage. Production profiles require true.
+    maxRetentionDays:
+      type: integer
+      required: false
+      description: Longest retention window the provider can enforce for stored artifacts.
+    supportsRestoreVerification:
+      type: boolean
+      required: false
+      description: Whether the provider can restore into a clean, isolated environment for verification.
+  examples:
+    - endpoint: backup-repo
+      repository: cds-backups
+      protocol: rest
+      encrypted: true
+      maxRetentionDays: 365
+      supportsRestoreVerification: true

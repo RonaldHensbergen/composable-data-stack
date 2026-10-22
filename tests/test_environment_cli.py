@@ -246,7 +246,21 @@ class DiffCommandTest(EnvironmentOverlayFixture):
                 "spec": {
                     "modules": [
                         {"id": "db", "config": {"replicas": 1}},
-                    ]
+                    ],
+                    "secrets": {"values": {"backup_key": {"env": "CDS_BACKUP_KEY", "required": False}}},
+                    "backup": {
+                        "encryption": {"keyFrom": "secrets.backup_key"},
+                        "policies": [
+                            {
+                                "workloadClass": workload_class,
+                                "retentionDays": 30,
+                                "rpoMinutes": 1440,
+                                "rtoMinutes": 120,
+                                "restoreVerification": {"frequencyDays": 90},
+                            }
+                            for workload_class in ("configuration", "warehouse")
+                        ],
+                    },
                 },
             },
         )

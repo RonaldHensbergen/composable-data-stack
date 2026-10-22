@@ -557,3 +557,133 @@ class LoadedProfilePipelineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BackupConfigTest(unittest.TestCase):
+    def _policy(self, workload_class, **overrides):
+        policy = {
+            "workloadClass": workload_class,
+            "retentionDays": 30,
+            "rpoMinutes": 60,
+            "rtoMinutes": 240,
+            "restoreVerification": {"frequencyDays": 30},
+        }
+        policy.update(overrides)
+        return policy
+
+    def _profile(self, backup=None, environment="production", secrets=("backup_key",)):
+        spec = {"secrets": {"values": {alias: {"env": "CDS_X"} for alias in secrets}}}
+        if backup is not None:
+            spec["backup"] = backup
+        return {"metadata": {"environment": environment}, "spec": spec}
+
+    def _instances(self):
+        return [
+            _inst("pg", _module(category="warehouse")),
+            _inst("dag", _module(category="orchestration")),
+            _inst("bi", _module(category="bi")),
+        ]
+
+    def _full_backup(self):
+        return {
+            "encryption": {"keyFrom": "secrets.backup_key"},
+            "policies": [
+                self._policy(c) for c in ("warehouse", "orchestration-metadata", "bi-metadata", "configuration")
+            ],
+        }
+
+    def test_required_classes_follow_module_categories(self):
+        self.assertEqual(
+            validator.required_backup_workload_classes(self._instances()),
+            ["bi-metadata", "configuration", "orchestration-metadata", "warehouse"],
+        )
+
+    def test_disabled_modules_do_not_require_a_class(self):
+        inst = _inst("bi", _module(category="bi"))
+        inst["instance"] = {"enabled": False}
+        self.assertEqual(validator.required_backup_workload_classes([inst]), ["configuration"])
+
+    def test_non_production_without_backup_is_clean(self):
+        profile = self._profile(environment="local")
+        self.assertEqual(validator.validate_backup_config(profile, self._instances()), [])
+
+    def test_production_without_backup_reports_e133(self):
+        diagnostics = validator.validate_backup_config(self._profile(), self._instances())
+        self.assertEqual(_codes(diagnostics), [("E133", "spec.backup")])
+
+    def test_complete_production_backup_is_clean(self):
+        profile = self._profile(self._full_backup())
+        self.assertEqual(validator.validate_backup_config(profile, self._instances()), [])
+
+    def test_production_missing_class_reports_e133(self):
+        backup = self._full_backup()
+        backup["policies"] = [p for p in backup["policies"] if p["workloadClass"] != "warehouse"]
+        diagnostics = validator.validate_backup_config(self._profile(backup), self._instances())
+        self.assertEqual(_codes(diagnostics), [("E133", "spec.backup.policies")])
+        self.assertIn("warehouse", diagnostics[0].message)
+
+    def test_production_without_encryption_reports_e134(self):
+        backup = self._full_backup()
+        del backup["encryption"]
+        diagnostics = validator.validate_backup_config(self._profile(backup), self._instances())
+        self.assertEqual(_codes(diagnostics), [("E134", "spec.backup.encryption")])
+
+    def test_production_without_restore_verification_reports_e135(self):
+        backup = self._full_backup()
+        del backup["policies"][0]["restoreVerification"]
+        diagnostics = validator.validate_backup_config(self._profile(backup), self._instances())
+        self.assertEqual(_codes(diagnostics), [("E135", "spec.backup.policies[0].restoreVerification")])
+
+    def test_duplicate_workload_class_reports_e130(self):
+        backup = {"policies": [self._policy("warehouse"), self._policy("warehouse")]}
+        diagnostics = validator.validate_backup_config(self._profile(backup, environment="local"), [])
+        self.assertEqual(_codes(diagnostics), [("E130", "spec.backup.policies[1].workloadClass")])
+
+    def test_unknown_encryption_secret_reports_e131(self):
+        backup = {"encryption": {"keyFrom": "secrets.ghost"}, "policies": [self._policy("warehouse")]}
+        diagnostics = validator.validate_backup_config(self._profile(backup, environment="local"), [])
+        self.assertEqual(_codes(diagnostics), [("E131", "spec.backup.encryption.keyFrom")])
+
+    def _target(self, ref, instances=None):
+        backup = {"target": {"contractRef": ref}, "policies": [self._policy("warehouse")]}
+        return validator.validate_backup_config(self._profile(backup, environment="local"), instances or [])
+
+    def test_target_invalid_unknown_and_missing_report_e132(self):
+        provider = _inst("repo", _module(provides=[{"name": "t", "contract": {"kind": "backup-target"}}]))
+        self.assertEqual(_codes(self._target("nodot")), [("E132", "spec.backup.target.contractRef")])
+        self.assertIn("unknown module", self._target("ghost.t")[0].message)
+        self.assertIn("does not provide", self._target("repo.other", [provider])[0].message)
+
+    def test_target_wrong_kind_reports_e132(self):
+        provider = _inst("repo", _module(provides=[{"name": "t", "contract": {"kind": "sql-database"}}]))
+        diagnostics = self._target("repo.t", [provider])
+        self.assertEqual(_codes(diagnostics), [("E132", "spec.backup.target.contractRef")])
+        self.assertIn("expected \"backup-target\"", diagnostics[0].message)
+
+    def test_valid_target_is_clean(self):
+        provider = _inst("repo", _module(provides=[{"name": "t", "contract": {"kind": "backup-target"}}]))
+        self.assertEqual(self._target("repo.t", [provider]), [])
+
+    def test_schema_rejects_inline_key_material_and_bad_bounds(self):
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "p", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [{"id": "a", "source": "x", "version": "1", "enabled": True, "config": {}}],
+                "backup": {
+                    "encryption": {"keyFrom": "hunter2-literal-key"},
+                    "policies": [self._policy("warehouse", rpoMinutes=0), self._policy("nope")],
+                },
+            },
+        }
+        paths = {d.path for d in validate_profile_shape(profile)}
+        self.assertTrue(
+            {
+                "spec.backup.encryption.keyFrom",
+                "spec.backup.policies.0.rpoMinutes",
+                "spec.backup.policies.1.workloadClass",
+            }
+            <= paths
+        )
