@@ -1023,6 +1023,10 @@ def _write_env_file(
     )
     lines.append("")
     _atomic_write(output_path, "\n".join(lines))
+    # Holds secrets: keep it owner-only even if _atomic_write's temp-file
+    # creation ever changes (CDS-SEC-032). No-op semantics on Windows.
+    if os.name != "nt":
+        output_path.chmod(0o600)
 
 
 def _cds_version() -> str:

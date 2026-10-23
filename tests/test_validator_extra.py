@@ -1,0 +1,559 @@
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import yaml
+
+from cli import validator
+from cli.validator import (
+    CompatibilityRegistryError,
+    _load_compatibility_registry,
+    _module_key,
+    has_errors,
+    load_module_instances,
+    validate_contract_bindings,
+    validate_contract_document,
+    validate_contract_file,
+    validate_image_source_config,
+    validate_loaded_profile,
+    validate_module_configs,
+    validate_observability_config,
+    validate_outputs,
+    validate_pinned_image_digests,
+    validate_profile_shape,
+    validate_secret_refs,
+)
+
+
+def _module(provides=None, consumes=None, category="cat", name="mod", schema=True):
+    spec = {"provides": provides or [], "consumes": consumes or []}
+    if schema:
+        spec["configSchema"] = {"type": "object"}
+    return {
+        "kind": "Module",
+        "metadata": {"category": category, "name": name},
+        "spec": spec,
+    }
+
+
+def _inst(inst_id, module, config=None, index=0):
+    return {
+        "index": index,
+        "id": inst_id,
+        "config": config or {},
+        "module": module,
+    }
+
+
+def _consume(**overrides):
+    entry = {
+        "name": "db",
+        "contract": {"kind": "sql-database"},
+        "mappedFrom": "spec.config.db",
+    }
+    entry.update(overrides)
+    return entry
+
+
+def _codes(diagnostics):
+    return [(d.code, d.path) for d in diagnostics]
+
+
+class ProfileShapeTest(unittest.TestCase):
+    def test_shape_reports_schema_error_with_root_path(self):
+        diagnostics = validate_profile_shape({})
+        self.assertTrue(diagnostics)
+        self.assertTrue(all(d.code == "E010" for d in diagnostics))
+
+    def test_shape_reports_duplicate_module_id_and_skips_non_dict(self):
+        profile = {
+            "spec": {
+                "modules": [
+                    {"id": "a"},
+                    "not-a-dict",
+                    {"id": "a"},
+                ]
+            }
+        }
+        diagnostics = validate_profile_shape(profile)
+        dupes = [d for d in diagnostics if d.code == "E011"]
+        self.assertEqual([d.path for d in dupes], ["spec.modules[2].id"])
+
+    def test_has_errors_ignores_warnings(self):
+        from cli.diagnostics import Diagnostic
+
+        self.assertFalse(has_errors([Diagnostic("warning", "W1", "m", "p")]))
+        self.assertTrue(has_errors([Diagnostic("error", "E1", "m", "p")]))
+
+
+class ContractDocumentTest(unittest.TestCase):
+    def test_contract_document_invalid_uses_e023(self):
+        diagnostics = validate_contract_document({})
+        self.assertTrue(diagnostics)
+        self.assertTrue(all(d.code == "E023" for d in diagnostics))
+        self.assertIn("contract", [d.path for d in diagnostics])
+
+    def test_contract_file_missing_returns_load_diagnostic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            diagnostics = validate_contract_file(Path(tmpdir) / "missing.yaml")
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual(diagnostics[0].code, "E020")
+
+    def test_contract_file_invalid_document_reports_e023(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "contract.yaml"
+            path.write_text("foo: bar\n", encoding="utf-8")
+            diagnostics = validate_contract_file(path)
+        self.assertTrue(diagnostics)
+        self.assertTrue(all(d.code == "E023" for d in diagnostics))
+
+
+class LoadModuleInstancesTest(unittest.TestCase):
+    def _profile(self, modules):
+        return {"spec": {"modules": modules}}
+
+    def _run(self, module_doc, module_instance=None):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "p"
+            module_dir = root / "modules" / "cat" / "mod"
+            profile_dir.mkdir(parents=True)
+            module_dir.mkdir(parents=True)
+            (module_dir / "module.yaml").write_text(yaml.safe_dump(module_doc), encoding="utf-8")
+            instance = {"id": "m", "source": "cat/mod", "config": {}}
+            instance.update(module_instance or {})
+            with patch.dict("os.environ", {"CDS_MODULE_PATH": str(root / "modules")}):
+                return load_module_instances(profile_dir / "profile.yaml", self._profile([instance]))
+
+    def test_wrong_kind_reports_e021_on_source_path(self):
+        instances, diagnostics = self._run({"kind": "Profile"})
+        self.assertEqual(instances, [])
+        self.assertEqual(_codes(diagnostics), [("E021", "spec.modules[0].source")])
+
+    def test_module_schema_errors_report_e021_under_module_path(self):
+        instances, diagnostics = self._run({"kind": "Module"})
+        self.assertEqual(instances, [])
+        self.assertTrue(diagnostics)
+        self.assertTrue(all(d.code == "E021" for d in diagnostics))
+        self.assertTrue(all(d.path.startswith("spec.modules[0]") for d in diagnostics))
+
+    def test_disabled_module_is_skipped(self):
+        instances, diagnostics = self._run({"kind": "Profile"}, {"enabled": False})
+        self.assertEqual(instances, [])
+        self.assertEqual(diagnostics, [])
+
+    def test_unresolvable_source_skips_module(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile = self._profile([{"id": "m", "source": "modules/none", "config": {}}])
+            with patch.dict("os.environ", {"CDS_MODULE_PATH": tmpdir}):
+                instances, diagnostics = load_module_instances(Path(tmpdir) / "profile.yaml", profile)
+        self.assertEqual(instances, [])
+        self.assertTrue(has_errors(diagnostics))
+
+    def test_unparseable_module_yaml_skips_module(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            module_dir = root / "modules" / "cat" / "mod"
+            module_dir.mkdir(parents=True)
+            (module_dir / "module.yaml").write_text("a: [unclosed\n", encoding="utf-8")
+            profile = self._profile([{"id": "m", "source": "cat/mod", "config": {}}])
+            with patch.dict("os.environ", {"CDS_MODULE_PATH": str(root / "modules")}):
+                instances, diagnostics = load_module_instances(root / "profile.yaml", profile)
+        self.assertEqual(instances, [])
+        self.assertTrue(has_errors(diagnostics))
+
+
+class ModuleConfigAndSecretsTest(unittest.TestCase):
+    def test_missing_config_schema_reports_e021(self):
+        inst = _inst("m", _module(schema=False))
+        diagnostics = validate_module_configs([inst])
+        self.assertEqual(_codes(diagnostics), [("E021", "module:m.spec.configSchema")])
+
+    def test_config_schema_violation_reports_e030_with_subpath(self):
+        module = _module()
+        module["spec"]["configSchema"] = {
+            "type": "object",
+            "properties": {"port": {"type": "integer"}},
+        }
+        inst = _inst("m", module, {"port": "x"}, index=3)
+        diagnostics = validate_module_configs([inst])
+        self.assertEqual(_codes(diagnostics), [("E030", "spec.modules[3].config.port")])
+
+    def test_config_schema_root_violation_has_no_subpath(self):
+        module = _module()
+        module["spec"]["configSchema"] = {"type": "object", "required": ["x"]}
+        diagnostics = validate_module_configs([_inst("m", module, {}, index=1)])
+        self.assertEqual(_codes(diagnostics), [("E030", "spec.modules[1].config")])
+
+    def test_unknown_secret_ref_in_nested_config_reports_e050(self):
+        profile = {"spec": {"secrets": {"values": {"known": "CDS_KNOWN"}}}}
+        config = {"a": {"b": ["secrets.known", "secrets.missing"]}, "c": "plain"}
+        diagnostics = validate_secret_refs(profile, [_inst("m", _module(), config, index=2)])
+        self.assertEqual(_codes(diagnostics), [("E050", "spec.modules[2].config.a.b[1]")])
+
+
+class ContractBindingsTest(unittest.TestCase):
+    def _bind(self, consume, config, providers=None, registry=None):
+        consumer = _inst("app", _module(consumes=[consume], category="orch", name="app"), config)
+        instances = [consumer] + (providers or [])
+        if registry is None:
+            return validate_contract_bindings(instances)
+        with patch.object(validator, "_load_compatibility_registry", return_value=registry):
+            return validate_contract_bindings(instances)
+
+    def _provider(self, kind="sql-database", category="wh", name="pg"):
+        return _inst(
+            "pg",
+            _module(provides=[{"name": "sql", "contract": {"kind": kind}}], category=category, name=name),
+            index=1,
+        )
+
+    def test_registry_load_failure_reports_e092(self):
+        with patch.object(validator, "_load_compatibility_registry", side_effect=CompatibilityRegistryError("boom")):
+            diagnostics = validate_contract_bindings([])
+        self.assertEqual(_codes(diagnostics), [("E092", "cli/resources/compatibility-registry.json")])
+
+    def test_incomplete_consume_entry_reports_e021(self):
+        diagnostics = self._bind({"name": "db"}, {})
+        self.assertEqual(_codes(diagnostics), [("E021", "module:app.spec.consumes")])
+
+    def test_malformed_required_if_reports_e021(self):
+        diagnostics = self._bind(_consume(required=False, requiredIf="bogus"), {})
+        self.assertEqual(_codes(diagnostics), [("E021", "module:app.spec.consumes")])
+
+    def test_optional_unresolvable_binding_is_skipped(self):
+        self.assertEqual(self._bind(_consume(required=False), {}), [])
+
+    def test_required_unresolvable_binding_reports_e041(self):
+        diagnostics = self._bind(_consume(), {})
+        self.assertEqual(_codes(diagnostics), [("E041", "spec.modules[0].config")])
+
+    def test_conditionally_required_unresolvable_binding_mentions_condition(self):
+        diagnostics = self._bind(
+            _consume(required=False, requiredIf="config.mode==on"),
+            {"mode": "on"},
+        )
+        self.assertEqual(_codes(diagnostics), [("E041", "spec.modules[0].config")])
+        self.assertIn("required because config.mode==on", diagnostics[0].message)
+
+    def test_required_if_false_keeps_binding_optional(self):
+        diagnostics = self._bind(
+            _consume(required=False, requiredIf="config.mode==on"),
+            {"mode": "off"},
+        )
+        self.assertEqual(diagnostics, [])
+
+    def test_binding_without_contract_ref_reports_e041(self):
+        diagnostics = self._bind(_consume(), {"db": {"other": 1}})
+        self.assertEqual(_codes(diagnostics), [("E041", "spec.modules[0].config")])
+        self.assertIn("contractRef", diagnostics[0].message)
+
+    def test_conditionally_required_binding_without_contract_ref_mentions_condition(self):
+        diagnostics = self._bind(
+            _consume(required=False, requiredIf="config.mode==on"),
+            {"mode": "on", "db": {"x": 1}},
+        )
+        self.assertEqual(_codes(diagnostics), [("E041", "spec.modules[0].config")])
+        self.assertIn("required because", diagnostics[0].message)
+
+    def test_optional_empty_binding_is_skipped(self):
+        self.assertEqual(self._bind(_consume(required=False), {"db": {}}), [])
+
+    def test_invalid_contract_ref_reports_e041(self):
+        diagnostics = self._bind(_consume(), {"db": {"contractRef": "nodot"}})
+        self.assertEqual(_codes(diagnostics), [("E041", "spec.modules[0].config")])
+        self.assertIn("Invalid contract ref", diagnostics[0].message)
+
+    def test_unknown_producer_reports_e041(self):
+        diagnostics = self._bind(_consume(), {"db": {"contractRef": "ghost.sql"}})
+        self.assertEqual(_codes(diagnostics), [("E041", "spec.modules[0].config")])
+        self.assertIn("unknown module", diagnostics[0].message)
+
+    def test_producer_without_named_contract_reports_e041(self):
+        diagnostics = self._bind(
+            _consume(), {"db": {"contractRef": "pg.other"}}, providers=[self._provider()]
+        )
+        self.assertEqual(_codes(diagnostics), [("E041", "spec.modules[0].config")])
+        self.assertIn("does not provide", diagnostics[0].message)
+
+    def test_kind_mismatch_reports_e042(self):
+        diagnostics = self._bind(
+            _consume(), {"db": {"contractRef": "pg.sql"}}, providers=[self._provider(kind="object-store")]
+        )
+        self.assertEqual(_codes(diagnostics), [("E042", "spec.modules[0].config")])
+
+    def test_unsupported_registry_pairing_reports_e043(self):
+        registry = {("sql-database", "wh/pg", "orch/app"): "unsupported"}
+        diagnostics = self._bind(
+            _consume(), {"db": {"contractRef": "pg.sql"}}, providers=[self._provider()], registry=registry
+        )
+        self.assertEqual(_codes(diagnostics), [("E043", "spec.modules[0].config")])
+
+    def test_tested_registry_pairing_is_clean(self):
+        registry = {("sql-database", "wh/pg", "orch/app"): "tested"}
+        diagnostics = self._bind(
+            _consume(), {"db": {"contractRef": "pg.sql"}}, providers=[self._provider()], registry=registry
+        )
+        self.assertEqual(diagnostics, [])
+
+
+class CompatibilityRegistryTest(unittest.TestCase):
+    def _load(self, registry):
+        schema = {"type": "object"}
+        with patch.object(validator, "_load_schema", side_effect=[schema, registry]):
+            return _load_compatibility_registry()
+
+    def test_schema_violation_raises_registry_error(self):
+        with patch.object(
+            validator,
+            "_load_schema",
+            side_effect=[{"type": "object", "required": ["pairings"]}, {}],
+        ):
+            with self.assertRaises(CompatibilityRegistryError) as ctx:
+                _load_compatibility_registry()
+        self.assertIn("validation failed", str(ctx.exception))
+
+    def test_duplicate_pairing_raises_registry_error(self):
+        pairing = {"contract": "k", "provider": "a/b", "consumer": "c/d", "status": "tested"}
+        with self.assertRaises(CompatibilityRegistryError) as ctx:
+            self._load({"pairings": [pairing, dict(pairing)]})
+        self.assertIn("pairings[1]", str(ctx.exception))
+
+    def test_valid_registry_builds_lookup(self):
+        pairing = {"contract": "k", "provider": "a/b", "consumer": "c/d", "status": "unsupported"}
+        self.assertEqual(self._load({"pairings": [pairing]}), {("k", "a/b", "c/d"): "unsupported"})
+
+    def test_module_key_requires_category_and_name(self):
+        self.assertEqual(_module_key({"metadata": {"category": "a", "name": "b"}}), "a/b")
+        self.assertIsNone(_module_key({"metadata": {"category": "a"}}))
+        self.assertIsNone(_module_key({}))
+
+    def test_bundled_registry_loads(self):
+        self.assertIsInstance(_load_compatibility_registry(), dict)
+
+
+class PinnedImageDigestsTest(unittest.TestCase):
+    def test_stale_pin_warns_once_per_image_and_skips_non_dict_module(self):
+        entries = [{"image": "pg:18@sha256:old", "service": "db"}]
+        instances = [
+            _inst("a", _module()),
+            _inst("b", _module()),
+            {"index": 2, "id": "c", "config": {}, "module": None},
+        ]
+        result = {"status": "stale", "latest_digest": "sha256:new"}
+        with (
+            patch.object(validator, "collect_pinned_images_for_module", return_value=entries),
+            patch.object(validator, "check_digest_staleness", return_value=result) as check,
+        ):
+            diagnostics = validate_pinned_image_digests(instances)
+        self.assertEqual(check.call_count, 1)
+        self.assertEqual(
+            _codes(diagnostics),
+            [
+                ("W100", "module:a.spec.implementation.compose.services.db.image"),
+                ("W100", "module:b.spec.implementation.compose.services.db.image"),
+            ],
+        )
+
+    def test_non_stale_pin_is_ignored(self):
+        with (
+            patch.object(
+                validator, "collect_pinned_images_for_module", return_value=[{"image": "i", "service": "s"}]
+            ),
+            patch.object(validator, "check_digest_staleness", return_value={"status": "current"}),
+        ):
+            self.assertEqual(validate_pinned_image_digests([_inst("a", _module())]), [])
+
+
+class ImageSourceConfigTest(unittest.TestCase):
+    def test_non_dict_config_and_non_registry_sources_are_skipped(self):
+        instances = [
+            {"index": 0, "id": "a", "config": None, "module": {}},
+            _inst("b", _module(), {"image": "x"}),
+            _inst("c", _module(), {"image": {"source": "build"}}),
+        ]
+        self.assertEqual(validate_image_source_config(instances), [])
+
+    def test_registry_source_without_tag_reports_e103(self):
+        inst = _inst("a", _module(), {"image": {"source": "registry"}}, index=4)
+        self.assertEqual(
+            _codes(validate_image_source_config([inst])), [("E103", "spec.modules[4].config.image.tag")]
+        )
+
+    def test_registry_source_with_latest_tag_warns(self):
+        inst = _inst("a", _module(), {"image": {"source": "registry", "tag": "latest"}})
+        diagnostics = validate_image_source_config([inst])
+        self.assertEqual(_codes(diagnostics), [("W097", "spec.modules[0].config.image.tag")])
+        self.assertEqual(diagnostics[0].level, "warning")
+
+
+class OutputsTest(unittest.TestCase):
+    def _outputs(self, contracts, instances=None):
+        profile = {"spec": {"outputs": {"contracts": contracts}}}
+        return validate_outputs(profile, instances or [])
+
+    def test_non_dict_outputs_block_is_ignored(self):
+        self.assertEqual(self._outputs(["x"]), [])
+
+    def test_output_without_from_reports_e060(self):
+        diagnostics = self._outputs({"o": {"nope": 1}})
+        self.assertEqual(_codes(diagnostics), [("E060", "spec.outputs.contracts.o")])
+
+    def test_invalid_ref_reports_e060(self):
+        diagnostics = self._outputs({"o": {"from": "nodot"}})
+        self.assertEqual(_codes(diagnostics), [("E060", "spec.outputs.contracts.o.from")])
+
+    def test_unknown_module_reports_e060(self):
+        diagnostics = self._outputs({"o": {"from": "ghost.sql"}})
+        self.assertEqual(_codes(diagnostics), [("E060", "spec.outputs.contracts.o.from")])
+        self.assertIn("unknown module", diagnostics[0].message)
+
+    def test_missing_provide_reports_e060(self):
+        inst = _inst("pg", _module(provides=[{"name": "sql", "contract": {"kind": "k"}}]))
+        diagnostics = self._outputs({"o": {"from": "pg.other"}}, [inst])
+        self.assertEqual(_codes(diagnostics), [("E060", "spec.outputs.contracts.o.from")])
+        self.assertIn("does not provide", diagnostics[0].message)
+
+    def test_valid_output_is_clean(self):
+        inst = _inst("pg", _module(provides=[{"name": "sql", "contract": {"kind": "k"}}]))
+        self.assertEqual(self._outputs({"o": {"from": "pg.sql"}}, [inst]), [])
+
+
+class ObservabilityTest(unittest.TestCase):
+    def _check(self, observability, instances=None):
+        profile = {"spec": {"observability": observability}}
+        return validate_observability_config(profile, instances or [])
+
+    def _shipping(self, **shipping):
+        return {"logShipping": shipping}
+
+    def test_absent_observability_is_clean(self):
+        self.assertEqual(validate_observability_config({"spec": {}}, []), [])
+
+    def test_non_dict_observability_reports_e100(self):
+        self.assertEqual(_codes(self._check("x")), [("E100", "spec.observability")])
+
+    def test_missing_log_shipping_is_clean(self):
+        self.assertEqual(self._check({}), [])
+
+    def test_non_dict_log_shipping_reports_e100(self):
+        self.assertEqual(
+            _codes(self._check({"logShipping": "x"})), [("E100", "spec.observability.logShipping")]
+        )
+
+    def test_missing_enabled_reports_e100(self):
+        self.assertEqual(
+            _codes(self._check(self._shipping())), [("E100", "spec.observability.logShipping.enabled")]
+        )
+
+    def test_non_boolean_enabled_reports_e100(self):
+        self.assertEqual(
+            _codes(self._check(self._shipping(enabled="yes"))),
+            [("E100", "spec.observability.logShipping.enabled")],
+        )
+
+    def test_non_dict_retention_reports_e100(self):
+        diagnostics = self._check(self._shipping(enabled=True, retention=5))
+        self.assertEqual(_codes(diagnostics), [("E100", "spec.observability.logShipping.retention")])
+
+    def test_invalid_retention_values_report_e101(self):
+        diagnostics = self._check(
+            self._shipping(enabled=True, retention={"rawDays": 0, "structuredDays": True})
+        )
+        self.assertEqual(
+            _codes(diagnostics),
+            [
+                ("E101", "spec.observability.logShipping.retention.rawDays"),
+                ("E101", "spec.observability.logShipping.retention.structuredDays"),
+            ],
+        )
+
+    def test_structured_days_below_raw_days_reports_e101(self):
+        diagnostics = self._check(
+            self._shipping(enabled=True, retention={"rawDays": 30, "structuredDays": 7})
+        )
+        self.assertEqual(
+            _codes(diagnostics), [("E101", "spec.observability.logShipping.retention.structuredDays")]
+        )
+
+    def test_valid_retention_without_sink_is_clean(self):
+        diagnostics = self._check(
+            self._shipping(enabled=True, retention={"rawDays": 7, "structuredDays": 30})
+        )
+        self.assertEqual(diagnostics, [])
+
+    def test_sink_without_string_contract_ref_reports_e100(self):
+        for sink in ("x", {"contractRef": 3}, {}):
+            with self.subTest(sink=sink):
+                diagnostics = self._check(self._shipping(enabled=True, sink=sink))
+                self.assertEqual(_codes(diagnostics), [("E100", "spec.observability.logShipping.sink")])
+
+    def test_invalid_sink_ref_reports_e102(self):
+        diagnostics = self._check(self._shipping(enabled=True, sink={"contractRef": "nodot"}))
+        self.assertEqual(
+            _codes(diagnostics), [("E102", "spec.observability.logShipping.sink.contractRef")]
+        )
+
+    def test_unknown_sink_module_reports_e102(self):
+        diagnostics = self._check(self._shipping(enabled=True, sink={"contractRef": "ghost.logs"}))
+        self.assertEqual(
+            _codes(diagnostics), [("E102", "spec.observability.logShipping.sink.contractRef")]
+        )
+        self.assertIn("unknown module", diagnostics[0].message)
+
+    def test_sink_missing_provide_reports_e102(self):
+        inst = _inst("loki", _module(provides=[{"name": "logs", "contract": {"kind": "log-sink"}}]))
+        diagnostics = self._check(
+            self._shipping(enabled=True, sink={"contractRef": "loki.other"}), [inst]
+        )
+        self.assertEqual(
+            _codes(diagnostics), [("E102", "spec.observability.logShipping.sink.contractRef")]
+        )
+        self.assertIn("does not provide", diagnostics[0].message)
+
+    def test_sink_wrong_kind_reports_e102(self):
+        inst = _inst("loki", _module(provides=[{"name": "logs", "contract": {"kind": "sql-database"}}]))
+        diagnostics = self._check(
+            self._shipping(enabled=True, sink={"contractRef": "loki.logs"}), [inst]
+        )
+        self.assertEqual(
+            _codes(diagnostics), [("E102", "spec.observability.logShipping.sink.contractRef")]
+        )
+        self.assertIn('expected "log-sink"', diagnostics[0].message)
+
+    def test_valid_sink_is_clean(self):
+        inst = _inst("loki", _module(provides=[{"name": "logs", "contract": {"kind": "log-sink"}}]))
+        diagnostics = self._check(
+            self._shipping(enabled=True, sink={"contractRef": "loki.logs"}), [inst]
+        )
+        self.assertEqual(diagnostics, [])
+
+
+class LoadedProfilePipelineTest(unittest.TestCase):
+    def test_shape_errors_stop_pipeline_before_module_loading(self):
+        with patch.object(validator, "load_module_instances") as load:
+            diagnostics = validate_loaded_profile({}, Path("profile.yaml"))
+        load.assert_not_called()
+        self.assertTrue(all(d.code == "E010" for d in diagnostics))
+
+    def test_module_load_errors_stop_pipeline(self):
+        from cli.diagnostics import Diagnostic
+
+        profile = {"spec": {"modules": []}}
+        with (
+            patch.object(validator, "validate_profile_shape", return_value=[]),
+            patch.object(
+                validator,
+                "load_module_instances",
+                return_value=([], [Diagnostic("error", "E021", "m", "p")]),
+            ),
+            patch.object(validator, "validate_module_configs") as configs,
+        ):
+            diagnostics = validate_loaded_profile(profile, Path("profile.yaml"))
+        configs.assert_not_called()
+        self.assertEqual(_codes(diagnostics), [("E021", "p")])
+
+
+if __name__ == "__main__":
+    unittest.main()

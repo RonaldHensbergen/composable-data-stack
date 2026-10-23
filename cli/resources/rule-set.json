@@ -465,12 +465,12 @@
     },
     {
       "id": "CDS-SEC-032",
-      "$comment": "Deferred: the rule schema exposes a permissions condition, but cli/security.py does not evaluate it and the scanner does not stat files on disk. Supporting this needs file metadata collection plus condition evaluation for actual mode bits.",
+      "$comment": "Evaluated against the \"file-permissions\" scope: _flatten_file_permissions in cli/security.py stats the .env file the scan loads secrets from and emits its octal mode (e.g. \"0644\") as a synthetic <path>.permissions item; the \"permissions\" condition then flags any group (\"group-readable\") or other (\"world-readable\") read/write/execute bit, i.e. anything broader than owner-only. POSIX only: on Windows (os.name == \"nt\") no item is emitted, so the rule never fires there rather than reporting meaningless modes. A missing .env emits nothing. Secret files CDS itself writes (cds init) are created owner-only (0600). Filesystems without POSIX modes (e.g. WSL /mnt/c) report 0777 and always trigger the rule.",
       "title": "Secret file permissions too broad",
       "severity": "medium",
       "category": "file-output-safety",
       "complianceCategory": "secrets-management",
-      "scope": ["none"],
+      "scope": ["file-permissions"],
       "match": {
         "any": [
           {
@@ -487,7 +487,7 @@
         "Set permissions to owner-only for files containing secrets.",
         "Tighten file creation umask for generated secret artifacts."
       ],
-      "enabled": false
+      "enabled": true
     },
     {
       "id": "CDS-SEC-033",

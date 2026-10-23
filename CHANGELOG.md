@@ -14,6 +14,15 @@ The format is based on Keep a Changelog.
   writes into each service's `security_opt`; invalid or unsupported values
   fail validation with error `E127`, and `--target=helm` warns (`W127`)
   that confinement is not rendered for Kubernetes (#207).
+- Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
+  file readable or writable by group or others (new `file-permissions`
+  rule scope and `permissions` condition; skipped on Windows), and
+  `cds init` explicitly creates `.env` as owner-only (`0600`) (#357).
+- Added a versioned Docker host and daemon hardening baseline
+  (`docs/docker-host-hardening.md`) separating CDS-enforced controls from
+  operator responsibilities, and advisory `host.*` checks in `cds preflight`
+  for rootless mode, user namespaces, seccomp, logging, live restore, and
+  daemon socket exposure (#211).
 
 ### Fixed
 
@@ -21,6 +30,14 @@ The format is based on Keep a Changelog.
   metadata tables) when the web process starts concurrently, by retrying the
   idempotent init steps a bounded number of times, and added container-log
   capture to the Docker runtime smoke test on failure (#890).
+- Fixed `cds get` crashing with an uncaught `NotImplementedError` on Windows
+  when a Dockerfile `COPY`/`ADD` source starts with a rooted path such as
+  `/abs`; such sources are now skipped like other absolute paths (#904).
+- Bumped the Superset image's hash-locked `uv` to 0.13.4 to resolve
+  PYSEC-2026-4321 flagged by `pip-audit` (#907).
+- Moved the Superset image to the `apache/superset:6.1.0-py311` base and
+  re-locked its dependencies for Python 3.11, which allows Pillow 13.0.0 and
+  resolves the Pillow advisories flagged by `pip-audit` (#907).
 
 ## [0.12.0] - 2026-10-16
 

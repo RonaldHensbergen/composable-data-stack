@@ -664,7 +664,7 @@ def _extract_dockerfile_instruction_sources(
             continue
         if _contains_template(source):
             continue
-        if Path(source).is_absolute():
+        if Path(source).is_absolute() or source.startswith(("/", "\\")):
             continue
         matches = list(context_path.glob(source))
         if not matches and "*" not in source and "?" not in source and "[" not in source:
