@@ -10,6 +10,12 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added declarative runtime confinement: `spec.security.runtime.confinement`
+  (profile default) and `modules[].security.confinement` (per-module
+  override) select seccomp, AppArmor and SELinux settings that `cds render`
+  writes into each service's `security_opt`; invalid or unsupported values
+  fail validation with error `E127`, and `--target=helm` warns (`W127`)
+  that confinement is not rendered for Kubernetes (#207, #897, #894).
 - Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
   file readable or writable by group or others (new `file-permissions`
   rule scope and `permissions` condition; skipped on Windows), and
