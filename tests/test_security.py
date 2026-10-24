@@ -475,7 +475,6 @@ class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
             {
                 "CDS-SEC-006",
                 "CDS-SEC-030",
-                "CDS-SEC-032",
                 "CDS-SEC-071",
                 "CDS-SEC-074",
                 "CDS-SEC-080",

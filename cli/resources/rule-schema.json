@@ -77,6 +77,7 @@
         "service-env",
         "runtime",
         "rendered-compose",
+        "file-permissions",
         "none"
       ]
     },

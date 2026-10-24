@@ -17,6 +17,7 @@ INVALID_CONFINEMENT_CODE = "E127"
 CONFINEMENT_KEYS = ("seccomp", "apparmor", "selinux")
 
 _APPARMOR_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
+_DRIVE_RE = re.compile(r"^[A-Za-z]:")
 _SELINUX_LABEL_RE = re.compile(r"^(user|role|type|level):[A-Za-z0-9_.,:-]+$")
 
 
@@ -30,6 +31,18 @@ def profile_confinement(profile_or_plan: dict[str, Any] | None) -> dict[str, Any
     runtime = (security or {}).get("runtime") if isinstance(security, dict) else None
     block = (runtime or {}).get("confinement") if isinstance(runtime, dict) else None
     return block if isinstance(block, dict) else {}
+
+
+def plan_declares_confinement(plan: dict[str, Any] | None) -> bool:
+    """True when the profile or any module instance sets confinement."""
+    if profile_confinement(plan):
+        return True
+    return any(
+        isinstance((module.get("security") or {}).get("confinement"), dict)
+        and (module.get("security") or {}).get("confinement")
+        for module in (plan or {}).get("modules") or []
+        if isinstance(module, dict)
+    )
 
 
 def effective_confinement(
@@ -88,18 +101,28 @@ def _validate_seccomp(value: Any, path: str, base_dir: Path | None) -> list[Diag
             path,
         )]
     relative = value[5:]
-    if Path(relative).is_absolute() or ".." in Path(relative).parts:
+    if base_dir is None:
+        return [_error(
+            "seccomp file profiles need a known profile directory to resolve against.", path
+        )]
+    # Reject rooted and drive-qualified paths explicitly: they are not
+    # "absolute" to pathlib on every platform (e.g. "/x" on Windows).
+    if (
+        Path(relative).is_absolute()
+        or relative.startswith(("/", "\\"))
+        or _DRIVE_RE.match(relative)
+        or ".." in Path(relative).parts
+    ):
         return [_error(
             "seccomp file profiles must be relative paths inside the profile directory.", path
         )]
-    if base_dir is not None:
-        target = (base_dir / relative).resolve()
-        if not target.is_relative_to(base_dir.resolve()):
-            return [_error(
-                "seccomp file profile resolves outside the profile directory.", path
-            )]
-        if not target.is_file():
-            return [_error(f"seccomp profile '{relative}' does not exist.", path)]
+    target = (base_dir / relative).resolve()
+    if not target.is_relative_to(base_dir.resolve()):
+        return [_error(
+            "seccomp file profile resolves outside the profile directory.", path
+        )]
+    if not target.is_file():
+        return [_error(f"seccomp profile '{relative}' does not exist.", path)]
     return []
 
 
@@ -118,13 +141,25 @@ def _validate_selinux(value: Any, path: str) -> list[Diagnostic]:
             f"Invalid SELinux label(s): {', '.join(bad)}; expected user:, role:, type: or level: values.",
             path,
         )]
+    kinds = [label.split(":", 1)[0] for label in value]
+    duplicates = sorted({k for k in kinds if kinds.count(k) > 1})
+    if duplicates:
+        return [_error(
+            f"Duplicate SELinux label kind(s): {', '.join(duplicates)}; "
+            "each of user:, role:, type: and level: may appear at most once.",
+            path,
+        )]
     return []
 
 
 def confinement_security_opts(
     confinement: dict[str, Any], compose_dir: Path, base_dir: Path | None
 ) -> list[str]:
-    """Translate a validated confinement block into Compose `security_opt` entries."""
+    """Translate a validated confinement block into Compose `security_opt` entries.
+
+    Raises ValueError when a seccomp file cannot be expressed relative to
+    `compose_dir` (for example on a different Windows drive).
+    """
     opts: list[str] = []
     seccomp = confinement.get("seccomp")
     if seccomp == "unconfined":
@@ -150,10 +185,19 @@ def apply_confinement(
     confinement: dict[str, Any],
     compose_dir: Path,
     base_dir: Path | None,
-) -> None:
+    path: str = "security.confinement",
+) -> list[Diagnostic]:
     """Set the declared confinement on a service, replacing module-set values per key."""
     if not confinement:
-        return
+        return []
+    try:
+        new_opts = confinement_security_opts(confinement, compose_dir, base_dir)
+    except ValueError:
+        return [_error(
+            "seccomp file profile cannot be referenced relative to the generated "
+            "docker-compose.yml (different drive); render into the profile's drive.",
+            f"{path}.seccomp",
+        )]
     existing = [str(opt) for opt in service.get("security_opt") or []]
     replaced = {
         "seccomp": ("seccomp=", "seccomp:"),
@@ -163,11 +207,12 @@ def apply_confinement(
     prefixes = tuple(p for key in confinement for p in replaced.get(key, ()))
     kept = [opt for opt in existing if not opt.startswith(prefixes)] if prefixes else existing
     # `default` seccomp means "engine default", so it only clears module-set values.
-    merged = kept + confinement_security_opts(confinement, compose_dir, base_dir)
+    merged = kept + new_opts
     if merged:
         service["security_opt"] = merged
     else:
         service.pop("security_opt", None)
+    return []
 
 
 def _error(message: str, path: str) -> Diagnostic:

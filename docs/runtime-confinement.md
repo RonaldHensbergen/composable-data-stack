@@ -37,9 +37,31 @@ options such as `no-new-privileges:true` are preserved.
 
 Invalid values fail `cds validate` with error `E127` and the exact data
 path. `file:` seccomp profiles must be relative, stay inside the profile
-directory and exist on disk. AppArmor profiles and SELinux labels must
+directory and exist on disk. SELinux labels may use each of `user:`, `role:`,
+`type:` and `level:` at most once. AppArmor profiles and SELinux labels must
 exist on the host: CDS renders them but cannot load them, so a missing
 profile is reported by Docker at `cds up`.
+
+## Scope And Caveats
+
+- **Compose only.** Confinement is not rendered into Helm charts. Rendering a
+  profile that declares it with `--target=helm` emits warning `W127`, so a
+  profile is never silently treated as confined. Kubernetes security contexts
+  remain tracked under #65.
+- **Module overrides can weaken the default.** A module instance may set a
+  key to `unconfined` or `selinux: disable` even when the profile default is
+  stricter. For production-class profiles
+  `CDS-SEC-091` flags such overrides (see Production runtime policy).
+- **Engine-specific mapping.** `apparmor: runtime/default` is rendered as
+  Docker's `docker-default` profile. Other engines (for example Podman) use
+  different default profile names; declare the host-loaded profile name
+  explicitly there.
+- **Path rules.** `file:` paths must be relative to the profile directory.
+  Rooted (`/x`, `\x`), drive-qualified (`C:x`) and `..` paths are rejected on
+  every platform, and are re-checked when `cds render` consumes a plan.
+  Rendering fails with `E127` if the profile directory is unknown or the
+  profile cannot be referenced relative to `docker-compose.yml` (for example
+  on a different Windows drive).
 
 ## Production runtime policy
 

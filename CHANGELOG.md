@@ -6,13 +6,25 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-22
+
 ### Added
 
 - Added declarative runtime confinement: `spec.security.runtime.confinement`
   (profile default) and `modules[].security.confinement` (per-module
   override) select seccomp, AppArmor and SELinux settings that `cds render`
   writes into each service's `security_opt`; invalid or unsupported values
-  fail validation with error `E127` (#207).
+  fail validation with error `E127`, and `--target=helm` warns (`W127`)
+  that confinement is not rendered for Kubernetes (#207, #897, #894).
+- Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
+  file readable or writable by group or others (new `file-permissions`
+  rule scope and `permissions` condition; skipped on Windows), and
+  `cds init` explicitly creates `.env` as owner-only (`0600`) (#357).
+- Added a versioned Docker host and daemon hardening baseline
+  (`docs/docker-host-hardening.md`) separating CDS-enforced controls from
+  operator responsibilities, and advisory `host.*` checks in `cds preflight`
+  for rootless mode, user namespaces, seccomp, logging, live restore, and
+  daemon socket exposure (#211).
 - Added code-enforced rules CDS-SEC-090 (production runtime policy:
   capabilities, privilege escalation, non-root user and read-only root
   filesystem evaluated together, with a reasoned
@@ -21,10 +33,24 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Bumped `filelock` to 4.2.4 in `uv.lock` to resolve the open Dependabot
+  advisories (fixed in 4.2.1) (#925).
+- Pinned `brotli>=1.2.1` in the Superset image lock to fix the critical
+  out-of-bounds write (GHSA-9v8h-qqgm-4m35) that failed the image scan (#926).
+- Added a time-boxed `.trivyignore` exception for the not-yet-published
+  libbrotli1 fix (CVE-2026-111497) in the Superset base image (#927).
 - Fixed a flaky Superset init failure (duplicate-key error while creating the
   metadata tables) when the web process starts concurrently, by retrying the
   idempotent init steps a bounded number of times, and added container-log
   capture to the Docker runtime smoke test on failure (#890).
+- Fixed `cds get` crashing with an uncaught `NotImplementedError` on Windows
+  when a Dockerfile `COPY`/`ADD` source starts with a rooted path such as
+  `/abs`; such sources are now skipped like other absolute paths (#904).
+- Bumped the Superset image's hash-locked `uv` to 0.13.4 to resolve
+  PYSEC-2026-4321 flagged by `pip-audit` (#907).
+- Moved the Superset image to the `apache/superset:6.1.0-py311` base and
+  re-locked its dependencies for Python 3.11, which allows Pillow 13.0.0 and
+  resolves the Pillow advisories flagged by `pip-audit` (#907).
 
 ## [0.12.0] - 2026-10-16
 

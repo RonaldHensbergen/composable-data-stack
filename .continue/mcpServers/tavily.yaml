@@ -1,0 +1,11 @@
+name: Tavily MCP
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: Tavily
+    command: npx
+    args:
+      - -y
+      - tavily-mcp@latest
+    env:
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
