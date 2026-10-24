@@ -10,6 +10,10 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a production-aware `host.rootless` result to `cds preflight` (a rootful
+  daemon is advisory on local profiles and a warning on production-class
+  profiles) and documented rootless Docker compatibility expectations in
+  `docs/rootless-docker.md` (#207).
 - Extended the `.trivyignore` audit to list still-reported exceptions that
   have a fixed package version available (#934).
 - Added a daily `Trivyignore Audit` workflow and

@@ -47,7 +47,7 @@ def run_preflight(
     strict: bool = False,
 ) -> list[PreflightCheck]:
     checks: list[PreflightCheck] = []
-    checks.extend(_check_runtime(plan.get("runtime", {})))
+    checks.extend(_check_runtime(plan.get("runtime", {}), plan))
     checks.extend(_check_environment(compose_yaml, env_file))
     checks.extend(_check_ports(compose_yaml))
     checks.extend(_check_images(plan, compose_yaml, strict=strict))
@@ -58,7 +58,7 @@ def preflight_passed(checks: list[PreflightCheck]) -> bool:
     return not any(check.status == "FAIL" for check in checks)
 
 
-def _check_runtime(runtime: dict[str, Any]) -> list[PreflightCheck]:
+def _check_runtime(runtime: dict[str, Any], plan: dict[str, Any] | None = None) -> list[PreflightCheck]:
     runtime_type = runtime.get("type")
     if runtime_type != "docker-compose":
         return [
@@ -93,7 +93,7 @@ def _check_runtime(runtime: dict[str, Any]) -> list[PreflightCheck]:
     daemon_check, docker_info = _check_daemon()
     checks.append(daemon_check)
     if docker_info is not None:
-        checks.extend(_check_host_hardening(docker_info))
+        checks.extend(_check_host_hardening(docker_info, production=infer_profile_class(plan or {}) == "prod"))
     return checks
 
 
@@ -127,7 +127,7 @@ def _check_daemon() -> tuple[PreflightCheck, dict[str, Any] | None]:
     return PreflightCheck("PASS", "runtime.daemon", "Docker daemon is reachable."), info
 
 
-def _check_host_hardening(info: dict[str, Any]) -> list[PreflightCheck]:
+def _check_host_hardening(info: dict[str, Any], production: bool = True) -> list[PreflightCheck]:
     """
     Inspect host/daemon settings from `docker info` without privileged access.
 
@@ -144,10 +144,13 @@ def _check_host_hardening(info: dict[str, Any]) -> list[PreflightCheck]:
     rootless = "name=rootless" in options
     checks = [
         _host_check(
-            rootless,
+            rootless or not production,
             "host.rootless",
-            "Docker daemon runs in rootless mode.",
-            "Docker daemon runs as root. Prefer rootless mode (HOST-001).",
+            "Docker daemon runs in rootless mode."
+            if rootless
+            else "Docker daemon is not rootless (recommended for production hosts, HOST-001).",
+            "Docker daemon runs as root: a container breakout yields host root. "
+            "Use rootless Docker for production hosts (HOST-001, see docs/rootless-docker.md).",
         ),
         _host_check(
             rootless or "name=userns" in options,
