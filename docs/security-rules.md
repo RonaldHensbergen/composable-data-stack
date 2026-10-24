@@ -16,6 +16,8 @@ summarizes them for readers who aren't grepping the JSON directly.
 | `CDS-SEC-074` | Production profile exposes plaintext HTTP endpoint without TLS reverse-proxy | `_check_production_plaintext_exposure` |
 | `CDS-SEC-080` | Stateful module has no backup/restore target bound | `_check_backup_target_binding` |
 | `CDS-SEC-081` | Admin-facing service with no identity/auth module in profile | `_check_admin_service_identity_binding` |
+| `CDS-SEC-090` | Service violates the production runtime policy | `_check_runtime_policy` |
+| `CDS-SEC-091` | Runtime confinement (seccomp/AppArmor/SELinux) disabled | `_check_runtime_policy` |
 | `CDS-SEC-006` | Resolved secret present in rendered Compose output | `_check_rendered_secret_values` |
 | `CDS-SEC-030` | Generated file contains resolved secrets | `cli.secret_leak.check_generated_text` (called by `render_compose`/`render_helm`) |
 | `CDS-SEC-071` | CLI plan or validate output prints secrets | `cli.secret_leak.RedactingStream` (installed by `cli/main.py`) |

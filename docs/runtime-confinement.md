@@ -50,10 +50,8 @@ profile is reported by Docker at `cds up`.
   remain tracked under #65.
 - **Module overrides can weaken the default.** A module instance may set a
   key to `unconfined` or `selinux: disable` even when the profile default is
-  stricter. This page only covers the mechanism; flagging disabled
-  confinement in production profiles is tracked in
-  [#898](https://github.com/RonaldHensbergen/composable-data-stack/issues/898).
-  Until then, review `unconfined` and `selinux: disable` overrides manually.
+  stricter. For production-class profiles
+  `CDS-SEC-091` flags such overrides (see Production runtime policy).
 - **Engine-specific mapping.** `apparmor: runtime/default` is rendered as
   Docker's `docker-default` profile. Other engines (for example Podman) use
   different default profile names; declare the host-loaded profile name
@@ -64,3 +62,34 @@ profile is reported by Docker at `cds up`.
   Rendering fails with `E127` if the profile directory is unknown or the
   profile cannot be referenced relative to `docker-compose.yml` (for example
   on a different Windows drive).
+
+## Production runtime policy
+
+For production-class profiles `cds security` and `cds test` evaluate every
+rendered service against one runtime policy:
+
+- `CDS-SEC-090` reports one finding per service listing every violated
+  setting: privileged mode, `cap_drop` without `ALL`, missing
+  `no-new-privileges`, no explicit non-root `user`, a writable root
+  filesystem, or `cap_add` of `ALL` or `SYS_ADMIN`.
+- `CDS-SEC-091` flags `seccomp=unconfined`, `apparmor=unconfined` and
+  `label=disable`, whether set by a module or via the confinement keys above.
+
+CDS cannot see a non-root `USER` baked into an image, so a service that
+relies on one must either declare `user:` explicitly or be covered by a
+documented waiver. Waivers never cover privileged mode, dangerous
+`cap_add` or confinement. An applied waiver emits warning `W103` listing the
+suppressed checks, and a waiver on a non-production profile emits `W104`
+because it has no effect there:
+
+```yaml
+spec:
+  security:
+    waivers:
+      runtimePolicy:
+        reason: Images set a non-root USER in their Dockerfile.
+        checks: [nonRootUser]   # capDrop, noNewPrivileges, nonRootUser, readOnlyRootFilesystem
+```
+
+Kubernetes security contexts remain tracked under #65; this page covers
+the Compose target only.
