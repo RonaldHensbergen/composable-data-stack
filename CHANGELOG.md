@@ -10,6 +10,8 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Extended the `.trivyignore` audit to list still-reported exceptions that
+  have a fixed package version available (#934).
 - Added a daily `Trivyignore Audit` workflow and
   `scripts/audit_trivyignore.py` that report `.trivyignore` exceptions whose
   vulnerability no longer appears in the published images, and exceptions

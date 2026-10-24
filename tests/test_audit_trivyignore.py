@@ -22,9 +22,23 @@ CVE-2026-0002 exp:2026-11-01
 """
 
 
-def _report(*ids):
+def _report(*ids, fixed=None):
     return json.dumps(
-        {"Results": [{"Vulnerabilities": [{"VulnerabilityID": i} for i in ids]}]}
+        {
+            "Results": [
+                {
+                    "Vulnerabilities": [
+                        {
+                            "VulnerabilityID": i,
+                            "PkgName": "libuuid",
+                            "InstalledVersion": "1.0",
+                            **({"FixedVersion": fixed} if fixed else {}),
+                        }
+                        for i in ids
+                    ]
+                }
+            ]
+        }
     )
 
 
@@ -58,6 +72,17 @@ class AuditTrivyignoreTest(unittest.TestCase):
         )
         self.assertEqual([e.vuln_id for e in expiring], ["CVE-2026-0002"])
 
+    def test_fixable_lists_still_reported_entries_with_fixed_version(self):
+        entries = audit_trivyignore.parse_entries(IGNORE)
+        fixes = audit_trivyignore.reported_fixes(
+            [_report("CVE-2026-0001", fixed="2.0"), _report("CVE-2026-0002")]
+        )
+        result = audit_trivyignore.fixable(entries, fixes)
+        self.assertEqual([e.vuln_id for e, _ in result], ["CVE-2026-0001"])
+        self.assertEqual(result[0][1][0].fixed, "2.0")
+        report = audit_trivyignore.render_report([], [], 1, result)
+        self.assertIn("`libuuid` 1.0 -> 2.0", report)
+
     def test_main_writes_report_only_when_something_is_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -70,6 +95,13 @@ class AuditTrivyignoreTest(unittest.TestCase):
             report.write_text(_report("CVE-2099-0001", "CVE-2099-0002"), encoding="utf-8")
             self.assertEqual(audit_trivyignore.main(args + ["--warn-days", "0"]), 0)
             self.assertFalse(out.exists())
+
+            report.write_text(
+                _report("CVE-2099-0001", "CVE-2099-0002", fixed="2.0"), encoding="utf-8"
+            )
+            self.assertEqual(audit_trivyignore.main(args + ["--warn-days", "0"]), 0)
+            self.assertIn("a fix is available", out.read_text(encoding="utf-8"))
+            out.unlink()
 
             report.write_text(_report("CVE-2099-0002"), encoding="utf-8")
             self.assertEqual(audit_trivyignore.main(args), 0)

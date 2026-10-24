@@ -144,6 +144,9 @@ UTC, after the scan) rescans the published images from
 
 - entries whose ID no longer appears in any published image, which can be
   removed once the next rebuild is confirmed clean, and
+- entries still reported although Trivy knows a fixed package version
+  (package, installed and fixed version are listed), meaning a base image
+  bump or rebuild should pick it up, and
 - entries still reported that expire within 14 days.
 
 The audit covers the published digests only, so an entry for an image that

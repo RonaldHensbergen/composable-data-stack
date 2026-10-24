@@ -5,7 +5,8 @@ Takes the Trivy JSON reports of the published images, scanned *without* the
 ignore file, and compares the vulnerability IDs they contain with the
 entries in `.trivyignore`. An entry whose ID no longer appears in any report
 has been resolved (a fixed base image or package was published) and can be
-removed. Entries close to their `exp:` date are listed too.
+removed. Entries still reported but with a fixed package version available
+are listed with that version, as are entries close to their `exp:` date.
 
 Usage: audit_trivyignore.py [--ignore FILE] [--warn-days N] [--output FILE]
                             REPORT.json [REPORT.json ...]
@@ -25,6 +26,13 @@ from datetime import date, timedelta
 from pathlib import Path
 
 ENTRY_RE = re.compile(r"^(?P<id>\S+)\s+exp:(?P<exp>\d{4}-\d{2}-\d{2})\s*$")
+
+
+@dataclass(frozen=True)
+class Fix:
+    package: str
+    installed: str
+    fixed: str
 
 
 @dataclass(frozen=True)
@@ -49,14 +57,27 @@ def parse_entries(text: str) -> list[Entry]:
     return entries
 
 
-def reported_ids(report_texts: list[str]) -> set[str]:
-    """Collect every vulnerability ID from Trivy JSON reports."""
-    ids: set[str] = set()
+def reported_fixes(report_texts: list[str]) -> dict[str, set[Fix]]:
+    """Map every reported vulnerability ID to the fixes Trivy knows of."""
+    found: dict[str, set[Fix]] = {}
     for text in report_texts:
         for result in json.loads(text).get("Results") or []:
             for vuln in result.get("Vulnerabilities") or []:
-                ids.add(vuln["VulnerabilityID"])
-    return ids
+                fixes = found.setdefault(vuln["VulnerabilityID"], set())
+                if vuln.get("FixedVersion"):
+                    fixes.add(
+                        Fix(
+                            vuln.get("PkgName", "?"),
+                            vuln.get("InstalledVersion", "?"),
+                            vuln["FixedVersion"],
+                        )
+                    )
+    return found
+
+
+def reported_ids(report_texts: list[str]) -> set[str]:
+    """Collect every vulnerability ID from Trivy JSON reports."""
+    return set(reported_fixes(report_texts))
 
 
 def audit(
@@ -73,8 +94,22 @@ def audit(
     return resolved, expiring
 
 
+def fixable(
+    entries: list[Entry], fixes: dict[str, set[Fix]]
+) -> list[tuple[Entry, list[Fix]]]:
+    """Entries still reported although a fixed package version exists."""
+    return [
+        (entry, sorted(fixes[entry.vuln_id], key=lambda f: (f.package, f.fixed)))
+        for entry in entries
+        if fixes.get(entry.vuln_id)
+    ]
+
+
 def render_report(
-    resolved: list[Entry], expiring: list[Entry], images_scanned: int
+    resolved: list[Entry],
+    expiring: list[Entry],
+    images_scanned: int,
+    fixable_entries: list[tuple[Entry, list[Fix]]] | None = None,
 ) -> str:
     lines = ["## `.trivyignore` audit", ""]
     if resolved:
@@ -89,6 +124,20 @@ def render_report(
         lines += [
             f"- `{e.vuln_id}` (line {e.line}, expires {e.expires})" for e in resolved
         ]
+        lines.append("")
+    if fixable_entries:
+        lines += [
+            "### Still reported, but a fix is available",
+            "",
+            "A fixed package version exists; bump the base image digest or "
+            "rebuild so the image picks it up, then drop the entry.",
+            "",
+        ]
+        for entry, fixes in fixable_entries:
+            detail = "; ".join(
+                f"`{f.package}` {f.installed} -> {f.fixed}" for f in fixes
+            )
+            lines.append(f"- `{entry.vuln_id}` (expires {entry.expires}): {detail}")
         lines.append("")
     if expiring:
         lines += [
@@ -112,18 +161,19 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         entries = parse_entries(args.ignore.read_text(encoding="utf-8"))
-        reported = reported_ids(
+        fixes = reported_fixes(
             [path.read_text(encoding="utf-8") for path in args.reports]
         )
     except (OSError, ValueError, KeyError) as exc:
         print(f"Cannot audit {args.ignore}: {exc}", file=sys.stderr)
         return 1
 
-    resolved, expiring = audit(entries, reported, date.today(), args.warn_days)
-    if not resolved and not expiring:
+    resolved, expiring = audit(entries, set(fixes), date.today(), args.warn_days)
+    fixable_entries = fixable(entries, fixes)
+    if not (resolved or expiring or fixable_entries):
         print("All .trivyignore entries are still needed.")
         return 0
-    report = render_report(resolved, expiring, len(args.reports))
+    report = render_report(resolved, expiring, len(args.reports), fixable_entries)
     args.output.write_text(report, encoding="utf-8")
     print(report)
     return 0
