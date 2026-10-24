@@ -22,8 +22,10 @@ summarizes them for readers who aren't grepping the JSON directly.
 | `CDS-SEC-030` | Generated file contains resolved secrets | `cli.secret_leak.check_generated_text` (called by `render_compose`/`render_helm`) |
 | `CDS-SEC-071` | CLI plan or validate output prints secrets | `cli.secret_leak.RedactingStream` (installed by `cli/main.py`) |
 
-This document only covers `CDS-SEC-080` and `CDS-SEC-081` (introduced by
+Detailed sections below cover `CDS-SEC-080` and `CDS-SEC-081` (introduced by
 [#774](https://github.com/RonaldHensbergen/composable-data-stack/issues/774));
+the production runtime policy rules `CDS-SEC-090`/`091` are documented in
+[docs/runtime-confinement.md](runtime-confinement.md#production-runtime-policy);
 see `rule-set.json`'s `$comment` field on each rule (including the other
 `scope: ["none"]` rules not listed above) for the full rationale of every
 code-enforced rule.

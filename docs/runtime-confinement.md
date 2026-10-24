@@ -71,16 +71,22 @@ rendered service against one runtime policy:
 - `CDS-SEC-090` reports one finding per service listing every violated
   setting: privileged mode, `cap_drop` without `ALL`, missing
   `no-new-privileges`, no explicit non-root `user`, a writable root
-  filesystem, or `cap_add` of `ALL` or `SYS_ADMIN`.
+  filesystem, or `cap_add` of a kernel-escape capability (`ALL`,
+  `SYS_ADMIN`, `SYS_MODULE`, `SYS_PTRACE`, `SYS_RAWIO`, `DAC_READ_SEARCH`).
 - `CDS-SEC-091` flags `seccomp=unconfined`, `apparmor=unconfined` and
   `label=disable`, whether set by a module or via the confinement keys above.
 
 CDS cannot see a non-root `USER` baked into an image, so a service that
 relies on one must either declare `user:` explicitly or be covered by a
 documented waiver. Waivers never cover privileged mode, dangerous
-`cap_add` or confinement. An applied waiver emits warning `W103` listing the
-suppressed checks, and a waiver on a non-production profile emits `W104`
-because it has no effect there:
+`cap_add` or confinement. Until
+[#932](https://github.com/RonaldHensbergen/composable-data-stack/issues/932)
+lands, the waiver applies to **every service in the profile**, not to a
+specific module instance -- a waiver justified by one service's image
+also suppresses the check for unrelated services, so keep the check list
+as narrow as the reason actually justifies. An applied waiver emits
+warning `W103` listing the suppressed checks, and a waiver on a
+non-production profile emits `W104` because it has no effect there:
 
 ```yaml
 spec:
@@ -121,4 +127,4 @@ If your production profile fails with CDS-SEC-090/091 after upgrading:
            reason: "Legacy images cannot be modified immediately. Tracking in JIRA-123."
            checks: [nonRootUser, readOnlyRootFilesystem]
    ```
-   Note: Privileged mode, `cap_add: ALL/SYS_ADMIN`, and confinement **cannot be waived**.
+   Note: Privileged mode, dangerous `cap_add` (kernel-escape capabilities), and confinement **cannot be waived**.

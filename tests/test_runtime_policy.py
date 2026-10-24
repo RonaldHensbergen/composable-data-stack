@@ -112,6 +112,19 @@ class RuntimePolicyTest(unittest.TestCase):
         path = self._profile(hardened=True, service_extra={"cap_add": ["NET_BIND_SERVICE"]})
         self.assertEqual(self._findings(path), [])
 
+    def test_kernel_escape_cap_add_is_flagged_and_cannot_be_waived(self):
+        waiver = {"waivers": {"runtimePolicy": {
+            "reason": "x", "checks": ["capDrop", "nonRootUser"],
+        }}}
+        for cap in ("SYS_MODULE", "SYS_PTRACE", "SYS_RAWIO", "DAC_READ_SEARCH"):
+            with self.subTest(cap=cap):
+                path = self._profile(
+                    security=waiver, hardened=True, service_extra={"cap_add": [cap]}
+                )
+                findings = self._findings(path)
+                self.assertEqual([f["rule_id"] for f in findings], ["CDS-SEC-090"])
+                self.assertIn(f"cap_add grants {cap}", findings[0]["message"])
+
     def test_waiver_requires_reason_and_known_checks(self):
         for waiver in (
             {"reason": " ", "checks": ["capDrop"]},
@@ -156,7 +169,7 @@ class RuntimePolicyTest(unittest.TestCase):
 
     def test_user_root_variants_are_flagged(self):
         """Test that user: root, 0, root:root, 0:0 are all flagged as running as root."""
-        for user_value in ("root", "0", "root:root", "0:0", "  root  ", "0:1000"):
+        for user_value in ("root", "0", "root:root", "0:0", "  root  ", "0:1000", "0000", "00"):
             with self.subTest(user=user_value):
                 path = self._profile(hardened=True, service_extra={"user": user_value})
                 findings = self._findings(path)

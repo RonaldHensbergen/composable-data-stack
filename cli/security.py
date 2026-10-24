@@ -789,7 +789,7 @@ def _runs_as_root(user: Any) -> bool:
     if user is None or user == "":
         return True
     name = str(user).split(":", 1)[0].strip()
-    return name in {"0", "root"}
+    return name in {"0", "root"} or (name.isdigit() and int(name) == 0)
 
 
 def _runtime_policy_waived_checks(profile: dict[str, Any]) -> set[str]:
@@ -803,7 +803,19 @@ def _runtime_policy_waived_checks(profile: dict[str, Any]) -> set[str]:
     return {check for check in checks if isinstance(check, str)}
 
 
-_DANGEROUS_CAP_ADD = {"ALL", "SYS_ADMIN"}
+# Kernel-escape capabilities: granting any of these is comparable to or worse
+# than SYS_ADMIN for container-escape purposes (loading kernel modules,
+# ptracing other processes, raw kernel I/O, bypassing file permission checks,
+# and SYS_ADMIN itself). NET_ADMIN is deliberately allowed: it is
+# netns-scoped and commonly needed by legitimate networking tooling.
+_DANGEROUS_CAP_ADD = {
+    "ALL",
+    "SYS_ADMIN",
+    "SYS_MODULE",
+    "SYS_PTRACE",
+    "SYS_RAWIO",
+    "DAC_READ_SEARCH",
+}
 
 
 def _runtime_policy_violations(

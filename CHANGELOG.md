@@ -36,9 +36,10 @@ The format is based on Keep a Changelog.
   filesystem evaluated together, with a reasoned
   `spec.security.waivers.runtimePolicy` waiver) and CDS-SEC-091 (disabled
   seccomp/AppArmor/SELinux confinement) for production profiles; services
-  that grant `cap_add: ALL`/`SYS_ADMIN` also violate CDS-SEC-090, and an
-  applied or ineffective runtime-policy waiver emits warning `W103`/`W104`
-  (#207, #895, #898).
+  that grant a kernel-escape capability via `cap_add` (`ALL`, `SYS_ADMIN`,
+  `SYS_MODULE`, `SYS_PTRACE`, `SYS_RAWIO`, `DAC_READ_SEARCH`) also violate
+  CDS-SEC-090, and an applied or ineffective runtime-policy waiver emits
+  warning `W103`/`W104` (#207, #895, #898).
 
 ### Changed
 
