@@ -280,3 +280,6 @@ certs/traefik/*
 # bv (b9s) local config and caches
 .bv/
 /AGENTS.md
+
+# Continue.dev local session state
+/.continue/session-state.md

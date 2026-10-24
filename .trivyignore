@@ -42,3 +42,10 @@ CVE-2026-78408 exp:2026-12-04
 CVE-2026-78409 exp:2026-12-04
 # owner:@RonaldHensbergen — restricted bind mount owner/group/mode pin bypass, same fix
 CVE-2026-78410 exp:2026-12-04
+
+# CVE-2026-111497: libbrotli1 HIGH in the Debian 12 base of
+# images/superset/base/Dockerfile. Fixed by 1.0.9-2+deb12u1, which the Debian
+# mirror did not yet serve when `apt-get upgrade` ran (checked 2026-10-24).
+# Drop this entry once the image rebuild picks up the fixed package.
+# owner:@RonaldHensbergen — libbrotli1 fix not yet published to the mirror
+CVE-2026-111497 exp:2026-11-24

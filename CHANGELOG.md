@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-22
+
 ### Added
 
 - Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
@@ -20,6 +22,10 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Pinned `brotli>=1.2.1` in the Superset image lock to fix the critical
+  out-of-bounds write (GHSA-9v8h-qqgm-4m35) that failed the image scan (#926).
+- Added a time-boxed `.trivyignore` exception for the not-yet-published
+  libbrotli1 fix (CVE-2026-111497) in the Superset base image (#927).
 - Fixed a flaky Superset init failure (duplicate-key error while creating the
   metadata tables) when the web process starts concurrently, by retrying the
   idempotent init steps a bounded number of times, and added container-log
