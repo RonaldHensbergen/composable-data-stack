@@ -21,7 +21,6 @@ from cli.report import (
     _check_no_leaked_secrets,
     build_compliance_report,
 )
-
 from tests.hermetic_project import find_cds, hermetic_env, init_env, make_project
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
