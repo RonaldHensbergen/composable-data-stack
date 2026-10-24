@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-22
+
 ### Added
 
 - Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
