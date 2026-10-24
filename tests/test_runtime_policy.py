@@ -154,6 +154,22 @@ class RuntimePolicyTest(unittest.TestCase):
         )
         self.assertEqual([f for f in findings if f["rule_id"] in _RULES], [])
 
+    def test_user_root_variants_are_flagged(self):
+        """Test that user: root, 0, root:root, 0:0 are all flagged as running as root."""
+        for user_value in ("root", "0", "root:root", "0:0", "  root  ", "0:1000"):
+            with self.subTest(user=user_value):
+                path = self._profile(hardened=True, service_extra={"user": user_value})
+                findings = self._findings(path)
+                self.assertEqual([f["rule_id"] for f in findings], ["CDS-SEC-090"])
+                self.assertIn("non-root", findings[0]["message"])
+
+    def test_user_non_root_variants_pass(self):
+        """Test that non-root users like 1000:1000, appuser, etc. pass."""
+        for user_value in ("1000:1000", "appuser", "1000", "appuser:appuser"):
+            with self.subTest(user=user_value):
+                path = self._profile(hardened=True, service_extra={"user": user_value})
+                self.assertEqual(self._findings(path), [])
+
 
 if __name__ == "__main__":
     unittest.main()

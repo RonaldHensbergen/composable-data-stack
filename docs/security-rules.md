@@ -105,3 +105,12 @@ Both rules are tagged with a `complianceCategory`
 and participate in `cds security --group-by-category` and the new
 `cds security --report nis2` mode (see
 [`docs/nis2-cyberbeveiligingswet-scope.md`](nis2-cyberbeveiligingswet-scope.md)).
+
+---
+
+## Warnings
+
+| Code | Description                                                              | Severity |
+|------|--------------------------------------------------------------------------|----------|
+| W103 | Runtime policy waiver suppressed violations for production profile.      | Warning  |
+| W104 | Runtime policy waiver is set but has no effect (non-production profile). | Warning  |

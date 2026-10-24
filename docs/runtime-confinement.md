@@ -93,3 +93,32 @@ spec:
 
 Kubernetes security contexts remain tracked under #65; this page covers
 the Compose target only.
+
+---
+
+## Migration Guide
+
+If your production profile fails with CDS-SEC-090/091 after upgrading:
+
+1. **Check the findings**:
+   ```bash
+   cds security --profile my-profile
+   ```
+2. **Hardening options**:
+   - Add `cap_drop: [ALL]` to your services.
+   - Add `no-new-privileges: true` to `security_opt`.
+   - Set `user: "1000:1000"` (or another non-root user).
+   - Set `read_only: true` and use volumes for writable paths.
+   - Remove `privileged: true`.
+   - Remove `seccomp=unconfined`, `apparmor=unconfined`, or `label=disable` from `security_opt`.
+3. **Temporary waivers**:
+   If you cannot immediately harden your services, use a waiver:
+   ```yaml
+   spec:
+     security:
+       waivers:
+         runtimePolicy:
+           reason: "Legacy images cannot be modified immediately. Tracking in JIRA-123."
+           checks: [nonRootUser, readOnlyRootFilesystem]
+   ```
+   Note: Privileged mode, `cap_add: ALL/SYS_ADMIN`, and confinement **cannot be waived**.
