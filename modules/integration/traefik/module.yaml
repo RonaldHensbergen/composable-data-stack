@@ -149,6 +149,7 @@ spec:
           port: 443
           protocol: https
           connectionUri: "https://${service.host}:443"
+          tls: true
 
   implementation:
     kind: docker-compose
