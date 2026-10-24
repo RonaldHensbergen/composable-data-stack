@@ -803,10 +803,21 @@ def _runtime_policy_waived_checks(profile: dict[str, Any]) -> set[str]:
     return {check for check in checks if isinstance(check, str)}
 
 
-def _runtime_policy_violations(service: dict[str, Any], waived: set[str]) -> list[str]:
+_DANGEROUS_CAP_ADD = {"ALL", "SYS_ADMIN"}
+
+
+def _runtime_policy_violations(
+    service: dict[str, Any], waived: set[str]
+) -> tuple[list[str], set[str]]:
+    """Return violation messages and the waived check names that suppressed one."""
+    added = sorted(
+        {str(cap).upper().removeprefix("CAP_") for cap in service.get("cap_add") or []}
+        & _DANGEROUS_CAP_ADD
+    )
     options = {str(opt).replace(" ", "") for opt in service.get("security_opt") or []}
     checks = [
         (None, bool(service.get("privileged")), "privileged mode is enabled"),
+        (None, bool(added), f"cap_add grants {', '.join(added)}"),
         (
             "capDrop",
             "ALL" not in {str(cap).upper() for cap in service.get("cap_drop") or []},
@@ -824,7 +835,9 @@ def _runtime_policy_violations(service: dict[str, Any], waived: set[str]) -> lis
             "root filesystem is writable (read_only is not true)",
         ),
     ]
-    return [message for key, failed, message in checks if failed and key not in waived]
+    messages = [m for key, failed, m in checks if failed and key not in waived]
+    suppressed = {key for key, failed, _ in checks if failed and key in waived}
+    return messages, suppressed
 
 
 def _check_runtime_policy(
@@ -833,24 +846,41 @@ def _check_runtime_policy(
     rules: dict[str, dict[str, Any] | None],
     profile_class: str,
     waived: set[str] | None = None,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     """CDS-SEC-090/091: production runtime policy over the rendered Compose services.
 
     `rules` maps rule id to its rule-set entry, or None when that rule is
     disabled. `waived` holds profile-waived CDS-SEC-090 check names. Only
-    prod-class profiles are evaluated.
+    prod-class profiles are evaluated. Also returns a warning when a waiver
+    suppressed a violation (W103) or is declared on a non-prod profile (W104).
     """
-    if profile_class != "prod" or not isinstance(rendered_compose, dict):
-        return []
     policy_rule, confinement_rule = rules.get("CDS-SEC-090"), rules.get("CDS-SEC-091")
+    waiver_path = "spec.security.waivers.runtimePolicy"
+    if profile_class != "prod":
+        if waived and policy_rule is not None:
+            return [], [Diagnostic(
+                level="warning",
+                code="W104",
+                message=(
+                    f"{waiver_path} is set but has no effect for profile class "
+                    f"{profile_class!r}: CDS-SEC-090 and its waiver only apply to "
+                    "prod-class profiles."
+                ),
+                path=waiver_path,
+            )]
+        return [], []
+    if not isinstance(rendered_compose, dict):
+        return [], []
     findings: list[dict[str, Any]] = []
+    suppressed_checks: set[str] = set()
     for service_name, service in (rendered_compose.get("services") or {}).items():
         if not isinstance(service, dict):
             continue
         module_id = service_to_module.get(service_name, service_name)
         path = f"services.{service_name}"
         if policy_rule is not None:
-            violations = _runtime_policy_violations(service, waived or set())
+            violations, suppressed = _runtime_policy_violations(service, waived or set())
+            suppressed_checks |= suppressed
             if violations:
                 findings.append({
                     "rule_id": policy_rule["id"],
@@ -877,7 +907,18 @@ def _check_runtime_policy(
                     "value": None,
                     "recommendation": confinement_rule["recommendation"],
                 })
-    return findings
+    diagnostics = []
+    if suppressed_checks:
+        diagnostics.append(Diagnostic(
+            level="warning",
+            code="W103",
+            message=(
+                "Applied runtime policy waiver for production profile (checks: "
+                f"{', '.join(sorted(suppressed_checks))}). See {waiver_path}.reason."
+            ),
+            path=waiver_path,
+        ))
+    return findings, diagnostics
 
 
 def _check_production_plaintext_exposure(
@@ -1422,10 +1463,11 @@ def run_security_validation(
         rule_enabled=rendered_secret_rule_enabled,
     ))
 
-    findings.extend(_check_runtime_policy(
+    runtime_findings, runtime_diags = _check_runtime_policy(
         rendered_compose, service_to_module, runtime_policy_rules, profile_class,
         _runtime_policy_waived_checks(profile),
-    ))
+    )
+    findings.extend(runtime_findings)
 
     findings.extend(_check_backup_target_binding(
         plan=rendered_plan,
@@ -1460,4 +1502,4 @@ def run_security_validation(
         x["path"],
     ))
 
-    return findings, overlay_diags + secret_diags + render_scan_diags + plaintext_diags
+    return findings, overlay_diags + secret_diags + render_scan_diags + plaintext_diags + runtime_diags

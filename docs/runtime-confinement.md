@@ -70,14 +70,17 @@ rendered service against one runtime policy:
 
 - `CDS-SEC-090` reports one finding per service listing every violated
   setting: privileged mode, `cap_drop` without `ALL`, missing
-  `no-new-privileges`, no explicit non-root `user`, or a writable root
-  filesystem.
+  `no-new-privileges`, no explicit non-root `user`, a writable root
+  filesystem, or `cap_add` of `ALL` or `SYS_ADMIN`.
 - `CDS-SEC-091` flags `seccomp=unconfined`, `apparmor=unconfined` and
   `label=disable`, whether set by a module or via the confinement keys above.
 
 CDS cannot see a non-root `USER` baked into an image, so a service that
 relies on one must either declare `user:` explicitly or be covered by a
-documented waiver. Waivers never cover privileged mode or confinement:
+documented waiver. Waivers never cover privileged mode, dangerous
+`cap_add` or confinement. An applied waiver emits warning `W103` listing the
+suppressed checks, and a waiver on a non-production profile emits `W104`
+because it has no effect there:
 
 ```yaml
 spec:

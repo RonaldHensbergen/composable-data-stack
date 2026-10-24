@@ -17,7 +17,8 @@ _RULES = {"CDS-SEC-090", "CDS-SEC-091"}
 
 
 class RuntimePolicyTest(unittest.TestCase):
-    def _profile(self, environment="production", security=None, hardened=False, confinement=None):
+    def _profile(self, environment="production", security=None, hardened=False, confinement=None,
+                 service_extra=None):
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp, True)
         modules = tmp / "modules"
@@ -32,6 +33,7 @@ class RuntimePolicyTest(unittest.TestCase):
                 "cap_drop": ["ALL"],
                 "security_opt": ["no-new-privileges:true"],
             })
+            service.update(service_extra or {})
             module_file.write_text(yaml.safe_dump(data))
         profile_dir = tmp / "profile"
         profile_dir.mkdir()
@@ -71,6 +73,44 @@ class RuntimePolicyTest(unittest.TestCase):
         message = self._findings(path)[0]["message"]
         self.assertNotIn("non-root", message)
         self.assertIn("cap_drop", message)
+
+    def _codes(self, path):
+        _, diags = run_security_validation(path, env_file=str(path.parent / ".env"))
+        return [d.code for d in diags]
+
+    def test_applied_waiver_emits_warning_with_checks(self):
+        waiver = {"waivers": {"runtimePolicy": {
+            "reason": "image sets USER", "checks": ["nonRootUser"],
+        }}}
+        self.assertIn("W103", self._codes(self._profile(security=waiver)))
+
+    def test_unused_waiver_on_hardened_service_does_not_warn(self):
+        waiver = {"waivers": {"runtimePolicy": {
+            "reason": "image sets USER", "checks": ["nonRootUser"],
+        }}}
+        self.assertNotIn("W103", self._codes(self._profile(security=waiver, hardened=True)))
+
+    def test_waiver_on_non_production_profile_warns_it_has_no_effect(self):
+        waiver = {"waivers": {"runtimePolicy": {
+            "reason": "image sets USER", "checks": ["nonRootUser"],
+        }}}
+        path = self._profile(environment="local", security=waiver)
+        self.assertIn("W104", self._codes(path))
+
+    def test_dangerous_cap_add_is_flagged_and_cannot_be_waived(self):
+        waiver = {"waivers": {"runtimePolicy": {
+            "reason": "x", "checks": ["capDrop", "nonRootUser"],
+        }}}
+        path = self._profile(
+            security=waiver, hardened=True, service_extra={"cap_add": ["SYS_ADMIN"]}
+        )
+        findings = self._findings(path)
+        self.assertEqual([f["rule_id"] for f in findings], ["CDS-SEC-090"])
+        self.assertIn("cap_add grants SYS_ADMIN", findings[0]["message"])
+
+    def test_benign_cap_add_is_allowed(self):
+        path = self._profile(hardened=True, service_extra={"cap_add": ["NET_BIND_SERVICE"]})
+        self.assertEqual(self._findings(path), [])
 
     def test_waiver_requires_reason_and_known_checks(self):
         for waiver in (
