@@ -22,6 +22,8 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Bumped `filelock` to 4.2.4 in `uv.lock` to resolve the open Dependabot
+  advisories (fixed in 4.2.1) (#925).
 - Pinned `brotli>=1.2.1` in the Superset image lock to fix the critical
   out-of-bounds write (GHSA-9v8h-qqgm-4m35) that failed the image scan (#926).
 - Added a time-boxed `.trivyignore` exception for the not-yet-published
