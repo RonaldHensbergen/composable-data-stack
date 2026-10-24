@@ -33,8 +33,9 @@ Docker. Expect these rootless limits:
   `httpPort`-style config to publish high ports.
 - **Bind mounts and volumes** are owned by your mapped sub-UIDs. A
   container `user: "1000:0"` appears on the host as a sub-UID, so prepare
-  host directories with `podman unshare`/`chown` equivalents or prefer named
-  volumes.
+  host directories with a throwaway chown container (for example
+  `docker run --rm -v "$PWD/data:/data" busybox chown -R 1000:0 /data`)
+  or prefer named volumes.
 - **Resource limits** (`cpus`, `mem_limit`) need cgroup v2 controller
   delegation to your user.
 - **The Docker socket** (`/var/run/docker.sock`) is per-user

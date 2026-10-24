@@ -55,7 +55,7 @@ using `--require-hashes`, so an unpinned or hash-mismatched transitive
 dependency fails the build instead of silently resolving. Edit the direct
 dependencies in the neighboring `requirements*.in` file and regenerate the
 lock from that directory (the Python version matches the image's
-interpreter: 3.14, or 3.10 for `superset`):
+interpreter: 3.14, or 3.11 for `superset`):
 
 ```bash
 uv pip compile --generate-hashes --python-version 3.14 \
@@ -133,6 +133,25 @@ An exception expires automatically: after `exp`, the finding is no longer
 ignored, the daily scan fails again, and the `vuln-scan` issue is refreshed.
 Review `.trivyignore` during the biweekly issue audit
 (`biweekly-issue-audit.yml`).
+
+### Resolved exceptions
+
+The `Trivyignore Audit` workflow (`trivyignore-audit.yml`, daily at 03:47
+UTC, after the scan) rescans the published images from
+`tests/fixtures/signed-images.json` *without* `.trivyignore` and runs
+`scripts/audit_trivyignore.py`. It opens or updates a single
+`[trivyignore-audit]` issue (label `trivyignore-audit`) listing:
+
+- entries whose ID no longer appears in any published image, which can be
+  removed once the next rebuild is confirmed clean, and
+- entries still reported although Trivy knows a fixed package version
+  (package, installed and fixed version are listed), meaning a base image
+  bump or rebuild should pick it up, and
+- entries still reported that expire within 14 days.
+
+The audit covers the published digests only, so an entry for an image that
+has been rebuilt but not yet published may still be needed; check the PR-time
+scan before deleting it.
 
 ## Pinned image digest staleness check
 

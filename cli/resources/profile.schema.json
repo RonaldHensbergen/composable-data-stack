@@ -159,12 +159,24 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
+            "runtime": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "confinement": {
+                  "$ref": "#/$defs/runtimeConfinement"
+                }
+              }
+            },
             "waivers": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
                 "plaintextEndpointExposure": {
                   "$ref": "#/$defs/plaintextEndpointExposureWaiver"
+                },
+                "runtimePolicy": {
+                  "$ref": "#/$defs/runtimePolicyWaiver"
                 }
               }
             }
@@ -204,6 +216,34 @@
         },
         "config": {
           "type": "object"
+        },
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "confinement": {
+              "$ref": "#/$defs/runtimeConfinement"
+            }
+          }
+        }
+      }
+    },
+    "runtimeConfinement": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Declarative runtime confinement rendered into each service's security_opt. See docs/runtime-confinement.md.",
+      "properties": {
+        "seccomp": {
+          "type": "string",
+          "description": "'default', 'unconfined' or 'file:<JSON profile relative to the profile directory>'."
+        },
+        "apparmor": {
+          "type": "string",
+          "description": "'runtime/default', 'unconfined' or the name of a host-loaded AppArmor profile."
+        },
+        "selinux": {
+          "description": "'disable' or a list of labels such as 'type:container_t'.",
+          "type": ["string", "array"]
         }
       }
     },
@@ -244,6 +284,27 @@
         "driver": {
           "type": "string",
           "default": "bridge"
+        }
+      }
+    },
+    "runtimePolicyWaiver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "checks"],
+      "description": "Waives individual CDS-SEC-090 runtime-policy checks (production profiles only) for every service, e.g. when images set a non-root USER that CDS cannot see.",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["capDrop", "noNewPrivileges", "nonRootUser", "readOnlyRootFilesystem"]
+          }
         }
       }
     },

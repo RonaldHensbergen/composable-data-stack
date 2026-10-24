@@ -1,14 +1,13 @@
-import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
+from tests.hermetic_project import hermetic_env, init_env, make_project
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PROFILE_NAME = "local-dagster-postgres-superset"
-_PROFILE_FILE = str(_REPO_ROOT / "profiles" / _PROFILE_NAME / "profile.yaml")
-_PROFILE_ENV_FILE = _REPO_ROOT / ".env"
 
 
 def _find_cds() -> list[str]:
@@ -37,46 +36,24 @@ class TestCDSWorkflow(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.cds = _find_cds()
-        cls.repo_root = _REPO_ROOT
-
-        env_file = _PROFILE_ENV_FILE
-        cls._created_env = False
-        if not env_file.exists():
-            init_result = subprocess.run(
-                cls.cds + ["init", _PROFILE_NAME],
-                cwd=str(cls.repo_root),
-                capture_output=True,
-                text=True,
-            )
-            if init_result.returncode != 0:
-                raise RuntimeError(
-                    "Failed to initialize .env for workflow tests:\n"
-                    f"stdout: {init_result.stdout}\n"
-                    f"stderr: {init_result.stderr}"
-                )
-            cls._created_env = True
-
+        cls._project_tmp = tempfile.TemporaryDirectory()
+        cls.project = Path(cls._project_tmp.name)
+        cls.profile_file = str(make_project(cls.project, _PROFILE_NAME))
+        init_env(cls.cds, cls.project, _PROFILE_NAME)
         cls.render_tmpdir = tempfile.TemporaryDirectory()
 
     @classmethod
     def tearDownClass(cls):
         cls.render_tmpdir.cleanup()
-        if cls._created_env:
-            env_file = _PROFILE_ENV_FILE
-            if env_file.exists():
-                env_file.unlink()
+        cls._project_tmp.cleanup()
 
     def _run(self, *args, extra_env: dict | None = None) -> subprocess.CompletedProcess:
-        env = os.environ.copy()
-        env.pop("CDS_PROFILE_PATH", None)
-        if extra_env:
-            env.update(extra_env)
         return subprocess.run(
             self.cds + list(args),
-            cwd=str(self.repo_root),
+            cwd=str(self.project),
             capture_output=True,
             text=True,
-            env=env,
+            env=hermetic_env(extra_env),
         )
 
     def test_commands(self):
@@ -96,7 +73,7 @@ class TestCDSWorkflow(unittest.TestCase):
         # CDS_PROFILE_PATH must point to the specific profile file when no
         # profile name is passed on the command line, otherwise auto-discovery
         # fails when multiple profiles are present in the profiles/ directory.
-        env_with_profile = {"CDS_PROFILE_PATH": _PROFILE_FILE}
+        env_with_profile = {"CDS_PROFILE_PATH": self.profile_file}
 
         for cmd, extra_args, _ in cases:
             use_profile = bool(extra_args) and extra_args[0] == _PROFILE_NAME
@@ -121,7 +98,7 @@ class TestCDSWorkflow(unittest.TestCase):
         test" step (see .github/workflows/ci.yml) asserts this specific
         per-stage outcome instead of requiring `cds test` to exit 0.
         """
-        env_with_profile = {"CDS_PROFILE_PATH": _PROFILE_FILE}
+        env_with_profile = {"CDS_PROFILE_PATH": self.profile_file}
 
         for extra_args, use_profile_arg in (([], False), ([_PROFILE_NAME], True)):
             label = f"test {'with' if use_profile_arg else 'without'} profile arg"
@@ -158,14 +135,19 @@ class ProductionPlaintextExposureWorkflowTest(unittest.TestCase):
             _REPO_ROOT / "tests" / "fixtures" / "security" / "plaintext-exposure"
         )
         cls.modules_root = cls.fixture_root / "modules"
+        cls.cwd_tmpdir = tempfile.TemporaryDirectory()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.cwd_tmpdir.cleanup()
 
     def _run_test(self, profile_dir: str) -> subprocess.CompletedProcess:
-        env = os.environ.copy()
-        env["CDS_MODULE_PATH"] = str(self.modules_root)
+        # Hermetic: no host CDS_* variables and a cwd without a local .env.
+        env = hermetic_env({"CDS_MODULE_PATH": str(self.modules_root)})
         profile_path = self.fixture_root / profile_dir / "profile.yaml"
         return subprocess.run(
             self.cds + ["test", str(profile_path)],
-            cwd=str(self.repo_root),
+            cwd=self.cwd_tmpdir.name,
             capture_output=True,
             text=True,
             env=env,

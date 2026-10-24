@@ -16,7 +16,7 @@ class SupersetHardeningTest(unittest.TestCase):
 
         self.assertRegex(
             dockerfile,
-            r"(?m)^FROM apache/superset:6\.1\.0@sha256:[0-9a-f]{64}$",
+            r"(?m)^FROM apache/superset:6\.1\.0-py311@sha256:[0-9a-f]{64}$",
         )
         users = re.findall(r"^USER\s+(\S+)$", dockerfile, flags=re.MULTILINE)
         self.assertEqual(users[-1], "superset")
@@ -40,7 +40,7 @@ class SupersetHardeningTest(unittest.TestCase):
         self.assertNotIn(
             "pip install --no-cache-dir -r /tmp/superset-requirements.txt", dockerfile
         )
-        self.assertIn("/usr/local/lib/python3.10/site-packages/setuptools", dockerfile)
+        self.assertIn("/usr/local/lib/python3.11/site-packages/setuptools", dockerfile)
         self.assertIn("rm -f /usr/local/bin/pip", dockerfile)
 
         pinned: dict[str, tuple[int, ...]] = {}
