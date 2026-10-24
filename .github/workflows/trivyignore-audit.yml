@@ -1,0 +1,91 @@
+name: Trivyignore Audit
+
+# Flags .trivyignore exceptions that are no longer needed because the
+# vulnerability no longer appears in the published images, and exceptions
+# about to expire. Complements the Image Security Scan, which only fails once
+# an exception has expired.
+
+on:
+  schedule:
+    # After the daily Image Security Scan (03:23 UTC).
+    - cron: "47 3 * * *"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".trivyignore"
+      - "scripts/audit_trivyignore.py"
+      - ".github/workflows/trivyignore-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Install Trivy
+        uses: aquasecurity/setup-trivy@3fb12ec12f41e471780db15c232d5dd185dcb514 # v0.2.6
+        with:
+          version: v0.75.0
+          cache: true
+
+      - name: Scan published images without the ignore file
+        # Same targets and filters as the daily scan (published digests,
+        # HIGH/CRITICAL, fixed only), but without .trivyignore so entries
+        # that are still needed keep showing up.
+        run: |
+          set -euo pipefail
+          mkdir reports
+          python3 - <<'PY' > images.txt
+          import json
+          fixture = json.load(open("tests/fixtures/signed-images.json", encoding="utf-8"))
+          for key, entry in sorted(fixture["images"].items()):
+              print(f"{key} {entry['repository']}@{entry['digest']}")
+          PY
+          while read -r key ref; do
+            trivy image --quiet --scanners vuln --severity HIGH,CRITICAL \
+              --ignore-unfixed --format json --output "reports/${key}.json" "$ref"
+          done < images.txt
+
+      - name: Audit .trivyignore entries
+        run: python3 scripts/audit_trivyignore.py reports/*.json
+
+      - name: File or update the audit issue
+        if: ${{ github.event_name != 'pull_request' && hashFiles('trivyignore-audit.md') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          label="trivyignore-audit"
+          title="[trivyignore-audit] Resolved or expiring vulnerability exceptions"
+          gh label create "$label" --repo "$GITHUB_REPOSITORY" \
+            --color "FBCA04" \
+            --description "Stale or expiring .trivyignore exceptions" \
+            --force
+          {
+            cat trivyignore-audit.md
+            echo
+            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } > issue-body.md
+          existing="$(
+            gh issue list --repo "$GITHUB_REPOSITORY" --label "$label" \
+              --state open --limit 1 --json number --jq '.[0].number // empty'
+          )"
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$GITHUB_REPOSITORY" --body-file issue-body.md
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" \
+              --body-file issue-body.md --label "$label"
+          fi

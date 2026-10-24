@@ -10,6 +10,10 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a daily `Trivyignore Audit` workflow and
+  `scripts/audit_trivyignore.py` that report `.trivyignore` exceptions whose
+  vulnerability no longer appears in the published images, and exceptions
+  expiring within 14 days, in a single `trivyignore-audit` issue.
 - Added declarative runtime confinement: `spec.security.runtime.confinement`
   (profile default) and `modules[].security.confinement` (per-module
   override) select seccomp, AppArmor and SELinux settings that `cds render`
