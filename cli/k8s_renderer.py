@@ -111,8 +111,6 @@ def render_helm(
                 path=f"module:{module_id}.implementation.kubernetes",
             )
         )
-    if unsupported:
-        return {}, diagnostics
 
     if plan_declares_confinement(plan):
         diagnostics.append(
@@ -127,6 +125,9 @@ def render_helm(
                 path="spec.security.runtime.confinement",
             )
         )
+
+    if unsupported:
+        return {}, diagnostics
 
     # Service names must be known before any workload renders, because
     # ${k8s.service.*} can point forward to a workload declared later.

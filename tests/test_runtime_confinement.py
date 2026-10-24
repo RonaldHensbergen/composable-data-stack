@@ -2,6 +2,7 @@
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import yaml
@@ -169,3 +170,37 @@ class ConfinementValidationTest(_ProfileCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfinementHardeningTest(_ProfileCase):
+    def test_seccomp_file_without_profile_directory_is_rejected(self):
+        diags = validate_confinement({"seccomp": "file:seccomp.json"}, "c", None)
+        self.assertEqual([d.code for d in diags], ["E127"])
+
+    def test_unreferenceable_seccomp_path_is_a_diagnostic_not_a_traceback(self):
+        service = {}
+        with mock.patch("cli.confinement.os.path.relpath", side_effect=ValueError):
+            diags = apply_confinement(
+                service, {"seccomp": "file:s.json"}, Path("/c"), Path("/p"), "m.security"
+            )
+        self.assertEqual([d.code for d in diags], ["E127"])
+        self.assertNotIn("security_opt", service)
+
+    def test_invalid_profile_default_is_reported_once(self):
+        path = self._profile({"runtime": {"confinement": {"seccomp": "file:seccomp.json"}}},
+                             seccomp_file=True)
+        plan, _ = build_plan(str(path), env_file=str(path.parent / ".env"))
+        plan["security"]["runtime"]["confinement"]["seccomp"] = "bogus"
+        plan["modules"] = plan["modules"] * 2
+        _, diags = render_compose(plan, output_path=str(path.parent / "out" / "c.yml"))
+        self.assertEqual([d.code for d in diags if d.level == "error"].count("E127"), 1)
+
+    def test_helm_warns_even_when_a_module_is_unsupported(self):
+        plan = {
+            "metadata": {"name": "demo"},
+            "security": {"runtime": {"confinement": {"apparmor": "runtime/default"}}},
+            "modules": [{"id": "x", "implementation": {"kind": "docker-compose"}}],
+        }
+        _, diags = render_helm(plan)
+        self.assertIn("W127", [d.code for d in diags])
+        self.assertIn("E072", [d.code for d in diags])

@@ -82,6 +82,11 @@ def render_compose(
             networks[default_network_name] = {}
         compose["networks"] = networks
 
+    profile_confinement_diags = validate_confinement(
+        profile_confinement(plan), "spec.security.runtime.confinement", profile_dir
+    )
+    diagnostics.extend(profile_confinement_diags)
+
     for module in plan.get("modules", []):
         implementation = module.get("implementation", {})
 
@@ -137,19 +142,26 @@ def render_compose(
             ))
             continue
 
-        module_confinement = effective_confinement(
-            profile_confinement(plan),
-            (module.get("security") or {}).get("confinement"),
-        )
+        confinement_path = f'module:{module.get("id")}.security.confinement'
         # Plans can be loaded from files, so re-check what validate already checked.
-        confinement_diags = validate_confinement(
-            module_confinement, f'module:{module.get("id")}.security.confinement', profile_dir
-        )
+        confinement_diags = list(profile_confinement_diags)
+        confinement_diags.extend(validate_confinement(
+            (module.get("security") or {}).get("confinement"), confinement_path, profile_dir
+        ))
+        if not confinement_diags:
+            module_confinement = effective_confinement(
+                profile_confinement(plan),
+                (module.get("security") or {}).get("confinement"),
+            )
+            for service_def in rendered_services.values():
+                confinement_diags.extend(apply_confinement(
+                    service_def, module_confinement, compose_dir, profile_dir, confinement_path
+                ))
+                if confinement_diags:
+                    break
         if confinement_diags:
-            diagnostics.extend(confinement_diags)
+            diagnostics.extend(d for d in confinement_diags if d not in profile_confinement_diags)
             continue
-        for service_def in rendered_services.values():
-            apply_confinement(service_def, module_confinement, compose_dir, profile_dir)
 
         # Handle initDbEnv for postgres service (merge additional env vars)
         _merge_init_db_env(rendered_services, module, secrets)

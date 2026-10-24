@@ -49,8 +49,10 @@ profile is reported by Docker at `cds up`.
   remain tracked under #65.
 - **Module overrides can weaken the default.** A module instance may set a
   key to `unconfined` or `selinux: disable` even when the profile default is
-  stricter. This page only covers the mechanism; production policy rules for
-  flagging such overrides follow in a later part of #207.
+  stricter. This page only covers the mechanism; flagging disabled
+  confinement in production profiles is tracked in
+  [#898](https://github.com/RonaldHensbergen/composable-data-stack/issues/898).
+  Until then, review `unconfined` and `selinux: disable` overrides manually.
 - **Engine-specific mapping.** `apparmor: runtime/default` is rendered as
   Docker's `docker-default` profile. Other engines (for example Podman) use
   different default profile names; declare the host-loaded profile name
@@ -58,3 +60,6 @@ profile is reported by Docker at `cds up`.
 - **Path rules.** `file:` paths must be relative to the profile directory.
   Rooted (`/x`, `\x`), drive-qualified (`C:x`) and `..` paths are rejected on
   every platform, and are re-checked when `cds render` consumes a plan.
+  Rendering fails with `E127` if the profile directory is unknown or the
+  profile cannot be referenced relative to `docker-compose.yml` (for example
+  on a different Windows drive).
