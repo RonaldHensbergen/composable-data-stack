@@ -1,0 +1,8 @@
+name: Fetch MCP
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: Fetch
+    command: /home/ronald/.local/bin/uvx
+    args:
+      - mcp-server-fetch

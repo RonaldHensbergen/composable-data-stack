@@ -281,5 +281,5 @@ certs/traefik/*
 .bv/
 /AGENTS.md
 
-# Continue.dev settings
-/.continue/
+# Continue.dev local session state
+/.continue/session-state.md
