@@ -20,11 +20,10 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
-- Bumped the hash-locked `setuptools` to 84.2.1 in the Dagster, dlt and
-  Superset image lock files to resolve GHSA-xmj3-9gf7-h52w (#927).
-- Pinned `brotli` 1.2.1 in the Superset image lock to resolve
-  GHSA-9v8h-qqgm-4m35, and added a time-boxed `.trivyignore` exception for
-  the not-yet-published libbrotli1 fix (CVE-2026-111497) (#927).
+- Pinned `brotli>=1.2.1` in the Superset image lock to fix the critical
+  out-of-bounds write (GHSA-9v8h-qqgm-4m35) that failed the image scan (#926).
+- Added a time-boxed `.trivyignore` exception for the not-yet-published
+  libbrotli1 fix (CVE-2026-111497) in the Superset base image (#927).
 - Fixed a flaky Superset init failure (duplicate-key error while creating the
   metadata tables) when the web process starts concurrently, by retrying the
   idempotent init steps a bounded number of times, and added container-log
