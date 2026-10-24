@@ -37,7 +37,8 @@ options such as `no-new-privileges:true` are preserved.
 
 Invalid values fail `cds validate` with error `E127` and the exact data
 path. `file:` seccomp profiles must be relative, stay inside the profile
-directory and exist on disk. AppArmor profiles and SELinux labels must
+directory and exist on disk. SELinux labels may use each of `user:`, `role:`,
+`type:` and `level:` at most once. AppArmor profiles and SELinux labels must
 exist on the host: CDS renders them but cannot load them, so a missing
 profile is reported by Docker at `cds up`.
 

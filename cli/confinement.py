@@ -141,6 +141,14 @@ def _validate_selinux(value: Any, path: str) -> list[Diagnostic]:
             f"Invalid SELinux label(s): {', '.join(bad)}; expected user:, role:, type: or level: values.",
             path,
         )]
+    kinds = [label.split(":", 1)[0] for label in value]
+    duplicates = sorted({k for k in kinds if kinds.count(k) > 1})
+    if duplicates:
+        return [_error(
+            f"Duplicate SELinux label kind(s): {', '.join(duplicates)}; "
+            "each of user:, role:, type: and level: may appear at most once.",
+            path,
+        )]
     return []
 
 

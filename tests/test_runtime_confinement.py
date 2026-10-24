@@ -1,5 +1,7 @@
 """Tests for declarative runtime confinement (#207): seccomp/AppArmor/SELinux."""
+import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,7 +22,7 @@ _FIXTURE = (
 
 class _ProfileCase(unittest.TestCase):
     def _profile(self, spec_security=None, module_security=None, seccomp_file=False):
-        tmp = Path(tempfile.mkdtemp())
+        tmp = Path(tempfile.mkdtemp(dir=os.environ.get("CDS_TEST_TMPDIR")))
         self.addCleanup(shutil.rmtree, tmp, True)
         shutil.copytree(_FIXTURE / "modules", tmp / "modules")
         profile_dir = tmp / "profile"
@@ -194,6 +196,32 @@ class ConfinementHardeningTest(_ProfileCase):
         plan["modules"] = plan["modules"] * 2
         _, diags = render_compose(plan, output_path=str(path.parent / "out" / "c.yml"))
         self.assertEqual([d.code for d in diags if d.level == "error"].count("E127"), 1)
+
+    def test_duplicate_selinux_label_kinds_are_rejected(self):
+        diags = validate_confinement(
+            {"selinux": ["type:a_t", "type:b_t", "level:s0"]}, "c", None
+        )
+        self.assertEqual([d.code for d in diags], ["E127"])
+        self.assertIn("type", diags[0].message)
+
+    @unittest.skipUnless(
+        os.environ.get("CDS_DOCKER_TESTS") == "1" and shutil.which("docker"),
+        "set CDS_DOCKER_TESTS=1 with Docker available to run (CDS_TEST_TMPDIR if Docker cannot read /tmp)",
+    )
+    def test_rendered_seccomp_file_loads_in_docker_compose(self):
+        path = self._profile(
+            {"runtime": {"confinement": {"seccomp": "file:seccomp.json"}}}, seccomp_file=True
+        )
+        plan, _ = build_plan(str(path), env_file=str(path.parent / ".env"))
+        compose_file = path.parent / "out" / "docker-compose.yml"
+        output, _ = render_compose(plan, output_path=str(compose_file))
+        compose_file.parent.mkdir(exist_ok=True)
+        compose_file.write_text(output)
+        result = subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "config", "--quiet"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_helm_warns_even_when_a_module_is_unsupported(self):
         plan = {
