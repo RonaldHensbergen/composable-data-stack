@@ -32,6 +32,8 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Removed the eight resolved `.trivyignore` exceptions (util-linux and
+  libbrotli1 CVEs) now that the published images no longer report them (#934).
 - Bumped `filelock` to 4.2.4 in `uv.lock` to resolve the open Dependabot
   advisories (fixed in 4.2.1) (#925).
 - Pinned `brotli>=1.2.1` in the Superset image lock to fix the critical
