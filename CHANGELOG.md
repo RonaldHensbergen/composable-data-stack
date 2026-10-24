@@ -10,6 +10,12 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Extended the `.trivyignore` audit to list still-reported exceptions that
+  have a fixed package version available (#934).
+- Added a daily `Trivyignore Audit` workflow and
+  `scripts/audit_trivyignore.py` that report `.trivyignore` exceptions whose
+  vulnerability no longer appears in the published images, and exceptions
+  expiring within 14 days, in a single `trivyignore-audit` issue.
 - Added declarative runtime confinement: `spec.security.runtime.confinement`
   (profile default) and `modules[].security.confinement` (per-module
   override) select seccomp, AppArmor and SELinux settings that `cds render`
@@ -43,6 +49,8 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Removed the eight resolved `.trivyignore` exceptions (util-linux and
+  libbrotli1 CVEs) now that the published images no longer report them (#934).
 - Bumped `filelock` to 4.2.4 in `uv.lock` to resolve the open Dependabot
   advisories (fixed in 4.2.1) (#925).
 - Pinned `brotli>=1.2.1` in the Superset image lock to fix the critical
