@@ -1,0 +1,10 @@
+name: Git MCP
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: Git
+    command: /home/ronald/.local/bin/uvx
+    args:
+      - mcp-server-git
+      - --repository
+      - /home/ronald/Projects/composable-data-stack

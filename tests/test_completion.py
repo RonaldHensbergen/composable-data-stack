@@ -46,9 +46,8 @@ def _complete(comp_line: str, profiles_root: Path | None = None) -> list[str]:
 
     Returns the list of completion candidates cds would offer for `comp_line`.
     """
-    env = os.environ.copy()
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CDS_")}
     env["CDS_PROFILE_PATH"] = str(profiles_root or _PROFILES_ROOT)
-    env.pop("CDS_CONFIG_PATH", None)
 
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         stdout_filename = tmp.name
