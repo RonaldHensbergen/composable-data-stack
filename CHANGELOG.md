@@ -10,6 +10,10 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a daily `Trivyignore Audit` workflow and
+  `scripts/audit_trivyignore.py` that report `.trivyignore` exceptions whose
+  vulnerability no longer appears in the published images, and exceptions
+  expiring within 14 days, in a single `trivyignore-audit` issue.
 - Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
   file readable or writable by group or others (new `file-permissions`
   rule scope and `permissions` condition; skipped on Windows), and
