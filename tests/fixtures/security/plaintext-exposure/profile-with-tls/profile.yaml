@@ -25,3 +25,8 @@ spec:
       enabled: true
       config:
         publicPort: 8080
+  security:
+    waivers:
+      runtimePolicy:
+        reason: fixture images are not hardened; this fixture tests plaintext exposure only
+        checks: [capDrop, noNewPrivileges, nonRootUser, readOnlyRootFilesystem]

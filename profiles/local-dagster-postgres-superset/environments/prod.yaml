@@ -12,3 +12,13 @@ spec:
       config:
         storage:
           size: 20Gi
+
+  # The production runtime policy (CDS-SEC-090, see docs/runtime-confinement.md)
+  # requires an explicit non-root user per service. The Dagster and Superset
+  # images set a non-root USER in their Dockerfiles, which CDS cannot see, so
+  # waive that single check with the documented reason.
+  security:
+    waivers:
+      runtimePolicy:
+        reason: Dagster and Superset images set a non-root USER in their Dockerfiles.
+        checks: [nonRootUser]
