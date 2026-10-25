@@ -49,6 +49,9 @@ completion = [
 ]
 test = [
   "jinja2>=3.0",
+  # Exercises the cds-runtime database API's engine-backed tests against
+  # SQLite (the stdlib driver); see tests/test_cds_runtime.py.
+  "sqlalchemy>=2.0",
 ]
 dev = [
   "coverage>=7.6",

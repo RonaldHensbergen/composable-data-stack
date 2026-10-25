@@ -1,0 +1,40 @@
+# pyproject.toml for the cds-runtime workload API (issue #219).
+#
+# Deliberately dependency-free at the core: SQLAlchemy and the database
+# drivers are optional extras imported lazily, so a workload image can
+# install only what its connections need.
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cds-runtime"
+version = "0.1.0"
+description = "Runtime API for CDS workloads: named database connections resolved from CDS contracts"
+readme = "README.md"
+license = "Apache-2.0"
+authors = [
+  { name = "Ronald Hensbergen" },
+]
+keywords = [
+  "data-platform",
+  "data-stack",
+  "database",
+  "sqlalchemy",
+]
+requires-python = ">=3.10"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Database",
+]
+
+[project.optional-dependencies]
+sqlalchemy = ["sqlalchemy>=2.0"]
+postgresql = ["sqlalchemy>=2.0", "psycopg2-binary>=2.9"]
+mysql = ["sqlalchemy>=2.0", "pymysql>=1.1"]
+
+[tool.setuptools]
+packages = ["cds_runtime", "cds_runtime.adapters"]

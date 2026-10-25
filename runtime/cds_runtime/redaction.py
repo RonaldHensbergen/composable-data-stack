@@ -1,0 +1,41 @@
+"""Redaction helpers.
+
+cds-runtime never logs credentials or unredacted connection URIs. These
+helpers produce display-safe strings: a redacted URI keeps its scheme,
+host, and database but masks the password, and secret values are removed
+from arbitrary text (driver error messages) before they are surfaced.
+"""
+from __future__ import annotations
+
+import re
+from urllib.parse import urlsplit, urlunsplit
+
+_SECRET_QUERY_KEYS = ("password", "passphrase", "secret", "token", "key")
+
+
+def redact_secret(text: str, secret: str | None) -> str:
+    """Remove a known secret value from arbitrary text."""
+    if not secret:
+        return text
+    return str(text).replace(secret, "***")
+
+
+def redact_uri(uri: str) -> str:
+    """Mask the password (and secret-looking query parameters) of a URI."""
+    parts = urlsplit(uri)
+    netloc = parts.netloc
+    if "@" in netloc:
+        credentials, _, host = netloc.rpartition("@")
+        user, sep, _password = credentials.partition(":")
+        if sep:
+            netloc = f"{user}:***@{host}"
+    query = "&".join(
+        f"{key}=***" if key.lower() in _SECRET_QUERY_KEYS and value else f"{key}={value}"
+        for key, _, value in (item.partition("=") for item in parts.query.split("&") if item)
+    )
+    return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
+
+
+def looks_like_uri(value: str) -> bool:
+    """Best-effort check used to keep URIs out of error messages."""
+    return bool(re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", value))
