@@ -6,6 +6,13 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed the dbt example profile failing `cds validate` with `E041`: its
+  superset instance never bound the required `analytics-database`
+  contract after it became mandatory, and added a regression test that
+  validates every shipped profile and environment overlay (#940).
+
 ## [0.13.0] - 2026-10-22
 
 ### Added
