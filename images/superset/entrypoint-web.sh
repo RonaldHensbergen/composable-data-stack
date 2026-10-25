@@ -25,8 +25,13 @@ if [ -z "$GUNICORN" ]; then
 fi
 
 # gunicorn: workers recycle on timeout, SIGTERM drains requests gracefully.
+# --preload loads the app once in the master before forking, so concurrent
+# workers cannot race each other (or superset-init) creating the metadata
+# schema when the web process starts before the init container, e.g. after
+# an out-of-order start or a restart against an empty database.
 exec "$GUNICORN" \
     --bind "0.0.0.0:$PORT" \
+    --preload \
     --workers "$WORKERS" \
     --worker-class gthread \
     --timeout "$TIMEOUT" \

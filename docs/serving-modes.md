@@ -14,7 +14,7 @@ overlays select the mode without binding CDS to one specific server.
 
 | Module | `production` (what runs) | `development` (what runs) | Default |
 | --- | --- | --- | --- |
-| `bi/superset` | gunicorn, `webServer.workers` workers (default 4), `webServer.timeoutSeconds` per-request timeout (default 60), gthread worker class, SIGTERM drains in-flight requests | Superset's built-in development server (`superset run`) | `production` |
+| `bi/superset` | gunicorn with a preloaded app (loaded once in the master, then forked), `webServer.workers` workers (default 4), `webServer.timeoutSeconds` per-request timeout (default 60), gthread worker class, SIGTERM drains in-flight requests | Superset's built-in development server (`superset run`) | `production` |
 | `identity/keycloak` | `kc.sh start --http-enabled=true` (production mode, plain HTTP kept on the localhost-only bind for the reverse proxy in front) | Keycloak development mode (`start-dev`), which relaxes hostname/TLS checks | `development` (module is `productionSuitable: false`) |
 
 The defaults are deliberate:

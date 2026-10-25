@@ -17,7 +17,10 @@ The format is based on Keep a Changelog.
   (`start-dev`, still its default while the module is not
   production-suitable) and Keycloak production mode. Production profiles
   that explicitly select `webServer.mode: development` fail validation
-  with `E140`; see `docs/serving-modes.md`.
+  with `E140`; see `docs/serving-modes.md`. The gunicorn configuration
+  preloads the app in the master process before forking workers, so
+  workers cannot race each other creating the metadata schema when the
+  web process starts before the init container.
 
 - Added a vendor-neutral `backup-target` shared contract and an optional
   `spec.backup` profile block (per-workload-class retention, RPO/RTO,

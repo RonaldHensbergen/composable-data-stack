@@ -22,8 +22,11 @@ The module serves HTTP in two modes, selected with `config.webServer.mode`
 
 - `production` (default): gunicorn with `webServer.workers` workers
   (default 4), `webServer.timeoutSeconds` per-request timeout (default 60),
-  gthread worker class, and graceful shutdown on SIGTERM. The `superset`
-  service passes `CDS_WEBSERVER_MODE`/`CDS_WEBSERVER_WORKERS`/`CDS_WEBSERVER_TIMEOUT`
+  gthread worker class, and graceful shutdown on SIGTERM. The app is
+  preloaded once in the gunicorn master before workers fork, so a web
+  process that starts before `superset-init` (out-of-order start, restart
+  against an empty database) cannot race schema creation between workers.
+  The `superset` service passes `CDS_WEBSERVER_MODE`/`CDS_WEBSERVER_WORKERS`/`CDS_WEBSERVER_TIMEOUT`
   to the image entrypoint.
 - `development`: Superset's built-in development server (`superset run`),
   for local debugging only; validation rejects it in production profiles
