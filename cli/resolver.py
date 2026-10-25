@@ -40,6 +40,25 @@ def secret_name_from_ref(value: str) -> str:
     return value.split(".", 1)[1]
 
 
+def is_certificate_ref(value: Any) -> bool:
+    return isinstance(value, str) and value.startswith("certificates.") and len(value) > len("certificates.")
+
+
+def parse_certificate_ref(value: str) -> tuple[str, str] | None:
+    """
+    Split a `certificates.<alias>.<part>` reference into (alias, part).
+
+    `part` must be `cert` or `key` -- the two halves of a certificate/key
+    pair. Returns None for a malformed reference (bare `certificates.<alias>`
+    or any other trailing shape); callers turn that into a diagnostic so a
+    typo fails loudly instead of silently not substituting.
+    """
+    parts = value.split(".")
+    if len(parts) != 3 or not parts[1] or parts[2] not in ("cert", "key"):
+        return None
+    return parts[1], parts[2]
+
+
 def evaluate_required_if(expr: str, config: dict[str, Any]) -> bool:
     """
     Evaluate a consume entry's `requiredIf` gate, e.g.

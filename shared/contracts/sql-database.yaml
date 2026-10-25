@@ -34,6 +34,15 @@ spec:
       type: string
       required: true
       description: Fully composed SQLAlchemy-style connection URI.
+    tls:
+      type: boolean
+      required: false
+      description: >-
+        Whether the database endpoint is TLS-protected. Optional for backward
+        compatibility: an absent field means TLS is not advertised, and a
+        consumer that declares "tls: required" on its consume entry fails
+        validation with E128 unless the provider's contract spec sets this to
+        true (see issue #577).
   examples:
     - host: postgres
       port: 5432

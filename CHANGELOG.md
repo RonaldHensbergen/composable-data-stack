@@ -8,6 +8,21 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a certificate reference mechanism parallel to secret aliases
+  (issue #578): profiles declare `spec.certificates.values` aliases mapping
+  to externally managed material via `certEnv`/`keyEnv` environment variable
+  names, and module config references `certificates.<alias>.cert|.key`,
+  which validate (`E129` for unknown aliases or malformed references) and
+  render as `${CDS_*}` runtime placeholders. CDS never generates, reads,
+  or embeds certificate or private key material.
+- Added provider-neutral TLS requirements to contracts (issue #577): a
+  `consumes` entry can declare `tls: required`, and providers advertise
+  `tls: true` (boolean literal or `${config.<path>}` reference) in their
+  provide entry's contract spec; a required binding whose provider does not
+  advertise TLS fails validation with `E128`, while omitting the field keeps
+  existing profiles valid. Extended the `sql-database`, `cache-service`, and
+  new `http-service`/`reverse-proxy` shared contract documents with the
+  optional `tls` field.
 - Added a production-aware `host.rootless` result to `cds preflight` (a rootful
   daemon is advisory on local profiles and a warning on production-class
   profiles) and documented rootless Docker compatibility expectations in
@@ -51,6 +66,18 @@ The format is based on Keep a Changelog.
   out-of-bounds write (GHSA-9v8h-qqgm-4m35) that failed the image scan (#926).
 - Added a time-boxed `.trivyignore` exception for the not-yet-published
   libbrotli1 fix (CVE-2026-111497) in the Superset base image (#927).
+- Made `tests/test_dagster_entrypoint_backend_guard.py` OS-independent: the
+  POSIX shell used to exercise the entrypoint guard is resolved from PATH or
+  a Git for Windows install, and the tests skip with a clear message when no
+  shell is available instead of failing with `FileNotFoundError` (#564).
+- Fixed the dbt example profile failing `cds validate` with `E041`: its
+  superset instance never bound the required `analytics-database`
+  contract after it became mandatory, and added a regression test that
+  validates every shipped profile and environment overlay (#940).
+- Made `tests/test_dagster_entrypoint_backend_guard.py` OS-independent: the
+  POSIX shell used to exercise the entrypoint guard is resolved from PATH or
+  a Git for Windows install, and the tests skip with a clear message when no
+  shell is available instead of failing with `FileNotFoundError` (#564).
 
 ## [0.13.0] - 2026-10-22
 

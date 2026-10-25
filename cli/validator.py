@@ -16,7 +16,9 @@ from .loader import load_yaml_file, resolve_module_file
 from .resolver import (
     RequiredIfSyntaxError,
     evaluate_required_if,
+    is_certificate_ref,
     is_secret_ref,
+    parse_certificate_ref,
     parse_contract_ref,
     resolve_path,
     secret_name_from_ref,
@@ -63,6 +65,7 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_module_configs(module_instances))
     diagnostics.extend(validate_dependencies(module_instances))
     diagnostics.extend(validate_secret_refs(profile, module_instances))
+    diagnostics.extend(validate_certificate_refs(profile, module_instances))
     diagnostics.extend(validate_contract_bindings(module_instances))
     diagnostics.extend(validate_image_source_config(module_instances))
     diagnostics.extend(validate_outputs(profile, module_instances))
@@ -319,6 +322,71 @@ def walk_for_secret_refs(obj: Any, current_path: str, known_secrets: set[str], d
                 )
 
 
+def validate_certificate_refs(profile: dict[str, Any], module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+    """
+    Validates `certificates.<alias>.cert|.key` references in module instance
+    config against the profile's spec.certificates.values aliases (issue #578).
+
+    CDS never reads certificate or key material: this only checks that the
+    alias is declared and the reference names one of the two halves of the
+    pair, so a typo fails here instead of silently not substituting later.
+    """
+    diagnostics: list[Diagnostic] = []
+
+    certificates_values = (
+        (profile.get("spec", {}).get("certificates") or {})
+        .get("values", {})
+    )
+    known_aliases = set(certificates_values.keys())
+
+    for inst in module_instances:
+        walk_for_certificate_refs(
+            obj=inst["config"],
+            current_path=f"spec.modules[{inst['index']}].config",
+            known_aliases=known_aliases,
+            diagnostics=diagnostics,
+        )
+
+    return diagnostics
+
+
+def walk_for_certificate_refs(obj: Any, current_path: str, known_aliases: set[str], diagnostics: list[Diagnostic]) -> None:
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            walk_for_certificate_refs(v, f"{current_path}.{k}", known_aliases, diagnostics)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            walk_for_certificate_refs(v, f"{current_path}[{i}]", known_aliases, diagnostics)
+    else:
+        if not is_certificate_ref(obj):
+            return
+        parsed = parse_certificate_ref(obj)
+        if parsed is None:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E129",
+                    message=(
+                        f'Certificate ref "{obj}" is malformed: expected '
+                        '"certificates.<alias>.cert" or "certificates.<alias>.key" '
+                        "naming one half of a declared certificate pair."
+                    ),
+                    path=current_path,
+                )
+            )
+            return
+        alias, _part = parsed
+        if alias not in known_aliases:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E129",
+                    message=f'Certificate ref "{obj}" is not defined in spec.certificates.values.',
+                    path=current_path,
+                )
+            )
+
+
 class CompatibilityRegistryError(Exception):
     """
     Raised when the bundled compatibility registry (or its schema) can't be
@@ -393,6 +461,35 @@ def _module_key(module_def: dict[str, Any]) -> str | None:
     if not isinstance(category, str) or not isinstance(name, str) or not category or not name:
         return None
     return f"{category}/{name}"
+
+
+def _provider_advertises_tls(provider_contract: dict[str, Any], producer_inst: dict[str, Any]) -> bool:
+    """
+    Evaluate the provider's contract-spec `tls` advertisement for the
+    tls:required consume check (issue #577).
+
+    A boolean literal is used as-is. A pure "${config.<path>}" reference is
+    resolved against the producer instance's profile config -- validation runs
+    before the planner applies configSchema defaults, so a config-driven
+    advertisement only satisfies a TLS requirement when the profile sets the
+    referenced value explicitly. Anything else (an absent field, `false`, a
+    missing config path, or any other template expression) means "no TLS
+    advertised", so the requirement fails closed.
+    """
+    value = (provider_contract.get("spec") or {}).get("tls")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.startswith("${config.") and value.endswith("}"):
+        path = value[2:-1]
+        try:
+            resolved = resolve_path({"config": producer_inst.get("config")}, path)
+        except KeyError:
+            return False
+        if isinstance(resolved, bool):
+            return resolved
+        if isinstance(resolved, str) and resolved.lower() == "true":
+            return True
+    return False
 
 
 def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
@@ -536,6 +633,26 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                     )
                 )
                 continue
+
+            if consume.get("tls") == "required" and not _provider_advertises_tls(
+                matched.get("contract", {}), producer
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E128",
+                        message=(
+                            f'Consume entry "{name}" in module "{inst["id"]}" requires a '
+                            f'TLS-protected endpoint (tls: required), but contract ref '
+                            f'"{contract_ref}" resolves to "{producer_id}", whose "{provide_name}" '
+                            'contract does not advertise one. Providers opt in by setting '
+                            '"tls: true" in the provide entry\'s contract spec (either a boolean '
+                            'literal or a "${config.<path>}" reference that resolves to true '
+                            'against the producer instance\'s profile config).'
+                        ),
+                        path=f"spec.modules[{inst['index']}].config",
+                    )
+                )
 
             provider_key = _module_key(producer["module"])
             consumer_key = _module_key(inst["module"])

@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: http-service
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared contract describing an HTTP service a module exposes. Unlike
+    sql-database/cache-service (whose fields are connection values a consumer
+    binds via ${bindings.<name>.<field>}), these fields are provider-side
+    service descriptors: they tell the stack where the HTTP endpoint lives
+    and how it is served. The optional tls field carries the TLS
+    advertisement consumers can require via a "tls: required" consume entry
+    (see issue #577).
+
+spec:
+  fields:
+    portFrom:
+      type: string
+      required: true
+      description: >-
+        Config path (e.g. spec.config.webPort) whose value is the TCP port
+        the HTTP service listens on.
+    healthPath:
+      type: string
+      required: false
+      description: HTTP path serving a health-check endpoint (e.g. /health).
+    protocol:
+      type: string
+      required: false
+      description: Scheme the service is served over (http or https).
+    tls:
+      type: boolean
+      required: false
+      description: >-
+        Whether the HTTP endpoint is TLS-protected. Optional for backward
+        compatibility: an absent field means TLS is not advertised, and a
+        consumer that declares "tls: required" on its consume entry fails
+        validation with E128 unless the provider's contract spec sets this to
+        true.
+  examples:
+    - portFrom: spec.config.webPort
+      healthPath: /health
+      protocol: http
+      tls: false

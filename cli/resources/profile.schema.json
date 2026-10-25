@@ -98,6 +98,20 @@
             }
           }
         },
+        "certificates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["values"],
+          "description": "Certificate/key reference aliases mapping to externally managed material (issue #578). CDS never generates, reads, or embeds certificate or key material: each alias names the two environment variables a secret/cert provider supplies at runtime, and module config references the halves as certificates.<alias>.cert / certificates.<alias>.key, which render as ${VAR} runtime placeholders exactly like secrets.",
+          "properties": {
+            "values": {
+              "type": "object",
+              "additionalProperties": {
+                "$ref": "#/$defs/certificateValue"
+              }
+            }
+          }
+        },
         "outputs": {
           "type": "object",
           "additionalProperties": false,
@@ -258,6 +272,25 @@
         },
         "required": {
           "type": "boolean"
+        }
+      }
+    },
+    "certificateValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["certEnv", "keyEnv"],
+      "properties": {
+        "certEnv": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Environment variable name (no value) supplied by the secret/cert provider at runtime that holds or materializes the certificate."
+        },
+        "keyEnv": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Environment variable name (no value) supplied by the secret/cert provider at runtime that holds or materializes the private key. CDS never reads or renders the key material itself."
         }
       }
     },

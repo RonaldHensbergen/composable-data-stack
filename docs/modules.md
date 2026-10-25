@@ -90,6 +90,7 @@ spec:
   - `${service.host}` resolves to the module instance `id` declared in the profile, not to a service name under `spec.implementation.compose.services`; modules with multiple Compose services receive the same module `id` for this placeholder
   - `${bindings.<contract>.<field>}` reads a field from a contract declared in `spec.consumes` and resolved by the profile
   - `${secrets.<alias>}` resolves a profile secret alias to a Docker Compose runtime placeholder such as `${CDS_DB_PASSWORD}`; CDS never embeds the secret value
+  - `${certificates.<alias>.cert}` / `${certificates.<alias>.key}` (issue #578) resolve one half of a profile certificate alias declared under `spec.certificates.values` to its `${CDS_*}` runtime placeholder. CDS never generates, reads, or embeds certificate or private key material: the alias only names the environment variables the external secret/cert provider supplies, so an undeclared alias, a bare `certificates.<alias>` reference, or an unknown trailing part fails validation with `E129` instead of silently not substituting
 - `enabledFrom` / `conditionallyEnabledFrom: <json-path>`, which include or drop a volume, service, or healthcheck based on a boolean resolved from the profile's config (see `postgres`'s `storage.enabled` and `healthcheck.enabled` above)
 
 When authoring `spec.implementation.compose`:
@@ -124,6 +125,7 @@ specific source and availability:
 | `${bindings.<contract>.<field>}` | A consumed contract resolved by the profile | The contract is declared in `spec.consumes` and has been bound |
 | `${service.host}` | The module instance `id` from the profile | The module is being rendered |
 | `${secrets.<alias>}` | A profile secret alias | The alias is declared in `spec.secrets` |
+| `${certificates.<alias>.cert}` / `${certificates.<alias>.key}` | One half of a profile certificate alias | The alias is declared in `spec.certificates` |
 | `${ifNonempty:<path>,<prefix>,<suffix>}` | Conditional interpolation of a placeholder path | The module is being rendered |
 
 For example, a cache module can publish a contract and consume it from another
@@ -168,6 +170,60 @@ its `cache` binding is resolved. `${secrets.<alias>}` is different: it remains
 a Docker Compose runtime variable (for example `${CDS_DB_PASSWORD}`), so CDS
 never embeds the secret value in generated output. See the
 [profile guide](from-docker-to-cds-profile.md) for a complete stack example.
+
+### TLS requirements (`tls`)
+
+Modules that interact with an HTTP, database, or cache endpoint can declare a
+TLS requirement on a `consumes` entry, provider-neutral and opt-in
+(issue #577):
+
+```yaml
+spec:
+  consumes:
+    - name: metadata-database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.metadataDatabase
+      tls: required
+```
+
+The provider opts in from its provide entry's `contract.spec`:
+
+```yaml
+spec:
+  provides:
+    - name: sql-database
+      contract:
+        kind: sql-database
+        spec:
+          host: ${service.host}
+          port: ${config.port}
+          tls: true
+```
+
+Semantics and validation paths:
+
+- `tls: required` is the only requirement value today; any other value fails
+  module schema validation (`E021`) so a typo cannot silently disable the
+  check. Omitting the key places no TLS requirement, so existing profiles and
+  `module.yaml` documents stay valid unless they explicitly opt in.
+- The provider's advertisement is a boolean literal (`true`/`false`) or a pure
+  `${config.<path>}` reference that resolves against the producer instance's
+  profile config. Because validation runs before the planner applies
+  `configSchema` defaults, a config-driven advertisement only satisfies a
+  requirement when the profile sets the referenced value explicitly.
+- A requirement is only satisfied by `tls: true`; an absent field, `false`,
+  or an unresolvable config reference fails closed with `E128` at `cds
+  validate` (see [Troubleshooting](../README.md#️-troubleshooting)).
+- Like every other contract-spec field, `tls` flows into the consumer's
+  resolved binding (`${bindings.<name>.tls}`) during `cds plan`, so
+  implementation templates can act on it.
+
+The field is optional (`required: false`) in the shared contract documents
+(`shared/contracts/http-service.yaml`, `sql-database.yaml`,
+`cache-service.yaml`, `reverse-proxy.yaml`); `file-database` carries no TLS
+field because it describes a bind-mounted file, not a network endpoint.
 
 ### Conditional interpolation (`ifNonempty`)
 
