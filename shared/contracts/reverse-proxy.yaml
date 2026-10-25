@@ -1,0 +1,48 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: reverse-proxy
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared contract describing the TLS-terminating reverse proxy fronting a
+    stack (e.g. Traefik): the host, port and URI other modules and external
+    clients use to reach services through it. Providers advertise a
+    TLS-protected endpoint by setting the tls field to true, which satisfies
+    a consumer's "tls: required" consume entry (see issue #577).
+
+spec:
+  fields:
+    host:
+      type: string
+      required: true
+      description: Hostname or service name clients use to reach the proxy.
+    port:
+      type: integer
+      required: true
+      description: TCP port where the proxy listens.
+    protocol:
+      type: string
+      required: true
+      description: Scheme the proxy serves (https for a TLS-terminating proxy).
+    connectionUri:
+      type: string
+      required: true
+      description: Fully composed base URI clients use to reach the proxy.
+    tls:
+      type: boolean
+      required: false
+      description: >-
+        Whether the proxy terminates TLS for the endpoints it fronts.
+        Optional for backward compatibility: an absent field means TLS is not
+        advertised, and a consumer that declares "tls: required" on its
+        consume entry fails validation with E128 unless the provider's
+        contract spec sets this to true.
+  examples:
+    - host: proxy
+      port: 443
+      protocol: https
+      connectionUri: https://proxy:443
+      tls: true

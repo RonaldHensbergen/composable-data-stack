@@ -911,6 +911,56 @@
       ],
       "enabled": false,
       "codeEnforced": true
+    },
+    {
+      "id": "CDS-SEC-090",
+      "$comment": "Enforced entirely in code by _check_runtime_policy in cli/security.py (not the declarative match engine) against the rendered Compose services of prod-class profiles. It evaluates capability, privilege-escalation, user and writable-filesystem settings as one runtime policy and reports one finding per non-compliant service listing every violated setting. `enabled` stays false because `scope: [\"none\"]` rules can never produce a declarative-engine finding; `codeEnforced` is the actual on/off switch.",
+      "title": "Service does not satisfy the production runtime policy",
+      "severity": "high",
+      "category": "runtime-hardening",
+      "complianceCategory": "system-hardening",
+      "scope": ["none"],
+      "match": {
+        "any": [
+          {
+            "pathPatterns": ["services.*.cap_drop"]
+          }
+        ]
+      },
+      "message": "Service violates the production runtime policy",
+      "whyItMatters": "Containers that run as root, keep Linux capabilities, can escalate privileges or write to their root filesystem make a container escape far easier and more damaging.",
+      "recommendation": [
+        "Set cap_drop: [ALL] and add back only the capabilities the service needs.",
+        "Add no-new-privileges:true to security_opt.",
+        "Run as an explicit non-root user and set read_only: true with tmpfs/volume mounts for writable paths.",
+        "Do not use privileged mode."
+      ],
+      "enabled": false,
+      "codeEnforced": true
+    },
+    {
+      "id": "CDS-SEC-091",
+      "$comment": "Enforced entirely in code by _check_runtime_policy in cli/security.py against the rendered Compose services of prod-class profiles: flags seccomp=unconfined, apparmor=unconfined or label=disable in security_opt, which switch off the confinement the container engine applies by default. `enabled` stays false for the same scope-none reason as CDS-SEC-090; `codeEnforced` is the actual on/off switch.",
+      "title": "Runtime confinement disabled",
+      "severity": "high",
+      "category": "runtime-hardening",
+      "complianceCategory": "system-hardening",
+      "scope": ["none"],
+      "match": {
+        "any": [
+          {
+            "pathPatterns": ["services.*.security_opt"]
+          }
+        ]
+      },
+      "message": "Service disables seccomp, AppArmor or SELinux confinement",
+      "whyItMatters": "Unconfined containers can use the full syscall surface and bypass mandatory access control, so a kernel or runtime bug is directly exploitable.",
+      "recommendation": [
+        "Remove the unconfined/disable setting or select a restrictive profile via spec.security.runtime.confinement.",
+        "Use a custom seccomp or AppArmor profile instead of disabling confinement."
+      ],
+      "enabled": false,
+      "codeEnforced": true
     }
   ]
 }

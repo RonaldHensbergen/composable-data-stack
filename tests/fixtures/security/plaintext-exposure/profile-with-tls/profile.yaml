@@ -29,7 +29,7 @@ spec:
     values:
       backup_key:
         env: CDS_BACKUP_KEY
-        required: false
+        required: true
   backup:
     encryption:
       keyFrom: secrets.backup_key
@@ -40,3 +40,8 @@ spec:
         rtoMinutes: 120
         restoreVerification:
           frequencyDays: 90
+  security:
+    waivers:
+      runtimePolicy:
+        reason: fixture images are not hardened; this fixture tests plaintext exposure only
+        checks: [capDrop, noNewPrivileges, nonRootUser, readOnlyRootFilesystem]

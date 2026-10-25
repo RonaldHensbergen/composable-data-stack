@@ -14,7 +14,9 @@ from .loader import load_yaml_file, resolve_module_file
 from .resolver import (
     RequiredIfSyntaxError,
     evaluate_required_if,
+    is_certificate_ref,
     is_secret_ref,
+    parse_certificate_ref,
     parse_contract_ref,
     resolve_path,
     secret_name_from_ref,
@@ -170,6 +172,7 @@ def build_plan_from_profile(
     spec = profile.get("spec", {})
     secrets, secret_diags = load_profile_secrets(spec.get("secrets"), env_file)
     diagnostics.extend(secret_diags)
+    certificates = build_certificate_env_map(spec.get("certificates"))
 
     modules = spec.get("modules", [])
     if not isinstance(modules, list):
@@ -270,6 +273,8 @@ def build_plan_from_profile(
 
         # Validate secrets exist but leave "secrets.VAR" strings intact
         resolve_secret_refs(normalized_config, secrets, f"spec.modules[{i}].config", diagnostics)
+        # Same for certificate refs (issue #578): env names only, never material
+        resolve_certificate_refs(normalized_config, certificates, f"spec.modules[{i}].config", diagnostics)
 
         loaded = {
             "index": i,
@@ -310,6 +315,7 @@ def build_plan_from_profile(
                 "version": inst["version"],
                 "dependsOn": inst["dependsOn"],
                 "config": inst["config"],
+                "security": deepcopy(inst["instance"].get("security") or {}),
                 "consumes": resolve_consumed_contracts(inst, module_instances_by_id, resolved_contracts_by_module, diagnostics, secrets),
                 "provides": resolved_contracts_by_module[inst["id"]],
                 "implementation": inst["module"].get("spec", {}).get("implementation", {}),
@@ -324,7 +330,9 @@ def build_plan_from_profile(
         "environment": environment,
         "provenance": provenance,
         "runtime": spec.get("runtime", {}),
+        "security": deepcopy(spec.get("security") or {}),
         "secrets": secrets,
+        "certificates": certificates,
         "outputs": resolve_outputs(spec.get("outputs", {}), resolved_contracts_by_module, diagnostics),
         "modules": planned_modules,
     }
@@ -681,6 +689,67 @@ def resolve_consumed_contracts(
         }
 
     return resolved
+
+def build_certificate_env_map(spec_certificates: Any) -> dict[str, dict[str, str]]:
+    """
+    Map each certificate alias to its two runtime environment variable NAMES
+    (issue #578): alias -> {"cert": certEnv, "key": keyEnv}.
+
+    Only names ever flow through CDS -- certificate/key material is supplied
+    by the external secret/cert provider at runtime and is never read,
+    planned, or rendered here.
+    """
+    if not isinstance(spec_certificates, dict):
+        return {}
+    values = spec_certificates.get("values")
+    if not isinstance(values, dict):
+        return {}
+    certificates: dict[str, dict[str, str]] = {}
+    for alias, definition in values.items():
+        if not isinstance(definition, dict):
+            continue
+        cert_env = definition.get("certEnv")
+        key_env = definition.get("keyEnv")
+        if isinstance(cert_env, str) and cert_env and isinstance(key_env, str) and key_env:
+            certificates[alias] = {"cert": cert_env, "key": key_env}
+    return certificates
+
+
+def resolve_certificate_refs(
+    obj: Any, certificates: dict[str, dict[str, str]], current_path: str, diagnostics: list[Diagnostic]
+) -> Any:
+    """
+    Validate that `certificates.<alias>.cert|.key` refs in planned config name
+    a declared alias, but leave the ref strings intact -- the renderer turns
+    them into ${VAR} runtime placeholders, exactly like secrets refs.
+    """
+    if isinstance(obj, dict):
+        return {
+            key: resolve_certificate_refs(value, certificates, f"{current_path}.{key}", diagnostics)
+            for key, value in obj.items()
+        }
+
+    if isinstance(obj, list):
+        return [
+            resolve_certificate_refs(value, certificates, f"{current_path}[{index}]", diagnostics)
+            for index, value in enumerate(obj)
+        ]
+
+    if isinstance(obj, str) and is_certificate_ref(obj):
+        parsed = parse_certificate_ref(obj)
+        alias = parsed[0] if parsed else None
+        if alias is None or alias not in certificates:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E129",
+                    message=f'Certificate ref "{obj}" could not be resolved.',
+                    path=current_path,
+                )
+            )
+
+    return obj  # always return unchanged
+
 
 def resolve_secret_refs(obj: Any, secrets: dict[str, str], current_path: str, diagnostics: list[Diagnostic]) -> Any:
     """

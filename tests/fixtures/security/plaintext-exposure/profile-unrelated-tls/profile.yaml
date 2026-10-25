@@ -28,7 +28,7 @@ spec:
     values:
       backup_key:
         env: CDS_BACKUP_KEY
-        required: false
+        required: true
   backup:
     encryption:
       keyFrom: secrets.backup_key

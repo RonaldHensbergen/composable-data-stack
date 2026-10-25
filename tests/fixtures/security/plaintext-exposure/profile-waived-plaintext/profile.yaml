@@ -18,11 +18,14 @@ spec:
     waivers:
       plaintextEndpointExposure:
         reason: approved waiver
+      runtimePolicy:
+        reason: fixture images are not hardened; this fixture tests plaintext exposure only
+        checks: [capDrop, noNewPrivileges, nonRootUser, readOnlyRootFilesystem]
   secrets:
     values:
       backup_key:
         env: CDS_BACKUP_KEY
-        required: false
+        required: true
   backup:
     encryption:
       keyFrom: secrets.backup_key

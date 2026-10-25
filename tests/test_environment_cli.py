@@ -247,7 +247,7 @@ class DiffCommandTest(EnvironmentOverlayFixture):
                     "modules": [
                         {"id": "db", "config": {"replicas": 1}},
                     ],
-                    "secrets": {"values": {"backup_key": {"env": "CDS_BACKUP_KEY", "required": False}}},
+                    "secrets": {"values": {"backup_key": {"env": "CDS_BACKUP_KEY", "required": True}}},
                     "backup": {
                         "encryption": {"keyFrom": "secrets.backup_key"},
                         "policies": [

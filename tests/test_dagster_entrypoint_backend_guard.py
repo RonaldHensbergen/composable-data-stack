@@ -1,8 +1,52 @@
+import os
 import shlex
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+
+def find_posix_shell() -> list[str]:
+    """Return an argv prefix that runs a script under a POSIX shell.
+
+    Prefers `sh` on PATH (Linux/macOS, Git for Windows on PATH). On Windows,
+    falls back to a Git for Windows install outside PATH so the guard logic
+    still executes instead of being skipped. Returns an empty list when no
+    POSIX shell is discoverable.
+    """
+    shell = shutil.which("sh")
+    if shell:
+        return [shell]
+    if sys.platform.startswith("win"):
+        program_dirs = [
+            os.environ.get("ProgramFiles", ""),
+            os.environ.get("ProgramFiles(x86)", ""),
+            os.path.join(os.environ.get("LocalAppData", ""), "Programs"),
+        ]
+        for base in program_dirs:
+            if not base:
+                continue
+            for relative in (
+                Path("Git") / "bin" / "sh.exe",
+                Path("Git") / "usr" / "bin" / "sh.exe",
+            ):
+                candidate = Path(base) / relative
+                if candidate.is_file():
+                    return [str(candidate)]
+    return []
+
+
+def posix_shell_or_skip() -> list[str]:
+    """Return the POSIX shell argv prefix, skipping the test when none exists."""
+    shell = find_posix_shell()
+    if not shell:
+        raise unittest.SkipTest(
+            "no POSIX shell (sh) found on PATH or in a Git for Windows "
+            "install; cannot exercise the entrypoint guard without one"
+        )
+    return shell
 
 
 class DagsterEntrypointBackendGuardTest(unittest.TestCase):
@@ -18,6 +62,7 @@ class DagsterEntrypointBackendGuardTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
+        cls.shell = posix_shell_or_skip()
         repo_root = Path(__file__).resolve().parent.parent
         entrypoint = (repo_root / "images" / "dagster" / "entrypoint.sh").read_text(encoding="utf-8")
         guard_snippet, _, _ = entrypoint.partition("cp /app/images/dagster/workspace.yaml")
@@ -34,7 +79,7 @@ class DagsterEntrypointBackendGuardTest(unittest.TestCase):
         full_env = {"DAGSTER_HOME": self.dagster_home, **env}
         script = f"{self.guard_snippet}\necho {self.MARKER}\n"
         return subprocess.run(
-            ["sh", "-c", script],
+            [*self.shell, "-c", script],
             env=full_env,
             capture_output=True,
             text=True,
@@ -116,6 +161,7 @@ class DagsterEntrypointBackendGuardTest(unittest.TestCase):
 class DagsterWorkspaceInstallTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        cls.shell = posix_shell_or_skip()
         repo_root = Path(__file__).resolve().parent.parent
         entrypoint = (repo_root / "images" / "dagster" / "entrypoint.sh").read_text(encoding="utf-8")
         _, marker, remainder = entrypoint.partition('workspace_tmp="$DAGSTER_HOME/.workspace.yaml.tmp"')
@@ -139,14 +185,14 @@ class DagsterWorkspaceInstallTest(unittest.TestCase):
             )
 
             first = subprocess.run(
-                ["sh", "-eu", "-c", script],
+                [*self.shell, "-eu", "-c", script],
                 env={"DAGSTER_HOME": str(dagster_home)},
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
             second = subprocess.run(
-                ["sh", "-eu", "-c", script],
+                [*self.shell, "-eu", "-c", script],
                 env={"DAGSTER_HOME": str(dagster_home)},
                 capture_output=True,
                 text=True,
