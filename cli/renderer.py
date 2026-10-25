@@ -311,8 +311,15 @@ def _generate_reverse_proxy_routes(plan: dict[str, Any]) -> tuple[dict[str, dict
             if route.get("tls", True):
                 router["tls"] = {}
             routers[router_name] = router
+            # The backend URL is intentionally plain HTTP: Traefik
+            # terminates TLS at the edge entrypoint (websecure, TLS 1.2+
+            # per the module's policy) and proxies to target services over
+            # the profile's private Docker network, which outside clients
+            # cannot reach (docs/threat-model.md Boundary B; per-service
+            # transport encryption is tracked as T10 / #205). S5332
+            # therefore reports a false positive here.
             services[service_name] = {
-                "loadBalancer": {"servers": [{"url": f"http://{backend_host}:{backend_port}"}]},
+                "loadBalancer": {"servers": [{"url": f"http://{backend_host}:{backend_port}"}]},  # NOSONAR
             }
 
         if routers:
