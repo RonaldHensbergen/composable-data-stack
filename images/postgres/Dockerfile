@@ -17,7 +17,12 @@ FROM postgres:18@sha256:32ca0af8e77bfb8c6610c488e4691f83f972a3e9e64d3b02facf3ab1
 
 USER root
 
+# Pull in Debian security fixes for the base image's OS packages before
+# installing pgbackrest, mirroring images/superset/base/Dockerfile: the
+# pinned upstream digest can lag behind trixie-security, and the Trivy
+# scan fails on fixable HIGH/CRITICAL OS findings.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends pgbackrest=2.59.3-1.pgdg13+1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
