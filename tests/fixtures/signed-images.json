@@ -86,6 +86,20 @@
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
+    },
+    "cds-postgres": {
+      "repository": "ghcr.io/ronaldhensbergen/cds-postgres",
+      "digest": "sha256:539f67b9c79092279f5efc6443044d234e8db9d336106a37b0d5eaa5854925a4",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
+    },
+    "dockerhub-postgres": {
+      "repository": "docker.io/ronaldsoeverein/postgres",
+      "digest": "sha256:539f67b9c79092279f5efc6443044d234e8db9d336106a37b0d5eaa5854925a4",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
     }
   }
 }

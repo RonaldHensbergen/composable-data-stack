@@ -89,6 +89,8 @@ def render_compose(
     )
     diagnostics.extend(profile_confinement_diags)
 
+    is_production = _is_production_plan(plan)
+
     for module in plan.get("modules", []):
         implementation = module.get("implementation", {})
 
@@ -117,8 +119,12 @@ def render_compose(
             ))
             continue
 
-        services = compose_impl.get("services", {})
-        volumes = compose_impl.get("volumes", {})
+        services = apply_production_gates(
+            compose_impl.get("services", {}), is_production
+        )
+        volumes = apply_production_gates(
+            compose_impl.get("volumes", {}), is_production
+        )
 
         try:
             rendered_services, unsafe_diags = _render_services(
@@ -130,6 +136,7 @@ def render_compose(
                 compose_dir=compose_dir,
                 network_name=default_network_name,
                 certificates=certificates,
+                is_production=is_production,
             )
             diagnostics.extend(unsafe_diags)
             rendered_volumes = _render_volumes(module, volumes, secrets, certificates)
@@ -548,6 +555,61 @@ def _check_unresolved_expressions(rendered_yaml: str) -> list[Diagnostic]:
 # Internal rendering helpers
 # ---------------------------------------------------------------------------
 
+def _is_production_plan(plan: dict[str, Any]) -> bool:
+    """Whether the rendered profile is a production profile
+    (metadata.environment == "production")."""
+    return (plan.get("metadata") or {}).get("environment") == "production"
+
+
+def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def apply_production_gates(entries: dict[str, Any], is_production: bool) -> dict[str, Any]:
+    """
+    The production / learning dividing line for module templates.
+
+    Two forms of the same tag, distinguished by type:
+
+    - `production: true|false` on a service, volume, or volume-mount entry
+      drops it when the profile environment does not match: `true` keeps
+      the entry only for production profiles, `false` only for
+      learning/development profiles.
+    - `production: { ... }` (mapping form) marks the enclosed fields as
+      production-only pieces of a service (a service is a single YAML key,
+      so production and learning variants cannot be two services). In a
+      production profile the mapping is merged over the service's base
+      fields -- mappings such as `environment` merge recursively, anything
+      else (e.g. `image`, `command`, `volumes`) replaces the base value; in
+      other profiles it is ignored entirely.
+
+    The base service therefore stays the easy-to-install learning variant
+    (pullable stock image, no local build), and production profiles gain
+    the production-grade pieces (hardened local builds, backup wiring).
+    """
+    kept: dict[str, Any] = {}
+    for name, entry in entries.items():
+        if not isinstance(entry, dict):
+            kept[name] = entry
+            continue
+        marker = entry.get("production")
+        if isinstance(marker, bool):
+            if marker != is_production:
+                continue
+            entry = {k: v for k, v in entry.items() if k != "production"}
+        elif isinstance(marker, dict):
+            base = {k: v for k, v in entry.items() if k != "production"}
+            entry = _deep_merge(base, marker) if is_production else base
+        kept[name] = entry
+    return kept
+
+
 def _render_services(
     module: dict[str, Any],
     services: dict[str, Any],
@@ -557,6 +619,7 @@ def _render_services(
     compose_dir: Path,
     network_name: str | None = None,
     certificates: dict[str, dict[str, str]] | None = None,
+    is_production: bool = False,
 ) -> tuple[dict[str, Any], list[Diagnostic]]:
     rendered: dict[str, Any] = {}
     diagnostics: list[Diagnostic] = []
@@ -591,7 +654,8 @@ def _render_services(
         # supports either a sql-database or a file-database target).
         # Entries carrying enabledFrom are dropped up front so an unused
         # mount never resolves an unwired binding into a broken/literal
-        # path in the rendered compose file.
+        # path in the rendered compose file. Entries carrying the
+        # production gate follow the same rules as service-level gates.
         volumes = service_copy.get("volumes")
         if isinstance(volumes, list):
             kept_volumes = []
@@ -600,6 +664,11 @@ def _render_services(
                     volume_item = deepcopy(volume_item)
                     item_enabled_from = volume_item.pop("enabledFrom", None)
                     if _is_disabled(item_enabled_from, context):
+                        continue
+                if isinstance(volume_item, dict) and isinstance(volume_item.get("production"), bool):
+                    volume_item = deepcopy(volume_item)
+                    item_production = volume_item.pop("production", None)
+                    if item_production != is_production:
                         continue
                 kept_volumes.append(volume_item)
             service_copy["volumes"] = kept_volumes
@@ -1388,8 +1457,25 @@ def _add_cross_module_dependencies(
             # Collect all services from dependent modules
             for dep_module_id in depends_on:
                 dep_services = module_service_names.get(dep_module_id, [])
-                
+
                 for dep_service_name in dep_services:
+                    # A cross-module dependency is awaited via the
+                    # `service_healthy` condition, so only services that can
+                    # actually become healthy qualify: one-shot containers
+                    # (healthcheck disabled or absent, e.g. init or restore
+                    # services) and profile-gated services that may never
+                    # start would leave consumers waiting forever. Skipped
+                    # services keep their module-level ordering guarantees
+                    # through the module's own depends_on graph instead.
+                    dep_def = services.get(dep_service_name)
+                    if not isinstance(dep_def, dict):
+                        continue
+                    dep_healthcheck = dep_def.get("healthcheck")
+                    if not isinstance(dep_healthcheck, dict) or dep_healthcheck.get("disable") is True or "test" not in dep_healthcheck:
+                        continue
+                    if dep_def.get("profiles"):
+                        continue
+
                     # Initialize depends_on if not present
                     if "depends_on" not in service_def:
                         service_def["depends_on"] = {}

@@ -1044,6 +1044,65 @@ class RendererRegressionTest(unittest.TestCase):
         self.assertEqual(len(volumes), 1)
         self.assertEqual(volumes[0]["target"], "/data")
 
+    def test_render_compose_cross_module_deps_skip_unawaitable_services(self):
+        """Cross-module depends_on uses the service_healthy condition, so
+        one-shot containers (healthcheck disabled) and profile-gated
+        services of the dependency module must not be added: they can never
+        become healthy and would block startup forever (issue #665)."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "db",
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "postgres": {
+                                    "image": "postgres:latest",
+                                    "healthcheck": {"test": ["CMD", "true"]},
+                                },
+                                "db-init": {
+                                    "image": "postgres:latest",
+                                    "restart": "no",
+                                    "healthcheck": {"disable": True},
+                                },
+                                "db-restore": {
+                                    "image": "postgres:latest",
+                                    "profiles": ["cds-restore"],
+                                    "healthcheck": {"test": ["CMD", "true"]},
+                                },
+                            }
+                        },
+                    },
+                },
+                {
+                    "id": "app",
+                    "dependsOn": ["db"],
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "app:latest",
+                                    "healthcheck": {"test": ["CMD", "true"]},
+                                }
+                            }
+                        },
+                    },
+                },
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        self.assertEqual(
+            compose["services"]["app"]["depends_on"],
+            {"db-postgres": {"condition": "service_healthy"}},
+        )
+
 
 class ImageSourceRenderingTest(unittest.TestCase):
     def _plan(self, image_config):
@@ -1361,3 +1420,100 @@ class IfNonemptyMalformedTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProductionGateTest(unittest.TestCase):
+    """The production / learning dividing line: `production: true|false`
+    gates services and volumes by the profile environment, and the
+    `production: { ... }` mapping form merges production-only fields over
+    the base (learning) service."""
+
+    def _plan(self, environment="local", **module_overrides):
+        module = {
+            "id": "pg",
+            "implementation": {
+                "kind": "docker-compose",
+                "compose": {
+                    "services": {
+                        "postgres": {
+                            "image": "postgres:18@sha256:abc",
+                            "environment": {"BASE_ENV": "keep"},
+                            "volumes": [
+                                {"type": "volume", "source": "data", "target": "/data"},
+                                {
+                                    "type": "volume",
+                                    "source": "repo",
+                                    "target": "/repo",
+                                    "production": True,
+                                },
+                            ],
+                            "production": {
+                                "image": "local/pg:custom",
+                                "build": {"context": ".", "dockerfile": "Dockerfile"},
+                                "command": ["postgres", "-c", "archive_mode=on"],
+                                "environment": {"EXTRA_ENV": "prod-only"},
+                            },
+                        },
+                        "pg-backup": {
+                            "production": True,
+                            "enabledFrom": "config.backup.enabled",
+                            "image": "local/pg:custom",
+                        },
+                        "pg-mock": {
+                            "production": False,
+                            "image": "mock:latest",
+                        },
+                    },
+                    "volumes": {
+                        "data": {},
+                        "repo": {"production": True},
+                    },
+                },
+            },
+            "config": {"backup": {"enabled": True}},
+        }
+        module.update(module_overrides)
+        return {"metadata": {"name": "cds-test", "environment": environment}, "modules": [module]}
+
+    def test_learning_profile_keeps_base_variant(self):
+        output, diagnostics = render_compose(self._plan(environment="local"))
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        postgres = compose["services"]["pg-postgres"]
+        self.assertEqual(postgres["image"], "postgres:18@sha256:abc")
+        self.assertNotIn("build", postgres)
+        self.assertNotIn("command", postgres)
+        self.assertEqual(postgres["environment"], {"BASE_ENV": "keep"})
+        # The production-only volume mount and volume are dropped.
+        self.assertEqual(len(postgres["volumes"]), 1)
+        self.assertNotIn("pg-repo", compose["volumes"])
+        # Production-only service dropped, learning-only service kept.
+        self.assertNotIn("pg-backup", compose["services"])
+        self.assertIn("pg-mock", compose["services"])
+
+    def test_production_profile_merges_production_pieces(self):
+        output, diagnostics = render_compose(self._plan(environment="production"))
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        postgres = compose["services"]["pg-postgres"]
+        # Override replaces scalars/lists, merges mappings (environment).
+        self.assertEqual(postgres["image"], "local/pg:custom")
+        self.assertEqual(postgres["command"], ["postgres", "-c", "archive_mode=on"])
+        self.assertEqual(postgres["build"], {"context": ".", "dockerfile": "Dockerfile"})
+        self.assertEqual(
+            postgres["environment"], {"BASE_ENV": "keep", "EXTRA_ENV": "prod-only"}
+        )
+        # Production-only mount and volume kept.
+        self.assertEqual(len(postgres["volumes"]), 2)
+        self.assertIn("pg-repo", compose["volumes"])
+        # Production-only service kept (backup enabled), learning-only dropped.
+        self.assertIn("pg-backup", compose["services"])
+        self.assertNotIn("pg-mock", compose["services"])
+
+    def test_no_environment_tag_defaults_to_learning(self):
+        output, diagnostics = render_compose(self._plan(environment=None))
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        self.assertEqual(
+            compose["services"]["pg-postgres"]["image"], "postgres:18@sha256:abc"
+        )
