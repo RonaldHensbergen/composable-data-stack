@@ -1,4 +1,5 @@
 """Tests for reverse-proxy dynamic route generation from contract bindings (#581)."""
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -697,6 +698,88 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
         # No routes file written when routing inputs are invalid.
         routes_file = self.output.parent / "traefik" / "dynamic" / "cds-routes-proxy.yml"
         self.assertFalse(routes_file.is_file())
+
+
+class RealTraefikModuleRoutesTest(unittest.TestCase):
+    """Route generation against the real traefik and keycloak module files.
+
+    The other classes use synthetic modules; these tests pin that the real
+    traefik module's configSchema defaults (config.entryPoints
+    web/websecure) flow through the planner into route generation, so a
+    schema regression in the module itself fails here instead of silently
+    breaking route generation for real profiles.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        # Symlink the repo's modules tree so the profile's `source` paths
+        # resolve under an allowed modules/ root without copying files.
+        os.symlink(_REPO_ROOT / "modules", root / "modules")
+        self.profile_dir = root / "profiles" / "routes"
+        self.profile_dir.mkdir(parents=True)
+
+    def _plan(self, routes):
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "routes", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "proxy",
+                        "source": "../../modules/integration/traefik",
+                        "version": "0.1.0",
+                        "enabled": True,
+                        "config": {"routes": routes},
+                    },
+                    {
+                        "id": "keycloak",
+                        "source": "../../modules/identity/keycloak",
+                        "version": "0.1.0",
+                        "enabled": True,
+                        "config": {},
+                    },
+                ],
+            },
+        }
+        # The partial profile (no warehouse bound for keycloak) plans with
+        # binding diagnostics unrelated to routes; route generation over
+        # the built plan is what is under test here.
+        plan, _ = planner.build_plan_from_profile(profile, self.profile_dir)
+        return plan
+
+    def test_real_traefik_defaults_validate_route_entrypoints(self):
+        plan = self._plan([
+            {"host": "k.example.local", "target": "keycloak", "entryPoints": ["websecre"]}
+        ])
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            plan, {"keycloak": ["keycloak"]}
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn('not declared by proxy "proxy"', diagnostics[0].message)
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].entryPoints")
+        self.assertEqual(documents, {})
+
+    def test_real_traefik_renders_route_to_keycloak(self):
+        plan = self._plan([{"host": "k.example.local", "target": "keycloak"}])
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            plan, {"keycloak": ["keycloak"]}
+        )
+        self.assertEqual(diagnostics, [])
+        router = documents["proxy"]["http"]["routers"]["cds-route-0-k.example.local"]
+        # Entrypoint default and TLS default come from the real module's
+        # configSchema; the backend comes from keycloak's resolved
+        # http-service contract (host ${service.host}, port ${config.httpPort}).
+        self.assertEqual(router["entryPoints"], ["websecure"])
+        self.assertEqual(router["tls"], {})
+        self.assertEqual(router["rule"], "Host(`k.example.local`)")
+        self.assertEqual(
+            documents["proxy"]["http"]["services"]["cds-service-keycloak"]["loadBalancer"]["servers"],
+            [{"url": "http://keycloak:8080"}],
+        )
 
 
 if __name__ == "__main__":
