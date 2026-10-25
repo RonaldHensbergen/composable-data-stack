@@ -6,15 +6,40 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+# Environment variables whose values are Windows paths when the guard tests
+# run under the WSL tier; WSLENV translates these to WSL form via the /p flag.
+_WSL_PATH_ENV_VARS = frozenset({"DAGSTER_HOME", "DAGSTER_SQLITE_DIR"})
+
+
+def _is_wsl_shell(shell: list[str]) -> bool:
+    """True when the argv prefix targets WSL's sh (Windows-only third tier)."""
+    if len(shell) != 3 or shell[1] != "-e" or shell[2] != "sh":
+        return False
+    # Handle both POSIX and Windows path separators so the check also works
+    # for Windows paths on non-Windows hosts (mocked unit tests).
+    basename = shell[0].replace("\\", "/").rsplit("/", 1)[-1]
+    return basename.lower() == "wsl.exe"
+
+
+def _wslenv_for(env: dict[str, str]) -> str:
+    """WSLENV value that forwards `env` into WSL, translating path-like vars."""
+    return ":".join(
+        f"{key}/p" if key in _WSL_PATH_ENV_VARS else key for key in sorted(env)
+    )
 
 
 def find_posix_shell() -> list[str]:
     """Return an argv prefix that runs a script under a POSIX shell.
 
     Prefers `sh` on PATH (Linux/macOS, Git for Windows on PATH). On Windows,
-    falls back to a Git for Windows install outside PATH so the guard logic
-    still executes instead of being skipped. Returns an empty list when no
-    POSIX shell is discoverable.
+    falls back to a Git for Windows install outside PATH, and then to WSL's
+    `sh` (a distro must be installed; a one-shot probe verifies it actually
+    executes). The WSL prefix is driven via stdin (`sh -s`) rather than
+    `-c`, because wsl.exe argument quoting is not reliable for scripts that
+    contain quotes and newlines. Returns an empty list when no POSIX shell
+    is discoverable.
     """
     shell = shutil.which("sh")
     if shell:
@@ -35,6 +60,18 @@ def find_posix_shell() -> list[str]:
                 candidate = Path(base) / relative
                 if candidate.is_file():
                     return [str(candidate)]
+        wsl = shutil.which("wsl.exe")
+        if wsl:
+            try:
+                probe = subprocess.run(
+                    [wsl, "-e", "sh", "-c", "exit 0"],
+                    capture_output=True,
+                    timeout=15,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return []
+            if probe.returncode == 0:
+                return [wsl, "-e", "sh"]
     return []
 
 
@@ -43,10 +80,51 @@ def posix_shell_or_skip() -> list[str]:
     shell = find_posix_shell()
     if not shell:
         raise unittest.SkipTest(
-            "no POSIX shell (sh) found on PATH or in a Git for Windows "
-            "install; cannot exercise the entrypoint guard without one"
+            "no POSIX shell (sh) found on PATH, in a Git for Windows "
+            "install, or through WSL; cannot exercise the entrypoint guard "
+            "without one"
         )
     return shell
+
+
+def run_shell_script(
+    shell: list[str],
+    script: str,
+    env: dict[str, str],
+    flags: tuple[str, ...] = (),
+    timeout: int = 5,
+) -> subprocess.CompletedProcess:
+    """Run script text under the discovered POSIX shell argv prefix.
+
+    Under the WSL tier the script is fed via stdin and the environment is
+    forwarded through WSLENV: path-like variables are translated to WSL
+    form, and local CDS_* variables are stripped so the subprocess stays
+    hermetic against the caller's environment. WSL runs get a larger
+    timeout to absorb cold-start latency.
+    """
+    if _is_wsl_shell(shell):
+        forwarded = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("CDS_")
+        }
+        forwarded.update(env)
+        forwarded["WSLENV"] = _wslenv_for(env)
+        return subprocess.run(
+            [*shell, *flags, "-s"],
+            env=forwarded,
+            input=script,
+            capture_output=True,
+            text=True,
+            timeout=max(timeout, 20),
+        )
+    return subprocess.run(
+        [*shell, *flags, "-c", script],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
 
 
 class DagsterEntrypointBackendGuardTest(unittest.TestCase):
@@ -78,13 +156,7 @@ class DagsterEntrypointBackendGuardTest(unittest.TestCase):
     def run_guard(self, env: dict) -> subprocess.CompletedProcess:
         full_env = {"DAGSTER_HOME": self.dagster_home, **env}
         script = f"{self.guard_snippet}\necho {self.MARKER}\n"
-        return subprocess.run(
-            [*self.shell, "-c", script],
-            env=full_env,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
+        return run_shell_script(self.shell, script, full_env)
 
     def test_sqlite_backend_is_allowed_on_postgres_built_image(self) -> None:
         result = self.run_guard({"DB_BACKEND": "sqlite", "DAGSTER_IMAGE_DB_BACKEND": "postgres"})
@@ -162,6 +234,12 @@ class DagsterWorkspaceInstallTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.shell = posix_shell_or_skip()
+        if _is_wsl_shell(cls.shell):
+            raise unittest.SkipTest(
+                "workspace install test needs a native POSIX shell: the WSL "
+                "tier translates environment-variable paths but not paths "
+                "embedded in the script text, and drvfs does not honor chmod"
+            )
         repo_root = Path(__file__).resolve().parent.parent
         entrypoint = (repo_root / "images" / "dagster" / "entrypoint.sh").read_text(encoding="utf-8")
         _, marker, remainder = entrypoint.partition('workspace_tmp="$DAGSTER_HOME/.workspace.yaml.tmp"')
@@ -184,19 +262,11 @@ class DagsterWorkspaceInstallTest(unittest.TestCase):
                 shlex.quote(str(source)),
             )
 
-            first = subprocess.run(
-                [*self.shell, "-eu", "-c", script],
-                env={"DAGSTER_HOME": str(dagster_home)},
-                capture_output=True,
-                text=True,
-                timeout=5,
+            first = run_shell_script(
+                self.shell, script, {"DAGSTER_HOME": str(dagster_home)}, flags=("-eu",)
             )
-            second = subprocess.run(
-                [*self.shell, "-eu", "-c", script],
-                env={"DAGSTER_HOME": str(dagster_home)},
-                capture_output=True,
-                text=True,
-                timeout=5,
+            second = run_shell_script(
+                self.shell, script, {"DAGSTER_HOME": str(dagster_home)}, flags=("-eu",)
             )
 
             self.assertEqual(first.returncode, 0, first.stderr)
@@ -204,6 +274,144 @@ class DagsterWorkspaceInstallTest(unittest.TestCase):
             destination = dagster_home / "workspace.yaml"
             self.assertEqual(destination.read_text(encoding="utf-8"), "load_from: []\n")
             self.assertTrue(destination.stat().st_mode & 0o200)
+
+
+class WslShellTierTest(unittest.TestCase):
+    """Unit-level coverage for the WSL fallback tier (issue #947).
+
+    These tests mock the platform so they exercise the tier-selection and
+    WSLENV plumbing on any OS; the real end-to-end behavior only runs on a
+    Windows machine with WSL and no Git for Windows.
+    """
+
+    WINDOWS_ENV = {
+        "ProgramFiles": "",
+        "ProgramFiles(x86)": "",
+        "LocalAppData": "",
+    }
+
+    def _find_with_mocks(self, probe_result=None, probe_error=None):
+        with (
+            mock.patch(
+                "shutil.which",
+                side_effect=lambda name: (
+                    r"C:\Windows\System32\wsl.exe" if name == "wsl.exe" else None
+                ),
+            ),
+            mock.patch("sys.platform", "win32"),
+            mock.patch("os.environ", dict(self.WINDOWS_ENV)),
+            mock.patch("subprocess.run") as probe,
+        ):
+            if probe_error is not None:
+                probe.side_effect = probe_error
+            else:
+                probe.return_value = probe_result
+            return find_posix_shell(), probe
+
+    def test_wsl_tier_used_when_no_sh_and_no_git_for_windows(self) -> None:
+        shell, probe = self._find_with_mocks(
+            probe_result=subprocess.CompletedProcess([], 0)
+        )
+
+        self.assertEqual(shell, [r"C:\Windows\System32\wsl.exe", "-e", "sh"])
+        probe.assert_called_once()
+        self.assertEqual(probe.call_args.args[0][-2:], ["-c", "exit 0"])
+
+    def test_wsl_tier_rejected_when_probe_fails(self) -> None:
+        shell, _ = self._find_with_mocks(
+            probe_result=subprocess.CompletedProcess([], 1)
+        )
+
+        self.assertEqual(shell, [])
+
+    def test_wsl_tier_rejected_when_probe_times_out(self) -> None:
+        shell, _ = self._find_with_mocks(
+            probe_error=subprocess.TimeoutExpired(cmd="wsl.exe", timeout=15)
+        )
+
+        self.assertEqual(shell, [])
+
+    def test_empty_when_no_shell_of_any_kind_is_available(self) -> None:
+        with (
+            mock.patch("shutil.which", return_value=None),
+            mock.patch("sys.platform", "win32"),
+            mock.patch("os.environ", dict(self.WINDOWS_ENV)),
+            mock.patch("subprocess.run") as probe,
+        ):
+            self.assertEqual(find_posix_shell(), [])
+        probe.assert_not_called()
+
+    def test_non_windows_platform_never_probes_wsl(self) -> None:
+        with (
+            mock.patch("shutil.which", return_value=None),
+            mock.patch("sys.platform", "linux"),
+            mock.patch("subprocess.run") as probe,
+        ):
+            self.assertEqual(find_posix_shell(), [])
+        probe.assert_not_called()
+
+    def test_is_wsl_shell_matches_wsl_prefix_case_insensitively(self) -> None:
+        self.assertTrue(
+            _is_wsl_shell([r"C:\Windows\System32\WSL.exe", "-e", "sh"])
+        )
+        self.assertFalse(_is_wsl_shell(["/usr/bin/sh"]))
+        self.assertFalse(_is_wsl_shell([r"C:\Program Files\Git\bin\sh.exe"]))
+        self.assertFalse(_is_wsl_shell([]))
+
+    def test_wslenv_forwards_and_translates_path_vars_sorted(self) -> None:
+        env = {
+            "DB_BACKEND": "sqlite",
+            "DAGSTER_HOME": r"C:\t",
+            "DAGSTER_SQLITE_DIR": r"C:\s",
+            "DB": "x",
+        }
+
+        self.assertEqual(
+            _wslenv_for(env),
+            "DAGSTER_HOME/p:DAGSTER_SQLITE_DIR/p:DB:DB_BACKEND",
+        )
+
+    def test_run_shell_script_wsl_mode_feeds_stdin_and_sets_wslenv(self) -> None:
+        shell = [r"C:\Windows\System32\wsl.exe", "-e", "sh"]
+        with (
+            mock.patch(
+                "os.environ",
+                {"SystemRoot": r"C:\Windows", "CDS_PROFILE_PATH": "leak"},
+            ),
+            mock.patch("subprocess.run") as run,
+        ):
+            run_shell_script(
+                shell,
+                "echo hi\n",
+                {"DAGSTER_HOME": r"C:\tmp", "DB_BACKEND": "sqlite"},
+            )
+
+        run.assert_called_once()
+        self.assertEqual(
+            run.call_args.args[0], [r"C:\Windows\System32\wsl.exe", "-e", "sh", "-s"]
+        )
+        kwargs = run.call_args.kwargs
+        self.assertEqual(kwargs["input"], "echo hi\n")
+        self.assertEqual(kwargs["env"]["DAGSTER_HOME"], r"C:\tmp")
+        self.assertEqual(kwargs["env"]["WSLENV"], "DAGSTER_HOME/p:DB_BACKEND")
+        self.assertNotIn("CDS_PROFILE_PATH", kwargs["env"])
+        self.assertEqual(kwargs["env"]["SystemRoot"], r"C:\Windows")
+        self.assertGreaterEqual(kwargs["timeout"], 20)
+
+    def test_run_shell_script_native_mode_is_unchanged(self) -> None:
+        with mock.patch("subprocess.run") as run:
+            run_shell_script(
+                ["/usr/bin/sh"], "echo hi", {"A": "b"}, flags=("-eu",), timeout=5
+            )
+
+        run.assert_called_once()
+        self.assertEqual(
+            run.call_args.args[0], ["/usr/bin/sh", "-eu", "-c", "echo hi"]
+        )
+        kwargs = run.call_args.kwargs
+        self.assertEqual(kwargs["env"], {"A": "b"})
+        self.assertEqual(kwargs["timeout"], 5)
+        self.assertNotIn("input", kwargs)
 
 
 if __name__ == "__main__":
