@@ -18,3 +18,6 @@ spec:
     waivers:
       plaintextEndpointExposure:
         reason: approved waiver
+      runtimePolicy:
+        reason: fixture images are not hardened; this fixture tests plaintext exposure only
+        checks: [capDrop, noNewPrivileges, nonRootUser, readOnlyRootFilesystem]

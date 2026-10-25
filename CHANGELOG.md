@@ -6,10 +6,12 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
-## [0.13.0] - 2026-10-22
-
 ### Added
 
+- Added a production-aware `host.rootless` result to `cds preflight` (a rootful
+  daemon is advisory on local profiles and a warning on production-class
+  profiles) and documented rootless Docker compatibility expectations in
+  `docs/rootless-docker.md` (#207).
 - Extended the `.trivyignore` audit to list still-reported exceptions that
   have a fixed package version available (#934).
 - Added a daily `Trivyignore Audit` workflow and
@@ -22,6 +24,38 @@ The format is based on Keep a Changelog.
   writes into each service's `security_opt`; invalid or unsupported values
   fail validation with error `E127`, and `--target=helm` warns (`W127`)
   that confinement is not rendered for Kubernetes (#207, #897, #894).
+- Added code-enforced rules CDS-SEC-090 (production runtime policy:
+  capabilities, privilege escalation, non-root user and read-only root
+  filesystem evaluated together, with a reasoned
+  `spec.security.waivers.runtimePolicy` waiver) and CDS-SEC-091 (disabled
+  seccomp/AppArmor/SELinux confinement) for production profiles; services
+  that grant a kernel-escape capability via `cap_add` (`ALL`, `SYS_ADMIN`,
+  `SYS_MODULE`, `SYS_PTRACE`, `SYS_RAWIO`, `DAC_READ_SEARCH`) also violate
+  CDS-SEC-090, and an applied or ineffective runtime-policy waiver emits
+  warning `W103`/`W104` (#207, #895, #898).
+
+### Changed
+
+- Production-class profiles whose services do not meet the runtime policy,
+  including the bundled production overlay, now fail `cds security` and
+  `cds test` with HIGH findings until the services are hardened or waived
+  (#895).
+
+### Fixed
+
+- Removed the eight resolved `.trivyignore` exceptions (util-linux and
+  libbrotli1 CVEs) now that the published images no longer report them (#934).
+- Bumped `filelock` to 4.2.4 in `uv.lock` to resolve the open Dependabot
+  advisories (fixed in 4.2.1) (#925).
+- Pinned `brotli>=1.2.1` in the Superset image lock to fix the critical
+  out-of-bounds write (GHSA-9v8h-qqgm-4m35) that failed the image scan (#926).
+- Added a time-boxed `.trivyignore` exception for the not-yet-published
+  libbrotli1 fix (CVE-2026-111497) in the Superset base image (#927).
+
+## [0.13.0] - 2026-10-22
+
+### Added
+
 - Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
   file readable or writable by group or others (new `file-permissions`
   rule scope and `permissions` condition; skipped on Windows), and
@@ -34,14 +68,6 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
-- Removed the eight resolved `.trivyignore` exceptions (util-linux and
-  libbrotli1 CVEs) now that the published images no longer report them (#934).
-- Bumped `filelock` to 4.2.4 in `uv.lock` to resolve the open Dependabot
-  advisories (fixed in 4.2.1) (#925).
-- Pinned `brotli>=1.2.1` in the Superset image lock to fix the critical
-  out-of-bounds write (GHSA-9v8h-qqgm-4m35) that failed the image scan (#926).
-- Added a time-boxed `.trivyignore` exception for the not-yet-published
-  libbrotli1 fix (CVE-2026-111497) in the Superset base image (#927).
 - Fixed a flaky Superset init failure (duplicate-key error while creating the
   metadata tables) when the web process starts concurrently, by retrying the
   idempotent init steps a bounded number of times, and added container-log
