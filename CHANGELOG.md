@@ -8,6 +8,13 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a certificate reference mechanism parallel to secret aliases
+  (issue #578): profiles declare `spec.certificates.values` aliases mapping
+  to externally managed material via `certEnv`/`keyEnv` environment variable
+  names, and module config references `certificates.<alias>.cert|.key`,
+  which validate (`E129` for unknown aliases or malformed references) and
+  render as `${CDS_*}` runtime placeholders. CDS never generates, reads,
+  or embeds certificate or private key material.
 - Added provider-neutral TLS requirements to contracts (issue #577): a
   `consumes` entry can declare `tls: required`, and providers advertise
   `tls: true` (boolean literal or `${config.<path>}` reference) in their
