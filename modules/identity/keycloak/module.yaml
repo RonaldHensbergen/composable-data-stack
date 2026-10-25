@@ -38,6 +38,27 @@ spec:
           the admin console is reachable from the local machine only. Use
           an SSH tunnel, port-forward, or a reverse-proxy/ingress module
           for access beyond localhost.
+      webServer:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          mode:
+            type: string
+            enum:
+              - production
+              - development
+            default: development
+            description: >
+              Web serving mode (issue #216). "development" (default while
+              this module is productionSuitable: false) starts Keycloak
+              in development mode (`start-dev`), which relaxes hostname
+              and TLS requirements. "production" starts Keycloak in
+              production mode (`kc.sh start --http-enabled=true`), keeping
+              the localhost-only HTTP bind for the reverse-proxy/ingress in
+              front of it. Production profiles reject the development mode
+              (E140) and this module altogether (CDS-SEC-073) until it is
+              production-suitable.
       metadataDatabase:
         type: object
         additionalProperties: false
@@ -114,8 +135,15 @@ spec:
             - /opt/keycloak/data:rw,noexec,nosuid,nodev,uid=1000,gid=0,mode=0700
           volumes:
             - keycloak-quarkus:/opt/keycloak/lib/quarkus
-          command:
-            - start-dev
+          command: []
+          entrypoint:
+            - /bin/bash
+            - -ec
+            - |
+              if [ "${CDS_WEBSERVER_MODE:-production}" = "development" ]; then
+                  exec /opt/keycloak/bin/kc.sh start-dev
+              fi
+              exec /opt/keycloak/bin/kc.sh start --http-enabled=true
           ports:
             - "127.0.0.1:${config.httpPort}:8080"
           environment:
@@ -128,6 +156,7 @@ spec:
             KC_BOOTSTRAP_ADMIN_USERNAME: "${config.adminUser.username}"
             KC_BOOTSTRAP_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
             KC_HEALTH_ENABLED: "true"
+            CDS_WEBSERVER_MODE: "${config.webServer.mode}"
           healthcheck:
             conditionallyEnabledFrom: config.healthcheck.enabled
             test:

@@ -8,6 +8,17 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a production web-serving mode for HTTP modules (issue #216): a
+  provider-neutral `config.webServer` convention with `mode`
+  (`production`/`development`). `bi/superset` now serves through gunicorn
+  by default (worker and timeout settings via `config.webServer.workers`
+  and `config.webServer.timeoutSeconds`) instead of Superset's development
+  server, and `identity/keycloak` can switch between development mode
+  (`start-dev`, still its default while the module is not
+  production-suitable) and Keycloak production mode. Production profiles
+  that explicitly select `webServer.mode: development` fail validation
+  with `E140`; see `docs/serving-modes.md`.
+
 - Added a vendor-neutral `backup-target` shared contract and an optional
   `spec.backup` profile block (per-workload-class retention, RPO/RTO,
   secret-referenced encryption, and restore-verification settings) with
@@ -436,17 +447,17 @@ The format is based on Keep a Changelog.
   now leaves the placeholder unresolved for the existing `E071` check
   instead of crashing with `ValueError`, without changing any well-formed
   expression (#557).
-  
+
 - Required `cds generate-profile` names to be a single relative path
   segment, so multi-segment names like `teams/checkout` now fail closed with
   `E115` instead of producing a profile invisible to `cds list profiles`,
   without changing any accepted name (#678).
-  
+
 - Rejected `cds get --local` combined with an explicit `--ref`, which was
   previously accepted silently while ignoring `--ref`, so the combination
   now fails closed with a `GetError` matching the documented mutual
   exclusivity, without changing `--local` with the default ref (#506).
-  
+
 - Wrapped malformed compose YAML parse errors in
   `scripts/compose_to_module.py` in `ScaffoldError`, so a bad
   `docker-compose.yml` input now fails with a clean `error:` message naming

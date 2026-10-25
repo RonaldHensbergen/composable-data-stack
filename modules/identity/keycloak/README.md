@@ -12,8 +12,12 @@ its own metadata storage, instead of hardcoding a database service name.
 
 ## Known limitations
 
-- Runs with the `start-dev` command, which relaxes hostname/TLS
-  requirements not suitable for production
+- Runs in development mode (`start-dev`) by default, which relaxes
+  hostname/TLS requirements not suitable for production;
+  `config.webServer.mode: production` switches to Keycloak production
+  mode (`kc.sh start --http-enabled=true`) — the default stays
+  `development` until the module is production-suitable
+  (see [`docs/serving-modes.md`](../../docs/serving-modes.md), issue #216)
 - Declares `productionSuitable: false`, do not use in production
 - No realm configuration: the module relies on Keycloak's implicit default
   `master` realm; there is no way to declare a dedicated application realm

@@ -38,6 +38,41 @@ spec:
         maximum: 65535
         default: 8088
 
+      webServer:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          mode:
+            type: string
+            enum:
+              - production
+              - development
+            default: production
+            description: >
+              Web serving mode (issue #216). "production" (default) serves
+              through a production process manager (gunicorn) using the
+              worker and timeout settings below, with graceful shutdown on
+              SIGTERM; "development" uses Superset's built-in development
+              server (`superset run`), intended for local development only
+              and rejected by validation in production profiles (E140).
+          workers:
+            type: integer
+            minimum: 1
+            maximum: 64
+            default: 4
+            description: >
+              Number of production web workers serving requests. Only used
+              when mode is "production".
+          timeoutSeconds:
+            type: integer
+            minimum: 5
+            maximum: 600
+            default: 60
+            description: >
+              Per-request timeout in seconds before a production worker is
+              recycled. Only used when mode is "production".
+
       image:
         type: object
         additionalProperties: false
@@ -254,6 +289,11 @@ spec:
             # Redis cache configuration
             SUPERSET__REDIS_URL: "${bindings.cache-service.connectionUri}"
             SUPERSET__CACHE_CONFIG: '{"CACHE_TYPE": "redis", "CACHE_REDIS_URL": "${bindings.cache-service.connectionUri}", "CACHE_DEFAULT_TIMEOUT": 300}'
+            # Production serving mode (issue #216): mode/workers/timeout are
+            # consumed by images/superset/entrypoint-web.sh.
+            CDS_WEBSERVER_MODE: "${config.webServer.mode}"
+            CDS_WEBSERVER_WORKERS: "${config.webServer.workers}"
+            CDS_WEBSERVER_TIMEOUT: "${config.webServer.timeoutSeconds}"
           healthcheck:
             conditionallyEnabledFrom: config.healthcheck.enabled
             test:
