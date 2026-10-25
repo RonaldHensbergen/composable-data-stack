@@ -212,7 +212,9 @@ _REVERSE_PROXY_ROUTES_FILE = "traefik/dynamic/cds-routes-{module}.yml"
 def _is_valid_backend_port(value: Any) -> bool:
     if isinstance(value, bool):
         return False
-    return isinstance(value, int) or (isinstance(value, str) and value.isdigit())
+    if isinstance(value, str):
+        return value.isdigit() and 1 <= int(value) <= 65535
+    return isinstance(value, int) and 1 <= value <= 65535
 
 
 def _generate_reverse_proxy_routes(
@@ -236,8 +238,10 @@ def _generate_reverse_proxy_routes(
     of 502ing at runtime. The optional `certificate` alias is validated
     against the plan's certificate mapping (issue #578) and, for TLS-enabled
     routers, wired as the router's certificate files. Invalid inputs -- an unknown target, an
-    unresolvable endpoint, a backend address that matches no rendered
-    service, an undeclared certificate alias, or a host duplicated by an
+    unresolvable endpoint (host missing, or a port outside 1-65535), a backend
+    address that matches no rendered
+    service, an entrypoint the proxy does not declare, an undeclared
+    certificate alias, or a host duplicated by an
     earlier route of the same proxy -- produce E136 diagnostics
     instead of silently generating broken config; routes are emitted in
     sorted order so repeated renders are byte-identical.
@@ -263,6 +267,19 @@ def _generate_reverse_proxy_routes(
         routers: dict[str, dict[str, Any]] = {}
         services: dict[str, dict[str, Any]] = {}
         tls_certificates: dict[str, dict[str, str]] = {}
+
+        # Entrypoints the proxy actually declares (e.g. traefik's
+        # config.entryPoints keys web/websecure). A route naming anything
+        # else would render a router no entrypoint serves -- traffic
+        # silently 404s -- so those fail closed with E136 below. Providers
+        # without an entryPoints config mapping declare nothing here and
+        # their routes are not checked.
+        proxy_entry_points = (module.get("config") or {}).get("entryPoints")
+        known_entry_points = (
+            set(proxy_entry_points)
+            if isinstance(proxy_entry_points, dict) and proxy_entry_points
+            else None
+        )
 
         # Duplicate hosts per proxy are rejected up front, in profile order:
         # two routers with the same Host() rule would make Traefik pick one
@@ -425,8 +442,25 @@ def _generate_reverse_proxy_routes(
 
             router_name = f"cds-route-{sorted_index}-{host or 'default'}"
             service_name = f"cds-service-{target_id}"
+            route_entry_points = route.get("entryPoints") or ["websecure"]
+            if known_entry_points is not None and any(
+                ep not in known_entry_points for ep in route_entry_points
+            ):
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" names entrypoint(s) '
+                        f'"{", ".join(ep for ep in route_entry_points if ep not in known_entry_points)}" '
+                        f'not declared by proxy "{proxy_id}" (declared: '
+                        f'{", ".join(sorted(known_entry_points))}); a router no '
+                        "entrypoint serves would drop its traffic silently."
+                    ),
+                    path=f"{path_prefix}.entryPoints",
+                ))
+                continue
             router: dict[str, Any] = {
-                "entryPoints": route.get("entryPoints") or ["websecure"],
+                "entryPoints": route_entry_points,
                 "rule": f"Host(`{host}`)",
                 "service": service_name,
             }

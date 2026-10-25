@@ -178,6 +178,85 @@ class RouteGenerationUnitTest(unittest.TestCase):
         self.assertEqual([d.code for d in diagnostics], ["E136"])
         self.assertIn("resolvable http-service endpoint", diagnostics[0].message)
 
+    def test_backend_port_outside_valid_range_reports_e136(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "superset"}]}
+        for bad_port in (0, -1, 99999):
+            broken = _http_target()
+            broken["provides"]["http-service"]["spec"] = {"host": "superset", "port": bad_port}
+            _, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, broken), _rendered_services())
+            self.assertEqual([d.code for d in diagnostics], ["E136"], f"port {bad_port} must be rejected")
+            self.assertIn("resolvable http-service endpoint", diagnostics[0].message)
+
+    def test_string_backend_port_still_resolves(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "superset"}]}
+        target = _http_target()
+        target["provides"]["http-service"]["spec"] = {"host": "superset", "port": "8088"}
+        documents, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, target), _rendered_services())
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(
+            documents["proxy"]["http"]["services"]["cds-service-superset"]["loadBalancer"]["servers"],
+            [{"url": "http://superset:8088"}],
+        )
+
+    def _proxy_with_entry_points(self):
+        proxy = _proxy_module()
+        proxy["config"] = {
+            "entryPoints": {"web": {"address": ":80"}, "websecure": {"address": ":443"}},
+            "routes": [],
+        }
+        return proxy
+
+    def test_unknown_entrypoint_reports_e136(self):
+        # A router no entrypoint serves would drop its traffic silently;
+        # route entrypoints must match the proxy's declared set.
+        proxy = self._proxy_with_entry_points()
+        proxy["config"]["routes"] = [
+            {"host": "x.example.local", "target": "superset", "entryPoints": ["websecre"]}
+        ]
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn('not declared by proxy "proxy"', diagnostics[0].message)
+        self.assertIn("declared: web, websecure", diagnostics[0].message)
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].entryPoints")
+        self.assertEqual(documents, {})
+
+    def test_declared_entrypoints_pass(self):
+        proxy = self._proxy_with_entry_points()
+        proxy["config"]["routes"] = [
+            {"host": "x.example.local", "target": "superset", "entryPoints": ["web"]},
+            {"host": "y.example.local", "target": "superset"},
+        ]
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual(diagnostics, [])
+        routers = documents["proxy"]["http"]["routers"]
+        # Explicit entrypoint is used as-is; the default stays websecure.
+        self.assertEqual(
+            [r["entryPoints"] for r in routers.values()],
+            [["web"], ["websecure"]],
+        )
+
+    def test_entrypoints_unchecked_without_proxy_entrypoint_config(self):
+        # Providers that declare no entryPoints config have no known set;
+        # their routes are not entrypoint-checked.
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"host": "x.example.local", "target": "superset", "entryPoints": ["custom"]}
+        ]}
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(
+            documents["proxy"]["http"]["routers"]["cds-route-0-x.example.local"]["entryPoints"],
+            ["custom"],
+        )
+
     def test_diagnostic_path_keeps_profile_route_index(self):
         proxy = _proxy_module()
         # Written in reverse-sorted order so the sorted position differs

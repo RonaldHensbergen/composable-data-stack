@@ -20,11 +20,14 @@ The format is based on Keep a Changelog.
   answers; a route's `target` may name a specific contract as
   `<module-id>.<contract-name>` when the target exposes several
   http-service endpoints; invalid routing inputs (unknown target,
-  unresolvable endpoint, undeclared certificate alias, or a host duplicated
+  unresolvable endpoint or a backend port outside 1-65535, an entrypoint
+  the proxy does not declare in config.entryPoints, an undeclared
+  certificate alias, or a host duplicated
   by an earlier route of the same proxy) also fail rendering
   with `E136`, the
   optional `certificate` alias wires the profile's certificate mapping
-  into the router's certificate files, and stale generated route files
+  into the router's certificate files (TLS-enabled routers only; the
+  alias is always validated), and stale generated route files
   are removed when their routes (or proxy) disappear from the profile.
 - Added TLS metadata to the shared reverse-proxy contract (#579): the
   protocol-version window (`tlsMinVersion`/`tlsMaxVersion`), SNI strictness
