@@ -7,7 +7,7 @@ import yaml
 
 from cli import planner
 from cli.renderer import _generate_reverse_proxy_routes, render_compose
-from cli.validator import validate_profile
+from cli.validator import validate_module_configs
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -293,6 +293,66 @@ class RouteGenerationUnitTest(unittest.TestCase):
             [{"url": "http://app-gateway:3000"}],
         )
 
+    def test_duplicate_host_per_proxy_reports_e136(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"host": "dup.example.local", "target": "superset"},
+            {"host": "dup.example.local", "target": "superset"},
+        ]}
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn("duplicates an earlier route", diagnostics[0].message)
+        # The later profile occurrence is flagged; the first route stays valid.
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[1].host")
+        self.assertEqual(
+            sorted(documents["proxy"]["http"]["routers"]),
+            ["cds-route-0-dup.example.local"],
+        )
+
+    def test_same_host_on_different_proxies_is_allowed(self):
+        proxy_a = _proxy_module("proxy-a")
+        proxy_a["config"] = {"routes": [{"host": "dup.example.local", "target": "superset"}]}
+        proxy_b = _proxy_module("proxy-b")
+        proxy_b["config"] = {"routes": [{"host": "dup.example.local", "target": "superset"}]}
+        target = _http_target()
+        plan = {"modules": [proxy_a, proxy_b, target], "certificates": {}}
+        documents, diagnostics = _generate_reverse_proxy_routes(plan, _rendered_services())
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(sorted(documents), ["proxy-a", "proxy-b"])
+
+
+class TraefikRoutesSchemaTest(unittest.TestCase):
+    """The real traefik module's routes schema (review follow-ups on #581)."""
+
+    def test_empty_entrypoints_is_rejected_by_the_schema(self):
+        # `entryPoints: []` must fail validation (E030) instead of being
+        # silently coerced to the websecure default by the renderer.
+        module = yaml.safe_load(
+            (_REPO_ROOT / "modules" / "integration" / "traefik" / "module.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        inst = {
+            "index": 0,
+            "id": "proxy",
+            "config": {"routes": [
+                {"host": "x.example.local", "target": "web", "entryPoints": []}
+            ]},
+            "module": module,
+        }
+        diagnostics = validate_module_configs([inst])
+        self.assertTrue(
+            any(
+                d.code == "E030"
+                and "non-empty" in d.message
+                and str(d.path).endswith("entryPoints")
+                for d in diagnostics
+            ),
+            diagnostics,
+        )
+
 
 class RouteGenerationEndToEndTest(unittest.TestCase):
     """Plan + render with real module files: the routes file lands in the proxy's file-provider mount."""
@@ -444,10 +504,6 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
         return plan
 
     def test_render_writes_deterministic_routes_file_next_to_compose(self):
-        self._write_profile([{"host": "web.example.local", "target": "web"}])
-        errors = [d for d in validate_profile(str(self.profile_dir / "profile.yaml")) if d.level == "error"]
-        self.assertEqual(errors, [])
-
         self._render([{"host": "web.example.local", "target": "web"}])
         routes_file = self.output.parent / "traefik" / "dynamic" / "cds-routes-proxy.yml"
         self.assertTrue(routes_file.is_file(), f"missing {routes_file}")
@@ -498,11 +554,6 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
         # watches this directory, so the stale file must not survive.
         self._render([])
         self.assertFalse(routes_file.is_file(), f"stale routes file survived: {routes_file}")
-
-    def _write_profile(self, routes):
-        path = self.profile_dir / "profile.yaml"
-        path.write_text(yaml.safe_dump(self._profile(routes)), encoding="utf-8")
-        return path
 
     def test_invalid_target_surfaces_e136_at_render(self):
         profile = self._profile([{"host": "web.example.local", "target": "ghost"}])

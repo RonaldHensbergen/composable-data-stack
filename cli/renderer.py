@@ -235,7 +235,10 @@ def _generate_reverse_proxy_routes(
     actually produced -- an address nothing answers fails closed instead
     of 502ing at runtime. The optional `certificate` alias is validated
     against the plan's certificate mapping (issue #578) and wired as the
-    router's certificate files. Invalid inputs produce E136 diagnostics
+    router's certificate files. Invalid inputs -- an unknown target, an
+    unresolvable endpoint, a backend address that matches no rendered
+    service, an undeclared certificate alias, or a host duplicated by an
+    earlier route of the same proxy -- produce E136 diagnostics
     instead of silently generating broken config; routes are emitted in
     sorted order so repeated renders are byte-identical.
     """
@@ -261,6 +264,21 @@ def _generate_reverse_proxy_routes(
         services: dict[str, dict[str, Any]] = {}
         tls_certificates: dict[str, dict[str, str]] = {}
 
+        # Duplicate hosts per proxy are rejected up front, in profile order:
+        # two routers with the same Host() rule would make Traefik pick one
+        # by priority, silently. Only the later occurrence is flagged so
+        # the diagnostic points at the entry to fix; the first stays valid.
+        duplicate_route_indexes: set[int] = set()
+        hosts_seen: dict[str, int] = {}
+        for route_index, route in enumerate(routes):
+            if not isinstance(route, dict):
+                continue
+            route_host = str(route.get("host"))
+            if route_host in hosts_seen:
+                duplicate_route_indexes.add(route_index)
+            else:
+                hosts_seen[route_host] = route_index
+
         # Sort by (host, target) so the generated document is
         # deterministic; diagnostics keep the route's ORIGINAL profile
         # index so the path points at the entry the user wrote.
@@ -277,6 +295,20 @@ def _generate_reverse_proxy_routes(
             path_prefix = f"module:{proxy_id}.config.routes[{original_index}]"
             target_id = route.get("target")
             host = route.get("host")
+
+            if original_index in duplicate_route_indexes:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" duplicates an earlier route of '
+                        f'proxy "{proxy_id}"; every route must expose a unique host (two '
+                        "routers with the same Host rule would make the proxy pick one "
+                        "by priority, silently)."
+                    ),
+                    path=f"{path_prefix}.host",
+                ))
+                continue
 
             # `target` accepts either a bare module id (its first
             # http-service provide wins, mirroring the contractRef
