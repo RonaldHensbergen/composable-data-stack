@@ -87,6 +87,26 @@ spec:
             type: boolean
             default: true
 
+      authentication:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Client authentication policy for the initial cluster (issue #206).
+          hostAuth selects the pg_hba method applied to host (TCP)
+          connections via initdb --auth-host; the local (unix socket) method
+          stays password-based. Defaults to scram-sha-256, the modern
+          password method; production validation rejects trust and warns on
+          the legacy md5 method (E139, issue #206).
+        properties:
+          hostAuth:
+            type: string
+            enum:
+              - scram-sha-256
+              - md5
+              - trust
+            default: scram-sha-256
+
       dagsterDatabase:
         type: object
         additionalProperties: false
@@ -178,6 +198,7 @@ spec:
           database: ${config.database}
           username: ${config.username}
           password: ${config.passwordFrom}
+          authentication: ${config.authentication.hostAuth}
           connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.host}:${config.port}/${config.database}
 
     - name: dagster-database
@@ -189,6 +210,7 @@ spec:
           database: ${config.dagsterDatabase.name}
           username: ${config.dagsterDatabase.username}
           password: ${config.dagsterDatabase.passwordFrom}
+          authentication: ${config.authentication.hostAuth}
           connectionUri: postgresql://${config.dagsterDatabase.username}:${config.dagsterDatabase.passwordFrom}@${service.host}:${config.port}/${config.dagsterDatabase.name}
 
     - name: superset-database
@@ -200,6 +222,7 @@ spec:
           database: ${config.supersetDatabase.name}
           username: ${config.supersetDatabase.username}
           password: ${config.supersetDatabase.passwordFrom}
+          authentication: ${config.authentication.hostAuth}
           connectionUri: postgresql://${config.supersetDatabase.username}:${config.supersetDatabase.passwordFrom}@${service.host}:${config.port}/${config.supersetDatabase.name}
 
     - name: marquez-database
@@ -211,6 +234,7 @@ spec:
           database: ${config.marquezDatabase.name}
           username: ${config.marquezDatabase.username}
           password: ${config.marquezDatabase.passwordFrom}
+          authentication: ${config.authentication.hostAuth}
           connectionUri: postgresql://${config.marquezDatabase.username}:${config.marquezDatabase.passwordFrom}@${service.host}:${config.port}/${config.marquezDatabase.name}
 
     - name: data-provider-metadata
@@ -248,7 +272,7 @@ spec:
             - "127.0.0.1:${config.port}:5432"
           environment:
             POSTGRES_PASSWORD: "${config.superuserPasswordFrom}"
-            POSTGRES_INITDB_ARGS: -U postgres --auth-local=password
+            POSTGRES_INITDB_ARGS: -U postgres --auth-local=password --auth-host=${config.authentication.hostAuth}
             POSTGRES_DB: postgres
             POSTGRES_USER: postgres
           volumes:

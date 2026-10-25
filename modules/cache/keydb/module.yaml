@@ -34,10 +34,16 @@ spec:
         maximum: 65535
         default: 6379
 
-      password:
+      passwordFrom:
         type: string
-        default: ""
-        description: "Optional password for KeyDB authentication"
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+        description: >-
+          Secret alias reference (same `secrets`-namespace form as the other
+          *From credential fields) supplying the cache password. The rendered
+          service passes --requirepass to keydb-server, so a set password
+          makes the cache reject unauthenticated clients; when unset the
+          cache accepts unauthenticated connections (development only,
+          rejected by production validation, see issue #206).
 
       healthcheck:
         type: object
@@ -56,8 +62,9 @@ spec:
           host: ${service.host}
           port: ${config.port}
           protocol: redis
-          password: ${config.password}
-          connectionUri: "redis://${ifNonempty:config.password,:,@}${service.host}:${config.port}"
+          password: ${ifNonempty:config.passwordFrom,,}
+          authentication: ${ifNonempty:config.passwordFrom,required,}
+          connectionUri: "redis://${ifNonempty:config.passwordFrom,:,@}${service.host}:${config.port}"
 
   implementation:
     kind: docker-compose
@@ -83,13 +90,29 @@ spec:
           ports:
             - "127.0.0.1:${config.port}:6379"
           environment:
-            KEYDB_PASSWORD: "${config.password}"
+            KEYDB_PASSWORD: "${ifNonempty:config.passwordFrom,,}"
+          # The upstream image ignores KEYDB_PASSWORD on its own (see
+          # Snapchat/KeyDB#220), so requirepass is applied here through a
+          # shell wrapper that expands the password from the container
+          # environment at start time. CDS's renderer only processes ${...}
+          # expressions, so the $$ escape below reaches Docker Compose
+          # untouched and Compose hands a literal $KEYDB_PASSWORD to /bin/sh;
+          # the resolved password never appears in the rendered Compose file
+          # (docker inspect shows the unexpanded reference). An empty password
+          # keeps the cache unauthenticated, which production validation
+          # rejects (E137, issue #206).
+          command:
+            - /bin/sh
+            - -c
+            - 'exec keydb-server --requirepass "$$KEYDB_PASSWORD"'
           healthcheck:
             conditionallyEnabledFrom: config.healthcheck.enabled
+            # Authenticated when a password is set, plain ping otherwise:
+            # redis-compatible CLIs exit 0 even on a NOAUTH error reply, so
+            # the check must verify the reply is actually PONG.
             test:
-              - CMD
-              - keydb-cli
-              - ping
+              - CMD-SHELL
+              - 'if [ -n "$$KEYDB_PASSWORD" ]; then keydb-cli -a "$$KEYDB_PASSWORD" ping; else keydb-cli ping; fi | grep -q PONG'
             interval: 10s
             timeout: 5s
             retries: 5
@@ -118,3 +141,33 @@ spec:
                 memory: 128Mi
               limits:
                 memory: 512Mi
+          # Kubernetes does not interpolate Compose's $$ escape, so the
+          # requirepass wrapper and probes translated from the compose
+          # healthcheck would run with a literal $$KEYDB_PASSWORD. Replace
+          # them with single-$ versions that /bin/sh expands against the
+          # container's KEYDB_PASSWORD env entry (a secretKeyRef for
+          # CDS_CACHE_PASSWORD when a password is configured).
+          containerOverrides:
+            keydb:
+              args:
+                - /bin/sh
+                - -c
+                - 'exec keydb-server --requirepass "$KEYDB_PASSWORD"'
+              readinessProbe:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - 'if [ -n "$KEYDB_PASSWORD" ]; then keydb-cli -a "$KEYDB_PASSWORD" ping; else keydb-cli ping; fi | grep -q PONG'
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 5
+              livenessProbe:
+                exec:
+                  command:
+                    - /bin/sh
+                    - -c
+                    - 'if [ -n "$KEYDB_PASSWORD" ]; then keydb-cli -a "$KEYDB_PASSWORD" ping; else keydb-cli ping; fi | grep -q PONG'
+                periodSeconds: 10
+                timeoutSeconds: 5
+                failureThreshold: 5

@@ -26,6 +26,15 @@ spec:
       type: string
       required: false
       description: Optional password for authentication.
+    authentication:
+      type: string
+      required: false
+      description: >-
+        Whether the cache rejects unauthenticated clients: "required" when a
+        password (or other credential check) is enforced, absent/empty when
+        the service accepts unauthenticated connections. A production
+        profile fails validation with E137 for a cache-service provider that
+        does not advertise "required" (see issue #206).
     connectionUri:
       type: string
       required: true
@@ -45,3 +54,9 @@ spec:
       protocol: redis
       password: ""
       connectionUri: redis://keydb:6379
+    - host: keydb
+      port: 6379
+      protocol: redis
+      password: ${CDS_CACHE_PASSWORD}
+      authentication: required
+      connectionUri: "redis://:${CDS_CACHE_PASSWORD}@keydb:6379"
