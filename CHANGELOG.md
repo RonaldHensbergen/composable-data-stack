@@ -8,6 +8,33 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added reverse-proxy dynamic route generation from contract bindings
+  (#581): a `reverse-proxy` provider's `config.routes` entries (public
+  `host`, `target` module id) render deterministic Traefik file-provider
+  configuration next to the compose file, resolving each target's
+  `http-service` contract `host`/`port` instead of Docker label
+  autodiscovery; multi-service providers advertise the serving compose
+  service through a `serviceName` field (dagster, dbt), and the backend
+  address is cross-checked against the services the render actually
+  produced, failing with `E136` instead of emitting an address nothing
+  answers; a route's `target` may name a specific contract as
+  `<module-id>.<contract-name>` when the target exposes several
+  http-service endpoints; invalid routing inputs (unknown target,
+  unresolvable endpoint or a backend port outside 1-65535, an entrypoint
+  the proxy does not declare in config.entryPoints, an undeclared
+  certificate alias, or a host duplicated
+  by an earlier route of the same proxy) also fail rendering
+  with `E136`, the
+  optional `certificate` alias wires the profile's certificate mapping
+  into the router's certificate files (TLS-enabled routers only; the
+  alias is always validated), and stale generated route files
+  are removed when their routes (or proxy) disappear from the profile.
+- Added TLS metadata to the shared reverse-proxy contract (#579): the
+  protocol-version window (`tlsMinVersion`/`tlsMaxVersion`), SNI strictness
+  (`tlsSniStrict`), and certificate-verification status (`certVerified`)
+  fields, so downstream consumers can make provider-neutral TLS decisions;
+  the Traefik provider exposes them from its existing TLS policy
+  configuration.
 - Added a vendor-neutral `backup-target` shared contract and an optional
   `spec.backup` profile block (per-workload-class retention, RPO/RTO,
   secret-referenced encryption, and restore-verification settings) with

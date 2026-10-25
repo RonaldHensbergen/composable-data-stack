@@ -9,9 +9,12 @@ metadata:
   description: >-
     Shared contract describing the TLS-terminating reverse proxy fronting a
     stack (e.g. Traefik): the host, port and URI other modules and external
-    clients use to reach services through it. Providers advertise a
-    TLS-protected endpoint by setting the tls field to true, which satisfies
-    a consumer's "tls: required" consume entry (see issue #577).
+    clients use to reach services through it, plus the TLS metadata
+    (protocol-version window, SNI strictness, certificate verification)
+    downstream consumers need for provider-neutral TLS decisions (issue
+    #579). Providers advertise a TLS-protected endpoint by setting the tls
+    field to true, which satisfies a consumer's "tls: required" consume
+    entry (see issue #577).
 
 spec:
   fields:
@@ -40,9 +43,49 @@ spec:
         advertised, and a consumer that declares "tls: required" on its
         consume entry fails validation with E128 unless the provider's
         contract spec sets this to true.
+    tlsMinVersion:
+      type: string
+      required: false
+      description: >-
+        Lowest TLS protocol version the proxy accepts on its HTTPS
+        entrypoint (e.g. "VersionTLS12" for TLS 1.2). Providers map this
+        from their TLS policy configuration; absent means the provider does
+        not advertise a floor and consumers must not assume one.
+    tlsMaxVersion:
+      type: string
+      required: false
+      description: >-
+        Highest TLS protocol version the proxy accepts (e.g. "VersionTLS13").
+        Absent means the provider does not advertise a ceiling; consumers
+        should treat the combination of tlsMinVersion/tlsMaxVersion as the
+        negotiated protocol window and prefer profiles whose floor is
+        TLS 1.2 or higher.
+    tlsSniStrict:
+      type: boolean
+      required: false
+      description: >-
+        Whether the proxy enforces strict Server Name Indication, rejecting
+        requests whose SNI does not match a configured certificate. true
+        denies default-certificate fallback for unknown hostnames, which
+        prevents cross-tenant certificate confusion on shared proxies.
+    certVerified:
+      type: boolean
+      required: false
+      description: >-
+        Whether the certificate the proxy presents is issued by a CA that
+        downstream consumers already trust, so they can verify it instead of
+        disabling certificate verification. Absent means the provider does
+        not advertise a CA-verified certificate (e.g. a locally mounted
+        self-signed one) and consumers must treat the endpoint as
+        unverified; see the profile's spec.certificates aliases for how
+        certificate material is supplied out of band (issue #578).
   examples:
     - host: proxy
       port: 443
       protocol: https
       connectionUri: https://proxy:443
       tls: true
+      tlsMinVersion: VersionTLS12
+      tlsMaxVersion: VersionTLS13
+      tlsSniStrict: true
+      certVerified: false
