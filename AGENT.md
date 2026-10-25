@@ -204,7 +204,12 @@ Rules of use:
   should be assigned one (append at the end of the matching tier; never
   reorder existing items).
 - Pick up work by the lowest `Order` that is open, not `Done`, and not
-  already in flight via an open PR.
+  already in flight via an open PR. "Lowest" means the `Order` value in
+  this project, never the issue number.
+- Skip parent issues: anything with sub-issues
+  (`gh api repos/RonaldHensbergen/composable-data-stack/issues/<n>/sub_issues`)
+  or an unchecked task list in its body is out of scope for "the next
+  issue"; pick the lowest-Order item that is itself childless.
 - Mechanic: `gh project item-edit 1 --owner RonaldHensbergen --url
   <issue-url> --field Order --value <n>`; the `Status` field is
   `Todo` / `In Progress` / `Done`.
