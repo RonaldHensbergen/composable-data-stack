@@ -15,6 +15,13 @@ The format is based on Keep a Changelog.
   which validate (`E129` for unknown aliases or malformed references) and
   render as `${CDS_*}` runtime placeholders. CDS never generates, reads,
   or embeds certificate or private key material.
+  
+### Fixed
+
+- Made `tests/test_dagster_entrypoint_backend_guard.py` OS-independent: the
+  POSIX shell used to exercise the entrypoint guard is resolved from PATH or
+  a Git for Windows install, and the tests skip with a clear message when no
+  shell is available instead of failing with `FileNotFoundError` (#564).
 
 ## [0.13.0] - 2026-10-22
 
@@ -36,15 +43,6 @@ The format is based on Keep a Changelog.
   writes into each service's `security_opt`; invalid or unsupported values
   fail validation with error `E127`, and `--target=helm` warns (`W127`)
   that confinement is not rendered for Kubernetes (#207, #897, #894).
-- Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
-  file readable or writable by group or others (new `file-permissions`
-  rule scope and `permissions` condition; skipped on Windows), and
-  `cds init` explicitly creates `.env` as owner-only (`0600`) (#357).
-- Added a versioned Docker host and daemon hardening baseline
-  (`docs/docker-host-hardening.md`) separating CDS-enforced controls from
-  operator responsibilities, and advisory `host.*` checks in `cds preflight`
-  for rootless mode, user namespaces, seccomp, logging, live restore, and
-  daemon socket exposure (#211).
 - Added code-enforced rules CDS-SEC-090 (production runtime policy:
   capabilities, privilege escalation, non-root user and read-only root
   filesystem evaluated together, with a reasoned
@@ -72,6 +70,23 @@ The format is based on Keep a Changelog.
   out-of-bounds write (GHSA-9v8h-qqgm-4m35) that failed the image scan (#926).
 - Added a time-boxed `.trivyignore` exception for the not-yet-published
   libbrotli1 fix (CVE-2026-111497) in the Superset base image (#927).
+
+## [0.13.0] - 2026-10-22
+
+### Added
+
+- Implemented CDS-SEC-032: `cds security`/`cds test` now flag a `.env`
+  file readable or writable by group or others (new `file-permissions`
+  rule scope and `permissions` condition; skipped on Windows), and
+  `cds init` explicitly creates `.env` as owner-only (`0600`) (#357).
+- Added a versioned Docker host and daemon hardening baseline
+  (`docs/docker-host-hardening.md`) separating CDS-enforced controls from
+  operator responsibilities, and advisory `host.*` checks in `cds preflight`
+  for rootless mode, user namespaces, seccomp, logging, live restore, and
+  daemon socket exposure (#211).
+
+### Fixed
+
 - Fixed a flaky Superset init failure (duplicate-key error while creating the
   metadata tables) when the web process starts concurrently, by retrying the
   idempotent init steps a bounded number of times, and added container-log
