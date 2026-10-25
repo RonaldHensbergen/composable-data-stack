@@ -1,0 +1,72 @@
+# yaml-language-server: $schema=../../../cli/resources/profile.schema.json
+# Environment overlay: production. Merge over profile.yaml by invoking with
+# --environment prod, e.g.
+# `cds render team-dagster-postgres-superset --environment prod`.
+# Promoting metadata.environment to "production" switches on CDS's
+# production security policy (see cli/security.py) for the resolved profile.
+metadata:
+  environment: production
+
+spec:
+  modules:
+    - id: postgres
+      config:
+        storage:
+          size: 20Gi
+        # Production relational databases must use an explicit modern
+        # password method for host (TCP) connections; trust authentication
+        # is rejected by validation (E139, issue #206). Set explicitly
+        # because validation runs before configSchema defaults apply.
+        authentication:
+          hostAuth: scram-sha-256
+
+  # Production profiles must declare encrypted backup policies per workload
+  # class (see docs/backup-restore.md). The cache class is deliberately
+  # absent: cache contents are disposable by design. The storage provider
+  # stays open: add spec.backup.target.contractRef once a backup-target
+  # provider module is used, and in the meantime back up the postgres
+  # volumes manually (see README.md).
+  secrets:
+    values:
+      backup_encryption_key:
+        env: CDS_BACKUP_ENCRYPTION_KEY
+        required: true
+
+  backup:
+    encryption:
+      keyFrom: secrets.backup_encryption_key
+    policies:
+      - workloadClass: warehouse
+        retentionDays: 30
+        rpoMinutes: 60
+        rtoMinutes: 240
+        restoreVerification:
+          frequencyDays: 30
+      - workloadClass: orchestration-metadata
+        retentionDays: 30
+        rpoMinutes: 60
+        rtoMinutes: 240
+        restoreVerification:
+          frequencyDays: 30
+      - workloadClass: bi-metadata
+        retentionDays: 30
+        rpoMinutes: 1440
+        rtoMinutes: 480
+        restoreVerification:
+          frequencyDays: 90
+      - workloadClass: configuration
+        retentionDays: 90
+        rpoMinutes: 1440
+        rtoMinutes: 120
+        restoreVerification:
+          frequencyDays: 90
+
+  # The production runtime policy (CDS-SEC-090, see docs/runtime-confinement.md)
+  # requires an explicit non-root user per service. The Dagster and Superset
+  # images set a non-root USER in their Dockerfiles, which CDS cannot see, so
+  # waive that single check with the documented reason.
+  security:
+    waivers:
+      runtimePolicy:
+        reason: Dagster and Superset images set a non-root USER in their Dockerfiles.
+        checks: [nonRootUser]

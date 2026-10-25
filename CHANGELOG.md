@@ -62,6 +62,16 @@ The format is based on Keep a Changelog.
   the legacy `md5` method), a cache accepts unauthenticated clients
   (`E137`), or a credential field is not a `secrets.<alias>` reference
   declared `required: true` (`E138`).
+- Added the `team-dagster-postgres-superset` example profile: the stable
+  Dagster + Postgres + Superset stack composed via `extends` and shaped
+  for a small team on a single shared Docker host — a Traefik edge
+  terminating TLS and routing the UIs by hostname (hand-authored
+  file-provider routes, HTTP redirected to HTTPS), an authenticated cache
+  (required `CDS_CACHE_PASSWORD` secret), and a `prod` overlay applying
+  the production security policy (explicit `scram-sha-256` host
+  authentication, encrypted restore-verified backup policies, runtime
+  policy waiver); the profile README documents the multi-user access
+  model and the SSO (Keycloak `forwardAuth`) follow-up path.
 
 ### Changed
 

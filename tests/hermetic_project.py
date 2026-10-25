@@ -51,10 +51,18 @@ def make_project(root: Path, profile_name: str) -> Path:
     return root / "profiles" / profile_name / "profile.yaml"
 
 
-def init_env(cds: list[str], root: Path, profile_name: str) -> None:
-    """Generate `<root>/.env` for the profile with a sanitized environment."""
+def init_env(cds: list[str], root: Path, profile_name: str, environment: str | None = None) -> None:
+    """Generate `<root>/.env` for the profile with a sanitized environment.
+
+    Pass `environment` to generate against an environment overlay (e.g.
+    "prod"), which may declare additional required secrets a base-only .env
+    lacks.
+    """
+    command = ["init", profile_name]
+    if environment:
+        command += ["--environment", environment]
     result = subprocess.run(
-        cds + ["init", profile_name],
+        cds + command,
         cwd=str(root),
         capture_output=True,
         text=True,
