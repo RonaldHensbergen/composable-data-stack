@@ -124,6 +124,63 @@
             }
           }
         },
+        "backup": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Backup, retention, encryption, and restore-verification requirements by workload class. Required for production profiles. See docs/backup-restore.md.",
+          "properties": {
+            "target": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["contractRef"],
+              "description": "Optional. Pins backups to a module providing the backup-target contract; omit to keep the storage provider open.",
+              "properties": {
+                "contractRef": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9-]+\\.[a-z0-9-]+$"
+                }
+              }
+            },
+            "encryption": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["keyFrom"],
+              "properties": {
+                "keyFrom": {
+                  "type": "string",
+                  "pattern": "^secrets\\.[A-Za-z0-9_-]+$",
+                  "description": "Secret alias (secrets.<alias>) holding the backup encryption key; key material never appears in the profile."
+                }
+              }
+            },
+            "policies": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["workloadClass", "retentionDays", "rpoMinutes", "rtoMinutes"],
+                "properties": {
+                  "workloadClass": {
+                    "type": "string",
+                    "enum": ["warehouse", "orchestration-metadata", "bi-metadata", "identity-metadata", "secrets-metadata", "configuration"]
+                  },
+                  "retentionDays": {"type": "integer", "minimum": 1},
+                  "rpoMinutes": {"type": "integer", "minimum": 1, "description": "Recovery point objective: maximum tolerated data loss."},
+                  "rtoMinutes": {"type": "integer", "minimum": 1, "description": "Recovery time objective: maximum tolerated time to restore service."},
+                  "restoreVerification": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["frequencyDays"],
+                    "properties": {
+                      "frequencyDays": {"type": "integer", "minimum": 1, "description": "How often a restore into a clean environment must be verified."}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "observability": {
           "type": "object",
           "additionalProperties": false,

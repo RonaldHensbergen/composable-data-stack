@@ -21,3 +21,18 @@ spec:
       runtimePolicy:
         reason: fixture images are not hardened; this fixture tests plaintext exposure only
         checks: [capDrop, noNewPrivileges, nonRootUser, readOnlyRootFilesystem]
+  secrets:
+    values:
+      backup_key:
+        env: CDS_BACKUP_KEY
+        required: true
+  backup:
+    encryption:
+      keyFrom: secrets.backup_key
+    policies:
+      - workloadClass: configuration
+        retentionDays: 30
+        rpoMinutes: 1440
+        rtoMinutes: 120
+        restoreVerification:
+          frequencyDays: 90

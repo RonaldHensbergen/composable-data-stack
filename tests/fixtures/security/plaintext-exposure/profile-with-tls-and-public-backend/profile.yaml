@@ -27,3 +27,18 @@ spec:
       enabled: true
       config:
         publicPort: 8080
+  secrets:
+    values:
+      backup_key:
+        env: CDS_BACKUP_KEY
+        required: true
+  backup:
+    encryption:
+      keyFrom: secrets.backup_key
+    policies:
+      - workloadClass: configuration
+        retentionDays: 30
+        rpoMinutes: 1440
+        rtoMinutes: 120
+        restoreVerification:
+          frequencyDays: 90

@@ -8,6 +8,11 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a vendor-neutral `backup-target` shared contract and an optional
+  `spec.backup` profile block (per-workload-class retention, RPO/RTO,
+  secret-referenced encryption, and restore-verification settings) with
+  validation codes `E130`-`E135`, documented in `docs/backup-restore.md`
+  (#210).
 - Added a certificate reference mechanism parallel to secret aliases
   (issue #578): profiles declare `spec.certificates.values` aliases mapping
   to externally managed material via `certEnv`/`keyEnv` environment variable
@@ -51,6 +56,10 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- **Breaking:** profiles with `metadata.environment: production` must now
+  declare `spec.backup` with encrypted, restore-verified policies for every
+  workload class they run, or `cds validate` fails with `E133`-`E135`; the
+  example `prod` overlay declares them (#210).
 - Production-class profiles whose services do not meet the runtime policy,
   including the bundled production overlay, now fail `cds security` and
   `cds test` with HIGH findings until the services are hardened or waived

@@ -3,19 +3,16 @@ kind: Profile
 metadata:
   name: literal-secret-output
   environment: local
-
 spec:
   runtime:
     type: docker-compose
-
   modules:
-    - id: fake-literal
-      source: ../modules/secrets/fake-literal
-      version: "0.1.0"
-      enabled: true
-      config:
-        setting: harmless-public-value
-
+  - id: fake-literal
+    source: ../modules/secrets/fake-literal
+    version: 0.1.0
+    enabled: true
+    config:
+      setting: harmless-public-value
   secrets:
     provider:
       type: env
@@ -23,3 +20,22 @@ spec:
       fake_token:
         env: CDS_FAKE_TOKEN
         required: true
+      backup_key:
+        env: CDS_BACKUP_KEY
+        required: true
+  backup:
+    encryption:
+      keyFrom: secrets.backup_key
+    policies:
+    - workloadClass: secrets-metadata
+      retentionDays: 30
+      rpoMinutes: 1440
+      rtoMinutes: 240
+      restoreVerification:
+        frequencyDays: 90
+    - workloadClass: configuration
+      retentionDays: 90
+      rpoMinutes: 1440
+      rtoMinutes: 120
+      restoreVerification:
+        frequencyDays: 90
