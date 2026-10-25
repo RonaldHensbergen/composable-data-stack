@@ -150,6 +150,13 @@ spec:
           protocol: https
           connectionUri: "https://${service.host}:443"
           tls: true
+          tlsMinVersion: ${config.tls.minVersion}
+          tlsMaxVersion: ${config.tls.maxVersion}
+          tlsSniStrict: ${config.tls.sniStrict}
+          # certVerified is deliberately not advertised: the proxy presents
+          # the locally mounted certificate from ./certs/traefik, which is
+          # not CA-verified, so consumers must treat the endpoint as
+          # unverified (see the reverse-proxy contract document).
 
   implementation:
     kind: docker-compose

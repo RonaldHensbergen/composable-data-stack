@@ -8,6 +8,12 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added TLS metadata to the shared reverse-proxy contract (#579): the
+  protocol-version window (`tlsMinVersion`/`tlsMaxVersion`), SNI strictness
+  (`tlsSniStrict`), and certificate-verification status (`certVerified`)
+  fields, so downstream consumers can make provider-neutral TLS decisions;
+  the Traefik provider exposes them from its existing TLS policy
+  configuration.
 - Added a vendor-neutral `backup-target` shared contract and an optional
   `spec.backup` profile block (per-workload-class retention, RPO/RTO,
   secret-referenced encryption, and restore-verification settings) with
