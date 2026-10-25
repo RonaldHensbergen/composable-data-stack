@@ -22,6 +22,7 @@ from .confinement import (
 from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
+from .resolver import parse_contract_ref
 from .secret_leak import (
     check_generated_text,
     declared_secret_env_names,
@@ -223,8 +224,10 @@ def _generate_reverse_proxy_routes(
 
     For every module providing a `reverse-proxy` contract, each
     `config.routes` entry targets a profile instance that provides an
-    `http-service` contract; the backend address comes from the resolved
-    contract's `host`/`port` fields, mapped through the renderer's
+    `http-service` contract -- a bare module id routes to that module's
+    first http-service provide, while `<module-id>.<contract-name>` picks a
+    specific provide entry when the module exposes several; the backend
+    address comes from the resolved contract's `host`/`port` fields, mapped through the renderer's
     compose service-naming rule when the provider advertises a
     `serviceName` (multi-service modules such as dagster name the serving
     service, since the instance id alone does not resolve on the Compose
@@ -275,21 +278,45 @@ def _generate_reverse_proxy_routes(
             target_id = route.get("target")
             host = route.get("host")
 
-            target = modules_by_id.get(target_id)
+            # `target` accepts either a bare module id (its first
+            # http-service provide wins, mirroring the contractRef
+            # vocabulary's module half) or `<module-id>.<contract-name>` to
+            # pick a specific endpoint when the target provides several.
+            parsed_target = parse_contract_ref(target_id) if isinstance(target_id, str) else None
+            target_module_id = parsed_target[0] if parsed_target else target_id
+            provide_name = parsed_target[1] if parsed_target else None
+
+            target = modules_by_id.get(target_module_id)
             if target is None:
                 diagnostics.append(Diagnostic(
                     level="error",
                     code="E136",
-                    message=f'Reverse-proxy route host "{host}" targets unknown module "{target_id}".',
+                    message=f'Reverse-proxy route host "{host}" targets unknown module "{target_module_id}".',
                     path=f"{path_prefix}.target",
                 ))
                 continue
 
             target_provides = (target.get("provides") or {})
-            http_entry = next(
-                (p for p in target_provides.values() if p.get("kind") == "http-service"),
-                None,
-            )
+            if provide_name is not None:
+                http_entry = target_provides.get(provide_name)
+                if http_entry is None or http_entry.get("kind") != "http-service":
+                    diagnostics.append(Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route host "{host}" targets module "{target_module_id}", '
+                            f'which does not provide an http-service contract named "{provide_name}" '
+                            '(a "<module-id>.<contract-name>" target must name an existing '
+                            "http-service provide entry)."
+                        ),
+                        path=f"{path_prefix}.target",
+                    ))
+                    continue
+            else:
+                http_entry = next(
+                    (p for p in target_provides.values() if p.get("kind") == "http-service"),
+                    None,
+                )
             spec = (http_entry or {}).get("spec") or {}
             advertised_host = spec.get("host")
             backend_port = spec.get("port")
@@ -319,11 +346,11 @@ def _generate_reverse_proxy_routes(
             # matches the name Compose creates.
             advertised_service = spec.get("serviceName")
             if isinstance(advertised_service, str) and advertised_service:
-                backend_host = _compose_service_name(str(target_id), advertised_service)
+                backend_host = _compose_service_name(str(target_module_id), advertised_service)
             else:
                 backend_host = advertised_host
 
-            rendered_services = module_service_names.get(str(target_id), [])
+            rendered_services = module_service_names.get(str(target_module_id), [])
             if backend_host not in rendered_services:
                 diagnostics.append(Diagnostic(
                     level="error",
@@ -331,7 +358,7 @@ def _generate_reverse_proxy_routes(
                     message=(
                         f'Reverse-proxy route host "{host}" resolves to backend address '
                         f'"{backend_host}", which is not a rendered compose service of module '
-                        f'"{target_id}" (rendered services: '
+                        f'"{target_module_id}" (rendered services: '
                         f'{", ".join(rendered_services) or "none"}); route generation refuses to '
                         "emit an address nothing answers. Multi-service providers must advertise "
                         "the serving service via a serviceName field in their http-service "

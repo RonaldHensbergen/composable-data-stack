@@ -230,6 +230,69 @@ class RouteGenerationUnitTest(unittest.TestCase):
         self.assertEqual(documents, {})
         self.assertEqual(diagnostics, [])
 
+    def _multi_http_target(self):
+        """A module exposing two http-service contracts (dotted-target case)."""
+        target = _http_target(target_id="app", host="app", port=3000, service_name="gateway")
+        target["provides"]["admin"] = {
+            "kind": "http-service",
+            "spec": {"host": "app", "port": 9090, "serviceName": "admin"},
+        }
+        return target
+
+    def test_dotted_target_selects_named_contract(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"host": "api.example.local", "target": "app.http-service"},
+            {"host": "admin.example.local", "target": "app.admin"},
+        ]}
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, self._multi_http_target()),
+            _rendered_services("app", ["app-gateway", "app-admin"]),
+        )
+        self.assertEqual(diagnostics, [])
+        services = documents["proxy"]["http"]["services"]
+        self.assertEqual(
+            services["cds-service-app.http-service"]["loadBalancer"]["servers"],
+            [{"url": "http://app-gateway:3000"}],
+        )
+        self.assertEqual(
+            services["cds-service-app.admin"]["loadBalancer"]["servers"],
+            [{"url": "http://app-admin:9090"}],
+        )
+
+    def test_dotted_target_with_unknown_contract_reports_e136(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "app.ghost"}]}
+        _, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, self._multi_http_target()), _rendered_services("app", ["app-gateway"])
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn('does not provide an http-service contract named "ghost"', diagnostics[0].message)
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].target")
+
+    def test_dotted_target_with_non_http_contract_reports_e136(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "app.db"}]}
+        target = self._multi_http_target()
+        target["provides"]["db"] = {"kind": "sql-database", "spec": {}}
+        _, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, target), _rendered_services("app", ["app-gateway"])
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn('does not provide an http-service contract named "db"', diagnostics[0].message)
+
+    def test_bare_target_still_routes_to_first_http_service(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "app"}]}
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, self._multi_http_target()), _rendered_services("app", ["app-gateway", "app-admin"])
+        )
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(
+            documents["proxy"]["http"]["services"]["cds-service-app"]["loadBalancer"]["servers"],
+            [{"url": "http://app-gateway:3000"}],
+        )
+
 
 class RouteGenerationEndToEndTest(unittest.TestCase):
     """Plan + render with real module files: the routes file lands in the proxy's file-provider mount."""
@@ -289,7 +352,9 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
         }), encoding="utf-8")
         # Multi-service module shaped like dagster/dbt: the compose service
         # is NOT named after the instance id, so routing only works through
-        # the advertised serviceName.
+        # the advertised serviceName. It exposes two http-service contracts
+        # so dotted targeting (<module>.<contract>) can be exercised end to
+        # end.
         (modules_dir / "api" / "module.yaml").write_text(yaml.safe_dump({
             "apiVersion": "cds/v1alpha1",
             "kind": "Module",
@@ -298,19 +363,35 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
                 "runtime": {"type": "container", "service": {
                     "name": "api", "ports": [{"name": "http", "containerPort": 3000, "protocol": "TCP"}]}},
                 "configSchema": {"type": "object", "additionalProperties": True,
-                                 "properties": {"webPort": {"type": "integer", "default": 3000}}},
-                "provides": [{"name": "http-service", "contract": {
-                    "kind": "http-service",
-                    "spec": {
-                        "protocol": "http",
-                        "portFrom": "spec.config.webPort",
-                        "host": "${service.host}",
-                        "port": "${config.webPort}",
-                        "serviceName": "gateway",
-                    },
-                }}],
+                                 "properties": {
+                                     "webPort": {"type": "integer", "default": 3000},
+                                     "adminPort": {"type": "integer", "default": 9090},
+                                 }},
+                "provides": [
+                    {"name": "http-service", "contract": {
+                        "kind": "http-service",
+                        "spec": {
+                            "protocol": "http",
+                            "portFrom": "spec.config.webPort",
+                            "host": "${service.host}",
+                            "port": "${config.webPort}",
+                            "serviceName": "gateway",
+                        },
+                    }},
+                    {"name": "admin-service", "contract": {
+                        "kind": "http-service",
+                        "spec": {
+                            "protocol": "http",
+                            "portFrom": "spec.config.adminPort",
+                            "host": "${service.host}",
+                            "port": "${config.adminPort}",
+                            "serviceName": "admin",
+                        },
+                    }},
+                ],
                 "implementation": {"kind": "docker-compose", "compose": {"services": {
-                    "gateway": {"image": "local/api:1", "ports": ["3001:3000"]}
+                    "gateway": {"image": "local/api:1", "ports": ["3001:3000"]},
+                    "admin": {"image": "local/api:1", "ports": ["3002:9090"]},
                 }}},
             },
         }), encoding="utf-8")
@@ -332,7 +413,11 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
                 "config": {},
             },
         ]
-        if any(route.get("target") == "api" for route in routes if isinstance(route, dict)):
+        if any(
+            route.get("target") == "api" or str(route.get("target", "")).startswith("api.")
+            for route in routes
+            if isinstance(route, dict)
+        ):
             modules.append({
                 "id": "api",
                 "source": "../../modules/test/api",
@@ -387,6 +472,21 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
         self.assertEqual(
             document["http"]["services"]["cds-service-api"]["loadBalancer"]["servers"],
             [{"url": "http://api-gateway:3000"}],
+        )
+
+    def test_render_routes_named_contract_of_multi_endpoint_target(self):
+        self._render([
+            {"host": "web.example.local", "target": "web"},
+            {"host": "admin.example.local", "target": "api.admin-service"},
+        ])
+        routes_file = self.output.parent / "traefik" / "dynamic" / "cds-routes-proxy.yml"
+        self.assertTrue(routes_file.is_file(), f"missing {routes_file}")
+        document = yaml.safe_load(routes_file.read_text(encoding="utf-8"))
+        # The dotted target picks the api module's second http-service
+        # contract, whose "admin" compose service renders as "api-admin".
+        self.assertEqual(
+            document["http"]["services"]["cds-service-api.admin-service"]["loadBalancer"]["servers"],
+            [{"url": "http://api-admin:9090"}],
         )
 
     def test_render_removes_stale_routes_file_when_routes_are_removed(self):

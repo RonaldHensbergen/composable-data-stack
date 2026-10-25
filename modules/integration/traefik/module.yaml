@@ -154,10 +154,15 @@ spec:
             target:
               type: string
               minLength: 1
+              pattern: "^[a-z0-9-]+(\\.[a-z0-9-]+)?$"
               description: >-
                 Module id of a profile instance that provides an
                 http-service contract; the proxy routes to that service's
-                host/port from the resolved contract.
+                host/port from the resolved contract. When the target
+                exposes several http-service contracts, name the one to
+                route to as <module-id>.<contract-name> (same vocabulary
+                as contractRef); a bare module id routes to its first
+                http-service contract.
             entryPoints:
               type: array
               items:

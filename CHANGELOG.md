@@ -17,8 +17,11 @@ The format is based on Keep a Changelog.
   service through a `serviceName` field (dagster, dbt), and the backend
   address is cross-checked against the services the render actually
   produced, failing with `E136` instead of emitting an address nothing
-  answers; invalid routing inputs (unknown target, unresolvable endpoint,
-  undeclared certificate alias) also fail rendering with `E136`, the
+  answers; a route's `target` may name a specific contract as
+  `<module-id>.<contract-name>` when the target exposes several
+  http-service endpoints; invalid routing inputs (unknown target,
+  unresolvable endpoint, undeclared certificate alias) also fail rendering
+  with `E136`, the
   optional `certificate` alias wires the profile's certificate mapping
   into the router's certificate files, and stale generated route files
   are removed when their routes (or proxy) disappear from the profile.
