@@ -23,6 +23,37 @@ spec:
       description: >-
         Config path (e.g. spec.config.webPort) whose value is the TCP port
         the HTTP service listens on.
+    host:
+      type: string
+      required: false
+      description: >-
+        Resolvable service hostname (the module instance id on the shared
+        Compose network) that consumers such as the reverse-proxy route
+        generator (issue #581) use as the backend address; absent means the
+        provider does not advertise a directly reachable address. Route
+        generation cross-checks the resolved address against the compose
+        services the render actually produced and fails with a diagnostic
+        when nothing answers it.
+    serviceName:
+      type: string
+      required: false
+      description: >-
+        Compose service name (as written in the module's compose fragment)
+        that serves this endpoint. Required for multi-service modules whose
+        serving service is not named after the instance id (e.g. dagster's
+        webserver): route generation maps it through the renderer's
+        service-naming rule (`<instance-id>-<service>` unless already
+        prefixed) so the backend URL matches the name Docker Compose
+        creates. Absent means the advertised `host` is used as-is.
+    port:
+      type: integer
+      required: false
+      description: >-
+        Resolvable TCP port value (e.g. interpolated ${config.webPort}) that
+        consumers such as the reverse-proxy route generator (issue #581) use
+        as the backend port; absent means the provider does not advertise a
+        directly reachable port and route generation fails with a
+        diagnostic instead of guessing.
     healthPath:
       type: string
       required: false

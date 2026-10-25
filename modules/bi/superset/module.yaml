@@ -227,6 +227,8 @@ spec:
         kind: http-service
         spec:
           portFrom: spec.config.webPort
+          host: ${service.host}
+          port: ${config.webPort}
           healthPath: /health
           protocol: http
 

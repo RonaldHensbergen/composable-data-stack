@@ -128,6 +128,66 @@ spec:
             type: boolean
             default: false
 
+      routes:
+        type: array
+        default: []
+        description: >-
+          Dynamic reverse-proxy routes rendered by CDS from the profile's
+          bindings (issue #581): each entry exposes one http-service
+          provider through this proxy's file provider, without Docker
+          label-based autodiscovery. CDS generates
+          traefik/dynamic/cds-routes-<instance-id>.yml next to the rendered
+          compose file, and removes it again when the routes are removed.
+          Routes are generated for the Docker Compose render target only;
+          the Helm target does not render them (this module ships no
+          Kubernetes implementation yet).
+        items:
+          type: object
+          additionalProperties: false
+          required: [host, target]
+          properties:
+            host:
+              type: string
+              minLength: 1
+              pattern: "^[A-Za-z0-9.-]+$"
+              description: >-
+                Public hostname the route matches (Traefik Host rule).
+                Restricted to DNS-safe characters so a typo cannot inject
+                rule syntax.
+            target:
+              type: string
+              minLength: 1
+              pattern: "^[a-z0-9-]+(\\.[a-z0-9-]+)?$"
+              description: >-
+                Module id of a profile instance that provides an
+                http-service contract; the proxy routes to that service's
+                host/port from the resolved contract. When the target
+                exposes several http-service contracts, name the one to
+                route to as <module-id>.<contract-name> (same vocabulary
+                as contractRef); a bare module id routes to its first
+                http-service contract.
+            entryPoints:
+              type: array
+              items:
+                type: string
+              minItems: 1
+              default: [websecure]
+              description: Traefik entrypoints the router listens on.
+            tls:
+              type: boolean
+              default: true
+              description: Whether the router terminates TLS.
+            certificate:
+              type: string
+              pattern: "^[A-Za-z0-9-]+$"
+              description: >-
+                Optional profile certificate alias (spec.certificates.values)
+                whose material the secret provider places as <alias>.crt and
+                <alias>.key in the proxy's certs mount; the generated config
+                wires them as the router's certificate files. Restricted to
+                letters, digits and hyphens because the alias interpolates
+                into the router's certificate file paths. An unknown
+                alias fails rendering with E136.
       fileProvider:
         type: object
         additionalProperties: false
@@ -150,6 +210,13 @@ spec:
           protocol: https
           connectionUri: "https://${service.host}:443"
           tls: true
+          tlsMinVersion: ${config.tls.minVersion}
+          tlsMaxVersion: ${config.tls.maxVersion}
+          tlsSniStrict: ${config.tls.sniStrict}
+          # certVerified is deliberately not advertised: the proxy presents
+          # the locally mounted certificate from ./certs/traefik, which is
+          # not CA-verified, so consumers must treat the endpoint as
+          # unverified (see the reverse-proxy contract document).
 
   implementation:
     kind: docker-compose
