@@ -55,6 +55,14 @@ The format is based on Keep a Changelog.
   POSIX shell used to exercise the entrypoint guard is resolved from PATH or
   a Git for Windows install, and the tests skip with a clear message when no
   shell is available instead of failing with `FileNotFoundError` (#564).
+- Fixed the dbt example profile failing `cds validate` with `E041`: its
+  superset instance never bound the required `analytics-database`
+  contract after it became mandatory, and added a regression test that
+  validates every shipped profile and environment overlay (#940).
+- Made `tests/test_dagster_entrypoint_backend_guard.py` OS-independent: the
+  POSIX shell used to exercise the entrypoint guard is resolved from PATH or
+  a Git for Windows install, and the tests skip with a clear message when no
+  shell is available instead of failing with `FileNotFoundError` (#564).
 
 ## [0.13.0] - 2026-10-22
 
