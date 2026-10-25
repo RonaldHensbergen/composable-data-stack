@@ -73,6 +73,7 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_observability_config(profile, module_instances))
     diagnostics.extend(validate_backup_config(profile, module_instances))
     diagnostics.extend(validate_module_backup_config(profile, module_instances))
+    diagnostics.extend(validate_module_production_markers(module_instances))
     diagnostics.extend(validate_authentication_config(profile, module_instances))
     diagnostics.extend(validate_confinement_config(profile, profile_file))
     return diagnostics
@@ -1175,6 +1176,63 @@ def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[
                     )
                 )
 
+    return diagnostics
+
+
+def validate_module_production_markers(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+    """
+    Enforces the shape of `production` markers in module templates (see
+    apply_production_gates in cli/renderer.py and docs/modules.md):
+
+    - On services and volumes (mapping entries), both the boolean gate and
+      the `production: { ... }` mapping form are supported.
+    - On individual volume-mount entries inside a service's `volumes` list,
+      only the boolean gate is implemented. A mapping form there would be
+      silently ignored by the renderer and leak the marker key into the
+      rendered Compose output (and mount unconditionally on the helm
+      target), so it fails closed with E144 at validation time instead.
+    """
+    diagnostics: list[Diagnostic] = []
+
+    for inst in module_instances:
+        module = inst.get("module")
+        if not isinstance(module, dict):
+            continue
+        compose = (
+            module.get("spec", {}).get("implementation", {}).get("compose", {})
+        )
+        services = compose.get("services", {})
+        if not isinstance(services, dict):
+            continue
+        for service_name, service_def in services.items():
+            volumes = service_def.get("volumes") if isinstance(service_def, dict) else None
+            if not isinstance(volumes, list):
+                continue
+            for index, volume_item in enumerate(volumes):
+                if not isinstance(volume_item, dict):
+                    continue
+                marker = volume_item.get("production")
+                if marker is None or isinstance(marker, bool):
+                    continue
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E144",
+                        message=(
+                            f'Volume-mount entry {index} of service "{service_name}" uses the '
+                            "`production: { ... }` mapping form, which is only supported on "
+                            "services (and volume definitions). On volume-mount entries only "
+                            "the boolean form (production: true|false) is implemented; the "
+                            "mapping form would leak into the rendered output. Use "
+                            "`production: true` and move the production-only mount into the "
+                            "service's production mapping instead."
+                        ),
+                        path=(
+                            f"module:{inst['id']}.implementation.compose.services."
+                            f"{service_name}.volumes[{index}].production"
+                        ),
+                    )
+                )
     return diagnostics
 
 

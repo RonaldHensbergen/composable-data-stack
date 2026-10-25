@@ -6,6 +6,15 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a template-authoring footgun in the `production` tag introduced
+  with #665: the `production: { ... }` mapping form on a volume-mount
+  entry was silently ignored and leaked its key into the rendered Compose
+  output (and mounted unconditionally on the helm target). Validation now
+  fails closed with `E144`; the mapping form is only valid on services and
+  volume definitions (#958 post-merge review).
+
 ### Added
 
 - Added a production/learning dividing line for module templates: a

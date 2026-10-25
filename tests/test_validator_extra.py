@@ -953,3 +953,79 @@ class ModuleBackupConfigTest(unittest.TestCase):
             _codes(diagnostics),
             [("E143", "spec.modules[0].config.backup.enabled")],
         )
+
+
+class ProductionMarkerShapeTest(unittest.TestCase):
+    """E144: the production mapping form is only valid on services, not on
+    individual volume-mount entries, where the renderer would silently
+    leak it into the rendered output."""
+
+    def _module(self, volumes):
+        return {
+            "kind": "Module",
+            "metadata": {"category": "warehouse", "name": "mod"},
+            "spec": {
+                "provides": [],
+                "consumes": [],
+                "configSchema": {"type": "object"},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {
+                        "services": {
+                            "db": {"image": "postgres:18", "volumes": volumes},
+                        },
+                        "volumes": {"data": {}},
+                    },
+                },
+            },
+        }
+
+    def test_volume_item_without_marker_is_clean(self):
+        diagnostics = validator.validate_module_production_markers(
+            [_inst("db", self._module([{"type": "volume", "source": "data", "target": "/data"}]))]
+        )
+        self.assertEqual(diagnostics, [])
+
+    def test_volume_item_with_boolean_marker_is_clean(self):
+        diagnostics = validator.validate_module_production_markers(
+            [
+                _inst(
+                    "db",
+                    self._module(
+                        [
+                            {
+                                "type": "volume",
+                                "source": "data",
+                                "target": "/data",
+                                "production": True,
+                            }
+                        ]
+                    ),
+                )
+            ]
+        )
+        self.assertEqual(diagnostics, [])
+
+    def test_volume_item_with_mapping_marker_reports_e144(self):
+        diagnostics = validator.validate_module_production_markers(
+            [
+                _inst(
+                    "db",
+                    self._module(
+                        [
+                            {
+                                "type": "volume",
+                                "source": "data",
+                                "target": "/data",
+                                "production": {"read_only": True},
+                            }
+                        ]
+                    ),
+                )
+            ]
+        )
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E144", "module:db.implementation.compose.services.db.volumes[0].production")],
+        )
+        self.assertIn("mapping form", diagnostics[0].message)
