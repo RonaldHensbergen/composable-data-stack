@@ -675,6 +675,42 @@ class ModuleSchemaValidationTest(unittest.TestCase):
             errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
             self.assertEqual([d.code for d in errors], ["E021"])
 
+    def test_module_schema_rejects_invalid_tls_requirement(self):
+        # issue #577: 'required' is the only valid tls requirement value, so a
+        # typo like 'prefer' must fail at schema validation (E021) instead of
+        # silently disabling the E128 enforcement.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module = self._valid_module()
+            module["spec"]["consumes"] = [
+                {
+                    "name": "target-database",
+                    "contract": {"kind": "sql-database"},
+                    "required": True,
+                    "mappedFrom": "spec.config.targetDatabase",
+                    "tls": "prefer",
+                }
+            ]
+            errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
+            self.assertEqual([d.code for d in errors], ["E021"])
+            self.assertIn("'prefer'", errors[0].message)
+
+    def test_module_schema_accepts_tls_required(self):
+        # required: False so the (deliberately absent) binding does not add
+        # an E041; this test pins schema acceptance of tls: required only.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            module = self._valid_module()
+            module["spec"]["consumes"] = [
+                {
+                    "name": "target-database",
+                    "contract": {"kind": "sql-database"},
+                    "required": False,
+                    "mappedFrom": "spec.config.targetDatabase",
+                    "tls": "required",
+                }
+            ]
+            diagnostics = self._validate(Path(tmpdir), module)
+            self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+
 
 class RequiredIfMalformedGateTest(unittest.TestCase):
     """
@@ -891,6 +927,137 @@ class CompatibilityRegistryTest(unittest.TestCase):
         with patch("cli.validator._load_schema", side_effect=fake_load_schema):
             with self.assertRaises(CompatibilityRegistryError):
                 _load_compatibility_registry()
+
+
+class TlsRequirementTest(unittest.TestCase):
+    """
+    Direct unit tests for validate_contract_bindings's TLS requirement check
+    (issue #577): a consume entry declaring "tls: required" may only bind to
+    a provider whose contract spec advertises "tls: true" (a boolean literal
+    or a pure ${config.<path>} reference resolving to true against the
+    producer instance's profile config). Everything else fails closed with
+    E128; a consume entry without a tls key keeps placing no requirement, so
+    existing modules and profiles stay valid.
+    """
+
+    def _instances(
+        self,
+        *,
+        provider_spec_tls: object,
+        producer_config: dict | None = None,
+        consumer_tls: object = "required",
+    ) -> list[dict]:
+        provider = {
+            "index": 0,
+            "id": "provider",
+            "config": producer_config or {},
+            "module": {
+                "metadata": {"category": "warehouse", "name": "postgres"},
+                "spec": {
+                    "provides": [
+                        {
+                            "name": "svc",
+                            "contract": {
+                                "kind": "sql-database",
+                                "spec": {
+                                    "host": "provider",
+                                    "port": 5432,
+                                    "tls": provider_spec_tls,
+                                },
+                            },
+                        }
+                    ]
+                },
+            },
+        }
+        consumer = {
+            "index": 1,
+            "id": "consumer",
+            "config": {"db": {"contractRef": "provider.svc"}},
+            "module": {
+                "metadata": {"category": "orchestration", "name": "dagster"},
+                "spec": {
+                    "consumes": [
+                        {
+                            "name": "db",
+                            "contract": {"kind": "sql-database"},
+                            "required": True,
+                            "mappedFrom": "spec.config.db",
+                            "tls": consumer_tls,
+                        }
+                    ]
+                },
+            },
+        }
+        return [provider, consumer]
+
+    def _errors(self, instances: list[dict]) -> list:
+        return [d for d in validate_contract_bindings(instances) if d.level == "error"]
+
+    def test_provider_without_tls_advertisement_reports_e128(self):
+        instances = self._instances(provider_spec_tls=None)
+        del instances[0]["module"]["spec"]["provides"][0]["contract"]["spec"]["tls"]
+        errors = self._errors(instances)
+        self.assertEqual([d.code for d in errors], ["E128"])
+        self.assertIn("tls: required", errors[0].message)
+        self.assertIn("provider.svc", errors[0].message)
+        self.assertIn("tls: true", errors[0].message)
+
+    def test_provider_with_tls_true_passes(self):
+        instances = self._instances(provider_spec_tls=True)
+        self.assertEqual(self._errors(instances), [])
+
+    def test_provider_with_tls_false_reports_e128(self):
+        errors = self._errors(self._instances(provider_spec_tls=False))
+        self.assertEqual([d.code for d in errors], ["E128"])
+
+    def test_provider_tls_config_reference_true_passes(self):
+        instances = self._instances(
+            provider_spec_tls="${config.tlsEnabled}", producer_config={"tlsEnabled": True}
+        )
+        self.assertEqual(self._errors(instances), [])
+
+    def test_provider_tls_config_reference_string_true_passes(self):
+        instances = self._instances(
+            provider_spec_tls="${config.tlsEnabled}", producer_config={"tlsEnabled": "true"}
+        )
+        self.assertEqual(self._errors(instances), [])
+
+    def test_provider_tls_config_reference_false_reports_e128(self):
+        errors = self._errors(
+            self._instances(
+                provider_spec_tls="${config.tlsEnabled}", producer_config={"tlsEnabled": False}
+            )
+        )
+        self.assertEqual([d.code for d in errors], ["E128"])
+
+    def test_provider_tls_config_reference_to_unset_path_reports_e128(self):
+        # Validation runs before the planner applies configSchema defaults,
+        # so a config-driven advertisement only counts when the profile sets
+        # the referenced value explicitly; otherwise it fails closed.
+        errors = self._errors(self._instances(provider_spec_tls="${config.tlsEnabled}"))
+        self.assertEqual([d.code for d in errors], ["E128"])
+
+    def test_provider_tls_non_bool_non_config_value_reports_e128(self):
+        # A plain "true" string (not a ${config...} reference) must not
+        # satisfy the requirement: the check accepts booleans and config
+        # references only, so a malformed advertisement fails closed.
+        errors = self._errors(self._instances(provider_spec_tls="true"))
+        self.assertEqual([d.code for d in errors], ["E128"])
+
+    def test_consumer_without_tls_requirement_is_backward_compatible(self):
+        instances = self._instances(provider_spec_tls=None, consumer_tls=None)
+        del instances[0]["module"]["spec"]["provides"][0]["contract"]["spec"]["tls"]
+        del instances[1]["module"]["spec"]["consumes"][0]["tls"]
+        self.assertEqual(self._errors(instances), [])
+
+    def test_kind_mismatch_reports_e042_without_tls_check(self):
+        # The TLS check only runs after the kind match: a kind mismatch is
+        # reported on its own (E042), not compounded with E128.
+        instances = self._instances(provider_spec_tls=False)
+        instances[1]["module"]["spec"]["consumes"][0]["contract"]["kind"] = "cache-service"
+        errors = self._errors(instances)
+        self.assertEqual([d.code for d in errors], ["E042"])
 
 
 if __name__ == "__main__":

@@ -178,6 +178,11 @@
           "type": "string",
           "pattern": "^config(\\.[A-Za-z0-9_]+)+\\s*==\\s*\\S.*$",
           "description": "Dotted 'config.<path>==<value>' expression (same vocabulary as the renderer's enabledFrom equality gate); when it evaluates true against the module instance's own config, this consume entry is treated as required even if required is false, and a missing/invalid binding raises E041 at validate time instead of only surfacing later at render (E071) or container start. Must match config.<path>==<value> (dotted path, then a literal ==, then a non-empty value) so a typo fails at schema validation instead of silently disabling enforcement."
+        },
+        "tls": {
+          "type": "string",
+          "enum": ["required"],
+          "description": "TLS requirement for the bound provider (issue #577). 'required': the provider's contract spec must advertise a TLS-protected endpoint (a boolean 'tls: true' in its provides entry's contract spec, or a pure ${config.<path>} reference resolving to true against the producer instance's profile config); anything else -- an absent field, tls: false, or an unresolvable config reference -- fails validation with E128. An omitted tls key places no TLS requirement (backward compatible: existing profiles and module.yaml documents stay valid unless they explicitly opt into stricter TLS). Values other than 'required' are rejected at module schema validation (E021) so a typo cannot silently disable the check."
         }
       }
     },

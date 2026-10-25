@@ -463,6 +463,35 @@ def _module_key(module_def: dict[str, Any]) -> str | None:
     return f"{category}/{name}"
 
 
+def _provider_advertises_tls(provider_contract: dict[str, Any], producer_inst: dict[str, Any]) -> bool:
+    """
+    Evaluate the provider's contract-spec `tls` advertisement for the
+    tls:required consume check (issue #577).
+
+    A boolean literal is used as-is. A pure "${config.<path>}" reference is
+    resolved against the producer instance's profile config -- validation runs
+    before the planner applies configSchema defaults, so a config-driven
+    advertisement only satisfies a TLS requirement when the profile sets the
+    referenced value explicitly. Anything else (an absent field, `false`, a
+    missing config path, or any other template expression) means "no TLS
+    advertised", so the requirement fails closed.
+    """
+    value = (provider_contract.get("spec") or {}).get("tls")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.startswith("${config.") and value.endswith("}"):
+        path = value[2:-1]
+        try:
+            resolved = resolve_path({"config": producer_inst.get("config")}, path)
+        except KeyError:
+            return False
+        if isinstance(resolved, bool):
+            return resolved
+        if isinstance(resolved, str) and resolved.lower() == "true":
+            return True
+    return False
+
+
 def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
@@ -604,6 +633,26 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                     )
                 )
                 continue
+
+            if consume.get("tls") == "required" and not _provider_advertises_tls(
+                matched.get("contract", {}), producer
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E128",
+                        message=(
+                            f'Consume entry "{name}" in module "{inst["id"]}" requires a '
+                            f'TLS-protected endpoint (tls: required), but contract ref '
+                            f'"{contract_ref}" resolves to "{producer_id}", whose "{provide_name}" '
+                            'contract does not advertise one. Providers opt in by setting '
+                            '"tls: true" in the provide entry\'s contract spec (either a boolean '
+                            'literal or a "${config.<path>}" reference that resolves to true '
+                            'against the producer instance\'s profile config).'
+                        ),
+                        path=f"spec.modules[{inst['index']}].config",
+                    )
+                )
 
             provider_key = _module_key(producer["module"])
             consumer_key = _module_key(inst["module"])
