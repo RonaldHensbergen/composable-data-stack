@@ -149,7 +149,7 @@
                 "properties": {
                   "workloadClass": {
                     "type": "string",
-                    "enum": ["warehouse", "orchestration-metadata", "bi-metadata", "configuration"]
+                    "enum": ["warehouse", "orchestration-metadata", "bi-metadata", "identity-metadata", "secrets-metadata", "configuration"]
                   },
                   "retentionDays": {"type": "integer", "minimum": 1},
                   "rpoMinutes": {"type": "integer", "minimum": 1, "description": "Recovery point objective: maximum tolerated data loss."},

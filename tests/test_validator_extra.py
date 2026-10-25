@@ -571,8 +571,12 @@ class BackupConfigTest(unittest.TestCase):
         policy.update(overrides)
         return policy
 
-    def _profile(self, backup=None, environment="production", secrets=("backup_key",)):
-        spec = {"secrets": {"values": {alias: {"env": "CDS_X"} for alias in secrets}}}
+    def _profile(self, backup=None, environment="production", secrets=("backup_key",), required=True):
+        spec = {
+            "secrets": {
+                "values": {alias: {"env": "CDS_X", "required": required} for alias in secrets}
+            }
+        }
         if backup is not None:
             spec["backup"] = backup
         return {"metadata": {"environment": environment}, "spec": spec}
@@ -663,6 +667,77 @@ class BackupConfigTest(unittest.TestCase):
     def test_valid_target_is_clean(self):
         provider = _inst("repo", _module(provides=[{"name": "t", "contract": {"kind": "backup-target"}}]))
         self.assertEqual(self._target("repo.t", [provider]), [])
+
+    def test_identity_and_secrets_categories_require_classes(self):
+        instances = [
+            _inst("kc", _module(category="identity")),
+            _inst("vault", _module(category="secrets")),
+        ]
+        self.assertEqual(
+            validator.required_backup_workload_classes(instances),
+            ["configuration", "identity-metadata", "secrets-metadata"],
+        )
+
+    def _capable_target(self, *, encrypted=True, supports_restore=True):
+        spec = {
+            "endpoint": "repo",
+            "repository": "b",
+            "protocol": "s3",
+        }
+        if encrypted is not None:
+            spec["encrypted"] = encrypted
+        if supports_restore is not None:
+            spec["supportsRestoreVerification"] = supports_restore
+        return _inst(
+            "repo",
+            _module(provides=[{"name": "t", "contract": {"kind": "backup-target", "spec": spec}}]),
+        )
+
+    def _production_backup_with_target(self, provider, **kwargs):
+        backup = {
+            "target": {"contractRef": "repo.t"},
+            "encryption": {"keyFrom": "secrets.backup_key"},
+            "policies": [
+                self._policy(c)
+                for c in ("warehouse", "orchestration-metadata", "bi-metadata", "configuration")
+            ],
+        }
+        instances = self._instances() + [provider]
+        return validator.validate_backup_config(self._profile(backup, **kwargs), instances)
+
+    def test_production_target_without_encryption_advertisement_reports_e132(self):
+        provider = self._capable_target(encrypted=False, supports_restore=None)
+        diagnostics = self._production_backup_with_target(provider)
+        codes = {d.code for d in diagnostics}
+        self.assertIn("E132", codes)
+        self.assertIn("does not advertise client-side encryption", " ".join(d.message for d in diagnostics))
+
+    def test_production_target_without_restore_advertisement_reports_e132(self):
+        provider = self._capable_target(encrypted=True, supports_restore=False)
+        diagnostics = self._production_backup_with_target(provider)
+        self.assertIn("E132", {d.code for d in diagnostics})
+        self.assertIn("does not advertise restore verification", " ".join(d.message for d in diagnostics))
+
+    def test_production_capable_target_is_clean(self):
+        provider = self._capable_target()
+        self.assertEqual(self._production_backup_with_target(provider), [])
+
+    def test_production_target_capability_from_config_reference(self):
+        provider = self._capable_target(encrypted="${config.tlsEnabled}", supports_restore="${config.restoreOk}")
+        provider["config"] = {"tlsEnabled": True, "restoreOk": "true"}
+        self.assertEqual(self._production_backup_with_target(provider), [])
+
+        provider["config"] = {"tlsEnabled": False, "restoreOk": True}
+        diagnostics = self._production_backup_with_target(provider)
+        self.assertIn("E132", {d.code for d in diagnostics})
+
+    def test_production_optional_encryption_alias_reports_e134(self):
+        backup = self._full_backup()
+        diagnostics = validator.validate_backup_config(
+            self._profile(backup, required=False), self._instances()
+        )
+        self.assertIn("E134", {d.code for d in diagnostics})
+        self.assertIn("required: true", " ".join(d.message for d in diagnostics))
 
     def test_schema_rejects_inline_key_material_and_bad_bounds(self):
         profile = {

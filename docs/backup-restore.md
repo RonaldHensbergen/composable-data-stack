@@ -63,6 +63,8 @@ Workload classes:
 | `warehouse` | `warehouse` |
 | `orchestration-metadata` | `orchestration` |
 | `bi-metadata` | `bi` |
+| `identity-metadata` | `identity` (e.g. Keycloak's realm/user database) |
+| `secrets-metadata` | `secrets` (e.g. Vault's storage backend) |
 | `configuration` | always (profile, overlays, module configs; never secret values) |
 
 [`profiles/local-dagster-postgres-superset/environments/prod.yaml`](../profiles/local-dagster-postgres-superset/environments/prod.yaml)
@@ -78,7 +80,7 @@ enforced by `profile.schema.json` (`E010`). `cds validate` adds:
 | --- | --- |
 | `E130` | A workload class has more than one policy. |
 | `E131` | `encryption.keyFrom` references an alias missing from `spec.secrets.values`. |
-| `E132` | `target.contractRef` is malformed, unknown, or not a `backup-target` provider. |
+| `E132` | `target.contractRef` is malformed, unknown, not a `backup-target` provider, or (in production) the provider does not advertise `encrypted: true` and `supportsRestoreVerification: true`. |
 | `E133` | Production profile has no `spec.backup`, or lacks a policy for a workload class it runs. |
 | `E134` | Production profile does not declare backup encryption. |
 | `E135` | Production policy has no `restoreVerification`. |
@@ -104,6 +106,8 @@ model in #212):
 | `warehouse` | 60 min | 240 min | 30 days |
 | `orchestration-metadata` | 60 min | 240 min | 30 days |
 | `bi-metadata` | 1440 min | 480 min | 30 days |
+| `identity-metadata` | 1440 min | 240 min | 30 days |
+| `secrets-metadata` | 1440 min | 240 min | 30 days |
 | `configuration` | 1440 min | 120 min | 90 days |
 
 ## 5. Restore verification procedure
