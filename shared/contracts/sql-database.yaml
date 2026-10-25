@@ -30,6 +30,16 @@ spec:
       type: string
       required: true
       description: Secret reference or runtime placeholder for the password.
+    authentication:
+      type: string
+      required: false
+      description: >-
+        Host (TCP) authentication method the provider enforces for client
+        connections (e.g. scram-sha-256, md5, trust), advertised from the
+        provide entry's contract spec. Optional for backward compatibility:
+        an absent field means no method is advertised, and a production
+        profile fails validation with E139 unless a provider advertises an
+        explicit non-trust password method (see issue #206).
     connectionUri:
       type: string
       required: true
@@ -49,4 +59,5 @@ spec:
       database: analytics
       username: analytics
       password: ${CDS_ANALYTICS_DB_PASSWORD}
+      authentication: scram-sha-256
       connectionUri: postgresql://analytics:${CDS_ANALYTICS_DB_PASSWORD}@postgres:5432/analytics

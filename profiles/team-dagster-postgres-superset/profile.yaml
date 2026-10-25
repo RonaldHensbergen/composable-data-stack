@@ -1,0 +1,60 @@
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: team-dagster-postgres-superset
+  environment: local
+  displayName: Small-Team Dagster + Postgres + Superset (shared Docker host)
+  description: >-
+    The local-dagster-postgres-superset stack shaped for a small team on a
+    single shared Docker host: a Traefik edge terminates TLS and routes the
+    Dagster and Superset UIs by hostname, the cache is authenticated by a
+    required secret, and the prod overlay promotes the stack to the
+    production security policy (explicit SCRAM host authentication and
+    encrypted, restore-verified backup policies). Composes the base profile
+    via extends; see README.md in this directory.
+
+extends:
+  - local-dagster-postgres-superset
+
+spec:
+  modules:
+    - id: keydb
+      config:
+        # The cache is shared infrastructure on a team host, not a
+        # single-operator convenience: it must reject unauthenticated
+        # clients even in development (issue #206), and the superset
+        # binding picks the password up automatically in its
+        # connectionUri.
+        passwordFrom: secrets.cache_password
+
+    - id: traefik
+      source: ../../modules/integration/traefik
+      version: "3.0.0"
+      enabled: true
+      dependsOn:
+        - dagster
+        - superset
+      config:
+        accessLog:
+          enabled: true
+        entryPoints:
+          web:
+            address: ":80"
+          websecure:
+            address: ":443"
+        fileProvider:
+          directory: /etc/traefik/dynamic
+          watch: true
+
+  secrets:
+    values:
+      cache_password:
+        env: CDS_CACHE_PASSWORD
+        required: true
+
+  outputs:
+    contracts:
+      edge:
+        from: traefik.reverse-proxy

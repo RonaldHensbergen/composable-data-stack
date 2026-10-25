@@ -762,3 +762,128 @@ class BackupConfigTest(unittest.TestCase):
             }
             <= paths
         )
+
+
+class AuthenticationConfigTest(unittest.TestCase):
+    """Production database/cache authentication policy (issue #206)."""
+
+    def _profile(self, environment="production", secrets=None):
+        values = {
+            "db_password": {"env": "CDS_DB_PASSWORD", "required": True},
+            "cache_password": {"env": "CDS_CACHE_PASSWORD", "required": True},
+        }
+        values.update(secrets or {})
+        return {
+            "metadata": {"environment": environment},
+            "spec": {"secrets": {"values": values}},
+        }
+
+    def _sql_module(self, advertisement):
+        spec = {"authentication": "${config.authentication.hostAuth}"} if advertisement else {}
+        provides = [{"name": "sql-database", "contract": {"kind": "sql-database", "spec": spec}}]
+        return _module(category="warehouse", name="pg", provides=provides)
+
+    def _cache_module(self, advertisement=True):
+        spec = {"authentication": "${ifNonempty:config.passwordFrom,required,}"} if advertisement else {}
+        provides = [{"name": "cache-service", "contract": {"kind": "cache-service", "spec": spec}}]
+        return _module(category="cache", name="keydb", provides=provides)
+
+    def test_non_production_is_untouched(self):
+        profile = self._profile(environment="local")
+        unauthenticated_cache = _inst("keydb", self._cache_module())
+        missing_ad = _inst("pg", self._sql_module(advertisement=True))
+        self.assertEqual(validator.validate_authentication_config(profile, [unauthenticated_cache, missing_ad]), [])
+
+    def test_sql_database_trust_reports_e139(self):
+        inst = _inst("pg", self._sql_module(True), {"authentication": {"hostAuth": "trust"}})
+        diagnostics = validator.validate_authentication_config(self._profile(), [inst])
+        self.assertEqual(_codes(diagnostics), [("E139", "spec.modules[0].config")])
+        self.assertIn("trust", diagnostics[0].message)
+
+    def test_sql_database_without_advertisement_reports_e139(self):
+        inst = _inst("pg", self._sql_module(advertisement=None))
+        diagnostics = validator.validate_authentication_config(self._profile(), [inst])
+        self.assertEqual(_codes(diagnostics), [("E139", "spec.modules[0].config")])
+
+    def test_sql_database_config_driven_advertisement_fails_closed_when_unset(self):
+        inst = _inst("pg", self._sql_module(advertisement=True))
+        diagnostics = validator.validate_authentication_config(self._profile(), [inst])
+        self.assertEqual(_codes(diagnostics), [("E139", "spec.modules[0].config")])
+
+    def test_sql_database_legacy_md5_warns(self):
+        inst = _inst("pg", self._sql_module(True), {"authentication": {"hostAuth": "md5"}})
+        diagnostics = validator.validate_authentication_config(self._profile(), [inst])
+        self.assertEqual(_codes(diagnostics), [("W105", "spec.modules[0].config")])
+
+    def test_sql_database_scram_is_clean(self):
+        config = {"authentication": {"hostAuth": "scram-sha-256"}, "passwordFrom": "secrets.db_password"}
+        inst = _inst("pg", self._sql_module(True), config)
+        self.assertEqual(validator.validate_authentication_config(self._profile(), [inst]), [])
+
+    def test_cache_without_password_reports_e137(self):
+        inst = _inst("keydb", self._cache_module())
+        diagnostics = validator.validate_authentication_config(self._profile(), [inst])
+        self.assertEqual(_codes(diagnostics), [("E137", "spec.modules[0].config")])
+
+    def test_cache_with_required_secret_is_clean(self):
+        inst = _inst("keydb", self._cache_module(), {"passwordFrom": "secrets.cache_password"})
+        self.assertEqual(validator.validate_authentication_config(self._profile(), [inst]), [])
+
+    def test_cache_without_advertisement_reports_e137(self):
+        inst = _inst("keydb", self._cache_module(advertisement=False), {"passwordFrom": "secrets.cache_password"})
+        diagnostics = validator.validate_authentication_config(self._profile(), [inst])
+        self.assertEqual(_codes(diagnostics), [("E137", "spec.modules[0].config")])
+
+    def test_optional_secret_alias_reports_e138(self):
+        profile = self._profile(secrets={"cache_password": {"env": "CDS_CACHE_PASSWORD"}})
+        inst = _inst("keydb", self._cache_module(), {"passwordFrom": "secrets.cache_password"})
+        diagnostics = validator.validate_authentication_config(profile, [inst])
+        self.assertEqual(_codes(diagnostics), [("E138", "spec.modules[0].config.passwordFrom")])
+        self.assertIn("required", diagnostics[0].message)
+
+    def test_plaintext_credential_reports_e138(self):
+        inst = _inst("keydb", self._cache_module(True), {"passwordFrom": "hunter2"})
+        diagnostics = validator.validate_authentication_config(self._profile(), [inst])
+        self.assertEqual(_codes(diagnostics), [("E138", "spec.modules[0].config.passwordFrom")])
+        self.assertIn("plaintext", diagnostics[0].message)
+
+    def test_profile_input_credential_reports_e138(self):
+        inst = _inst("keydb", self._cache_module(True), {"passwordFrom": "${CDS_CACHE_PASSWORD}"})
+        diagnostics = validator.validate_authentication_config(self._profile(), [inst])
+        self.assertEqual(_codes(diagnostics), [("E138", "spec.modules[0].config.passwordFrom")])
+        self.assertIn("profile input", diagnostics[0].message)
+
+    def test_empty_credential_reports_e138(self):
+        inst = _inst("keydb", self._cache_module(True), {"passwordFrom": ""})
+        diagnostics = validator.validate_authentication_config(self._profile(), [inst])
+        # An empty credential also leaves the cache unauthenticated (E137).
+        self.assertEqual(
+            _codes(diagnostics),
+            [
+                ("E137", "spec.modules[0].config"),
+                ("E138", "spec.modules[0].config.passwordFrom"),
+            ],
+        )
+        self.assertIn("empty", diagnostics[-1].message)
+
+    def test_indirect_config_reference_credential_is_clean(self):
+        config = {
+            "authentication": {"hostAuth": "scram-sha-256"},
+            "passwordFrom": "secrets.db_password",
+            "initDbEnv": {"ANALYTICS_DB_PASSWORD": "config.passwordFrom"},
+        }
+        inst = _inst("pg", self._sql_module(True), config)
+        self.assertEqual(validator.validate_authentication_config(self._profile(), [inst]), [])
+
+    def test_unrelated_providers_are_untouched(self):
+        provides = [{"name": "http-service", "contract": {"kind": "http-service", "spec": {}}}]
+        inst = _inst("web", _module(provides=provides), {"adminToken": "hunter2"})
+        self.assertEqual(validator.validate_authentication_config(self._profile(), [inst]), [])
+
+    def test_disabled_modules_are_still_validated(self):
+        # load_module_instances already skips enabled: false instances, so
+        # the policy never sees them; this documents that the function
+        # itself has no environment-based opt-out beyond metadata.environment.
+        profile = self._profile(environment="development")
+        inst = _inst("keydb", self._cache_module())
+        self.assertEqual(validator.validate_authentication_config(profile, [inst]), [])

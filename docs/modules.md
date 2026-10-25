@@ -247,19 +247,82 @@ work, the external secret/cert provider must place the files as
 the router's certificate files. The alias is restricted to letters, digits
 and hyphens because it interpolates into those file paths.
 
+### Authentication advertisements (`authentication`)
+
+Relational database and cache providers advertise how (and whether) they
+authenticate clients from their provide entry's `contract.spec`
+(issue #206), mirroring the TLS advertisement:
+
+```yaml
+# modules/warehouse/postgres/module.yaml
+spec:
+  provides:
+    - name: sql-database
+      contract:
+        kind: sql-database
+        spec:
+          host: ${service.host}
+          port: ${config.port}
+          authentication: ${config.authentication.hostAuth}   # e.g. scram-sha-256
+
+# modules/cache/keydb/module.yaml
+spec:
+  provides:
+    - name: cache-service
+      contract:
+        kind: cache-service
+        spec:
+          authentication: ${ifNonempty:config.passwordFrom,required,}
+```
+
+For a `sql-database` provider the advertisement is the host (TCP)
+authentication method (e.g. `scram-sha-256`, `md5`, `trust`); for a
+`cache-service` provider it is `required` when the service rejects
+unauthenticated clients and empty when it does not.
+
+Production profiles (`metadata.environment: production`) fail validation
+without them:
+
+- a `sql-database` provider without an advertisement, or advertising
+  `trust`, fails with `E139`; `md5` validates but warns (`W105`) because it
+  is a deprecated password method;
+- a `cache-service` provider that does not advertise `required` fails with
+  `E137`;
+- every credential-named config field of those providers (e.g.
+  `passwordFrom`, `superuserPasswordFrom`) must be a `secrets.<alias>`
+  reference whose alias is declared `required: true`, rejecting plaintext
+  literals, empty values, and `${CDS_*}` profile inputs with `E138`.
+
+Like the TLS advertisement, a `${config.<path>}` reference only satisfies
+the policy when the profile sets the value explicitly (validation runs
+before `configSchema` defaults apply), so production profiles declare
+their authentication method explicitly. Non-production profiles are
+unaffected: a development cache may stay unauthenticated.
+
+Connection contracts carry credentials safely across consumers: the
+planner turns `secrets.<alias>` references into Docker Compose runtime
+placeholders (`${CDS_CACHE_PASSWORD}`) inside the resolved contract, so a
+binding's `connectionUri` (e.g. `redis://:${CDS_CACHE_PASSWORD}@keydb:6379`)
+flows into orchestration and BI consumers without CDS ever embedding a
+resolved secret value.
+
 ### Conditional interpolation (`ifNonempty`)
 
 For configuration values that require delimiters or prefixes only when set (such as optional passwords in connection URIs), CDS supports conditional interpolation via `${ifNonempty:<path>,<prefix>,<suffix>}`:
 
-- **Syntax**: `${ifNonempty:<path>,<prefix>,<suffix>}` where `<path>` is any valid placeholder expression (e.g. `config.password` or `bindings.db.password`), `<prefix>` is prepended to the resolved value, and `<suffix>` is appended.
+- **Syntax**: `${ifNonempty:<path>,<prefix>,<suffix>}` where `<path>` is any valid placeholder expression (e.g. `config.passwordFrom` or `bindings.db.password`), `<prefix>` is prepended to the resolved value, and `<suffix>` is appended.
 - **Semantics**: Evaluates `<path>`. If the resolved value is `None`, empty, or whitespace-only after stripping, it emits an empty string `""`. Otherwise, it returns `prefix + value + suffix`.
-- **Example**: In `modules/cache/keydb/module.yaml`, constructing an optional authenticated Redis connection URI:
+- **Example**: In `modules/cache/keydb/module.yaml`, constructing an authenticated Redis connection URI:
 
 ```yaml
-connectionUri: "redis://${ifNonempty:config.password,:,@}${service.host}:${config.port}"
+connectionUri: "redis://${ifNonempty:config.passwordFrom,:,@}${service.host}:${config.port}"
 ```
 
-If `config.password` is set to `"mypassword"`, it renders `redis://:mypassword@keydb:6379`. If `config.password` is empty or omitted, both prefix and suffix are skipped, rendering `redis://keydb:6379`.
+If `config.passwordFrom` resolves to a secret placeholder such as
+`${CDS_CACHE_PASSWORD}`, it renders
+`redis://:${CDS_CACHE_PASSWORD}@keydb:6379`. If `config.passwordFrom` is
+unset, both prefix and suffix are skipped, rendering
+`redis://keydb:6379`.
 
 ## Custom images
 

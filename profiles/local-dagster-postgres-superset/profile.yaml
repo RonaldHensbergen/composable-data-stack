@@ -99,7 +99,6 @@ spec:
       enabled: true
       config:
         port: 6379
-        password: ""
         healthcheck:
           enabled: true
 

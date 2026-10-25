@@ -77,6 +77,25 @@ The format is based on Keep a Changelog.
   `SYS_MODULE`, `SYS_PTRACE`, `SYS_RAWIO`, `DAC_READ_SEARCH`) also violate
   CDS-SEC-090, and an applied or ineffective runtime-policy waiver emits
   warning `W103`/`W104` (#207, #895, #898).
+- Added an optional `authentication` advertisement to the `sql-database`
+  and `cache-service` shared contracts (issue #206): providers advertise
+  their host authentication method (`scram-sha-256`, `md5`, `trust`) or
+  whether the cache rejects unauthenticated clients (`required`), and
+  production profiles fail validation when a relational provider has no
+  advertisement or advertises `trust` (`E139`, with a `W105` warning for
+  the legacy `md5` method), a cache accepts unauthenticated clients
+  (`E137`), or a credential field is not a `secrets.<alias>` reference
+  declared `required: true` (`E138`).
+- Added the `team-dagster-postgres-superset` example profile: the stable
+  Dagster + Postgres + Superset stack composed via `extends` and shaped
+  for a small team on a single shared Docker host — a Traefik edge
+  terminating TLS and routing the UIs by hostname (hand-authored
+  file-provider routes, HTTP redirected to HTTPS), an authenticated cache
+  (required `CDS_CACHE_PASSWORD` secret), and a `prod` overlay applying
+  the production security policy (explicit `scram-sha-256` host
+  authentication, encrypted restore-verified backup policies, runtime
+  policy waiver); the profile README documents the multi-user access
+  model and the SSO (Keycloak `forwardAuth`) follow-up path.
 
 ### Changed
 
@@ -84,6 +103,15 @@ The format is based on Keep a Changelog.
   declare `spec.backup` with encrypted, restore-verified policies for every
   workload class they run, or `cds validate` fails with `E133`-`E135`; the
   example `prod` overlay declares them (#210).
+- **Breaking:** the postgres module configures host (TCP) authentication
+  explicitly through initdb `--auth-host` with a new
+  `config.authentication.hostAuth` knob (default `scram-sha-256`), and the
+  keydb module takes its cache password through `config.passwordFrom` (a
+  `secrets.<alias>` reference) and enforces it with `--requirepass` in
+  both the Compose and Kubernetes renderings, so a configured password
+  makes the cache reject unauthenticated clients; profiles setting the
+  removed keydb `config.password` field now fail config validation, and
+  the healthcheck verifies an authenticated `PONG` (#206, #291).
 - Production-class profiles whose services do not meet the runtime policy,
   including the bundled production overlay, now fail `cds security` and
   `cds test` with HIGH findings until the services are hardened or waived

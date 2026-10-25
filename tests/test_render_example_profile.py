@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -367,6 +368,69 @@ spec:
             self.assertEqual(definitions_mount["source"], "workdirs/dagster/definitions.py")
             self.assertTrue(definitions_mount["read_only"])
 
+    def test_prod_overlay_renders_authenticated_cache_and_database_without_resolved_secrets(self):
+        """Issue #206: with the prod overlay applied, the cache requires a
+        password and the relational database advertises scram-sha-256, while
+        rendered connection contracts carry ${CDS_*} runtime placeholders
+        (never resolved secret values) into orchestration/BI consumers."""
+        repo_root = Path(__file__).resolve().parent.parent
+        profile_path = repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+
+        diagnostics = validate_profile(str(profile_path), "prod")
+        self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
+
+        secret_values = {
+            "CDS_ANALYTICS_DB_NAME": "analytics",
+            "CDS_ANALYTICS_DB_USER": "analytics",
+            "CDS_ANALYTICS_DB_PASSWORD": "sentinel-analytics-password",
+            "CDS_DAGSTER_DB_NAME": "dagster",
+            "CDS_DAGSTER_DB_USER": "dagster",
+            "CDS_DAGSTER_DB_PASSWORD": "sentinel-dagster-password",
+            "CDS_POSTGRES_SUPERUSER_PASSWORD": "sentinel-postgres-password",
+            "CDS_SUPERSET_DB_NAME": "superset",
+            "CDS_SUPERSET_DB_USER": "superset",
+            "CDS_SUPERSET_DB_PASSWORD": "sentinel-superset-password",
+            "CDS_SUPERSET_SECRET_KEY": "sentinel-superset-secret-key",
+            "CDS_SUPERSET_ADMIN_PASSWORD": "sentinel-admin-password",
+            "CDS_BACKUP_ENCRYPTION_KEY": "sentinel-backup-key",
+            "CDS_CACHE_PASSWORD": "sentinel-cache-password",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text(
+                "\n".join(f"{k}={v}" for k, v in secret_values.items()) + "\n",
+                encoding="utf-8",
+            )
+            with mock.patch.dict(os.environ, secret_values, clear=False):
+                plan, plan_diags = build_plan(
+                    str(profile_path), env_file=str(env_file), environment="prod"
+                )
+            self.assertIsNotNone(plan)
+            self.assertEqual(len([d for d in plan_diags if d.level == "error"]), 0)
+
+            output, render_diags = render_compose(plan, env_file=str(env_file))
+            self.assertEqual(len([d for d in render_diags if d.level == "error"]), 0)
+
+            compose = yaml.safe_load(output)
+            keydb = compose["services"]["keydb"]
+            self.assertEqual(keydb["environment"]["KEYDB_PASSWORD"], "${CDS_CACHE_PASSWORD}")
+            self.assertIn("--requirepass", " ".join(str(x) for x in keydb["command"]))
+
+            superset = compose["services"]["superset"]
+            redis_url = superset["environment"]["SUPERSET__REDIS_URL"]
+            self.assertEqual(redis_url, "redis://:${CDS_CACHE_PASSWORD}@keydb:6379")
+
+            postgres = compose["services"]["postgres"]
+            self.assertEqual(
+                postgres["environment"]["POSTGRES_INITDB_ARGS"],
+                "-U postgres --auth-local=password --auth-host=scram-sha-256",
+            )
+
+            # No resolved secret ever reaches the rendered output.
+            for value in secret_values.values():
+                if not value.startswith("sentinel-"):
+                    continue
+                self.assertNotIn(value, output)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,53 @@
+# Traefik dynamic (file provider) configuration routing the
+# team-dagster-postgres-superset profile's TLS entrypoint to the Dagster
+# webserver and Superset containers.
+#
+# Traefik shares the profile's Docker network with the routed services, so
+# the backends are reached by their Compose service names
+# ("dagster-webserver", "superset"); no contract-based auto-wiring is
+# involved here (CDS has no reverse-proxy/http-service binding mechanism on
+# this branch, see docs/common-ground-alignment.md). Traefik's own default
+# self-signed certificate is used for the websecure entrypoint until a real
+# certificate is placed under ./certs/traefik (see the profile README.md);
+# hostnames are examples -- edit this file to the team's domain.
+http:
+  routers:
+    dagster:
+      rule: "Host(`dagster.cds.local`)"
+      entryPoints:
+        - websecure
+      service: dagster
+      tls: {}
+
+    superset:
+      rule: "Host(`superset.cds.local`)"
+      entryPoints:
+        - websecure
+      service: superset
+      tls: {}
+
+    # Plain HTTP is never served: everything arriving on the web
+    # entrypoint is redirected to HTTPS.
+    http-redirect:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - web
+      middlewares:
+        - https-redirect
+      service: superset
+
+  services:
+    dagster:
+      loadBalancer:
+        servers:
+          - url: "http://dagster-webserver:3000"
+    superset:
+      loadBalancer:
+        servers:
+          - url: "http://superset:8088"
+
+  middlewares:
+    https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true

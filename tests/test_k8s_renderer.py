@@ -203,7 +203,14 @@ class RealProfileHelmRendererTest(unittest.TestCase):
         self.assertIn("readinessProbe:", postgres)
         self.assertIn("livenessProbe:", postgres)
         self.assertIn("startupProbe:", postgres)
-        self.assertIn("- keydb-cli", keydb)
+        # The keydb probes authenticate when a password is configured (the
+        # $$ escape in the compose healthcheck cannot cross into Helm
+        # templates, so the kubernetes section overrides them with single-$
+        # commands; see modules/cache/keydb/module.yaml, issue #206).
+        self.assertIn('keydb-cli -a "$KEYDB_PASSWORD" ping', keydb)
+        self.assertIn(
+            'exec keydb-server --requirepass "$KEYDB_PASSWORD"', keydb
+        )
         self.assertIn(
             "timed out waiting for {{ .Release.Name }}-postgres:5432", superset
         )

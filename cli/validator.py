@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,7 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_outputs(profile, module_instances))
     diagnostics.extend(validate_observability_config(profile, module_instances))
     diagnostics.extend(validate_backup_config(profile, module_instances))
+    diagnostics.extend(validate_authentication_config(profile, module_instances))
     diagnostics.extend(validate_confinement_config(profile, profile_file))
     return diagnostics
 
@@ -1254,3 +1256,233 @@ def _resolve_backup_target(
             )
         ]
     return matched, producer, []
+
+
+_AUTHENTICATION_CONTRACT_KINDS = ("sql-database", "cache-service")
+_AUTH_UNAUTHENTICATED_VALUES = {"", "none", "false", "optional", "disabled", "trust"}
+_CREDENTIAL_FIELD_PATTERN = re.compile(r"(?i)(password|passwd|pwd|credential|secret|token)")
+
+
+def _resolve_authentication_advertisement(value: Any, producer_inst: dict[str, Any]) -> Any:
+    """
+    Resolve a provide entry's `authentication` advertisement (issue #206)
+    against the producer instance's profile config, mirroring how the TLS
+    advertisement is evaluated: a literal is used as-is, a pure
+    `${config.<path>}` reference resolves against the producer's config, and
+    a `${ifNonempty:<path>,<prefix>,<suffix>}` expression (used by cache
+    providers whose authentication is credential-driven) yields "" when the
+    referenced credential is absent. Validation runs before the planner
+    applies configSchema defaults, so a config-driven advertisement only
+    counts when the profile sets the referenced value explicitly; anything
+    unresolvable means "not advertised" and the production requirement fails
+    closed.
+    """
+    if value is None or isinstance(value, bool):
+        return value
+    if not isinstance(value, str):
+        return None
+    if value.startswith("${ifNonempty:") and value.endswith("}"):
+        args = value[2:-1][len("ifNonempty:") :].split(",", 2)
+        if len(args) != 3:
+            return None
+        path, prefix, suffix = args
+        resolved = _resolve_authentication_advertisement(f"${{{path}}}", producer_inst)
+        if resolved is None or (isinstance(resolved, str) and not resolved.strip()):
+            return ""
+        return f"{prefix}{resolved}{suffix}"
+    if value.startswith("${config.") and value.endswith("}"):
+        try:
+            return resolve_path({"config": producer_inst.get("config")}, value[2:-1])
+        except KeyError:
+            return None
+    return value
+
+
+def _advertisement_authenticated(resolved: Any) -> bool:
+    """Whether a resolved `authentication` advertisement describes a service
+    that rejects unauthenticated clients: boolean true, or a non-empty string
+    outside the "no authentication" vocabulary above."""
+    if resolved is True:
+        return True
+    return isinstance(resolved, str) and resolved.strip().lower() not in _AUTH_UNAUTHENTICATED_VALUES
+
+
+def validate_authentication_config(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
+    """
+    Production authentication policy for relational database and cache
+    providers (issue #206):
+
+    - every sql-database provider must advertise an explicit host
+      authentication method, and that method must not be trust;
+    - every cache-service provider must advertise that it rejects
+      unauthenticated clients;
+    - every credential-named config field of those providers must reference
+      a secret alias declared `required: true` (so a missing value fails
+      closed at startup) instead of a plaintext literal or a `${CDS_*}`
+      profile input, whose value CDS would resolve and embed.
+
+    Non-production profiles are untouched: a development cache may stay
+    unauthenticated, exactly as before.
+    """
+    diagnostics: list[Diagnostic] = []
+    if profile.get("metadata", {}).get("environment") != "production":
+        return diagnostics
+
+    spec = profile.get("spec", {})
+    secret_values = (spec.get("secrets") or {}).get("values") or {}
+
+    for inst in module_instances:
+        provides_auth_scoped = False
+        for provided in inst["module"].get("spec", {}).get("provides", []):
+            kind = (provided.get("contract") or {}).get("kind")
+            if kind not in _AUTHENTICATION_CONTRACT_KINDS:
+                continue
+            provides_auth_scoped = True
+            provide_name = provided.get("name") or "<unnamed>"
+            path = f"spec.modules[{inst['index']}].config"
+            advertisement = ((provided.get("contract") or {}).get("spec") or {}).get("authentication")
+            resolved = _resolve_authentication_advertisement(advertisement, inst)
+
+            if kind == "sql-database":
+                if isinstance(resolved, str) and resolved.strip().lower() == "trust":
+                    diagnostics.append(
+                        Diagnostic(
+                            "error",
+                            "E139",
+                            f'Module "{inst["id"]}" provides contract "{provide_name}" (sql-database) with '
+                            'host authentication method "trust"; trust authentication is prohibited in '
+                            "production profiles. Configure an explicit password method such as "
+                            "scram-sha-256.",
+                            path,
+                        )
+                    )
+                elif not _advertisement_authenticated(resolved):
+                    diagnostics.append(
+                        Diagnostic(
+                            "error",
+                            "E139",
+                            f'Module "{inst["id"]}" provides contract "{provide_name}" (sql-database) '
+                            "without an explicit host authentication advertisement; production relational "
+                            "databases must advertise a modern password authentication method "
+                            "(e.g. scram-sha-256), and trust authentication is prohibited.",
+                            path,
+                        )
+                    )
+                elif isinstance(resolved, str) and resolved.strip().lower() == "md5":
+                    diagnostics.append(
+                        Diagnostic(
+                            "warning",
+                            "W105",
+                            f'Module "{inst["id"]}" provides contract "{provide_name}" (sql-database) with '
+                            "legacy md5 host authentication; prefer scram-sha-256 for production profiles.",
+                            path,
+                        )
+                    )
+            else:  # cache-service
+                if not _advertisement_authenticated(resolved):
+                    diagnostics.append(
+                        Diagnostic(
+                            "error",
+                            "E137",
+                            f'Module "{inst["id"]}" provides contract "{provide_name}" (cache-service) that '
+                            "accepts unauthenticated clients; production cache services must require "
+                            'authentication (advertise "required" once a password credential is '
+                            "configured).",
+                            path,
+                        )
+                    )
+
+        if provides_auth_scoped:
+            diagnostics.extend(_validate_provider_credential_refs(inst, secret_values))
+
+    return diagnostics
+
+
+def _validate_provider_credential_refs(
+    inst: dict[str, Any], secret_values: dict[str, Any]
+) -> list[Diagnostic]:
+    """
+    Credential plumbing for production database/cache providers: every
+    credential-named config field must be a `secrets.<alias>` reference
+    whose alias is declared `required: true`. Plaintext literals, empty
+    values, and `${CDS_*}` profile inputs (which CDS resolves from the
+    environment and embeds into the plan) are rejected; `config.*`
+    references are skipped here because the field they name is itself
+    validated. Undeclared aliases are left to validate_secret_refs (E050)
+    instead of being reported twice.
+    """
+    diagnostics: list[Diagnostic] = []
+    base_path = f"spec.modules[{inst['index']}].config"
+
+    for field_path, key, value in _walk_config_fields(inst["config"], base_path):
+        if not isinstance(value, str) or not _CREDENTIAL_FIELD_PATTERN.search(key):
+            continue
+        if value.startswith("config.") or value.startswith("${config."):
+            continue
+        if value.startswith("secrets."):
+            alias = secret_name_from_ref(value)
+            definition = secret_values.get(alias)
+            if isinstance(definition, dict) and definition.get("required") is not True:
+                diagnostics.append(
+                    Diagnostic(
+                        "error",
+                        "E138",
+                        f'Credential field "{field_path}" references secret alias "{alias}", which is '
+                        "not declared `required: true`; a production credential must fail closed when "
+                        "the environment value is missing.",
+                        field_path,
+                    )
+                )
+            continue
+        if value == "":
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E138",
+                    f'Credential field "{field_path}" is empty; production credentials must be supplied '
+                    "through a secret reference (secrets.<alias>) declared `required: true`.",
+                    field_path,
+                )
+            )
+        elif "${CDS_" in value:
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E138",
+                    f'Credential field "{field_path}" uses a ${{CDS_*}} profile input, whose value CDS '
+                    "resolves and embeds into the plan; production credentials must be supplied through "
+                    "a secret reference (secrets.<alias>) declared `required: true`.",
+                    field_path,
+                )
+            )
+        else:
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E138",
+                    f'Credential field "{field_path}" contains a plaintext value; production credentials '
+                    "must be supplied through a secret reference (secrets.<alias>) declared "
+                    "`required: true`.",
+                    field_path,
+                )
+            )
+
+    return diagnostics
+
+
+def _walk_config_fields(obj: Any, path: str):
+    """
+    Yield (path, key, scalar value) for every leaf and nested key reachable
+    from a module instance's config, with profile-paths matching the
+    diagnostic vocabulary used elsewhere in this module.
+    """
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            child_path = f"{path}.{key}"
+            yield child_path, str(key), value
+            yield from _walk_config_fields(value, child_path)
+    elif isinstance(obj, list):
+        for index, value in enumerate(obj):
+            yield from _walk_config_fields(value, f"{path}[{index}]")
