@@ -8,6 +8,15 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added reverse-proxy dynamic route generation from contract bindings
+  (#581): a `reverse-proxy` provider's `config.routes` entries (public
+  `host`, `target` module id) render deterministic Traefik file-provider
+  configuration next to the compose file, resolving each target's
+  `http-service` contract `host`/`port` instead of Docker label
+  autodiscovery; invalid routing inputs (unknown target, unresolvable
+  endpoint, undeclared certificate alias) fail rendering with `E136`, and
+  the optional `certificate` alias wires the profile's certificate mapping
+  into the router's certificate files.
 - Added TLS metadata to the shared reverse-proxy contract (#579): the
   protocol-version window (`tlsMinVersion`/`tlsMaxVersion`), SNI strictness
   (`tlsSniStrict`), and certificate-verification status (`certVerified`)

@@ -128,6 +128,49 @@ spec:
             type: boolean
             default: false
 
+      routes:
+        type: array
+        default: []
+        description: >-
+          Dynamic reverse-proxy routes rendered by CDS from the profile's
+          bindings (issue #581): each entry exposes one http-service
+          provider through this proxy's file provider, without Docker
+          label-based autodiscovery. CDS generates
+          traefik/dynamic/cds-routes.yml next to the rendered compose file.
+        items:
+          type: object
+          additionalProperties: false
+          required: [host, target]
+          properties:
+            host:
+              type: string
+              minLength: 1
+              description: Public hostname the route matches (Traefik Host rule).
+            target:
+              type: string
+              minLength: 1
+              description: >-
+                Module id of a profile instance that provides an
+                http-service contract; the proxy routes to that service's
+                host/port from the resolved contract.
+            entryPoints:
+              type: array
+              items:
+                type: string
+              default: [websecure]
+              description: Traefik entrypoints the router listens on.
+            tls:
+              type: boolean
+              default: true
+              description: Whether the router terminates TLS.
+            certificate:
+              type: string
+              description: >-
+                Optional profile certificate alias (spec.certificates.values)
+                whose material the secret provider places as <alias>.crt and
+                <alias>.key in the proxy's certs mount; the generated config
+                wires them as the router's certificate files. An unknown
+                alias fails rendering with E136.
       fileProvider:
         type: object
         additionalProperties: false

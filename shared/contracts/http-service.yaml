@@ -23,6 +23,23 @@ spec:
       description: >-
         Config path (e.g. spec.config.webPort) whose value is the TCP port
         the HTTP service listens on.
+    host:
+      type: string
+      required: false
+      description: >-
+        Resolvable service hostname (the module instance id on the shared
+        Compose network) that consumers such as the reverse-proxy route
+        generator (issue #581) use as the backend address; absent means the
+        provider does not advertise a directly reachable address.
+    port:
+      type: integer
+      required: false
+      description: >-
+        Resolvable TCP port value (e.g. interpolated ${config.webPort}) that
+        consumers such as the reverse-proxy route generator (issue #581) use
+        as the backend port; absent means the provider does not advertise a
+        directly reachable port and route generation fails with a
+        diagnostic instead of guessing.
     healthPath:
       type: string
       required: false

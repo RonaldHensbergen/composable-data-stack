@@ -95,6 +95,8 @@ spec:
         kind: http-service
         spec:
           portFrom: spec.config.httpPort
+          host: ${service.host}
+          port: ${config.httpPort}
           protocol: http
   implementation:
     kind: docker-compose

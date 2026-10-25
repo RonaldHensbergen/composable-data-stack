@@ -161,6 +161,8 @@ spec:
         kind: http-service
         spec:
           portFrom: spec.config.docs.port
+          host: ${service.host}
+          port: ${config.docs.port}
           healthPath: /
           protocol: http
 

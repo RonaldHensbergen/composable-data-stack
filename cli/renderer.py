@@ -197,7 +197,142 @@ def render_compose(
             path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(path, output)
 
+    route_documents, route_diags = _generate_reverse_proxy_routes(plan)
+    diagnostics.extend(route_diags)
+    if output_path and route_documents and not any(d.level == "error" for d in diagnostics):
+        _write_reverse_proxy_route_documents(route_documents, compose_dir)
+
     return output, diagnostics
+
+
+_REVERSE_PROXY_ROUTES_FILE = "traefik/dynamic/cds-routes-{module}.yml"
+
+
+def _generate_reverse_proxy_routes(plan: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], list[Diagnostic]]:
+    """
+    Generate Traefik file-provider dynamic route documents from profile
+    bindings instead of Docker label autodiscovery (issue #581).
+
+    For every module providing a `reverse-proxy` contract, each
+    `config.routes` entry targets a profile instance that provides an
+    `http-service` contract; the backend address comes from the resolved
+    contract's `host`/`port` fields, and the optional `certificate` alias is
+    validated against the plan's certificate mapping (issue #578) and wired
+    as the router's certificate files. Invalid inputs produce E136
+    diagnostics instead of silently generating broken config; routes are
+    emitted in sorted order so repeated renders are byte-identical.
+    """
+    diagnostics: list[Diagnostic] = []
+    modules = plan.get("modules", [])
+    certificates = plan.get("certificates", {})
+    modules_by_id = {m.get("id"): m for m in modules if isinstance(m, dict)}
+    documents: dict[str, dict[str, Any]] = {}
+
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        proxy_id = module.get("id")
+        resolved_provides = module.get("provides") or {}
+        if not any(p.get("kind") == "reverse-proxy" for p in resolved_provides.values()):
+            continue
+
+        routes = (module.get("config") or {}).get("routes") or []
+        if not routes:
+            continue
+
+        routers: dict[str, dict[str, Any]] = {}
+        services: dict[str, dict[str, Any]] = {}
+        tls_certificates: dict[str, dict[str, str]] = {}
+
+        for index, route in enumerate(sorted(
+            (r for r in routes if isinstance(r, dict)),
+            key=lambda r: (str(r.get("host", "")), str(r.get("target", ""))),
+        )):
+            path_prefix = f"module:{proxy_id}.config.routes[{index}]"
+            target_id = route.get("target")
+            host = route.get("host")
+
+            target = modules_by_id.get(target_id)
+            if target is None:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=f'Reverse-proxy route host "{host}" targets unknown module "{target_id}".',
+                    path=f"{path_prefix}.target",
+                ))
+                continue
+
+            target_provides = (target.get("provides") or {})
+            http_entry = next(
+                (p for p in target_provides.values() if p.get("kind") == "http-service"),
+                None,
+            )
+            spec = (http_entry or {}).get("spec") or {}
+            backend_host = spec.get("host")
+            backend_port = spec.get("port")
+            if http_entry is None or not isinstance(backend_host, str) or not backend_host:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" targets module "{target_id}", which does not '
+                        "expose a resolvable http-service endpoint (its contract spec lacks host/port); "
+                        "route generation refuses to guess a backend address."
+                    ),
+                    path=f"{path_prefix}.target",
+                ))
+                continue
+
+            certificate = route.get("certificate")
+            if certificate is not None and certificate not in certificates:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" references certificate alias "{certificate}", '
+                        "which is not declared in spec.certificates.values."
+                    ),
+                    path=f"{path_prefix}.certificate",
+                ))
+                continue
+            if certificate is not None:
+                tls_certificates[certificate] = {
+                    "certFile": f"/etc/traefik/certs/{certificate}.crt",
+                    "keyFile": f"/etc/traefik/certs/{certificate}.key",
+                }
+
+            router_name = f"cds-route-{index}-{host or 'default'}"
+            service_name = f"cds-service-{target_id}"
+            router: dict[str, Any] = {
+                "entryPoints": route.get("entryPoints") or ["websecure"],
+                "rule": f"Host(`{host}`)",
+                "service": service_name,
+            }
+            if route.get("tls", True):
+                router["tls"] = {}
+            routers[router_name] = router
+            services[service_name] = {
+                "loadBalancer": {"servers": [{"url": f"http://{backend_host}:{backend_port}"}]},
+            }
+
+        if routers:
+            document: dict[str, Any] = {
+                "http": {"routers": routers, "services": services},
+            }
+            if tls_certificates:
+                document["tls"] = {
+                    "certificates": [tls_certificates[a] for a in sorted(tls_certificates)]
+                }
+            documents[str(proxy_id)] = document
+
+    return documents, diagnostics
+
+
+def _write_reverse_proxy_route_documents(documents: dict[str, dict[str, Any]], compose_dir: Path) -> None:
+    for proxy_id, document in documents.items():
+        target = compose_dir / _REVERSE_PROXY_ROUTES_FILE.format(module=proxy_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(target, yaml.safe_dump(document, sort_keys=True, default_flow_style=False))
 
 
 _UNRESOLVED_EXPRESSION_PATTERN = re.compile(
