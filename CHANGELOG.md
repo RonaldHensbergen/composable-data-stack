@@ -8,6 +8,14 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added provider-neutral TLS requirements to contracts (issue #577): a
+  `consumes` entry can declare `tls: required`, and providers advertise
+  `tls: true` (boolean literal or `${config.<path>}` reference) in their
+  provide entry's contract spec; a required binding whose provider does not
+  advertise TLS fails validation with `E128`, while omitting the field keeps
+  existing profiles valid. Extended the `sql-database`, `cache-service`, and
+  new `http-service`/`reverse-proxy` shared contract documents with the
+  optional `tls` field.
 - Added a production-aware `host.rootless` result to `cds preflight` (a rootful
   daemon is advisory on local profiles and a warning on production-class
   profiles) and documented rootless Docker compatibility expectations in

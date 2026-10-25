@@ -30,6 +30,15 @@ spec:
       type: string
       required: true
       description: Connection URI for the cache service.
+    tls:
+      type: boolean
+      required: false
+      description: >-
+        Whether the cache endpoint is TLS-protected. Optional for backward
+        compatibility: an absent field means TLS is not advertised, and a
+        consumer that declares "tls: required" on its consume entry fails
+        validation with E128 unless the provider's contract spec sets this to
+        true (see issue #577).
   examples:
     - host: keydb
       port: 6379
