@@ -28,7 +28,10 @@ def _proxy_module(proxy_id="proxy"):
     }
 
 
-def _http_target(target_id="superset", host="superset", port=8088):
+def _http_target(target_id="superset", host="superset", port=8088, service_name=None):
+    spec = {"host": host, "port": port}
+    if service_name is not None:
+        spec["serviceName"] = service_name
     return {
         "index": 1,
         "id": target_id,
@@ -49,7 +52,7 @@ def _http_target(target_id="superset", host="superset", port=8088):
         "provides": {
             "http-service": {
                 "kind": "http-service",
-                "spec": {"host": host, "port": port},
+                "spec": spec,
             }
         },
     }
@@ -62,6 +65,13 @@ def _plan(proxy, target, certificates=None):
     }
 
 
+def _rendered_services(target_id="superset", names=None):
+    """The compose service names a render produced for the target module."""
+    if names is None:
+        names = [target_id]
+    return {target_id: names}
+
+
 class RouteGenerationUnitTest(unittest.TestCase):
     def test_routes_generate_deterministic_traefik_document(self):
         proxy = _proxy_module()
@@ -71,7 +81,9 @@ class RouteGenerationUnitTest(unittest.TestCase):
                 {"host": "alt.example.local", "target": "superset", "entryPoints": ["web"], "tls": False},
             ]
         }
-        documents, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, _http_target()))
+        target = _http_target()
+        services = _rendered_services()
+        documents, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, target), services)
         self.assertEqual(diagnostics, [])
         doc = documents["proxy"]
         self.assertEqual(
@@ -89,33 +101,107 @@ class RouteGenerationUnitTest(unittest.TestCase):
         self.assertNotIn("tls", doc)  # no certificate alias -> no tls section
 
         # Deterministic: identical input -> identical document.
-        documents2, _ = _generate_reverse_proxy_routes(_plan(proxy, _http_target()))
+        documents2, _ = _generate_reverse_proxy_routes(_plan(proxy, target), services)
         self.assertEqual(documents, documents2)
+
+    def test_service_name_maps_through_compose_naming_rule(self):
+        # Multi-service target shaped like dagster: the instance id does not
+        # resolve, the serving compose service does once prefixed.
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "orch.example.local", "target": "dagster"}]}
+        target = _http_target(
+            target_id="dagster", host="dagster", port=3000, service_name="dagster-webserver"
+        )
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, target),
+            _rendered_services("dagster", ["dagster-user-code", "dagster-webserver", "dagster-daemon"]),
+        )
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(
+            documents["proxy"]["http"]["services"]["cds-service-dagster"]["loadBalancer"]["servers"],
+            [{"url": "http://dagster-webserver:3000"}],
+        )
+
+    def test_service_name_prefixes_for_unprefixed_instance(self):
+        # An instance id that is not a prefix of the service name gets the
+        # renderer's `<instance-id>-<service>` mapping.
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "api.example.local", "target": "api"}]}
+        target = _http_target(target_id="api", host="api", port=3000, service_name="gateway")
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, target), _rendered_services("api", ["api-gateway"])
+        )
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(
+            documents["proxy"]["http"]["services"]["cds-service-api"]["loadBalancer"]["servers"],
+            [{"url": "http://api-gateway:3000"}],
+        )
+
+    def test_backend_address_without_rendered_service_reports_e136(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "superset"}]}
+        # The advertised host matches no rendered service (e.g. the module
+        # has several compose services and none is named after the id).
+        _, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services("superset", ["superset-init"])
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn("not a rendered compose service", diagnostics[0].message)
+        self.assertIn("superset-init", diagnostics[0].message)
 
     def test_unknown_target_reports_e136(self):
         proxy = _proxy_module()
         proxy["config"] = {"routes": [{"host": "x.example.local", "target": "ghost"}]}
-        documents, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, _http_target()))
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
         self.assertEqual([d.code for d in diagnostics], ["E136"])
         self.assertIn("unknown module", diagnostics[0].message)
         self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].target")
         self.assertEqual(documents, {})
+
+    def test_target_without_port_reports_e136(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "superset"}]}
+        broken = _http_target()
+        broken["provides"]["http-service"]["spec"] = {"host": "superset"}
+        _, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, broken), _rendered_services())
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn("resolvable http-service endpoint", diagnostics[0].message)
 
     def test_target_without_resolvable_endpoint_reports_e136(self):
         proxy = _proxy_module()
         proxy["config"] = {"routes": [{"host": "x.example.local", "target": "superset"}]}
         broken = _http_target()
         broken["provides"]["http-service"]["spec"] = {"protocol": "http", "portFrom": "spec.config.webPort"}
-        _, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, broken))
+        _, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, broken), _rendered_services())
         self.assertEqual([d.code for d in diagnostics], ["E136"])
         self.assertIn("resolvable http-service endpoint", diagnostics[0].message)
+
+    def test_diagnostic_path_keeps_profile_route_index(self):
+        proxy = _proxy_module()
+        # Written in reverse-sorted order so the sorted position differs
+        # from the profile index of the failing route.
+        proxy["config"] = {
+            "routes": [
+                {"host": "zzz.example.local", "target": "superset"},
+                {"host": "aaa.example.local", "target": "ghost"},
+            ]
+        }
+        _, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, _http_target()), _rendered_services())
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        # The failing route is routes[1] in the profile, no matter where the
+        # deterministic output ordering places it.
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[1].target")
 
     def test_unknown_certificate_alias_reports_e136(self):
         proxy = _proxy_module()
         proxy["config"] = {"routes": [
             {"host": "x.example.local", "target": "superset", "certificate": "missing"}
         ]}
-        _, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, _http_target()))
+        _, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
         self.assertEqual([d.code for d in diagnostics], ["E136"])
         self.assertIn("not declared in spec.certificates.values", diagnostics[0].message)
         self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].certificate")
@@ -126,7 +212,8 @@ class RouteGenerationUnitTest(unittest.TestCase):
             {"host": "x.example.local", "target": "superset", "certificate": "tls"}
         ]}
         documents, diagnostics = _generate_reverse_proxy_routes(
-            _plan(proxy, _http_target(), certificates={"tls": {"cert": "CDS_TLS_CERT", "key": "CDS_TLS_KEY"}})
+            _plan(proxy, _http_target(), certificates={"tls": {"cert": "CDS_TLS_CERT", "key": "CDS_TLS_KEY"}}),
+            _rendered_services(),
         )
         self.assertEqual(diagnostics, [])
         self.assertEqual(
@@ -137,7 +224,9 @@ class RouteGenerationUnitTest(unittest.TestCase):
     def test_non_proxy_modules_are_ignored(self):
         target = _http_target()
         target["module"] = {"spec": {"provides": []}}
-        documents, diagnostics = _generate_reverse_proxy_routes(_plan(_proxy_module(), target))
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(_proxy_module(), target), _rendered_services()
+        )
         self.assertEqual(documents, {})
         self.assertEqual(diagnostics, [])
 
@@ -157,6 +246,7 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
 
         (modules_dir / "proxy" ).mkdir()
         (modules_dir / "web").mkdir()
+        (modules_dir / "api").mkdir()
         (modules_dir / "proxy" / "module.yaml").write_text(yaml.safe_dump({
             "apiVersion": "cds/v1alpha1",
             "kind": "Module",
@@ -197,44 +287,83 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
                 }}},
             },
         }), encoding="utf-8")
+        # Multi-service module shaped like dagster/dbt: the compose service
+        # is NOT named after the instance id, so routing only works through
+        # the advertised serviceName.
+        (modules_dir / "api" / "module.yaml").write_text(yaml.safe_dump({
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Module",
+            "metadata": {"name": "api", "category": "apps", "version": "0.1.0"},
+            "spec": {
+                "runtime": {"type": "container", "service": {
+                    "name": "api", "ports": [{"name": "http", "containerPort": 3000, "protocol": "TCP"}]}},
+                "configSchema": {"type": "object", "additionalProperties": True,
+                                 "properties": {"webPort": {"type": "integer", "default": 3000}}},
+                "provides": [{"name": "http-service", "contract": {
+                    "kind": "http-service",
+                    "spec": {
+                        "protocol": "http",
+                        "portFrom": "spec.config.webPort",
+                        "host": "${service.host}",
+                        "port": "${config.webPort}",
+                        "serviceName": "gateway",
+                    },
+                }}],
+                "implementation": {"kind": "docker-compose", "compose": {"services": {
+                    "gateway": {"image": "local/api:1", "ports": ["3001:3000"]}
+                }}},
+            },
+        }), encoding="utf-8")
 
     def _profile(self, routes):
+        modules = [
+            {
+                "id": "proxy",
+                "source": "../../modules/test/proxy",
+                "version": "0.1.0",
+                "enabled": True,
+                "config": {"routes": routes},
+            },
+            {
+                "id": "web",
+                "source": "../../modules/test/web",
+                "version": "0.1.0",
+                "enabled": True,
+                "config": {},
+            },
+        ]
+        if any(route.get("target") == "api" for route in routes if isinstance(route, dict)):
+            modules.append({
+                "id": "api",
+                "source": "../../modules/test/api",
+                "version": "0.1.0",
+                "enabled": True,
+                "config": {},
+            })
         return {
             "apiVersion": "cds/v1alpha1",
             "kind": "Profile",
             "metadata": {"name": "routes", "environment": "local"},
             "spec": {
                 "runtime": {"type": "docker-compose"},
-                "modules": [
-                    {
-                        "id": "proxy",
-                        "source": "../../modules/test/proxy",
-                        "version": "0.1.0",
-                        "enabled": True,
-                        "config": {"routes": routes},
-                    },
-                    {
-                        "id": "web",
-                        "source": "../../modules/test/web",
-                        "version": "0.1.0",
-                        "enabled": True,
-                        "config": {},
-                    },
-                ],
+                "modules": modules,
             },
         }
+
+    def _render(self, routes):
+        profile = self._profile(routes)
+        plan, plan_diags = planner.build_plan_from_profile(profile, self.profile_dir)
+        self.assertFalse([d for d in plan_diags if d.level == "error"], plan_diags)
+        _, render_diags = render_compose(plan, output_path=str(self.output))
+        self.assertFalse([d for d in render_diags if d.level == "error"], render_diags)
+        return plan
 
     def test_render_writes_deterministic_routes_file_next_to_compose(self):
         self._write_profile([{"host": "web.example.local", "target": "web"}])
         errors = [d for d in validate_profile(str(self.profile_dir / "profile.yaml")) if d.level == "error"]
         self.assertEqual(errors, [])
 
-        profile = self._profile([{"host": "web.example.local", "target": "web"}])
-        plan, plan_diags = planner.build_plan_from_profile(profile, self.profile_dir)
-        self.assertFalse([d for d in plan_diags if d.level == "error"], plan_diags)
-        compose_yaml, render_diags = render_compose(plan, output_path=str(self.output))
-        self.assertFalse([d for d in render_diags if d.level == "error"], render_diags)
-
+        self._render([{"host": "web.example.local", "target": "web"}])
         routes_file = self.output.parent / "traefik" / "dynamic" / "cds-routes-proxy.yml"
         self.assertTrue(routes_file.is_file(), f"missing {routes_file}")
         document = yaml.safe_load(routes_file.read_text(encoding="utf-8"))
@@ -244,6 +373,31 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
             document["http"]["routers"]["cds-route-0-web.example.local"]["rule"],
             "Host(`web.example.local`)",
         )
+
+    def test_render_routes_multi_service_target_via_service_name(self):
+        self._render([
+            {"host": "web.example.local", "target": "web"},
+            {"host": "api.example.local", "target": "api"},
+        ])
+        routes_file = self.output.parent / "traefik" / "dynamic" / "cds-routes-proxy.yml"
+        self.assertTrue(routes_file.is_file(), f"missing {routes_file}")
+        document = yaml.safe_load(routes_file.read_text(encoding="utf-8"))
+        # The api module's compose service "gateway" renders as
+        # "api-gateway"; the serviceName advertisement maps to it.
+        self.assertEqual(
+            document["http"]["services"]["cds-service-api"]["loadBalancer"]["servers"],
+            [{"url": "http://api-gateway:3000"}],
+        )
+
+    def test_render_removes_stale_routes_file_when_routes_are_removed(self):
+        self._render([{"host": "web.example.local", "target": "web"}])
+        routes_file = self.output.parent / "traefik" / "dynamic" / "cds-routes-proxy.yml"
+        self.assertTrue(routes_file.is_file(), f"missing {routes_file}")
+
+        # Re-render the same profile with no routes: the file provider
+        # watches this directory, so the stale file must not survive.
+        self._render([])
+        self.assertFalse(routes_file.is_file(), f"stale routes file survived: {routes_file}")
 
     def _write_profile(self, routes):
         path = self.profile_dir / "profile.yaml"

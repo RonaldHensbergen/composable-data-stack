@@ -299,6 +299,11 @@ spec:
           portFrom: spec.config.webPort
           host: ${service.host}
           port: ${config.webPort}
+          # The webserver is one of this module's several compose services
+          # (user-code, webserver, daemon); the instance id alone does not
+          # resolve on the Compose network, so route generation maps this
+          # through the renderer's service-naming rule.
+          serviceName: dagster-webserver
           healthPath: /
           protocol: http
 

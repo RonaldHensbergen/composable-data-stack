@@ -13,10 +13,15 @@ The format is based on Keep a Changelog.
   `host`, `target` module id) render deterministic Traefik file-provider
   configuration next to the compose file, resolving each target's
   `http-service` contract `host`/`port` instead of Docker label
-  autodiscovery; invalid routing inputs (unknown target, unresolvable
-  endpoint, undeclared certificate alias) fail rendering with `E136`, and
-  the optional `certificate` alias wires the profile's certificate mapping
-  into the router's certificate files.
+  autodiscovery; multi-service providers advertise the serving compose
+  service through a `serviceName` field (dagster, dbt), and the backend
+  address is cross-checked against the services the render actually
+  produced, failing with `E136` instead of emitting an address nothing
+  answers; invalid routing inputs (unknown target, unresolvable endpoint,
+  undeclared certificate alias) also fail rendering with `E136`, the
+  optional `certificate` alias wires the profile's certificate mapping
+  into the router's certificate files, and stale generated route files
+  are removed when their routes (or proxy) disappear from the profile.
 - Added TLS metadata to the shared reverse-proxy contract (#579): the
   protocol-version window (`tlsMinVersion`/`tlsMaxVersion`), SNI strictness
   (`tlsSniStrict`), and certificate-verification status (`certVerified`)

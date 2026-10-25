@@ -197,9 +197,9 @@ def render_compose(
             path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(path, output)
 
-    route_documents, route_diags = _generate_reverse_proxy_routes(plan)
+    route_documents, route_diags = _generate_reverse_proxy_routes(plan, module_service_names)
     diagnostics.extend(route_diags)
-    if output_path and route_documents and not any(d.level == "error" for d in diagnostics):
+    if output_path and not any(d.level == "error" for d in diagnostics):
         _write_reverse_proxy_route_documents(route_documents, compose_dir)
 
     return output, diagnostics
@@ -208,7 +208,15 @@ def render_compose(
 _REVERSE_PROXY_ROUTES_FILE = "traefik/dynamic/cds-routes-{module}.yml"
 
 
-def _generate_reverse_proxy_routes(plan: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], list[Diagnostic]]:
+def _is_valid_backend_port(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    return isinstance(value, int) or (isinstance(value, str) and value.isdigit())
+
+
+def _generate_reverse_proxy_routes(
+    plan: dict[str, Any], module_service_names: dict[str, list[str]]
+) -> tuple[dict[str, dict[str, Any]], list[Diagnostic]]:
     """
     Generate Traefik file-provider dynamic route documents from profile
     bindings instead of Docker label autodiscovery (issue #581).
@@ -216,11 +224,17 @@ def _generate_reverse_proxy_routes(plan: dict[str, Any]) -> tuple[dict[str, dict
     For every module providing a `reverse-proxy` contract, each
     `config.routes` entry targets a profile instance that provides an
     `http-service` contract; the backend address comes from the resolved
-    contract's `host`/`port` fields, and the optional `certificate` alias is
-    validated against the plan's certificate mapping (issue #578) and wired
-    as the router's certificate files. Invalid inputs produce E136
-    diagnostics instead of silently generating broken config; routes are
-    emitted in sorted order so repeated renders are byte-identical.
+    contract's `host`/`port` fields, mapped through the renderer's
+    compose service-naming rule when the provider advertises a
+    `serviceName` (multi-service modules such as dagster name the serving
+    service, since the instance id alone does not resolve on the Compose
+    network), and is cross-checked against the services the render
+    actually produced -- an address nothing answers fails closed instead
+    of 502ing at runtime. The optional `certificate` alias is validated
+    against the plan's certificate mapping (issue #578) and wired as the
+    router's certificate files. Invalid inputs produce E136 diagnostics
+    instead of silently generating broken config; routes are emitted in
+    sorted order so repeated renders are byte-identical.
     """
     diagnostics: list[Diagnostic] = []
     modules = plan.get("modules", [])
@@ -244,11 +258,20 @@ def _generate_reverse_proxy_routes(plan: dict[str, Any]) -> tuple[dict[str, dict
         services: dict[str, dict[str, Any]] = {}
         tls_certificates: dict[str, dict[str, str]] = {}
 
-        for index, route in enumerate(sorted(
-            (r for r in routes if isinstance(r, dict)),
-            key=lambda r: (str(r.get("host", "")), str(r.get("target", ""))),
-        )):
-            path_prefix = f"module:{proxy_id}.config.routes[{index}]"
+        # Sort by (host, target) so the generated document is
+        # deterministic; diagnostics keep the route's ORIGINAL profile
+        # index so the path points at the entry the user wrote.
+        ordered_routes = sorted(
+            (
+                (original_index, route)
+                for original_index, route in enumerate(routes)
+                if isinstance(route, dict)
+            ),
+            key=lambda item: (str(item[1].get("host", "")), str(item[1].get("target", ""))),
+        )
+
+        for sorted_index, (original_index, route) in enumerate(ordered_routes):
+            path_prefix = f"module:{proxy_id}.config.routes[{original_index}]"
             target_id = route.get("target")
             host = route.get("host")
 
@@ -268,9 +291,14 @@ def _generate_reverse_proxy_routes(plan: dict[str, Any]) -> tuple[dict[str, dict
                 None,
             )
             spec = (http_entry or {}).get("spec") or {}
-            backend_host = spec.get("host")
+            advertised_host = spec.get("host")
             backend_port = spec.get("port")
-            if http_entry is None or not isinstance(backend_host, str) or not backend_host:
+            if (
+                http_entry is None
+                or not isinstance(advertised_host, str)
+                or not advertised_host
+                or not _is_valid_backend_port(backend_port)
+            ):
                 diagnostics.append(Diagnostic(
                     level="error",
                     code="E136",
@@ -278,6 +306,36 @@ def _generate_reverse_proxy_routes(plan: dict[str, Any]) -> tuple[dict[str, dict
                         f'Reverse-proxy route host "{host}" targets module "{target_id}", which does not '
                         "expose a resolvable http-service endpoint (its contract spec lacks host/port); "
                         "route generation refuses to guess a backend address."
+                    ),
+                    path=f"{path_prefix}.target",
+                ))
+                continue
+
+            # The backend address must be a name that actually resolves on
+            # the rendered Compose network. Providers whose compose service
+            # name differs from the instance id (multi-service modules such
+            # as dagster) advertise the serving service via `serviceName`;
+            # map it through the renderer's service-naming rule so it
+            # matches the name Compose creates.
+            advertised_service = spec.get("serviceName")
+            if isinstance(advertised_service, str) and advertised_service:
+                backend_host = _compose_service_name(str(target_id), advertised_service)
+            else:
+                backend_host = advertised_host
+
+            rendered_services = module_service_names.get(str(target_id), [])
+            if backend_host not in rendered_services:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" resolves to backend address '
+                        f'"{backend_host}", which is not a rendered compose service of module '
+                        f'"{target_id}" (rendered services: '
+                        f'{", ".join(rendered_services) or "none"}); route generation refuses to '
+                        "emit an address nothing answers. Multi-service providers must advertise "
+                        "the serving service via a serviceName field in their http-service "
+                        "provide entry."
                     ),
                     path=f"{path_prefix}.target",
                 ))
@@ -301,7 +359,7 @@ def _generate_reverse_proxy_routes(plan: dict[str, Any]) -> tuple[dict[str, dict
                     "keyFile": f"/etc/traefik/certs/{certificate}.key",
                 }
 
-            router_name = f"cds-route-{index}-{host or 'default'}"
+            router_name = f"cds-route-{sorted_index}-{host or 'default'}"
             service_name = f"cds-service-{target_id}"
             router: dict[str, Any] = {
                 "entryPoints": route.get("entryPoints") or ["websecure"],
@@ -336,10 +394,25 @@ def _generate_reverse_proxy_routes(plan: dict[str, Any]) -> tuple[dict[str, dict
 
 
 def _write_reverse_proxy_route_documents(documents: dict[str, dict[str, Any]], compose_dir: Path) -> None:
+    """
+    Write one file-provider document per proxy next to the rendered
+    compose file, and remove stale CDS-generated route files whose proxy
+    no longer defines routes (or no longer exists in the plan). The file
+    provider watches this directory, so a leftover file would keep
+    serving deleted routes after a re-render.
+    """
+    written: set[str] = set()
     for proxy_id, document in documents.items():
         target = compose_dir / _REVERSE_PROXY_ROUTES_FILE.format(module=proxy_id)
         target.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write(target, yaml.safe_dump(document, sort_keys=True, default_flow_style=False))
+        written.add(target.name)
+
+    dynamic_dir = compose_dir / "traefik" / "dynamic"
+    if dynamic_dir.is_dir():
+        for stale in dynamic_dir.glob("cds-routes-*.yml"):
+            if stale.name not in written:
+                stale.unlink()
 
 
 _UNRESOLVED_EXPRESSION_PATTERN = re.compile(

@@ -136,7 +136,8 @@ spec:
           bindings (issue #581): each entry exposes one http-service
           provider through this proxy's file provider, without Docker
           label-based autodiscovery. CDS generates
-          traefik/dynamic/cds-routes.yml next to the rendered compose file.
+          traefik/dynamic/cds-routes-<instance-id>.yml next to the rendered
+          compose file, and removes it again when the routes are removed.
         items:
           type: object
           additionalProperties: false
@@ -145,7 +146,11 @@ spec:
             host:
               type: string
               minLength: 1
-              description: Public hostname the route matches (Traefik Host rule).
+              pattern: "^[A-Za-z0-9.-]+$"
+              description: >-
+                Public hostname the route matches (Traefik Host rule).
+                Restricted to DNS-safe characters so a typo cannot inject
+                rule syntax.
             target:
               type: string
               minLength: 1
