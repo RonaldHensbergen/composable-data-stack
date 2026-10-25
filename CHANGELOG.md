@@ -17,6 +17,10 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a production-aware `host.rootless` result to `cds preflight` (a rootful
+  daemon is advisory on local profiles and a warning on production-class
+  profiles) and documented rootless Docker compatibility expectations in
+  `docs/rootless-docker.md` (#207).
 - Extended the `.trivyignore` audit to list still-reported exceptions that
   have a fixed package version available (#934).
 - Added a daily `Trivyignore Audit` workflow and
@@ -38,6 +42,22 @@ The format is based on Keep a Changelog.
   operator responsibilities, and advisory `host.*` checks in `cds preflight`
   for rootless mode, user namespaces, seccomp, logging, live restore, and
   daemon socket exposure (#211).
+- Added code-enforced rules CDS-SEC-090 (production runtime policy:
+  capabilities, privilege escalation, non-root user and read-only root
+  filesystem evaluated together, with a reasoned
+  `spec.security.waivers.runtimePolicy` waiver) and CDS-SEC-091 (disabled
+  seccomp/AppArmor/SELinux confinement) for production profiles; services
+  that grant a kernel-escape capability via `cap_add` (`ALL`, `SYS_ADMIN`,
+  `SYS_MODULE`, `SYS_PTRACE`, `SYS_RAWIO`, `DAC_READ_SEARCH`) also violate
+  CDS-SEC-090, and an applied or ineffective runtime-policy waiver emits
+  warning `W103`/`W104` (#207, #895, #898).
+
+### Changed
+
+- Production-class profiles whose services do not meet the runtime policy,
+  including the bundled production overlay, now fail `cds security` and
+  `cds test` with HIGH findings until the services are hardened or waived
+  (#895).
 
 ### Fixed
 

@@ -16,12 +16,16 @@ summarizes them for readers who aren't grepping the JSON directly.
 | `CDS-SEC-074` | Production profile exposes plaintext HTTP endpoint without TLS reverse-proxy | `_check_production_plaintext_exposure` |
 | `CDS-SEC-080` | Stateful module has no backup/restore target bound | `_check_backup_target_binding` |
 | `CDS-SEC-081` | Admin-facing service with no identity/auth module in profile | `_check_admin_service_identity_binding` |
+| `CDS-SEC-090` | Service violates the production runtime policy | `_check_runtime_policy` |
+| `CDS-SEC-091` | Runtime confinement (seccomp/AppArmor/SELinux) disabled | `_check_runtime_policy` |
 | `CDS-SEC-006` | Resolved secret present in rendered Compose output | `_check_rendered_secret_values` |
 | `CDS-SEC-030` | Generated file contains resolved secrets | `cli.secret_leak.check_generated_text` (called by `render_compose`/`render_helm`) |
 | `CDS-SEC-071` | CLI plan or validate output prints secrets | `cli.secret_leak.RedactingStream` (installed by `cli/main.py`) |
 
-This document only covers `CDS-SEC-080` and `CDS-SEC-081` (introduced by
+Detailed sections below cover `CDS-SEC-080` and `CDS-SEC-081` (introduced by
 [#774](https://github.com/RonaldHensbergen/composable-data-stack/issues/774));
+the production runtime policy rules `CDS-SEC-090`/`091` are documented in
+[docs/runtime-confinement.md](runtime-confinement.md#production-runtime-policy);
 see `rule-set.json`'s `$comment` field on each rule (including the other
 `scope: ["none"]` rules not listed above) for the full rationale of every
 code-enforced rule.
@@ -103,3 +107,12 @@ Both rules are tagged with a `complianceCategory`
 and participate in `cds security --group-by-category` and the new
 `cds security --report nis2` mode (see
 [`docs/nis2-cyberbeveiligingswet-scope.md`](nis2-cyberbeveiligingswet-scope.md)).
+
+---
+
+## Warnings
+
+| Code | Description                                                              | Severity |
+|------|--------------------------------------------------------------------------|----------|
+| W103 | Runtime policy waiver suppressed violations for production profile.      | Warning  |
+| W104 | Runtime policy waiver is set but has no effect (non-production profile). | Warning  |

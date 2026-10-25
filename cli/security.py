@@ -774,6 +774,165 @@ def _check_rendered_secret_values(
     return findings
 
 
+_UNCONFINED_OPTS = {
+    "seccomp=unconfined": "seccomp",
+    "seccomp:unconfined": "seccomp",
+    "apparmor=unconfined": "apparmor",
+    "apparmor:unconfined": "apparmor",
+    "label=disable": "selinux",
+    "label:disable": "selinux",
+}
+_NO_NEW_PRIVILEGES = {"no-new-privileges", "no-new-privileges:true", "no-new-privileges=true"}
+
+
+def _runs_as_root(user: Any) -> bool:
+    if user is None or user == "":
+        return True
+    name = str(user).split(":", 1)[0].strip()
+    return name in {"0", "root"} or (name.isdigit() and int(name) == 0)
+
+
+def _runtime_policy_waived_checks(profile: dict[str, Any]) -> set[str]:
+    waiver = profile.get("spec", {}).get("security", {}).get("waivers", {}).get("runtimePolicy")
+    if not isinstance(waiver, dict):
+        return set()
+    reason = waiver.get("reason")
+    checks = waiver.get("checks")
+    if not isinstance(reason, str) or not reason.strip() or not isinstance(checks, list):
+        return set()
+    return {check for check in checks if isinstance(check, str)}
+
+
+# Kernel-escape capabilities: granting any of these is comparable to or worse
+# than SYS_ADMIN for container-escape purposes (loading kernel modules,
+# ptracing other processes, raw kernel I/O, bypassing file permission checks,
+# and SYS_ADMIN itself). NET_ADMIN is deliberately allowed: it is
+# netns-scoped and commonly needed by legitimate networking tooling.
+_DANGEROUS_CAP_ADD = {
+    "ALL",
+    "SYS_ADMIN",
+    "SYS_MODULE",
+    "SYS_PTRACE",
+    "SYS_RAWIO",
+    "DAC_READ_SEARCH",
+}
+
+
+def _runtime_policy_violations(
+    service: dict[str, Any], waived: set[str]
+) -> tuple[list[str], set[str]]:
+    """Return violation messages and the waived check names that suppressed one."""
+    added = sorted(
+        {str(cap).upper().removeprefix("CAP_") for cap in service.get("cap_add") or []}
+        & _DANGEROUS_CAP_ADD
+    )
+    options = {str(opt).replace(" ", "") for opt in service.get("security_opt") or []}
+    checks = [
+        (None, bool(service.get("privileged")), "privileged mode is enabled"),
+        (None, bool(added), f"cap_add grants {', '.join(added)}"),
+        (
+            "capDrop",
+            "ALL" not in {str(cap).upper() for cap in service.get("cap_drop") or []},
+            "cap_drop does not include ALL",
+        ),
+        (
+            "noNewPrivileges",
+            not options & _NO_NEW_PRIVILEGES,
+            "no-new-privileges is not set in security_opt",
+        ),
+        ("nonRootUser", _runs_as_root(service.get("user")), "no explicit non-root user"),
+        (
+            "readOnlyRootFilesystem",
+            service.get("read_only") is not True,
+            "root filesystem is writable (read_only is not true)",
+        ),
+    ]
+    messages = [m for key, failed, m in checks if failed and key not in waived]
+    suppressed = {key for key, failed, _ in checks if failed and key in waived}
+    return messages, suppressed
+
+
+def _check_runtime_policy(
+    rendered_compose: dict[str, Any] | None,
+    service_to_module: dict[str, str],
+    rules: dict[str, dict[str, Any] | None],
+    profile_class: str,
+    waived: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
+    """CDS-SEC-090/091: production runtime policy over the rendered Compose services.
+
+    `rules` maps rule id to its rule-set entry, or None when that rule is
+    disabled. `waived` holds profile-waived CDS-SEC-090 check names. Only
+    prod-class profiles are evaluated. Also returns a warning when a waiver
+    suppressed a violation (W103) or is declared on a non-prod profile (W104).
+    """
+    policy_rule, confinement_rule = rules.get("CDS-SEC-090"), rules.get("CDS-SEC-091")
+    waiver_path = "spec.security.waivers.runtimePolicy"
+    if profile_class != "prod":
+        if waived and policy_rule is not None:
+            return [], [Diagnostic(
+                level="warning",
+                code="W104",
+                message=(
+                    f"{waiver_path} is set but has no effect for profile class "
+                    f"{profile_class!r}: CDS-SEC-090 and its waiver only apply to "
+                    "prod-class profiles."
+                ),
+                path=waiver_path,
+            )]
+        return [], []
+    if not isinstance(rendered_compose, dict):
+        return [], []
+    findings: list[dict[str, Any]] = []
+    suppressed_checks: set[str] = set()
+    for service_name, service in (rendered_compose.get("services") or {}).items():
+        if not isinstance(service, dict):
+            continue
+        module_id = service_to_module.get(service_name, service_name)
+        path = f"services.{service_name}"
+        if policy_rule is not None:
+            violations, suppressed = _runtime_policy_violations(service, waived or set())
+            suppressed_checks |= suppressed
+            if violations:
+                findings.append({
+                    "rule_id": policy_rule["id"],
+                    "severity": policy_rule["severity"],
+                    "module": module_id,
+                    "message": f"{policy_rule['message']}: {'; '.join(violations)}",
+                    "path": path,
+                    "value": None,
+                    "recommendation": policy_rule["recommendation"],
+                })
+        if confinement_rule is not None:
+            disabled = sorted({
+                _UNCONFINED_OPTS[opt]
+                for opt in (str(o).replace(" ", "") for o in service.get("security_opt") or [])
+                if opt in _UNCONFINED_OPTS
+            })
+            if disabled:
+                findings.append({
+                    "rule_id": confinement_rule["id"],
+                    "severity": confinement_rule["severity"],
+                    "module": module_id,
+                    "message": f"{confinement_rule['message']} ({', '.join(disabled)})",
+                    "path": f"{path}.security_opt",
+                    "value": None,
+                    "recommendation": confinement_rule["recommendation"],
+                })
+    diagnostics = []
+    if suppressed_checks:
+        diagnostics.append(Diagnostic(
+            level="warning",
+            code="W103",
+            message=(
+                "Applied runtime policy waiver for production profile (checks: "
+                f"{', '.join(sorted(suppressed_checks))}). See {waiver_path}.reason."
+            ),
+            path=waiver_path,
+        ))
+    return findings, diagnostics
+
+
 def _check_production_plaintext_exposure(
     profile: dict[str, Any],
     profile_class: str,
@@ -1232,9 +1391,16 @@ def run_security_validation(
     backup_target_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-080", key="codeEnforced")
     admin_identity_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-081", key="codeEnforced")
     rendered_secret_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-006", key="codeEnforced")
+    runtime_policy_rules = {
+        rule_id: next((r for r in rule_set["rules"] if r.get("id") == rule_id), None)
+        if _rule_enabled(rule_set, rule_id, key="codeEnforced") else None
+        for rule_id in ("CDS-SEC-090", "CDS-SEC-091")
+    }
+    runtime_policy_enabled = profile_class == "prod" and any(runtime_policy_rules.values())
     needs_rendered_compose = (
         (profile_class == "prod" and plaintext_exposure_rule_enabled)
         or rendered_secret_rule_enabled
+        or runtime_policy_enabled
         or backup_target_rule_enabled
         or admin_identity_rule_enabled
         or any(
@@ -1309,6 +1475,12 @@ def run_security_validation(
         rule_enabled=rendered_secret_rule_enabled,
     ))
 
+    runtime_findings, runtime_diags = _check_runtime_policy(
+        rendered_compose, service_to_module, runtime_policy_rules, profile_class,
+        _runtime_policy_waived_checks(profile),
+    )
+    findings.extend(runtime_findings)
+
     findings.extend(_check_backup_target_binding(
         plan=rendered_plan,
         rule_enabled=backup_target_rule_enabled,
@@ -1342,4 +1514,4 @@ def run_security_validation(
         x["path"],
     ))
 
-    return findings, overlay_diags + secret_diags + render_scan_diags + plaintext_diags
+    return findings, overlay_diags + secret_diags + render_scan_diags + plaintext_diags + runtime_diags

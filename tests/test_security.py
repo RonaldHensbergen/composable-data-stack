@@ -479,6 +479,8 @@ class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
                 "CDS-SEC-074",
                 "CDS-SEC-080",
                 "CDS-SEC-081",
+                "CDS-SEC-090",
+                "CDS-SEC-091",
             },
         )
         for rule in deferred_rules:
