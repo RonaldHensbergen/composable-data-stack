@@ -6,6 +6,16 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added a certificate reference mechanism parallel to secret aliases
+  (issue #578): profiles declare `spec.certificates.values` aliases mapping
+  to externally managed material via `certEnv`/`keyEnv` environment variable
+  names, and module config references `certificates.<alias>.cert|.key`,
+  which validate (`E129` for unknown aliases or malformed references) and
+  render as `${CDS_*}` runtime placeholders. CDS never generates, reads,
+  or embeds certificate or private key material.
+
 ## [0.13.0] - 2026-10-22
 
 ### Added

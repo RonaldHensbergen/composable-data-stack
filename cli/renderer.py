@@ -49,6 +49,7 @@ def render_compose(
     """
     diagnostics: list[Diagnostic] = []
     secrets = plan.get("secrets", {})
+    certificates = plan.get("certificates", {})
     compose_dir = Path(output_path).resolve().parent if output_path else Path.cwd().resolve()
     profile_dir = _resolve_profile_dir(plan)
     project_root = _resolve_project_root(profile_dir)
@@ -127,9 +128,10 @@ def render_compose(
                 project_root=project_root,
                 compose_dir=compose_dir,
                 network_name=default_network_name,
+                certificates=certificates,
             )
             diagnostics.extend(unsafe_diags)
-            rendered_volumes = _render_volumes(module, volumes, secrets)
+            rendered_volumes = _render_volumes(module, volumes, secrets, certificates)
         except MaxNestingDepthExceeded:
             diagnostics.append(Diagnostic(
                 level="error",
@@ -164,7 +166,7 @@ def render_compose(
             continue
 
         # Handle initDbEnv for postgres service (merge additional env vars)
-        _merge_init_db_env(rendered_services, module, secrets)
+        _merge_init_db_env(rendered_services, module, secrets, certificates)
 
         for service_name, service_def in rendered_services.items():
             compose_service_name = _compose_service_name(module["id"], service_name)
@@ -241,10 +243,11 @@ def _render_services(
     project_root: Path | None,
     compose_dir: Path,
     network_name: str | None = None,
+    certificates: dict[str, dict[str, str]] | None = None,
 ) -> tuple[dict[str, Any], list[Diagnostic]]:
     rendered: dict[str, Any] = {}
     diagnostics: list[Diagnostic] = []
-    context = _build_context(module, secrets)
+    context = _build_context(module, secrets, certificates)
 
     for service_name, service_def in services.items():
         if not isinstance(service_def, dict):
@@ -322,9 +325,10 @@ def _render_volumes(
     module: dict[str, Any],
     volumes: dict[str, Any],
     secrets: dict[str, str],
+    certificates: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     rendered: dict[str, Any] = {}
-    context = _build_context(module, secrets)
+    context = _build_context(module, secrets, certificates)
 
     for volume_name, volume_def in volumes.items():
         if isinstance(volume_def, dict):
@@ -343,17 +347,18 @@ def _merge_init_db_env(
     services: dict[str, Any],
     module: dict[str, Any],
     secrets: dict[str, str],
+    certificates: dict[str, dict[str, str]] | None = None,
 ) -> None:
     """
     Merge initDbEnv into postgres service environment variables.
-    
+
     If a module has config.initDbEnv, merge those environment variables
     into any service named "postgres" in the rendered services.
     """
     init_db_env = module.get("config", {}).get("initDbEnv")
     if not init_db_env or not isinstance(init_db_env, dict):
         return
-    
+
     # Find postgres service and merge env vars
     postgres_service = services.get("postgres")
     if postgres_service and isinstance(postgres_service, dict):
@@ -362,7 +367,7 @@ def _merge_init_db_env(
             return
         
         # Substitute values in init_db_env and merge
-        context = _build_context(module, secrets)
+        context = _build_context(module, secrets, certificates)
         for key, value in init_db_env.items():
             if isinstance(value, str):
                 # Resolve references like "secrets.xyz"
@@ -374,8 +379,10 @@ def _merge_init_db_env(
 def _build_context(
     module: dict[str, Any],
     secrets: dict[str, str] | None = None,
+    certificates: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     secrets = secrets or {}
+    certificates = certificates or {}
     bindings: dict[str, Any] = {}
 
     for consume_name, consume_value in module.get("consumes", {}).items():
@@ -389,6 +396,7 @@ def _build_context(
         "bindings": bindings,
         "service": {"host": module.get("id")},
         "secrets": secrets,
+        "certificates": certificates,
     }
 
 
@@ -600,6 +608,14 @@ def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
         env_name = secret_map.get(alias, alias)
         return f"${{{env_name}}}"
 
+    # Direct certificates.<alias>.<cert|key> reference (issue #578): emits
+    # the runtime env placeholder for that half of the pair; never material.
+    # Malformed refs and unknown aliases resolve to None (stay visible as
+    # unresolved expressions) instead of falling through to the generic
+    # dotted-path walk, which would expose the raw env-name map.
+    if expr.startswith("certificates."):
+        return _certificate_placeholder(expr, context)
+
     current: Any = context
     for part in expr.split("."):
         if not isinstance(current, dict) or part not in current:
@@ -612,7 +628,34 @@ def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
         env_name = secret_map.get(alias, alias)
         return f"${{{env_name}}}"
 
+    # Walked config value that is itself a certificates.<alias>.<part> ref
+    # (e.g. ${config.tls.certRef} where the config field holds the ref string).
+    if isinstance(current, str) and current.startswith("certificates."):
+        placeholder = _certificate_placeholder(current, context)
+        if placeholder is not None:
+            return placeholder
+
     return current
+
+
+def _certificate_placeholder(ref: str, context: dict[str, Any]) -> str | None:
+    """
+    Map a `certificates.<alias>.<cert|key>` reference to its `${ENV_NAME}`
+    runtime placeholder. Returns None for malformed refs or unknown aliases so
+    they stay visible as unresolved expressions instead of inventing a name;
+    validation (E129) has already flagged them by the time rendering runs.
+    """
+    parts = ref.split(".")
+    if len(parts) != 3 or parts[2] not in ("cert", "key"):
+        return None
+    alias, part = parts[1], parts[2]
+    entry = context.get("certificates", {}).get(alias)
+    if not isinstance(entry, dict):
+        return None
+    env_name = entry.get(part)
+    if not isinstance(env_name, str) or not env_name:
+        return None
+    return f"${{{env_name}}}"
 
 
 def _rewrite_service_volumes(
