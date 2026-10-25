@@ -168,3 +168,43 @@ repository, in addition to `CONTRIBUTING.md`.
 - Break complex tasks into smaller, self-contained subtasks.
 - After finishing work, list the follow-up steps the maintainer must take
   (manual actions, merges, tags, checks).
+
+## Issue Pinning And Project Ordering
+
+These conventions govern the "Composable Data Stack Roadmap" GitHub
+Project and the repository's pinned issues.
+
+### Pinned issues
+
+- The repository pin limit is three, and the pinboard always holds
+  exactly the **three highest-priority longest-term issues that do not
+  have child issues**: never pin an epic with sub-issues (or
+  body-referenced children), such as the production-ready or Kubernetes
+  plan issues.
+- Selection: among open issues labeled `priority:long-term`, rank by the
+  project's `Order` field (lower = higher priority) and take the first
+  three that are childless.
+- Pinning is a replacement, not additive: unpin the existing pins first,
+  then pin the new set (GraphQL `pinIssue`/`unpinIssue`).
+
+### Project `Order` tiers
+
+- `0` — current/in-progress work (several items may share 0)
+- `1–46` — sequenced "Production ready" milestone work
+- `100–110` — image vuln-scan findings batch
+- `201+` — quality/process batch (CI, CLI hardening, release guards)
+- `301+` — feature/contract/documentation batch
+- `401+` — long-term architecture batch
+- `501+` — small cleanups/chores
+- `601+` — parking lot (dependency dashboard, stale release checklists)
+
+Rules of use:
+
+- Every issue in the project has an `Order` value; an issue without one
+  should be assigned one (append at the end of the matching tier; never
+  reorder existing items).
+- Pick up work by the lowest `Order` that is open, not `Done`, and not
+  already in flight via an open PR.
+- Mechanic: `gh project item-edit 1 --owner RonaldHensbergen --url
+  <issue-url> --field Order --value <n>`; the `Status` field is
+  `Todo` / `In Progress` / `Done`.
