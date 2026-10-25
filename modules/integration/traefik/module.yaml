@@ -179,11 +179,14 @@ spec:
               description: Whether the router terminates TLS.
             certificate:
               type: string
+              pattern: "^[A-Za-z0-9-]+$"
               description: >-
                 Optional profile certificate alias (spec.certificates.values)
                 whose material the secret provider places as <alias>.crt and
                 <alias>.key in the proxy's certs mount; the generated config
-                wires them as the router's certificate files. An unknown
+                wires them as the router's certificate files. Restricted to
+                letters, digits and hyphens because the alias interpolates
+                into the router's certificate file paths. An unknown
                 alias fails rendering with E136.
       fileProvider:
         type: object

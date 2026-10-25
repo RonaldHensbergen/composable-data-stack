@@ -234,8 +234,8 @@ def _generate_reverse_proxy_routes(
     network), and is cross-checked against the services the render
     actually produced -- an address nothing answers fails closed instead
     of 502ing at runtime. The optional `certificate` alias is validated
-    against the plan's certificate mapping (issue #578) and wired as the
-    router's certificate files. Invalid inputs -- an unknown target, an
+    against the plan's certificate mapping (issue #578) and, for TLS-enabled
+    routers, wired as the router's certificate files. Invalid inputs -- an unknown target, an
     unresolvable endpoint, a backend address that matches no rendered
     service, an undeclared certificate alias, or a host duplicated by an
     earlier route of the same proxy -- produce E136 diagnostics
@@ -400,6 +400,7 @@ def _generate_reverse_proxy_routes(
                 ))
                 continue
 
+            tls_enabled = route.get("tls", True)
             certificate = route.get("certificate")
             if certificate is not None and certificate not in certificates:
                 diagnostics.append(Diagnostic(
@@ -412,7 +413,11 @@ def _generate_reverse_proxy_routes(
                     path=f"{path_prefix}.certificate",
                 ))
                 continue
-            if certificate is not None:
+            # The alias is validated regardless of the router's TLS flag, but
+            # only wired for TLS routers: a plaintext router never presents a
+            # certificate, so its alias must not contribute to the document's
+            # tls.certificates section.
+            if certificate is not None and tls_enabled:
                 tls_certificates[certificate] = {
                     "certFile": f"/etc/traefik/certs/{certificate}.crt",
                     "keyFile": f"/etc/traefik/certs/{certificate}.key",
@@ -425,7 +430,7 @@ def _generate_reverse_proxy_routes(
                 "rule": f"Host(`{host}`)",
                 "service": service_name,
             }
-            if route.get("tls", True):
+            if tls_enabled:
                 router["tls"] = {}
             routers[router_name] = router
             # The backend URL is intentionally plain HTTP: Traefik

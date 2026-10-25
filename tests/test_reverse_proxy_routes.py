@@ -221,6 +221,33 @@ class RouteGenerationUnitTest(unittest.TestCase):
             [{"certFile": "/etc/traefik/certs/tls.crt", "keyFile": "/etc/traefik/certs/tls.key"}],
         )
 
+    def test_certificate_on_plaintext_router_is_validated_but_not_wired(self):
+        # A plaintext router never presents a certificate, so its alias must
+        # not contribute to the document's tls.certificates section; the
+        # alias itself is still validated like any other.
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"host": "x.example.local", "target": "superset", "tls": False, "certificate": "tls"}
+        ]}
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target(), certificates={"tls": {"cert": "CDS_TLS_CERT", "key": "CDS_TLS_KEY"}}),
+            _rendered_services(),
+        )
+        self.assertEqual(diagnostics, [])
+        self.assertNotIn("tls", documents["proxy"])
+
+    def test_unknown_certificate_alias_on_plaintext_router_still_reports_e136(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"host": "x.example.local", "target": "superset", "tls": False, "certificate": "missing"}
+        ]}
+        _, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn("not declared in spec.certificates.values", diagnostics[0].message)
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].certificate")
+
     def test_non_proxy_modules_are_ignored(self):
         target = _http_target()
         target["module"] = {"spec": {"provides": []}}
@@ -343,11 +370,38 @@ class TraefikRoutesSchemaTest(unittest.TestCase):
             "module": module,
         }
         diagnostics = validate_module_configs([inst])
+        # jsonschema reports minItems as "<instance> is too short";
+        # match on the code and path instead of a specific wording.
         self.assertTrue(
             any(
                 d.code == "E030"
-                and "non-empty" in d.message
                 and str(d.path).endswith("entryPoints")
+                for d in diagnostics
+            ),
+            diagnostics,
+        )
+
+    def test_certificate_alias_is_restricted_by_the_schema(self):
+        # The alias interpolates into the router's certificate file paths,
+        # so path-shaped values must fail validation (E030) up front.
+        module = yaml.safe_load(
+            (_REPO_ROOT / "modules" / "integration" / "traefik" / "module.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        inst = {
+            "index": 0,
+            "id": "proxy",
+            "config": {"routes": [
+                {"host": "x.example.local", "target": "web", "certificate": "../evil"}
+            ]},
+            "module": module,
+        }
+        diagnostics = validate_module_configs([inst])
+        self.assertTrue(
+            any(
+                d.code == "E030"
+                and str(d.path).endswith("certificate")
                 for d in diagnostics
             ),
             diagnostics,

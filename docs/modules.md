@@ -225,6 +225,28 @@ The field is optional (`required: false`) in the shared contract documents
 `cache-service.yaml`, `reverse-proxy.yaml`); `file-database` carries no TLS
 field because it describes a bind-mounted file, not a network endpoint.
 
+### Reverse-proxy dynamic routes
+
+A module providing the `reverse-proxy` contract (e.g. Traefik) exposes public
+routes through its `config.routes` entries instead of Docker label
+autodiscovery: each entry declares a public `host` and a `target` module
+id (or `<module-id>.<contract-name>` when the target provides several
+`http-service` contracts). CDS resolves the target's `http-service`
+contract, cross-checks the backend address against the compose services the
+render actually produced, and writes deterministic file-provider
+configuration next to the rendered compose file; invalid routing inputs
+fail with `E136` instead of silently generating broken config.
+
+A route's optional `certificate` names a profile certificate alias
+(`spec.certificates.values`, issue #578). The alias is only a name: CDS
+never generates, reads, or embeds certificate material. For the alias to
+work, the external secret/cert provider must place the files as
+`<alias>.crt` and `<alias>.key` inside the proxy's certificate mount
+(`./certs/traefik/` for the Traefik module, mounted read-only at
+`/etc/traefik/certs/`); the generated configuration wires those paths as
+the router's certificate files. The alias is restricted to letters, digits
+and hyphens because it interpolates into those file paths.
+
 ### Conditional interpolation (`ifNonempty`)
 
 For configuration values that require delimiters or prefixes only when set (such as optional passwords in connection URIs), CDS supports conditional interpolation via `${ifNonempty:<path>,<prefix>,<suffix>}`:
