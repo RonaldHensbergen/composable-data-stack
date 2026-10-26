@@ -931,3 +931,69 @@ class WebServingModeTest(unittest.TestCase):
     def test_non_dict_web_server_block_is_ignored(self):
         inst = _inst("superset", self._web_module(), {"webServer": "development"})
         self.assertEqual(validator.validate_web_serving_mode(self._profile(), [inst]), [])
+
+
+class ModuleBackupConfigTest(unittest.TestCase):
+    """E141/E143: the built-in backup capability is production-only and
+    requires an encryption key."""
+
+    def _inst(self, backup):
+        return _inst("pg", _module(category="warehouse"), config={"backup": backup})
+
+    def _profile(self, environment="production"):
+        return {"metadata": {"environment": environment}, "spec": {}}
+
+    def test_disabled_backup_is_clean(self):
+        self.assertEqual(
+            validator.validate_module_backup_config(
+                self._profile(), [self._inst({"enabled": False})]
+            ),
+            [],
+        )
+
+    def test_enabled_without_key_reports_e141(self):
+        diagnostics = validator.validate_module_backup_config(
+            self._profile(), [self._inst({"enabled": True})]
+        )
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E141", "spec.modules[0].config.backup.encryptionKeyFrom")],
+        )
+
+    def test_enabled_with_non_secret_key_reports_e141(self):
+        diagnostics = validator.validate_module_backup_config(
+            self._profile(),
+            [self._inst({"enabled": True, "encryptionKeyFrom": "backup-key"})],
+        )
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E141", "spec.modules[0].config.backup.encryptionKeyFrom")],
+        )
+
+    def test_enabled_with_secret_ref_is_clean(self):
+        self.assertEqual(
+            validator.validate_module_backup_config(
+                self._profile(),
+                [self._inst({"enabled": True, "encryptionKeyFrom": "secrets.backup_key"})],
+            ),
+            [],
+        )
+
+    def test_absent_backup_block_is_clean(self):
+        self.assertEqual(
+            validator.validate_module_backup_config(self._profile(), [self._inst({})]),
+            [],
+        )
+
+    def test_backup_outside_production_reports_e143(self):
+        # The backup pieces are production-only (`production: true`), so
+        # enabling backup on a learning profile would silently render no
+        # backup; validation fails closed instead.
+        diagnostics = validator.validate_module_backup_config(
+            self._profile(environment="local"),
+            [self._inst({"enabled": True, "encryptionKeyFrom": "secrets.backup_key"})],
+        )
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E143", "spec.modules[0].config.backup.enabled")],
+        )

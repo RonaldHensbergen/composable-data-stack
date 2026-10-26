@@ -22,6 +22,32 @@ The format is based on Keep a Changelog.
   workers cannot race each other creating the metadata schema when the
   web process starts before the init container.
 
+## [0.14.0] - 2026-10-26
+
+### Added
+
+- Added a production/learning dividing line for module templates: a
+  `production: true|false` tag on services, volumes, and volume mounts
+  keeps the entry only in (respectively: only outside) production
+  profiles, and the `production: { ... }` mapping form merges
+  production-only fields over a service's base definition. Learning
+  profiles stay easy to install (pullable stock images, no local builds);
+  the helm target is treated as production-only for now (#665).
+
+- Added the built-in backup and disaster-recovery capability for the
+  warehouse/postgres module (#665): a pgBackRest sidecar taking scheduled
+  full and incremental backups with continuous WAL archiving
+  (point-in-time recovery) into a client-side encrypted repository
+  volume, `pgbackrest check` integrity verification after each backup,
+  retention via `config.backup.retentionDays`, and a gated one-shot
+  `postgres-restore` service; the module now provides a `backup-target`
+  contract (`postgres.backup-target`) for `spec.backup.target.contractRef`.
+  Validation fails closed with `E141` (backup enabled without an encryption
+  key reference), `E142` (backup enabled on the not-yet-supported helm
+  target), and `E143` (backup enabled outside a production profile); the
+  shipped production overlays bind the new provider. See
+  `docs/backup-restore.md` and `docs/modules.md`.
+
 - Added reverse-proxy dynamic route generation from contract bindings
   (#581): a `reverse-proxy` provider's `config.routes` entries (public
   `host`, `target` module id) render deterministic Traefik file-provider

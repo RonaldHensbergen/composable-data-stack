@@ -72,6 +72,7 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_outputs(profile, module_instances))
     diagnostics.extend(validate_observability_config(profile, module_instances))
     diagnostics.extend(validate_backup_config(profile, module_instances))
+    diagnostics.extend(validate_module_backup_config(profile, module_instances))
     diagnostics.extend(validate_authentication_config(profile, module_instances))
     diagnostics.extend(validate_web_serving_mode(profile, module_instances))
     diagnostics.extend(validate_confinement_config(profile, profile_file))
@@ -1214,6 +1215,69 @@ def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[
                     )
                 )
 
+    return diagnostics
+
+
+def validate_module_backup_config(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
+    """
+    Validates the built-in backup capability of modules that ship one (issue
+    #665, currently modules/warehouse/postgres):
+
+    - The capability is a production-only piece (`production: true` on the
+      backup sidecar and repository volume), so enabling it in a
+      non-production profile would silently render no backup at all; E143
+      fails closed and points at metadata.environment instead.
+    - When enabled, the backup repository must be client-side encrypted, so
+      a valid `backup.encryptionKeyFrom` secret reference is required
+      (E141) rather than silently producing an unencrypted repository;
+      production profiles additionally require the referenced alias to be
+      declared `required: true` via the profile-level E134 rule.
+    """
+    diagnostics: list[Diagnostic] = []
+    is_production = profile.get("metadata", {}).get("environment") == "production"
+
+    for inst in module_instances:
+        config = inst.get("config")
+        if not isinstance(config, dict):
+            continue
+        backup = config.get("backup")
+        if not isinstance(backup, dict) or backup.get("enabled") is not True:
+            continue
+
+        if not is_production:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E143",
+                    message=(
+                        "The built-in backup capability is a production-only piece: the "
+                        "backup sidecar and repository volume render only in production "
+                        "profiles. Set metadata.environment to \"production\", or disable "
+                        "config.backup.enabled."
+                    ),
+                    path=f"spec.modules[{inst['index']}].config.backup.enabled",
+                )
+            )
+            continue
+
+        key_ref = backup.get("encryptionKeyFrom")
+        path = f"spec.modules[{inst['index']}].config.backup.encryptionKeyFrom"
+        if not isinstance(key_ref, str) or not is_secret_ref(key_ref):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E141",
+                    message=(
+                        "Backup is enabled but config.backup.encryptionKeyFrom is missing or "
+                        'not a "secrets.<alias>" reference; the backup repository is encrypted '
+                        "client-side and refuses to run without a key (fail closed). Declare "
+                        "the alias under spec.secrets.values and reference it here."
+                    ),
+                    path=path,
+                )
+            )
     return diagnostics
 
 

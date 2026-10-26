@@ -1,0 +1,21 @@
+#!/bin/bash
+# images/postgres/cds-pgbackrest-get
+#
+# WAL fetcher for PostgreSQL recovery (issue #665). pgBackRest's restore
+# writes this wrapper into the restored cluster's postgresql.auto.conf as
+#
+#   restore_command = 'cds-pgbackrest-get %f "%p"'
+#
+# so PostgreSQL fetches archived WAL segments from the repository during
+# crash/point-in-time recovery. The wrapper resolves the data directory
+# from the image's PGDATA (pgBackRest requires pg1-path, and the
+# major-versioned default path must not be pinned in module templates);
+# the repository location, cipher settings, and stanza come from the
+# PGBACKREST_* environment variables of the postgres service.
+
+set -u
+
+export HOME=/tmp
+export PGBACKREST_PG1_PATH="${PGDATA:-/var/lib/postgresql/18/docker}"
+
+exec pgbackrest --stanza="${PGBACKREST_STANZA:-cds}" archive-get "$@"

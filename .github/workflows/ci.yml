@@ -90,7 +90,10 @@ jobs:
 
   sonarcloud:
     needs: test
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # Dependabot-triggered runs receive no repository secrets, so the scan
+    # would fail "Not authorized" on every pure-dependabot PR (see #970);
+    # a lockfile bump has no analysis value anyway.
+    if: github.actor != 'dependabot[bot]' && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
