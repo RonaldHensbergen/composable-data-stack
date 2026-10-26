@@ -38,6 +38,27 @@ spec:
           the admin console is reachable from the local machine only. Use
           an SSH tunnel, port-forward, or a reverse-proxy/ingress module
           for access beyond localhost.
+      webServer:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          mode:
+            type: string
+            enum:
+              - production
+              - development
+            default: development
+            description: >
+              Web serving mode (issue #216). "development" (default while
+              this module is productionSuitable: false) starts Keycloak
+              in development mode (`start-dev`), which relaxes hostname
+              and TLS requirements. "production" starts Keycloak in
+              production mode (`kc.sh start --http-enabled=true`), keeping
+              the localhost-only HTTP bind for the reverse-proxy/ingress in
+              front of it. Production profiles reject the development mode
+              (E140) and this module altogether (CDS-SEC-073) until it is
+              production-suitable.
       metadataDatabase:
         type: object
         additionalProperties: false
@@ -116,8 +137,28 @@ spec:
             - /opt/keycloak/data:rw,noexec,nosuid,nodev,uid=1000,gid=0,mode=0700
           volumes:
             - keycloak-quarkus:/opt/keycloak/lib/quarkus
-          command:
-            - start-dev
+          command: []
+          # CDS's renderer only processes ${...} expressions, so the $$ escape
+          # below reaches Docker Compose untouched and Compose hands a literal
+          # ${CDS_WEBSERVER_MODE:-production} to /bin/bash in the container.
+          # Without the escape Compose interpolates the placeholder itself at
+          # up time from the *host* environment (defaulting it to "production"
+          # there) and the rendered CDS_WEBSERVER_MODE environment entry below
+          # would never be consulted (keydb uses the same escape).
+          entrypoint:
+            - /bin/bash
+            - -ec
+            - |
+              if [ "$${CDS_WEBSERVER_MODE:-production}" = "development" ]; then
+                  exec /opt/keycloak/bin/kc.sh start-dev
+              fi
+              # Plain HTTP on the localhost-only bind for the TLS-terminating
+              # reverse proxy in front (docs/serving-modes.md). Keycloak's
+              # production mode refuses to start without a hostname
+              # ("hostname is not configured") until KC hostname/proxy-header
+              # configuration lands with the reverse-proxy contract work
+              # (#579/#581), so hostname-strict stays relaxed here.
+              exec /opt/keycloak/bin/kc.sh start --http-enabled=true --hostname-strict=false
           ports:
             - "127.0.0.1:${config.httpPort}:8080"
           environment:
@@ -130,6 +171,7 @@ spec:
             KC_BOOTSTRAP_ADMIN_USERNAME: "${config.adminUser.username}"
             KC_BOOTSTRAP_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
             KC_HEALTH_ENABLED: "true"
+            CDS_WEBSERVER_MODE: "${config.webServer.mode}"
           healthcheck:
             conditionallyEnabledFrom: config.healthcheck.enabled
             test:
