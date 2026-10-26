@@ -116,7 +116,13 @@ def resolve_connection_uri(prefix: str, env: Mapping[str, str]) -> str:
 
 def _build_network_uri(prefix: str, scheme: str, backend: str, env: Mapping[str, str]) -> str:
     host = env.get(f"{prefix}_HOST")
-    port = env.get(f"{prefix}_PORT") or _DEFAULT_PORTS[backend]
+    port_value = env.get(f"{prefix}_PORT")
+    if port_value and not port_value.isdigit():
+        raise MissingConnectionSettingsError(
+            f"Database connection with prefix {prefix} has an invalid port: "
+            f"{prefix}_PORT must be a positive integer."
+        )
+    port = port_value or _DEFAULT_PORTS[backend]
     database = env.get(f"{prefix}_DATABASE")
     username = env.get(f"{prefix}_USERNAME")
     password = env.get(f"{prefix}_PASSWORD")
@@ -147,6 +153,6 @@ def _build_sqlite_uri(prefix: str, env: Mapping[str, str]) -> str:
         )
     if path == ":memory:":
         return "sqlite:///:memory:"
-    if path.startswith("/"):
-        return f"sqlite:///{path}"
+    # ``sqlite:///`` plus the path yields four slashes for absolute paths
+    # (/x/y) and a relative path otherwise; both are valid SQLite URLs.
     return f"sqlite:///{path}"

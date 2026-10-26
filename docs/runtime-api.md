@@ -93,11 +93,14 @@ is side-effect free; the engine is created lazily on the first operation.
 The connection object is a context manager (`with connections.database("analytics") as db:` closes the engine on exit).
 
 Errors are typed and safe to log: `UnknownConnectionError`,
-`MissingConnectionSettingsError`, `DriverUnavailableError`, and
-`QueryExecutionError`, all subclasses of `CdsRuntimeError`. Resolution
-failures name the missing environment *variables*, never their values;
-query failures wrap the driver error with the connection password
-redacted; and `repr()` of a connection carries no configuration at all.
+`MissingConnectionSettingsError`, `DriverUnavailableError`,
+`ConnectionSetupError`, and `QueryExecutionError`, all subclasses of
+`CdsRuntimeError`. Resolution failures name the missing environment
+*variables*, never their values; engine-creation failures
+(`ConnectionSetupError`) and query failures wrap the underlying error
+with the connection password and any URI-shaped substring the driver
+echoed redacted; and `repr()` of a connection carries no configuration
+at all.
 
 ## Secrets and rotation
 

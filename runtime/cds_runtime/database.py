@@ -8,8 +8,13 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
 
-from .errors import CdsRuntimeError, DriverUnavailableError, QueryExecutionError
-from .redaction import looks_like_uri, redact_secret, redact_uri
+from .errors import (
+    CdsRuntimeError,
+    ConnectionSetupError,
+    DriverUnavailableError,
+    QueryExecutionError,
+)
+from .redaction import redact_secret, redact_uri, redact_uris_in_text
 from .resolution import env_prefix_for, resolve_connection_uri
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -73,7 +78,8 @@ class DatabaseConnection:
 
         Engine options apply at first creation only; later calls return the
         cached engine. Raises DriverUnavailableError when SQLAlchemy or the
-        backend driver is missing.
+        backend driver is missing, and ConnectionSetupError for invalid
+        connection configuration (e.g. an unparsable URI).
         """
         if self._engine is None:
             sqlalchemy = _load_sqlalchemy()
@@ -84,6 +90,11 @@ class DatabaseConnection:
                     f"The database driver for connection {self.name!r} is not installed: "
                     f"{exc}. Install the matching cds-runtime extra (postgresql/mysql) "
                     "or provide the driver in the workload image."
+                ) from exc
+            except Exception as exc:
+                raise ConnectionSetupError(
+                    f"Creating the engine for database connection {self.name!r} failed: "
+                    f"{self._redacted_message(exc)}."
                 ) from exc
         return self._engine
 
@@ -109,10 +120,12 @@ class DatabaseConnection:
         """Bulk-insert homogeneous rows into a table, in batches.
 
         Column names are validated SQL identifiers and quoted; values are
-        always bound parameters. All rows must carry the same keys. Each
-        batch commits as one transaction; the total number of inserted
-        rows is returned (or -1 when the driver does not report row
-        counts for batched inserts).
+        always bound parameters. All rows must carry the same keys. The
+        inserts are sent in batches of ``batch_size`` (bounding statement
+        size), but the whole call is one atomic transaction: it commits
+        once at the end and rolls back entirely on any failure. The total
+        number of inserted rows is returned (or -1 when the driver does
+        not report row counts for batched inserts).
         """
         if not rows:
             return 0
@@ -201,14 +214,21 @@ class DatabaseConnection:
         except Exception as exc:
             raise self._query_error(exc) from exc
 
-    def _query_error(self, exc: Exception) -> QueryExecutionError:
-        """Wrap a driver failure with the connection password redacted."""
+    def _redacted_message(self, exc: Exception) -> str:
+        """Render an exception message with every secret redacted.
+
+        Removes the connection password (when configured as a separate
+        environment variable) and masks any URI-shaped substring the
+        driver may have echoed, wherever it appears in the message.
+        """
         password = self._env.get(f"{self._prefix}_PASSWORD")
         message = redact_secret(f"{type(exc).__name__}: {exc}", password)
-        if looks_like_uri(message):
-            message = redact_uri(message)
+        return redact_uris_in_text(message)
+
+    def _query_error(self, exc: Exception) -> QueryExecutionError:
+        """Wrap a driver failure with the connection password redacted."""
         return QueryExecutionError(
-            f"Database operation on connection {self.name!r} failed: {message}."
+            f"Database operation on connection {self.name!r} failed: {self._redacted_message(exc)}."
         )
 
 

@@ -27,6 +27,15 @@ class DriverUnavailableError(CdsRuntimeError):
     """SQLAlchemy or the connection's database driver is not installed."""
 
 
+class ConnectionSetupError(CdsRuntimeError):
+    """Creating the connection's engine failed (invalid URI or configuration).
+
+    The wrapped error message has known secret values and every
+    URI-shaped substring redacted before it reaches this error, so it is
+    safe to print in logs.
+    """
+
+
 class QueryExecutionError(CdsRuntimeError):
     """A database operation failed.
 
