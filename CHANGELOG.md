@@ -12,8 +12,10 @@ The format is based on Keep a Changelog.
   with #665: the `production: { ... }` mapping form on a volume-mount
   entry was silently ignored and leaked its key into the rendered Compose
   output (and mounted unconditionally on the helm target). Validation now
-  fails closed with `E144`; the mapping form is only valid on services and
-  volume definitions (#958 post-merge review).
+  fails closed with `E144` — covering mount entries both in a service's
+  base `volumes` list and nested inside its `production` mapping; the
+  mapping form is only valid on services and volume definitions
+  (#958 post-merge review).
 
 ### Added
 

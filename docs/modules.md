@@ -339,9 +339,10 @@ Two forms of the tag, distinguished by type:
   the entry only in production profiles; **`production: false`** keeps it
   only outside them. Entries carrying both `production` and `enabledFrom`
   must match both gates. The mapping form is **not** valid on volume-mount
-  entries (only on services and volume definitions); using it there fails
-  validation with `E144` instead of silently leaking into the rendered
-  output.
+  entries (only on services and volume definitions) — this includes mount
+  entries nested inside a service's `production: { ... }` mapping; using
+  it there fails validation with `E144` instead of silently leaking into
+  the rendered output.
 - **`production: { ... }`** (mapping form) on a service marks the enclosed
   fields as production-only overrides of the service's base fields. A
   service is a single YAML key, so its learning and production variants

@@ -1026,6 +1026,60 @@ class ProductionMarkerShapeTest(unittest.TestCase):
         )
         self.assertEqual(
             _codes(diagnostics),
-            [("E144", "module:db.implementation.compose.services.db.volumes[0].production")],
+            [
+                (
+                    "E144",
+                    "module:db.spec.implementation.compose.services.db.volumes[0].production",
+                )
+            ],
         )
         self.assertIn("mapping form", diagnostics[0].message)
+
+    def test_volume_item_inside_production_mapping_with_mapping_marker_reports_e144(self):
+        module = self._module([])
+        module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = {
+            "volumes": [
+                {
+                    "type": "volume",
+                    "source": "data",
+                    "target": "/data",
+                    "production": {"read_only": True},
+                }
+            ]
+        }
+        diagnostics = validator.validate_module_production_markers([_inst("db", module)])
+        self.assertEqual(
+            _codes(diagnostics),
+            [
+                (
+                    "E144",
+                    "module:db.spec.implementation.compose.services.db."
+                    "production.volumes[0].production",
+                )
+            ],
+        )
+
+    def test_volume_item_inside_production_mapping_with_boolean_marker_is_clean(self):
+        module = self._module([])
+        module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = {
+            "volumes": [
+                {
+                    "type": "volume",
+                    "source": "data",
+                    "target": "/data",
+                    "production": True,
+                }
+            ]
+        }
+        diagnostics = validator.validate_module_production_markers([_inst("db", module)])
+        self.assertEqual(diagnostics, [])
+
+    def test_service_level_mapping_marker_is_clean(self):
+        module = self._module(
+            [{"type": "volume", "source": "data", "target": "/data"}]
+        )
+        module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = {
+            "image": "postgres:18-alpine"
+        }
+        diagnostics = validator.validate_module_production_markers([_inst("db", module)])
+        self.assertEqual(diagnostics, [])
