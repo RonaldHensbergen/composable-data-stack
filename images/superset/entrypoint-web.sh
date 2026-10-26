@@ -5,7 +5,10 @@ set -e
 # worker/timeout settings from the module's webServer config; development
 # uses Superset's built-in development server.
 MODE="${CDS_WEBSERVER_MODE:-production}"
-PORT="${CDS_WEBSERVER_PORT:-8088}"
+# The container port is fixed at 8088: the module's compose port mapping,
+# healthcheck, and helm containerPort all target 8088, and config.webPort
+# only selects the host-side port, so the server must not be repointable.
+PORT=8088
 
 if [ "$MODE" = "development" ]; then
     exec superset run -p "$PORT" --host 0.0.0.0
