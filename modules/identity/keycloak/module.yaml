@@ -138,14 +138,27 @@ spec:
           volumes:
             - keycloak-quarkus:/opt/keycloak/lib/quarkus
           command: []
+          # CDS's renderer only processes ${...} expressions, so the $$ escape
+          # below reaches Docker Compose untouched and Compose hands a literal
+          # ${CDS_WEBSERVER_MODE:-production} to /bin/bash in the container.
+          # Without the escape Compose interpolates the placeholder itself at
+          # up time from the *host* environment (defaulting it to "production"
+          # there) and the rendered CDS_WEBSERVER_MODE environment entry below
+          # would never be consulted (keydb uses the same escape).
           entrypoint:
             - /bin/bash
             - -ec
             - |
-              if [ "${CDS_WEBSERVER_MODE:-production}" = "development" ]; then
+              if [ "$${CDS_WEBSERVER_MODE:-production}" = "development" ]; then
                   exec /opt/keycloak/bin/kc.sh start-dev
               fi
-              exec /opt/keycloak/bin/kc.sh start --http-enabled=true
+              # Plain HTTP on the localhost-only bind for the TLS-terminating
+              # reverse proxy in front (docs/serving-modes.md). Keycloak's
+              # production mode refuses to start without a hostname
+              # ("hostname is not configured") until KC hostname/proxy-header
+              # configuration lands with the reverse-proxy contract work
+              # (#579/#581), so hostname-strict stays relaxed here.
+              exec /opt/keycloak/bin/kc.sh start --http-enabled=true --hostname-strict=false
           ports:
             - "127.0.0.1:${config.httpPort}:8080"
           environment:

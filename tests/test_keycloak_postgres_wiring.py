@@ -167,6 +167,56 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                 )
                 self.assertEqual(keycloak_env["KC_BOOTSTRAP_ADMIN_USERNAME"], "admin")
 
+    def test_entrypoint_reads_container_env_via_compose_escape(self):
+        # The serving-mode switch lives in an inline entrypoint script, so the
+        # mode placeholder must reach the container as a literal
+        # ${CDS_WEBSERVER_MODE:-production} that /bin/bash resolves against
+        # the service's own environment entry. If the $$ escape were lost,
+        # Docker Compose would interpolate the placeholder itself at up time
+        # from the *host* environment (defaulting it to "production" there)
+        # and the rendered CDS_WEBSERVER_MODE environment entry would never
+        # be consulted -- the module default ("development") would silently
+        # become production mode on every `cds up`.
+        with tempfile.TemporaryDirectory() as root:
+            profile_dir = Path(root)
+            profile_file = self._write_profile(profile_dir)
+
+            env_file = profile_dir / ".env"
+            env_file.write_text(
+                "CDS_IDENTITY_DB_PASSWORD=identity_testpass\n"
+                "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser_testpass\n"
+                "CDS_KEYCLOAK_ADMIN_PASSWORD=admin_testpass\n",
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict(
+                "os.environ", {"CDS_MODULE_PATH": str(_REPO_ROOT)}, clear=False
+            ):
+                plan, _ = build_plan(str(profile_file), env_file=str(env_file))
+                self.assertIsNotNone(plan)
+                output, render_diags = render_compose(plan, env_file=str(env_file))
+                self.assertEqual(
+                    [d for d in render_diags if d.level == "error"], [],
+                    msg=f"unexpected render errors: {render_diags}",
+                )
+
+                compose = yaml.safe_load(output)
+                service = compose["services"]["keycloak"]
+                script = "\n".join(str(line) for line in service["entrypoint"])
+                # Every mode placeholder must carry the $$ escape; a bare
+                # unescaped ${...} would let Compose hijack the mode switch.
+                bare = script.replace("$${CDS_WEBSERVER_MODE:-production}", "")
+                self.assertNotIn("${CDS_WEBSERVER_MODE", bare)
+                self.assertIn("$${CDS_WEBSERVER_MODE:-production}", script)
+
+                # The rendered mode the script will read at container runtime
+                # is the module's configSchema default (development).
+                self.assertEqual(service["environment"]["CDS_WEBSERVER_MODE"], "development")
+
+                # Production mode must boot without a configured hostname
+                # (plain-HTTP-behind-proxy topology, docs/serving-modes.md).
+                self.assertIn("--hostname-strict=false", script)
+
     def test_host_port_binds_localhost_and_honors_config(self):
         with tempfile.TemporaryDirectory() as root:
             profile_dir = Path(root)
