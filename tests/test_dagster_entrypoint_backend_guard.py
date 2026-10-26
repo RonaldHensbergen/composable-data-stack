@@ -98,9 +98,10 @@ def run_shell_script(
 
     Under the WSL tier the script is fed via stdin and the environment is
     forwarded through WSLENV: path-like variables are translated to WSL
-    form, and local CDS_* variables are stripped so the subprocess stays
-    hermetic against the caller's environment. WSL runs get a larger
-    timeout to absorb cold-start latency.
+    form, and CDS_* variables -- from the caller's environment and from
+    `env` -- are stripped so the subprocess stays hermetic. An inherited
+    WSLENV is appended to, not replaced. WSL runs get a larger timeout
+    to absorb cold-start latency.
     """
     if _is_wsl_shell(shell):
         forwarded = {
@@ -108,8 +109,15 @@ def run_shell_script(
             for key, value in os.environ.items()
             if not key.startswith("CDS_")
         }
-        forwarded.update(env)
-        forwarded["WSLENV"] = _wslenv_for(env)
+        clean_env = {
+            key: value
+            for key, value in env.items()
+            if not key.startswith("CDS_")
+        }
+        forwarded.update(clean_env)
+        wslenv = _wslenv_for(clean_env)
+        inherited = forwarded.get("WSLENV")
+        forwarded["WSLENV"] = f"{inherited}:{wslenv}" if inherited else wslenv
         return subprocess.run(
             [*shell, *flags, "-s"],
             env=forwarded,
@@ -383,7 +391,11 @@ class WslShellTierTest(unittest.TestCase):
             run_shell_script(
                 shell,
                 "echo hi\n",
-                {"DAGSTER_HOME": r"C:\tmp", "DB_BACKEND": "sqlite"},
+                {
+                    "DAGSTER_HOME": r"C:\tmp",
+                    "DB_BACKEND": "sqlite",
+                    "CDS_PROFILE_PATH": "leak",
+                },
             )
 
         run.assert_called_once()
@@ -397,6 +409,18 @@ class WslShellTierTest(unittest.TestCase):
         self.assertNotIn("CDS_PROFILE_PATH", kwargs["env"])
         self.assertEqual(kwargs["env"]["SystemRoot"], r"C:\Windows")
         self.assertGreaterEqual(kwargs["timeout"], 20)
+
+    def test_run_shell_script_wsl_mode_appends_inherited_wslenv(self) -> None:
+        shell = [r"C:\Windows\System32\wsl.exe", "-e", "sh"]
+        with (
+            mock.patch("os.environ", {"WSLENV": "FOO/u"}),
+            mock.patch("subprocess.run") as run,
+        ):
+            run_shell_script(shell, "echo hi", {"DB_BACKEND": "sqlite"})
+
+        run.assert_called_once()
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(env["WSLENV"], "FOO/u:DB_BACKEND")
 
     def test_run_shell_script_native_mode_is_unchanged(self) -> None:
         with mock.patch("subprocess.run") as run:
