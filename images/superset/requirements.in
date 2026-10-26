@@ -6,7 +6,8 @@ msgpack>=1.2.1
 packaging<27
 Pillow>=13.0.0
 pyOpenSSL>=26.0.0
-pyarrow>=23.0.1
+# pyarrow 26 requires numpy>=2.0; the apache/superset:6.1.0 base image ships numpy 1.26.4
+pyarrow>=23.0.1,<26
 pyasn1>=0.6.4
 setuptools>=83.0.0
 urllib3>=2.7.0
