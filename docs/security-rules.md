@@ -112,7 +112,10 @@ and participate in `cds security --group-by-category` and the new
 
 ## Warnings
 
-| Code | Description                                                              | Severity |
-|------|--------------------------------------------------------------------------|----------|
-| W103 | Runtime policy waiver suppressed violations for production profile.      | Warning  |
-| W104 | Runtime policy waiver is set but has no effect (non-production profile). | Warning  |
+| Code | Description                                                                                         | Severity |
+|------|-----------------------------------------------------------------------------------------------------|----------|
+| W096 | Rendered-compose security checks were skipped because the profile could not be planned or rendered. | Warning  |
+| W098 | Plaintext endpoint exposure waiver suppressed violations for production profile.                    | Warning  |
+| W099 | Plaintext endpoint exposure waiver is set but has no effect (non-production profile).               | Warning  |
+| W103 | Runtime policy waiver suppressed violations for production profile.                                 | Warning  |
+| W104 | Runtime policy waiver is set but has no effect (non-production profile).                            | Warning  |

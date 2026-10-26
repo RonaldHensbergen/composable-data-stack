@@ -107,6 +107,61 @@ spec:
               - trust
             default: scram-sha-256
 
+      backup:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Built-in backup and disaster-recovery capability (issue #665,
+          docs/backup-restore.md): a pgBackRest sidecar service taking
+          scheduled full and incremental backups plus continuous WAL
+          archiving (point-in-time recovery) into an encrypted repository
+          volume, with a gated one-shot restore service. Encryption is
+          mandatory: enabling backup without a key fails validation (E141).
+          Not yet implemented for the helm render target (E142).
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: >-
+              Enables the postgres-backup sidecar, WAL archiving, and the
+              postgres-backup-repo repository volume. Also advertises the
+              backup-target contract this module provides.
+          encryptionKeyFrom:
+            type: string
+            pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+            description: >-
+              Secret-alias reference to the client-side repository
+              encryption key (aes-256-cbc). Required when enabled (E141);
+              the alias must be declared required: true in production
+              (E134 via spec.backup.encryption).
+          incrementalIntervalMinutes:
+            type: integer
+            minimum: 5
+            maximum: 1440
+            default: 60
+            description: >-
+              Minutes between incremental backups. WAL is archived
+              continuously, so the recovery point objective is the WAL
+              archiving lag, not this interval.
+          fullBackupIntervalHours:
+            type: integer
+            minimum: 1
+            maximum: 168
+            default: 24
+            description: >-
+              Hours between full backups (anchored to sidecar start; a
+              sidecar restart begins with a fresh full backup).
+          retentionDays:
+            type: integer
+            minimum: 1
+            maximum: 3650
+            default: 30
+            description: >-
+              Days a restore point (and its WAL) is retained in the
+              repository; advertised as maxRetentionDays on the
+              backup-target contract.
+
       dagsterDatabase:
         type: object
         additionalProperties: false
@@ -247,6 +302,17 @@ spec:
           classification: ${config.dataProvider.classification}
           accessConditions: ${config.dataProvider.accessConditions}
           licence: ${config.dataProvider.licence}
+
+    - name: backup-target
+      contract:
+        kind: backup-target
+        spec:
+          endpoint: ${service.host}
+          repository: postgres-backup-repo
+          protocol: file
+          encrypted: true
+          maxRetentionDays: ${config.backup.retentionDays}
+          supportsRestoreVerification: true
   implementation:
     kind: docker-compose
     targets:
@@ -254,6 +320,10 @@ spec:
       - kubernetes
     compose:
       services:
+        # Learning/dev base variant: the pinned stock image, zero local
+        # builds, so `cds up` on a learning profile only pulls. The
+        # production-only pieces below replace these fields in production
+        # profiles (production: mapping form; see apply_production_gates).
         postgres:
           image: postgres:18@sha256:32ca0af8e77bfb8c6610c488e4691f83f972a3e9e64d3b02facf3ab111ad5500
           user: postgres
@@ -290,10 +360,168 @@ spec:
             timeout: 5s
             retries: 10
             start_period: 30s
+          # Production pieces (issue #665): the hardened local build with
+          # pgBackRest (continuous WAL archiving for the backup capability)
+          # replaces the stock image; environment entries merge over the
+          # base environment, and the volumes list is replaced wholesale so
+          # it repeats the base mounts plus the backup repository.
+          production:
+            image: local/postgres:custom
+            build:
+              context: ../../../
+              dockerfile: images/postgres/Dockerfile
+            # archive_mode stays on in production; cds-pgbackrest-archive
+            # (baked into images/postgres) pushes segments into the
+            # pgBackRest repository only when the profile enables the
+            # backup capability, and exits 0 otherwise so PostgreSQL
+            # recycles WAL normally. The backup sidecar reaches this
+            # cluster in pgBackRest local mode through the second unix
+            # socket directory (the shared data volume's root,
+            # version-independent); pgBackRest does not make TCP database
+            # connections, and the scripts resolve PGDATA from the image's
+            # environment.
+            command:
+              - postgres
+              - -c
+              - archive_mode=on
+              - -c
+              - archive_command=cds-pgbackrest-archive %p
+              - -c
+              - unix_socket_directories=/var/run/postgresql,/var/lib/postgresql
+            environment:
+              CDS_BACKUP_ENABLED: "${config.backup.enabled}"
+              PGBACKREST_STANZA: cds
+              PGBACKREST_LOG_PATH: /tmp
+              PGBACKREST_REPO1_PATH: /var/lib/pgbackrest
+              PGBACKREST_REPO1_CIPHER_TYPE: aes-256-cbc
+              PGBACKREST_REPO1_CIPHER_PASS: "${ifNonempty:config.backup.encryptionKeyFrom,,}"
+              PGBACKREST_REPO1_RETENTION_FULL: "${config.backup.retentionDays}"
+              PGBACKREST_REPO1_RETENTION_FULL_TYPE: time
+            volumes:
+              - type: bind
+                source: "${config.initDbScript}"
+                target: "/docker-entrypoint-initdb.d/${config.initDbScript}"
+                read_only: true
+              - postgres-data:/var/lib/postgresql
+              - type: volume
+                source: postgres-backup-repo
+                target: /var/lib/pgbackrest
+                enabledFrom: config.backup.enabled
+
+        # Backup sidecar (issue #665): pgBackRest full/incremental backups
+        # plus `check` integrity verification on a schedule; WAL archiving
+        # runs in the postgres service. Production-only piece; reads the
+        # data directory read-only, restores go through the gated
+        # postgres-restore service.
+        postgres-backup:
+          production: true
+          enabledFrom: config.backup.enabled
+          image: local/postgres:custom
+          user: postgres
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 128
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=1777
+          depends_on:
+            postgres:
+              condition: service_healthy
+          entrypoint:
+            - cds-backup-scheduler
+          environment:
+            PGBACKREST_STANZA: cds
+            PGBACKREST_LOG_PATH: /tmp
+            PGBACKREST_REPO1_PATH: /var/lib/pgbackrest
+            PGBACKREST_REPO1_CIPHER_TYPE: aes-256-cbc
+            PGBACKREST_REPO1_CIPHER_PASS: "${ifNonempty:config.backup.encryptionKeyFrom,,}"
+            PGBACKREST_REPO1_RETENTION_FULL: "${config.backup.retentionDays}"
+            PGBACKREST_REPO1_RETENTION_FULL_TYPE: time
+            # The cluster uses --auth-local=password, so even socket
+            # connections authenticate; pgBackRest picks this up via libpq.
+            PGPASSWORD: "${config.superuserPasswordFrom}"
+            CDS_BACKUP_INCREMENTAL_MINUTES: "${config.backup.incrementalIntervalMinutes}"
+            CDS_BACKUP_FULL_HOURS: "${config.backup.fullBackupIntervalHours}"
+          volumes:
+            - type: volume
+              source: postgres-data
+              target: /var/lib/postgresql
+              read_only: true
+            - type: volume
+              source: postgres-backup-repo
+              target: /var/lib/pgbackrest
+          healthcheck:
+            disable: true
+
+        # One-shot restore service (issue #665). Inactive unless the
+        # cds-restore profile is activated, so `docker compose up` never
+        # starts it; run it with its default command, e.g.
+        #   docker compose stop postgres
+        #   docker compose --profile cds-restore run --rm postgres-restore
+        #   docker compose start postgres
+        # Extra arguments replace the default command wholesale, so repeat
+        # the --recovery-option flags when overriding (see below).
+        # See docs/backup-restore.md for the full procedure and the clean
+        # environment used for restore verification. Production-only piece.
+        postgres-restore:
+          production: true
+          enabledFrom: config.backup.enabled
+          profiles:
+            - cds-restore
+          image: local/postgres:custom
+          user: postgres
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 128
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=1777
+          restart: "no"
+          entrypoint:
+            - cds-restore
+          # --recovery-option makes pgBackRest write the recovery settings
+          # itself: archive_mode on, recovery.signal, and a restore_command
+          # pointing at the cds-pgbackrest-get wrapper (which resolves the
+          # data directory from the image's PGDATA at recovery time). The
+          # restored cluster replays WAL from the encrypted repository up
+          # to the latest archived segment.
+          command:
+            - --stanza=cds
+            - --delta
+            - --recovery-option=archive_mode=on
+            - --recovery-option=restore_command=cds-pgbackrest-get %f "%p"
+            - restore
+          environment:
+            PGBACKREST_STANZA: cds
+            PGBACKREST_LOG_PATH: /tmp
+            PGBACKREST_REPO1_PATH: /var/lib/pgbackrest
+            PGBACKREST_REPO1_CIPHER_TYPE: aes-256-cbc
+            PGBACKREST_REPO1_CIPHER_PASS: "${ifNonempty:config.backup.encryptionKeyFrom,,}"
+          volumes:
+            - type: volume
+              source: postgres-data
+              target: /var/lib/postgresql
+            - type: volume
+              source: postgres-backup-repo
+              target: /var/lib/pgbackrest
+              read_only: true
+          healthcheck:
+            disable: true
 
       volumes:
         postgres-data:
           enabledFrom: config.storage.enabled
+        # Production-only repository volume for the pgBackRest backups.
+        postgres-backup-repo:
+          production: true
+          enabledFrom: config.backup.enabled
+
 
     kubernetes:
       workloads:

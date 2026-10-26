@@ -38,6 +38,7 @@ from .renderer import (
     _resolve_profile_dir,
     _resolve_project_root,
     _substitute_values,
+    apply_production_gates,
 )
 from .secret_leak import (
     check_generated_text,
@@ -133,6 +134,28 @@ def render_helm(
     # ${k8s.service.*} can point forward to a workload declared later.
     service_names = _collect_service_names(renderable)
     diagnostics.extend(_check_binding_services(renderable, service_names))
+
+    # The built-in backup capability (config.backup.enabled, issue #665) is
+    # only implemented for the compose target: there is no Kubernetes
+    # sidecar workload yet. Fail closed instead of rendering a chart whose
+    # database is silently unprotected.
+    for module in renderable:
+        backup_config = (module.get("config") or {}).get("backup")
+        if isinstance(backup_config, dict) and backup_config.get("enabled") is True:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E142",
+                    message=(
+                        f'Module "{module["id"]}" enables config.backup.enabled, but the '
+                        'backup capability is not implemented for the "helm" render target '
+                        "(no Kubernetes sidecar workload exists yet). Render this profile "
+                        "with --target=compose, or disable backup for Kubernetes deploys."
+                    ),
+                    path=f"module:{module['id']}.config.backup.enabled",
+                )
+            )
+
     if any(diagnostic.level == "error" for diagnostic in diagnostics):
         return {}, diagnostics
 
@@ -157,8 +180,13 @@ def render_helm(
             "service": _service_context(module, service_names)
         }
         _release_scope_binding_hosts(context, service_names)
-        compose_services = deepcopy(
-            module["implementation"].get("compose", {}).get("services", {})
+        # The helm target is treated as production-only for now: Kubernetes
+        # deploys always render the production variants, regardless of the
+        # profile's metadata.environment. The learning (easy-install)
+        # variants exist for the compose target.
+        compose_services = apply_production_gates(
+            deepcopy(module["implementation"].get("compose", {}).get("services", {})),
+            True,
         )
         _merge_init_db_env(compose_services, module, secrets)
 
@@ -178,6 +206,7 @@ def render_helm(
             service_names=service_names,
             profile_dir=profile_dir,
             project_root=project_root,
+            is_production=True,
         )
         values["modules"][module_id] = {
             "config": _values_config(module.get("config", {})),
@@ -235,6 +264,7 @@ def _render_module(
     service_names: dict[str, str],
     profile_dir: Path | None,
     project_root: Path | None,
+    is_production: bool = False,
 ) -> tuple[
     dict[str, Any],
     list[tuple[str, dict[str, Any]]],
@@ -248,12 +278,16 @@ def _render_module(
     secret_keys: set[str] = set()
     module_values: dict[str, Any] = {}
 
-    volume_specs = _substitute_values(deepcopy(k8s.get("volumes", {})), context)
+    volume_specs = apply_production_gates(
+        _substitute_values(deepcopy(k8s.get("volumes", {})), context), is_production
+    )
+    configmap_specs = apply_production_gates(
+        _substitute_values(deepcopy(k8s.get("configMaps", {})), context), is_production
+    )
     for volume_spec in volume_specs.values():
         enabled_from = volume_spec.get("enabledFrom")
         if isinstance(enabled_from, str):
             volume_spec["enabledFrom"] = _resolve_expr(enabled_from, context)
-    configmap_specs = _substitute_values(deepcopy(k8s.get("configMaps", {})), context)
 
     # ConfigMaps are module-scoped: one manifest, mounted by whichever
     # containers name it.
@@ -321,6 +355,7 @@ def _render_module(
                 pod_volumes,
                 pvcs,
                 is_init=True,
+                is_production=is_production,
             )
             secret_keys |= keys
             init_containers.append(container)
@@ -344,6 +379,7 @@ def _render_module(
                 pod_volumes,
                 pvcs,
                 is_init=False,
+                is_production=is_production,
             )
             secret_keys |= keys
             containers.append(container)
@@ -448,6 +484,7 @@ def _translate_container(
     pod_volumes: dict[str, dict[str, Any]],
     pvcs: dict[str, dict[str, Any]],
     is_init: bool,
+    is_production: bool = False,
 ) -> tuple[dict[str, Any], dict, dict, set[str]]:
     spec = _substitute_values(deepcopy(spec), context)
     spec.pop("enabledFrom", None)
@@ -511,6 +548,7 @@ def _translate_container(
         pvcs,
         overrides.get("dropVolumeMounts", []) or [],
         context=context,
+        is_production=is_production,
     )
     if mounts:
         container["volumeMounts"] = mounts
@@ -746,6 +784,7 @@ def _translate_volumes(
     pvcs: dict[str, dict[str, Any]],
     drop_mounts: list[str],
     context: dict[str, Any] | None = None,
+    is_production: bool = False,
 ) -> list[dict[str, Any]]:
     mounts: list[dict[str, Any]] = []
     dropped = {str(d).rstrip("/") for d in drop_mounts}
@@ -761,6 +800,9 @@ def _translate_volumes(
         mounts.append({"name": name, "mountPath": path})
 
     for entry in spec.get("volumes", []) or []:
+        if isinstance(entry, dict) and isinstance(entry.get("production"), bool):
+            if entry["production"] != is_production:
+                continue
         source, target, read_only, kind = _parse_volume_entry(entry)
         if target is None or target.rstrip("/") in dropped:
             continue

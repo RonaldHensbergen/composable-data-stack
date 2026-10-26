@@ -332,6 +332,29 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
         self.assertEqual(files, {})
         self.assertIn("E072", {diagnostic.code for diagnostic in diagnostics})
 
+    def test_backup_capability_is_rejected_for_helm_target(self) -> None:
+        # The built-in backup capability (issue #665) has no Kubernetes
+        # sidecar workload yet; enabling it must fail closed instead of
+        # rendering a chart whose database is silently unprotected.
+        plan = self.minimal_plan()
+        plan["modules"][0]["config"]["backup"] = {"enabled": True}
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        matching = [d for d in diagnostics if d.code == "E142"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0].path, "module:demo.config.backup.enabled")
+
+    def test_disabled_backup_capability_renders_helm(self) -> None:
+        plan = self.minimal_plan()
+        plan["modules"][0]["config"]["backup"] = {"enabled": False}
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertIn("templates/demo-app-statefulset.yaml", files)
+
     def test_disabled_storage_and_healthcheck_emit_neither_claim_nor_probes(
         self,
     ) -> None:

@@ -1,0 +1,101 @@
+#!/bin/bash
+# images/postgres/cds-backup-scheduler
+#
+# Entrypoint of the warehouse/postgres backup sidecar (issue #665).
+# Configuration comes entirely from PGBACKREST_*/CDS_BACKUP_* environment
+# variables rendered by the module; no pgbackrest.conf is used.
+#
+# Schedule:
+#   1. Wait for the database to accept pgBackRest's stanza checks, then
+#      create the stanza (idempotent) and take an initial full backup.
+#   2. Take an incremental backup every CDS_BACKUP_INCREMENTAL_MINUTES
+#      (WAL is archived continuously by cds-pgbackrest-archive, so the recovery
+#      point objective is the WAL archiving lag, not this interval).
+#   3. Take a full backup every CDS_BACKUP_FULL_HOURS since start.
+#   4. After each backup, repository expiry (retention from
+#      PGBACKREST_REPO1_RETENTION_*) and `pgbackrest check` integrity
+#      verification run automatically.
+#
+# Backups anchor to this process's start time; a sidecar restart therefore
+# begins with a fresh full backup, which retention bounds. Transient
+# database or repository failures are logged and retried on the next tick
+# rather than crashing the sidecar.
+
+set -u
+
+STANZA="${PGBACKREST_STANZA:-cds}"
+INCREMENTAL_MINUTES="${CDS_BACKUP_INCREMENTAL_MINUTES:-60}"
+FULL_HOURS="${CDS_BACKUP_FULL_HOURS:-24}"
+
+log() {
+    echo "[cds-backup-scheduler] $(date -u '+%Y-%m-%dT%H:%M:%SZ') $*"
+}
+
+run_pgbackrest() {
+    if ! pgbackrest --stanza="$STANZA" "$@"; then
+        log "WARNING: pgbackrest $* failed; will retry on the next tick"
+        return 1
+    fi
+    return 0
+}
+
+# pgBackRest requires a superuser connection for pg_backup_start/stop; the
+# cluster uses --auth-local=password, so even socket connections need it.
+# pgBackRest's local mode connects through the cluster's second unix socket
+# directory (the shared data volume root; see the module's compose template)
+# and reads the data directory at the image's PGDATA.
+export PGPASSWORD="${PGPASSWORD:-}"
+export HOME=/tmp
+export PGBACKREST_PG1_PATH="${PGDATA:-/var/lib/postgresql/18/docker}"
+export PGBACKREST_PG1_SOCKET_PATH=/var/lib/postgresql
+
+log "waiting for the database and repository to become usable"
+# stanza-create validates database connectivity and repository writability,
+# and is idempotent; `check` cannot gate this wait because the stanza does
+# not exist yet on a fresh repository.
+until run_pgbackrest stanza-create; do
+    sleep 10
+done
+log "stanza ready"
+
+log "taking initial full backup"
+until run_pgbackrest backup --type=full; do
+    sleep 30
+done
+log "initial full backup complete"
+run_pgbackrest check
+log "repository integrity check complete"
+
+start_epoch=$(date +%s)
+last_backup_epoch=$start_epoch
+last_full_epoch=$start_epoch
+
+handle_term() {
+    log "terminating"
+    exit 0
+}
+trap handle_term TERM INT
+
+log "scheduler running: incremental every ${INCREMENTAL_MINUTES}m, full every ${FULL_HOURS}h"
+while true; do
+    sleep 60
+    now=$(date +%s)
+
+    next_incremental=$((last_backup_epoch + INCREMENTAL_MINUTES * 60))
+    next_full=$((last_full_epoch + FULL_HOURS * 3600))
+
+    if [ "$now" -ge "$next_full" ]; then
+        log "taking scheduled full backup"
+        if run_pgbackrest backup --type=full; then
+            last_full_epoch=$now
+            last_backup_epoch=$now
+            run_pgbackrest check
+        fi
+    elif [ "$now" -ge "$next_incremental" ]; then
+        log "taking scheduled incremental backup"
+        if run_pgbackrest backup --type=incr; then
+            last_backup_epoch=$now
+            run_pgbackrest check
+        fi
+    fi
+done

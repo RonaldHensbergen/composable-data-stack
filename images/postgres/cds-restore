@@ -1,0 +1,23 @@
+#!/bin/bash
+# images/postgres/cds-restore
+#
+# Entrypoint of the warehouse/postgres module's gated postgres-restore
+# service (issue #665): wraps pgbackrest so the data directory and socket
+# paths are resolved from the image's PGDATA at runtime instead of being
+# pinned to a PostgreSQL major version, then execs pgbackrest with the
+# caller's arguments, e.g.
+#
+#   docker compose --profile cds-restore run --rm postgres-restore \
+#     --stanza=cds --delta restore
+#
+# Repository location, cipher settings, and the stanza come from the
+# PGBACKREST_* environment variables rendered by the module. See
+# docs/backup-restore.md for the full procedure.
+
+set -u
+
+export HOME=/tmp
+export PGBACKREST_PG1_PATH="${PGDATA:-/var/lib/postgresql/18/docker}"
+export PGBACKREST_PG1_SOCKET_PATH=/var/lib/postgresql
+
+exec pgbackrest "$@"
