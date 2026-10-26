@@ -225,6 +225,28 @@ The field is optional (`required: false`) in the shared contract documents
 `cache-service.yaml`, `reverse-proxy.yaml`); `file-database` carries no TLS
 field because it describes a bind-mounted file, not a network endpoint.
 
+### Reverse-proxy dynamic routes
+
+A module providing the `reverse-proxy` contract (e.g. Traefik) exposes public
+routes through its `config.routes` entries instead of Docker label
+autodiscovery: each entry declares a public `host` and a `target` module
+id (or `<module-id>.<contract-name>` when the target provides several
+`http-service` contracts). CDS resolves the target's `http-service`
+contract, cross-checks the backend address against the compose services the
+render actually produced, and writes deterministic file-provider
+configuration next to the rendered compose file; invalid routing inputs
+fail with `E136` instead of silently generating broken config.
+
+A route's optional `certificate` names a profile certificate alias
+(`spec.certificates.values`, issue #578). The alias is only a name: CDS
+never generates, reads, or embeds certificate material. For the alias to
+work, the external secret/cert provider must place the files as
+`<alias>.crt` and `<alias>.key` inside the proxy's certificate mount
+(`./certs/traefik/` for the Traefik module, mounted read-only at
+`/etc/traefik/certs/`); the generated configuration wires those paths as
+the router's certificate files. The alias is restricted to letters, digits
+and hyphens because it interpolates into those file paths.
+
 ### Authentication advertisements (`authentication`)
 
 Relational database and cache providers advertise how (and whether) they
@@ -301,6 +323,54 @@ If `config.passwordFrom` resolves to a secret placeholder such as
 `redis://:${CDS_CACHE_PASSWORD}@keydb:6379`. If `config.passwordFrom` is
 unset, both prefix and suffix are skipped, rendering
 `redis://keydb:6379`.
+
+### Production and learning variants (`production`)
+
+Modules mark the dividing line between production-worthy pieces and
+learning/mockup-oriented pieces with the `production` tag, evaluated
+against the profile's `metadata.environment` (`production` vs anything
+else). The learning variant must stay especially easy to install — the
+pinned stock image and no local builds — while production profiles gain
+the hardened pieces.
+
+Two forms of the tag, distinguished by type:
+
+- **`production: true`** on a service, volume, or volume-mount entry keeps
+  the entry only in production profiles; **`production: false`** keeps it
+  only outside them. Entries carrying both `production` and `enabledFrom`
+  must match both gates.
+- **`production: { ... }`** (mapping form) on a service marks the enclosed
+  fields as production-only overrides of the service's base fields. A
+  service is a single YAML key, so its learning and production variants
+  cannot be two separate services; in a production profile the mapping is
+  merged over the base service — mappings such as `environment` merge
+  recursively, anything else (`image`, `command`, `volumes`) replaces the
+  base value — and in other profiles it is ignored entirely. The base
+  service stays the easy-to-install learning variant.
+
+```yaml
+services:
+  postgres:
+    image: postgres:18@sha256:...      # learning: pull only, no build
+    ...
+    production:                        # production pieces
+      image: local/postgres:custom
+      build: { context: ../../../, dockerfile: images/postgres/Dockerfile }
+      command: [postgres, -c, archive_mode=on, ...]
+      environment: { ... }              # merged over the base environment
+  postgres-backup:
+    production: true                    # production-only service
+    enabledFrom: config.backup.enabled
+    ...
+```
+
+The compose renderer drops mismatched entries before rendering; the
+Kubernetes (helm) target is treated as production-only for now and always
+renders the production variants. When a config option only works in
+production (for example the postgres backup capability, whose sidecar is
+`production: true`), validation fails closed instead of silently rendering
+less than requested (`E143` for `config.backup.enabled` outside a
+production profile).
 
 ## Custom images
 

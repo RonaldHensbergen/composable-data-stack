@@ -1,0 +1,30 @@
+#!/bin/bash
+# images/postgres/cds-pgbackrest-archive
+#
+# PostgreSQL archive_command handler (issue #665). Baked into
+# images/postgres and configured as the server's archive_command by the
+# warehouse/postgres module:
+#
+#   archive_command = 'cds-pgbackrest-archive %p'
+#
+# When the profile enables the backup capability (CDS_BACKUP_ENABLED=true),
+# each WAL segment is pushed into the pgBackRest repository
+# (PGBACKREST_REPO1_PATH), enabling point-in-time recovery. When the
+# capability is disabled the handler succeeds without archiving, so
+# PostgreSQL recycles WAL segments normally and no repository volume is
+# needed. A non-zero exit status (e.g. while the repository is briefly
+# unavailable) makes PostgreSQL retry, which is the desired fail-safe:
+# segments pile up in pg_wal until archiving recovers.
+
+set -u
+
+if [ "${CDS_BACKUP_ENABLED:-false}" != "true" ]; then
+    exit 0
+fi
+
+# PostgreSQL may pass a WAL path relative to its data directory, which
+# pgBackRest only accepts together with pg1-path; resolve it from the
+# image's PGDATA instead of pinning a PostgreSQL major version.
+export PGBACKREST_PG1_PATH="${PGDATA:-/var/lib/postgresql/18/docker}"
+
+exec pgbackrest --stanza="${PGBACKREST_STANZA:-cds}" archive-push "$1"

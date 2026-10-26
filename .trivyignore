@@ -14,3 +14,133 @@
 # Rules: only IDs reported by the scan may be listed, each ID at most once,
 # and exp must be a valid date at most 90 days out. An expired exception
 # stops being ignored and fails the daily scan again.
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2025-61726 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2025-61729 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2025-68121 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-111943 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-25679 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-27145 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-32280 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-32281 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-32283 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-33811 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-33814 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-33818 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-39820 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-39821 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-39822 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-39836 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-42499 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-42504 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-56853 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-56858 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-56859 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-56860 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-56862 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-78667 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-78669 exp:2027-01-23
+
+# gosu 1.19 in the pinned postgres:18 base is built with go1.24.6;
+# patched in the next upstream base image digest (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-97031 exp:2027-01-23

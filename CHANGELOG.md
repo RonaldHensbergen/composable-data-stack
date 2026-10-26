@@ -6,8 +6,59 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-26
+
 ### Added
 
+- Added a production/learning dividing line for module templates: a
+  `production: true|false` tag on services, volumes, and volume mounts
+  keeps the entry only in (respectively: only outside) production
+  profiles, and the `production: { ... }` mapping form merges
+  production-only fields over a service's base definition. Learning
+  profiles stay easy to install (pullable stock images, no local builds);
+  the helm target is treated as production-only for now (#665).
+
+- Added the built-in backup and disaster-recovery capability for the
+  warehouse/postgres module (#665): a pgBackRest sidecar taking scheduled
+  full and incremental backups with continuous WAL archiving
+  (point-in-time recovery) into a client-side encrypted repository
+  volume, `pgbackrest check` integrity verification after each backup,
+  retention via `config.backup.retentionDays`, and a gated one-shot
+  `postgres-restore` service; the module now provides a `backup-target`
+  contract (`postgres.backup-target`) for `spec.backup.target.contractRef`.
+  Validation fails closed with `E141` (backup enabled without an encryption
+  key reference), `E142` (backup enabled on the not-yet-supported helm
+  target), and `E143` (backup enabled outside a production profile); the
+  shipped production overlays bind the new provider. See
+  `docs/backup-restore.md` and `docs/modules.md`.
+
+- Added reverse-proxy dynamic route generation from contract bindings
+  (#581): a `reverse-proxy` provider's `config.routes` entries (public
+  `host`, `target` module id) render deterministic Traefik file-provider
+  configuration next to the compose file, resolving each target's
+  `http-service` contract `host`/`port` instead of Docker label
+  autodiscovery; multi-service providers advertise the serving compose
+  service through a `serviceName` field (dagster, dbt), and the backend
+  address is cross-checked against the services the render actually
+  produced, failing with `E136` instead of emitting an address nothing
+  answers; a route's `target` may name a specific contract as
+  `<module-id>.<contract-name>` when the target exposes several
+  http-service endpoints; invalid routing inputs (unknown target,
+  unresolvable endpoint or a backend port outside 1-65535, an entrypoint
+  the proxy does not declare in config.entryPoints, an undeclared
+  certificate alias, or a host duplicated
+  by an earlier route of the same proxy) also fail rendering
+  with `E136`, the
+  optional `certificate` alias wires the profile's certificate mapping
+  into the router's certificate files (TLS-enabled routers only; the
+  alias is always validated), and stale generated route files
+  are removed when their routes (or proxy) disappear from the profile.
+- Added TLS metadata to the shared reverse-proxy contract (#579): the
+  protocol-version window (`tlsMinVersion`/`tlsMaxVersion`), SNI strictness
+  (`tlsSniStrict`), and certificate-verification status (`certVerified`)
+  fields, so downstream consumers can make provider-neutral TLS decisions;
+  the Traefik provider exposes them from its existing TLS policy
+  configuration.
 - Added a vendor-neutral `backup-target` shared contract and an optional
   `spec.backup` profile block (per-workload-class retention, RPO/RTO,
   secret-referenced encryption, and restore-verification settings) with

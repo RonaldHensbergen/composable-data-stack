@@ -22,6 +22,7 @@ from .confinement import (
 from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
+from .resolver import parse_contract_ref
 from .secret_leak import (
     check_generated_text,
     declared_secret_env_names,
@@ -88,6 +89,8 @@ def render_compose(
     )
     diagnostics.extend(profile_confinement_diags)
 
+    is_production = _is_production_plan(plan)
+
     for module in plan.get("modules", []):
         implementation = module.get("implementation", {})
 
@@ -116,8 +119,12 @@ def render_compose(
             ))
             continue
 
-        services = compose_impl.get("services", {})
-        volumes = compose_impl.get("volumes", {})
+        services = apply_production_gates(
+            compose_impl.get("services", {}), is_production
+        )
+        volumes = apply_production_gates(
+            compose_impl.get("volumes", {}), is_production
+        )
 
         try:
             rendered_services, unsafe_diags = _render_services(
@@ -129,6 +136,7 @@ def render_compose(
                 compose_dir=compose_dir,
                 network_name=default_network_name,
                 certificates=certificates,
+                is_production=is_production,
             )
             diagnostics.extend(unsafe_diags)
             rendered_volumes = _render_volumes(module, volumes, secrets, certificates)
@@ -197,7 +205,319 @@ def render_compose(
             path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(path, output)
 
+    route_documents, route_diags = _generate_reverse_proxy_routes(plan, module_service_names)
+    diagnostics.extend(route_diags)
+    if output_path and not any(d.level == "error" for d in diagnostics):
+        _write_reverse_proxy_route_documents(route_documents, compose_dir)
+
     return output, diagnostics
+
+
+_REVERSE_PROXY_ROUTES_FILE = "traefik/dynamic/cds-routes-{module}.yml"
+
+
+def _is_valid_backend_port(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, str):
+        return value.isdigit() and 1 <= int(value) <= 65535
+    return isinstance(value, int) and 1 <= value <= 65535
+
+
+def _generate_reverse_proxy_routes(
+    plan: dict[str, Any], module_service_names: dict[str, list[str]]
+) -> tuple[dict[str, dict[str, Any]], list[Diagnostic]]:
+    """
+    Generate Traefik file-provider dynamic route documents from profile
+    bindings instead of Docker label autodiscovery (issue #581).
+
+    For every module providing a `reverse-proxy` contract, each
+    `config.routes` entry targets a profile instance that provides an
+    `http-service` contract -- a bare module id routes to that module's
+    first http-service provide, while `<module-id>.<contract-name>` picks a
+    specific provide entry when the module exposes several; the backend
+    address comes from the resolved contract's `host`/`port` fields, mapped through the renderer's
+    compose service-naming rule when the provider advertises a
+    `serviceName` (multi-service modules such as dagster name the serving
+    service, since the instance id alone does not resolve on the Compose
+    network), and is cross-checked against the services the render
+    actually produced -- an address nothing answers fails closed instead
+    of 502ing at runtime. The optional `certificate` alias is validated
+    against the plan's certificate mapping (issue #578) and, for TLS-enabled
+    routers, wired as the router's certificate files. Invalid inputs -- an unknown target, an
+    unresolvable endpoint (host missing, or a port outside 1-65535), a backend
+    address that matches no rendered
+    service, an entrypoint the proxy does not declare, an undeclared
+    certificate alias, or a host duplicated by an
+    earlier route of the same proxy -- produce E136 diagnostics
+    instead of silently generating broken config; routes are emitted in
+    sorted order so repeated renders are byte-identical.
+    """
+    diagnostics: list[Diagnostic] = []
+    modules = plan.get("modules", [])
+    certificates = plan.get("certificates", {})
+    modules_by_id = {m.get("id"): m for m in modules if isinstance(m, dict)}
+    documents: dict[str, dict[str, Any]] = {}
+
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        proxy_id = module.get("id")
+        resolved_provides = module.get("provides") or {}
+        if not any(p.get("kind") == "reverse-proxy" for p in resolved_provides.values()):
+            continue
+
+        routes = (module.get("config") or {}).get("routes") or []
+        if not routes:
+            continue
+
+        routers: dict[str, dict[str, Any]] = {}
+        services: dict[str, dict[str, Any]] = {}
+        tls_certificates: dict[str, dict[str, str]] = {}
+
+        # Entrypoints the proxy actually declares (e.g. traefik's
+        # config.entryPoints keys web/websecure). A route naming anything
+        # else would render a router no entrypoint serves -- traffic
+        # silently 404s -- so those fail closed with E136 below. Providers
+        # without an entryPoints config mapping declare nothing here and
+        # their routes are not checked.
+        proxy_entry_points = (module.get("config") or {}).get("entryPoints")
+        known_entry_points = (
+            set(proxy_entry_points)
+            if isinstance(proxy_entry_points, dict) and proxy_entry_points
+            else None
+        )
+
+        # Duplicate hosts per proxy are rejected up front, in profile order:
+        # two routers with the same Host() rule would make Traefik pick one
+        # by priority, silently. Only the later occurrence is flagged so
+        # the diagnostic points at the entry to fix; the first stays valid.
+        duplicate_route_indexes: set[int] = set()
+        hosts_seen: dict[str, int] = {}
+        for route_index, route in enumerate(routes):
+            if not isinstance(route, dict):
+                continue
+            route_host = str(route.get("host"))
+            if route_host in hosts_seen:
+                duplicate_route_indexes.add(route_index)
+            else:
+                hosts_seen[route_host] = route_index
+
+        # Sort by (host, target) so the generated document is
+        # deterministic; diagnostics keep the route's ORIGINAL profile
+        # index so the path points at the entry the user wrote.
+        ordered_routes = sorted(
+            (
+                (original_index, route)
+                for original_index, route in enumerate(routes)
+                if isinstance(route, dict)
+            ),
+            key=lambda item: (str(item[1].get("host", "")), str(item[1].get("target", ""))),
+        )
+
+        for sorted_index, (original_index, route) in enumerate(ordered_routes):
+            path_prefix = f"module:{proxy_id}.config.routes[{original_index}]"
+            target_id = route.get("target")
+            host = route.get("host")
+
+            if original_index in duplicate_route_indexes:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" duplicates an earlier route of '
+                        f'proxy "{proxy_id}"; every route must expose a unique host (two '
+                        "routers with the same Host rule would make the proxy pick one "
+                        "by priority, silently)."
+                    ),
+                    path=f"{path_prefix}.host",
+                ))
+                continue
+
+            # `target` accepts either a bare module id (its first
+            # http-service provide wins, mirroring the contractRef
+            # vocabulary's module half) or `<module-id>.<contract-name>` to
+            # pick a specific endpoint when the target provides several.
+            parsed_target = parse_contract_ref(target_id) if isinstance(target_id, str) else None
+            target_module_id = parsed_target[0] if parsed_target else target_id
+            provide_name = parsed_target[1] if parsed_target else None
+
+            target = modules_by_id.get(target_module_id)
+            if target is None:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=f'Reverse-proxy route host "{host}" targets unknown module "{target_module_id}".',
+                    path=f"{path_prefix}.target",
+                ))
+                continue
+
+            target_provides = (target.get("provides") or {})
+            if provide_name is not None:
+                http_entry = target_provides.get(provide_name)
+                if http_entry is None or http_entry.get("kind") != "http-service":
+                    diagnostics.append(Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route host "{host}" targets module "{target_module_id}", '
+                            f'which does not provide an http-service contract named "{provide_name}" '
+                            '(a "<module-id>.<contract-name>" target must name an existing '
+                            "http-service provide entry)."
+                        ),
+                        path=f"{path_prefix}.target",
+                    ))
+                    continue
+            else:
+                http_entry = next(
+                    (p for p in target_provides.values() if p.get("kind") == "http-service"),
+                    None,
+                )
+            spec = (http_entry or {}).get("spec") or {}
+            advertised_host = spec.get("host")
+            backend_port = spec.get("port")
+            if (
+                http_entry is None
+                or not isinstance(advertised_host, str)
+                or not advertised_host
+                or not _is_valid_backend_port(backend_port)
+            ):
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" targets module "{target_id}", which does not '
+                        "expose a resolvable http-service endpoint (its contract spec lacks host/port); "
+                        "route generation refuses to guess a backend address."
+                    ),
+                    path=f"{path_prefix}.target",
+                ))
+                continue
+
+            # The backend address must be a name that actually resolves on
+            # the rendered Compose network. Providers whose compose service
+            # name differs from the instance id (multi-service modules such
+            # as dagster) advertise the serving service via `serviceName`;
+            # map it through the renderer's service-naming rule so it
+            # matches the name Compose creates.
+            advertised_service = spec.get("serviceName")
+            if isinstance(advertised_service, str) and advertised_service:
+                backend_host = _compose_service_name(str(target_module_id), advertised_service)
+            else:
+                backend_host = advertised_host
+
+            rendered_services = module_service_names.get(str(target_module_id), [])
+            if backend_host not in rendered_services:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" resolves to backend address '
+                        f'"{backend_host}", which is not a rendered compose service of module '
+                        f'"{target_module_id}" (rendered services: '
+                        f'{", ".join(rendered_services) or "none"}); route generation refuses to '
+                        "emit an address nothing answers. Multi-service providers must advertise "
+                        "the serving service via a serviceName field in their http-service "
+                        "provide entry."
+                    ),
+                    path=f"{path_prefix}.target",
+                ))
+                continue
+
+            tls_enabled = route.get("tls", True)
+            certificate = route.get("certificate")
+            if certificate is not None and certificate not in certificates:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" references certificate alias "{certificate}", '
+                        "which is not declared in spec.certificates.values."
+                    ),
+                    path=f"{path_prefix}.certificate",
+                ))
+                continue
+            # The alias is validated regardless of the router's TLS flag, but
+            # only wired for TLS routers: a plaintext router never presents a
+            # certificate, so its alias must not contribute to the document's
+            # tls.certificates section.
+            if certificate is not None and tls_enabled:
+                tls_certificates[certificate] = {
+                    "certFile": f"/etc/traefik/certs/{certificate}.crt",
+                    "keyFile": f"/etc/traefik/certs/{certificate}.key",
+                }
+
+            router_name = f"cds-route-{sorted_index}-{host or 'default'}"
+            service_name = f"cds-service-{target_id}"
+            route_entry_points = route.get("entryPoints") or ["websecure"]
+            if known_entry_points is not None and any(
+                ep not in known_entry_points for ep in route_entry_points
+            ):
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" names entrypoint(s) '
+                        f'"{", ".join(ep for ep in route_entry_points if ep not in known_entry_points)}" '
+                        f'not declared by proxy "{proxy_id}" (declared: '
+                        f'{", ".join(sorted(known_entry_points))}); a router no '
+                        "entrypoint serves would drop its traffic silently."
+                    ),
+                    path=f"{path_prefix}.entryPoints",
+                ))
+                continue
+            router: dict[str, Any] = {
+                "entryPoints": route_entry_points,
+                "rule": f"Host(`{host}`)",
+                "service": service_name,
+            }
+            if tls_enabled:
+                router["tls"] = {}
+            routers[router_name] = router
+            # The backend URL is intentionally plain HTTP: Traefik
+            # terminates TLS at the edge entrypoint (websecure, TLS 1.2+
+            # per the module's policy) and proxies to target services over
+            # the profile's private Docker network, which outside clients
+            # cannot reach (docs/threat-model.md Boundary B; per-service
+            # transport encryption is tracked as T10 / #205). S5332
+            # therefore reports a false positive here.
+            services[service_name] = {
+                "loadBalancer": {"servers": [{"url": f"http://{backend_host}:{backend_port}"}]},  # NOSONAR
+            }
+
+        if routers:
+            document: dict[str, Any] = {
+                "http": {"routers": routers, "services": services},
+            }
+            if tls_certificates:
+                document["tls"] = {
+                    "certificates": [tls_certificates[a] for a in sorted(tls_certificates)]
+                }
+            documents[str(proxy_id)] = document
+
+    return documents, diagnostics
+
+
+def _write_reverse_proxy_route_documents(documents: dict[str, dict[str, Any]], compose_dir: Path) -> None:
+    """
+    Write one file-provider document per proxy next to the rendered
+    compose file, and remove stale CDS-generated route files whose proxy
+    no longer defines routes (or no longer exists in the plan). The file
+    provider watches this directory, so a leftover file would keep
+    serving deleted routes after a re-render.
+    """
+    written: set[str] = set()
+    for proxy_id, document in documents.items():
+        target = compose_dir / _REVERSE_PROXY_ROUTES_FILE.format(module=proxy_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write(target, yaml.safe_dump(document, sort_keys=True, default_flow_style=False))
+        written.add(target.name)
+
+    dynamic_dir = compose_dir / "traefik" / "dynamic"
+    if dynamic_dir.is_dir():
+        for stale in dynamic_dir.glob("cds-routes-*.yml"):
+            if stale.name not in written:
+                stale.unlink()
 
 
 _UNRESOLVED_EXPRESSION_PATTERN = re.compile(
@@ -235,6 +555,61 @@ def _check_unresolved_expressions(rendered_yaml: str) -> list[Diagnostic]:
 # Internal rendering helpers
 # ---------------------------------------------------------------------------
 
+def _is_production_plan(plan: dict[str, Any]) -> bool:
+    """Whether the rendered profile is a production profile
+    (metadata.environment == "production")."""
+    return (plan.get("metadata") or {}).get("environment") == "production"
+
+
+def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = deepcopy(value)
+    return merged
+
+
+def apply_production_gates(entries: dict[str, Any], is_production: bool) -> dict[str, Any]:
+    """
+    The production / learning dividing line for module templates.
+
+    Two forms of the same tag, distinguished by type:
+
+    - `production: true|false` on a service, volume, or volume-mount entry
+      drops it when the profile environment does not match: `true` keeps
+      the entry only for production profiles, `false` only for
+      learning/development profiles.
+    - `production: { ... }` (mapping form) marks the enclosed fields as
+      production-only pieces of a service (a service is a single YAML key,
+      so production and learning variants cannot be two services). In a
+      production profile the mapping is merged over the service's base
+      fields -- mappings such as `environment` merge recursively, anything
+      else (e.g. `image`, `command`, `volumes`) replaces the base value; in
+      other profiles it is ignored entirely.
+
+    The base service therefore stays the easy-to-install learning variant
+    (pullable stock image, no local build), and production profiles gain
+    the production-grade pieces (hardened local builds, backup wiring).
+    """
+    kept: dict[str, Any] = {}
+    for name, entry in entries.items():
+        if not isinstance(entry, dict):
+            kept[name] = entry
+            continue
+        marker = entry.get("production")
+        if isinstance(marker, bool):
+            if marker != is_production:
+                continue
+            entry = {k: v for k, v in entry.items() if k != "production"}
+        elif isinstance(marker, dict):
+            base = {k: v for k, v in entry.items() if k != "production"}
+            entry = _deep_merge(base, marker) if is_production else base
+        kept[name] = entry
+    return kept
+
+
 def _render_services(
     module: dict[str, Any],
     services: dict[str, Any],
@@ -244,6 +619,7 @@ def _render_services(
     compose_dir: Path,
     network_name: str | None = None,
     certificates: dict[str, dict[str, str]] | None = None,
+    is_production: bool = False,
 ) -> tuple[dict[str, Any], list[Diagnostic]]:
     rendered: dict[str, Any] = {}
     diagnostics: list[Diagnostic] = []
@@ -278,7 +654,8 @@ def _render_services(
         # supports either a sql-database or a file-database target).
         # Entries carrying enabledFrom are dropped up front so an unused
         # mount never resolves an unwired binding into a broken/literal
-        # path in the rendered compose file.
+        # path in the rendered compose file. Entries carrying the
+        # production gate follow the same rules as service-level gates.
         volumes = service_copy.get("volumes")
         if isinstance(volumes, list):
             kept_volumes = []
@@ -287,6 +664,11 @@ def _render_services(
                     volume_item = deepcopy(volume_item)
                     item_enabled_from = volume_item.pop("enabledFrom", None)
                     if _is_disabled(item_enabled_from, context):
+                        continue
+                if isinstance(volume_item, dict) and isinstance(volume_item.get("production"), bool):
+                    volume_item = deepcopy(volume_item)
+                    item_production = volume_item.pop("production", None)
+                    if item_production != is_production:
                         continue
                 kept_volumes.append(volume_item)
             service_copy["volumes"] = kept_volumes
@@ -1075,8 +1457,25 @@ def _add_cross_module_dependencies(
             # Collect all services from dependent modules
             for dep_module_id in depends_on:
                 dep_services = module_service_names.get(dep_module_id, [])
-                
+
                 for dep_service_name in dep_services:
+                    # A cross-module dependency is awaited via the
+                    # `service_healthy` condition, so only services that can
+                    # actually become healthy qualify: one-shot containers
+                    # (healthcheck disabled or absent, e.g. init or restore
+                    # services) and profile-gated services that may never
+                    # start would leave consumers waiting forever. Skipped
+                    # services keep their module-level ordering guarantees
+                    # through the module's own depends_on graph instead.
+                    dep_def = services.get(dep_service_name)
+                    if not isinstance(dep_def, dict):
+                        continue
+                    dep_healthcheck = dep_def.get("healthcheck")
+                    if not isinstance(dep_healthcheck, dict) or dep_healthcheck.get("disable") is True or "test" not in dep_healthcheck:
+                        continue
+                    if dep_def.get("profiles"):
+                        continue
+
                     # Initialize depends_on if not present
                     if "depends_on" not in service_def:
                         service_def["depends_on"] = {}

@@ -84,6 +84,9 @@ enforced by `profile.schema.json` (`E010`). `cds validate` adds:
 | `E133` | Production profile has no `spec.backup`, or lacks a policy for a workload class it runs. |
 | `E134` | Production profile does not declare backup encryption. |
 | `E135` | Production policy has no `restoreVerification`. |
+| `E141` | A module's built-in backup capability is enabled without a valid `backup.encryptionKeyFrom` `secrets.<alias>` reference (#665). |
+| `E142` | The built-in backup capability is enabled while rendering the `helm` target, which has no backup sidecar workload yet (#665). |
+| `E143` | A module's built-in backup capability (a production-only piece) is enabled outside a production profile (#665). |
 
 `spec.backup` is optional outside production, but is validated whenever it is
 present. Because `cds test` stops later stages on validation errors, a
@@ -137,3 +140,48 @@ against real data requires a backup provider module ([#665](https://github.com/R
 [#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668),
 [#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669));
 each provider is expected to ship an automated version of this procedure.
+
+## 6. The built-in warehouse backup provider (#665)
+
+The warehouse/postgres module ships the first `backup-target` provider.
+Enabling `config.backup` (a production-only piece: enabling it outside a
+production profile fails with `E143`) turns on:
+
+- a `postgres-backup` sidecar (pgBackRest) taking an initial full backup
+  on start, then scheduled full backups every `fullBackupIntervalHours`
+  (default 24) and incremental backups every `incrementalIntervalMinutes`
+  (default 60), into the encrypted `postgres-backup-repo` volume;
+- continuous WAL archiving into the same repository, so the recovery point
+  objective is the WAL archiving lag (minutes), not the backup interval,
+  and point-in-time recovery to any archived point is possible;
+- client-side repository encryption (aes-256-cbc) with the key from
+  `config.backup.encryptionKeyFrom` (required, `E141`);
+- `pgbackrest check` repository integrity verification after every
+  backup, and retention per `retentionDays` (default 30, advertised as
+  `maxRetentionDays`).
+
+Profiles bind it with `spec.backup.target.contractRef:
+postgres.backup-target`; the shipped production overlays
+(`profiles/local-dagster-postgres-superset/environments/prod.yaml` and
+`profiles/team-dagster-postgres-superset/environments/prod.yaml`) are
+complete examples.
+
+### Restore procedure
+
+The gated one-shot `postgres-restore` service (compose target only;
+`E142` on the helm target) restores the latest backup and replays WAL
+from the repository:
+
+```sh
+docker compose stop postgres
+docker compose --profile cds-restore run --rm postgres-restore
+docker compose start postgres
+```
+
+For restore verification, provision a clean environment (fresh compose
+project name and volumes, same `CDS_*` secret variables), restore there,
+and verify the workload data (row counts/checksums) and the measured
+restore point age and elapsed time against the profile's
+`rpoMinutes`/`rtoMinutes`. Extra arguments to `docker compose run` replace
+the service's default restore command wholesale, so repeat the
+`--recovery-option` flags when overriding them.

@@ -51,7 +51,7 @@ docker-build:
 		echo "Building $$dockerfile in directory $$dir..."; \
 		context="$$dir"; \
 		case "$$dockerfile" in \
-			./images/dagster/*|./images/superset/*) context="." ;; \
+			./images/dagster/*|./images/superset/*|./images/postgres/*) context="." ;; \
 		esac; \
 		docker build -f "$$dockerfile" "$$context" || exit 1; \
 	done

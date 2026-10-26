@@ -161,6 +161,13 @@ spec:
         kind: http-service
         spec:
           portFrom: spec.config.docs.port
+          host: ${service.host}
+          port: ${config.docs.port}
+          # The docs server is one of this module's compose services
+          # (dbt-run, dbt-docs); the instance id alone does not resolve on
+          # the Compose network, so route generation maps this through the
+          # renderer's service-naming rule.
+          serviceName: dbt-docs
           healthPath: /
           protocol: http
 
