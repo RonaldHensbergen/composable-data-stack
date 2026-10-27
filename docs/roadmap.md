@@ -28,12 +28,7 @@ scope instead.
   - #72 Document and test the production hardening checklist
 - **`priority:high` / `priority:medium`** — higher-impact work for
   contributors who want to go deeper; check for an in-progress PR first:
-  - #211 Define Docker host and daemon hardening baseline
   - #210 Add backup, restore, and disaster-recovery contracts
-  - #207 Add runtime confinement and rootless deployment policies
-  - #206 Enforce database and cache authentication policies
-  - #205 Add TLS and certificate-management contracts
-  - #625 Lock pip dependencies to verified hashes across all Dockerfiles
 
 New capability modules and contracts (S3-compatible object storage, log-sink,
 Keycloak realm/config, Grafana, DuckDB profile wiring, etc.) are tracked with
@@ -172,6 +167,11 @@ platform conventions, and Cyberbeveiligingswet/NIS2 operator obligations:
 
 Selected items shipped since v0.4.0 (see [CHANGELOG.md](../CHANGELOG.md) for the full history):
 
+- ✅ **Docker host and daemon hardening baseline** — `HOST-001..006` advisory checks in `cds preflight` and the operator baseline in [docker-host-hardening.md](docker-host-hardening.md) (#211)
+- ✅ **Runtime confinement and rootless deployment policies** — production runtime policy (`CDS-SEC-090`/`091`), waivers with documented reasons, and [runtime-confinement.md](runtime-confinement.md) (#207)
+- ✅ **Database and cache authentication policies** — trust authentication rejected in production profiles (`E139`), with per-service credentials provisioned through secrets (#206)
+- ✅ **TLS and certificate-management contracts** — shared reverse-proxy contract with TLS termination at the edge and certificate-reference validation (#205)
+- ✅ **Hash-locked pip installs** — the shipped Dockerfiles install Python dependencies from sha256-pinned requirement files (#625)
 - ✅ **Compose/Helm lifecycle parity** — `cds up`/`down`/`state` behave consistently across the Compose and Helm targets (#689)
 - ✅ **Kubernetes/Helm rendering target** — new `--target helm` runtime alongside Compose, with a k3d local-dev harness and CI proof (#608)
 - ✅ **Strengthened contract compatibility validation** — bundled compatibility registry flags module pairings explicitly recorded as unsupported for a contract (`E043`), beyond plain contract `kind` matching (#350)
