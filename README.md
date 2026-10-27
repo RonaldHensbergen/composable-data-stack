@@ -962,6 +962,7 @@ Development helper tools are located in the gitignored `tools/` directory. See
 - [From Docker Compose to CDS Profile](docs/from-docker-to-cds-profile.md) — complete transformation guide
 - [Architecture](docs/architecture.md) — design and core concepts
 - [Modules](docs/modules.md) — how to structure reusable components
+- [Workload Runtime API](docs/runtime-api.md) — `cds-runtime`: named database connections for Python workloads
 - [Roadmap](docs/roadmap.md) — planned features and milestones
 
 ---
