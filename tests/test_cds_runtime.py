@@ -501,6 +501,30 @@ class DatabaseOperationsTest(unittest.TestCase):
         self.assertIn("broken", message)
         self.assertNotIn("hunter2", message)
 
+    def test_concurrent_engine_creation_is_single(self):
+        # The engine lock guarantees exactly one engine per connection,
+        # even when many threads race the first operation.
+        import sqlalchemy
+
+        created = []
+        original_create_engine = sqlalchemy.create_engine
+
+        def counting_create_engine(*args, **kwargs):
+            engine = original_create_engine(*args, **kwargs)
+            created.append(engine)
+            return engine
+
+        sqlalchemy.create_engine = counting_create_engine
+        db = connections.database("analytics", env=self.env)
+        try:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                futures = [pool.submit(db.fetch_one, "SELECT 1 AS x") for _ in range(32)]
+                self.assertTrue(all(future.result() == {"x": 1} for future in futures))
+        finally:
+            sqlalchemy.create_engine = original_create_engine
+            db.close()
+        self.assertEqual(len(created), 1)
+
     def test_close_disposes_and_reconnects_lazily(self):
         self.db.execute("INSERT INTO customers (name, active) VALUES (:n, :a)", {"n": "a", "a": 1})
         self.db.close()
