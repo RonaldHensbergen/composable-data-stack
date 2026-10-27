@@ -29,10 +29,10 @@ analytics.execute(
 The package lives in [`runtime/`](../runtime) in this repository:
 
 ```bash
-pip install ./runtime            # core, dependency-free
-pip install ./runtime[sqlalchemy] # with SQLAlchemy
-pip install ./runtime[postgresql] # with SQLAlchemy + psycopg2
-pip install ./runtime[mysql]      # with SQLAlchemy + PyMySQL
+pip install "./runtime"             # core, dependency-free
+pip install "./runtime[sqlalchemy]" # with SQLAlchemy
+pip install "./runtime[postgresql]"  # with SQLAlchemy + psycopg2
+pip install "./runtime[mysql]"       # with SQLAlchemy + PyMySQL
 ```
 
 The core package has no dependencies: SQLAlchemy and the database
@@ -54,7 +54,8 @@ binding named `analytics-database` is just another name):
 | --- | --- |
 | `CDS_DB_ANALYTICS_CONNECTION_URI` | The resolved contract's `connectionUri` — preferred when present |
 | `CDS_DB_ANALYTICS_BACKEND` | `postgres` (default), `postgresql`, `mysql`, or `sqlite` |
-| `CDS_DB_ANALYTICS_HOST` / `_PORT` / `_DATABASE` / `_USERNAME` / `_PASSWORD` | Fields for postgres/mysql: port must be numeric (defaults to 5432/3306); password must be set, and an *empty* value selects password-less authentication |
+| `CDS_DB_ANALYTICS_HOST` / `_PORT` / `_DATABASE` / `_USERNAME` / `_PASSWORD` | Fields for postgres/mysql: port must be numeric, 1-65535 (defaults to 5432/3306); password must be set, and an *empty* value selects password-less authentication |
+| `CDS_DB_ANALYTICS_NAME` / `_USER` | Legacy spellings (as shipped by the dagster module's environment block), accepted as aliases for `_DATABASE` / `_USERNAME` |
 | `CDS_DB_ANALYTICS_SQLITE_PATH` | File path for the `sqlite` backend (`:memory:` supported) |
 
 Wire it in the workload module's Compose environment, exactly like any
@@ -72,10 +73,11 @@ environment:
 
 `database(name, prefix=...)` overrides the variable prefix, so an
 existing environment block in the `CDS_ANALYTICS_DB_*` style (as shipped
-by the dagster module) can be adopted without touching the module.
-Connections resolved from the process environment are cached by name and
-prefix: repeated calls share one engine, and two names that resolve the
-same environment block stay separate connection objects.
+by the dagster module, including its legacy `_NAME`/`_USER` field
+spellings, which resolve as aliases) can be adopted without touching the
+module. Connections resolved from the process environment are cached by
+name and prefix: repeated calls share one engine, and two names that
+resolve the same environment block stay separate connection objects.
 
 ## API
 
@@ -87,7 +89,7 @@ is side-effect free; the engine is created lazily on the first operation.
 | `fetch_all(sql, params=None)` | Query, returning every row as a plain `dict` (provider-neutral) |
 | `fetch_one(sql, params=None)` | First row as a `dict`, or `None` |
 | `execute(sql, params=None)` | One statement in its own transaction; affected row count (or `-1` when the driver does not report one) |
-| `insert_rows(table, rows, *, batch_size=500)` | Bulk insert of homogeneous `dict` rows; identifiers are validated and quoted, values are always bound parameters |
+| `insert_rows(table, rows, *, batch_size=500)` | Bulk insert of homogeneous `dict` rows; identifiers are validated, then quoted through the active dialect (backticks on MySQL, double quotes elsewhere), and values are always bound parameters |
 | `transaction()` | Context manager running multiple operations in one explicit transaction: commits on success, rolls back on any exception |
 | `close()` | Disposes the cached engine (idempotent); the next operation reconnects |
 | `connection_uri` / `redacted_connection_uri` | The resolved URI, and its password-masked form |
@@ -101,8 +103,25 @@ Errors are typed and safe to log: `UnknownConnectionError`,
 failures name the missing environment *variables*, never their values;
 query failures wrap the driver error with the connection's secrets
 redacted — the `_PASSWORD` field *and* a password embedded in
-`CONNECTION_URI`; and `repr()` of a connection carries no configuration
-at all.
+`CONNECTION_URI` (values shorter than three characters are left alone, so
+a trivially short password does not mangle unrelated words in the
+message); and `repr()` of a connection carries no configuration at all.
+By design, a wrapped driver error may still carry *data* values from the
+failed statement (for example, the conflicting value in a
+unique-violation message) — credentials are redacted, data is not.
+
+## Limitations
+
+- Every operation runs inside a transaction, so statements that cannot
+  execute inside one (for example PostgreSQL's `VACUUM` or
+  `CREATE DATABASE`) fail. Use the `engine()` escape hatch for those.
+- The connection registry and lazy engine creation are not synchronized:
+  in a multi-threaded workload, two threads may briefly create two
+  engines for the same connection. The extra engine is disposed by
+  `close()`/`close_all()`; SQLAlchemy engines are themselves thread-safe.
+- `QueryExecutionError` carries the driver's message (with known secrets
+  redacted), so treat it as safe for logs, not as a stable programmatic
+  interface.
 
 ## Secrets and rotation
 
@@ -129,7 +148,9 @@ Optional, framework-specific helpers live in `cds_runtime.adapters`
 while the core API stays framework-neutral. Currently:
 `cds_runtime.adapters.dagster.postgres_url(name)` resolves a named
 connection into the URL Dagster's PostgreSQL storage configuration
-expects.
+expects, and raises `ValueError` when the connection does not resolve to
+a `postgresql://` URL (so a mis-bound contract fails up front, not inside
+Dagster's storage machinery).
 
 ## Migrating from `shared/python/db/connection.py`
 
@@ -142,7 +163,8 @@ place for existing workdirs. New code should use `cds-runtime`:
 | `get_engine(prefix=...)` | `connections.database("analytics").engine()` |
 | `get_connection(prefix=...)` | `connections.database("analytics").engine().connect()` |
 | `sql_text(s)` | pass the raw string to `fetch_all`/`execute` |
-| `_NAME` / `_USER` fields | `_DATABASE` / `_USERNAME` fields |
+| `_NAME` / `_USER` fields | accepted natively as aliases for `_DATABASE` / `_USERNAME` |
 
 Adopting an existing `CDS_ANALYTICS_DB_*` environment block does not
-require renaming variables: pass `prefix="CDS_ANALYTICS_DB"`.
+require renaming variables: pass `prefix="CDS_ANALYTICS_DB"` — the
+legacy `_NAME`/`_USER` field spellings resolve as aliases.

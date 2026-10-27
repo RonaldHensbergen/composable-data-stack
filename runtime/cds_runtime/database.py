@@ -28,13 +28,13 @@ def _load_sqlalchemy():
         ) from exc
 
 
-def _quote_identifier(identifier: str) -> str:
+def _validate_identifier(identifier: str) -> None:
+    """Reject anything that is not a plain SQL identifier (injection guard)."""
     if not isinstance(identifier, str) or not _IDENTIFIER_PATTERN.match(identifier):
         raise ValueError(
             f"Invalid SQL identifier: {identifier!r}. Identifiers may contain "
             "letters, digits, and underscores, and must not start with a digit."
         )
-    return f'"{identifier}"'
 
 
 class DatabaseConnection:
@@ -109,11 +109,11 @@ class DatabaseConnection:
     def insert_rows(self, table: str, rows: Sequence[Mapping[str, Any]], *, batch_size: int = _DEFAULT_BATCH_SIZE) -> int:
         """Bulk-insert homogeneous rows into a table, in batches.
 
-        Column names are validated SQL identifiers and quoted; values are
-        always bound parameters. All rows must carry the same keys. Each
-        batch commits as one transaction; the total number of inserted
-        rows is returned (or -1 when the driver does not report row
-        counts for batched inserts).
+        Column names are validated SQL identifiers, quoted through the
+        active dialect, and values are always bound parameters. All rows
+        must carry the same keys. Each batch commits as one transaction;
+        the total number of inserted rows is returned (or -1 when the
+        driver does not report row counts for batched inserts).
         """
         if not rows:
             return 0
@@ -123,11 +123,6 @@ class DatabaseConnection:
         columns = list(rows[0])
         if not columns:
             raise ValueError("insert_rows requires at least one column.")
-        column_list = ", ".join(_quote_identifier(column) for column in columns)
-        placeholders = ", ".join(f":{column}" for column in columns)
-        # Identifiers are validated and quoted above; all values are bound
-        # parameters, so this statement cannot carry injected SQL.
-        statement = f"INSERT INTO {_quote_identifier(table)} ({column_list}) VALUES ({placeholders})"  # noqa: S608
 
         parameters = []
         for index, row in enumerate(rows):
@@ -137,6 +132,18 @@ class DatabaseConnection:
                     f"({columns}); insert_rows requires homogeneous rows."
                 )
             parameters.append(dict(row))
+
+        # Identifiers are validated (rejecting injection) before the engine is
+        # touched, then quoted through the active dialect: MySQL needs
+        # backticks, not the double quotes its default sql_mode parses as
+        # string delimiters. All values are bound parameters, so the
+        # statement cannot carry injected SQL.
+        for identifier in (table, *columns):
+            _validate_identifier(identifier)
+        preparer = self.engine().dialect.identifier_preparer
+        column_list = ", ".join(preparer.quote(column) for column in columns)
+        placeholders = ", ".join(f":{column}" for column in columns)
+        statement = f"INSERT INTO {preparer.quote(table)} ({column_list}) VALUES ({placeholders})"  # noqa: S608
 
         inserted = 0
         with self._begin() as connection:

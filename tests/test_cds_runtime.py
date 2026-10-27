@@ -168,6 +168,45 @@ class ConnectionUriResolutionTest(unittest.TestCase):
         self.assertIn("CDS_DB_ANALYTICS_PORT", str(ctx.exception))
         self.assertNotIn("abc", str(ctx.exception))
 
+    def test_legacy_name_and_user_fields_resolve_as_aliases(self):
+        # The dagster module's environment block predates the canonical
+        # spellings; adopting it field-wise must work without renaming.
+        env = {
+            "CDS_ANALYTICS_DB_BACKEND": "postgres",
+            "CDS_ANALYTICS_DB_HOST": "db",
+            "CDS_ANALYTICS_DB_PORT": "5433",
+            "CDS_ANALYTICS_DB_NAME": "analytics",
+            "CDS_ANALYTICS_DB_USER": "u",
+            "CDS_ANALYTICS_DB_PASSWORD": "p",
+        }
+        self.assertEqual(
+            connections.database("analytics", prefix="CDS_ANALYTICS_DB", env=env).connection_uri,
+            "postgresql://u:p@db:5433/analytics",
+        )
+
+    def test_legacy_fields_alone_count_as_configuration(self):
+        # A legacy-only block is not mistaken for an unknown connection.
+        env = {"CDS_ANALYTICS_DB_NAME": "analytics"}
+        with self.assertRaises(MissingConnectionSettingsError) as ctx:
+            uri = connections.database("analytics", prefix="CDS_ANALYTICS_DB", env=env).connection_uri
+            self.assertTrue(uri)
+        self.assertIn("CDS_ANALYTICS_DB_HOST", str(ctx.exception))
+
+    def test_port_out_of_range_is_rejected(self):
+        for bad_port in ("0", "99999"):
+            with self.subTest(port=bad_port):
+                env = {
+                    "CDS_DB_ANALYTICS_BACKEND": "postgres",
+                    "CDS_DB_ANALYTICS_HOST": "db",
+                    "CDS_DB_ANALYTICS_PORT": bad_port,
+                    "CDS_DB_ANALYTICS_DATABASE": "d",
+                    "CDS_DB_ANALYTICS_USERNAME": "u",
+                    "CDS_DB_ANALYTICS_PASSWORD": "p",
+                }
+                with self.assertRaises(MissingConnectionSettingsError):
+                    uri = connections.database("analytics", env=env).connection_uri
+                    self.assertTrue(uri)
+
     def test_unknown_connection_reports_expected_variables(self):
         with self.assertRaises(UnknownConnectionError) as ctx:
             uri = connections.database("ghost", env={"OTHER": "x"}).connection_uri
@@ -275,6 +314,15 @@ class QueryErrorRedactionTest(unittest.TestCase):
         error = self._connection(env)._query_error(RuntimeError("password hunter2 rejected"))
         self.assertNotIn("hunter2", str(error))
 
+    def test_short_secrets_are_not_substituted(self):
+        # A 1-character password must not mangle unrelated words in the
+        # driver message ("product" stays "product").
+        error = self._connection({"CDS_DB_C_PASSWORD": "p"})._query_error(
+            RuntimeError('column "product" does not exist')
+        )
+        self.assertIn("product", str(error))
+        self.assertNotIn("***roduct", str(error))
+
 
 class DriverAvailabilityTest(unittest.TestCase):
     def test_missing_sqlalchemy_raises_typed_error(self):
@@ -308,6 +356,12 @@ class ApiGuardTest(unittest.TestCase):
             dagster.postgres_url("analytics-database", env=env),
             "postgresql://u:p@db:5432/analytics",
         )
+
+    def test_dagster_adapter_rejects_non_postgres_url(self):
+        env = {"CDS_DB_ANALYTICS_DATABASE_CONNECTION_URI": "mysql+pymysql://u:p@db:3306/d"}
+        with self.assertRaises(ValueError) as ctx:
+            dagster.postgres_url("analytics-database", env=env)
+        self.assertIn("analytics-database", str(ctx.exception))
 
     def test_resolve_connection_uri_is_exposed(self):
         env = {"CDS_DB_X_CONNECTION_URI": "sqlite:///:memory:"}
@@ -365,6 +419,12 @@ class DatabaseOperationsTest(unittest.TestCase):
             self.db.insert_rows("customers; DROP TABLE customers", [{"name": "a"}])
         with self.assertRaises(ValueError):
             self.db.insert_rows("customers", [{"name; DROP": "a"}])
+
+    def test_insert_rows_quotes_reserved_words_through_the_dialect(self):
+        self.db.execute('CREATE TABLE "order" ("select" TEXT)')
+        self.db.insert_rows("order", [{"select": "a"}])
+        rows = self.db.fetch_all('SELECT * FROM "order"')
+        self.assertEqual(rows, [{"select": "a"}])
 
     def test_transaction_commits_on_success(self):
         with self.db.transaction() as tx:

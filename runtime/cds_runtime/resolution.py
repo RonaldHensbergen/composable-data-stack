@@ -15,9 +15,11 @@ are written in profiles):
   ``connectionUri``, preferred when present.
 * ``CDS_DB_ANALYTICS_BACKEND`` + fields -- assemble the URI instead:
   ``postgres``/``postgresql`` or ``mysql`` take ``_HOST``, ``_PORT``
-  (numeric, default per backend), ``_DATABASE``, ``_USERNAME``,
+  (numeric, 1-65535, default per backend), ``_DATABASE``, ``_USERNAME``,
   ``_PASSWORD`` (set but empty for password-less authentication);
-  ``sqlite`` takes ``_SQLITE_PATH``.
+  ``sqlite`` takes ``_SQLITE_PATH``. The legacy ``_NAME`` and ``_USER``
+  field spellings (as shipped by the dagster module's environment block)
+  are accepted as aliases for ``_DATABASE`` and ``_USERNAME``.
 """
 from __future__ import annotations
 
@@ -72,6 +74,11 @@ _SETTING_FIELDS = (
     "USERNAME",
     "PASSWORD",
     "SQLITE_PATH",
+    # Legacy spellings accepted as aliases (see _build_network_uri); they
+    # also count as "configuration exists" so a legacy-only block is not
+    # mistaken for an unknown connection.
+    "NAME",
+    "USER",
 )
 
 
@@ -120,14 +127,16 @@ def resolve_connection_uri(prefix: str, env: Mapping[str, str]) -> str:
 def _build_network_uri(prefix: str, scheme: str, backend: str, env: Mapping[str, str]) -> str:
     host = env.get(f"{prefix}_HOST")
     port = env.get(f"{prefix}_PORT") or _DEFAULT_PORTS[backend]
-    database = env.get(f"{prefix}_DATABASE")
-    username = env.get(f"{prefix}_USERNAME")
+    # Legacy spellings (the dagster module's environment block predates the
+    # canonical names) resolve as fallbacks for the database and username.
+    database = env.get(f"{prefix}_DATABASE") or env.get(f"{prefix}_NAME")
+    username = env.get(f"{prefix}_USERNAME") or env.get(f"{prefix}_USER")
     password = env.get(f"{prefix}_PASSWORD")
 
-    if not _PORT_PATTERN.fullmatch(port):
+    if not _PORT_PATTERN.fullmatch(port) or not 1 <= int(port) <= 65535:
         raise MissingConnectionSettingsError(
             f"Database connection with prefix {prefix} has an invalid "
-            f"{prefix}_PORT: expected a port number."
+            f"{prefix}_PORT: expected a port number between 1 and 65535."
         )
 
     # HOST/DATABASE/USERNAME must carry a value; PASSWORD must merely be

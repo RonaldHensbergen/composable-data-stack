@@ -13,6 +13,7 @@ version = "0.1.0"
 description = "Runtime API for CDS workloads: named database connections resolved from CDS contracts"
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [
   { name = "Ronald Hensbergen" },
 ]
@@ -36,8 +37,17 @@ sqlalchemy = ["sqlalchemy>=2.0"]
 postgresql = ["sqlalchemy>=2.0", "psycopg2-binary>=2.9"]
 mysql = ["sqlalchemy>=2.0", "pymysql>=1.1"]
 
+[project.urls]
+Homepage = "https://github.com/RonaldHensbergen/composable-data-stack"
+Documentation = "https://github.com/RonaldHensbergen/composable-data-stack/blob/main/docs/runtime-api.md"
+Issues = "https://github.com/RonaldHensbergen/composable-data-stack/issues"
+Repository = "https://github.com/RonaldHensbergen/composable-data-stack"
+
 [tool.setuptools]
 packages = ["cds_runtime", "cds_runtime.adapters"]
+
+[tool.setuptools.package-data]
+cds_runtime = ["py.typed"]
 
 # Ruff discovers this file first for runtime/, so the package is linted at
 # its own Python floor (>=3.10) rather than the CLI's >=3.14, keeping UP

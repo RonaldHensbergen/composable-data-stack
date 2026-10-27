@@ -16,6 +16,10 @@ from .. import connections
 def postgres_url(name: str, *, env: Mapping[str, str] | None = None) -> str:
     """The connection URL for Dagster PostgreSQL storage configuration.
 
+    Raises ``ValueError`` when the named connection does not resolve to a
+    PostgreSQL URL, so a mis-bound contract fails here instead of inside
+    Dagster's storage machinery.
+
     Example::
 
         from cds_runtime.adapters import dagster
@@ -26,4 +30,12 @@ def postgres_url(name: str, *, env: Mapping[str, str] | None = None) -> str:
             }
         }
     """
-    return connections.database(name, env=env).connection_uri
+    url = connections.database(name, env=env).connection_uri
+    scheme = url.partition(":")[0].lower()
+    if not scheme.startswith("postgres"):
+        raise ValueError(
+            f"Connection {name!r} does not resolve to a PostgreSQL URL "
+            f"(scheme {scheme!r}); Dagster PostgreSQL storage requires a "
+            "postgresql:// connection."
+        )
+    return url

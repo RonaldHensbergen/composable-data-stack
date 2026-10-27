@@ -12,10 +12,21 @@ from urllib.parse import urlsplit, urlunsplit
 
 _SECRET_QUERY_KEYS = ("password", "passphrase", "secret", "token", "key")
 
+# Secrets shorter than this are not substituted into messages: replacing a
+# 1-2 character value would mangle unrelated words in driver errors (e.g. a
+# one-character password appearing inside a column name), and such short
+# values carry no meaningful secrecy.
+_MIN_SECRET_LENGTH = 3
+
 
 def redact_secret(text: str, secret: str | None) -> str:
-    """Remove a known secret value from arbitrary text."""
-    if not secret:
+    """Remove a known secret value from arbitrary text.
+
+    Secrets shorter than three characters are left alone: substituting
+    them would corrupt unrelated words in driver messages, and a value
+    that short is not meaningfully protective.
+    """
+    if not secret or len(secret) < _MIN_SECRET_LENGTH:
         return text
     return str(text).replace(secret, "***")
 
