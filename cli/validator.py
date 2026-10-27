@@ -1259,10 +1259,14 @@ def validate_module_marker_shapes(module_instances: list[dict[str, Any]]) -> lis
         module = inst.get("module")
         if not isinstance(module, dict):
             continue
-        compose = module.get("spec", {}).get("implementation", {}).get("compose", {})
+        implementation = module.get("spec", {}).get("implementation", {})
+        compose = implementation.get("compose", {})
         base_path = f'module:{inst.get("id")}.spec.implementation.compose'
         diagnostics.extend(_production_marker_diagnostics(compose, base_path=base_path))
         diagnostics.extend(_enabledfrom_marker_diagnostics(compose, base_path=base_path))
+        kubernetes = implementation.get("kubernetes", {})
+        k8s_base = f'module:{inst.get("id")}.spec.implementation.kubernetes'
+        diagnostics.extend(_kubernetes_marker_diagnostics(kubernetes, base_path=k8s_base))
     return diagnostics
 
 
@@ -1280,10 +1284,14 @@ def validate_plan_marker_shapes(modules: list[dict[str, Any]]) -> list[Diagnosti
     for module in modules:
         if not isinstance(module, dict):
             continue
-        compose = (module.get("implementation", {}) or {}).get("compose", {})
+        implementation = module.get("implementation", {}) or {}
+        compose = implementation.get("compose", {})
         base_path = f'module:{module.get("id")}.implementation.compose'
         diagnostics.extend(_production_marker_diagnostics(compose, base_path=base_path))
         diagnostics.extend(_enabledfrom_marker_diagnostics(compose, base_path=base_path))
+        kubernetes = implementation.get("kubernetes", {})
+        k8s_base = f'module:{module.get("id")}.implementation.kubernetes'
+        diagnostics.extend(_kubernetes_marker_diagnostics(kubernetes, base_path=k8s_base))
     return diagnostics
 
 
@@ -1480,6 +1488,105 @@ def _enabledfrom_marker_diagnostics(compose: Any, *, base_path: str) -> list[Dia
                 volume_def.get("enabledFrom"),
                 f"{base_path}.volumes.{volume_name}.enabledFrom",
             ))
+    return diagnostics
+
+
+def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[Diagnostic]:
+    """E144/E145 findings for the `implementation.kubernetes` block.
+
+    The helm renderer applies `production` gates to the kubernetes volume
+    and configMap specs (apply_production_gates), and resolves
+    `enabledFrom` on volume specs (guarded, so a bad shape silently
+    misbehaves) and on workloads (unguarded, so a bad shape crashes).
+    Marker shapes fail closed here instead.
+    """
+    diagnostics: list[Diagnostic] = []
+    if not isinstance(kubernetes, dict):
+        return diagnostics
+
+    def _production_shape(value: Any, path: str) -> list[Diagnostic]:
+        if value is not None and not isinstance(value, bool) and not isinstance(value, dict):
+            return [Diagnostic(
+                level="error",
+                code="E144",
+                message=(
+                    "The `production` marker in the kubernetes block must be a "
+                    "boolean (production: true|false) or a mapping (production: { ... }); "
+                    "other shapes are not implemented and would silently misbehave."
+                ),
+                path=path,
+            )]
+        return []
+
+    def _condition_shape(value: Any, path: str) -> list[Diagnostic]:
+        if value is not None and not (isinstance(value, str) and value.strip()):
+            return [Diagnostic(
+                level="error",
+                code="E145",
+                message=(
+                    "`enabledFrom` in the kubernetes block must be a non-empty string "
+                    "holding a config path expression (e.g. `config.storage.enabled`); "
+                    "other shapes crash the helm renderer or silently misbehave."
+                ),
+                path=path,
+            )]
+        return []
+
+    # Volume specs: both marker classes are implemented here.
+    volumes = kubernetes.get("volumes", {})
+    if isinstance(volumes, dict):
+        for name, spec in volumes.items():
+            if not isinstance(spec, dict):
+                continue
+            diagnostics.extend(_production_shape(
+                spec.get("production"), f"{base_path}.volumes.{name}.production"
+            ))
+            diagnostics.extend(_condition_shape(
+                spec.get("enabledFrom"), f"{base_path}.volumes.{name}.enabledFrom"
+            ))
+
+    # ConfigMap specs: production gates are implemented, enabledFrom is not.
+    configmaps = kubernetes.get("configMaps", {})
+    if isinstance(configmaps, dict):
+        for name, spec in configmaps.items():
+            if not isinstance(spec, dict):
+                continue
+            diagnostics.extend(_production_shape(
+                spec.get("production"), f"{base_path}.configMaps.{name}.production"
+            ))
+            if "enabledFrom" in spec:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E145",
+                    message=(
+                        "The `enabledFrom` marker is not implemented on kubernetes "
+                        "configMap entries (only on volume specs and workloads); the "
+                        "helm renderer would silently ignore it."
+                    ),
+                    path=f"{base_path}.configMaps.{name}.enabledFrom",
+                ))
+
+    # Workloads: enabledFrom is implemented (unguarded, so a bad shape
+    # crashes), production gates are not.
+    workloads = kubernetes.get("workloads", {})
+    if isinstance(workloads, dict):
+        for name, spec in workloads.items():
+            if not isinstance(spec, dict):
+                continue
+            diagnostics.extend(_condition_shape(
+                spec.get("enabledFrom"), f"{base_path}.workloads.{name}.enabledFrom"
+            ))
+            if "production" in spec:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E144",
+                    message=(
+                        "The `production` marker is not implemented on kubernetes "
+                        "workloads (only on volume and configMap entries); the helm "
+                        "renderer would silently ignore it."
+                    ),
+                    path=f"{base_path}.workloads.{name}.production",
+                ))
     return diagnostics
 
 

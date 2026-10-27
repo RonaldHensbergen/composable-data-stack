@@ -33,7 +33,12 @@ The format is based on Keep a Changelog.
   `production` mapping), and any `enabledFrom` on other entries is
   rejected. Both render targets re-check marker shapes when rendering a
   stored plan, converting the former render-time crash into a typed
-  validation error.
+  validation error. The marker-shape scans also cover the
+  `implementation.kubernetes` block, where the same classes applied:
+  an unguarded `enabledFrom` on a workload crashed the helm renderer,
+  bad shapes on volume specs silently misbehaved, and unsupported
+  marker positions (`production` on workloads and configMap entries,
+  `enabledFrom` on configMap entries) were silently ignored.
 
 ### Added
 

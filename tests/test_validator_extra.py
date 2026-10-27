@@ -1332,3 +1332,79 @@ class EnabledFromShapeTest(unittest.TestCase):
                 for d in diagnostics
             )
         )
+
+
+class KubernetesMarkerShapeTest(unittest.TestCase):
+    """E144/E145 for the `implementation.kubernetes` block: production
+    gates are implemented on volume/configMap specs, enabledFrom on
+    volume specs (guarded) and workloads (unguarded -- a bad shape
+    crashes the helm renderer)."""
+
+    def _module(self, kubernetes):
+        return {
+            "kind": "Module",
+            "metadata": {"category": "warehouse", "name": "mod"},
+            "spec": {
+                "provides": [],
+                "consumes": [],
+                "configSchema": {"type": "object"},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {},
+                    "kubernetes": kubernetes,
+                },
+            },
+        }
+
+    def _scan(self, kubernetes):
+        return validator.validate_module_marker_shapes([_inst("pg", self._module(kubernetes))])
+
+    def test_valid_markers_are_clean(self):
+        kubernetes = {
+            "volumes": {
+                "data": {"enabledFrom": "config.storage.enabled", "production": True},
+            },
+            "configMaps": {"code": {"production": {"name": "release-code"}}},
+            "workloads": {"app": {"enabledFrom": "config.enabled"}},
+        }
+        self.assertEqual(self._scan(kubernetes), [])
+
+    def test_bool_enabled_from_on_workload_reports_e145(self):
+        # The workload guard is unguarded: a boolean shape crashes the
+        # helm renderer today; E145 fails closed instead.
+        kubernetes = {"workloads": {"app": {"enabledFrom": True}}}
+        diagnostics = self._scan(kubernetes)
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E145", "module:pg.spec.implementation.kubernetes.workloads.app.enabledFrom")],
+        )
+
+    def test_bool_enabled_from_on_volume_spec_reports_e145(self):
+        # The volume-spec guard checks isinstance(str), so bad shapes
+        # silently misbehave today; E145 fails closed instead.
+        kubernetes = {"volumes": {"data": {"enabledFrom": True}}}
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E145", "module:pg.spec.implementation.kubernetes.volumes.data.enabledFrom")],
+        )
+
+    def test_string_production_on_volume_spec_reports_e144(self):
+        kubernetes = {"volumes": {"data": {"production": "true"}}}
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E144", "module:pg.spec.implementation.kubernetes.volumes.data.production")],
+        )
+
+    def test_enabled_from_on_configmap_reports_e145(self):
+        kubernetes = {"configMaps": {"code": {"enabledFrom": "config.enabled"}}}
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E145", "module:pg.spec.implementation.kubernetes.configMaps.code.enabledFrom")],
+        )
+
+    def test_production_on_workload_reports_e144(self):
+        kubernetes = {"workloads": {"app": {"production": True}}}
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E144", "module:pg.spec.implementation.kubernetes.workloads.app.production")],
+        )

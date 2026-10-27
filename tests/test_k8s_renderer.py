@@ -667,3 +667,18 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
             "module:demo.implementation.compose.services.app.enabledFrom",
         )
         self.assertEqual(files, {})
+
+    def test_plan_file_with_bool_enabled_from_on_workload_fails_closed(self) -> None:
+        # The workload-level enabledFrom guard is unguarded: a boolean
+        # shape crashed the helm renderer with an untyped TypeError; the
+        # plan re-check fails closed instead.
+        plan = self.minimal_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]["enabledFrom"] = True
+        files, diagnostics = render_helm(plan)
+        e145 = [d for d in diagnostics if d.code == "E145"]
+        self.assertEqual(len(e145), 1)
+        self.assertEqual(
+            e145[0].path,
+            "module:demo.implementation.kubernetes.workloads.app.enabledFrom",
+        )
+        self.assertEqual(files, {})
