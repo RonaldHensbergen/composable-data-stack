@@ -1,6 +1,10 @@
 mako>=1.3.12
 PyJWT>=2.13.0
 cryptography>=48.0.1
+# dnspython 2.7.0 (pulled in via apache-superset) is vulnerable to
+# CVE-2026-114605 (DoS via excessive DNS compression pointer traversal);
+# fixed in 2.9.0
+dnspython>=2.9.0
 jaraco.context>=6.1.0
 msgpack>=1.2.1
 packaging<27
