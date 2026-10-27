@@ -15,6 +15,26 @@ this module and wire a `sql-database` binding to `metadataDatabase`.
 - The healthcheck has a 180 second start period, first startup takes a while before the web UI reports healthy
 - The image is built locally from `images/superset/base/Dockerfile`, startup includes a Docker build step
 
+## Web serving modes (issue #216)
+
+The module serves HTTP in two modes, selected with `config.webServer.mode`
+(see [`docs/serving-modes.md`](../../docs/serving-modes.md)):
+
+- `production` (default): gunicorn with `webServer.workers` workers
+  (default 4), `webServer.timeoutSeconds` per-request timeout (default 60),
+  gthread worker class, and graceful shutdown on SIGTERM. The app is
+  preloaded once in the gunicorn master before workers fork, so a web
+  process that starts before `superset-init` (out-of-order start, restart
+  against an empty database) cannot race schema creation between workers.
+  The `superset` service passes `CDS_WEBSERVER_MODE`/`CDS_WEBSERVER_WORKERS`/`CDS_WEBSERVER_TIMEOUT`
+  to the image entrypoint.
+- `development`: Superset's built-in development server (`superset run`),
+  for local debugging only; validation rejects it in production profiles
+  (E140).
+
+Health semantics are identical in both modes: `/health` on container port
+8088, as rendered by the module and baked into the image `HEALTHCHECK`.
+
 ## Upstream documentation
 
 - [Apache Superset documentation](https://superset.apache.org/docs/intro)

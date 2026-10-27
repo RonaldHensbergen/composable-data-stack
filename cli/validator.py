@@ -74,7 +74,47 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_backup_config(profile, module_instances))
     diagnostics.extend(validate_module_backup_config(profile, module_instances))
     diagnostics.extend(validate_authentication_config(profile, module_instances))
+    diagnostics.extend(validate_web_serving_mode(profile, module_instances))
     diagnostics.extend(validate_confinement_config(profile, profile_file))
+    return diagnostics
+
+
+def validate_web_serving_mode(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
+    """
+    Production web-serving policy (issue #216): development web servers are
+    prohibited in production profiles.
+
+    HTTP-serving modules follow the `config.webServer.mode` convention:
+    `production` (the default, applied by configSchema defaults at plan time)
+    or `development` (the module's built-in development server, e.g. Flask's
+    or Keycloak's dev mode). Validation runs before configSchema defaults
+    apply, so an absent `webServer.mode` means the module default (`production`)
+    and passes; only an explicit `development` is rejected. Non-production
+    profiles are untouched: local profiles may keep the development server.
+    """
+    diagnostics: list[Diagnostic] = []
+    if profile.get("metadata", {}).get("environment") != "production":
+        return diagnostics
+
+    for inst in module_instances:
+        config = inst.get("config") or {}
+        web_server = config.get("webServer") if isinstance(config, dict) else None
+        mode = web_server.get("mode") if isinstance(web_server, dict) else None
+        if mode != "development":
+            continue
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E140",
+                f'Module "{inst["id"]}" configures webServer.mode "development"; '
+                "development web servers are prohibited in production profiles. "
+                'Set config.webServer.mode to "production" (or remove the override) '
+                "so the service runs behind its production process manager.",
+                f"spec.modules[{inst['index']}].config.webServer.mode",
+            )
+        )
     return diagnostics
 
 
