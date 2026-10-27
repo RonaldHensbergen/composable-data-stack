@@ -179,6 +179,9 @@ def insert_incoming_file_event(
                 "metadata_json": metadata_json,
             },
         )
+    # One-shot writer: dispose the engine so a pooled sqlite connection
+    # cannot hold the database file open after the event lands.
+    db.close()
 
 
 __all__ = [

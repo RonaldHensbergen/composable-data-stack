@@ -51,6 +51,11 @@ class DbRoundtripExampleTest(unittest.TestCase):
                 # A second call reads the same row through a fresh connection.
                 self.assertEqual(self._roundtrip("second"), "second")
             finally:
+                # Dispose the registry's engine so its pooled sqlite
+                # connection cannot hold the tempdir's file open on Windows.
+                from cds_runtime import connections
+
+                connections.close_all()
                 if old is None:
                     os.environ.pop("CDS_DB_EXAMPLE_SQLITE_PATH", None)
                 else:
@@ -95,6 +100,7 @@ class DagsterPostgresConnectionMigrationTest(unittest.TestCase):
             db = self.module.connections.database("analytics", prefix="CDS_ANALYTICS_DB", env=self.env)
             self.assertTrue(db.connection_uri.startswith("sqlite:///"))
             self.assertEqual(self.module.get_postgres_connection_uri(), db.connection_uri)
+            db.close()
         finally:
             for key, value in saved.items():
                 if value is None:
@@ -112,6 +118,7 @@ class DagsterPostgresConnectionMigrationTest(unittest.TestCase):
         self.assertEqual(rows[0]["asset_key"], "cds_ingestion")
         snapshot = Path(self.env["CDS_LOCAL_EVENT_LOG_PATH"]).read_text(encoding="utf-8")
         self.assertIn("test-event", snapshot)
+        db.close()
 
     def test_insert_incoming_file_event_without_configuration_only_snapshots(self):
         payload = {"event": "no-db", "file_name": "y.csv"}
