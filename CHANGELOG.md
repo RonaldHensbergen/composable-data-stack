@@ -22,10 +22,6 @@ The format is based on Keep a Changelog.
   workers cannot race each other creating the metadata schema when the
   web process starts before the init container.
 
-## [0.14.0] - 2026-10-26
-
-### Added
-
 - Added `cds-runtime`, an installable Python package giving CDS workloads
   one stable API for named database connections (issue #219):
   `connections.database(name)` resolves a connection from the profile's
@@ -63,6 +59,11 @@ The format is based on Keep a Changelog.
   Dagster's PostgreSQL storage configuration. Documented in
   `docs/runtime-api.md`, including migration from the legacy
   `shared/python/db/connection.py` helper.
+
+## [0.14.0] - 2026-10-26
+
+### Added
+
 - Added a production/learning dividing line for module templates: a
   `production: true|false` tag on services, volumes, and volume mounts
   keeps the entry only in (respectively: only outside) production
