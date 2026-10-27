@@ -15,7 +15,8 @@ are written in profiles):
   ``connectionUri``, preferred when present.
 * ``CDS_DB_ANALYTICS_BACKEND`` + fields -- assemble the URI instead:
   ``postgres``/``postgresql`` or ``mysql`` take ``_HOST``, ``_PORT``
-  (default per backend), ``_DATABASE``, ``_USERNAME``, ``_PASSWORD``;
+  (numeric, default per backend), ``_DATABASE``, ``_USERNAME``,
+  ``_PASSWORD`` (set but empty for password-less authentication);
   ``sqlite`` takes ``_SQLITE_PATH``.
 """
 from __future__ import annotations
@@ -29,6 +30,8 @@ from .errors import MissingConnectionSettingsError, UnknownConnectionError
 DEFAULT_ENV_PREFIX = "CDS_DB_"
 
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+_PORT_PATTERN = re.compile(r"[0-9]+")
 
 _DEFAULT_PORTS = {
     "postgres": "5432",
@@ -121,13 +124,22 @@ def _build_network_uri(prefix: str, scheme: str, backend: str, env: Mapping[str,
     username = env.get(f"{prefix}_USERNAME")
     password = env.get(f"{prefix}_PASSWORD")
 
+    if not _PORT_PATTERN.fullmatch(port):
+        raise MissingConnectionSettingsError(
+            f"Database connection with prefix {prefix} has an invalid "
+            f"{prefix}_PORT: expected a port number."
+        )
+
+    # HOST/DATABASE/USERNAME must carry a value; PASSWORD must merely be
+    # set, so password-less authentication is expressible with an empty
+    # value (anything more belongs in CONNECTION_URI).
     required = {
-        f"{prefix}_HOST": host,
-        f"{prefix}_DATABASE": database,
-        f"{prefix}_USERNAME": username,
-        f"{prefix}_PASSWORD": password,
+        f"{prefix}_HOST": not host,
+        f"{prefix}_DATABASE": not database,
+        f"{prefix}_USERNAME": not username,
+        f"{prefix}_PASSWORD": f"{prefix}_PASSWORD" not in env,
     }
-    missing = [name for name, value in required.items() if not value]
+    missing = [name for name, is_missing in required.items() if is_missing]
     if missing:
         raise MissingConnectionSettingsError(
             f"Database connection with prefix {prefix} is missing required settings: "
@@ -147,6 +159,4 @@ def _build_sqlite_uri(prefix: str, env: Mapping[str, str]) -> str:
         )
     if path == ":memory:":
         return "sqlite:///:memory:"
-    if path.startswith("/"):
-        return f"sqlite:///{path}"
     return f"sqlite:///{path}"

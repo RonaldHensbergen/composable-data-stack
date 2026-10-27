@@ -54,7 +54,7 @@ binding named `analytics-database` is just another name):
 | --- | --- |
 | `CDS_DB_ANALYTICS_CONNECTION_URI` | The resolved contract's `connectionUri` — preferred when present |
 | `CDS_DB_ANALYTICS_BACKEND` | `postgres` (default), `postgresql`, `mysql`, or `sqlite` |
-| `CDS_DB_ANALYTICS_HOST` / `_PORT` / `_DATABASE` / `_USERNAME` / `_PASSWORD` | Fields for postgres/mysql (port defaults to 5432/3306) |
+| `CDS_DB_ANALYTICS_HOST` / `_PORT` / `_DATABASE` / `_USERNAME` / `_PASSWORD` | Fields for postgres/mysql: port must be numeric (defaults to 5432/3306); password must be set, and an *empty* value selects password-less authentication |
 | `CDS_DB_ANALYTICS_SQLITE_PATH` | File path for the `sqlite` backend (`:memory:` supported) |
 
 Wire it in the workload module's Compose environment, exactly like any
@@ -73,6 +73,9 @@ environment:
 `database(name, prefix=...)` overrides the variable prefix, so an
 existing environment block in the `CDS_ANALYTICS_DB_*` style (as shipped
 by the dagster module) can be adopted without touching the module.
+Connections resolved from the process environment are cached by name and
+prefix: repeated calls share one engine, and two names that resolve the
+same environment block stay separate connection objects.
 
 ## API
 
@@ -96,8 +99,10 @@ Errors are typed and safe to log: `UnknownConnectionError`,
 `MissingConnectionSettingsError`, `DriverUnavailableError`, and
 `QueryExecutionError`, all subclasses of `CdsRuntimeError`. Resolution
 failures name the missing environment *variables*, never their values;
-query failures wrap the driver error with the connection password
-redacted; and `repr()` of a connection carries no configuration at all.
+query failures wrap the driver error with the connection's secrets
+redacted — the `_PASSWORD` field *and* a password embedded in
+`CONNECTION_URI`; and `repr()` of a connection carries no configuration
+at all.
 
 ## Secrets and rotation
 

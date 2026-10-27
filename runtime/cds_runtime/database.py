@@ -7,6 +7,7 @@ import re
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
+from urllib.parse import urlsplit
 
 from .errors import CdsRuntimeError, DriverUnavailableError, QueryExecutionError
 from .redaction import looks_like_uri, redact_secret, redact_uri
@@ -202,14 +203,35 @@ class DatabaseConnection:
             raise self._query_error(exc) from exc
 
     def _query_error(self, exc: Exception) -> QueryExecutionError:
-        """Wrap a driver failure with the connection password redacted."""
-        password = self._env.get(f"{self._prefix}_PASSWORD")
-        message = redact_secret(f"{type(exc).__name__}: {exc}", password)
+        """Wrap a driver failure with the connection's secrets redacted."""
+        message = f"{type(exc).__name__}: {exc}"
+        for secret in self._known_secrets():
+            message = redact_secret(message, secret)
         if looks_like_uri(message):
             message = redact_uri(message)
         return QueryExecutionError(
             f"Database operation on connection {self.name!r} failed: {message}."
         )
+
+    def _known_secrets(self) -> list[str]:
+        """The secret values this connection knows about.
+
+        Beyond the ``_PASSWORD`` field, a password may be embedded in
+        ``_CONNECTION_URI``; both are redacted from error messages.
+        """
+        secrets: list[str] = []
+        password = self._env.get(f"{self._prefix}_PASSWORD")
+        if password:
+            secrets.append(password)
+        connection_uri = self._env.get(f"{self._prefix}_CONNECTION_URI")
+        if connection_uri:
+            try:
+                uri_password = urlsplit(connection_uri).password
+            except ValueError:
+                uri_password = None
+            if uri_password:
+                secrets.append(uri_password)
+        return secrets
 
 
 class _BoundConnection:

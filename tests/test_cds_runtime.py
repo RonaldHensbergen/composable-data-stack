@@ -128,6 +128,46 @@ class ConnectionUriResolutionTest(unittest.TestCase):
         self.assertIn("CDS_DB_ANALYTICS_USERNAME", message)
         self.assertNotIn("super-secret", message)
 
+    def test_empty_password_selects_passwordless_auth(self):
+        env = {
+            "CDS_DB_ANALYTICS_BACKEND": "postgres",
+            "CDS_DB_ANALYTICS_HOST": "db",
+            "CDS_DB_ANALYTICS_DATABASE": "d",
+            "CDS_DB_ANALYTICS_USERNAME": "u",
+            "CDS_DB_ANALYTICS_PASSWORD": "",
+        }
+        self.assertEqual(
+            connections.database("analytics", env=env).connection_uri,
+            "postgresql://u:@db:5432/d",
+        )
+
+    def test_unset_password_is_reported_as_missing(self):
+        env = {
+            "CDS_DB_ANALYTICS_BACKEND": "postgres",
+            "CDS_DB_ANALYTICS_HOST": "db",
+            "CDS_DB_ANALYTICS_DATABASE": "d",
+            "CDS_DB_ANALYTICS_USERNAME": "u",
+        }
+        with self.assertRaises(MissingConnectionSettingsError) as ctx:
+            uri = connections.database("analytics", env=env).connection_uri
+            self.assertTrue(uri)
+        self.assertIn("CDS_DB_ANALYTICS_PASSWORD", str(ctx.exception))
+
+    def test_non_numeric_port_is_rejected(self):
+        env = {
+            "CDS_DB_ANALYTICS_BACKEND": "postgres",
+            "CDS_DB_ANALYTICS_HOST": "db",
+            "CDS_DB_ANALYTICS_PORT": "abc",
+            "CDS_DB_ANALYTICS_DATABASE": "d",
+            "CDS_DB_ANALYTICS_USERNAME": "u",
+            "CDS_DB_ANALYTICS_PASSWORD": "p",
+        }
+        with self.assertRaises(MissingConnectionSettingsError) as ctx:
+            uri = connections.database("analytics", env=env).connection_uri
+            self.assertTrue(uri)
+        self.assertIn("CDS_DB_ANALYTICS_PORT", str(ctx.exception))
+        self.assertNotIn("abc", str(ctx.exception))
+
     def test_unknown_connection_reports_expected_variables(self):
         with self.assertRaises(UnknownConnectionError) as ctx:
             uri = connections.database("ghost", env={"OTHER": "x"}).connection_uri
@@ -154,6 +194,13 @@ class RegistryTest(unittest.TestCase):
         second = connections.database("analytics")
         self.assertIs(first, second)
 
+    def test_same_prefix_with_different_names_stays_distinct(self):
+        first = connections.database("x")
+        second = connections.database("analytics", prefix="CDS_DB_X")
+        self.assertIsNot(first, second)
+        self.assertEqual(first.name, "x")
+        self.assertEqual(second.name, "analytics")
+
     def test_explicit_env_bypasses_the_registry(self):
         first = connections.database("analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "sqlite:///:memory:"})
         second = connections.database("analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "sqlite:///:memory:"})
@@ -170,7 +217,7 @@ class RegistryTest(unittest.TestCase):
                 super().close()
 
         tracked = Tracked("analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "sqlite:///:memory:"})
-        connections._connections["CDS_DB_ANALYTICS"] = tracked
+        connections._connections[("analytics", "CDS_DB_ANALYTICS")] = tracked
         connections.close_all()
         self.assertTrue(tracked.closed)
         self.assertEqual(connections._connections, {})
@@ -200,6 +247,33 @@ class RedactionTest(unittest.TestCase):
             connections.database("analytics", env=env).redacted_connection_uri,
             "postgresql://user:***@host:5432/db",
         )
+
+
+class QueryErrorRedactionTest(unittest.TestCase):
+    """Secret redaction in wrapped driver failures, without a live engine."""
+
+    def _connection(self, env):
+        return connections.database("c", env=env)
+
+    def test_error_message_redacts_password_field(self):
+        error = self._connection({"CDS_DB_C_PASSWORD": "super-secret"})._query_error(
+            RuntimeError("authentication failed for super-secret")
+        )
+        self.assertNotIn("super-secret", str(error))
+
+    def test_error_message_redacts_password_embedded_in_connection_uri(self):
+        env = {"CDS_DB_C_CONNECTION_URI": "postgresql://user:hunter2@db:5432/d"}
+        error = self._connection(env)._query_error(
+            RuntimeError("could not connect to postgresql://user:hunter2@db:5432/d")
+        )
+        message = str(error)
+        self.assertNotIn("hunter2", message)
+        self.assertIn("***", message)
+
+    def test_error_message_redacts_uri_password_without_uri_shape(self):
+        env = {"CDS_DB_C_CONNECTION_URI": "postgresql://user:hunter2@db:5432/d"}
+        error = self._connection(env)._query_error(RuntimeError("password hunter2 rejected"))
+        self.assertNotIn("hunter2", str(error))
 
 
 class DriverAvailabilityTest(unittest.TestCase):

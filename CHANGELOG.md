@@ -26,7 +26,10 @@ The format is based on Keep a Changelog.
   compatible drivers are installed; errors are typed
   (`UnknownConnectionError`, `MissingConnectionSettingsError`,
   `DriverUnavailableError`, `QueryExecutionError`) and never carry
-  credentials or unredacted connection URIs; secrets flow exclusively
+  credentials or unredacted connection URIs (query failures redact both
+  the `_PASSWORD` field and a password embedded in `CONNECTION_URI`);
+  field-based config validates `_PORT` as numeric and accepts an empty
+  `_PASSWORD` for password-less authentication; secrets flow exclusively
   through the configured secret provider's runtime placeholders, and
   platform metadata connections stay separate from workload contracts by
   name. A Dagster adapter (`postgres_url`) bridges named connections into
