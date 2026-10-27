@@ -20,6 +20,14 @@ The format is based on Keep a Changelog.
   `3.0.22-1~deb12u2`), so no ignore entries are needed: a clean rebuild
   scans green (verified locally with trivy 0.75.0 against the
   rebuilt image).
+- Fixed the `Trivyignore Audit` workflow falsely reporting every
+  `.trivyignore` exception as resolved (#983, also #963): Trivy
+  automatically loads `.trivyignore` from the working directory, so the
+  audit scan had filtered out the exceptions it was meant to check. The
+  scan now explicitly disables that default ignore file and keeps unfixed
+  findings visible, since they remain present in the image and Trivy's
+  fixed-version data can fluctuate. An exception may be removed only when
+  its vulnerability no longer appears in any published image.
 
 - Fixed a template-authoring footgun in the `production` tag introduced
   with #665: the `production: { ... }` mapping form on a volume-mount
