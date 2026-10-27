@@ -1395,6 +1395,13 @@ class KubernetesMarkerShapeTest(unittest.TestCase):
             [("E144", "module:pg.spec.implementation.kubernetes.volumes.data.production")],
         )
 
+    def test_string_production_on_configmap_spec_reports_e144(self):
+        kubernetes = {"configMaps": {"code": {"production": "true"}}}
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E144", "module:pg.spec.implementation.kubernetes.configMaps.code.production")],
+        )
+
     def test_enabled_from_on_configmap_reports_e145(self):
         kubernetes = {"configMaps": {"code": {"enabledFrom": "config.enabled"}}}
         self.assertEqual(
