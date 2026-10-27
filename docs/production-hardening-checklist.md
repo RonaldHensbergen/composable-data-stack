@@ -126,6 +126,11 @@ the documented set in section 4, and any *new* finding is a regression.
 `No security findings.` (exit 0) is the target state once the tracked items
 land.
 
+Run this only after step 2: without a provisioned `.env` the plan fails
+closed (`E081`) and the rendered-compose checks — including `CDS-SEC-074` —
+are skipped with a `W096` warning, so the finding set is not comparable to
+the section 4 snapshot.
+
 ### Step 5: render and inspect the exposure surface
 
 ```bash
