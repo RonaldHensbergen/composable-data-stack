@@ -324,6 +324,54 @@ If `config.passwordFrom` resolves to a secret placeholder such as
 unset, both prefix and suffix are skipped, rendering
 `redis://keydb:6379`.
 
+### Production and learning variants (`production`)
+
+Modules mark the dividing line between production-worthy pieces and
+learning/mockup-oriented pieces with the `production` tag, evaluated
+against the profile's `metadata.environment` (`production` vs anything
+else). The learning variant must stay especially easy to install — the
+pinned stock image and no local builds — while production profiles gain
+the hardened pieces.
+
+Two forms of the tag, distinguished by type:
+
+- **`production: true`** on a service, volume, or volume-mount entry keeps
+  the entry only in production profiles; **`production: false`** keeps it
+  only outside them. Entries carrying both `production` and `enabledFrom`
+  must match both gates.
+- **`production: { ... }`** (mapping form) on a service marks the enclosed
+  fields as production-only overrides of the service's base fields. A
+  service is a single YAML key, so its learning and production variants
+  cannot be two separate services; in a production profile the mapping is
+  merged over the base service — mappings such as `environment` merge
+  recursively, anything else (`image`, `command`, `volumes`) replaces the
+  base value — and in other profiles it is ignored entirely. The base
+  service stays the easy-to-install learning variant.
+
+```yaml
+services:
+  postgres:
+    image: postgres:18@sha256:...      # learning: pull only, no build
+    ...
+    production:                        # production pieces
+      image: local/postgres:custom
+      build: { context: ../../../, dockerfile: images/postgres/Dockerfile }
+      command: [postgres, -c, archive_mode=on, ...]
+      environment: { ... }              # merged over the base environment
+  postgres-backup:
+    production: true                    # production-only service
+    enabledFrom: config.backup.enabled
+    ...
+```
+
+The compose renderer drops mismatched entries before rendering; the
+Kubernetes (helm) target is treated as production-only for now and always
+renders the production variants. When a config option only works in
+production (for example the postgres backup capability, whose sidecar is
+`production: true`), validation fails closed instead of silently rendering
+less than requested (`E143` for `config.backup.enabled` outside a
+production profile).
+
 ## Custom images
 
 When a module requires a custom Docker image, the build context belongs in the `images/` directory at the repository root, not inside the module directory. Reference it from `spec.implementation.compose.services.<name>`, the same place any other Compose service field goes:

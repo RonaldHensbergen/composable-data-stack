@@ -8,6 +8,24 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a production web-serving mode for HTTP modules (issue #216): a
+  provider-neutral `config.webServer` convention with `mode`
+  (`production`/`development`). `bi/superset` now serves through gunicorn
+  by default (worker and timeout settings via `config.webServer.workers`
+  and `config.webServer.timeoutSeconds`) instead of Superset's development
+  server, and `identity/keycloak` can switch between development mode
+  (`start-dev`, still its default while the module is not
+  production-suitable) and Keycloak production mode. Production profiles
+  that explicitly select `webServer.mode: development` fail validation
+  with `E140`; see `docs/serving-modes.md`. The gunicorn configuration
+  preloads the app in the master process before forking workers, so
+  workers cannot race each other creating the metadata schema when the
+  web process starts before the init container.
+
+## [0.14.0] - 2026-10-26
+
+### Added
+
 - Added `cds-runtime`, an installable Python package giving CDS workloads
   one stable API for named database connections (issue #219):
   `connections.database(name)` resolves a connection from the profile's
@@ -25,15 +43,18 @@ The format is based on Keep a Changelog.
   plain dicts; PostgreSQL, MySQL, and SQLite are supported where
   compatible drivers are installed; errors are typed
   (`UnknownConnectionError`, `MissingConnectionSettingsError`,
-  `DriverUnavailableError`, `QueryExecutionError`) and never carry
-  credentials or unredacted connection URIs (query failures redact both
-  the `_PASSWORD` field and a password embedded in `CONNECTION_URI`);
+  `DriverUnavailableError`, `ConnectionSetupError`,
+  `QueryExecutionError`) and never carry credentials or unredacted
+  connection URIs (query and engine-creation failures redact both the
+  `_PASSWORD` field and a password embedded in `CONNECTION_URI`, plus
+  any URI-shaped substring the driver echoes);
   field-based config validates `_PORT` as a port number (1-65535),
   accepts an empty `_PASSWORD` for password-less authentication, and
   resolves the legacy `_NAME`/`_USER` spellings (as shipped by the
   dagster module's environment block) as aliases for
-  `_DATABASE`/`_USERNAME`; `insert_rows` quotes identifiers through the
-  active dialect (backticks on MySQL, double quotes elsewhere); the
+  `_DATABASE`/`_USERNAME`; `insert_rows` is one atomic transaction and
+  quotes identifiers through the active dialect (backticks on MySQL,
+  double quotes elsewhere); the
   dagster adapter rejects non-PostgreSQL URLs up front; the wheel ships
   `py.typed` and the Apache-2.0 license text; secrets flow exclusively
   through the configured secret provider's runtime placeholders, and
@@ -42,6 +63,28 @@ The format is based on Keep a Changelog.
   Dagster's PostgreSQL storage configuration. Documented in
   `docs/runtime-api.md`, including migration from the legacy
   `shared/python/db/connection.py` helper.
+- Added a production/learning dividing line for module templates: a
+  `production: true|false` tag on services, volumes, and volume mounts
+  keeps the entry only in (respectively: only outside) production
+  profiles, and the `production: { ... }` mapping form merges
+  production-only fields over a service's base definition. Learning
+  profiles stay easy to install (pullable stock images, no local builds);
+  the helm target is treated as production-only for now (#665).
+
+- Added the built-in backup and disaster-recovery capability for the
+  warehouse/postgres module (#665): a pgBackRest sidecar taking scheduled
+  full and incremental backups with continuous WAL archiving
+  (point-in-time recovery) into a client-side encrypted repository
+  volume, `pgbackrest check` integrity verification after each backup,
+  retention via `config.backup.retentionDays`, and a gated one-shot
+  `postgres-restore` service; the module now provides a `backup-target`
+  contract (`postgres.backup-target`) for `spec.backup.target.contractRef`.
+  Validation fails closed with `E141` (backup enabled without an encryption
+  key reference), `E142` (backup enabled on the not-yet-supported helm
+  target), and `E143` (backup enabled outside a production profile); the
+  shipped production overlays bind the new provider. See
+  `docs/backup-restore.md` and `docs/modules.md`.
+
 - Added reverse-proxy dynamic route generation from contract bindings
   (#581): a `reverse-proxy` provider's `config.routes` entries (public
   `host`, `target` module id) render deterministic Traefik file-provider
@@ -497,17 +540,17 @@ The format is based on Keep a Changelog.
   now leaves the placeholder unresolved for the existing `E071` check
   instead of crashing with `ValueError`, without changing any well-formed
   expression (#557).
-  
+
 - Required `cds generate-profile` names to be a single relative path
   segment, so multi-segment names like `teams/checkout` now fail closed with
   `E115` instead of producing a profile invisible to `cds list profiles`,
   without changing any accepted name (#678).
-  
+
 - Rejected `cds get --local` combined with an explicit `--ref`, which was
   previously accepted silently while ignoring `--ref`, so the combination
   now fails closed with a `GetError` matching the documented mutual
   exclusivity, without changing `--local` with the default ref (#506).
-  
+
 - Wrapped malformed compose YAML parse errors in
   `scripts/compose_to_module.py` in `ScaffoldError`, so a bad
   `docker-compose.yml` input now fails with a clean `error:` message naming

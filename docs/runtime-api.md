@@ -98,17 +98,19 @@ is side-effect free; the engine is created lazily on the first operation.
 The connection object is a context manager (`with connections.database("analytics") as db:` closes the engine on exit).
 
 Errors are typed and safe to log: `UnknownConnectionError`,
-`MissingConnectionSettingsError`, `DriverUnavailableError`, and
-`QueryExecutionError`, all subclasses of `CdsRuntimeError`. Resolution
-failures name the missing environment *variables*, never their values;
-query failures wrap the driver error with the connection's secrets
-redacted — the `_PASSWORD` field *and* a password embedded in
-`CONNECTION_URI` (values shorter than three characters are left alone, so
-a trivially short password does not mangle unrelated words in the
-message); and `repr()` of a connection carries no configuration at all.
-By design, a wrapped driver error may still carry *data* values from the
-failed statement (for example, the conflicting value in a
-unique-violation message) — credentials are redacted, data is not.
+`MissingConnectionSettingsError`, `DriverUnavailableError`,
+`ConnectionSetupError`, and `QueryExecutionError`, all subclasses of
+`CdsRuntimeError`. Resolution failures name the missing environment
+*variables*, never their values; engine-creation failures
+(`ConnectionSetupError`) and query failures wrap the underlying error
+with the connection's secrets redacted — the `_PASSWORD` field *and* a
+password embedded in `CONNECTION_URI`, plus any URI-shaped substring
+the driver echoed (values shorter than three characters are left
+alone, so a trivially short password does not mangle unrelated words
+in the message); and `repr()` of a connection carries no configuration
+at all. By design, a wrapped driver error may still carry *data*
+values from the failed statement (for example, the conflicting value
+in a unique-violation message) — credentials are redacted, data is not.
 
 ## Limitations
 
@@ -119,9 +121,9 @@ unique-violation message) — credentials are redacted, data is not.
   in a multi-threaded workload, two threads may briefly create two
   engines for the same connection. The extra engine is disposed by
   `close()`/`close_all()`; SQLAlchemy engines are themselves thread-safe.
-- `QueryExecutionError` carries the driver's message (with known secrets
-  redacted), so treat it as safe for logs, not as a stable programmatic
-  interface.
+- `QueryExecutionError` and `ConnectionSetupError` carry the driver's
+  message (with known secrets redacted), so treat them as safe for logs,
+  not as a stable programmatic interface.
 
 ## Secrets and rotation
 

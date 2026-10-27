@@ -72,8 +72,49 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_outputs(profile, module_instances))
     diagnostics.extend(validate_observability_config(profile, module_instances))
     diagnostics.extend(validate_backup_config(profile, module_instances))
+    diagnostics.extend(validate_module_backup_config(profile, module_instances))
     diagnostics.extend(validate_authentication_config(profile, module_instances))
+    diagnostics.extend(validate_web_serving_mode(profile, module_instances))
     diagnostics.extend(validate_confinement_config(profile, profile_file))
+    return diagnostics
+
+
+def validate_web_serving_mode(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
+    """
+    Production web-serving policy (issue #216): development web servers are
+    prohibited in production profiles.
+
+    HTTP-serving modules follow the `config.webServer.mode` convention:
+    `production` (the default, applied by configSchema defaults at plan time)
+    or `development` (the module's built-in development server, e.g. Flask's
+    or Keycloak's dev mode). Validation runs before configSchema defaults
+    apply, so an absent `webServer.mode` means the module default (`production`)
+    and passes; only an explicit `development` is rejected. Non-production
+    profiles are untouched: local profiles may keep the development server.
+    """
+    diagnostics: list[Diagnostic] = []
+    if profile.get("metadata", {}).get("environment") != "production":
+        return diagnostics
+
+    for inst in module_instances:
+        config = inst.get("config") or {}
+        web_server = config.get("webServer") if isinstance(config, dict) else None
+        mode = web_server.get("mode") if isinstance(web_server, dict) else None
+        if mode != "development":
+            continue
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E140",
+                f'Module "{inst["id"]}" configures webServer.mode "development"; '
+                "development web servers are prohibited in production profiles. "
+                'Set config.webServer.mode to "production" (or remove the override) '
+                "so the service runs behind its production process manager.",
+                f"spec.modules[{inst['index']}].config.webServer.mode",
+            )
+        )
     return diagnostics
 
 
@@ -1174,6 +1215,69 @@ def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[
                     )
                 )
 
+    return diagnostics
+
+
+def validate_module_backup_config(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
+    """
+    Validates the built-in backup capability of modules that ship one (issue
+    #665, currently modules/warehouse/postgres):
+
+    - The capability is a production-only piece (`production: true` on the
+      backup sidecar and repository volume), so enabling it in a
+      non-production profile would silently render no backup at all; E143
+      fails closed and points at metadata.environment instead.
+    - When enabled, the backup repository must be client-side encrypted, so
+      a valid `backup.encryptionKeyFrom` secret reference is required
+      (E141) rather than silently producing an unencrypted repository;
+      production profiles additionally require the referenced alias to be
+      declared `required: true` via the profile-level E134 rule.
+    """
+    diagnostics: list[Diagnostic] = []
+    is_production = profile.get("metadata", {}).get("environment") == "production"
+
+    for inst in module_instances:
+        config = inst.get("config")
+        if not isinstance(config, dict):
+            continue
+        backup = config.get("backup")
+        if not isinstance(backup, dict) or backup.get("enabled") is not True:
+            continue
+
+        if not is_production:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E143",
+                    message=(
+                        "The built-in backup capability is a production-only piece: the "
+                        "backup sidecar and repository volume render only in production "
+                        "profiles. Set metadata.environment to \"production\", or disable "
+                        "config.backup.enabled."
+                    ),
+                    path=f"spec.modules[{inst['index']}].config.backup.enabled",
+                )
+            )
+            continue
+
+        key_ref = backup.get("encryptionKeyFrom")
+        path = f"spec.modules[{inst['index']}].config.backup.encryptionKeyFrom"
+        if not isinstance(key_ref, str) or not is_secret_ref(key_ref):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E141",
+                    message=(
+                        "Backup is enabled but config.backup.encryptionKeyFrom is missing or "
+                        'not a "secrets.<alias>" reference; the backup repository is encrypted '
+                        "client-side and refuses to run without a key (fail closed). Declare "
+                        "the alias under spec.secrets.values and reference it here."
+                    ),
+                    path=path,
+                )
+            )
     return diagnostics
 
 

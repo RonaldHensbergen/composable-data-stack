@@ -18,6 +18,12 @@ spec:
         # because validation runs before configSchema defaults apply.
         authentication:
           hostAuth: scram-sha-256
+        # Built-in backup capability (issue #665): pgBackRest sidecar with
+        # continuous WAL archiving, daily full and hourly incremental
+        # backups into an encrypted repository volume.
+        backup:
+          enabled: true
+          encryptionKeyFrom: secrets.backup_encryption_key
 
     - id: keydb
       config:
@@ -27,8 +33,9 @@ spec:
         passwordFrom: secrets.cache_password
 
   # Production profiles must declare encrypted backup policies per workload
-  # class (see docs/backup-restore.md). The storage provider stays open: add
-  # spec.backup.target.contractRef once a backup-target provider module is used.
+  # class (see docs/backup-restore.md). The warehouse policies bind to the
+  # postgres module's built-in backup-target provider (issue #665), which
+  # advertises client-side encryption and restore verification.
   secrets:
     values:
       backup_encryption_key:
@@ -39,6 +46,8 @@ spec:
         required: true
 
   backup:
+    target:
+      contractRef: postgres.backup-target
     encryption:
       keyFrom: secrets.backup_encryption_key
     policies:

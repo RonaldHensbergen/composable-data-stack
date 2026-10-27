@@ -14,11 +14,13 @@ from cds_runtime import (  # noqa: E402
     connections,
     env_prefix_for,
     redact_uri,
+    redact_uris_in_text,
     resolve_connection_uri,
 )
 from cds_runtime.adapters import dagster  # noqa: E402
 from cds_runtime.errors import (  # noqa: E402
     CdsRuntimeError,
+    ConnectionSetupError,
     DriverUnavailableError,
     MissingConnectionSettingsError,
     QueryExecutionError,
@@ -93,6 +95,21 @@ class ConnectionUriResolutionTest(unittest.TestCase):
             connections.database("analytics", env=env).connection_uri,
             "mysql+pymysql://u:p@db:3306/d",
         )
+
+    def test_invalid_port_is_rejected(self):
+        env = {
+            "CDS_DB_ANALYTICS_BACKEND": "postgres",
+            "CDS_DB_ANALYTICS_HOST": "db",
+            "CDS_DB_ANALYTICS_PORT": "not-a-port",
+            "CDS_DB_ANALYTICS_DATABASE": "d",
+            "CDS_DB_ANALYTICS_USERNAME": "u",
+            "CDS_DB_ANALYTICS_PASSWORD": "p",
+        }
+        with self.assertRaises(MissingConnectionSettingsError) as ctx:
+            uri = connections.database("analytics", env=env).connection_uri
+            self.assertTrue(uri)
+        self.assertIn("CDS_DB_ANALYTICS_PORT", str(ctx.exception))
+        self.assertNotIn("not-a-port", str(ctx.exception))
 
     def test_sqlite_uri_from_path_without_explicit_backend(self):
         env = {"CDS_DB_WAREHOUSE_SQLITE_PATH": "/tmp/warehouse.db"}
@@ -274,6 +291,23 @@ class RedactionTest(unittest.TestCase):
         self.assertNotIn("abc", redacted)
         self.assertIn("flag=1", redacted)
 
+    def test_redact_uris_in_text_masks_embedded_uris(self):
+        message = "could not reach postgresql://user:hunter2@db:5432/x on host db"
+        redacted = redact_uris_in_text(message)
+        self.assertNotIn("hunter2", redacted)
+        self.assertIn("user:***@db:5432/x", redacted)
+
+    def test_query_error_message_redacts_embedded_uris(self):
+        connection = DatabaseConnection(
+            "analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "postgresql://user:secret@host/db"}
+        )
+        message = connection._redacted_message(
+            Exception("could not reach postgresql://user:hunter2@db:5432/x")
+        )
+        self.assertNotIn("hunter2", message)
+        self.assertNotIn("secret", message)
+        self.assertIn("***", message)
+
     def test_connection_repr_carries_no_configuration(self):
         env = {"CDS_DB_ANALYTICS_CONNECTION_URI": "postgresql://user:secret@host:5432/db"}
         connection = connections.database("analytics", env=env)
@@ -342,7 +376,7 @@ class ApiGuardTest(unittest.TestCase):
         for name in ("connections", "database", "close_all", "redact_uri", "env_prefix_for"):
             self.assertTrue(hasattr(cds_runtime, name), name)
         for error in (CdsRuntimeError, UnknownConnectionError, MissingConnectionSettingsError,
-                      DriverUnavailableError, QueryExecutionError):
+                      DriverUnavailableError, ConnectionSetupError, QueryExecutionError):
             self.assertTrue(issubclass(error, CdsRuntimeError))
 
     def test_top_level_connections_module_is_the_registry_module(self):
@@ -453,6 +487,17 @@ class DatabaseOperationsTest(unittest.TestCase):
         self.assertIn("analytics", message)
         self.assertNotIn("super-secret", message)
         self.assertNotIn("sqlite://", message)
+
+    def test_engine_creation_failure_is_typed_and_redacted(self):
+        broken = connections.database(
+            "broken",
+            env={"CDS_DB_BROKEN_CONNECTION_URI": "post gresql://user:hunter2@host/db"},
+        )
+        with self.assertRaises(ConnectionSetupError) as ctx:
+            broken.fetch_all("SELECT 1")
+        message = str(ctx.exception)
+        self.assertIn("broken", message)
+        self.assertNotIn("hunter2", message)
 
     def test_close_disposes_and_reconnects_lazily(self):
         self.db.execute("INSERT INTO customers (name, active) VALUES (:n, :a)", {"n": "a", "a": 1})

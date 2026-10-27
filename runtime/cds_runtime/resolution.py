@@ -168,4 +168,6 @@ def _build_sqlite_uri(prefix: str, env: Mapping[str, str]) -> str:
         )
     if path == ":memory:":
         return "sqlite:///:memory:"
+    # ``sqlite:///`` plus the path yields four slashes for absolute paths
+    # (/x/y) and a relative path otherwise; both are valid SQLite URLs.
     return f"sqlite:///{path}"

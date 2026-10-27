@@ -26,18 +26,20 @@ from .connections import close_all, database
 from .database import DatabaseConnection
 from .errors import (
     CdsRuntimeError,
+    ConnectionSetupError,
     DriverUnavailableError,
     MissingConnectionSettingsError,
     QueryExecutionError,
     UnknownConnectionError,
 )
-from .redaction import redact_uri
+from .redaction import redact_uri, redact_uris_in_text
 from .resolution import env_prefix_for, resolve_connection_uri
 
 __version__ = "0.1.0"
 
 __all__ = [
     "CdsRuntimeError",
+    "ConnectionSetupError",
     "DatabaseConnection",
     "DriverUnavailableError",
     "MissingConnectionSettingsError",
@@ -47,6 +49,7 @@ __all__ = [
     "database",
     "env_prefix_for",
     "redact_uri",
+    "redact_uris_in_text",
     "resolve_connection_uri",
     "connections",
 ]
