@@ -1536,3 +1536,20 @@ class ProductionGateTest(unittest.TestCase):
         compose = yaml.safe_load(output)
         self.assertNotIn("pg-postgres", compose.get("services", {}))
 
+    def test_plan_file_with_bool_enabled_from_fails_closed(self):
+        # A boolean `enabledFrom` previously crashed the renderer with an
+        # untyped TypeError (`production: true` is a boolean gate, so the
+        # shape mistake is plausible); the plan re-check fails closed.
+        plan = self._plan()
+        plan["modules"][0]["implementation"]["compose"]["services"]["pg-mock"]["enabledFrom"] = True
+        output, diagnostics = render_compose(plan)
+        e145 = [d for d in diagnostics if d.code == "E145"]
+        self.assertEqual(len(e145), 1)
+        self.assertEqual(
+            e145[0].path,
+            "module:pg.implementation.compose.services.pg-mock.enabledFrom",
+        )
+        # The module is skipped entirely instead of crashing.
+        compose = yaml.safe_load(output)
+        self.assertNotIn("pg-postgres", compose.get("services", {}))
+

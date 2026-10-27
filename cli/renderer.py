@@ -29,7 +29,7 @@ from .secret_leak import (
     resolved_secret_values,
 )
 from .utils import _atomic_write
-from .validator import validate_plan_production_markers
+from .validator import validate_plan_marker_shapes
 
 
 def render_compose(
@@ -123,7 +123,7 @@ def render_compose(
         # Plans can be loaded from files, so re-check what validate already
         # checked: marker shapes the renderer cannot honor would silently
         # leak into the rendered output.
-        marker_diags = validate_plan_production_markers([module])
+        marker_diags = validate_plan_marker_shapes([module])
         if marker_diags:
             diagnostics.extend(marker_diags)
             continue

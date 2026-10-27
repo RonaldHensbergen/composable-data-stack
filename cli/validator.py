@@ -73,7 +73,7 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_observability_config(profile, module_instances))
     diagnostics.extend(validate_backup_config(profile, module_instances))
     diagnostics.extend(validate_module_backup_config(profile, module_instances))
-    diagnostics.extend(validate_module_production_markers(module_instances))
+    diagnostics.extend(validate_module_marker_shapes(module_instances))
     diagnostics.extend(validate_authentication_config(profile, module_instances))
     diagnostics.extend(validate_web_serving_mode(profile, module_instances))
     diagnostics.extend(validate_confinement_config(profile, profile_file))
@@ -1219,11 +1219,14 @@ def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[
     return diagnostics
 
 
-def validate_module_production_markers(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+def validate_module_marker_shapes(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
     """
-    Enforces the shape and position of `production` markers in module
-    templates (see apply_production_gates in cli/renderer.py and
+    Enforces the shape and position of the `production` and
+    `enabledFrom` / `conditionallyEnabledFrom` markers in module templates
+    (see apply_production_gates and _is_disabled in cli/renderer.py, and
     docs/modules.md):
+
+    `production` markers (E144):
 
     - On services and volume definitions, both the boolean gate and the
       `production: { ... }` mapping form are supported; any other shape
@@ -1233,15 +1236,23 @@ def validate_module_production_markers(module_instances: list[dict[str, Any]]) -
     - On individual volume-mount entries, only the boolean gate is
       implemented: the marker must be a boolean (or absent). This covers
       mount entries in the service's base `volumes` list and in the list
-      nested inside its `production: { ... }` mapping (the renderer
-      merges the mapping over the base before processing entries, so
-      the leak would be identical there).
+      nested inside its `production: { ... }` mapping.
     - On entries of any other service list field (ports, labels, ...), no
       marker is implemented at all: the renderer would neither honor
       nor strip it.
 
-    Every violation fails closed with E144 at validation time instead of
-    silently leaking into the rendered output.
+    `enabledFrom` / `conditionallyEnabledFrom` markers (E145):
+
+    - On services, volume definitions, volume-mount entries, and
+      healthchecks, the marker must be a non-empty string holding a
+      config path expression; any other shape crashes the renderer with
+      an untyped error (e.g. `enabledFrom: true` raises TypeError in
+      _resolve_expr).
+    - On entries of any other service list field no marker is
+      implemented, so any `enabledFrom` key there is rejected as well.
+
+    Every violation fails closed at validation time instead of silently
+    leaking into the rendered output or crashing the renderer.
     """
     diagnostics: list[Diagnostic] = []
     for inst in module_instances:
@@ -1249,17 +1260,14 @@ def validate_module_production_markers(module_instances: list[dict[str, Any]]) -
         if not isinstance(module, dict):
             continue
         compose = module.get("spec", {}).get("implementation", {}).get("compose", {})
-        diagnostics.extend(
-            _production_marker_diagnostics(
-                compose,
-                base_path=f'module:{inst.get("id")}.spec.implementation.compose',
-            )
-        )
+        base_path = f'module:{inst.get("id")}.spec.implementation.compose'
+        diagnostics.extend(_production_marker_diagnostics(compose, base_path=base_path))
+        diagnostics.extend(_enabledfrom_marker_diagnostics(compose, base_path=base_path))
     return diagnostics
 
 
-def validate_plan_production_markers(modules: list[dict[str, Any]]) -> list[Diagnostic]:
-    """Renderer-side re-check of `production` marker shapes (E144).
+def validate_plan_marker_shapes(modules: list[dict[str, Any]]) -> list[Diagnostic]:
+    """Renderer-side re-check of marker shapes (E144/E145).
 
     Plans can be loaded from files (possibly hand-edited), so the
     renderers re-check what validate already checked -- the same
@@ -1273,12 +1281,9 @@ def validate_plan_production_markers(modules: list[dict[str, Any]]) -> list[Diag
         if not isinstance(module, dict):
             continue
         compose = (module.get("implementation", {}) or {}).get("compose", {})
-        diagnostics.extend(
-            _production_marker_diagnostics(
-                compose,
-                base_path=f'module:{module.get("id")}.implementation.compose',
-            )
-        )
+        base_path = f'module:{module.get("id")}.implementation.compose'
+        diagnostics.extend(_production_marker_diagnostics(compose, base_path=base_path))
+        diagnostics.extend(_enabledfrom_marker_diagnostics(compose, base_path=base_path))
     return diagnostics
 
 
@@ -1378,6 +1383,102 @@ def _production_marker_diagnostics(compose: Any, *, base_path: str) -> list[Diag
                     "the rendered output."
                 ),
                 path=f"{base_path}.volumes.{volume_name}.production",
+            ))
+    return diagnostics
+
+
+def _enabledfrom_marker_diagnostics(compose: Any, *, base_path: str) -> list[Diagnostic]:
+    """E145 findings for `enabledFrom` / `conditionallyEnabledFrom` markers."""
+    diagnostics: list[Diagnostic] = []
+    if not isinstance(compose, dict):
+        return diagnostics
+
+    def _condition_marker(value: Any, path: str) -> list[Diagnostic]:
+        if value is not None and not (isinstance(value, str) and value.strip()):
+            return [Diagnostic(
+                level="error",
+                code="E145",
+                message=(
+                    "`enabledFrom` / `conditionallyEnabledFrom` must be a non-empty "
+                    "string holding a config path expression (e.g. `config.backup.enabled`); "
+                    "other shapes crash the renderer or silently misbehave at render time."
+                ),
+                path=path,
+            )]
+        return []
+
+    services = compose.get("services", {})
+    if isinstance(services, dict):
+        for service_name, service_def in services.items():
+            if not isinstance(service_def, dict):
+                continue
+            service_base = f"{base_path}.services.{service_name}"
+            marker = service_def.get("production")
+            service_variants: list[tuple[str, Any]] = [("", service_def)]
+            if isinstance(marker, dict):
+                service_variants.append(("production.", marker))
+            for prefix, variant in service_variants:
+                diagnostics.extend(_condition_marker(
+                    variant.get("enabledFrom"), f"{service_base}.{prefix}enabledFrom"
+                ))
+                healthcheck = variant.get("healthcheck")
+                if isinstance(healthcheck, dict):
+                    diagnostics.extend(_condition_marker(
+                        healthcheck.get("conditionallyEnabledFrom"),
+                        f"{service_base}.{prefix}healthcheck.conditionallyEnabledFrom",
+                    ))
+
+            # Mount entries carry a supported (string) marker; other list
+            # fields do not implement any marker, so any key there is
+            # rejected. Scan the base fields and the production mapping.
+            volume_lists: list[tuple[str, Any]] = [("volumes", service_def.get("volumes"))]
+            if isinstance(marker, dict):
+                volume_lists.append(("production.volumes", marker.get("volumes")))
+            for list_key, volumes in volume_lists:
+                if not isinstance(volumes, list):
+                    continue
+                for index, volume_item in enumerate(volumes):
+                    if not isinstance(volume_item, dict):
+                        continue
+                    diagnostics.extend(_condition_marker(
+                        volume_item.get("enabledFrom"),
+                        f"{service_base}.{list_key}[{index}].enabledFrom",
+                    ))
+            scan_fields: list[tuple[str, Any]] = [
+                (f"{service_base}.{key}", value)
+                for key, value in service_def.items()
+                if key not in ("volumes", "production", "healthcheck")
+            ]
+            if isinstance(marker, dict):
+                scan_fields.extend(
+                    (f"{service_base}.production.{key}", value)
+                    for key, value in marker.items()
+                    if key not in ("volumes", "healthcheck")
+                )
+            for field_path, field_value in scan_fields:
+                for index, entry in enumerate(field_value) if isinstance(field_value, list) else []:
+                    if isinstance(entry, dict) and "enabledFrom" in entry:
+                        diagnostics.append(Diagnostic(
+                            level="error",
+                            code="E145",
+                            message=(
+                                "The `enabledFrom` marker is only implemented on services, "
+                                "volume definitions, volume-mount entries, and healthchecks; "
+                                "on entries of other list fields the renderer would neither "
+                                "honor nor strip it, leaking the marker key into the "
+                                "rendered output."
+                            ),
+                            path=f"{field_path}[{index}].enabledFrom",
+                        ))
+
+    volumes = compose.get("volumes", {})
+    if isinstance(volumes, dict):
+        for volume_name, volume_def in volumes.items():
+            if not isinstance(volume_def, dict):
+                continue
+            diagnostics.extend(_condition_marker(
+                volume_def.get("enabledFrom"),
+                f"{base_path}.volumes.{volume_name}.enabledFrom",
             ))
     return diagnostics
 

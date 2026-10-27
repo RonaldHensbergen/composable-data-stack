@@ -46,7 +46,7 @@ from .secret_leak import (
     resolved_secret_values,
 )
 from .utils import _atomic_write
-from .validator import validate_plan_production_markers
+from .validator import validate_plan_marker_shapes
 
 CHART_API_VERSION = "v2"
 
@@ -131,7 +131,7 @@ def render_helm(
     # Plans can be loaded from files, so re-check what validate already
     # checked: marker shapes the renderer cannot honor would leak into
     # the compose target and diverge silently on this one.
-    marker_diags = validate_plan_production_markers(modules)
+    marker_diags = validate_plan_marker_shapes(modules)
     if marker_diags:
         diagnostics.extend(marker_diags)
         return {}, diagnostics

@@ -652,3 +652,18 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
             "module:demo.implementation.compose.services.app.volumes[0].production",
         )
         self.assertEqual(files, {})
+
+    def test_plan_file_with_bool_enabled_from_fails_closed(self) -> None:
+        # A boolean `enabledFrom` crashed the compose renderer with an
+        # untyped TypeError and is not honored here either; the plan
+        # re-check fails closed on both targets.
+        plan = self.minimal_plan()
+        plan["modules"][0]["implementation"]["compose"]["services"]["app"]["enabledFrom"] = True
+        files, diagnostics = render_helm(plan)
+        e145 = [d for d in diagnostics if d.code == "E145"]
+        self.assertEqual(len(e145), 1)
+        self.assertEqual(
+            e145[0].path,
+            "module:demo.implementation.compose.services.app.enabledFrom",
+        )
+        self.assertEqual(files, {})
