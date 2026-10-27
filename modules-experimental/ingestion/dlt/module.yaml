@@ -122,6 +122,7 @@ spec:
             - dlt-state:/usr/app/dlt_state
           environment:
             DESTINATION__POSTGRES__CREDENTIALS: "${bindings.destination-database.connectionUri}"
+            CDS_DB_DESTINATION_CONNECTION_URI: "${bindings.destination-database.connectionUri}"
             DLT_DATASET_NAME: "${config.destinationDataset}"
             DLT_PIPELINE_NAME: "${config.pipelineName}"
             DLT_PIPELINES_DIR: /usr/app/dlt_state

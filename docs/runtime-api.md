@@ -162,8 +162,9 @@ Dagster's storage machinery).
 
 ## Migrating from `shared/python/db/connection.py`
 
-The legacy helper (path-loaded by the dagster and dlt workdirs) stays in
-place for existing workdirs. New code should use `cds-runtime`:
+The legacy helper is **deprecated** (issue #987): no shipped workdir
+loads it anymore. It stays in the images for externally supplied
+definitions files that import it; new code should use `cds-runtime`:
 
 | Legacy | cds-runtime |
 | --- | --- |
@@ -176,3 +177,20 @@ place for existing workdirs. New code should use `cds-runtime`:
 Adopting an existing `CDS_ANALYTICS_DB_*` environment block does not
 require renaming variables: pass `prefix="CDS_ANALYTICS_DB"` — the
 legacy `_NAME`/`_USER` field spellings resolve as aliases.
+
+### The shipped workdirs
+
+- The **dagster** workdir resolves its connections through cds-runtime
+  (`workdirs/dagster/postgres_connection.py`): the analytics
+  connection adopts the module's existing `CDS_ANALYTICS_DB_*` block
+  via the prefix, and the dagster-specific event persistence
+  (`insert_incoming_file_event`) is ported onto cds-runtime inside the
+  workdir — event semantics stay with the workload, connection
+  plumbing moved to the package.
+- The **example workload** `workdirs/db_roundtrip.py` runs unchanged in
+  two CDS-managed Python runtimes: the dagster workdir runs it as the
+  `db_roundtrip` asset (canonical `analytics` connection), the dlt
+  pipeline runs it as a pre-load check (canonical `destination`
+  connection). Both runtime images bake `runtime/cds_runtime` in at
+  `/app/runtime`, and the workdir loader falls back to the repo root's
+  `runtime/` directory for local runs.

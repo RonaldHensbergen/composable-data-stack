@@ -1,6 +1,5 @@
 import csv
 import hashlib
-import importlib
 import importlib.util
 import io
 import json
@@ -38,19 +37,14 @@ def _load_module_from_path(module_name: str, file_path: Path):
     return module
 
 
-try:
-    _db_connection = importlib.import_module("shared.python.db.connection")
-except ModuleNotFoundError:
-    repo_root = Path(__file__).resolve().parents[2]
-    shared_connection_path = repo_root / "shared" / "python" / "db" / "connection.py"
-    if shared_connection_path.exists():
-        _db_connection = _load_module_from_path("cds_shared_db_connection", shared_connection_path)
-    else:
-        local_connection_path = Path(__file__).resolve().with_name("postgres_connection.py")
-        _db_connection = _load_module_from_path("cds_local_postgres_connection", local_connection_path)
+# The database access layer lives in the local postgres_connection module,
+# built on the cds-runtime package (issue #987). The legacy
+# shared/python/db/connection.py helper is deprecated and only remains in
+# the images for externally supplied definitions files.
+local_connection_path = Path(__file__).resolve().with_name("postgres_connection.py")
+_db_connection = _load_module_from_path("cds_local_postgres_connection", local_connection_path)
 
 insert_incoming_file_event = _db_connection.insert_incoming_file_event
-
 _tender_analytics = _load_module_from_path(
     "cds_tender_analytics",
     Path(__file__).resolve().with_name("tender_analytics.py"),
@@ -351,6 +345,18 @@ def _move_files(context, incoming_dir: Path, processed_dir: Path, files: list[st
 @asset
 def hello_cds() -> str:
     return "hello from cds"
+
+
+@asset
+def db_roundtrip() -> str:
+    """The shared example workload (workdirs/db_roundtrip.py), run through
+    the canonical `analytics` connection: the same file runs unchanged in
+    the dlt runtime (see workdirs/dlt/pipeline.py)."""
+    db_roundtrip_module = _load_module_from_path(
+        "cds_db_roundtrip",
+        Path(__file__).resolve().parents[1] / "db_roundtrip.py",
+    )
+    return db_roundtrip_module.roundtrip("analytics", "hello from the dagster runtime")
 
 
 hello_cds_job = define_asset_job("hello_cds_job", selection=["hello_cds"])
