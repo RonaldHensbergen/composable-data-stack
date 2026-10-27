@@ -6,6 +6,40 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a template-authoring footgun in the `production` tag introduced
+  with #665: the `production: { ... }` mapping form on a volume-mount
+  entry was silently ignored and leaked its key into the rendered Compose
+  output (and mounted unconditionally on the helm target). Validation now
+  fails closed with `E144` for every marker shape or position the
+  renderer cannot honor: mount entries in a service's base `volumes`
+  list and nested inside its `production` mapping (boolean only), and
+  non-boolean/non-mapping markers on services and volume definitions; on
+  entries of any other service list field (`ports`, `labels`, ...) no
+  marker is implemented, so any marker there is rejected as well. Both
+  render targets re-check marker shapes when rendering a stored plan,
+  since plans can be loaded from files (#958 post-merge review, #988).
+
+- Hardened the `enabledFrom` / `conditionallyEnabledFrom` guards the same
+  way (#988): the renderer resolves these markers as string config-path
+  expressions, so any other shape — e.g. the boolean `enabledFrom: true`,
+  a plausible mistake given `production: true` is a boolean gate —
+  crashed the renderer with an untyped `TypeError`/`AttributeError`, and
+  on entries of service list fields where no marker is implemented the
+  key leaked into the rendered output. Validation now fails closed with
+  `E145`: a non-empty string is required on services, volume definitions,
+  volume-mount entries, and healthchecks (including inside a service's
+  `production` mapping), and any `enabledFrom` on other entries is
+  rejected. Both render targets re-check marker shapes when rendering a
+  stored plan, converting the former render-time crash into a typed
+  validation error. The marker-shape scans also cover the
+  `implementation.kubernetes` block, where the same classes applied:
+  an unguarded `enabledFrom` on a workload crashed the helm renderer,
+  bad shapes on volume specs silently misbehaved, and unsupported
+  marker positions (`production` on workloads and configMap entries,
+  `enabledFrom` on configMap entries) were silently ignored.
+
 ### Added
 
 - Added a production web-serving mode for HTTP modules (issue #216): a
@@ -22,6 +56,47 @@ The format is based on Keep a Changelog.
   workers cannot race each other creating the metadata schema when the
   web process starts before the init container.
 
+- Added `cds-runtime`, an installable Python package giving CDS workloads
+  one stable API for named database connections (issue #219):
+  `connections.database(name)` resolves a connection from the profile's
+  bound `sql-database` contracts through a fixed environment-variable
+  convention (`CDS_DB_<NAME>_CONNECTION_URI`, or `CDS_DB_<NAME>_BACKEND`
+  plus host/port/database/username/password fields, or a SQLite path),
+  so application code no longer duplicates URI construction, SQLAlchemy
+  setup, and cleanup in per-tool helper files. The core package is
+  dependency-free (SQLAlchemy and the database drivers are lazily
+  imported optional extras); imports are side-effect free; the API
+  covers parameterized reads and writes (`fetch_all`/`fetch_one`/
+  `execute`), bulk inserts with validated identifiers and bound
+  parameters (`insert_rows`), explicit transactions, and deterministic
+  engine cleanup (`close`, `close_all`, context managers); rows are
+  plain dicts; PostgreSQL, MySQL, and SQLite are supported where
+  compatible drivers are installed; errors are typed
+  (`UnknownConnectionError`, `MissingConnectionSettingsError`,
+  `DriverUnavailableError`, `ConnectionSetupError`,
+  `QueryExecutionError`) and never carry credentials or unredacted
+  connection URIs (query and engine-creation failures redact both the
+  `_PASSWORD` field and a password embedded in `CONNECTION_URI`, plus
+  any URI-shaped substring the driver echoes);
+  field-based config validates `_PORT` as a port number (1-65535),
+  accepts an empty `_PASSWORD` for password-less authentication, and
+  resolves the legacy `_NAME`/`_USER` spellings (as shipped by the
+  dagster module's environment block) as aliases for
+  `_DATABASE`/`_USERNAME`; field-assembled postgres URLs pin the
+  psycopg2 driver (`postgresql+psycopg2://`) so engine creation stays
+  independent of SQLAlchemy's default-driver changes;
+  `insert_rows` is one atomic transaction and
+  quotes identifiers through the active dialect (backticks on MySQL,
+  double quotes elsewhere); the
+  dagster adapter rejects non-PostgreSQL URLs up front; the wheel ships
+  `py.typed` and the Apache-2.0 license text; secrets flow exclusively
+  through the configured secret provider's runtime placeholders, and
+  platform metadata connections stay separate from workload contracts by
+  name. A Dagster adapter (`postgres_url`) bridges named connections into
+  Dagster's PostgreSQL storage configuration. Documented in
+  `docs/runtime-api.md`, including migration from the legacy
+  `shared/python/db/connection.py` helper.
+
 - Added an automated restore verification for the built-in backup
   capability (issue #210): the Docker-gated runtime proof
   `tests/test_postgres_backup_restore_runtime.py` renders the shipped
@@ -34,7 +109,6 @@ The format is based on Keep a Changelog.
   `CDS_RUN_DOCKER_SMOKE=1 python -m unittest
   tests.test_postgres_backup_restore_runtime -v`; see
   `docs/backup-restore.md` section 5.
-
 ## [0.14.0] - 2026-10-26
 
 ### Added

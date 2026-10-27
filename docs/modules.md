@@ -91,7 +91,7 @@ spec:
   - `${bindings.<contract>.<field>}` reads a field from a contract declared in `spec.consumes` and resolved by the profile
   - `${secrets.<alias>}` resolves a profile secret alias to a Docker Compose runtime placeholder such as `${CDS_DB_PASSWORD}`; CDS never embeds the secret value
   - `${certificates.<alias>.cert}` / `${certificates.<alias>.key}` (issue #578) resolve one half of a profile certificate alias declared under `spec.certificates.values` to its `${CDS_*}` runtime placeholder. CDS never generates, reads, or embeds certificate or private key material: the alias only names the environment variables the external secret/cert provider supplies, so an undeclared alias, a bare `certificates.<alias>` reference, or an unknown trailing part fails validation with `E129` instead of silently not substituting
-- `enabledFrom` / `conditionallyEnabledFrom: <json-path>`, which include or drop a volume, service, or healthcheck based on a boolean resolved from the profile's config (see `postgres`'s `storage.enabled` and `healthcheck.enabled` above)
+- `enabledFrom` / `conditionallyEnabledFrom: <json-path>`, which include or drop a volume, service, or healthcheck based on a boolean resolved from the profile's config (see `postgres`'s `storage.enabled` and `healthcheck.enabled` above). The marker's shape is enforced: it must be a **non-empty string** on services, volume definitions, volume-mount entries, and healthchecks — anything else (e.g. the boolean `enabledFrom: true`, unlike `production: true`) crashes the renderer and now fails validation with `E145`; on entries of any other service list field the marker is not implemented, so any `enabledFrom` key there fails closed as well. In the `kubernetes` implementation block the same rules apply (`production` gates on volume and configMap entries, `enabledFrom` on volume entries and workloads; markers elsewhere in the block fail closed). Both render targets re-check marker shapes when rendering a stored plan (plans can be loaded from files).
 
 When authoring `spec.implementation.compose`:
 
@@ -338,7 +338,15 @@ Two forms of the tag, distinguished by type:
 - **`production: true`** on a service, volume, or volume-mount entry keeps
   the entry only in production profiles; **`production: false`** keeps it
   only outside them. Entries carrying both `production` and `enabledFrom`
-  must match both gates.
+  must match both gates. The marker's shape is enforced: on services and
+  volume definitions it must be a boolean or a mapping; on volume-mount
+  entries it must be a boolean (or absent) — this includes mount entries
+  nested inside a service's `production: { ... }` mapping. On entries of
+  any other service list field (`ports`, `labels`, ...) no marker is
+  implemented, so any `production` key there fails closed as well. Every
+  violation fails validation with `E144` instead of silently leaking
+  into the rendered output, and both render targets re-check marker
+  shapes when rendering a stored plan (plans can be loaded from files).
 - **`production: { ... }`** (mapping form) on a service marks the enclosed
   fields as production-only overrides of the service's base fields. A
   service is a single YAML key, so its learning and production variants

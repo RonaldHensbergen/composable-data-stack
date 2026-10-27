@@ -630,3 +630,55 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
             self.assertTrue(
                 (Path(tmpdir) / "relative-chart" / "Chart.yaml").is_file()
             )
+
+    def test_plan_file_with_marker_shape_violation_fails_closed(self) -> None:
+        # Plans can be loaded from files, so the helm renderer re-checks
+        # marker shapes: an unhonorable marker would leak on the compose
+        # target and silently diverge here.
+        plan = self.minimal_plan()
+        plan["modules"][0]["implementation"]["compose"]["services"]["app"]["volumes"] = [
+            {
+                "type": "volume",
+                "source": "data",
+                "target": "/data",
+                "production": {"read_only": True},
+            }
+        ]
+        files, diagnostics = render_helm(plan)
+        e144 = [d for d in diagnostics if d.code == "E144"]
+        self.assertEqual(len(e144), 1)
+        self.assertEqual(
+            e144[0].path,
+            "module:demo.implementation.compose.services.app.volumes[0].production",
+        )
+        self.assertEqual(files, {})
+
+    def test_plan_file_with_bool_enabled_from_fails_closed(self) -> None:
+        # A boolean `enabledFrom` crashed the compose renderer with an
+        # untyped TypeError and is not honored here either; the plan
+        # re-check fails closed on both targets.
+        plan = self.minimal_plan()
+        plan["modules"][0]["implementation"]["compose"]["services"]["app"]["enabledFrom"] = True
+        files, diagnostics = render_helm(plan)
+        e145 = [d for d in diagnostics if d.code == "E145"]
+        self.assertEqual(len(e145), 1)
+        self.assertEqual(
+            e145[0].path,
+            "module:demo.implementation.compose.services.app.enabledFrom",
+        )
+        self.assertEqual(files, {})
+
+    def test_plan_file_with_bool_enabled_from_on_workload_fails_closed(self) -> None:
+        # The workload-level enabledFrom guard is unguarded: a boolean
+        # shape crashed the helm renderer with an untyped TypeError; the
+        # plan re-check fails closed instead.
+        plan = self.minimal_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]["enabledFrom"] = True
+        files, diagnostics = render_helm(plan)
+        e145 = [d for d in diagnostics if d.code == "E145"]
+        self.assertEqual(len(e145), 1)
+        self.assertEqual(
+            e145[0].path,
+            "module:demo.implementation.kubernetes.workloads.app.enabledFrom",
+        )
+        self.assertEqual(files, {})

@@ -73,6 +73,7 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_observability_config(profile, module_instances))
     diagnostics.extend(validate_backup_config(profile, module_instances))
     diagnostics.extend(validate_module_backup_config(profile, module_instances))
+    diagnostics.extend(validate_module_marker_shapes(module_instances))
     diagnostics.extend(validate_authentication_config(profile, module_instances))
     diagnostics.extend(validate_web_serving_mode(profile, module_instances))
     diagnostics.extend(validate_confinement_config(profile, profile_file))
@@ -1215,6 +1216,399 @@ def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[
                     )
                 )
 
+    return diagnostics
+
+
+def validate_module_marker_shapes(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+    """
+    Enforces the shape and position of the `production` and
+    `enabledFrom` / `conditionallyEnabledFrom` markers in module templates
+    (see apply_production_gates and _is_disabled in cli/renderer.py, and
+    docs/modules.md):
+
+    `production` markers (E144):
+
+    - On services and volume definitions, both the boolean gate and the
+      `production: { ... }` mapping form are supported; any other shape
+      (e.g. the YAML string `production: "true"`) is silently ignored by
+      the renderer and would leak the marker key into the rendered
+      output.
+    - On individual volume-mount entries, only the boolean gate is
+      implemented: the marker must be a boolean (or absent). This covers
+      mount entries in the service's base `volumes` list and in the list
+      nested inside its `production: { ... }` mapping.
+    - On entries of any other service list field (ports, labels, ...), no
+      marker is implemented at all: the renderer would neither honor
+      nor strip it.
+
+    `enabledFrom` / `conditionallyEnabledFrom` markers (E145):
+
+    - On services, volume definitions, volume-mount entries, and
+      healthchecks, the marker must be a non-empty string holding a
+      config path expression; any other shape crashes the renderer with
+      an untyped error (e.g. `enabledFrom: true` raises TypeError in
+      _resolve_expr).
+    - On entries of any other service list field no marker is
+      implemented, so any `enabledFrom` key there is rejected as well.
+
+    Every violation fails closed at validation time instead of silently
+    leaking into the rendered output or crashing the renderer.
+    """
+    diagnostics: list[Diagnostic] = []
+    for inst in module_instances:
+        module = inst.get("module")
+        if not isinstance(module, dict):
+            continue
+        implementation = module.get("spec", {}).get("implementation", {})
+        compose = implementation.get("compose", {})
+        base_path = f'module:{inst.get("id")}.spec.implementation.compose'
+        diagnostics.extend(_production_marker_diagnostics(compose, base_path=base_path))
+        diagnostics.extend(_enabledfrom_marker_diagnostics(compose, base_path=base_path))
+        kubernetes = implementation.get("kubernetes", {})
+        k8s_base = f'module:{inst.get("id")}.spec.implementation.kubernetes'
+        diagnostics.extend(_kubernetes_marker_diagnostics(kubernetes, base_path=k8s_base))
+    return diagnostics
+
+
+def validate_plan_marker_shapes(modules: list[dict[str, Any]]) -> list[Diagnostic]:
+    """Renderer-side re-check of marker shapes (E144/E145).
+
+    Plans can be loaded from files (possibly hand-edited), so the
+    renderers re-check what validate already checked -- the same
+    rationale as the confinement re-check in cli/renderer.py. ``modules``
+    are plan-shaped: the compose implementation sits at
+    ``module["implementation"]["compose"]``, without the ``spec`` wrapper
+    the loader's module templates carry.
+    """
+    diagnostics: list[Diagnostic] = []
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        implementation = module.get("implementation", {}) or {}
+        compose = implementation.get("compose", {})
+        base_path = f'module:{module.get("id")}.implementation.compose'
+        diagnostics.extend(_production_marker_diagnostics(compose, base_path=base_path))
+        diagnostics.extend(_enabledfrom_marker_diagnostics(compose, base_path=base_path))
+        kubernetes = implementation.get("kubernetes", {})
+        k8s_base = f'module:{module.get("id")}.implementation.kubernetes'
+        diagnostics.extend(_kubernetes_marker_diagnostics(kubernetes, base_path=k8s_base))
+    return diagnostics
+
+
+def _production_marker_diagnostics(compose: Any, *, base_path: str) -> list[Diagnostic]:
+    """E144 findings for one compose implementation."""
+    diagnostics: list[Diagnostic] = []
+    if not isinstance(compose, dict):
+        return diagnostics
+
+    services = compose.get("services", {})
+    if isinstance(services, dict):
+        for service_name, service_def in services.items():
+            if not isinstance(service_def, dict):
+                continue
+            service_base = f"{base_path}.services.{service_name}"
+            marker = service_def.get("production")
+            if marker is not None and not isinstance(marker, bool) and not isinstance(marker, dict):
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E144",
+                    message=(
+                        f'The `production` marker of service "{service_name}" must be a '
+                        "boolean (production: true|false) or a mapping (production: { ... }); "
+                        "other shapes are not implemented and would leak the marker key "
+                        "into the rendered output."
+                    ),
+                    path=f"{service_base}.production",
+                ))
+
+            volume_lists: list[tuple[str, Any]] = [("volumes", service_def.get("volumes"))]
+            if isinstance(marker, dict):
+                volume_lists.append(("production.volumes", marker.get("volumes")))
+            for list_key, volumes in volume_lists:
+                if not isinstance(volumes, list):
+                    continue
+                for index, volume_item in enumerate(volumes):
+                    if not isinstance(volume_item, dict):
+                        continue
+                    item_marker = volume_item.get("production")
+                    if item_marker is None or isinstance(item_marker, bool):
+                        continue
+                    if isinstance(item_marker, dict):
+                        message = (
+                            f'Volume-mount entry {index} of service "{service_name}" uses the '
+                            "`production: { ... }` mapping form, which is only supported on "
+                            "services (and volume definitions). On volume-mount entries only "
+                            "the boolean form (production: true|false) is implemented; the "
+                            "mapping form would leak into the rendered output. Use "
+                            "`production: true` and move the production-only mount into the "
+                            "service's production mapping instead."
+                        )
+                    else:
+                        message = (
+                            f'The `production` marker of volume-mount entry {index} of service '
+                            f'"{service_name}" must be a boolean (production: true|false); '
+                            "other shapes are not implemented and would leak the marker key "
+                            "into the rendered output."
+                        )
+                    diagnostics.append(Diagnostic(
+                        level="error",
+                        code="E144",
+                        message=message,
+                        path=f"{service_base}.{list_key}[{index}].production",
+                    ))
+
+            # Entries of any other list field carry no implemented marker:
+            # scan the base fields and the production mapping alike.
+            scan_fields: list[tuple[str, Any]] = [
+                (f"{service_base}.{key}", value)
+                for key, value in service_def.items()
+                if key not in ("volumes", "production")
+            ]
+            if isinstance(marker, dict):
+                scan_fields.extend(
+                    (f"{service_base}.production.{key}", value)
+                    for key, value in marker.items()
+                    if key != "volumes"
+                )
+            for field_path, field_value in scan_fields:
+                diagnostics.extend(_unsupported_entry_markers(field_value, path=field_path))
+
+    volumes = compose.get("volumes", {})
+    if isinstance(volumes, dict):
+        for volume_name, volume_def in volumes.items():
+            if not isinstance(volume_def, dict):
+                continue
+            marker = volume_def.get("production")
+            if marker is None or isinstance(marker, bool) or isinstance(marker, dict):
+                continue
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E144",
+                message=(
+                    f'The `production` marker of volume definition "{volume_name}" must be '
+                    "a boolean (production: true|false) or a mapping (production: { ... }); "
+                    "other shapes are not implemented and would leak the marker key into "
+                    "the rendered output."
+                ),
+                path=f"{base_path}.volumes.{volume_name}.production",
+            ))
+    return diagnostics
+
+
+def _enabledfrom_marker_diagnostics(compose: Any, *, base_path: str) -> list[Diagnostic]:
+    """E145 findings for `enabledFrom` / `conditionallyEnabledFrom` markers."""
+    diagnostics: list[Diagnostic] = []
+    if not isinstance(compose, dict):
+        return diagnostics
+
+    def _condition_marker(value: Any, path: str) -> list[Diagnostic]:
+        if value is not None and not (isinstance(value, str) and value.strip()):
+            return [Diagnostic(
+                level="error",
+                code="E145",
+                message=(
+                    "`enabledFrom` / `conditionallyEnabledFrom` must be a non-empty "
+                    "string holding a config path expression (e.g. `config.backup.enabled`); "
+                    "other shapes crash the renderer or silently misbehave at render time."
+                ),
+                path=path,
+            )]
+        return []
+
+    services = compose.get("services", {})
+    if isinstance(services, dict):
+        for service_name, service_def in services.items():
+            if not isinstance(service_def, dict):
+                continue
+            service_base = f"{base_path}.services.{service_name}"
+            marker = service_def.get("production")
+            service_variants: list[tuple[str, Any]] = [("", service_def)]
+            if isinstance(marker, dict):
+                service_variants.append(("production.", marker))
+            for prefix, variant in service_variants:
+                diagnostics.extend(_condition_marker(
+                    variant.get("enabledFrom"), f"{service_base}.{prefix}enabledFrom"
+                ))
+                healthcheck = variant.get("healthcheck")
+                if isinstance(healthcheck, dict):
+                    diagnostics.extend(_condition_marker(
+                        healthcheck.get("conditionallyEnabledFrom"),
+                        f"{service_base}.{prefix}healthcheck.conditionallyEnabledFrom",
+                    ))
+
+            # Mount entries carry a supported (string) marker; other list
+            # fields do not implement any marker, so any key there is
+            # rejected. Scan the base fields and the production mapping.
+            volume_lists: list[tuple[str, Any]] = [("volumes", service_def.get("volumes"))]
+            if isinstance(marker, dict):
+                volume_lists.append(("production.volumes", marker.get("volumes")))
+            for list_key, volumes in volume_lists:
+                if not isinstance(volumes, list):
+                    continue
+                for index, volume_item in enumerate(volumes):
+                    if not isinstance(volume_item, dict):
+                        continue
+                    diagnostics.extend(_condition_marker(
+                        volume_item.get("enabledFrom"),
+                        f"{service_base}.{list_key}[{index}].enabledFrom",
+                    ))
+            scan_fields: list[tuple[str, Any]] = [
+                (f"{service_base}.{key}", value)
+                for key, value in service_def.items()
+                if key not in ("volumes", "production", "healthcheck")
+            ]
+            if isinstance(marker, dict):
+                scan_fields.extend(
+                    (f"{service_base}.production.{key}", value)
+                    for key, value in marker.items()
+                    if key not in ("volumes", "healthcheck")
+                )
+            for field_path, field_value in scan_fields:
+                for index, entry in enumerate(field_value) if isinstance(field_value, list) else []:
+                    if isinstance(entry, dict) and "enabledFrom" in entry:
+                        diagnostics.append(Diagnostic(
+                            level="error",
+                            code="E145",
+                            message=(
+                                "The `enabledFrom` marker is only implemented on services, "
+                                "volume definitions, volume-mount entries, and healthchecks; "
+                                "on entries of other list fields the renderer would neither "
+                                "honor nor strip it, leaking the marker key into the "
+                                "rendered output."
+                            ),
+                            path=f"{field_path}[{index}].enabledFrom",
+                        ))
+
+    volumes = compose.get("volumes", {})
+    if isinstance(volumes, dict):
+        for volume_name, volume_def in volumes.items():
+            if not isinstance(volume_def, dict):
+                continue
+            diagnostics.extend(_condition_marker(
+                volume_def.get("enabledFrom"),
+                f"{base_path}.volumes.{volume_name}.enabledFrom",
+            ))
+    return diagnostics
+
+
+def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[Diagnostic]:
+    """E144/E145 findings for the `implementation.kubernetes` block.
+
+    The helm renderer applies `production` gates to the kubernetes volume
+    and configMap specs (apply_production_gates), and resolves
+    `enabledFrom` on volume specs (guarded, so a bad shape silently
+    misbehaves) and on workloads (unguarded, so a bad shape crashes).
+    Marker shapes fail closed here instead.
+    """
+    diagnostics: list[Diagnostic] = []
+    if not isinstance(kubernetes, dict):
+        return diagnostics
+
+    def _production_shape(value: Any, path: str) -> list[Diagnostic]:
+        if value is not None and not isinstance(value, bool) and not isinstance(value, dict):
+            return [Diagnostic(
+                level="error",
+                code="E144",
+                message=(
+                    "The `production` marker in the kubernetes block must be a "
+                    "boolean (production: true|false) or a mapping (production: { ... }); "
+                    "other shapes are not implemented and would silently misbehave."
+                ),
+                path=path,
+            )]
+        return []
+
+    def _condition_shape(value: Any, path: str) -> list[Diagnostic]:
+        if value is not None and not (isinstance(value, str) and value.strip()):
+            return [Diagnostic(
+                level="error",
+                code="E145",
+                message=(
+                    "`enabledFrom` in the kubernetes block must be a non-empty string "
+                    "holding a config path expression (e.g. `config.storage.enabled`); "
+                    "other shapes crash the helm renderer or silently misbehave."
+                ),
+                path=path,
+            )]
+        return []
+
+    # Volume specs: both marker classes are implemented here.
+    volumes = kubernetes.get("volumes", {})
+    if isinstance(volumes, dict):
+        for name, spec in volumes.items():
+            if not isinstance(spec, dict):
+                continue
+            diagnostics.extend(_production_shape(
+                spec.get("production"), f"{base_path}.volumes.{name}.production"
+            ))
+            diagnostics.extend(_condition_shape(
+                spec.get("enabledFrom"), f"{base_path}.volumes.{name}.enabledFrom"
+            ))
+
+    # ConfigMap specs: production gates are implemented, enabledFrom is not.
+    configmaps = kubernetes.get("configMaps", {})
+    if isinstance(configmaps, dict):
+        for name, spec in configmaps.items():
+            if not isinstance(spec, dict):
+                continue
+            diagnostics.extend(_production_shape(
+                spec.get("production"), f"{base_path}.configMaps.{name}.production"
+            ))
+            if "enabledFrom" in spec:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E145",
+                    message=(
+                        "The `enabledFrom` marker is not implemented on kubernetes "
+                        "configMap entries (only on volume specs and workloads); the "
+                        "helm renderer would silently ignore it."
+                    ),
+                    path=f"{base_path}.configMaps.{name}.enabledFrom",
+                ))
+
+    # Workloads: enabledFrom is implemented (unguarded, so a bad shape
+    # crashes), production gates are not.
+    workloads = kubernetes.get("workloads", {})
+    if isinstance(workloads, dict):
+        for name, spec in workloads.items():
+            if not isinstance(spec, dict):
+                continue
+            diagnostics.extend(_condition_shape(
+                spec.get("enabledFrom"), f"{base_path}.workloads.{name}.enabledFrom"
+            ))
+            if "production" in spec:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E144",
+                    message=(
+                        "The `production` marker is not implemented on kubernetes "
+                        "workloads (only on volume and configMap entries); the helm "
+                        "renderer would silently ignore it."
+                    ),
+                    path=f"{base_path}.workloads.{name}.production",
+                ))
+    return diagnostics
+
+
+def _unsupported_entry_markers(value: Any, *, path: str) -> list[Diagnostic]:
+    """Reject `production` markers on entries of unsupported list fields."""
+    if not isinstance(value, list):
+        return []
+    diagnostics: list[Diagnostic] = []
+    for index, entry in enumerate(value):
+        if isinstance(entry, dict) and "production" in entry:
+            diagnostics.append(Diagnostic(
+                level="error",
+                code="E144",
+                message=(
+                    "The `production` marker is only implemented on services, volume "
+                    "definitions, and volume-mount entries; on entries of other list "
+                    "fields the renderer would neither honor nor strip it, leaking the "
+                    "marker key into the rendered output. Move the entry into the "
+                    "service's production mapping (or the mount into its volumes list)."
+                ),
+                path=f"{path}[{index}].production",
+            ))
     return diagnostics
 
 

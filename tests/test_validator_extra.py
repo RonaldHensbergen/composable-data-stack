@@ -997,3 +997,414 @@ class ModuleBackupConfigTest(unittest.TestCase):
             _codes(diagnostics),
             [("E143", "spec.modules[0].config.backup.enabled")],
         )
+
+
+class ProductionMarkerShapeTest(unittest.TestCase):
+    """E144: the production mapping form is only valid on services, not on
+    individual volume-mount entries, where the renderer would silently
+    leak it into the rendered output."""
+
+    def _module(self, volumes):
+        return {
+            "kind": "Module",
+            "metadata": {"category": "warehouse", "name": "mod"},
+            "spec": {
+                "provides": [],
+                "consumes": [],
+                "configSchema": {"type": "object"},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {
+                        "services": {
+                            "db": {"image": "postgres:18", "volumes": volumes},
+                        },
+                        "volumes": {"data": {}},
+                    },
+                },
+            },
+        }
+
+    def test_volume_item_without_marker_is_clean(self):
+        diagnostics = validator.validate_module_marker_shapes(
+            [_inst("db", self._module([{"type": "volume", "source": "data", "target": "/data"}]))]
+        )
+        self.assertEqual(diagnostics, [])
+
+    def test_volume_item_with_boolean_marker_is_clean(self):
+        diagnostics = validator.validate_module_marker_shapes(
+            [
+                _inst(
+                    "db",
+                    self._module(
+                        [
+                            {
+                                "type": "volume",
+                                "source": "data",
+                                "target": "/data",
+                                "production": True,
+                            }
+                        ]
+                    ),
+                )
+            ]
+        )
+        self.assertEqual(diagnostics, [])
+
+    def test_volume_item_with_mapping_marker_reports_e144(self):
+        diagnostics = validator.validate_module_marker_shapes(
+            [
+                _inst(
+                    "db",
+                    self._module(
+                        [
+                            {
+                                "type": "volume",
+                                "source": "data",
+                                "target": "/data",
+                                "production": {"read_only": True},
+                            }
+                        ]
+                    ),
+                )
+            ]
+        )
+        self.assertEqual(
+            _codes(diagnostics),
+            [
+                (
+                    "E144",
+                    "module:db.spec.implementation.compose.services.db.volumes[0].production",
+                )
+            ],
+        )
+        self.assertIn("mapping form", diagnostics[0].message)
+
+    def test_volume_item_inside_production_mapping_with_mapping_marker_reports_e144(self):
+        module = self._module([])
+        module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = {
+            "volumes": [
+                {
+                    "type": "volume",
+                    "source": "data",
+                    "target": "/data",
+                    "production": {"read_only": True},
+                }
+            ]
+        }
+        diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
+        self.assertEqual(
+            _codes(diagnostics),
+            [
+                (
+                    "E144",
+                    "module:db.spec.implementation.compose.services.db."
+                    "production.volumes[0].production",
+                )
+            ],
+        )
+
+    def test_volume_item_inside_production_mapping_with_boolean_marker_is_clean(self):
+        module = self._module([])
+        module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = {
+            "volumes": [
+                {
+                    "type": "volume",
+                    "source": "data",
+                    "target": "/data",
+                    "production": True,
+                }
+            ]
+        }
+        diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
+        self.assertEqual(diagnostics, [])
+
+    def test_service_level_mapping_marker_is_clean(self):
+        module = self._module(
+            [{"type": "volume", "source": "data", "target": "/data"}]
+        )
+        module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = {
+            "image": "postgres:18-alpine"
+        }
+        diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
+        self.assertEqual(diagnostics, [])
+
+    def test_service_string_marker_reports_e144(self):
+        module = self._module([])
+        module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = "true"
+        diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E144", "module:db.spec.implementation.compose.services.db.production")],
+        )
+        self.assertIn("boolean", diagnostics[0].message)
+
+    def test_volume_definition_string_marker_reports_e144(self):
+        module = self._module([])
+        module["spec"]["implementation"]["compose"]["volumes"]["data"] = {
+            "production": "true"
+        }
+        diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E144", "module:db.spec.implementation.compose.volumes.data.production")],
+        )
+        self.assertIn("boolean", diagnostics[0].message)
+
+    def test_marker_on_other_list_entries_reports_e144(self):
+        # No marker is implemented on entries of other service list fields;
+        # any marker (boolean or mapping) fails closed there.
+        for marker in ({"read_only": True}, True):
+            with self.subTest(marker=marker):
+                module = self._module([])
+                module["spec"]["implementation"]["compose"]["services"]["db"]["ports"] = [
+                    {"target": 5432, "production": marker}
+                ]
+                diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
+                self.assertEqual(
+                    _codes(diagnostics),
+                    [("E144", "module:db.spec.implementation.compose.services.db.ports[0].production")],
+                )
+                self.assertIn("only implemented on services", diagnostics[0].message)
+
+    def test_marker_in_production_mapping_list_entry_reports_e144(self):
+        module = self._module([])
+        module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = {
+            "ports": [{"target": 5432, "production": True}]
+        }
+        diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
+        self.assertEqual(
+            _codes(diagnostics),
+            [
+                (
+                    "E144",
+                    "module:db.spec.implementation.compose.services.db."
+                    "production.ports[0].production",
+                )
+            ],
+        )
+
+    def test_mount_string_marker_message_names_boolean_not_mapping(self):
+        module = self._module(
+            [{"type": "volume", "source": "data", "target": "/data", "production": "true"}]
+        )
+        diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
+        self.assertEqual(len(diagnostics), 1)
+        self.assertIn("must be a boolean", diagnostics[0].message)
+        self.assertNotIn("mapping form", diagnostics[0].message)
+
+    def test_e144_flows_through_validate_loaded_profile(self):
+        # End-to-end wiring: the rule is part of the validation pipeline,
+        # so an offending template surfaces E144 with its precise path.
+        module = self._module(
+            [{"type": "volume", "source": "data", "target": "/data", "production": {"r": 1}}]
+        )
+        inst = _inst("db", module)
+        with (
+            patch.object(validator, "validate_profile_shape", return_value=[]),
+            patch.object(validator, "load_module_instances", return_value=([inst], [])),
+        ):
+            diagnostics = validate_loaded_profile({"spec": {"modules": []}}, Path("profile.yaml"))
+        self.assertTrue(
+            any(
+                d.code == "E144"
+                and d.path
+                == "module:db.spec.implementation.compose.services.db.volumes[0].production"
+                for d in diagnostics
+            )
+        )
+
+
+class EnabledFromShapeTest(unittest.TestCase):
+    """E145: `enabledFrom` / `conditionallyEnabledFrom` must be non-empty
+    strings on the positions where the marker is implemented; anything
+    else crashes the renderer (a boolean `enabledFrom: true` raises
+    TypeError in _resolve_expr), and no marker is implemented on entries
+    of other service list fields."""
+
+    def _module(self, service_overrides=None, volumes=None):
+        service = {"image": "postgres:18", "volumes": volumes or []}
+        service.update(service_overrides or {})
+        return {
+            "kind": "Module",
+            "metadata": {"category": "warehouse", "name": "mod"},
+            "spec": {
+                "provides": [],
+                "consumes": [],
+                "configSchema": {"type": "object"},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {
+                        "services": {"db": service},
+                        "volumes": {"data": {}},
+                    },
+                },
+            },
+        }
+
+    def _scan(self, module):
+        return validator.validate_module_marker_shapes([_inst("db", module)])
+
+    def test_string_condition_on_service_and_mount_is_clean(self):
+        module = self._module(
+            {"enabledFrom": "config.backup.enabled"},
+            [{"type": "volume", "source": "data", "target": "/data",
+              "enabledFrom": "config.storage.enabled"}],
+        )
+        self.assertEqual(self._scan(module), [])
+
+    def test_bool_condition_on_service_reports_e145(self):
+        # The plausible authoring mistake (`production: true` is a boolean
+        # gate, so writers try `enabledFrom: true`): crashes the renderer
+        # today, fails closed with E145 instead.
+        module = self._module({"enabledFrom": True})
+        diagnostics = self._scan(module)
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E145", "module:db.spec.implementation.compose.services.db.enabledFrom")],
+        )
+        self.assertIn("non-empty string", diagnostics[0].message)
+
+    def test_bool_condition_on_mount_entry_reports_e145(self):
+        module = self._module(
+            volumes=[{"type": "volume", "source": "data", "target": "/data",
+                      "enabledFrom": True}]
+        )
+        self.assertEqual(
+            _codes(self._scan(module)),
+            [("E145", "module:db.spec.implementation.compose.services.db.volumes[0].enabledFrom")],
+        )
+
+    def test_bool_conditionally_enabled_from_on_healthcheck_reports_e145(self):
+        module = self._module(
+            {"healthcheck": {"conditionallyEnabledFrom": True, "test": ["CMD", "true"]}}
+        )
+        self.assertEqual(
+            _codes(self._scan(module)),
+            [
+                (
+                    "E145",
+                    "module:db.spec.implementation.compose.services.db."
+                    "healthcheck.conditionallyEnabledFrom",
+                )
+            ],
+        )
+
+    def test_bool_condition_inside_production_mapping_reports_e145(self):
+        module = self._module({"production": {"enabledFrom": True}})
+        self.assertEqual(
+            _codes(self._scan(module)),
+            [
+                (
+                    "E145",
+                    "module:db.spec.implementation.compose.services.db."
+                    "production.enabledFrom",
+                )
+            ],
+        )
+
+    def test_bool_condition_on_volume_definition_reports_e145(self):
+        module = self._module()
+        module["spec"]["implementation"]["compose"]["volumes"]["data"]["enabledFrom"] = 1
+        self.assertEqual(
+            _codes(self._scan(module)),
+            [("E145", "module:db.spec.implementation.compose.volumes.data.enabledFrom")],
+        )
+
+    def test_condition_on_other_list_entries_reports_e145(self):
+        module = self._module({"ports": [{"target": 5432, "enabledFrom": "config.enabled"}]})
+        self.assertEqual(
+            _codes(self._scan(module)),
+            [("E145", "module:db.spec.implementation.compose.services.db.ports[0].enabledFrom")],
+        )
+
+    def test_e145_flows_through_validate_loaded_profile(self):
+        module = self._module({"enabledFrom": True})
+        inst = _inst("db", module)
+        with (
+            patch.object(validator, "validate_profile_shape", return_value=[]),
+            patch.object(validator, "load_module_instances", return_value=([inst], [])),
+        ):
+            diagnostics = validate_loaded_profile({"spec": {"modules": []}}, Path("profile.yaml"))
+        self.assertTrue(
+            any(
+                d.code == "E145"
+                and d.path == "module:db.spec.implementation.compose.services.db.enabledFrom"
+                for d in diagnostics
+            )
+        )
+
+
+class KubernetesMarkerShapeTest(unittest.TestCase):
+    """E144/E145 for the `implementation.kubernetes` block: production
+    gates are implemented on volume/configMap specs, enabledFrom on
+    volume specs (guarded) and workloads (unguarded -- a bad shape
+    crashes the helm renderer)."""
+
+    def _module(self, kubernetes):
+        return {
+            "kind": "Module",
+            "metadata": {"category": "warehouse", "name": "mod"},
+            "spec": {
+                "provides": [],
+                "consumes": [],
+                "configSchema": {"type": "object"},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {},
+                    "kubernetes": kubernetes,
+                },
+            },
+        }
+
+    def _scan(self, kubernetes):
+        return validator.validate_module_marker_shapes([_inst("pg", self._module(kubernetes))])
+
+    def test_valid_markers_are_clean(self):
+        kubernetes = {
+            "volumes": {
+                "data": {"enabledFrom": "config.storage.enabled", "production": True},
+            },
+            "configMaps": {"code": {"production": {"name": "release-code"}}},
+            "workloads": {"app": {"enabledFrom": "config.enabled"}},
+        }
+        self.assertEqual(self._scan(kubernetes), [])
+
+    def test_bool_enabled_from_on_workload_reports_e145(self):
+        # The workload guard is unguarded: a boolean shape crashes the
+        # helm renderer today; E145 fails closed instead.
+        kubernetes = {"workloads": {"app": {"enabledFrom": True}}}
+        diagnostics = self._scan(kubernetes)
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E145", "module:pg.spec.implementation.kubernetes.workloads.app.enabledFrom")],
+        )
+
+    def test_bool_enabled_from_on_volume_spec_reports_e145(self):
+        # The volume-spec guard checks isinstance(str), so bad shapes
+        # silently misbehave today; E145 fails closed instead.
+        kubernetes = {"volumes": {"data": {"enabledFrom": True}}}
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E145", "module:pg.spec.implementation.kubernetes.volumes.data.enabledFrom")],
+        )
+
+    def test_string_production_on_volume_spec_reports_e144(self):
+        kubernetes = {"volumes": {"data": {"production": "true"}}}
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E144", "module:pg.spec.implementation.kubernetes.volumes.data.production")],
+        )
+
+    def test_enabled_from_on_configmap_reports_e145(self):
+        kubernetes = {"configMaps": {"code": {"enabledFrom": "config.enabled"}}}
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E145", "module:pg.spec.implementation.kubernetes.configMaps.code.enabledFrom")],
+        )
+
+    def test_production_on_workload_reports_e144(self):
+        kubernetes = {"workloads": {"app": {"production": True}}}
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E144", "module:pg.spec.implementation.kubernetes.workloads.app.production")],
+        )
