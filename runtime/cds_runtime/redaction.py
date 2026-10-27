@@ -47,11 +47,6 @@ def redact_uri(uri: str) -> str:
     return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
 
 
-def looks_like_uri(value: str) -> bool:
-    """Best-effort check used to keep URIs out of error messages."""
-    return bool(re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", value))
-
-
 #: URI-shaped substrings inside arbitrary text (driver error messages can
 #: echo the connection URL anywhere in the message, not just at the start).
 _URI_IN_TEXT = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s'\"]+")
@@ -61,7 +56,7 @@ def redact_uris_in_text(text: str) -> str:
     """Mask the password of every URI-shaped substring in arbitrary text.
 
     Driver errors sometimes quote the connection URL mid-message, where
-    ``looks_like_uri`` (anchored at the start of the string) never fires;
-    this helper finds and redacts each such substring in place.
+    a start-anchored check would never fire; this helper finds and
+    redacts each such substring in place.
     """
     return _URI_IN_TEXT.sub(lambda match: redact_uri(match.group(0)), str(text))
