@@ -147,9 +147,13 @@ class TrivyignoreAuditWorkflowTest(unittest.TestCase):
             "exceptions for them are falsely reported as resolved",
         )
 
-    def test_scan_runs_without_the_ignorefile(self) -> None:
+    def test_scan_explicitly_disables_the_default_ignorefile(self) -> None:
         run = self.scan_step["run"]
-        self.assertNotIn(".trivyignore", run, "the audit must scan without the ignore file")
+        self.assertIn(
+            "--ignorefile /dev/null",
+            run,
+            "Trivy loads .trivyignore by default; the audit must explicitly disable it",
+        )
 
 
 if __name__ == "__main__":

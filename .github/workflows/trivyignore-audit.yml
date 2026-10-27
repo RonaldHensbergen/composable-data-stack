@@ -43,11 +43,14 @@ jobs:
 
       - name: Scan published images without the ignore file
         # Same targets and severity filter as the daily scan (published
-        # digests, HIGH/CRITICAL), but without .trivyignore and without
-        # --ignore-unfixed: a finding Trivy currently lists as unfixed is
-        # still present in the image, so its exception is still needed —
+        # digests, HIGH/CRITICAL), but explicitly disables the default
+        # .trivyignore and omits --ignore-unfixed: a finding Trivy
+        # currently lists as unfixed is still present in the image, so
+        # its exception is still needed —
         # the DB's fixed-version data fluctuates, and an unfixed entry
-        # would be falsely reported as resolved (see #963, #983).
+        # would be falsely reported as resolved. Trivy loads
+        # .trivyignore from the working directory unless explicitly disabled
+        # (see #963, #983).
         run: |
           set -euo pipefail
           mkdir reports
@@ -59,7 +62,7 @@ jobs:
           PY
           while read -r key ref; do
             trivy image --quiet --scanners vuln --severity HIGH,CRITICAL \
-              --format json --output "reports/${key}.json" "$ref"
+              --ignorefile /dev/null --format json --output "reports/${key}.json" "$ref"
           done < images.txt
 
       - name: Audit .trivyignore entries

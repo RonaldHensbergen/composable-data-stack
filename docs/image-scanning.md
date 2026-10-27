@@ -155,8 +155,11 @@ scan before deleting it. The audit scan also deliberately drops the daily
 scan's `--ignore-unfixed` filter: a finding that Trivy currently lists as
 unfixed is still present in the image, so its exception is still needed —
 Trivy's fixed-version data fluctuates, and with the filter an unfixed
-finding would be falsely reported as resolved (this produced the all-entries
-"resolved" reports in #963 and #983). An entry may be removed only when the
+finding could be falsely reported as resolved. Trivy also loads
+`.trivyignore` from the working directory by default, so the audit
+explicitly disables that file to ensure exceptions remain visible in its
+reports (the auto-loaded ignore file caused the all-entries "resolved"
+reports in #963 and #983). An entry may be removed only when the
 vulnerability no longer appears in any published image at all.
 
 ## Pinned image digest staleness check
