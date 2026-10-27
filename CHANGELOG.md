@@ -33,6 +33,47 @@ The format is based on Keep a Changelog.
   workers cannot race each other creating the metadata schema when the
   web process starts before the init container.
 
+- Added `cds-runtime`, an installable Python package giving CDS workloads
+  one stable API for named database connections (issue #219):
+  `connections.database(name)` resolves a connection from the profile's
+  bound `sql-database` contracts through a fixed environment-variable
+  convention (`CDS_DB_<NAME>_CONNECTION_URI`, or `CDS_DB_<NAME>_BACKEND`
+  plus host/port/database/username/password fields, or a SQLite path),
+  so application code no longer duplicates URI construction, SQLAlchemy
+  setup, and cleanup in per-tool helper files. The core package is
+  dependency-free (SQLAlchemy and the database drivers are lazily
+  imported optional extras); imports are side-effect free; the API
+  covers parameterized reads and writes (`fetch_all`/`fetch_one`/
+  `execute`), bulk inserts with validated identifiers and bound
+  parameters (`insert_rows`), explicit transactions, and deterministic
+  engine cleanup (`close`, `close_all`, context managers); rows are
+  plain dicts; PostgreSQL, MySQL, and SQLite are supported where
+  compatible drivers are installed; errors are typed
+  (`UnknownConnectionError`, `MissingConnectionSettingsError`,
+  `DriverUnavailableError`, `ConnectionSetupError`,
+  `QueryExecutionError`) and never carry credentials or unredacted
+  connection URIs (query and engine-creation failures redact both the
+  `_PASSWORD` field and a password embedded in `CONNECTION_URI`, plus
+  any URI-shaped substring the driver echoes);
+  field-based config validates `_PORT` as a port number (1-65535),
+  accepts an empty `_PASSWORD` for password-less authentication, and
+  resolves the legacy `_NAME`/`_USER` spellings (as shipped by the
+  dagster module's environment block) as aliases for
+  `_DATABASE`/`_USERNAME`; field-assembled postgres URLs pin the
+  psycopg2 driver (`postgresql+psycopg2://`) so engine creation stays
+  independent of SQLAlchemy's default-driver changes;
+  `insert_rows` is one atomic transaction and
+  quotes identifiers through the active dialect (backticks on MySQL,
+  double quotes elsewhere); the
+  dagster adapter rejects non-PostgreSQL URLs up front; the wheel ships
+  `py.typed` and the Apache-2.0 license text; secrets flow exclusively
+  through the configured secret provider's runtime placeholders, and
+  platform metadata connections stay separate from workload contracts by
+  name. A Dagster adapter (`postgres_url`) bridges named connections into
+  Dagster's PostgreSQL storage configuration. Documented in
+  `docs/runtime-api.md`, including migration from the legacy
+  `shared/python/db/connection.py` helper.
+
 ## [0.14.0] - 2026-10-26
 
 ### Added
