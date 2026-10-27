@@ -6,6 +6,21 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a template-authoring footgun in the `production` tag introduced
+  with #665: the `production: { ... }` mapping form on a volume-mount
+  entry was silently ignored and leaked its key into the rendered Compose
+  output (and mounted unconditionally on the helm target). Validation now
+  fails closed with `E144` for every marker shape or position the
+  renderer cannot honor: mount entries in a service's base `volumes`
+  list and nested inside its `production` mapping (boolean only), and
+  non-boolean/non-mapping markers on services and volume definitions; on
+  entries of any other service list field (`ports`, `labels`, ...) no
+  marker is implemented, so any marker there is rejected as well. Both
+  render targets re-check marker shapes when rendering a stored plan,
+  since plans can be loaded from files (#958 post-merge review, #988).
+
 ### Added
 
 - Added a production web-serving mode for HTTP modules (issue #216): a

@@ -1517,3 +1517,22 @@ class ProductionGateTest(unittest.TestCase):
         self.assertEqual(
             compose["services"]["pg-postgres"]["image"], "postgres:18@sha256:abc"
         )
+
+    def test_plan_file_with_mapping_marker_on_mount_fails_closed(self):
+        # Plans can be loaded from files (possibly hand-edited), so the
+        # renderer re-checks marker shapes instead of leaking them.
+        plan = self._plan()
+        plan["modules"][0]["implementation"]["compose"]["services"]["postgres"]["volumes"][0][
+            "production"
+        ] = {"read_only": True}
+        output, diagnostics = render_compose(plan)
+        e144 = [d for d in diagnostics if d.code == "E144"]
+        self.assertEqual(len(e144), 1)
+        self.assertEqual(
+            e144[0].path,
+            "module:pg.implementation.compose.services.postgres.volumes[0].production",
+        )
+        # The module is skipped entirely: no service rendered, no leak.
+        compose = yaml.safe_load(output)
+        self.assertNotIn("pg-postgres", compose.get("services", {}))
+
