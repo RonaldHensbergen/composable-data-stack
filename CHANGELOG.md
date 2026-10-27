@@ -8,6 +8,15 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the `Trivyignore Audit` workflow falsely reporting every
+  `.trivyignore` exception as resolved (#983, also #963): Trivy
+  automatically loads `.trivyignore` from the working directory, so the
+  audit scan had filtered out the exceptions it was meant to check. The
+  scan now explicitly disables that default ignore file and keeps unfixed
+  findings visible, since they remain present in the image and Trivy's
+  fixed-version data can fluctuate. An exception may be removed only when
+  its vulnerability no longer appears in any published image.
+
 - Fixed a template-authoring footgun in the `production` tag introduced
   with #665: the `production: { ... }` mapping form on a volume-mount
   entry was silently ignored and leaked its key into the rendered Compose
