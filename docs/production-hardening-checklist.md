@@ -25,7 +25,7 @@ keeps the boundary:
 
 | Concern | Owner |
 | --- | --- |
-| Docker host/daemon hardening baseline (HOST-001..005) | [docker-host-hardening.md](docker-host-hardening.md), [rootless-docker.md](rootless-docker.md) ([#211](https://github.com/RonaldHensbergen/composable-data-stack/issues/211)) |
+| Docker host/daemon hardening baseline (HOST-001..006) | [docker-host-hardening.md](docker-host-hardening.md), [rootless-docker.md](rootless-docker.md) ([#211](https://github.com/RonaldHensbergen/composable-data-stack/issues/211)) |
 | Security rule catalog and severities | [security-rules.md](security-rules.md) |
 | Production vs development web serving | [serving-modes.md](serving-modes.md) ([#216](https://github.com/RonaldHensbergen/composable-data-stack/issues/216)) |
 | Image vulnerability scanning and SLA | [image-scanning.md](image-scanning.md) |
@@ -51,7 +51,7 @@ stack owns the outcome.
 | 5 | Database and cache authentication | `E139` rejects trust authentication in production; authentication policy checks ([#206](https://github.com/RonaldHensbergen/composable-data-stack/issues/206)) | Provide per-service credentials through secrets, not literals | `cds validate`, `cds security` |
 | 6 | Runtime confinement: non-root, capabilities, read-only filesystem, writable paths | Production runtime policy `CDS-SEC-090/091`; waivers must carry a documented reason | Use images that set a non-root `USER`; waive only single checks with justification | `cds security` (waivers surface as `W103`) |
 | 7 | Production process management for web entrypoints | `E140`; the `webServer.mode` convention maps to production servers ([#216](https://github.com/RonaldHensbergen/composable-data-stack/issues/216)) | Choose production-capable modules when promoting a profile | `cds validate`, [serving-modes.md](serving-modes.md) |
-| 8 | Host and daemon baseline (rootless, userns, seccomp, logging, live restore, socket) | `cds preflight` reports `HOST-001..005` as advisory checks | Harden the host per [docker-host-hardening.md](docker-host-hardening.md) | `cds preflight <profile> --environment prod` |
+| 8 | Host and daemon baseline (rootless, userns, seccomp, logging, live restore, socket) | `cds preflight` reports `HOST-001..006` as advisory checks | Harden the host per [docker-host-hardening.md](docker-host-hardening.md) | `cds preflight <profile> --environment prod` |
 | 9 | Image supply chain: digest pinning, signature/SBOM/provenance evidence | `CDS-SEC-051` (critical services must be digest-pinned); `cds report` links evidence | Publish signed images and reference them by digest | `cds preflight`, `cds report --hardened` |
 | 10 | Image vulnerability management | Publishing pipeline scans every image; exceptions audited (`.trivyignore` audit) | Rebuild or bump within the documented SLA; file exceptions explicitly | [image-scanning.md](image-scanning.md) |
 | 11 | Backup and disaster recovery | `spec.backup` policy validation; `backup-target` contract ([#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210)) | Declare per-workload-class policies; run restore verification at the stated frequency | [backup-restore.md](backup-restore.md) |
@@ -83,12 +83,13 @@ cds init team-dagster-postgres-superset --environment prod
 
 Expected: a project-root `.env` created with owner-only permissions,
 containing every `CDS_*` key the resolved profile requires (14 keys for the
-reference profile, including the two the prod overlay adds:
-`CDS_CACHE_PASSWORD` and `CDS_BACKUP_ENCRYPTION_KEY`). Replace every
-placeholder with a strong, unique value; `cds preflight` and `cds security`
-both fail closed on placeholder or weak values (`CDS-SEC-004`/`012`).
-Rendering also fails closed (`E081`) until the overlay's extra secrets
-exist.
+reference profile: 13 from the base profile, including `CDS_CACHE_PASSWORD`,
+plus the one the prod overlay adds: `CDS_BACKUP_ENCRYPTION_KEY`). Replace
+every placeholder with a strong, unique value; `cds preflight` and `cds
+security` both fail closed on placeholder or weak values
+(`CDS-SEC-004`/`012`). Rendering fails closed (`E081`) while a required
+secret key is missing from `.env`; a render with placeholder values still
+succeeds, so preflight and security are the gates for weak values.
 
 ### Step 3: check runtime prerequisites and host posture
 
@@ -100,8 +101,11 @@ Expected output categories:
 
 - `[PASS]` lines for the Docker CLI/Compose/daemon checks and each required
   port.
-- `[WARN] host.*` lines mapping to the `HOST-001..005` baseline
-  (rootless daemon, user namespaces, log rotation, live restore). These are
+- `[WARN] host.*` lines for the baseline controls the host currently
+  misses, from the `HOST-001..006` baseline (typically `HOST-001` rootless
+  daemon, `HOST-002` user namespaces, `HOST-005` live restore; `HOST-004`
+  when the daemon logging driver is disabled, and `HOST-006` when the
+  daemon socket is exposed without TLS or is world-writable). These are
   operator responsibilities; see
   [docker-host-hardening.md](docker-host-hardening.md).
 - `[WARN] environment.placeholders` while `.env` still contains generated
