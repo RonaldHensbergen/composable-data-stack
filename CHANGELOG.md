@@ -8,6 +8,18 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the fresh CVE findings the trivy DB update of 2026-10-27 raised
+  for the superset image scan: dnspython 2.7.0 (bundled with the
+  apache/superset base image) is vulnerable to CVE-2026-114605 (DoS via
+  excessive DNS compression pointer traversal) — the superset
+  requirements now pin `dnspython>=2.9.0`, installed over the base
+  image's copy by the existing `--upgrade` mechanism. The same scan run
+  flagged CVE-2026-111497 (brotli) and CVE-2026-84782 (openssl) in the
+  Debian base packages; both are resolved by the image build's own
+  `apt-get upgrade` (fixed debs `1.0.9-2+deb12u1` and
+  `3.0.22-1~deb12u2`), so no ignore entries are needed: a clean rebuild
+  scans green (verified locally with trivy 0.75.0 against the
+  rebuilt image).
 - Fixed the `Trivyignore Audit` workflow falsely reporting every
   `.trivyignore` exception as resolved (#983, also #963): Trivy
   automatically loads `.trivyignore` from the working directory, so the
