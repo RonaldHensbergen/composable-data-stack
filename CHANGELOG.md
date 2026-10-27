@@ -97,6 +97,18 @@ The format is based on Keep a Changelog.
   `docs/runtime-api.md`, including migration from the legacy
   `shared/python/db/connection.py` helper.
 
+- Added an automated restore verification for the built-in backup
+  capability (issue #210): the Docker-gated runtime proof
+  `tests/test_postgres_backup_restore_runtime.py` renders the shipped
+  production overlay, writes marker data, seeds a clean Compose project
+  with only the encrypted backup repository volume, proves a restore with
+  the wrong key fails, restores the newest restore point, and verifies
+  the data survived byte-for-byte within the profile's
+  `rpoMinutes`/`rtoMinutes`. It runs in the Docker Runtime Smoke Test
+  workflow or locally with
+  `CDS_RUN_DOCKER_SMOKE=1 python -m unittest
+  tests.test_postgres_backup_restore_runtime -v`; see
+  `docs/backup-restore.md` section 5.
 ## [0.14.0] - 2026-10-26
 
 ### Added

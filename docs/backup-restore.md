@@ -135,11 +135,22 @@ A backup is only trustworthy once restored. For each policy, at least every
 6. Tear down the clean environment.
 
 The profile-level requirements above are unit-tested in
-`tests/test_validator_extra.py` (`BackupConfigTest`). Executing steps 1-6
-against real data requires a backup provider module ([#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665),
-[#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668),
-[#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669));
-each provider is expected to ship an automated version of this procedure.
+`tests/test_validator_extra.py` (`BackupConfigTest`), and steps 1-6 are
+executed end to end for the built-in warehouse provider by
+`tests/test_postgres_backup_restore_runtime.py` (Docker-gated, issue
+[#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210)):
+it renders the production overlay, takes a full plus incremental backup of
+marker data, seeds a clean Compose project with nothing but the encrypted
+repository volume, proves a restore with the wrong key fails, restores the
+newest restore point, and verifies the data survived byte-for-byte within
+the profile's `rpoMinutes`/`rtoMinutes`. Run it locally with
+`CDS_RUN_DOCKER_SMOKE=1 python -m unittest
+tests.test_postgres_backup_restore_runtime -v`; CI runs it in the Docker
+Runtime Smoke Test workflow. The file/volume
+([#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668))
+and object-storage
+([#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669))
+providers are expected to ship equivalent automated procedures.
 
 ## 6. The built-in warehouse backup provider (#665)
 
