@@ -8,6 +8,20 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the `Trivyignore Audit` workflow falsely reporting every
+  `.trivyignore` exception as resolved (#983, also #963): its ignore-free
+  scan of the published images used `--ignore-unfixed`, so a finding that
+  Trivy's DB currently listed as unfixed — but that is still present in
+  the image (the gosu/Go-stdlib series in the pinned postgres:18 base) —
+  was invisible to the audit and its still-needed exception was flagged
+  "resolved". Trivy's fixed-version data fluctuates, so removing those
+  entries would have failed the daily scan as soon as the DB listed a
+  fixed version again. The audit scan now keeps unfixed findings visible;
+  an entry may be removed only when the vulnerability no longer appears
+  in any published image at all.
+
+### Fixed
+
 - Fixed a template-authoring footgun in the `production` tag introduced
   with #665: the `production: { ... }` mapping form on a volume-mount
   entry was silently ignored and leaked its key into the rendered Compose
