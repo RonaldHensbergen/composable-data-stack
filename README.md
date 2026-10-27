@@ -963,6 +963,7 @@ Development helper tools are located in the gitignored `tools/` directory. See
 - [Architecture](docs/architecture.md) — design and core concepts
 - [Modules](docs/modules.md) — how to structure reusable components
 - [Workload Runtime API](docs/runtime-api.md) — `cds-runtime`: named database connections for Python workloads
+- [Production Hardening Checklist](docs/production-hardening-checklist.md) — control-to-owner mapping and the operator verification procedure for a production profile
 - [Roadmap](docs/roadmap.md) — planned features and milestones
 
 ---

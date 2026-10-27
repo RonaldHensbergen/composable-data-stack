@@ -18,7 +18,7 @@ implement a backup engine.
 | Postgres-specific backup (pgBackRest/wal-g) | [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665) |
 | File/volume backup (Dagster IO manager, DuckDB, dlt) | [#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668) |
 | Object-storage bucket backup | [#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669) |
-| Operator procedure verification | [#72](https://github.com/RonaldHensbergen/composable-data-stack/issues/72) |
+| Operator procedure verification | [#72](https://github.com/RonaldHensbergen/composable-data-stack/issues/72) ([production-hardening-checklist.md](production-hardening-checklist.md)) |
 
 Module implementations and storage providers stay pluggable: a backup module
 *provides* the `backup-target` contract, and the profile binds to it with an

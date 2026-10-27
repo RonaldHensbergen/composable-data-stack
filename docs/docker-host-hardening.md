@@ -6,7 +6,8 @@ CDS hardens the *rendered stack* (images, Compose services, secrets). It does
 not secure the Docker daemon or the host beneath it. This baseline lists the
 host controls an operator must provide, and states which are verified by
 `cds preflight`. Threat assumptions come from the
-[threat model](threat-model.md); the production checklist
+[threat model](threat-model.md); the
+[production hardening checklist](production-hardening-checklist.md)
 cross-links this document rather than duplicating it.
 
 ## Responsibility Split

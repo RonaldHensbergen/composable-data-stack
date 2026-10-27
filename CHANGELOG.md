@@ -42,6 +42,16 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added the production hardening checklist and operator verification
+  procedure (issue #72): `docs/production-hardening-checklist.md` maps every
+  hardening control to CDS enforcement or operator responsibility, and
+  defines a reproducible command sequence (`cds validate`, `cds init`,
+  `cds preflight`, `cds security`, `cds render`, `cds report --hardened`,
+  `cds up`/`cds state`) with documented expected output against the
+  reference production profile (`team-dagster-postgres-superset` with the
+  `prod` overlay), including the current known-findings snapshot and its
+  per-finding classifications.
+
 - Added a production web-serving mode for HTTP modules (issue #216): a
   provider-neutral `config.webServer` convention with `mode`
   (`production`/`development`). `bi/superset` now serves through gunicorn

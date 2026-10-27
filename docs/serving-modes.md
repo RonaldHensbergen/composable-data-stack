@@ -1,7 +1,9 @@
 # Web serving modes: local development vs production
 
 How CDS modules serve HTTP, and how the serving mode differs between a
-local-development stack and a production-oriented one (issue #216).
+local-development stack and a production-oriented one (issue #216). The
+[production hardening checklist](production-hardening-checklist.md) maps
+the serving-mode controls to the operator verification procedure.
 
 ## The `webServer.mode` convention
 
