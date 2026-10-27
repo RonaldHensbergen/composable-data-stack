@@ -21,6 +21,25 @@ The format is based on Keep a Changelog.
   render targets re-check marker shapes when rendering a stored plan,
   since plans can be loaded from files (#958 post-merge review, #988).
 
+- Hardened the `enabledFrom` / `conditionallyEnabledFrom` guards the same
+  way (#988): the renderer resolves these markers as string config-path
+  expressions, so any other shape — e.g. the boolean `enabledFrom: true`,
+  a plausible mistake given `production: true` is a boolean gate —
+  crashed the renderer with an untyped `TypeError`/`AttributeError`, and
+  on entries of service list fields where no marker is implemented the
+  key leaked into the rendered output. Validation now fails closed with
+  `E145`: a non-empty string is required on services, volume definitions,
+  volume-mount entries, and healthchecks (including inside a service's
+  `production` mapping), and any `enabledFrom` on other entries is
+  rejected. Both render targets re-check marker shapes when rendering a
+  stored plan, converting the former render-time crash into a typed
+  validation error. The marker-shape scans also cover the
+  `implementation.kubernetes` block, where the same classes applied:
+  an unguarded `enabledFrom` on a workload crashed the helm renderer,
+  bad shapes on volume specs silently misbehaved, and unsupported
+  marker positions (`production` on workloads and configMap entries,
+  `enabledFrom` on configMap entries) were silently ignored.
+
 ### Added
 
 - Added a production web-serving mode for HTTP modules (issue #216): a
