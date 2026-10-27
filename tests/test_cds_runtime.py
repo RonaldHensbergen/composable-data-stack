@@ -1,7 +1,9 @@
 """Tests for the cds-runtime workload API (issue #219)."""
+import os
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -68,7 +70,7 @@ class ConnectionUriResolutionTest(unittest.TestCase):
         }
         self.assertEqual(
             connections.database("analytics", env=env).connection_uri,
-            "postgresql://u+ser:p%40ss+word@db:5433/ana+lytics",
+            "postgresql+psycopg2://u+ser:p%40ss+word@db:5433/ana+lytics",
         )
 
     def test_postgres_default_port(self):
@@ -80,7 +82,7 @@ class ConnectionUriResolutionTest(unittest.TestCase):
         }
         self.assertEqual(
             connections.database("analytics", env=env).connection_uri,
-            "postgresql://u:p@db:5432/d",
+            "postgresql+psycopg2://u:p@db:5432/d",
         )
 
     def test_mysql_uri_uses_the_pymysql_driver(self):
@@ -155,7 +157,7 @@ class ConnectionUriResolutionTest(unittest.TestCase):
         }
         self.assertEqual(
             connections.database("analytics", env=env).connection_uri,
-            "postgresql://u:@db:5432/d",
+            "postgresql+psycopg2://u:@db:5432/d",
         )
 
     def test_unset_password_is_reported_as_missing(self):
@@ -198,7 +200,7 @@ class ConnectionUriResolutionTest(unittest.TestCase):
         }
         self.assertEqual(
             connections.database("analytics", prefix="CDS_ANALYTICS_DB", env=env).connection_uri,
-            "postgresql://u:p@db:5433/analytics",
+            "postgresql+psycopg2://u:p@db:5433/analytics",
         )
 
     def test_legacy_fields_alone_count_as_configuration(self):
@@ -515,6 +517,51 @@ class DatabaseOperationsTest(unittest.TestCase):
     def test_empty_statement_is_rejected(self):
         with self.assertRaises(ValueError):
             self.db.execute("   ")
+
+
+class ConcurrencyTest(unittest.TestCase):
+    """The documented thread model: one shared connection, many threads.
+
+    The registry and lazy engine creation are deliberately not
+    synchronized (see the Limitations section of docs/runtime-api.md);
+    what must hold is that concurrent operations through the one
+    registered connection all succeed.
+    """
+
+    _ENV_KEYS = ("CDS_DB_CONCURRENT_BACKEND", "CDS_DB_CONCURRENT_SQLITE_PATH")
+
+    def setUp(self):
+        connections.close_all()
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._saved = {key: os.environ.get(key) for key in self._ENV_KEYS}
+        os.environ["CDS_DB_CONCURRENT_BACKEND"] = "sqlite"
+        os.environ["CDS_DB_CONCURRENT_SQLITE_PATH"] = str(Path(self._tmp.name) / "concurrent.db")
+        self.addCleanup(self._restore_env)
+
+    def _restore_env(self):
+        connections.close_all()
+        for key, value in self._saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    def test_threads_share_one_registered_connection(self):
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = [pool.submit(connections.database, "concurrent") for _ in range(64)]
+            objects = [future.result() for future in results]
+        self.assertTrue(all(obj is objects[0] for obj in objects), "registry returned different objects")
+
+    def test_concurrent_operations_on_one_connection(self):
+        db = connections.database("concurrent")
+        db.execute("CREATE TABLE hits (id INTEGER PRIMARY KEY)")
+        db.execute("INSERT INTO hits (id) VALUES (:i)", {"i": 0})
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = [pool.submit(db.fetch_one, "SELECT id FROM hits") for _ in range(64)]
+            for future in futures:
+                self.assertEqual(future.result(), {"id": 0})
+        self.assertEqual(db.fetch_all("SELECT * FROM hits"), [{"id": 0}])
 
 
 if __name__ == "__main__":

@@ -48,7 +48,10 @@ The format is based on Keep a Changelog.
   accepts an empty `_PASSWORD` for password-less authentication, and
   resolves the legacy `_NAME`/`_USER` spellings (as shipped by the
   dagster module's environment block) as aliases for
-  `_DATABASE`/`_USERNAME`; `insert_rows` is one atomic transaction and
+  `_DATABASE`/`_USERNAME`; field-assembled postgres URLs pin the
+  psycopg2 driver (`postgresql+psycopg2://`) so engine creation stays
+  independent of SQLAlchemy's default-driver changes;
+  `insert_rows` is one atomic transaction and
   quotes identifiers through the active dialect (backticks on MySQL,
   double quotes elsewhere); the
   dagster adapter rejects non-PostgreSQL URLs up front; the wheel ships

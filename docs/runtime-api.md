@@ -58,6 +58,12 @@ binding named `analytics-database` is just another name):
 | `CDS_DB_ANALYTICS_NAME` / `_USER` | Legacy spellings (as shipped by the dagster module's environment block), accepted as aliases for `_DATABASE` / `_USERNAME` |
 | `CDS_DB_ANALYTICS_SQLITE_PATH` | File path for the `sqlite` backend (`:memory:` supported) |
 
+Field-assembled postgres URLs pin the psycopg2 driver
+(`postgresql+psycopg2://`), so they keep working regardless of
+SQLAlchemy's default-driver changes (SQLAlchemy >= 2.1 defaults plain
+`postgresql://` to psycopg v3). A `CONNECTION_URI` is used verbatim,
+including its driver suffix.
+
 Wire it in the workload module's Compose environment, exactly like any
 other binding:
 

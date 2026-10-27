@@ -113,7 +113,11 @@ def resolve_connection_uri(prefix: str, env: Mapping[str, str]) -> str:
     else:
         backend = "postgres"
     if backend in {"postgres", "postgresql"}:
-        return _build_network_uri(prefix, "postgresql", backend, env)
+        # The assembled URL pins the psycopg2 driver explicitly:
+        # SQLAlchemy >= 2.1 changed the default ``postgresql://`` driver
+        # to psycopg (v3), which would break images following the
+        # package's own ``postgresql`` extra (psycopg2-binary).
+        return _build_network_uri(prefix, "postgresql+psycopg2", backend, env)
     if backend == "mysql":
         return _build_network_uri(prefix, "mysql+pymysql", backend, env)
     if backend == "sqlite":
