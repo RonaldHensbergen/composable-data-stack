@@ -92,6 +92,24 @@ def render_compose(
 
     is_production = _is_production_plan(plan)
 
+    # Compose volume names are namespaced per module id ("<module-id>-
+    # <volume-name>") when they are written to the top-level volumes map, so
+    # a service that mounts another module's volume must reference that
+    # fully rendered name. Such cross-module references (e.g. a backup
+    # engine mounting a producer's backup-source volumeName, issue #668)
+    # must not be namespaced again with the consuming module's id.
+    external_volume_names: set[str] = set()
+    for module in plan.get("modules", []):
+        if not isinstance(module, dict):
+            continue
+        impl = module.get("implementation", {})
+        compose_impl = impl.get("compose") if isinstance(impl, dict) else None
+        volumes = compose_impl.get("volumes") if isinstance(compose_impl, dict) else None
+        if isinstance(volumes, dict):
+            for volume_name in volumes:
+                if isinstance(volume_name, str) and volume_name:
+                    external_volume_names.add(f'{module.get("id")}-{volume_name}')
+
     for module in plan.get("modules", []):
         implementation = module.get("implementation", {})
 
@@ -146,6 +164,7 @@ def render_compose(
                 network_name=default_network_name,
                 certificates=certificates,
                 is_production=is_production,
+                external_volume_names=external_volume_names,
             )
             diagnostics.extend(unsafe_diags)
             rendered_volumes = _render_volumes(module, volumes, secrets, certificates)
@@ -629,6 +648,7 @@ def _render_services(
     network_name: str | None = None,
     certificates: dict[str, dict[str, str]] | None = None,
     is_production: bool = False,
+    external_volume_names: set[str] | None = None,
 ) -> tuple[dict[str, Any], list[Diagnostic]]:
     rendered: dict[str, Any] = {}
     diagnostics: list[Diagnostic] = []
@@ -692,6 +712,7 @@ def _render_services(
             profile_dir=profile_dir,
             project_root=project_root,
             compose_dir=compose_dir,
+            external_volume_names=external_volume_names,
         )
         service_copy = _rewrite_depends_on(service_copy, module)
         service_copy = _rewrite_build_context(
@@ -1055,7 +1076,9 @@ def _rewrite_service_volumes(
     profile_dir: Path | None,
     project_root: Path | None,
     compose_dir: Path,
+    external_volume_names: set[str] | None = None,
 ) -> dict[str, Any]:
+    external_volume_names = external_volume_names or set()
     volumes = service_def.get("volumes")
     if not isinstance(volumes, list):
         return service_def
@@ -1065,6 +1088,12 @@ def _rewrite_service_volumes(
         if isinstance(item, str):
             parts = item.split(":", 1)
             if len(parts) == 2 and _is_named_volume(parts[0]):
+                if parts[0] in external_volume_names:
+                    # Cross-module reference (issue #668): the source is
+                    # already a fully rendered "<module-id>-<volume>" name
+                    # owned by another module; do not re-namespace it.
+                    rewritten.append(item)
+                    continue
                 item = f"{module['id']}-{parts[0]}:{parts[1]}"
             elif len(parts) >= 2:
                 source = parts[0]
@@ -1101,7 +1130,12 @@ def _rewrite_service_volumes(
                 )
             elif item_copy.get("type") == "volume" and isinstance(item_copy.get("source"), str):
                 source = item_copy["source"]
-                if _is_named_volume(source):
+                if source in external_volume_names:
+                    # Cross-module reference (issue #668): the source is
+                    # already a fully rendered "<module-id>-<volume>" name
+                    # owned by another module; do not re-namespace it.
+                    pass
+                elif _is_named_volume(source):
                     item_copy["source"] = f"{module['id']}-{source}"
             item = item_copy
         rewritten.append(item)

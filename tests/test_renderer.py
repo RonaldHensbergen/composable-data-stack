@@ -50,6 +50,130 @@ class RendererRegressionTest(unittest.TestCase):
         self.assertEqual(mount["source"], "worker-runtime-socket")
         self.assertTrue(mount["read_only"])
 
+    def test_render_compose_keeps_cross_module_named_volume_reference(self):
+        """A mount whose source resolves (e.g. from a consumed backup-source
+        contract) to another module's fully rendered "<module-id>-<volume>"
+        name must not be re-namespaced with the consuming module's id
+        (issue #668): the renderer writes top-level volumes under the
+        producer's namespaced name, so the reference already matches."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "producer",
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "producer:latest",
+                                    "volumes": [{"type": "volume", "source": "io-data", "target": "/data"}],
+                                }
+                            },
+                            "volumes": {"io-data": {}},
+                        },
+                    },
+                },
+                {
+                    "id": "backup",
+                    "consumes": {
+                        "source-a": {
+                            "contractRef": "producer.backup-source",
+                            "contract": {
+                                "kind": "backup-source",
+                                "spec": {"kind": "volume", "volumeName": "producer-io-data"},
+                            },
+                        }
+                    },
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "engine": {
+                                    "image": "backup:latest",
+                                    "volumes": [
+                                        {
+                                            "type": "volume",
+                                            "source": "${bindings.source-a.volumeName}",
+                                            "target": "/backup/a",
+                                            "read_only": True,
+                                            "enabledFrom": "bindings.source-a.kind==volume",
+                                        },
+                                        {
+                                            "type": "volume",
+                                            "source": "repo",
+                                            "target": "/repo",
+                                        },
+                                    ],
+                                }
+                            },
+                            "volumes": {"repo": {}},
+                        },
+                    },
+                },
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        self.assertIn("producer-io-data", compose["volumes"])
+        self.assertIn("backup-repo", compose["volumes"])
+        volumes = compose["services"]["backup-engine"]["volumes"]
+        self.assertEqual(volumes[0]["source"], "producer-io-data")
+        self.assertNotIn("enabledFrom", volumes[0])
+        self.assertEqual(volumes[1]["source"], "backup-repo")
+
+    def test_render_compose_keeps_cross_module_named_volume_reference_short_form(self):
+        """The short "<source>:<target>" mount form follows the same rule as
+        the long form: a fully rendered cross-module volume name is not
+        re-namespaced (issue #668)."""
+        plan = {
+            "metadata": {"name": "cds-test"},
+            "modules": [
+                {
+                    "id": "producer",
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "app": {
+                                    "image": "producer:latest",
+                                    "volumes": ["io-data:/data"],
+                                }
+                            },
+                            "volumes": {"io-data": {}},
+                        },
+                    },
+                },
+                {
+                    "id": "backup",
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "engine": {
+                                    "image": "backup:latest",
+                                    "volumes": ["producer-io-data:/backup/a"],
+                                }
+                            },
+                            "volumes": {},
+                        },
+                    },
+                },
+            ],
+        }
+
+        output, diagnostics = render_compose(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        compose = yaml.safe_load(output)
+        self.assertEqual(
+            compose["services"]["backup-engine"]["volumes"],
+            ["producer-io-data:/backup/a"],
+        )
+
     def test_render_compose_emits_env_placeholders_for_secret_refs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -1552,4 +1676,3 @@ class ProductionGateTest(unittest.TestCase):
         # The module is skipped entirely instead of crashing.
         compose = yaml.safe_load(output)
         self.assertNotIn("pg-postgres", compose.get("services", {}))
-

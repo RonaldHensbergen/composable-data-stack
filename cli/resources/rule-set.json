@@ -866,7 +866,7 @@
     },
     {
       "id": "CDS-SEC-080",
-      "$comment": "Enforced entirely in code by _check_backup_target_binding in cli/security.py, not the declarative match engine: it flags a profile that includes a module providing a sql-database or file-database contract (durable state) when no module anywhere in the profile consumes a contract of kind backup-target. As of this rule's introduction no module in this repository provides a backup-target contract yet (see roadmap items tracked by issues #210, #665, #668, #669), so this finding is expected to fire for essentially every profile with a durable data store until a backup/restore-providing module exists and is wired -- this is treated as honest signal about a real, currently-unaddressed NIS2 Article 21(2)(c) business-continuity gap, not a bug. `enabled` stays false because `scope: [\"none\"]` rules can never produce a declarative-engine finding (see the scope-none `enabled` invariant test); `codeEnforced` is the actual on/off switch.",
+      "$comment": "Enforced entirely in code by _check_backup_target_binding in cli/security.py, not the declarative match engine: it flags a profile that includes a module providing a sql-database or file-database contract (durable state) when no module anywhere in the profile consumes a contract of kind backup-target. The two shipped backup providers (the postgres module's built-in pgBackRest capability, #665, and the restic file backup module, #668) are wired via spec.backup.target.contractRef or backup-source bindings rather than a backup-target consume entry, so this finding is expected to fire for every profile with a durable data store that has not wired either provider -- this is treated as honest signal about a real, currently-unaddressed NIS2 Article 21(2)(c) business-continuity gap, not a bug. `enabled` stays false because `scope: [\"none\"]` rules can never produce a declarative-engine finding (see the scope-none `enabled` invariant test); `codeEnforced` is the actual on/off switch.",
       "title": "Stateful module has no backup/restore target bound",
       "severity": "medium",
       "category": "business-continuity",
@@ -882,7 +882,7 @@
       "message": "Profile has a module with durable state (sql-database or file-database) but no module consumes a backup-target contract",
       "whyItMatters": "Durable data that is never backed up cannot be restored after accidental deletion, corruption, or ransomware, undermining business continuity.",
       "recommendation": [
-        "Wire a backup/restore-capable module once one is available in this stack (see issues #210, #665, #668, #669).",
+        "Wire a backup/restore-capable module into this profile: bind the restic file backup module (#668) to the stateful modules' backup-source contracts, or the postgres module's built-in backup-target provider (#665) via spec.backup.target.",
         "Until then, document and operate an out-of-band backup process for this profile's stateful modules."
       ],
       "enabled": false,

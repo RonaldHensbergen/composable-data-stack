@@ -34,7 +34,11 @@ _MODULE_ROOTS = ("modules", "modules-experimental")
 #   E041 - a required `consumes` binding could not be resolved (no producer
 #          module exists in the standalone profile)
 #   E042 - contract kind mismatch on a consumed binding
-_EXPECTED_UNBOUND_CODES = {"E030", "E041", "E042"}
+#   E143 - a backup-category module (issue #668) is a production-only piece,
+#          so instantiating it in the standalone profile's local environment
+#          fails closed; that is the module working as designed, not a
+#          wiring problem
+_EXPECTED_UNBOUND_CODES = {"E030", "E041", "E042", "E143"}
 
 
 def _discover_modules() -> list[tuple[str, Path]]:

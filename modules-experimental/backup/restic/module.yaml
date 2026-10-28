@@ -1,0 +1,385 @@
+# modules-experimental/backup/restic/module.yaml
+# yaml-language-server: $schema=../../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: restic
+  category: backup
+  version: "0.1.0"
+  displayName: Restic file backup (experimental)
+  description: >
+    Generic file/volume backup engine (issue #668). Consumes backup-source
+    contracts offered by stateful modules (e.g. the orchestration module's
+    IO-manager volume, a file-based warehouse's host directory, an ingestion
+    module's state volume), mounts them read-only, and snapshots them on a
+    schedule with restic into an encrypted repository: a local repository
+    volume by default, or any S3-compatible endpoint via restic's native S3
+    backend. Provides the vendor-neutral backup-target contract so profiles
+    can pin it with spec.backup.target.contractRef. The whole module is a
+    production-only piece: its services render only in production profiles,
+    and enabling it elsewhere fails validation (E143). This module is
+    marked experimental because the backup-source contract shape is new to
+    CDS and unproven across many producers, not because restic itself is
+    immature -- see README.md for the restore procedure and current
+    limitations.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: restic-backup
+      ports: []
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - encryptionKeyFrom
+    properties:
+      sources:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Backup sources to protect: each slot binds one backup-source
+          contract from another module instance (at least one slot must be
+          bound; E030 fails an all-empty sources object). Slots are
+          equivalent; a/b/c only fix the container mount point
+          (/backup/a, /backup/b, /backup/c).
+        properties:
+          a:
+            type: object
+            additionalProperties: false
+            properties:
+              contractRef:
+                type: string
+                pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+          b:
+            type: object
+            additionalProperties: false
+            properties:
+              contractRef:
+                type: string
+                pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+          c:
+            type: object
+            additionalProperties: false
+            properties:
+              contractRef:
+                type: string
+                pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+      encryptionKeyFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+        description: >-
+          Secret-alias reference to the restic repository encryption key
+          (RESTIC_PASSWORD). Restic encrypts client-side and refuses to run
+          without a key (fail closed). Declare the alias under the
+          profile's secrets block and reference it here.
+      schedule:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          intervalMinutes:
+            type: integer
+            minimum: 5
+            maximum: 1440
+            default: 60
+            description: >-
+              Minutes between backup passes. Every pass snapshots all
+              bound sources, so the recovery point objective is this
+              interval.
+      retentionDays:
+        type: integer
+        minimum: 1
+        default: 30
+        description: >-
+          Days a restore point is kept before restic forget --prune removes
+          it; advertised as maxRetentionDays on the backup-target contract.
+      restoreUser:
+        type: string
+        minLength: 1
+        default: restic
+        description: >-
+          User (name or uid[:gid]) the one-shot restore service runs as. The
+          restore writes back into the bound sources, so for volume-kind
+          sources it must be able to write into the producing module's
+          volume: named volumes keep the uid of the module that first
+          populated them (e.g. "999" for the current orchestration and
+          ingestion modules). Bind-kind sources with permissive directories
+          (e.g. the file-based warehouse's host directory) restore fine
+          with the default. The user must not be root; production runtime
+          validation fails closed otherwise (CDS-SEC-090).
+      target:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Where the encrypted repository lives. "file" (default) uses the
+          module's own restic-repo volume as the zero-dependency local
+          repository; "s3" uses restic's native S3 backend against any
+          S3-compatible endpoint (a cloud bucket, or the in-stack
+          object-storage module once available), with credentials resolved
+          via the existing secrets-provider machinery.
+        properties:
+          type:
+            type: string
+            enum:
+              - file
+              - s3
+            default: file
+          s3:
+            type: object
+            additionalProperties: false
+            properties:
+              endpoint:
+                type: string
+                minLength: 1
+                description: Hostname or host:port of the S3-compatible endpoint.
+              bucket:
+                type: string
+                minLength: 1
+              region:
+                type: string
+              accessKeyIdFrom:
+                type: string
+                pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+              secretAccessKeyFrom:
+                type: string
+                pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+    anyOf:
+      - properties:
+          sources:
+            required:
+              - a
+      - properties:
+          sources:
+            required:
+              - b
+      - properties:
+          sources:
+            required:
+              - c
+    allOf:
+      - if:
+          properties:
+            target:
+              properties:
+                type:
+                  const: s3
+          required:
+            - target
+        then:
+          properties:
+            target:
+              properties:
+                s3:
+                  required:
+                    - endpoint
+                    - bucket
+                    - accessKeyIdFrom
+                    - secretAccessKeyFrom
+              required:
+                - s3
+
+  consumes:
+    - name: source-a
+      contract:
+        kind: backup-source
+      required: false
+      mappedFrom: spec.config.sources.a
+    - name: source-b
+      contract:
+        kind: backup-source
+      required: false
+      mappedFrom: spec.config.sources.b
+    - name: source-c
+      contract:
+        kind: backup-source
+      required: false
+      mappedFrom: spec.config.sources.c
+
+  provides:
+    - name: backup-target
+      contract:
+        kind: backup-target
+        spec:
+          endpoint: ${service.host}
+          repository: restic-repo
+          protocol: ${config.target.type}
+          encrypted: true
+          maxRetentionDays: ${config.retentionDays}
+          supportsRestoreVerification: true
+
+  implementation:
+    kind: docker-compose
+    targets:
+      - docker-compose
+    compose:
+      services:
+        # Backup sidecar: mounts every bound source read-only and snapshots
+        # it on a schedule into the encrypted restic repository. Production
+        # pieces only; a non-production render contributes no services.
+        restic-backup:
+          production: true
+          build:
+            context: ../../../
+            dockerfile: images/restic/Dockerfile
+          image: local/restic:custom
+          user: restic
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 128
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=10000,gid=10000,mode=1777
+          restart: always
+          entrypoint:
+            - cds-restic-scheduler
+          environment:
+            RESTIC_PASSWORD: "${config.encryptionKeyFrom}"
+            RESTIC_CACHE_DIR: /tmp/restic-cache
+            CDS_BACKUP_INTERVAL_MINUTES: "${config.schedule.intervalMinutes}"
+            CDS_BACKUP_RETENTION_DAYS: "${config.retentionDays}"
+            CDS_BACKUP_TARGET_TYPE: "${config.target.type}"
+            CDS_BACKUP_S3_ENDPOINT: "${ifNonempty:config.target.s3.endpoint,,}"
+            CDS_BACKUP_S3_BUCKET: "${ifNonempty:config.target.s3.bucket,,}"
+            CDS_BACKUP_S3_REGION: "${ifNonempty:config.target.s3.region,,}"
+            AWS_ACCESS_KEY_ID: "${ifNonempty:config.target.s3.accessKeyIdFrom,,}"
+            AWS_SECRET_ACCESS_KEY: "${ifNonempty:config.target.s3.secretAccessKeyFrom,,}"
+          volumes:
+            # Cross-module source mounts (issue #668): a volume-kind source
+            # is mounted by its fully rendered Compose volume name from the
+            # producing module's backup-source contract, which the renderer
+            # resolves without re-namespacing; a bind-kind source is the
+            # same host directory the producer bind-mounts. Each pair is
+            # gated so an unbound slot never leaves a literal ${bindings.*}
+            # path in the output, and only the entry matching the bound
+            # contract's kind survives.
+            - type: volume
+              source: "${bindings.source-a.volumeName}"
+              target: /backup/a
+              read_only: true
+              enabledFrom: bindings.source-a.kind==volume
+            - type: bind
+              source: "${bindings.source-a.hostPath}"
+              target: /backup/a
+              read_only: true
+              enabledFrom: bindings.source-a.kind==bind
+            - type: volume
+              source: "${bindings.source-b.volumeName}"
+              target: /backup/b
+              read_only: true
+              enabledFrom: bindings.source-b.kind==volume
+            - type: bind
+              source: "${bindings.source-b.hostPath}"
+              target: /backup/b
+              read_only: true
+              enabledFrom: bindings.source-b.kind==bind
+            - type: volume
+              source: "${bindings.source-c.volumeName}"
+              target: /backup/c
+              read_only: true
+              enabledFrom: bindings.source-c.kind==volume
+            - type: bind
+              source: "${bindings.source-c.hostPath}"
+              target: /backup/c
+              read_only: true
+              enabledFrom: bindings.source-c.kind==bind
+            - type: volume
+              source: restic-repo
+              target: /var/lib/restic-repo
+              enabledFrom: config.target.type==file
+          healthcheck:
+            disable: true
+
+        # One-shot restore service (issue #668): inactive unless the
+        # cds-restore profile is activated, so `docker compose up` never
+        # starts it; it mounts the same source slots read-write and
+        # restores the newest restore point into them:
+        #   docker compose stop <services-writing-the-source>
+        #   docker compose --profile cds-restore run --rm restic-restore
+        # Extra arguments replace the default command and run restic
+        # directly, so pass full restic arguments when overriding. See
+        # docs/backup-restore.md and README.md for the clean-environment
+        # restore-verification procedure.
+        restic-restore:
+          production: true
+          build:
+            context: ../../../
+            dockerfile: images/restic/Dockerfile
+          image: local/restic:custom
+          user: "${config.restoreUser}"
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 128
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=10000,gid=10000,mode=1777
+          restart: "no"
+          profiles:
+            - cds-restore
+          entrypoint:
+            - cds-restic-restore
+          environment:
+            RESTIC_PASSWORD: "${config.encryptionKeyFrom}"
+            RESTIC_CACHE_DIR: /tmp/restic-cache
+            CDS_BACKUP_TARGET_TYPE: "${config.target.type}"
+            CDS_BACKUP_S3_ENDPOINT: "${ifNonempty:config.target.s3.endpoint,,}"
+            CDS_BACKUP_S3_BUCKET: "${ifNonempty:config.target.s3.bucket,,}"
+            CDS_BACKUP_S3_REGION: "${ifNonempty:config.target.s3.region,,}"
+            AWS_ACCESS_KEY_ID: "${ifNonempty:config.target.s3.accessKeyIdFrom,,}"
+            AWS_SECRET_ACCESS_KEY: "${ifNonempty:config.target.s3.secretAccessKeyFrom,,}"
+          volumes:
+            # Read-write counterparts of the backup service's source mounts:
+            # restic restore writes the newest restore point back into the
+            # producing module's volume or host directory.
+            - type: volume
+              source: "${bindings.source-a.volumeName}"
+              target: /backup/a
+              enabledFrom: bindings.source-a.kind==volume
+            - type: bind
+              source: "${bindings.source-a.hostPath}"
+              target: /backup/a
+              enabledFrom: bindings.source-a.kind==bind
+            - type: volume
+              source: "${bindings.source-b.volumeName}"
+              target: /backup/b
+              enabledFrom: bindings.source-b.kind==volume
+            - type: bind
+              source: "${bindings.source-b.hostPath}"
+              target: /backup/b
+              enabledFrom: bindings.source-b.kind==bind
+            - type: volume
+              source: "${bindings.source-c.volumeName}"
+              target: /backup/c
+              enabledFrom: bindings.source-c.kind==volume
+            - type: bind
+              source: "${bindings.source-c.hostPath}"
+              target: /backup/c
+              enabledFrom: bindings.source-c.kind==bind
+            - type: volume
+              source: restic-repo
+              target: /var/lib/restic-repo
+              # Read-write even for restore: restic writes (and removes) a
+              # lock file in the repository for every operation; the
+              # restore itself only reads repository content.
+              enabledFrom: config.target.type==file
+          healthcheck:
+            disable: true
+
+      volumes:
+        # Encrypted restic repository volume for the default file target.
+        restic-repo:
+          production: true
+          enabledFrom: config.target.type==file

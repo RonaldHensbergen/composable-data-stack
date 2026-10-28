@@ -1,0 +1,61 @@
+#!/bin/sh
+# images/restic/cds-restic-restore
+#
+# Entrypoint of the gated restic-restore service (issue #668): restores the
+# newest restore point into the source volumes/directories, which this
+# service mounts at the same paths the backup sidecar snapshots them from
+# (/backup/*), read-write:
+#
+#   docker compose stop <services-writing-the-source>
+#   docker compose --profile cds-restore run --rm restic-restore
+#   docker compose start <services-writing-the-source>
+#
+# The default command stages the restore in the container's writable /tmp
+# (restic restore also writes a lock file into the repository and restores
+# ownership metadata, which the read-only container root filesystem cannot
+# absorb) and then copies each restored source into its mount. Extra
+# arguments replace the default command wholesale and run restic directly,
+# so pass full restic arguments when overriding, e.g.
+#
+#   docker compose --profile cds-restore run --rm restic-restore \
+#     restore <snapshot-id> --verify-data
+#
+# For restore verification, provision a clean environment (a new Compose
+# project name and fresh source volumes, same CDS_* secret variables) and
+# restore there; see docs/backup-restore.md.
+
+set -eu
+
+. "$(dirname "$0")/cds-restic-env"
+restic_env_setup
+
+if [ "$#" -ne 0 ]; then
+    exec restic "$@"
+fi
+
+STAGE="${CDS_RESTORE_STAGE:-/tmp/restic-restore-stage}"
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
+
+restic restore latest --target "$STAGE"
+
+found=0
+for source in "$STAGE"/backup/*; do
+    [ -d "$source" ] || continue
+    name="$(basename "$source")"
+    if [ ! -d "/backup/$name" ]; then
+        echo "cds-restic: restored source $name has no mounted slot; skipping" >&2
+        continue
+    fi
+    # -p preserves modes and timestamps; ownership becomes the restore
+    # user's (see the module's restoreUser config for volume-kind sources).
+    cp -rp "$source"/. "/backup/$name"/
+    found=1
+done
+
+rm -rf "$STAGE"
+
+if [ "$found" -ne 1 ]; then
+    echo "cds-restic: no restored source had a mounted slot to restore into" >&2
+    exit 1
+fi
