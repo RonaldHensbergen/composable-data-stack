@@ -100,6 +100,13 @@ The format is based on Keep a Changelog.
   backup-source advertises a volume the producer does not declare
   (E146), instead of silently protecting an empty implicit volume.
 
+- `.trivyignore` exceptions now also accept GHSA ids for scan findings
+  reported without a CVE alias (GitHub security advisories): trivy's
+  native ignore format supports any advisory id, and without this the
+  restic image's grpc finding (GHSA-hrxh-6v49-42gf, no CVE alias) could
+  not be excepted at all. `tests/test_trivyignore.py` and
+  `docs/image-scanning.md` document the extended format.
+
 - Migrated the Python workdirs to cds-runtime and demonstrated the
   workload API across two runtimes (issue #987): the dagster workdir
   resolves its connections through `cds_runtime.connections`

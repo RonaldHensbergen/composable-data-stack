@@ -3,6 +3,10 @@
 # Native trivy ignore format, one entry per line:
 #
 #   CVE-YYYY-#### exp:YYYY-MM-DD
+#   GHSA-xxxx-xxxx-xxxx exp:YYYY-MM-DD
+#
+# Findings reported without a CVE alias (GitHub security advisories) use
+# their GHSA id.
 #
 # The comment block directly above an entry records the remediation owner
 # and the justification (see docs/image-scanning.md):
@@ -144,3 +148,51 @@ CVE-2026-78669 exp:2027-01-23
 # patched in the next upstream base image digest (refresh the pin)
 # owner:@ronaldhensbergen
 CVE-2026-97031 exp:2027-01-23
+
+# restic 0.19.1 (the latest upstream release, digest-pinned) is built with
+# github.com/klauspost/compress v1.18.6; patched in the next restic
+# release (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-63209 exp:2027-01-26
+
+# restic 0.19.1 (the latest upstream release, digest-pinned) is built with
+# golang.org/x/crypto v0.52.0; patched in the next restic release
+# (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-56854 exp:2027-01-26
+
+# restic 0.19.1 (the latest upstream release, digest-pinned) is built with
+# golang.org/x/net v0.55.0 and Go stdlib v1.26.4; patched in the next
+# restic release (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-46600 exp:2027-01-26
+
+# restic 0.19.1 (the latest upstream release, digest-pinned) is built with
+# golang.org/x/text v0.37.0 (CVE-2026-56851); patched in the next restic
+# release (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-56851 exp:2027-01-26
+
+# restic 0.19.1 (the latest upstream release, digest-pinned) is built with
+# golang.org/x/text v0.37.0 (CVE-2026-56852); patched in the next restic
+# release (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-56852 exp:2027-01-26
+
+# restic 0.19.1 (the latest upstream release, digest-pinned) is built with
+# google.golang.org/grpc v1.81.1 (CVE-2026-84304); patched in the next
+# restic release (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-84304 exp:2027-01-26
+
+# restic 0.19.1 (the latest upstream release, digest-pinned) is built with
+# google.golang.org/grpc v1.81.1 (CVE-2026-84445); patched in the next
+# restic release (refresh the pin)
+# owner:@ronaldhensbergen
+CVE-2026-84445 exp:2027-01-26
+
+# restic 0.19.1 (the latest upstream release, digest-pinned) is built with
+# google.golang.org/grpc v1.81.1 (GHSA-hrxh-6v49-42gf); patched in the next
+# restic release (refresh the pin)
+# owner:@ronaldhensbergen
+GHSA-hrxh-6v49-42gf exp:2027-01-26

@@ -3,11 +3,9 @@ import re
 import unittest
 from pathlib import Path
 
-_CVE = re.compile(r"^(?:CVE-\d{4}-\d{4,}|AVD-\d{4}-\d{4,})$", re.IGNORECASE)
-_ENTRY = re.compile(
-    r"^(?:CVE-\d{4}-\d{4,}|AVD-\d{4}-\d{4,})\s+exp:(\d{4}-\d{2}-\d{2})$",
-    re.IGNORECASE,
-)
+_ID = r"(?:CVE-\d{4}-\d{4,}|AVD-\d{4}-\d{4,}|GHSA(?:-[A-Za-z0-9]{4}){3})"
+_CVE = re.compile(rf"^{_ID}$", re.IGNORECASE)
+_ENTRY = re.compile(rf"^{_ID}\s+exp:(\d{{4}}-\d{{2}}-\d{{2}})$", re.IGNORECASE)
 
 
 class TrivyIgnoreTest(unittest.TestCase):
