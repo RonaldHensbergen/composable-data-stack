@@ -12,9 +12,16 @@ persists object data and metadata in separate named volumes.
 | `accessKeyFrom` | Yes | `secrets.<alias>` for the initial access key identifier (`GK` plus 32 hexadecimal characters) |
 | `secretKeyFrom` | Yes | `secrets.<alias>` for the initial S3 secret key (64 hexadecimal characters) |
 | `rpcSecretFrom` | Yes | `secrets.<alias>` for Garage's RPC secret (64 hexadecimal characters) |
-| `port` | No | Host loopback port for S3 clients; defaults to `3900` |
+| `port` | No | Host loopback port for S3 clients; defaults to `3900`. Does not change the in-network contract endpoint, which always targets the fixed container port `3900` |
 
 The S3 region is fixed to `garage`.
+
+Use `garage` as the module instance id. The `object-storage` contract
+endpoint advertises the instance id as the S3 hostname, and Compose only
+gives the service that DNS name when the instance id matches the module's
+service name (the same single-service convention as `postgres` and
+`keydb`); any other id leaves the contract endpoint unresolvable on the
+shared network.
 
 Generate credentials without storing them in the profile:
 
@@ -32,7 +39,7 @@ credentials, addressing style, and TLS state for consumers.
 Example module configuration:
 
 ```yaml
-- id: object-storage
+- id: garage
   source: ../../modules/storage/garage
   version: "0.1.0"
   config:
@@ -54,6 +61,12 @@ Garage data is persisted in the `garage-data` and `garage-meta` named volumes.
 Back them up and test restores independently; local persistence is not a
 backup. Use a multi-node Garage deployment with an appropriate replication
 layout for production workloads.
+
+The service runs as root inside the container: the upstream image ships no
+non-root user, and the data volumes are root-owned on first start, so a
+`user` override breaks startup (`Permission denied` creating the data
+directory). This is acceptable here only because production-classified
+profiles cannot include this module (CDS-SEC-073).
 
 ## Upstream documentation
 
