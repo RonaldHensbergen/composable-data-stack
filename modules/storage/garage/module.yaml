@@ -1,0 +1,138 @@
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: garage
+  category: storage
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: Garage object storage
+  description: >
+    Single-node, S3-compatible object storage for local and development
+    profiles. The single-node deployment has no redundancy and is not
+    suitable for production.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: garage
+      ports:
+        - name: s3
+          containerPort: 3900
+          protocol: TCP
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - bucket
+      - accessKeyFrom
+      - secretKeyFrom
+      - rpcSecretFrom
+    properties:
+      bucket:
+        type: string
+        minLength: 3
+        maxLength: 63
+        pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])$"
+        description: >-
+          Initial S3 bucket to create. Use a lowercase DNS-compatible name
+          between 3 and 63 characters.
+
+      accessKeyFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+        description: >-
+          Profile secret alias holding the initial S3 access key identifier.
+          Supply a value beginning with GK followed by 32 hexadecimal
+          characters.
+
+      secretKeyFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+        description: >-
+          Profile secret alias holding the initial S3 secret key. Supply a
+          64-character hexadecimal value.
+
+      rpcSecretFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+        description: >-
+          Profile secret alias holding Garage's RPC secret. Supply a
+          64-character hexadecimal value generated with
+          `openssl rand -hex 32`.
+
+      port:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 3900
+
+  provides:
+    - name: object-storage
+      contract:
+        kind: object-storage
+        spec:
+          endpoint: http://${service.host}:${config.port}
+          bucket: ${config.bucket}
+          region: garage
+          accessKey: ${config.accessKeyFrom}
+          secretKey: ${config.secretKeyFrom}
+          pathStyle: true
+          tls: false
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        garage:
+          image: dxflrs/garage:v2.5.0@sha256:677e5b758e4425a325b811c425c026bf35a4bf42f7ddbaa773de3f4fd779a5a5
+          command:
+            - /garage
+            - server
+            - --single-node
+            - --default-bucket
+          restart: unless-stopped
+          init: true
+          read_only: true
+          cap_drop:
+            - ALL
+          # The upstream v2.5.0 binary fails to exec with
+          # no-new-privileges enabled; all Linux capabilities remain dropped.
+          pids_limit: 256
+          healthcheck:
+            test:
+              - CMD
+              - /garage
+              - status
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 20s
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,mode=1777
+          ports:
+            - "127.0.0.1:${config.port}:3900"
+          environment:
+            GARAGE_CONFIG_FILE: /etc/garage.toml
+            GARAGE_DEFAULT_ACCESS_KEY: "${config.accessKeyFrom}"
+            GARAGE_DEFAULT_SECRET_KEY: "${config.secretKeyFrom}"
+            GARAGE_DEFAULT_BUCKET: "${config.bucket}"
+            GARAGE_RPC_SECRET: "${config.rpcSecretFrom}"
+            GARAGE_LOG_FORMAT: json
+            NO_COLOR: "1"
+          volumes:
+            - type: bind
+              source: garage.toml
+              target: /etc/garage.toml
+              read_only: true
+            - garage-data:/var/lib/garage/data
+            - garage-meta:/var/lib/garage/meta
+
+      volumes:
+        garage-data: {}
+        garage-meta: {}
