@@ -129,6 +129,26 @@ class DagsterPostgresConnectionMigrationTest(unittest.TestCase):
         })
         self.assertTrue(Path(self.env["CDS_LOCAL_EVENT_LOG_PATH"]).exists())
 
+    def test_postgres_dialect_detection_covers_every_driver_spelling(self):
+        # A postgresql+psycopg (v3) URI must take the PostgreSQL DDL branch
+        # (JSONB/BIGSERIAL) like the psycopg2 spelling does, instead of
+        # falling back to the sqlite/JSON DDL and failing on a live server.
+        is_postgres = self.module._is_postgres_uri
+        for uri in (
+            "postgresql://user:pass@host/db",
+            "postgresql+psycopg2://user:pass@host/db",
+            "postgresql+psycopg://user:pass@host/db",
+            "postgres://user:pass@host/db",
+            "PostgreSQL://user:pass@host/db",
+        ):
+            self.assertTrue(is_postgres(uri), uri)
+        for uri in (
+            "mysql://user:pass@host/db",
+            "mysql+pymysql://user:pass@host/db",
+            "sqlite:///:memory:",
+        ):
+            self.assertFalse(is_postgres(uri), uri)
+
 
 if __name__ == "__main__":
     unittest.main()
