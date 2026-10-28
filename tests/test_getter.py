@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import stat
 import sys
 import tarfile
@@ -273,6 +274,243 @@ spec:
             self.assertEqual(local_profile.read_bytes(), profile_before)
             self.assertTrue(any("shared/contracts/demo.yaml" in item for item in result.updated))
             self.assertFalse(result.errors)
+
+    def test_update_reports_manifest_and_selection_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+
+            with tempfile.TemporaryDirectory() as empty_dir:
+                empty_root = Path(empty_dir)
+                with self.assertRaisesRegex(
+                    GetError, "No fetched-asset tracking manifest found"
+                ):
+                    update_tracked_assets(destination_root=empty_root)
+
+                manifest_path = empty_root / ".cds" / "get-manifest.json"
+                _write(manifest_path, json.dumps({"version": 2, "profiles": {}}))
+                with self.assertRaisesRegex(GetError, "No tracked profiles found"):
+                    update_tracked_assets(destination_root=empty_root)
+
+            with self.assertRaisesRegex(GetError, "Unsupported update category: images"):
+                update_tracked_assets(
+                    destination_root=destination_root, categories=["profiles", "images"]
+                )
+
+            with self.assertRaisesRegex(GetError, 'No fetched profile matching "missing"'):
+                update_tracked_assets(
+                    profile="missing", destination_root=destination_root
+                )
+
+            # The source profile path doubles as a selection alias.
+            result = update_tracked_assets(
+                profile="profiles/demo/profile.yaml", destination_root=destination_root
+            )
+            self.assertFalse(result.errors)
+
+    def test_update_surfaces_invalid_tracking_entries_as_profile_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            manifest_path = destination_root / ".cds" / "get-manifest.json"
+
+            def _tamper(mutate) -> None:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                mutate(manifest["profiles"]["demo"])
+                manifest_path.write_text(
+                    json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+                )
+                result = update_tracked_assets(destination_root=destination_root)
+                self.assertTrue(result.errors, "expected a profile error")
+
+            _tamper(lambda entry: entry.update(requestedProfile=123))
+            _tamper(lambda entry: entry.update(remote=""))
+            _tamper(lambda entry: entry.update(ref=123))
+            _tamper(lambda entry: entry.update(ref=""))
+            _tamper(lambda entry: entry.pop("fileHashes"))
+            _tamper(lambda entry: entry.update(assets={}))
+            _tamper(lambda entry: entry.update(pinnedCommit=123))
+            _tamper(lambda entry: entry.update(remote="relative/path", ref=None))
+
+            # A non-object entry is reported per profile instead of crashing.
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["profiles"]["demo"] = "not an object"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            result = update_tracked_assets(destination_root=destination_root)
+            self.assertTrue(any("not an object" in item for item in result.errors))
+
+    def test_update_rejects_unsafe_tracked_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            manifest_path = destination_root / ".cds" / "get-manifest.json"
+
+            for source_path in ("../evil", "/etc/passwd"):
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest["profiles"]["demo"]["assets"] = [
+                    {"type": "module", "sourcePath": source_path}
+                ]
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                result = update_tracked_assets(
+                    destination_root=destination_root, categories=["modules"]
+                )
+                self.assertTrue(
+                    any("unsafe" in item.lower() for item in result.errors), source_path
+                )
+
+            # A tracked file path escaping the destination is rejected the
+            # same way when removed-upstream reporting walks it.
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = manifest["profiles"]["demo"]
+            entry["fileHashes"]["../evil.txt"] = "0" * 64
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            result = update_tracked_assets(destination_root=destination_root)
+            self.assertTrue(any("unsafe" in item.lower() for item in result.errors))
+
+    def test_update_reports_symlinked_and_directory_destinations_as_conflicts(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            source_module = source_root / "modules" / "apps" / "demo" / "module.yaml"
+            source_module.write_text(
+                source_module.read_text(encoding="utf-8") + "# upstream change\n",
+                encoding="utf-8",
+            )
+
+            local_module = destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            local_module.unlink()
+            local_module.mkdir()
+            result = update_tracked_assets(destination_root=destination_root)
+            self.assertTrue(
+                any("(destination is a directory)" in item for item in result.conflicts)
+            )
+            local_module.rmdir()
+
+            if not sys.platform.startswith("win"):
+                # A symlink at the destination is a conflict, never a
+                # write-through.
+                outside = destination_root.parent / f"{destination_root.name}-outside.txt"
+                _write(outside, "do not touch\n")
+                local_module.symlink_to(outside)
+                result = update_tracked_assets(destination_root=destination_root)
+                self.assertTrue(
+                    any("(destination is a symlink)" in item for item in result.conflicts)
+                )
+                self.assertEqual(
+                    outside.read_text(encoding="utf-8"), "do not touch\n"
+                )
+                local_module.unlink()
+                _write(local_module, "local customization\n")
+
+                # A symlinked parent directory is a conflict too.
+                local_profile_dir = destination_root / "profiles" / "demo"
+                real_profile = local_profile_dir / "profile.yaml"
+                content = real_profile.read_text(encoding="utf-8")
+                shutil.rmtree(local_profile_dir)
+                redirected = destination_root.parent / f"{destination_root.name}-redirected"
+                redirected.mkdir()
+                (redirected / "profile.yaml").write_text(content, encoding="utf-8")
+                local_profile_dir.symlink_to(redirected)
+                result = update_tracked_assets(destination_root=destination_root)
+                self.assertTrue(
+                    any(
+                        "(symlinked parent directory)" in item
+                        for item in result.conflicts
+                    )
+                )
+
+                # A symlinked tracking manifest is refused outright.
+                manifest_path = destination_root / ".cds" / "get-manifest.json"
+                shutil.move(str(manifest_path), str(manifest_path) + ".real")
+                manifest_path.symlink_to(str(manifest_path) + ".real")
+                with self.assertRaisesRegex(
+                    GetError, "Refusing to update through symlinked tracking metadata"
+                ):
+                    update_tracked_assets(destination_root=destination_root)
+
+    def test_update_reports_removed_upstream_files(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+
+            removed = "images/demo/entrypoint.sh"
+            (source_root / removed).unlink()
+            local_removed = destination_root / removed
+
+            # Unmodified local copy: reported and left in place.
+            result = update_tracked_assets(destination_root=destination_root)
+            self.assertTrue(
+                any(
+                    item.endswith(f"{removed} (removed upstream; left in place)")
+                    for item in result.skipped
+                )
+            )
+            self.assertTrue(local_removed.is_file())
+
+            # Modified local copy: a conflict, still left in place.
+            _write(local_removed, "local edit\n")
+            result = update_tracked_assets(destination_root=destination_root)
+            self.assertTrue(
+                any(
+                    item.endswith(f"{removed} (removed upstream and modified locally)")
+                    for item in result.conflicts
+                )
+            )
+            self.assertEqual(local_removed.read_text(encoding="utf-8"), "local edit\n")
+
+            # Already absent locally: just reported as skipped.
+            local_removed.unlink()
+            result = update_tracked_assets(destination_root=destination_root)
+            self.assertTrue(
+                any(
+                    item.endswith(f"{removed} (already absent locally)")
+                    for item in result.skipped
+                )
+            )
+
+            # A directory where the tracked file used to be: a conflict.
+            local_removed.mkdir()
+            result = update_tracked_assets(destination_root=destination_root)
+            self.assertTrue(
+                any(
+                    "(removed upstream; destination is a directory)" in item
+                    for item in result.conflicts
+                )
+            )
+
+    def test_update_reports_locally_deleted_tracked_file_as_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+
+            source_module = source_root / "modules" / "apps" / "demo" / "module.yaml"
+            source_module.write_text(
+                source_module.read_text(encoding="utf-8") + "# upstream change\n",
+                encoding="utf-8",
+            )
+            local_module = destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            local_module.unlink()
+
+            result = update_tracked_assets(destination_root=destination_root)
+            self.assertTrue(
+                any(
+                    "(tracked file was deleted locally)" in item
+                    for item in result.conflicts
+                )
+            )
+            self.assertFalse(local_module.exists())
 
     def test_manifest_tracks_extends_parent_profile_and_its_module(self) -> None:
         # The composed profile merges the parent's modules, so those must

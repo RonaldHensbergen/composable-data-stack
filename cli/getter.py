@@ -470,7 +470,13 @@ def _report_removed_source_files(
         relative = PurePosixPath(rel_path)
         if relative.is_absolute() or ".." in relative.parts:
             raise GetError(f"Tracked file path is unsafe: {rel_path}")
-        if not any(
+        # Category-scoped updates only report removals inside the selected
+        # categories' asset roots. A default update has no category filter,
+        # and the assets list is rewritten from the *current* source on
+        # every update -- so a file removed upstream is no longer an asset
+        # on the next pass and must stay reportable through its tracked
+        # hashes/files alone.
+        if categories is not None and not any(
             relative == PurePosixPath(root) or PurePosixPath(root) in relative.parents
             for root in roots
         ):
