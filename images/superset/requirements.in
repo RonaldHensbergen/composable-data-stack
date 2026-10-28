@@ -10,8 +10,12 @@ msgpack>=1.2.1
 packaging<27
 Pillow>=13.0.0
 pyOpenSSL>=26.0.0
-# pyarrow 26 requires numpy>=2.0; the apache/superset:6.1.0 base image ships numpy 1.26.4
-pyarrow>=26,<27
+# pyarrow 26 requires numpy>=2.0; the apache/superset:6.1.0 base image ships
+# numpy 1.26.4 and pandas 2.1.4 (which itself declares numpy<2), so raising
+# pyarrow to 26 would also require overlaying numpy 2 and a numpy-2-compatible
+# pandas on top of the base. Cap it instead; renovate.json disables pyarrow
+# updates for this lock to keep the bot from lifting the cap again.
+pyarrow>=23.0.1,<26
 pyasn1>=0.6.4
 setuptools>=83.0.0
 urllib3>=2.7.0
