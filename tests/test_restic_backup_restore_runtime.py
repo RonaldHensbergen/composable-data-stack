@@ -1,26 +1,31 @@
 """Docker runtime proof for the generic file backup provider (issue #668).
 
 Executes the restore-verification procedure of docs/backup-restore.md
-section 5 against the restic backup module and its bind-kind backup-source
-(the file-based warehouse's host directory), so the acceptance criterion
-"a backup is only trustworthy once restored" is exercised end to end for
-file/volume data rather than only declared as policy:
+section 5 against the restic backup module with BOTH backup-source kinds
+bound at once — the file-based warehouse's bind-kind host directory and
+the ingestion module's volume-kind state volume — so the acceptance
+criterion "a backup is only trustworthy once restored" is exercised end
+to end for file/volume data rather than only declared as policy, and the
+multi-source restore path of issue #1014 is covered (a per-source
+snapshot regression would silently restore only one slot):
 
-1. validate -> plan -> render a production profile wiring the restic module
-   to the warehouse host directory via the backup-source contract.
+1. validate -> plan -> render a production profile wiring the restic
+   module to two backup-source contracts via its source slots.
 2. Build the restic image, boot the backup sidecar in a dedicated compose
-   project, and wait for the scheduler's initial backup pass of a seeded
-   marker file.
-3. Update the marker and take a second backup pass, so the newest restore
-   point is measured, then verify repository integrity with restic check.
+   project, and wait for the scheduler's initial backup pass of the
+   seeded marker files (one restic snapshot per pass covering every
+   bound source).
+3. Update the bind-kind marker and take a second backup pass, so the
+   newest restore point is measured, then verify repository integrity
+   with restic check.
 4. Tear the source project down and copy only the encrypted repository
    volume into a *clean environment*: a second compose project with a
-   fresh, empty source directory.
+   fresh, empty source directory and a fresh state volume.
 5. Prove the artifacts are encrypted: restoring with the wrong key must
    fail, and the marker text must not appear in plaintext in the
    repository.
-6. Restore the newest restore point with the correct key and verify the
-   marker survived byte-for-byte (sha256).
+6. Restore the newest restore point with the correct key and verify BOTH
+   markers survived byte-for-byte (sha256).
 7. Compare the measured restore time and restore-point age with the
    profile's rtoMinutes/rpoMinutes backup policy.
 
@@ -50,11 +55,15 @@ COMPOSE_FILE = REPO_ROOT / "docker-compose.restic-proof.yml"
 SOURCE_PROJECT = "cds-restic-proof-src"
 CLEAN_PROJECT = "cds-restic-proof-clean"
 REPO_VOLUME = "restic-restic-repo"
+DLT_STATE_VOLUME = "dlt-dlt-state"
 BACKUP_SERVICE = "restic-backup"
 RESTORE_SERVICE = "restic-restore"
 
 MARKER_FILE = "marker.txt"
 MARKER_TOKEN = "cds-restic-proof-4b7f2a91"  # noqa: S105 - test marker, not a credential
+
+# Scratch container for volume seeding, ownership setup, and reads.
+ALPINE_IMAGE = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc"
 
 # Retry only known-transient registry flakes (mirrors the other runtime proofs).
 _TRANSIENT_REGISTRY_ERROR_MARKERS = (
@@ -80,6 +89,24 @@ def _profile(host_directory: str) -> dict:
             "runtime": {"type": "docker-compose"},
             "modules": [
                 {
+                    # The dlt module's required destination-database consume
+                    # needs a postgres producer in the profile; only the
+                    # restic-backup service is ever started, so the postgres
+                    # services are rendered but not run.
+                    "id": "postgres",
+                    "source": "modules/warehouse/postgres",
+                    "version": "0.1.0",
+                    "enabled": True,
+                    "config": {
+                        "database": "analytics",
+                        "username": "analytics",
+                        "passwordFrom": "secrets.analytics_db_password",
+                        "superuserPasswordFrom": "secrets.postgres_superuser_password",
+                        "port": 5432,
+                        "authentication": {"hostAuth": "scram-sha-256"},
+                    },
+                },
+                {
                     "id": "duckdb",
                     "source": "modules-experimental/warehouse/duckdb",
                     "version": "0.1.0",
@@ -87,12 +114,25 @@ def _profile(host_directory: str) -> dict:
                     "config": {"hostDirectory": host_directory},
                 },
                 {
+                    "id": "dlt",
+                    "source": "modules-experimental/ingestion/dlt",
+                    "version": "0.1.0",
+                    "enabled": True,
+                    "dependsOn": ["postgres"],
+                    "config": {
+                        "destinationDatabase": {"contractRef": "postgres.sql-database"},
+                    },
+                },
+                {
                     "id": "restic",
                     "source": "modules-experimental/backup/restic",
                     "version": "0.1.0",
                     "enabled": True,
                     "config": {
-                        "sources": {"a": {"contractRef": "duckdb.backup-source"}},
+                        "sources": {
+                            "a": {"contractRef": "duckdb.backup-source"},
+                            "b": {"contractRef": "dlt.backup-source"},
+                        },
                         "encryptionKeyFrom": "secrets.backup_encryption_key",
                     },
                 },
@@ -100,6 +140,14 @@ def _profile(host_directory: str) -> dict:
             "secrets": {
                 "provider": {"type": "env"},
                 "values": {
+                    "analytics_db_password": {
+                        "env": "CDS_ANALYTICS_DB_PASSWORD",
+                        "required": True,
+                    },
+                    "postgres_superuser_password": {
+                        "env": "CDS_POSTGRES_SUPERUSER_PASSWORD",
+                        "required": True,
+                    },
                     "backup_encryption_key": {
                         "env": "CDS_BACKUP_ENCRYPTION_KEY",
                         "required": True,
@@ -175,11 +223,12 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
 
     def _wait_for_backup_pass(self, project: str, env_file: Path, env: dict[str, str],
                               deadline_seconds: int = 300) -> None:
-        """Wait until the scheduler logs a completed backup pass of the
-        source mount, and fail with the container logs otherwise."""
+        """Wait until the scheduler logs a completed backup pass of both
+        source mounts (one restic snapshot per pass, issue #1014), and fail
+        with the container logs otherwise."""
         started = time.monotonic()
         while time.monotonic() - started < deadline_seconds:
-            if "backed up /backup/a" in self._logs(project, env_file, env):
+            if "backed up /backup/a /backup/b" in self._logs(project, env_file, env):
                 return
             time.sleep(5)
         self.fail(
@@ -207,6 +256,17 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
             )
         return result
 
+    def _alpine(self, binds: list[str], command: str, env: dict[str, str],
+                user: str | None = None, timeout: int = 300) -> subprocess.CompletedProcess:
+        """Runs a scratch Alpine container (digest-pinned) with the given
+        volume binds; used for volume seeding, ownership setup, and reads."""
+        return subprocess.run(
+            ["docker", "run", "--rm",
+             *(["--user", user] if user else []),
+             "--entrypoint", "/bin/sh", *binds, ALPINE_IMAGE, "-c", command],
+            env=env, capture_output=True, text=True, errors="replace", timeout=timeout,
+        )
+
     @staticmethod
     def _volume_name(project: str, volume: str) -> str:
         return f"{project}_{volume}"
@@ -225,6 +285,8 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
             work = Path(tmpdir)
             env_file = work / ".env"
             env_file.write_text(
+                "CDS_ANALYTICS_DB_PASSWORD=analytics-restore-proof-pass-1a\n"
+                "CDS_POSTGRES_SUPERUSER_PASSWORD=superuser-restore-proof-pass-2b\n"
                 "CDS_BACKUP_ENCRYPTION_KEY=restic-restore-proof-test-key-9d2f\n",
                 encoding="utf-8",
             )
@@ -295,13 +357,18 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                          "down", "-v", "--remove-orphans"],
                         env=env, capture_output=True, text=True, errors="replace", timeout=300,
                     )
-                # The clean repository volume is pre-created before compose
-                # ever sees it, so remove it explicitly.
-                subprocess.run(
-                    ["docker", "volume", "rm", "--force",
-                     self._volume_name(CLEAN_PROJECT, REPO_VOLUME)],
-                    env=env, capture_output=True, text=True, errors="replace", timeout=60,
-                )
+                # Volumes pre-created before compose ever sees them carry no
+                # compose labels, so `down -v` skips them; remove them
+                # explicitly.
+                for volume in (
+                    self._volume_name(CLEAN_PROJECT, REPO_VOLUME),
+                    self._volume_name(SOURCE_PROJECT, DLT_STATE_VOLUME),
+                    self._volume_name(CLEAN_PROJECT, DLT_STATE_VOLUME),
+                ):
+                    subprocess.run(
+                        ["docker", "volume", "rm", "--force", volume],
+                        env=env, capture_output=True, text=True, errors="replace", timeout=60,
+                    )
                 COMPOSE_FILE.unlink(missing_ok=True)
 
             try:
@@ -311,22 +378,43 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                 )
 
                 # Source environment: backup sidecar over seeded marker data.
+                # Slot a (bind-kind) is the host directory; slot b
+                # (volume-kind) is the dlt state volume, pre-created so the
+                # marker is seeded before the scheduler's first pass reads
+                # it (compose reuses the existing volume).
                 marker_v1 = f"{MARKER_TOKEN}-v1\n"
                 seed_marker(marker_v1)
+                marker_b = f"{MARKER_TOKEN}-slotb\n"
+                source_dlt_volume = self._volume_name(SOURCE_PROJECT, DLT_STATE_VOLUME)
+                self._run(["docker", "volume", "create", source_dlt_volume], env)
+                seed_b = self._alpine(
+                    ["-v", f"{source_dlt_volume}:/data"],
+                    f"echo '{MARKER_TOKEN}-slotb' > /data/{MARKER_FILE}",
+                    env,
+                )
+                self.assertEqual(
+                    seed_b.returncode, 0,
+                    msg="seeding the dlt state volume failed:\n"
+                        + seed_b.stdout + seed_b.stderr,
+                )
                 self._run(
                     [*self._compose(SOURCE_PROJECT, env_file), "up", "-d", BACKUP_SERVICE], env,
                 )
                 self._wait_for_backup_pass(SOURCE_PROJECT, env_file, env)
 
-                # Update the marker and take a second backup pass, so the
-                # newest restore point is measured, then verify repository
-                # integrity.
+                # Update the bind-kind marker and take a second backup pass
+                # of BOTH sources (mirroring the scheduler's one-snapshot
+                # pass), so the newest restore point is measured, then
+                # verify repository integrity.
                 marker_v2 = f"{MARKER_TOKEN}-v2\n"
                 seed_marker(marker_v2)
-                self._restic(SOURCE_PROJECT, env_file, env, ["backup", "/backup/a"])
+                self._restic(
+                    SOURCE_PROJECT, env_file, env, ["backup", "/backup/a", "/backup/b"]
+                )
                 self._restic(SOURCE_PROJECT, env_file, env, ["check"])
                 restore_point_epoch = time.time()
                 expected_checksum = self._marker_checksum(marker_v2)
+                expected_checksum_b = self._marker_checksum(marker_b)
 
                 # The source project's containers stop here; its volumes stay
                 # until the final teardown so failures keep evidence.
@@ -335,19 +423,32 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                 )
 
                 # Clean environment: a second compose project with a fresh,
-                # empty source directory. Only the encrypted repository
-                # volume is seeded from the source environment.
+                # empty source directory and a fresh state volume. Only the
+                # encrypted repository volume is seeded from the source
+                # environment; the dlt state volume is pre-created and
+                # chowned to the restore user (uid 10000) so the restore
+                # service can write into it (pre-created volumes are
+                # otherwise root-owned).
                 clean_repo_volume = self._volume_name(CLEAN_PROJECT, REPO_VOLUME)
+                clean_dlt_volume = self._volume_name(CLEAN_PROJECT, DLT_STATE_VOLUME)
                 source_repo_volume = self._volume_name(SOURCE_PROJECT, REPO_VOLUME)
                 self._run(["docker", "volume", "create", clean_repo_volume], env)
-                copy_output = subprocess.run(
-                    ["docker", "run", "--rm", "--user", "0:0",
-                     "--entrypoint", "/bin/sh",
-                     "-v", f"{source_repo_volume}:/from:ro",
-                     "-v", f"{clean_repo_volume}:/to",
-                     "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
-                     "-c", "cp -a /from/. /to/ && chown -R 10000:10000 /to && chmod 700 /to"],
-                    env=env, capture_output=True, text=True, errors="replace", timeout=300,
+                self._run(["docker", "volume", "create", clean_dlt_volume], env)
+                prepare_clean = self._alpine(
+                    ["-v", f"{clean_dlt_volume}:/data"],
+                    "chown 10000:10000 /data && chmod 700 /data",
+                    env,
+                )
+                self.assertEqual(
+                    prepare_clean.returncode, 0,
+                    msg="preparing the clean dlt state volume failed:\n"
+                        + prepare_clean.stdout + prepare_clean.stderr,
+                )
+                copy_output = self._alpine(
+                    ["-v", f"{source_repo_volume}:/from:ro",
+                     "-v", f"{clean_repo_volume}:/to"],
+                    "cp -a /from/. /to/ && chown -R 10000:10000 /to && chmod 700 /to",
+                    env, user="0:0",
                 )
                 self.assertEqual(
                     copy_output.returncode, 0,
@@ -361,13 +462,11 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
 
                 # Encryption proof 1: the marker text must not appear in
                 # plaintext in the repository at rest.
-                grep = subprocess.run(
-                    ["docker", "run", "--rm", "--entrypoint", "/bin/sh",
-                     "-v", f"{clean_repo_volume}:/repo:ro",
-                     "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
-                     "-c", f"grep -rasq {MARKER_TOKEN!r} /repo; if [ $? -eq 0 ]; then "
-                           "echo 'marker found in plaintext'; exit 1; fi; exit 0"],
-                    env=env, capture_output=True, text=True, errors="replace", timeout=300,
+                grep = self._alpine(
+                    ["-v", f"{clean_repo_volume}:/repo:ro"],
+                    f"grep -rasq {MARKER_TOKEN!r} /repo; if [ $? -eq 0 ]; then "
+                    "echo 'marker found in plaintext'; exit 1; fi; exit 0",
+                    env,
                 )
                 self.assertEqual(
                     grep.returncode, 0,
@@ -397,7 +496,7 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                 )
                 elapsed_restore_seconds = time.monotonic() - restore_started
 
-                # The marker must be back byte-for-byte.
+                # The bind-kind marker must be back byte-for-byte.
                 self.assertTrue(marker_path.is_file(), "marker file missing after restore")
                 restored = marker_path.read_text(encoding="utf-8")
                 self.assertEqual(
@@ -405,6 +504,27 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                     msg=f"marker data did not survive the clean-environment restore; "
                         f"expected checksum {expected_checksum!r}, got "
                         f"{self._marker_checksum(restored)!r}",
+                )
+
+                # The volume-kind marker must be back byte-for-byte too
+                # (issue #1014: a restore that covers only one bound source
+                # fails here).
+                read_b = self._alpine(
+                    ["-v", f"{clean_dlt_volume}:/data:ro"],
+                    f"cat /data/{MARKER_FILE}",
+                    env, timeout=120,
+                )
+                self.assertEqual(
+                    read_b.returncode, 0,
+                    msg="reading the restored dlt state volume failed:\n"
+                        + read_b.stdout + read_b.stderr,
+                )
+                self.assertEqual(
+                    self._marker_checksum(read_b.stdout), expected_checksum_b,
+                    msg=f"volume-kind marker data did not survive the "
+                        f"clean-environment restore; expected checksum "
+                        f"{expected_checksum_b!r}, got "
+                        f"{self._marker_checksum(read_b.stdout)!r}",
                 )
 
                 # Recovery expectations: the measured restore time must stay

@@ -9,16 +9,22 @@
 #   1. Create the repository if this is its first use (idempotent), then
 #      take an initial backup pass of every mounted source.
 #   2. Take a backup pass of every mounted source (/backup/*) every
-#      CDS_BACKUP_INTERVAL_MINUTES; each pass snapshots all bound sources,
-#      so the recovery point objective is this interval.
+#      CDS_BACKUP_INTERVAL_MINUTES; each pass snapshots all bound sources
+#      into ONE restic snapshot, so the recovery point objective is this
+#      interval and the newest restore point covers every source (issue
+#      #1014: `restic restore latest` resolves to the single newest
+#      snapshot, so per-source snapshots would silently restore only one
+#      slot).
 #   3. After each pass, repository expiry (restic forget --prune --keep-within
 #      CDS_BACKUP_RETENTION_DAYS) and restic check integrity verification.
 #
 # Backups anchor to this process's start time; a sidecar restart begins with
-# a fresh pass, which retention bounds. Transient repository failures are
-# logged and retried on the next tick rather than crashing the sidecar.
-# Sources are mounted read-only by the module, so a misbehaving scheduler
-# cannot corrupt the data it protects.
+# a fresh pass, which retention bounds. Transient repository failures during
+# a pass are logged and retried on the next tick; a failed repository
+# initialization exits the process and is restarted by the service's restart
+# policy (so it never loops hot without logging). Sources are mounted
+# read-only by the module, so a misbehaving scheduler cannot corrupt the
+# data it protects.
 
 set -u
 
@@ -52,14 +58,20 @@ if ! restic snapshots >/dev/null 2>&1; then
 fi
 
 while :; do
+    # One pass is one restic snapshot covering every mounted source
+    # (issue #1014), so restoring the newest snapshot brings back all
+    # bound slots at a consistent point in time. Unbound slots leave no
+    # mount point, and the glob does not expand when /backup is empty.
+    set --
     for source in /backup/*; do
-        # Skip unbound slots: the glob does not expand when /backup is
-        # empty, and unbound slots never create mount points.
         [ -d "$source" ] || continue
-        if run_restic backup "$source"; then
-            log "backed up $source"
-        fi
+        set -- "$@" "$source"
     done
+    if [ "$#" -gt 0 ]; then
+        if run_restic backup "$@"; then
+            log "backed up $*"
+        fi
+    fi
 
     run_restic forget --prune --keep-within "${RETENTION_DAYS}d"
     run_restic check
