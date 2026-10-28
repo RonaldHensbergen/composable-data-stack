@@ -16,8 +16,9 @@ Restic image for the generic file/volume backup module
   fails closed when `RESTIC_PASSWORD` is empty.
 - `cds-restic-scheduler` — entrypoint of the module's `restic-backup`
   sidecar: idempotent repository creation, a backup pass of every mounted
-  source on an interval, retention (`restic forget --prune --keep-within`),
-  and `restic check` integrity verification.
+  source on an interval (one restic snapshot per pass, so the newest
+  restore point covers every bound source), retention (`restic forget
+  --prune --keep-within`), and `restic check` integrity verification.
 - `cds-restic-restore` — entrypoint of the gated one-shot `restic-restore`
   service: stages the newest restore point in `/tmp` and copies each
   restored source into its read-write mount. Extra arguments run restic

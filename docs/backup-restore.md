@@ -151,12 +151,16 @@ Runtime Smoke Test workflow. The file/volume
 ([#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668))
 provider ships the equivalent procedure in
 `tests/test_restic_backup_restore_runtime.py`: it renders a production
-profile binding the restic module to a file-based warehouse's
-`backup-source` contract, takes an initial and a second backup of a marker
-file, copies only the encrypted repository volume into a clean compose
-project with an emptied source directory, proves a restore with the wrong
-key fails and the marker is absent from the repository in plaintext, and
-restores the newest restore point byte-for-byte within the profile's
+profile binding the restic module to two `backup-source` contracts at once
+(a file-based warehouse's bind-kind host directory and the ingestion
+module's volume-kind state volume), takes an initial and a second backup
+pass — one restic snapshot per pass covering every bound source
+([#1014](https://github.com/RonaldHensbergen/composable-data-stack/issues/1014))
+— of a marker file in each source, copies only the encrypted repository
+volume into a clean compose project with emptied source directories,
+proves a restore with the wrong key fails and the markers are absent from
+the repository in plaintext, and restores the newest restore point
+byte-for-byte into both sources within the profile's
 `rpoMinutes`/`rtoMinutes`. The object-storage
 ([#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669))
 provider is expected to ship an equivalent automated procedure.
@@ -230,7 +234,8 @@ one module, the file backup capability is split across two contracts:
   producers' `backup-source` contracts. The `restic-backup` sidecar mounts
   every bound source read-only and runs restic on a schedule
   (`config.schedule.intervalMinutes`): idempotent repository creation, a
-  backup pass of all mounted sources, retention
+  backup pass of all mounted sources (one restic snapshot per pass, so
+  the newest restore point covers every bound source), retention
   (`restic forget --prune --keep-within <retentionDays>d`), and
   `restic check` integrity verification. Client-side encryption is
   mandatory (`config.encryptionKeyFrom`, a required `secrets.<alias>`

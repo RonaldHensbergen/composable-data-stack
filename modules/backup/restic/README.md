@@ -86,7 +86,8 @@ Docker Runtime Smoke Test workflow.
   by its fully rendered Compose volume name; a bind-kind source is the same
   host directory the producer bind-mounts.
 - `schedule.intervalMinutes` is the recovery point objective: every pass
-  snapshots all bound sources.
+  snapshots all bound sources into one restic snapshot, so the newest
+  restore point covers every bound source.
 - Retention (`retentionDays`) prunes with `restic forget --prune
   --keep-within <days>d` after each pass, and `restic check` verifies
   repository integrity.
