@@ -19,6 +19,7 @@ from cli.getter import (
     fetch_profile,
     format_get_plan,
     parse_allowed_sources,
+    update_tracked_assets,
 )
 
 
@@ -147,6 +148,7 @@ spec:
             assets = {(asset["type"], asset["id"]): asset for asset in entry["assets"]}
 
             self.assertEqual(manifest["version"], 2)
+            self.assertEqual(Path(entry["remote"]), source_root.resolve())
             self.assertIn(("profile", "demo"), assets)
             self.assertIn(("module", "provider"), assets)
             self.assertIn(("module", "consumer"), assets)
@@ -183,6 +185,94 @@ spec:
                 entry["fileHashes"]["profiles/demo/profile.yaml"],
                 hashlib.sha256(local_profile.read_bytes()).hexdigest(),
             )
+
+    def test_update_refreshes_selected_modules_without_overwriting_local_edits(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+
+            local_profile = destination_root / "profiles" / "demo" / "profile.yaml"
+            original_profile = local_profile.read_text(encoding="utf-8")
+            local_module = destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            local_module.write_text("local customization\n", encoding="utf-8")
+            source_module = source_root / "modules" / "apps" / "demo" / "module.yaml"
+            source_module.write_text(
+                source_module.read_text(encoding="utf-8") + "# upstream change\n",
+                encoding="utf-8",
+            )
+            source_profile = source_root / "profiles" / "demo" / "profile.yaml"
+            source_profile.write_text(
+                source_profile.read_text(encoding="utf-8") + "# upstream change\n",
+                encoding="utf-8",
+            )
+
+            result = update_tracked_assets(
+                destination_root=destination_root,
+                categories=["modules"],
+            )
+
+            self.assertEqual(local_module.read_text(encoding="utf-8"), "local customization\n")
+            self.assertEqual(local_profile.read_text(encoding="utf-8"), original_profile)
+            self.assertTrue(any("modules/apps/demo/module.yaml" in item for item in result.conflicts))
+            self.assertFalse(any("profiles/demo/profile.yaml" in item for item in result.updated))
+            self.assertFalse(result.errors)
+
+    def test_update_dry_run_does_not_change_files_or_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            _, manifest_path, _ = fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
+            module_path = source_root / "modules" / "apps" / "demo" / "module.yaml"
+            module_path.write_text(
+                module_path.read_text(encoding="utf-8") + "# new upstream module\n",
+                encoding="utf-8",
+            )
+            local_module = destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            original_local = local_module.read_text(encoding="utf-8")
+            original_manifest = manifest_path.read_bytes()
+
+            result = update_tracked_assets(
+                profile="demo",
+                destination_root=destination_root,
+                categories=["modules"],
+                dry_run=True,
+            )
+
+            self.assertTrue(any("would update" in item for item in result.updated))
+            self.assertEqual(local_module.read_text(encoding="utf-8"), original_local)
+            self.assertEqual(manifest_path.read_bytes(), original_manifest)
+            self.assertFalse(result.errors)
+
+    def test_update_contracts_refreshes_shared_contract_files_only(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            _write(
+                source_root / "images" / "demo" / "Dockerfile",
+                "FROM python:3.14-slim\nCOPY shared/contracts /app/contracts\n",
+            )
+            _write(source_root / "shared" / "contracts" / "demo.yaml", "version: old\n")
+            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+
+            _write(source_root / "shared" / "contracts" / "demo.yaml", "version: new\n")
+            local_contract = destination_root / "shared" / "contracts" / "demo.yaml"
+            local_profile = destination_root / "profiles" / "demo" / "profile.yaml"
+            profile_before = local_profile.read_bytes()
+            result = update_tracked_assets(
+                destination_root=destination_root,
+                categories=["contracts"],
+            )
+
+            self.assertEqual(local_contract.read_text(encoding="utf-8"), "version: new\n")
+            self.assertEqual(local_profile.read_bytes(), profile_before)
+            self.assertTrue(any("shared/contracts/demo.yaml" in item for item in result.updated))
+            self.assertFalse(result.errors)
 
     def test_manifest_tracks_extends_parent_profile_and_its_module(self) -> None:
         # The composed profile merges the parent's modules, so those must

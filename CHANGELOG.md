@@ -81,6 +81,9 @@ The format is based on Keep a Changelog.
   source/local paths, dependency relationships, and per-file SHA-256 hashes
   for detecting local edits. Existing profile entries remain available in
   the version 2 manifest (#346).
+- Added `cds update` to refresh tracked profiles, modules, contracts, and
+  runtime assets while reporting and preserving locally modified files;
+  local source paths are recorded absolutely for subsequent updates (#348).
 
 - Migrated the Python workdirs to cds-runtime and demonstrated the
   workload API across two runtimes (issue #987): the dagster workdir
