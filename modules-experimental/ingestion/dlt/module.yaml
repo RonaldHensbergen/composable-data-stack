@@ -84,6 +84,22 @@ spec:
           volume. Exposed to the pipeline script as the DLT_PIPELINE_NAME
           environment variable.
 
+  provides:
+    - name: backup-source
+      contract:
+        kind: backup-source
+        spec:
+          # The dlt-state named volume holds pipeline state (schema history,
+          # incremental load cursors) (issue #668): a backup engine consumes
+          # this contract to snapshot that volume on a schedule. volumeName
+          # uses ${service.host} (the profile's module instance id) because
+          # the renderer names Compose volumes
+          # "<module-instance-id>-<volume-name>".
+          kind: volume
+          volumeName: ${service.host}-dlt-state
+          hostPath: ""
+          readOnly: true
+
   consumes:
     - name: destination-database
       contract:

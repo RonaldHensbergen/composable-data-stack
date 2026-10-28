@@ -307,6 +307,21 @@ spec:
           healthPath: /
           protocol: http
 
+    - name: backup-source
+      contract:
+        kind: backup-source
+        spec:
+          # The dagster-io-manager-storage named volume holds pipeline
+          # outputs and intermediate data (issue #668): a backup engine
+          # consumes this contract to snapshot that volume on a schedule.
+          # volumeName uses ${service.host} (the profile's module instance
+          # id) because the renderer names Compose volumes
+          # "<module-instance-id>-<volume-name>".
+          kind: volume
+          volumeName: ${service.host}-dagster-io-manager-storage
+          hostPath: ""
+          readOnly: true
+
   implementation:
     kind: docker-compose
     targets:

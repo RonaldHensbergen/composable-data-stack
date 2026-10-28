@@ -999,6 +999,42 @@ class ModuleBackupConfigTest(unittest.TestCase):
         )
 
 
+class BackupModuleCategoryTest(unittest.TestCase):
+    """E143: backup modules (metadata.category "backup", issue #668) are
+    production-only pieces; instantiating one in a non-production profile
+    would silently render no backup at all, so validation fails closed."""
+
+    def _inst(self, category="backup"):
+        return _inst("restic", _module(category=category))
+
+    def _profile(self, environment="production"):
+        return {"metadata": {"environment": environment}, "spec": {}}
+
+    def test_backup_module_in_production_is_clean(self):
+        self.assertEqual(
+            validator.validate_module_backup_config(self._profile(), [self._inst()]),
+            [],
+        )
+
+    def test_backup_module_outside_production_reports_e143(self):
+        diagnostics = validator.validate_module_backup_config(
+            self._profile(environment="local"), [self._inst()]
+        )
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E143", "spec.modules[0].id")],
+        )
+
+    def test_non_backup_category_module_is_clean_outside_production(self):
+        self.assertEqual(
+            validator.validate_module_backup_config(
+                self._profile(environment="local"),
+                [self._inst(category="warehouse")],
+            ),
+            [],
+        )
+
+
 class ProductionMarkerShapeTest(unittest.TestCase):
     """E144: the production mapping form is only valid on services, not on
     individual volume-mount entries, where the renderer would silently

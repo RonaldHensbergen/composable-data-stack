@@ -521,5 +521,85 @@ class SubstitutionTest(unittest.TestCase):
         )
 
 
+class BackupSourceBindingTest(unittest.TestCase):
+    """E146: a volume-kind backup-source binding must name a Compose volume
+    the producer actually declares (issue #668); anything else would make
+    Docker Compose create an empty implicit volume the backup protects
+    nothing with."""
+
+    @staticmethod
+    def _consumed_backup_source(contract_ref, volume_name):
+        return {
+            "contractRef": contract_ref,
+            "contract": {
+                "kind": "backup-source",
+                "spec": {"kind": "volume", "volumeName": volume_name},
+            },
+        }
+
+    @staticmethod
+    def _module(module_id, volumes, consumes=None):
+        return {
+            "id": module_id,
+            "consumes": consumes or {},
+            "implementation": {
+                "kind": "docker-compose",
+                "compose": {"services": {}, "volumes": {name: {} for name in volumes}},
+            },
+        }
+
+    def _diags(self, modules):
+        diagnostics: list[Diagnostic] = []
+        planner.validate_backup_source_bindings(modules, diagnostics)
+        return [(d.code, d.path) for d in diagnostics]
+
+    def test_known_producer_volume_is_clean(self):
+        modules = [
+            self._module("dlt", ["dlt-state"]),
+            self._module(
+                "restic",
+                ["restic-repo"],
+                {"source-a": self._consumed_backup_source("dlt.backup-source", "dlt-dlt-state")},
+            ),
+        ]
+        self.assertEqual(self._diags(modules), [])
+
+    def test_unknown_producer_volume_reports_e146(self):
+        modules = [
+            self._module("dlt", ["dlt-state"]),
+            self._module(
+                "restic",
+                ["restic-repo"],
+                {"source-a": self._consumed_backup_source("dlt.backup-source", "dlt-typo")},
+            ),
+        ]
+        self.assertEqual(
+            self._diags(modules),
+            [("E146", "module:restic.consumes.source-a")],
+        )
+
+    def test_bind_kind_source_is_not_volume_checked(self):
+        consumed = {
+            "contractRef": "duckdb.backup-source",
+            "contract": {
+                "kind": "backup-source",
+                "spec": {"kind": "bind", "hostPath": "./data/duckdb"},
+            },
+        }
+        modules = [
+            self._module("duckdb", []),
+            self._module("restic", [], {"source-a": consumed}),
+        ]
+        self.assertEqual(self._diags(modules), [])
+
+    def test_non_backup_source_contracts_are_ignored(self):
+        consumed = {
+            "contractRef": "pg.sql-database",
+            "contract": {"kind": "sql-database", "spec": {}},
+        }
+        modules = [self._module("pg", ["postgres-data"]), self._module("dag", [], {"db": consumed})]
+        self.assertEqual(self._diags(modules), [])
+
+
 if __name__ == "__main__":
     unittest.main()

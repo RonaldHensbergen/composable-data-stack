@@ -322,6 +322,8 @@ def build_plan_from_profile(
             }
         )
 
+    validate_backup_source_bindings(planned_modules, diagnostics)
+
     plan = {
         "apiVersion": "cds/v1alpha1",
         "kind": "Plan",
@@ -548,6 +550,66 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any], _depth: int = 0) 
         return [_apply_schema_defaults(item, item_schema, _depth + 1) for item in value]
 
     return value
+
+def validate_backup_source_bindings(
+    planned_modules: list[dict[str, Any]], diagnostics: list[Diagnostic]
+) -> None:
+    """
+    E146: a volume-kind backup-source binding must name a Compose volume the
+    producer actually declares (issue #668).
+
+    The renderer mounts a volume-kind backup source cross-module by its fully
+    rendered "<module-id>-<volume>" name, without re-namespacing it with the
+    consuming module's id. A name that is not in the plan's top-level volumes
+    map would make Docker Compose silently create an empty implicit volume,
+    and the backup engine would protect nothing. Fail loudly at plan time
+    instead -- this is a packaging bug in the producer's backup-source
+    contract (e.g. a typo'd volume name), not something the profile author
+    can fix.
+    """
+    volumes_by_module: dict[str, set[str]] = {}
+    for module in planned_modules:
+        if not isinstance(module, dict):
+            continue
+        implementation = module.get("implementation") or {}
+        compose_impl = implementation.get("compose") if isinstance(implementation, dict) else None
+        volumes = compose_impl.get("volumes") if isinstance(compose_impl, dict) else None
+        if isinstance(volumes, dict):
+            volumes_by_module[module["id"]] = {
+                f'{module["id"]}-{name}' for name in volumes if isinstance(name, str)
+            }
+
+    for module in planned_modules:
+        if not isinstance(module, dict):
+            continue
+        for consume_name, consumed in (module.get("consumes") or {}).items():
+            if not isinstance(consumed, dict):
+                continue
+            contract = consumed.get("contract") or {}
+            if contract.get("kind") != "backup-source":
+                continue
+            spec = contract.get("spec") or {}
+            if spec.get("kind") != "volume":
+                continue
+            producer_id = str(consumed.get("contractRef") or "").split(".", 1)[0]
+            volume_name = spec.get("volumeName")
+            known = volumes_by_module.get(producer_id, set())
+            if not isinstance(volume_name, str) or volume_name not in known:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E146",
+                        message=(
+                            f'Module "{module["id"]}" binds backup source "{consume_name}" to '
+                            f'module "{producer_id}", whose backup-source contract advertises '
+                            f'volume "{volume_name}", but that module declares no such Compose '
+                            "volume. The backup sidecar would mount an empty implicit volume and "
+                            "protect nothing; fix the producer's backup-source contract."
+                        ),
+                        path=f'module:{module["id"]}.consumes.{consume_name}',
+                    )
+                )
+
 
 def resolve_provided_contracts(
     inst: dict[str, Any], secrets: dict[str, str] | None = None
@@ -943,4 +1005,3 @@ def resolve_expr(expr: str, context: dict[str, Any]) -> Any:
         return f"${{{cds_name}}}"
 
     return value
-
