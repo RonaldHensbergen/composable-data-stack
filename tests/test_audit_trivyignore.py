@@ -6,6 +6,8 @@ import unittest
 from datetime import date
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location(
     "audit_trivyignore", REPO_ROOT / "scripts" / "audit_trivyignore.py"
@@ -115,6 +117,43 @@ class AuditTrivyignoreTest(unittest.TestCase):
                 audit_trivyignore.main(["--ignore", str(REPO_ROOT / ".trivyignore"), str(bad)]),
                 1,
             )
+
+
+class TrivyignoreAuditWorkflowTest(unittest.TestCase):
+    """The audit scan must not drop unfixed findings (#963, #983).
+
+    A finding Trivy currently lists as unfixed is still present in the
+    image, so its .trivyignore exception is still needed: the DB's
+    fixed-version data fluctuates, and an unfixed finding filtered out by
+    --ignore-unfixed made the audit report every entry as resolved.
+    """
+
+    def setUp(self) -> None:
+        workflow_path = REPO_ROOT / ".github" / "workflows" / "trivyignore-audit.yml"
+        self.workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        steps = self.workflow["jobs"]["audit"]["steps"]
+        self.scan_step = next(
+            step for step in steps if step.get("name") == "Scan published images without the ignore file"
+        )
+
+    def test_scan_does_not_ignore_unfixed_findings(self) -> None:
+        run = self.scan_step["run"]
+        self.assertIn("trivy image", run)
+        self.assertIn("--severity HIGH,CRITICAL", run)
+        self.assertNotIn(
+            "--ignore-unfixed",
+            run,
+            "the audit scan must keep unfixed findings visible, otherwise "
+            "exceptions for them are falsely reported as resolved",
+        )
+
+    def test_scan_explicitly_disables_the_default_ignorefile(self) -> None:
+        run = self.scan_step["run"]
+        self.assertIn(
+            "--ignorefile /dev/null",
+            run,
+            "Trivy loads .trivyignore by default; the audit must explicitly disable it",
+        )
 
 
 if __name__ == "__main__":

@@ -177,6 +177,21 @@
         "sqlalchemy"
       ],
       "enabled": false
+    },
+    {
+      "description": "Do not lift the pyarrow<26 cap in images/superset/requirements.in: pyarrow 26 requires numpy>=2.0, but the apache/superset:6.1.0 base image ships numpy 1.26.4 and pandas 2.1.4 (which declares numpy<2), so the bump breaks superset startup with 'pyarrow requires NumPy 2.0 or newer, found 1.26.4' (see the comment in that file)",
+      "matchManagers": [
+        "pip-compile",
+        "pip_requirements"
+      ],
+      "matchFileNames": [
+        "images/superset/requirements.in",
+        "images/superset/requirements.txt"
+      ],
+      "matchPackageNames": [
+        "pyarrow"
+      ],
+      "enabled": false
     }
   ]
 }
