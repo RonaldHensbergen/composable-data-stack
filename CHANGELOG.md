@@ -63,6 +63,13 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a `cds-runtime` job to CI (issue #985): the opt-in backend
+  integration tests in `tests/test_cds_runtime_backends.py` now run
+  against real PostgreSQL and MySQL service containers on every push,
+  and the built `cds-runtime` wheel is installed into a fresh virtualenv
+  and smoke-tested (`py.typed`, metadata, engine-backed roundtrip),
+  guarding the package's packaging and data path on every change.
+
 - Added the production hardening checklist and operator verification
   procedure (issue #72): `docs/production-hardening-checklist.md` maps every
   hardening control to CDS enforcement or operator responsibility, and

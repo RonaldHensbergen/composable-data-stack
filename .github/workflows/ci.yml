@@ -301,6 +301,91 @@ jobs:
           test "$verify_status" -eq 1
           grep -Eq "CDS-VER-" <<<"$verify_output"
 
+  cds-runtime:
+    # cds-runtime backend integration tests (issue #985): the opt-in tests
+    # in tests/test_cds_runtime_backends.py run against real PostgreSQL and
+    # MySQL service containers, plus a wheel-install check that guards the
+    # packaging (py.typed, license, metadata) on every change.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ituser
+          POSTGRES_PASSWORD: itpass
+          POSTGRES_DB: itdb
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ituser -d itdb"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: rootpass
+          MYSQL_DATABASE: itdb
+          MYSQL_USER: ituser
+          MYSQL_PASSWORD: itpass
+        ports:
+          - 127.0.0.1:3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -pitpass"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      CDS_IT_POSTGRES_URI: postgresql+psycopg2://ituser:itpass@127.0.0.1:5432/itdb
+      CDS_IT_MYSQL_URI: mysql+pymysql://ituser:itpass@127.0.0.1:3306/itdb
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Run cds-runtime backend integration tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[test] psycopg2-binary pymysql
+          python -m unittest tests.test_cds_runtime_backends -v
+
+      - name: Build the cds-runtime wheel
+        run: |
+          python -m pip install build
+          python -m build runtime
+          wheel="$(find runtime/dist -maxdepth 1 -name '*.whl' -print -quit)"
+          test -n "$wheel"
+          echo "Built $wheel"
+
+      - name: Smoke test the installed cds-runtime wheel
+        run: |
+          wheel="$(find runtime/dist -maxdepth 1 -name '*.whl' -print -quit)"
+          python -m venv "$RUNNER_TEMP/cds-runtime-venv"
+          # pip does not accept extras on a wheel file path, so install the
+          # wheel itself plus the sqlalchemy extra's dependency directly.
+          "$RUNNER_TEMP/cds-runtime-venv/bin/pip" install "$wheel" "sqlalchemy>=2.0"
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/cds-runtime-venv/bin/python" - <<'EOF'
+          import pathlib
+
+          import cds_runtime
+          from cds_runtime import connections
+
+          conn = connections.database("smoke", env={
+              "CDS_DB_SMOKE_BACKEND": "sqlite",
+              "CDS_DB_SMOKE_SQLITE_PATH": ":memory:",
+          })
+          conn.execute("CREATE TABLE t (x INTEGER)")
+          conn.execute("INSERT INTO t (x) VALUES (:v)", {"v": 42})
+          assert conn.fetch_one("SELECT x FROM t") == {"x": 42}
+          assert (pathlib.Path(cds_runtime.__file__).parent / "py.typed").exists()
+          print("cds-runtime wheel smoke ok:", cds_runtime.__version__)
+          EOF
+
   security-scan:
     runs-on: ubuntu-latest
     steps:

@@ -40,6 +40,13 @@ drivers are imported lazily, on first use, and a missing dependency is
 reported as a typed `DriverUnavailableError` rather than an import-time
 crash.
 
+CI covers the package end to end in its `cds-runtime` job: the opt-in
+integration tests in `tests/test_cds_runtime_backends.py` run against
+real PostgreSQL and MySQL service containers (set `CDS_IT_POSTGRES_URI`
+/ `CDS_IT_MYSQL_URI` to run them locally), and the built wheel is
+installed into a fresh virtualenv and smoke-tested (`py.typed`,
+metadata, engine-backed roundtrip).
+
 ## How connections are resolved
 
 A profile binds each module's `consumes` entry to a provider's contract at
