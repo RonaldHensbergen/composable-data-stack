@@ -13,7 +13,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -22,6 +22,7 @@ from urllib.request import Request, urlopen
 from .loader import load_yaml_file, resolve_module_dir
 from .overlay import _derive_profiles_root, _resolve_extends_ref, resolve_extends
 from .planner import MaxNestingDepthExceeded, apply_defaults, substitute_string
+from .utils import _atomic_write
 
 # The upstream repository `cds get` downloads from when no `--remote` is
 # given. Keep in sync with the `Repository` URL in pyproject.toml.
@@ -104,6 +105,15 @@ class CopyAction:
     repo_relative_path: str
 
 
+@dataclass
+class UpdateResult:
+    manifest_path: Path
+    updated: list[str]
+    skipped: list[str]
+    conflicts: list[str]
+    errors: list[str]
+
+
 def fetch_profile(
     profile: str,
     *,
@@ -158,6 +168,359 @@ def fetch_profile(
             pinned_commit=commit.lower() if commit else None,
         )
     return actions, target_root / _TRACKING_FILE, conflicts
+
+
+def update_tracked_assets(
+    *,
+    profile: str | None = None,
+    destination_root: Path | None = None,
+    categories: Sequence[str] | None = None,
+    dry_run: bool = False,
+    allowed_sources: Sequence[str] | None = None,
+) -> UpdateResult:
+    """Refresh previously fetched assets without overwriting local edits."""
+    target_root = (destination_root or Path.cwd()).expanduser().resolve()
+    manifest_path = target_root / _TRACKING_FILE
+    if manifest_path.parent.is_symlink() or manifest_path.is_symlink():
+        raise GetError(f"Refusing to update through symlinked tracking metadata: {manifest_path}")
+    if not manifest_path.is_file():
+        raise GetError(f"No fetched-asset tracking manifest found at {manifest_path}; run `cds get` first.")
+
+    manifest = _read_tracking_manifest(manifest_path)
+    profiles = manifest.get("profiles")
+    if not isinstance(profiles, dict) or not profiles:
+        raise GetError(f"No tracked profiles found in {manifest_path}; run `cds get` first.")
+
+    selected_categories = set(categories) if categories else None
+    supported_categories = {"profiles", "modules", "contracts"}
+    if selected_categories and not selected_categories.issubset(supported_categories):
+        raise GetError(
+            "Unsupported update category: "
+            + ", ".join(sorted(selected_categories - supported_categories))
+        )
+
+    selected_profiles = _select_tracked_profiles(profiles, profile)
+    if not selected_profiles:
+        raise GetError(
+            f'No fetched profile matching "{profile}" was found in {manifest_path}.'
+            if profile
+            else f"No tracked profiles found in {manifest_path}."
+        )
+
+    result = UpdateResult(manifest_path, [], [], [], [])
+    for profile_name, entry in selected_profiles:
+        if not isinstance(entry, dict):
+            result.errors.append(f"{profile_name}: tracking entry is not an object")
+            continue
+        try:
+            _update_tracked_profile(
+                profile_name=profile_name,
+                entry=entry,
+                manifest=manifest,
+                manifest_path=manifest_path,
+                destination_root=target_root,
+                categories=selected_categories,
+                dry_run=dry_run,
+                allowed_sources=allowed_sources,
+                result=result,
+            )
+        except GetError as exc:
+            result.errors.append(f"{profile_name}: {exc}")
+    return result
+
+
+def _select_tracked_profiles(
+    profiles: dict[str, Any], requested: str | None
+) -> list[tuple[str, Any]]:
+    entries = list(profiles.items())
+    if requested is None:
+        return [(name, entry) for name, entry in entries]
+    matches = [
+        (name, entry)
+        for name, entry in entries
+        if requested == name
+        or (
+            isinstance(entry, dict)
+            and requested in (entry.get("requestedProfile"), entry.get("sourceProfile"))
+        )
+    ]
+    return matches
+
+
+def _update_tracked_profile(
+    *,
+    profile_name: str,
+    entry: dict[str, Any],
+    manifest: dict[str, Any],
+    manifest_path: Path,
+    destination_root: Path,
+    categories: set[str] | None,
+    dry_run: bool,
+    allowed_sources: Sequence[str] | None,
+    result: UpdateResult,
+) -> None:
+    requested_profile = entry.get("requestedProfile", profile_name)
+    if not isinstance(requested_profile, str) or not requested_profile:
+        raise GetError("tracking entry is missing its requested profile")
+    remote = entry.get("remote")
+    if not isinstance(remote, str) or not remote:
+        raise GetError("tracking entry is missing its source repository")
+    stored_ref = entry.get("ref")
+    if stored_ref is not None and not isinstance(stored_ref, str):
+        raise GetError("tracking entry has an invalid source revision")
+    if stored_ref == "":
+        raise GetError("tracking entry has an empty source revision")
+    hashes = entry.get("fileHashes")
+    if not isinstance(hashes, dict) or not isinstance(entry.get("assets"), list):
+        raise GetError(
+            "tracking metadata lacks file hashes or asset provenance; run `cds get` "
+            "with a version that records tracked assets before updating"
+        )
+
+    local_source = remote if stored_ref is None else None
+    source_remote = None if stored_ref is None else remote
+    source_ref = DEFAULT_REF if stored_ref is None else stored_ref
+    pinned_commit = entry.get("pinnedCommit")
+    if pinned_commit is not None and not isinstance(pinned_commit, str):
+        raise GetError("tracking entry has an invalid pinned commit")
+    if local_source is not None and not Path(local_source).is_absolute():
+        raise GetError(
+            "tracking entry contains a relative local source path; run `cds get` again "
+            "to record an absolute source path before updating"
+        )
+
+    with _prepare_source(
+        source_remote,
+        source_ref,
+        local_source,
+        allowed_sources=allowed_sources,
+        commit=pinned_commit,
+    ) as (source_repo, resolved_commit):
+        source_profile = entry.get("sourceProfile")
+        if not isinstance(source_profile, str) or not source_profile:
+            source_profile = requested_profile
+        profile_path = _resolve_source_profile_path(source_repo, source_profile)
+        asset_roots = _collect_asset_roots(source_repo, profile_path)
+        assets = _build_tracking_assets(
+            source_repo=source_repo,
+            requested_profile=requested_profile,
+            profile_path=profile_path,
+            asset_roots=asset_roots,
+        )
+        roots = _select_update_roots(
+            source_repo=source_repo,
+            asset_roots=asset_roots,
+            assets=assets,
+            categories=categories,
+        )
+        if not roots:
+            result.skipped.append(
+                f"{profile_name}: no tracked assets match the selected categories"
+            )
+            return
+        actions = _build_copy_plan(source_repo, roots, destination_root)
+        action_paths = {action.repo_relative_path for action in actions}
+
+        updates: list[CopyAction] = []
+        latest_hashes: dict[str, str] = {}
+        for action in actions:
+            rel_path = action.repo_relative_path
+            try:
+                source_hash = _sha256_file(action.source)
+            except OSError as exc:
+                raise GetError(f"Could not read source asset {action.source}: {exc}") from exc
+            destination = action.destination
+            if _has_symlinked_parent(destination, destination_root):
+                result.conflicts.append(f"{profile_name}: {rel_path} (symlinked parent directory)")
+                continue
+            if destination.is_symlink():
+                result.conflicts.append(f"{profile_name}: {rel_path} (destination is a symlink)")
+                continue
+            if destination.is_dir():
+                result.conflicts.append(f"{profile_name}: {rel_path} (destination is a directory)")
+                continue
+            if not destination.exists():
+                if rel_path in hashes:
+                    result.conflicts.append(f"{profile_name}: {rel_path} (tracked file was deleted locally)")
+                else:
+                    updates.append(action)
+                    latest_hashes[rel_path] = source_hash
+                continue
+
+            try:
+                local_hash = _sha256_file(destination)
+            except OSError as exc:
+                raise GetError(f"Could not read local asset {destination}: {exc}") from exc
+            if local_hash == source_hash:
+                result.skipped.append(f"{profile_name}: {rel_path} (already current)")
+                latest_hashes[rel_path] = source_hash
+            elif rel_path in hashes and isinstance(hashes[rel_path], str) and local_hash == hashes[rel_path]:
+                updates.append(action)
+                latest_hashes[rel_path] = source_hash
+            else:
+                result.conflicts.append(f"{profile_name}: {rel_path} (modified locally)")
+
+        _report_removed_source_files(
+            profile_name=profile_name,
+            entry=entry,
+            destination_root=destination_root,
+            categories=categories,
+            current_paths=action_paths,
+            result=result,
+        )
+
+        if not dry_run and updates:
+            _write_actions(updates)
+        for action in updates:
+            label = f"{profile_name}: {action.repo_relative_path}"
+            result.updated.append(f"would update {label}" if dry_run else label)
+
+        if dry_run:
+            return
+
+        for rel_path, file_hash in latest_hashes.items():
+            hashes[rel_path] = file_hash
+        tracked_files = entry.get("files")
+        if not isinstance(tracked_files, list):
+            tracked_files = []
+        entry["files"] = sorted(set(
+            [path for path in tracked_files if isinstance(path, str)] + list(latest_hashes)
+        ))
+        entry["fileHashes"] = hashes
+        entry["sourceProfile"] = profile_path.relative_to(source_repo).as_posix()
+        entry["assetRoots"] = [
+            _asset_root_relative_path(root, source_repo) for root in asset_roots
+        ]
+        entry["assets"] = assets
+        entry["commit"] = resolved_commit
+        entry["fetchedAt"] = datetime.now(UTC).isoformat()
+        _write_updated_manifest(manifest_path, manifest)
+
+
+def _select_update_roots(
+    *,
+    source_repo: Path,
+    asset_roots: list[Path],
+    assets: list[dict[str, Any]],
+    categories: set[str] | None,
+) -> list[Path]:
+    if categories is None:
+        return asset_roots
+
+    selected: set[Path] = set()
+    for source_path in _selected_asset_source_paths(assets, categories):
+        relative = PurePosixPath(source_path)
+        source = (source_repo / Path(*relative.parts)).resolve()
+        _require_within_repo(source, source_repo, f'tracked asset "{source_path}"')
+        selected.add(source)
+    return sorted(selected)
+
+
+def _selected_asset_source_paths(
+    assets: Any, categories: set[str] | None
+) -> set[str]:
+    if not isinstance(assets, list):
+        return set()
+    selected: set[str] = set()
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        asset_type = asset.get("type")
+        source_path = asset.get("sourcePath")
+        if not isinstance(source_path, str):
+            continue
+        include = categories is None or (
+            (asset_type == "profile" and "profiles" in categories)
+            or (asset_type in {"module", "runtime"} and "modules" in categories)
+            or (
+                asset_type == "contract"
+                and "contracts" in categories
+                and (source_path == "shared/contracts" or source_path.startswith("shared/contracts/"))
+            )
+        )
+        if not include:
+            continue
+        relative = PurePosixPath(source_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise GetError(f"Tracked asset path is unsafe: {source_path}")
+        selected.add(relative.as_posix())
+    return selected
+
+
+def _report_removed_source_files(
+    *,
+    profile_name: str,
+    entry: dict[str, Any],
+    destination_root: Path,
+    categories: set[str] | None,
+    current_paths: set[str],
+    result: UpdateResult,
+) -> None:
+    roots = _selected_asset_source_paths(entry.get("assets"), categories)
+    if not roots:
+        return
+    hashes = entry.get("fileHashes")
+    if not isinstance(hashes, dict):
+        return
+    tracked_files = entry.get("files")
+    paths = {path for path in hashes if isinstance(path, str)}
+    if isinstance(tracked_files, list):
+        paths.update(path for path in tracked_files if isinstance(path, str))
+    for rel_path in sorted(paths - current_paths):
+        relative = PurePosixPath(rel_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise GetError(f"Tracked file path is unsafe: {rel_path}")
+        # Category-scoped updates only report removals inside the selected
+        # categories' asset roots. A default update has no category filter,
+        # and the assets list is rewritten from the *current* source on
+        # every update -- so a file removed upstream is no longer an asset
+        # on the next pass and must stay reportable through its tracked
+        # hashes/files alone.
+        if categories is not None and not any(
+            relative == PurePosixPath(root) or PurePosixPath(root) in relative.parents
+            for root in roots
+        ):
+            continue
+        destination = destination_root / Path(*relative.parts)
+        label = f"{profile_name}: {rel_path}"
+        if _has_symlinked_parent(destination, destination_root) or destination.is_symlink():
+            result.conflicts.append(f"{label} (removed upstream; symlinked destination)")
+            continue
+        if not destination.exists() and not destination.is_symlink():
+            result.skipped.append(f"{label} (already absent locally)")
+            continue
+        if destination.is_dir():
+            result.conflicts.append(f"{label} (removed upstream; destination is a directory)")
+            continue
+        try:
+            local_hash = _sha256_file(destination)
+        except OSError as exc:
+            raise GetError(f"Could not read local asset {destination}: {exc}") from exc
+        expected_hash = hashes.get(rel_path)
+        if isinstance(expected_hash, str) and local_hash == expected_hash:
+            result.skipped.append(f"{label} (removed upstream; left in place)")
+        else:
+            result.conflicts.append(f"{label} (removed upstream and modified locally)")
+
+
+def _has_symlinked_parent(path: Path, root: Path) -> bool:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return True
+    parent = root
+    for part in relative.parts[:-1]:
+        parent = parent / part
+        if parent.is_symlink():
+            return True
+    return False
+
+
+def _write_updated_manifest(path: Path, manifest: dict[str, Any]) -> None:
+    try:
+        _atomic_write(path, json.dumps(manifest, indent=2) + "\n")
+    except OSError as exc:
+        raise GetError(f"Could not update tracking manifest {path}: {exc}") from exc
 
 
 def format_get_plan(
@@ -925,7 +1288,7 @@ def _write_tracking_manifest(
     entry = {
         "requestedProfile": requested_profile,
         "sourceProfile": profile_path.relative_to(source_repo).as_posix(),
-        "remote": local or remote or DEFAULT_REMOTE,
+        "remote": str(source_repo) if local is not None else remote or DEFAULT_REMOTE,
         "ref": None if local else ref,
         "commit": resolved_commit,
         "pinnedCommit": pinned_commit,

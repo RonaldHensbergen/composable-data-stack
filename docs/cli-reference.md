@@ -7,6 +7,7 @@ common ones (`validate`, `plan`, `render`, `up`), see the
 |Command|Description|
 |---|---|
 |cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--commit \<sha\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|
+|cds update [profile] [--profiles] [--modules] [--contracts] [--dry-run] [--into \<dir\>]|Refresh tracked assets from their recorded source while preserving local edits|
 |cds list profiles\|modules\|images [--remote \<owner/repo\>] [--ref \<ref\>] [--local \<dir\>]|List available profiles, module sources, or module images and check for newer versions; add `--remote`/`--local` to inspect another repository before fetching from it|
 |cds init [profile]|Generate a project `.env` template from profile secret definitions|
 |cds validate [profile]|Validate modules and contracts; use `--target helm` for Kubernetes checks|
@@ -44,8 +45,8 @@ to use an existing local directory instead of downloading (mutually exclusive
 with `--remote`/`--ref`) for offline/dev workflows. Use `--into` to choose a
 destination root, `--dry-run` to inspect the copy plan first, and `--force` to
 replace conflicting local files. Successful fetches record tracking metadata
-in `.cds/get-manifest.json` (including the resolved commit SHA) for future
-update workflows. The versioned manifest records typed profile, module,
+in `.cds/get-manifest.json` (including the resolved commit SHA) for `cds update`.
+The versioned manifest records typed profile, module,
 contract, and runtime assets with their source and local paths, dependency
 relationships, and SHA-256 hashes for copied files. Contract records point
 to their declaration in `module.yaml`; compare each recorded file hash with
@@ -64,6 +65,26 @@ The upstream default remote is only allowed if it is on the list. Pass
 `--commit <sha>` (12-40 hex characters; a full SHA is recommended) to pin a fetch: it fails closed, without
 writing anything, if `--ref` resolves to a different commit, so to pin an older
 commit also pass it as `--ref <sha>`. `--commit` cannot be combined with `--local`.
+
+## `cds update`
+
+Run `cds update` to refresh every tracked profile, or pass a tracked profile
+name to refresh only that profile. By default, it considers profile, module,
+contract, and runtime assets. Use `--profiles`, `--modules`, and/or
+`--contracts` to select asset categories; module updates include their
+runtime build assets, while `--contracts` selects shared contract files.
+Contract declarations embedded in `module.yaml` are refreshed with the module.
+
+The command uses each manifest entry's recorded source and ref, applying a
+stored commit pin when one was specified. Before replacing a file, it compares
+the local SHA-256 with the last fetched hash. Files modified or deleted locally
+are reported as conflicts and left untouched; new files are copied only when
+their destination does not already exist. Conflicts produce a non-zero exit
+status. Use `--dry-run` to see the actions without changing files or tracking
+metadata, and `--into <dir>` to select the project root containing the
+manifest. For local sources, the stored absolute source directory must remain
+available. Files removed from the source are reported and left in place rather
+than deleted.
 
 ## `cds list`
 

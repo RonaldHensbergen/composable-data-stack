@@ -32,6 +32,7 @@ from .getter import (
     fetch_profile,
     format_get_plan,
     parse_allowed_sources,
+    update_tracked_assets,
 )
 from .image_digest_check import is_enabled as image_digest_check_enabled
 from .image_updates import check_image_update, collect_module_images
@@ -1828,6 +1829,40 @@ def _run() -> int:
         help="Overwrite existing fetched files when their contents differ",
     )
 
+    update_parser = subparsers.add_parser(
+        "update",
+        help="Refresh assets previously fetched with cds get",
+    )
+    update_parser.add_argument(
+        "profile",
+        nargs="?",
+        help="Update only this tracked profile (default: all tracked profiles)",
+    )
+    update_parser.add_argument(
+        "--profiles",
+        action="store_true",
+        help="Update fetched profile files",
+    )
+    update_parser.add_argument(
+        "--modules",
+        action="store_true",
+        help="Update fetched modules and their runtime build assets",
+    )
+    update_parser.add_argument(
+        "--contracts",
+        action="store_true",
+        help="Update fetched shared contract files",
+    )
+    update_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report changes without writing files or tracking metadata",
+    )
+    update_parser.add_argument(
+        "--into",
+        help="Project directory containing the tracking manifest (default: current directory)",
+    )
+
     list_parser = subparsers.add_parser("list", help="List available profiles or modules")
     list_subparsers = list_parser.add_subparsers(dest="list_command", required=True)
     list_profiles_parser = list_subparsers.add_parser("profiles", help="List available profiles")
@@ -2634,6 +2669,44 @@ def _run() -> int:
         print(f"Fetched {len(actions)} file(s) into {destination_root}")
         print(f"Tracking metadata written to {manifest_path}")
         return 0
+
+    if args.command == "update":
+        categories = [
+            name
+            for name in ("profiles", "modules", "contracts")
+            if getattr(args, name)
+        ]
+        try:
+            result = update_tracked_assets(
+                profile=args.profile,
+                destination_root=Path(args.into) if args.into else None,
+                categories=categories,
+                dry_run=args.dry_run,
+                allowed_sources=load_allowed_get_sources(),
+            )
+        except GetError as exc:
+            print(f"ERROR {exc}", file=sys.stderr)
+            return 1
+
+        verb = "Would update" if args.dry_run else "Updated"
+        print(f"{verb} {len(result.updated)} file(s).")
+        if result.skipped:
+            print(f"Skipped {len(result.skipped)} file(s):")
+            for item in result.skipped:
+                print(f"  - {item}")
+        if result.conflicts:
+            print(f"Conflicted {len(result.conflicts)} file(s); local files were left unchanged:")
+            for item in result.conflicts:
+                print(f"  - {item}")
+        if result.errors:
+            print(f"Errors for {len(result.errors)} tracked profile(s):", file=sys.stderr)
+            for item in result.errors:
+                print(f"  - {item}", file=sys.stderr)
+        if not result.updated and not result.skipped and not result.conflicts and not result.errors:
+            print("No tracked assets matched the requested update.")
+        if not args.dry_run:
+            print(f"Tracking metadata: {result.manifest_path}")
+        return 1 if result.conflicts or result.errors else 0
 
     if args.command == "down":
         try:

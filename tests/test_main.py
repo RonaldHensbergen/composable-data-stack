@@ -218,6 +218,94 @@ class MainCLITest(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("ERROR", stderr.getvalue())
 
+    @patch("cli.main.update_tracked_assets")
+    def test_update_command_selects_profile_categories_and_dry_run(self, mock_update):
+        mock_update.return_value.manifest_path = Path("/tmp/project/.cds/get-manifest.json")
+        mock_update.return_value.updated = ["demo: modules/apps/demo/module.yaml"]
+        mock_update.return_value.skipped = []
+        mock_update.return_value.conflicts = []
+        mock_update.return_value.errors = []
+
+        with tempfile.TemporaryDirectory() as destination:
+            stdout = io.StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "cds", "update", "demo", "--modules", "--contracts",
+                    "--dry-run", "--into", destination,
+                ],
+            ), contextlib.redirect_stdout(stdout):
+                result = main()
+
+        self.assertEqual(result, 0)
+        kwargs = mock_update.call_args.kwargs
+        self.assertEqual(kwargs["profile"], "demo")
+        self.assertEqual(kwargs["destination_root"], Path(destination))
+        self.assertEqual(kwargs["categories"], ["modules", "contracts"])
+        self.assertTrue(kwargs["dry_run"])
+        self.assertIn("Would update 1 file(s)", stdout.getvalue())
+        self.assertNotIn("Tracking metadata:", stdout.getvalue())
+
+    @patch("cli.main.update_tracked_assets")
+    def test_update_command_reports_conflicts_and_errors_with_exit_code(
+        self, mock_update
+    ):
+        mock_update.return_value.manifest_path = Path("/tmp/project/.cds/get-manifest.json")
+        mock_update.return_value.updated = ["demo: modules/apps/demo/module.yaml"]
+        mock_update.return_value.skipped = []
+        mock_update.return_value.conflicts = ["demo: profiles/demo/profile.yaml"]
+        mock_update.return_value.errors = ["other: tracking entry is not an object"]
+
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(
+            sys, "argv", ["cds", "update", "--into", "/tmp/project"]
+        ), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("Conflicted 1 file(s)", stdout.getvalue())
+        self.assertIn("local files were left unchanged", stdout.getvalue())
+        self.assertIn("Errors for 1 tracked profile(s)", stderr.getvalue())
+        self.assertIn("Updated 1 file(s)", stdout.getvalue())
+        self.assertIn("Tracking metadata:", stdout.getvalue())
+
+    @patch("cli.main.update_tracked_assets")
+    def test_update_command_prints_manifest_and_reports_nothing_matched(
+        self, mock_update
+    ):
+        mock_update.return_value.manifest_path = Path("/tmp/project/.cds/get-manifest.json")
+        mock_update.return_value.updated = []
+        mock_update.return_value.skipped = []
+        mock_update.return_value.conflicts = []
+        mock_update.return_value.errors = []
+
+        stdout = io.StringIO()
+        with patch.object(
+            sys, "argv", ["cds", "update", "--into", "/tmp/project"]
+        ), contextlib.redirect_stdout(stdout):
+            result = main()
+
+        self.assertEqual(result, 0)
+        self.assertIn("No tracked assets matched the requested update.", stdout.getvalue())
+        self.assertIn("Tracking metadata:", stdout.getvalue())
+
+    @patch("cli.main.update_tracked_assets")
+    def test_update_command_surfaces_get_errors_on_stderr(self, mock_update):
+        from cli.getter import GetError
+
+        mock_update.side_effect = GetError("No fetched-asset tracking manifest found")
+
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(
+            sys, "argv", ["cds", "update", "--into", "/tmp/project"]
+        ), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = main()
+
+        self.assertEqual(result, 1)
+        self.assertIn("ERROR", stderr.getvalue())
+        self.assertIn("No fetched-asset tracking manifest found", stderr.getvalue())
+
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
     def test_security_command_resolves_profile_and_runs_validation(self, mock_validate, mock_run_security):
