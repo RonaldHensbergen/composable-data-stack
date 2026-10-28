@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -78,6 +79,204 @@ COPY images/demo/entrypoint.sh /entrypoint.sh
 
 
 class GetterTest(unittest.TestCase):
+    def test_manifest_tracks_assets_dependencies_and_file_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            _write(
+                source_root / "profiles" / "demo" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: provider
+      source: ../../modules/apps/demo
+      config: {}
+    - id: consumer
+      source: ../../modules/apps/demo
+      dependsOn: [provider]
+      config:
+        database:
+          contractRef: provider.demo-output
+""",
+            )
+            module_path = source_root / "modules" / "apps" / "demo" / "module.yaml"
+            _write(
+                module_path,
+                """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: demo
+spec:
+  provides:
+    - name: demo-output
+      contract:
+        kind: sql-database
+  consumes:
+    - name: database
+      contract:
+        kind: sql-database
+    # Same name as the provided contract: the two records must stay
+    # addressable separately (the asset id includes the direction).
+    - name: demo-output
+      contract:
+        kind: sql-database
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          build:
+            context: ../../../
+            dockerfile: images/demo/Dockerfile
+""",
+            )
+
+            _actions, manifest_path, _conflicts = fetch_profile(
+                "demo",
+                local=str(source_root),
+                destination_root=destination_root,
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = manifest["profiles"]["demo"]
+            assets = {(asset["type"], asset["id"]): asset for asset in entry["assets"]}
+
+            self.assertEqual(manifest["version"], 2)
+            self.assertIn(("profile", "demo"), assets)
+            self.assertIn(("module", "provider"), assets)
+            self.assertIn(("module", "consumer"), assets)
+            self.assertEqual(
+                assets[("module", "consumer")]["dependencies"],
+                [
+                    # The contractRef "<module>.<name>" maps to the provided
+                    # contract's full asset id.
+                    {"type": "contract", "id": "provider.demo-output.provided"},
+                    {"type": "module", "id": "provider"},
+                ],
+            )
+            self.assertEqual(
+                assets[("contract", "provider.demo-output.provided")]["direction"],
+                "provided",
+            )
+            self.assertEqual(
+                assets[("contract", "consumer.database.consumed")]["direction"],
+                "consumed",
+            )
+            # The module provides and consumes a contract with the same
+            # name: both records exist with direction-suffixed ids.
+            self.assertEqual(
+                assets[("contract", "provider.demo-output.consumed")]["direction"],
+                "consumed",
+            )
+            self.assertEqual(
+                assets[("module", "consumer")]["destinationPath"],
+                "modules/apps/demo",
+            )
+
+            local_profile = destination_root / "profiles" / "demo" / "profile.yaml"
+            self.assertEqual(
+                entry["fileHashes"]["profiles/demo/profile.yaml"],
+                hashlib.sha256(local_profile.read_bytes()).hexdigest(),
+            )
+
+    def test_manifest_tracks_extends_parent_profile_and_its_module(self) -> None:
+        # The composed profile merges the parent's modules, so those must
+        # appear as module assets, and the primary profile must record its
+        # dependencies on the parent profile and every (composed) module.
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            _write(
+                source_root / "profiles" / "base" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: base
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: demo
+      source: ../../modules/apps/demo
+      config: {}
+""",
+            )
+            _write(
+                source_root / "profiles" / "child" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: child
+extends:
+  - base
+spec: {}
+""",
+            )
+
+            _actions, manifest_path, _conflicts = fetch_profile(
+                "child",
+                local=str(source_root),
+                destination_root=destination_root,
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = manifest["profiles"]["child"]
+            assets = {(asset["type"], asset["id"]): asset for asset in entry["assets"]}
+
+            self.assertIn(("profile", "child"), assets)
+            self.assertIn(("module", "demo"), assets)
+            parent = assets[("profile", "profiles/base")]
+            self.assertEqual(parent["sourcePath"], "profiles/base")
+            # Only the primary profile carries the dependency edges.
+            self.assertEqual(parent["dependencies"], [])
+            self.assertEqual(
+                assets[("profile", "child")]["dependencies"],
+                [
+                    {"type": "module", "id": "demo"},
+                    {"type": "profile", "id": "profiles/base"},
+                ],
+            )
+
+    def test_manifest_types_leftover_asset_roots(self) -> None:
+        # Asset roots that are neither the (primary or parent) profiles nor
+        # module directories are typed by location: shared/contracts/ is a
+        # contract, everything else (build assets) is a runtime asset.
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            _write(
+                source_root / "images" / "demo" / "Dockerfile",
+                """FROM python:3.14-slim
+COPY shared/python /app/shared/python
+COPY shared/contracts /app/shared/contracts
+COPY images/demo/entrypoint.sh /entrypoint.sh
+""",
+            )
+            _write(
+                source_root / "shared" / "contracts" / "demo-contract.yaml",
+                "apiVersion: cds/v1alpha1\nkind: Contract\n",
+            )
+
+            _actions, manifest_path, _conflicts = fetch_profile(
+                "demo",
+                local=str(source_root),
+                destination_root=destination_root,
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = manifest["profiles"]["demo"]
+            assets = {(asset["type"], asset["id"]): asset for asset in entry["assets"]}
+
+            self.assertIn(("contract", "shared/contracts"), assets)
+            self.assertIn(("runtime", "shared/python"), assets)
+            self.assertIn(("runtime", "images/demo/Dockerfile"), assets)
+            self.assertIn(("runtime", "images/demo/entrypoint.sh"), assets)
+
     def test_fetch_profile_copies_profile_module_and_build_assets(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             source_root = Path(source_dir)

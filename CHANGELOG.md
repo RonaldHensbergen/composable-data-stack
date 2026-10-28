@@ -104,6 +104,12 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added typed provenance records to the `cds get` tracking manifest
+  for fetched profiles, modules, contracts, and runtime assets, including
+  source/local paths, dependency relationships, and per-file SHA-256 hashes
+  for detecting local edits. Existing profile entries remain available in
+  the version 2 manifest (#346).
+
 - Added a generic file/volume backup capability (issue #668): the new
   experimental `backup/restic` module snapshots modules whose durable
   state is plain files or directories into an encrypted restic

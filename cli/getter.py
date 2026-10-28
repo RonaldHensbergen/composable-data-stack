@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -917,6 +918,10 @@ def _write_tracking_manifest(
     manifest_path = target_root / _TRACKING_FILE
     manifest = _read_tracking_manifest(manifest_path)
 
+    relative_files = {
+        action.repo_relative_path: _sha256_file(action.source)
+        for action in actions
+    }
     entry = {
         "requestedProfile": requested_profile,
         "sourceProfile": profile_path.relative_to(source_repo).as_posix(),
@@ -929,8 +934,16 @@ def _write_tracking_manifest(
             _asset_root_relative_path(asset_root, source_repo) for asset_root in asset_roots
         ],
         "files": [action.repo_relative_path for action in actions],
+        "fileHashes": relative_files,
+        "assets": _build_tracking_assets(
+            source_repo=source_repo,
+            requested_profile=requested_profile,
+            profile_path=profile_path,
+            asset_roots=asset_roots,
+        ),
     }
 
+    manifest["version"] = 2
     profiles = manifest.setdefault("profiles", {})
     if not isinstance(profiles, dict):
         profiles = {}
@@ -943,6 +956,209 @@ def _write_tracking_manifest(
         # a symlink planted at the tracking manifest's path.
         manifest_path.unlink()
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+
+def _build_tracking_assets(
+    *,
+    source_repo: Path,
+    requested_profile: str,
+    profile_path: Path,
+    asset_roots: list[Path],
+) -> list[dict[str, Any]]:
+    if not asset_roots:
+        return []
+
+    profile_doc, _provenance, diagnostics = resolve_extends(str(profile_path))
+    if profile_doc is None or any(d.level == "error" for d in diagnostics):
+        raise GetError(f"Could not load source profile {profile_path}")
+
+    spec = profile_doc.get("spec")
+    modules = spec.get("modules", []) if isinstance(spec, dict) else []
+    if not isinstance(modules, list):
+        raise GetError(f"Profile modules must be a list in {profile_path}")
+
+    assets: list[dict[str, Any]] = []
+    profile_roots = [
+        root
+        for root in asset_roots
+        if (
+            root == profile_path
+            or root == profile_path.parent
+            or (
+                root.is_relative_to(source_repo / "profiles")
+                and (root / "profile.yaml").is_file()
+            )
+        )
+    ]
+    profile_dependencies: set[tuple[str, str]] = set()
+    for parent_dir in _collect_extends_profile_dirs(source_repo, profile_path):
+        parent_relative = parent_dir.relative_to(source_repo).as_posix()
+        profile_dependencies.add(("profile", parent_relative))
+
+    module_dirs: dict[str, Path] = {}
+    for index, module in enumerate(modules):
+        if not isinstance(module, dict):
+            raise GetError(f"Profile module at index {index} must be a mapping")
+        module_id = module.get("id")
+        source = module.get("source")
+        if not isinstance(module_id, str) or not module_id:
+            raise GetError(f"Profile module at index {index} is missing an id")
+        if not isinstance(source, str) or not source:
+            raise GetError(f'Profile module "{module_id}" is missing a source')
+
+        module_dir = resolve_module_dir(source, profile_path.parent, module_root=None)
+        if module_dir is None or not module_dir.is_dir():
+            raise GetError(f'Could not resolve module source "{source}" from {profile_path.parent}')
+        _require_within_repo(module_dir, source_repo, f'module source "{source}"')
+        module_dir = module_dir.resolve()
+        module_dirs[module_id] = module_dir
+        module_path = module_dir.relative_to(source_repo).as_posix()
+        dependencies: set[tuple[str, str]] = set()
+        depends_on = module.get("dependsOn", [])
+        if isinstance(depends_on, list):
+            dependencies.update(
+                ("module", dependency)
+                for dependency in depends_on
+                if isinstance(dependency, str) and dependency
+            )
+        # A contractRef "<module>.<name>" targets another module's *provided*
+        # contract, so the dependency edge carries that contract's full asset
+        # id ("<module>.<name>.provided") to stay referentially intact.
+        dependencies.update(
+            ("contract", f"{contract_ref}.provided")
+            for contract_ref in _find_contract_refs(module.get("config", {}))
+        )
+        assets.append(
+            {
+                "type": "module",
+                "id": module_id,
+                "sourcePath": module_path,
+                "destinationPath": module_path,
+                "dependencies": _serialize_dependencies(dependencies),
+            }
+        )
+        profile_dependencies.add(("module", module_id))
+
+    if profile_path.name == "profile.yaml":
+        primary_profile_root = profile_path.parent
+    else:
+        primary_profile_root = profile_path
+    for profile_root in profile_roots:
+        relative = profile_root.relative_to(source_repo).as_posix()
+        assets.append(
+            {
+                "type": "profile",
+                "id": requested_profile if profile_root == primary_profile_root else relative,
+                "sourcePath": relative,
+                "destinationPath": relative,
+                "dependencies": (
+                    _serialize_dependencies(profile_dependencies)
+                    if profile_root == primary_profile_root
+                    else []
+                ),
+            }
+        )
+
+    for module_id, module_dir in module_dirs.items():
+        module_yaml_path = module_dir / "module.yaml"
+        module_doc, module_diagnostics = load_yaml_file(module_yaml_path)
+        if module_doc is None or any(d.level == "error" for d in module_diagnostics):
+            raise GetError(f"Could not load module {module_yaml_path}")
+        module_spec = module_doc.get("spec")
+        if not isinstance(module_spec, dict):
+            continue
+        module_path = module_yaml_path.relative_to(source_repo).as_posix()
+        for field, direction in (("provides", "provided"), ("consumes", "consumed")):
+            declarations = module_spec.get(field, [])
+            if not isinstance(declarations, list):
+                continue
+            for index, declaration in enumerate(declarations):
+                if not isinstance(declaration, dict):
+                    continue
+                name = declaration.get("name")
+                if not isinstance(name, str) or not name:
+                    continue
+                contract = declaration.get("contract")
+                kind = contract.get("kind") if isinstance(contract, dict) else None
+                assets.append(
+                    {
+                        "type": "contract",
+                        # The direction is part of the id: a module may
+                        # provide and consume a contract with the same
+                        # name, and both records must stay addressable.
+                        "id": f"{module_id}.{name}.{direction}",
+                        "direction": direction,
+                        "kind": kind if isinstance(kind, str) else None,
+                        "sourcePath": module_path,
+                        "sourcePointer": f"/spec/{field}/{index}",
+                        "destinationPath": module_path,
+                        "destinationPointer": f"/spec/{field}/{index}",
+                        "dependencies": [{"type": "module", "id": module_id}],
+                    }
+                )
+
+    profile_root_paths = {root.resolve() for root in profile_roots}
+    module_root_paths = {path.resolve() for path in module_dirs.values()}
+    for root in asset_roots:
+        resolved_root = root.resolve()
+        if any(
+            resolved_root == profile_root or profile_root in resolved_root.parents
+            for profile_root in profile_root_paths
+        ):
+            continue
+        if any(
+            resolved_root == module_root or module_root in resolved_root.parents
+            for module_root in module_root_paths
+        ):
+            continue
+        relative = _asset_root_relative_path(root, source_repo)
+        assets.append(
+            {
+                # The contracts root itself (referenced as a whole by a
+                # COPY line) must classify as a contract too, not just
+                # paths nested inside it.
+                "type": (
+                    "contract"
+                    if relative == "shared/contracts" or relative.startswith("shared/contracts/")
+                    else "runtime"
+                ),
+                "id": relative,
+                "sourcePath": relative,
+                "destinationPath": relative,
+                "dependencies": [],
+            }
+        )
+
+    return sorted(assets, key=lambda asset: (asset["type"], asset["id"]))
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _find_contract_refs(value: Any) -> set[str]:
+    references: set[str] = set()
+    if isinstance(value, dict):
+        contract_ref = value.get("contractRef")
+        if isinstance(contract_ref, str) and contract_ref:
+            references.add(contract_ref)
+        for nested in value.values():
+            references.update(_find_contract_refs(nested))
+    elif isinstance(value, list):
+        for nested in value:
+            references.update(_find_contract_refs(nested))
+    return references
+
+
+def _serialize_dependencies(dependencies: set[tuple[str, str]]) -> list[dict[str, str]]:
+    return [
+        {"type": dependency_type, "id": identifier}
+        for dependency_type, identifier in sorted(dependencies)
+    ]
 
 
 def _read_tracking_manifest(path: Path) -> dict[str, Any]:
