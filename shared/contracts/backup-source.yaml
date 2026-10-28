@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: backup-source
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared, vendor-neutral contract describing a file/volume data set that a
+    module persists and offers to a backup engine (issue #668, see
+    docs/backup-restore.md). Providers declare which of their named volumes
+    or host directories hold durable state; a backup module (e.g. the restic
+    module) consumes this contract and mounts the same data read-only to
+    snapshot it on a schedule. The contract never carries credentials;
+    backup encryption keys and repository credentials come from profile
+    secrets.
+
+spec:
+  fields:
+    kind:
+      type: string
+      required: true
+      description: >-
+        How the data set is exposed: "volume" (a named Compose volume the
+        provider owns; the backup engine mounts it cross-module by its fully
+        rendered name) or "bind" (a host directory bind-mounted by both the
+        provider and the backup engine).
+    volumeName:
+      type: string
+      required: false
+      description: >-
+        Fully rendered Compose volume name ("<module-instance-id>-<volume>")
+        for kind "volume". Empty for kind "bind".
+    hostPath:
+      type: string
+      required: false
+      description: >-
+        Host filesystem path (relative to the profile's rendered
+        docker-compose.yml, or absolute) for kind "bind". Empty for kind
+        "volume".
+    readOnly:
+      type: boolean
+      required: true
+      description: >-
+        Whether consumers must mount the data set read-only. Providers should
+        advertise true; a backup engine only needs read access, and a
+        read-only mount protects the source from a misbehaving backup tool.
+  examples:
+    - kind: volume
+      volumeName: dagster-dagster-io-manager-storage
+      hostPath: ""
+      readOnly: true
+    - kind: bind
+      volumeName: ""
+      hostPath: ./data/duckdb
+      readOnly: true

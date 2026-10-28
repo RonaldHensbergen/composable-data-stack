@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: object-storage
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared S3-compatible object storage contract. Credentials are runtime
+    placeholders sourced from profile secrets and must never be resolved into
+    plans or rendered service configuration.
+
+spec:
+  fields:
+    endpoint:
+      type: string
+      required: true
+      description: S3 API endpoint URL, including scheme and port.
+    bucket:
+      type: string
+      required: true
+      description: Bucket name to use for object storage.
+    region:
+      type: string
+      required: true
+      description: S3 region configured for the endpoint.
+    accessKey:
+      type: string
+      required: true
+      description: S3 access key identifier.
+    secretKey:
+      type: string
+      required: true
+      description: Runtime placeholder for the S3 secret key.
+    pathStyle:
+      type: boolean
+      required: true
+      description: Whether clients must use path-style bucket addressing.
+    tls:
+      type: boolean
+      required: true
+      description: Whether the S3 endpoint uses TLS.
+  examples:
+    - endpoint: http://garage:3900
+      bucket: cds-data
+      region: garage
+      accessKey: ${CDS_OBJECT_STORAGE_ACCESS_KEY}
+      secretKey: ${CDS_OBJECT_STORAGE_SECRET_KEY}
+      pathStyle: true
+      tls: false

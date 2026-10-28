@@ -86,7 +86,8 @@ enforced by `profile.schema.json` (`E010`). `cds validate` adds:
 | `E135` | Production policy has no `restoreVerification`. |
 | `E141` | A module's built-in backup capability is enabled without a valid `backup.encryptionKeyFrom` `secrets.<alias>` reference (#665). |
 | `E142` | The built-in backup capability is enabled while rendering the `helm` target, which has no backup sidecar workload yet (#665). |
-| `E143` | A module's built-in backup capability (a production-only piece) is enabled outside a production profile (#665). |
+| `E143` | A module's built-in backup capability (a production-only piece) is enabled outside a production profile (#665); also fires for a backup module (`metadata.category: backup`, e.g. restic, #668) instantiated outside a production profile, since its services would silently not render. |
+| `E146` | A bound `backup-source` contract advertises a Compose volume the producing module does not declare, so the backup engine would mount an empty implicit volume and protect nothing (plan stage, #668). |
 
 `spec.backup` is optional outside production, but is validated whenever it is
 present. Because `cds test` stops later stages on validation errors, a
@@ -148,9 +149,17 @@ the profile's `rpoMinutes`/`rtoMinutes`. Run it locally with
 tests.test_postgres_backup_restore_runtime -v`; CI runs it in the Docker
 Runtime Smoke Test workflow. The file/volume
 ([#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668))
-and object-storage
+provider ships the equivalent procedure in
+`tests/test_restic_backup_restore_runtime.py`: it renders a production
+profile binding the restic module to a file-based warehouse's
+`backup-source` contract, takes an initial and a second backup of a marker
+file, copies only the encrypted repository volume into a clean compose
+project with an emptied source directory, proves a restore with the wrong
+key fails and the marker is absent from the repository in plaintext, and
+restores the newest restore point byte-for-byte within the profile's
+`rpoMinutes`/`rtoMinutes`. The object-storage
 ([#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669))
-providers are expected to ship equivalent automated procedures.
+provider is expected to ship an equivalent automated procedure.
 
 ## 6. The built-in warehouse backup provider (#665)
 
@@ -196,3 +205,73 @@ restore point age and elapsed time against the profile's
 `rpoMinutes`/`rtoMinutes`. Extra arguments to `docker compose run` replace
 the service's default restore command wholesale, so repeat the
 `--recovery-option` flags when overriding them.
+
+## 7. The generic file backup provider (#668)
+
+The `backup/restic` module (`modules-experimental/backup/restic`) is the
+generic file/volume backup engine: it protects modules whose durable state
+is plain files or directories rather than a SQL database. Where the
+Postgres provider (#665) owns both sides (sidecar and repository) inside
+one module, the file backup capability is split across two contracts:
+
+- **Opt-in by producers.** A module declares what is worth protecting by
+  providing a `backup-source` contract
+  ([shared/contracts/backup-source.yaml](../shared/contracts/backup-source.yaml)):
+  a *volume* kind exposing the fully rendered Compose volume name (e.g.
+  the orchestration module's IO-manager storage volume, the ingestion
+  module's pipeline-state volume) or a *bind* kind exposing the host
+  directory (e.g. the file-based warehouse's database directory). The
+  renderer mounts cross-module volume sources by that exact name without
+  re-namespacing them; a contract advertising a volume the producer does
+  not declare fails planning with `E146` rather than silently backing up
+  an empty implicit volume.
+- **Collection by the backup module.** A profile instantiates the restic
+  module and binds up to three sources (`config.sources.a`/`b`/`c`) to
+  producers' `backup-source` contracts. The `restic-backup` sidecar mounts
+  every bound source read-only and runs restic on a schedule
+  (`config.schedule.intervalMinutes`): idempotent repository creation, a
+  backup pass of all mounted sources, retention
+  (`restic forget --prune --keep-within <retentionDays>d`), and
+  `restic check` integrity verification. Client-side encryption is
+  mandatory (`config.encryptionKeyFrom`, a required `secrets.<alias>`
+  reference; restic refuses to run without a key). The module provides the
+  `backup-target` contract so production profiles pin it with
+  `spec.backup.target.contractRef: <restic-instance>.backup-target`.
+- **Pluggable repository.** The default target
+  (`config.target.type: file`) is the module's own encrypted
+  `restic-repo` volume -- the zero-dependency local option.
+  `config.target.type: s3` stores the repository on any S3-compatible
+  endpoint via restic's native S3 backend, with credentials resolved
+  through the profile's existing secrets machinery, so a real cloud bucket
+  and a future in-stack object-storage module need no separate
+  integration.
+
+Like the Postgres capability, the whole module is a production-only piece:
+its services and repository volume render only in production profiles, and
+instantiating it elsewhere fails validation (`E143`).
+
+### Restore procedure
+
+The gated one-shot `restic-restore` service (compose target only; the helm
+target fails with `E072` because no Kubernetes workload exists yet)
+restores the newest restore point into the bound sources:
+
+```sh
+docker compose stop <services-writing-the-source>
+docker compose --profile cds-restore run --rm restic-restore
+docker compose start <services-writing-the-source>
+```
+
+The default command stages the restore in the container's `/tmp` and
+copies each restored source into its read-write mount; extra arguments run
+restic directly (e.g. `docker compose --profile cds-restore run --rm
+restic-restore restore <snapshot-id> --verify-data`). Restored files are
+owned by the restore service's user (`config.restoreUser`, default the
+image's non-root `restic` user) with modes and timestamps preserved; for
+volume-kind sources, set `restoreUser` to the uid owning the volume (e.g.
+`"999"` for the current orchestration and ingestion modules) or fix up
+ownership afterwards. For restore verification, provision a clean
+environment (fresh compose project name, emptied source directories or
+fresh source volumes, same `CDS_*` secret variables) and restore there;
+`tests/test_restic_backup_restore_runtime.py` executes the full procedure
+automatically (see section 5).

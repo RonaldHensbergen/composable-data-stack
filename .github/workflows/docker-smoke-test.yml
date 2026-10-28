@@ -28,7 +28,7 @@ jobs:
             echo "Building $dockerfile in directory $dir..."
             context="$dir"
             case "$dockerfile" in
-              ./images/dagster/*|./images/superset/*|./images/dbt/*|./images/dlt/*|./images/postgres/*) context="." ;;
+              ./images/dagster/*|./images/superset/*|./images/dbt/*|./images/dlt/*|./images/postgres/*|./images/restic/*) context="." ;;
             esac
             docker build -f "$dockerfile" "$context" || exit 1
           done
@@ -80,6 +80,12 @@ jobs:
         run: |
           python -m unittest tests.test_postgres_backup_restore_runtime -v
 
+      - name: Run file backup restore-verification proof (restic backup -> clean-environment restore -> data checks)
+        env:
+          CDS_RUN_DOCKER_SMOKE: "1"
+        run: |
+          python -m unittest tests.test_restic_backup_restore_runtime -v
+
       - name: Ensure Docker Compose cleanup runs even on failure
         if: always()
         run: |
@@ -89,5 +95,10 @@ jobs:
           if [ -f docker-compose.restore-proof.yml ]; then
             for p in cds-restore-proof-src cds-restore-proof-clean; do
               docker compose -f docker-compose.restore-proof.yml -p "$p" down -v --remove-orphans || true
+            done
+          fi
+          if [ -f docker-compose.restic-proof.yml ]; then
+            for p in cds-restic-proof-src cds-restic-proof-clean; do
+              docker compose -f docker-compose.restic-proof.yml -p "$p" down -v --remove-orphans || true
             done
           fi

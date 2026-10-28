@@ -6,6 +6,14 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added a single-node Garage S3-compatible object-storage module and
+  provider-neutral `object-storage` contract, with persistent data and
+  metadata volumes and profile-secret-backed credentials. The module is
+  explicitly unsuitable for production because it has no redundancy
+  (#663).
+
 ### Fixed
 
 - Hardened cds-runtime's thread model and measured its read path
@@ -84,6 +92,37 @@ The format is based on Keep a Changelog.
 - Added `cds update` to refresh tracked profiles, modules, contracts, and
   runtime assets while reporting and preserving locally modified files;
   local source paths are recorded absolutely for subsequent updates (#348).
+
+- Added a generic file/volume backup capability (issue #668): the new
+  experimental `backup/restic` module snapshots modules whose durable
+  state is plain files or directories into an encrypted restic
+  repository, complementing the Postgres-specific pgBackRest capability
+  (#665). Modules opt in by providing the new `backup-source` contract
+  (a named Compose volume or a host directory); the shipped providers
+  are the orchestration module's IO-manager storage volume, the
+  file-based warehouse's host directory, and the ingestion module's
+  pipeline-state volume. A profile binds up to three sources to the
+  restic module's source slots; its `restic-backup` sidecar mounts each
+  source read-only and takes scheduled, encrypted, integrity-checked
+  backups with retention, into a local repository volume by default or
+  any S3-compatible endpoint via restic's native S3 backend. The module
+  provides the vendor-neutral `backup-target` contract for
+  `spec.backup.target.contractRef`, is a production-only piece like the
+  Postgres capability (E143 outside production), and ships a gated
+  one-shot `restic-restore` service plus a Docker-gated
+  clean-environment restore-verification runtime test. The renderer now
+  supports cross-module named-volume mounts (a source mounted by its
+  fully rendered `<module-id>-<volume>` Compose name is no longer
+  re-namespaced), and plan validation fails loudly when a bound
+  backup-source advertises a volume the producer does not declare
+  (E146), instead of silently protecting an empty implicit volume.
+
+- `.trivyignore` exceptions now also accept GHSA ids for scan findings
+  reported without a CVE alias (GitHub security advisories): trivy's
+  native ignore format supports any advisory id, and without this the
+  restic image's grpc finding (GHSA-hrxh-6v49-42gf, no CVE alias) could
+  not be excepted at all. `tests/test_trivyignore.py` and
+  `docs/image-scanning.md` document the extended format.
 
 - Migrated the Python workdirs to cds-runtime and demonstrated the
   workload API across two runtimes (issue #987): the dagster workdir

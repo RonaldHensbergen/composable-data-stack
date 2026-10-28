@@ -98,7 +98,7 @@ jobs:
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
           case "$dockerfile" in
-            images/dagster/*|images/superset/*|images/dbt/*|images/dlt/*|images/postgres/*) context="." ;;
+            images/dagster/*|images/superset/*|images/dbt/*|images/dlt/*|images/postgres/*|images/restic/*) context="." ;;
           esac
           variant="${{ matrix.image.variant }}"
           prefix=""
@@ -264,6 +264,9 @@ jobs:
             postgres)
               base_version="$(grep -m1 '^FROM postgres:' images/postgres/Dockerfile | sed -E 's#^FROM postgres:([^@[:space:]]+).*#\1#')"
               ;;
+            restic)
+              base_version="$(grep -m1 '^FROM restic/restic:' images/restic/Dockerfile | sed -E 's#^FROM restic/restic:([^@[:space:]]+).*#\1#')"
+              ;;
             *)
               echo "No version scheme defined for image '${{ matrix.image.name }}'" >&2
               exit 1
@@ -306,7 +309,7 @@ jobs:
           dockerfile="${{ matrix.image.dockerfile }}"
           context="$(dirname "$dockerfile")"
           case "$dockerfile" in
-            images/dagster/*|images/superset/*|images/dbt/*|images/dlt/*|images/postgres/*) context="." ;;
+            images/dagster/*|images/superset/*|images/dbt/*|images/dlt/*|images/postgres/*|images/restic/*) context="." ;;
           esac
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"

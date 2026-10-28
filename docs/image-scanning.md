@@ -119,6 +119,13 @@ trivy's native ignore format (one ID per line plus an `exp:` expiry):
 CVE-2025-12345 exp:2026-08-01
 ```
 
+Findings reported without a CVE alias — GitHub security advisories —
+are listed under their GHSA id:
+
+```text
+GHSA-hrxh-6v49-42gf exp:2027-01-26
+```
+
 Rules (enforced by `tests/test_trivyignore.py` in CI):
 
 - entries use native trivy syntax: a vulnerability ID followed by an

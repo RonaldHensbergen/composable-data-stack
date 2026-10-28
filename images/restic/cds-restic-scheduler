@@ -1,0 +1,68 @@
+#!/bin/sh
+# images/restic/cds-restic-scheduler
+#
+# Entrypoint of the generic backup sidecar (issue #668). Configuration comes
+# entirely from CDS_BACKUP_*/RESTIC_* environment variables rendered by the
+# module; see cds-restic-env for the repository resolution.
+#
+# Schedule:
+#   1. Create the repository if this is its first use (idempotent), then
+#      take an initial backup pass of every mounted source.
+#   2. Take a backup pass of every mounted source (/backup/*) every
+#      CDS_BACKUP_INTERVAL_MINUTES; each pass snapshots all bound sources,
+#      so the recovery point objective is this interval.
+#   3. After each pass, repository expiry (restic forget --prune --keep-within
+#      CDS_BACKUP_RETENTION_DAYS) and restic check integrity verification.
+#
+# Backups anchor to this process's start time; a sidecar restart begins with
+# a fresh pass, which retention bounds. Transient repository failures are
+# logged and retried on the next tick rather than crashing the sidecar.
+# Sources are mounted read-only by the module, so a misbehaving scheduler
+# cannot corrupt the data it protects.
+
+set -u
+
+. "$(dirname "$0")/cds-restic-env"
+restic_env_setup
+
+INTERVAL_MINUTES="${CDS_BACKUP_INTERVAL_MINUTES:-60}"
+RETENTION_DAYS="${CDS_BACKUP_RETENTION_DAYS:-30}"
+
+log() {
+    echo "[cds-restic-scheduler] $(date -u '+%Y-%m-%dT%H:%M:%SZ') $*"
+}
+
+run_restic() {
+    if restic "$@"; then
+        return 0
+    fi
+    log "WARNING: restic $* failed; will retry on the next tick"
+    return 1
+}
+
+# Idempotent repository creation: `restic snapshots` fails on an
+# uninitialized repository (or an unreachable S3 endpoint, which the next
+# pass retries).
+if ! restic snapshots >/dev/null 2>&1; then
+    log "initializing repository"
+    if ! run_restic init; then
+        log "repository initialization failed; exiting"
+        exit 1
+    fi
+fi
+
+while :; do
+    for source in /backup/*; do
+        # Skip unbound slots: the glob does not expand when /backup is
+        # empty, and unbound slots never create mount points.
+        [ -d "$source" ] || continue
+        if run_restic backup "$source"; then
+            log "backed up $source"
+        fi
+    done
+
+    run_restic forget --prune --keep-within "${RETENTION_DAYS}d"
+    run_restic check
+
+    sleep "${INTERVAL_MINUTES}m"
+done
