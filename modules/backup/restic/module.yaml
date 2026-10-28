@@ -1,5 +1,5 @@
-# modules-experimental/backup/restic/module.yaml
-# yaml-language-server: $schema=../../../../cli/resources/module.schema.json
+# modules/backup/restic/module.yaml
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
 apiVersion: cds/v1alpha1
 kind: Module
 
@@ -7,7 +7,7 @@ metadata:
   name: restic
   category: backup
   version: "0.1.0"
-  displayName: Restic file backup (experimental)
+  displayName: Restic file backup
   description: >
     Generic file/volume backup engine (issue #668). Consumes backup-source
     contracts offered by stateful modules (e.g. the orchestration module's
@@ -18,11 +18,11 @@ metadata:
     backend. Provides the vendor-neutral backup-target contract so profiles
     can pin it with spec.backup.target.contractRef. The whole module is a
     production-only piece: its services render only in production profiles,
-    and enabling it elsewhere fails validation (E143). This module is
-    marked experimental because the backup-source contract shape is new to
-    CDS and unproven across many producers, not because restic itself is
-    immature -- see README.md for the restore procedure and current
-    limitations.
+    and enabling it elsewhere fails validation (E143). Promoted out of
+    modules-experimental/ after its clean-environment restore verification
+    landed (#210, #1011): the backup-source contract shape held up across
+    the three shipped producers -- see README.md for the restore procedure
+    and current limitations.
 
 spec:
   runtime:

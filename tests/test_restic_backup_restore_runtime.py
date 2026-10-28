@@ -125,7 +125,7 @@ def _profile(host_directory: str) -> dict:
                 },
                 {
                     "id": "restic",
-                    "source": "modules-experimental/backup/restic",
+                    "source": "modules/backup/restic",
                     "version": "0.1.0",
                     "enabled": True,
                     "config": {

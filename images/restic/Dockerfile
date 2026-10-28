@@ -1,7 +1,7 @@
 # images/restic/Dockerfile
 #
 # Restic image for the generic file/volume backup module
-# (modules-experimental/backup/restic, issue #668):
+# (modules/backup/restic, issue #668):
 #   - `cds-restic-scheduler` is the backup sidecar's entrypoint: it takes an
 #     initial backup, then a scheduled backup pass of every mounted source
 #     with repository retention and integrity checks.
