@@ -51,6 +51,13 @@
       "provenanceAttested": true,
       "sbomAttested": true
     },
+    "cds-restic": {
+      "repository": "ghcr.io/ronaldhensbergen/cds-restic",
+      "digest": "sha256:c49f0a02bad22a970064534ba1410c993a0a0cbd5585ecb19d0a2566a1411c4b",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
+    },
     "dockerhub-dagster": {
       "repository": "docker.io/ronaldsoeverein/dagster",
       "digest": "sha256:8b4fb0ddfb761c78e8c2c769a8c9d5a7112e9e75950170dc7422cd484a140a67",
@@ -83,6 +90,13 @@
     "dockerhub-dlt": {
       "repository": "docker.io/ronaldsoeverein/dlt",
       "digest": "sha256:f09c0c396c29237c53d7b2084f49b557cfd0d3df8e6cfd6e2be1d9bc91a738db",
+      "signed": true,
+      "provenanceAttested": true,
+      "sbomAttested": true
+    },
+    "dockerhub-restic": {
+      "repository": "docker.io/ronaldsoeverein/restic",
+      "digest": "sha256:96caa470aac08e84211cc8c3f81ce39ce563e3219ea410f8a3860f88a32ab1de",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
