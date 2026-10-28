@@ -1062,7 +1062,7 @@ def _build_tracking_assets(
     for module_id, module_dir in module_dirs.items():
         module_yaml_path = module_dir / "module.yaml"
         module_doc, module_diagnostics = load_yaml_file(module_yaml_path)
-        if module_doc is None or module_diagnostics:
+        if module_doc is None or any(d.level == "error" for d in module_diagnostics):
             raise GetError(f"Could not load module {module_yaml_path}")
         module_spec = module_doc.get("spec")
         if not isinstance(module_spec, dict):
