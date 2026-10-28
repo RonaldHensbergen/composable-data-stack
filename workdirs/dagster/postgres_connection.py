@@ -70,6 +70,15 @@ def sql_text(statement: str):
     return sqlalchemy.text(statement)
 
 
+def _is_postgres_uri(connection_uri: str) -> bool:
+    """True for any postgres/postgresql scheme, driver suffix included.
+
+    sqlalchemy accepts postgresql+<driver> URLs (psycopg2, psycopg, ...),
+    so match on the scheme prefix rather than a fixed set of spellings.
+    """
+    return connection_uri.split(":", 1)[0].lower().startswith("postgres")
+
+
 def _write_local_event_snapshot(payload: dict, asset_key: str, env) -> None:
     enabled = env.get("CDS_LOCAL_EVENT_LOG_ENABLED", "1").strip().lower()
     if enabled in {"0", "false", "no", "off"}:
@@ -123,7 +132,7 @@ def insert_incoming_file_event(
         return
     db = connections.database("analytics", prefix=ANALYTICS_PREFIX, env=values)
 
-    is_postgres = db.connection_uri.split(":", 1)[0].lower() in {"postgresql", "postgresql+psycopg2", "postgres"}
+    is_postgres = _is_postgres_uri(db.connection_uri)
     metadata_type = "JSONB" if is_postgres else "JSON"
     id_type = "BIGSERIAL" if is_postgres else "INTEGER"
     timestamp_sql = "NOW()" if is_postgres else "CURRENT_TIMESTAMP"
