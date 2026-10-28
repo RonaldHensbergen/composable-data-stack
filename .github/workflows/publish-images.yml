@@ -264,6 +264,9 @@ jobs:
             postgres)
               base_version="$(grep -m1 '^FROM postgres:' images/postgres/Dockerfile | sed -E 's#^FROM postgres:([^@[:space:]]+).*#\1#')"
               ;;
+            restic)
+              base_version="$(grep -m1 '^FROM restic/restic:' images/restic/Dockerfile | sed -E 's#^FROM restic/restic:([^@[:space:]]+).*#\1#')"
+              ;;
             *)
               echo "No version scheme defined for image '${{ matrix.image.name }}'" >&2
               exit 1
