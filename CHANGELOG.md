@@ -8,6 +8,11 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed PostgreSQL dialect detection in the dagster workdir's event
+  persistence: a `postgresql+psycopg` (v3) connection URI fell back to
+  the sqlite/JSON DDL branch and would have failed against a live
+  PostgreSQL server. The scheme is now matched by prefix, covering every
+  `postgresql+<driver>` spelling (review follow-up on #996).
 - Hardened cds-runtime's thread model and measured its read path
   (issue #986): the connection registry and the lazy engine creation
   are now lock-guarded (double-checked), so concurrent first calls share
