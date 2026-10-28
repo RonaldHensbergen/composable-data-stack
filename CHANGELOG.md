@@ -16,6 +16,21 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the restic file backup module's restore path for multiple bound
+  sources (issue #1014, found in the post-merge review of #1011): the
+  scheduler took one separate restic snapshot per source, but the restore
+  service runs `restic restore latest`, which resolves to the single
+  newest snapshot — so with two or more bound sources the default
+  restore silently restored only the slot whose snapshot happened to be
+  newest while still exiting 0. Each backup pass now takes one restic
+  snapshot covering every mounted source, making the newest restore
+  point complete and consistent across sources; the Docker-gated runtime
+  proof now binds a second, volume-kind source (the dlt module's state
+  volume) and verifies both markers byte-for-byte after the
+  clean-environment restore. Also corrected the backup-module E143
+  message's stray quote and the scheduler's restart-behavior comment
+  (issue #1016).
+
 - Fixed PostgreSQL dialect detection in the dagster workdir's event
   persistence: a `postgresql+psycopg` (v3) connection URI fell back to
   the sqlite/JSON DDL branch and would have failed against a live

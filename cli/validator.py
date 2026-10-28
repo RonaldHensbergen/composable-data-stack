@@ -1655,8 +1655,8 @@ def validate_module_backup_config(
                     message=(
                         "Backup modules are production-only pieces: their services and "
                         "repository volumes render only in production profiles. Set "
-                        'metadata.environment to "production", or remove the backup module '
-                        "instance."
+                        'metadata.environment to "production", or remove the backup '
+                        "module instance."
                     ),
                     path=f"spec.modules[{inst['index']}].id",
                 )
