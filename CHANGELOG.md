@@ -85,7 +85,7 @@ The format is based on Keep a Changelog.
 ### Added
 
 - Added a generic file/volume backup capability (issue #668): the new
-  experimental `backup/restic` module snapshots modules whose durable
+  `backup/restic` module snapshots modules whose durable
   state is plain files or directories into an encrypted restic
   repository, complementing the Postgres-specific pgBackRest capability
   (#665). Modules opt in by providing the new `backup-source` contract
