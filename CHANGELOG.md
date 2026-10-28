@@ -76,6 +76,21 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Migrated the Python workdirs to cds-runtime and demonstrated the
+  workload API across two runtimes (issue #987): the dagster workdir
+  resolves its connections through `cds_runtime.connections`
+  (adopting the module's `CDS_ANALYTICS_DB_*` environment block via the
+  prefix, legacy `_NAME`/`_USER` spellings included) and its
+  dagster-specific event persistence is ported onto cds-runtime inside
+  the workdir; the shared example workload `workdirs/db_roundtrip.py`
+  runs unchanged as a dagster asset (canonical `analytics` connection)
+  and as the dlt pipeline's pre-load check (canonical `destination`
+  connection), with both runtime images baking `runtime/cds_runtime` in
+  at `/app/runtime`. The legacy `shared/python/db/connection.py`
+  helper is deprecated (kept in the images for externally supplied
+  definitions files); the dagster and dlt modules gained additive
+  canonical `CDS_DB_*` environment blocks.
+
 - Added a `cds-runtime` job to CI (issue #985): the opt-in backend
   integration tests in `tests/test_cds_runtime_backends.py` now run
   against real PostgreSQL and MySQL service containers on every push,

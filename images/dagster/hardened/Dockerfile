@@ -59,6 +59,8 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY shared/__init__.py /app/shared/__init__.py
 COPY shared/python /app/shared/python
+COPY runtime/cds_runtime /app/runtime/cds_runtime
+COPY workdirs/db_roundtrip.py /app/workdirs/db_roundtrip.py
 COPY workdirs/dagster /app/workdirs/dagster
 COPY images/dagster/generate_config.py images/dagster/healthcheck.py images/dagster/dagster.yaml.j2 /app/images/dagster/
 COPY --chmod=0444 images/dagster/workspace.yaml /app/images/dagster/workspace.yaml

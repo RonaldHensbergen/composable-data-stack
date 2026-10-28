@@ -1,3 +1,14 @@
+"""Deprecated: use the cds-runtime package instead (docs/runtime-api.md).
+
+This legacy helper is kept for compatibility with externally supplied
+definitions files that still import it, but no shipped workdir loads it
+anymore (issue #987): the dagster workdir resolves its connections
+through cds-runtime (workdirs/dagster/postgres_connection.py), and new
+workloads should import cds_runtime directly. The migration table in
+docs/runtime-api.md maps every helper function to its cds-runtime
+equivalent. Remove this file together with the last image that bakes
+`shared/python` in for compatibility.
+"""
 import importlib
 import json
 import os

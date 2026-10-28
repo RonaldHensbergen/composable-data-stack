@@ -39,6 +39,11 @@ WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
 COPY --chmod=0555 images/dlt/entrypoint.sh /entrypoint.sh
+COPY runtime/cds_runtime /app/runtime/cds_runtime
+# The pipeline is bind-mounted at /usr/app/dlt by the module, so the
+# shared example workload sits one level up: parents[1] of the mounted
+# pipeline.py resolves to /usr/app.
+COPY workdirs/db_roundtrip.py /usr/app/db_roundtrip.py
 
 USER dlt
 
