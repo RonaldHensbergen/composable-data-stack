@@ -1021,8 +1021,11 @@ def _build_tracking_assets(
                 for dependency in depends_on
                 if isinstance(dependency, str) and dependency
             )
+        # A contractRef "<module>.<name>" targets another module's *provided*
+        # contract, so the dependency edge carries that contract's full asset
+        # id ("<module>.<name>.provided") to stay referentially intact.
         dependencies.update(
-            ("contract", contract_ref)
+            ("contract", f"{contract_ref}.provided")
             for contract_ref in _find_contract_refs(module.get("config", {}))
         )
         assets.append(
@@ -1080,7 +1083,10 @@ def _build_tracking_assets(
                 assets.append(
                     {
                         "type": "contract",
-                        "id": f"{module_id}.{name}",
+                        # The direction is part of the id: a module may
+                        # provide and consume a contract with the same
+                        # name, and both records must stay addressable.
+                        "id": f"{module_id}.{name}.{direction}",
                         "direction": direction,
                         "kind": kind if isinstance(kind, str) else None,
                         "sourcePath": module_path,
@@ -1108,7 +1114,14 @@ def _build_tracking_assets(
         relative = _asset_root_relative_path(root, source_repo)
         assets.append(
             {
-                "type": "contract" if relative.startswith("shared/contracts/") else "runtime",
+                # The contracts root itself (referenced as a whole by a
+                # COPY line) must classify as a contract too, not just
+                # paths nested inside it.
+                "type": (
+                    "contract"
+                    if relative == "shared/contracts" or relative.startswith("shared/contracts/")
+                    else "runtime"
+                ),
                 "id": relative,
                 "sourcePath": relative,
                 "destinationPath": relative,
