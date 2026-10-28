@@ -60,7 +60,11 @@ with an S3 client or `rclone copy`. The module does not automatically delete
 snapshots; configure and review destination lifecycle policies separately so
 they retain enough recovery points. It copies object contents, not bucket
 policies, access keys, ACLs, or an atomic point-in-time view of a bucket being
-actively modified. Validate restores before relying on them.
+actively modified. Validate restores before relying on them: a Docker-gated
+runtime proof (`tests/test_object_storage_backup_runtime.py`, run in the
+Docker Runtime Smoke Test workflow) exercises exactly this cycle -- seed,
+snapshot, overwrite, restore from the timestamped prefix -- against two real
+Garage instances.
 
 ## Example
 

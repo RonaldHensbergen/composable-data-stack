@@ -18,7 +18,10 @@ The format is based on Keep a Changelog.
   destination (#669). Like the other backup modules it is production-only
   (E143), and its explicit `productionSuitable: false` marking (plaintext
   snapshots, operator-managed restore) requires a scoped CDS-SEC-073
-  waiver in production.
+  waiver in production. A Docker-gated runtime proof runs in the Docker
+  Runtime Smoke Test workflow: it snapshots a seeded bucket to a second
+  Garage instance, overwrites the source object, and recovers it
+  byte-for-byte from the timestamped prefix.
 
 ### Fixed
 
