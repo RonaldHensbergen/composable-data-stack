@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import os
 import re
+import threading
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import Any
@@ -63,6 +64,7 @@ class DatabaseConnection:
         self._prefix = env_prefix_for(name, prefix)
         self._env = os.environ if env is None else env
         self._engine: Any = None
+        self._engine_lock = threading.Lock()
 
     @property
     def connection_uri(self) -> str:
@@ -83,21 +85,26 @@ class DatabaseConnection:
         connection configuration (e.g. an unparsable URI).
         """
         if self._engine is None:
-            sqlalchemy = _load_sqlalchemy()
-            try:
-                self._engine = sqlalchemy.create_engine(self.connection_uri, **engine_kwargs)
-            except ModuleNotFoundError as exc:
-                raise DriverUnavailableError(
-                    f"The database driver for connection {self.name!r} is not installed: "
-                    f"{exc}. Install the matching cds-runtime extra (postgresql/mysql) "
-                    "or provide the driver in the workload image."
-                ) from exc
-            except Exception as exc:
-                raise ConnectionSetupError(
-                    f"Creating the engine for database connection {self.name!r} failed: "
-                    f"{self._redacted_message(exc)}."
-                ) from exc
+            with self._engine_lock:
+                if self._engine is None:
+                    self._engine = self._create_engine(**engine_kwargs)
         return self._engine
+
+    def _create_engine(self, **engine_kwargs: Any):
+        sqlalchemy = _load_sqlalchemy()
+        try:
+            return sqlalchemy.create_engine(self.connection_uri, **engine_kwargs)
+        except ModuleNotFoundError as exc:
+            raise DriverUnavailableError(
+                f"The database driver for connection {self.name!r} is not installed: "
+                f"{exc}. Install the matching cds-runtime extra (postgresql/mysql) "
+                "or provide the driver in the workload image."
+            ) from exc
+        except Exception as exc:
+            raise ConnectionSetupError(
+                f"Creating the engine for database connection {self.name!r} failed: "
+                f"{self._redacted_message(exc)}."
+            ) from exc
 
     def fetch_all(self, statement: str, params: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
         """Run a query and return every row as a plain dict (provider-neutral)."""

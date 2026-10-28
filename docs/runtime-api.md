@@ -40,6 +40,13 @@ drivers are imported lazily, on first use, and a missing dependency is
 reported as a typed `DriverUnavailableError` rather than an import-time
 crash.
 
+CI covers the package end to end in its `cds-runtime` job: the opt-in
+integration tests in `tests/test_cds_runtime_backends.py` run against
+real PostgreSQL and MySQL service containers (set `CDS_IT_POSTGRES_URI`
+/ `CDS_IT_MYSQL_URI` to run them locally), and the built wheel is
+installed into a fresh virtualenv and smoke-tested (`py.typed`,
+metadata, engine-backed roundtrip).
+
 ## How connections are resolved
 
 A profile binds each module's `consumes` entry to a provider's contract at
@@ -123,10 +130,20 @@ in a unique-violation message) — credentials are redacted, data is not.
 - Every operation runs inside a transaction, so statements that cannot
   execute inside one (for example PostgreSQL's `VACUUM` or
   `CREATE DATABASE`) fail. Use the `engine()` escape hatch for those.
-- The connection registry and lazy engine creation are not synchronized:
-  in a multi-threaded workload, two threads may briefly create two
-  engines for the same connection. The extra engine is disposed by
-  `close()`/`close_all()`; SQLAlchemy engines are themselves thread-safe.
+- Reads pay one BEGIN/COMMIT round trip each. Measured against a
+  loopback PostgreSQL 16 (`scripts/bench_cds_runtime.py`, medians of 200
+  iterations): a `fetch_all` over 1-100 rows takes ~0.1-0.6ms per call,
+  of which ~0.1-0.4ms is the per-query transaction overhead — negligible
+  relative to any real query. A read-only `connect()` path was considered
+  and rejected: the absolute overhead does not justify losing the
+  consistent snapshot read.
+- The connection registry and the lazy engine creation are lock-guarded
+  (double-checked), so concurrent first calls share one connection and
+  one engine per connection. The lock was added after characterizing the
+  un-synchronized race: a 16-thread thundering-herd against a cold
+  registry produced no duplicate engines under CPython's GIL (the window
+  existed on paper), so `close()`/`close_all()` dispose everything that
+  was created either way.
 - `QueryExecutionError` and `ConnectionSetupError` carry the driver's
   message (with known secrets redacted), so treat them as safe for logs,
   not as a stable programmatic interface.
