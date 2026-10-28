@@ -6,14 +6,6 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
-### Added
-
-- Added typed provenance records to the `cds get` tracking manifest
-  for fetched profiles, modules, contracts, and runtime assets, including
-  source/local paths, dependency relationships, and per-file SHA-256 hashes
-  for detecting local edits. Existing profile entries remain available in
-  the version 2 manifest (#346).
-
 ### Fixed
 
 - Hardened cds-runtime's thread model and measured its read path
@@ -83,6 +75,12 @@ The format is based on Keep a Changelog.
   `enabledFrom` on configMap entries) were silently ignored.
 
 ### Added
+
+- Added typed provenance records to the `cds get` tracking manifest
+  for fetched profiles, modules, contracts, and runtime assets, including
+  source/local paths, dependency relationships, and per-file SHA-256 hashes
+  for detecting local edits. Existing profile entries remain available in
+  the version 2 manifest (#346).
 
 - Migrated the Python workdirs to cds-runtime and demonstrated the
   workload API across two runtimes (issue #987): the dagster workdir
