@@ -8,6 +8,19 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Hardened cds-runtime's thread model and measured its read path
+  (issue #986): the connection registry and the lazy engine creation
+  are now lock-guarded (double-checked), so concurrent first calls share
+  one connection and one engine per connection — the create-then-store
+  window could leak engines on free-threaded builds (none observed
+  under CPython's GIL in a 16-thread thundering herd). The per-query
+  transaction overhead was benchmarked against a live PostgreSQL 16
+  (`scripts/bench_cds_runtime.py`, medians of 200 iterations: a
+  `fetch_all` over 1-100 rows takes ~0.1-0.6ms per call, of which
+  ~0.1-0.4ms is the BEGIN/COMMIT round trip): immaterial, so reads keep
+  their consistent snapshot transaction instead of a read-only
+  `connect()` path. Findings and methodology documented in
+  `docs/runtime-api.md` (Limitations).
 - Fixed the fresh CVE findings the trivy DB update of 2026-10-27 raised
   for the superset image scan: dnspython 2.7.0 (bundled with the
   apache/superset base image) is vulnerable to CVE-2026-114605 (DoS via

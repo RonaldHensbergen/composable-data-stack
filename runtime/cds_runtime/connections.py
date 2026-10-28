@@ -10,6 +10,7 @@ connection object's API.
 """
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping
 
 from .database import DatabaseConnection
@@ -22,8 +23,12 @@ __all__ = ["close_all", "database", "env_prefix_for", "resolve_connection_uri", 
 # (used in errors) and where its configuration comes from, so two names
 # sharing a prefix never share a connection object. Passing an explicit
 # ``env`` mapping (tests, adapters with their own environment) always builds
-# a fresh object instead of touching this registry.
+# a fresh object instead of touching this registry. The registry is
+# lock-guarded (double-checked): concurrent first calls return one shared
+# connection, so a cold registry cannot leak engines through the
+# create-then-store window.
 _connections: dict[tuple[str, str], DatabaseConnection] = {}
+_registry_lock = threading.Lock()
 
 
 def database(
@@ -45,8 +50,11 @@ def database(
     key = (name, env_prefix_for(name, prefix))
     connection = _connections.get(key)
     if connection is None:
-        connection = DatabaseConnection(name, prefix=prefix)
-        _connections[key] = connection
+        with _registry_lock:
+            connection = _connections.get(key)
+            if connection is None:
+                connection = DatabaseConnection(name, prefix=prefix)
+                _connections[key] = connection
     return connection
 
 
@@ -57,6 +65,7 @@ def close_all() -> None:
     ``database(...)`` call re-reads the environment and reconnects with
     fresh credentials.
     """
-    for connection in _connections.values():
-        connection.close()
-    _connections.clear()
+    with _registry_lock:
+        for connection in _connections.values():
+            connection.close()
+        _connections.clear()
