@@ -1617,20 +1617,50 @@ def validate_module_backup_config(
 ) -> list[Diagnostic]:
     """
     Validates the built-in backup capability of modules that ship one (issue
-    #665, currently modules/warehouse/postgres):
+    #665, currently modules/warehouse/postgres), and backup modules
+    (metadata.category "backup", e.g. the restic file backup engine, issue
+    #668):
 
-    - The capability is a production-only piece (`production: true` on the
-      backup sidecar and repository volume), so enabling it in a
-      non-production profile would silently render no backup at all; E143
-      fails closed and points at metadata.environment instead.
-    - When enabled, the backup repository must be client-side encrypted, so
-      a valid `backup.encryptionKeyFrom` secret reference is required
-      (E141) rather than silently producing an unencrypted repository;
-      production profiles additionally require the referenced alias to be
-      declared `required: true` via the profile-level E134 rule.
+    - Both are production-only pieces (`production: true` on their backup
+      services and repository volumes), so enabling one in a non-production
+      profile would silently render no backup at all; E143 fails closed and
+      points at metadata.environment instead.
+    - When a module's built-in capability is enabled, the backup repository
+      must be client-side encrypted, so a valid `backup.encryptionKeyFrom`
+      secret reference is required (E141) rather than silently producing an
+      unencrypted repository; production profiles additionally require the
+      referenced alias to be declared `required: true` via the profile-level
+      E134 rule. (Backup modules make the key a required config field with
+      a secrets.<alias> pattern instead, so they are covered by the generic
+      config-schema and secret-ref validation.)
     """
     diagnostics: list[Diagnostic] = []
     is_production = profile.get("metadata", {}).get("environment") == "production"
+
+    # Backup modules (metadata.category "backup", e.g. the generic restic
+    # file backup engine, issue #668) are entirely production-only pieces:
+    # every service and volume is `production: true`, so instantiating one
+    # in a non-production profile would silently render no backup at all.
+    # Fail closed with the same E143 rule as a module's gated built-in
+    # capability.
+    for inst in module_instances:
+        category = (inst.get("module", {}).get("metadata", {}) or {}).get("category")
+        if category != "backup":
+            continue
+        if not is_production:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E143",
+                    message=(
+                        "Backup modules are production-only pieces: their services and "
+                        "repository volumes render only in production profiles. Set "
+                        'metadata.environment to "production", or remove the backup module '
+                        "instance."
+                    ),
+                    path=f"spec.modules[{inst['index']}].id",
+                )
+            )
 
     for inst in module_instances:
         config = inst.get("config")

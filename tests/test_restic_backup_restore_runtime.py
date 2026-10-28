@@ -1,0 +1,438 @@
+"""Docker runtime proof for the generic file backup provider (issue #668).
+
+Executes the restore-verification procedure of docs/backup-restore.md
+section 5 against the restic backup module and its bind-kind backup-source
+(the file-based warehouse's host directory), so the acceptance criterion
+"a backup is only trustworthy once restored" is exercised end to end for
+file/volume data rather than only declared as policy:
+
+1. validate -> plan -> render a production profile wiring the restic module
+   to the warehouse host directory via the backup-source contract.
+2. Build the restic image, boot the backup sidecar in a dedicated compose
+   project, and wait for the scheduler's initial backup pass of a seeded
+   marker file.
+3. Update the marker and take a second backup pass, so the newest restore
+   point is measured, then verify repository integrity with restic check.
+4. Tear the source project down and copy only the encrypted repository
+   volume into a *clean environment*: a second compose project with a
+   fresh, empty source directory.
+5. Prove the artifacts are encrypted: restoring with the wrong key must
+   fail, and the marker text must not appear in plaintext in the
+   repository.
+6. Restore the newest restore point with the correct key and verify the
+   marker survived byte-for-byte (sha256).
+7. Compare the measured restore time and restore-point age with the
+   profile's rtoMinutes/rpoMinutes backup policy.
+
+Runs only with CDS_RUN_DOCKER_SMOKE=1 and a working daemon; skips
+otherwise, like tests/test_postgres_backup_restore_runtime.py.
+"""
+
+import hashlib
+import os
+import shutil
+import subprocess
+import tempfile
+import time
+import unittest
+from pathlib import Path
+from unittest import mock
+
+import yaml
+
+from cli.planner import build_plan
+from cli.renderer import render_compose
+from cli.validator import validate_profile
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+COMPOSE_FILE = REPO_ROOT / "docker-compose.restic-proof.yml"
+
+SOURCE_PROJECT = "cds-restic-proof-src"
+CLEAN_PROJECT = "cds-restic-proof-clean"
+REPO_VOLUME = "restic-restic-repo"
+BACKUP_SERVICE = "restic-backup"
+RESTORE_SERVICE = "restic-restore"
+
+MARKER_FILE = "marker.txt"
+MARKER_TOKEN = "cds-restic-proof-4b7f2a91"  # noqa: S105 - test marker, not a credential
+
+# Retry only known-transient registry flakes (mirrors the other runtime proofs).
+_TRANSIENT_REGISTRY_ERROR_MARKERS = (
+    "Client.Timeout exceeded while awaiting headers",
+    "TLS handshake timeout",
+    "connection reset by peer",
+    "i/o timeout",
+    "net/http: request canceled",
+    "toomanyrequests",
+    "unexpected EOF",
+)
+
+
+def _profile(host_directory: str) -> dict:
+    return {
+        "apiVersion": "cds/v1alpha1",
+        "kind": "Profile",
+        "metadata": {
+            "name": "restic-restore-proof",
+            "environment": "production",
+        },
+        "spec": {
+            "runtime": {"type": "docker-compose"},
+            "modules": [
+                {
+                    "id": "duckdb",
+                    "source": "modules-experimental/warehouse/duckdb",
+                    "version": "0.1.0",
+                    "enabled": True,
+                    "config": {"hostDirectory": host_directory},
+                },
+                {
+                    "id": "restic",
+                    "source": "modules-experimental/backup/restic",
+                    "version": "0.1.0",
+                    "enabled": True,
+                    "config": {
+                        "sources": {"a": {"contractRef": "duckdb.backup-source"}},
+                        "encryptionKeyFrom": "secrets.backup_encryption_key",
+                    },
+                },
+            ],
+            "secrets": {
+                "provider": {"type": "env"},
+                "values": {
+                    "backup_encryption_key": {
+                        "env": "CDS_BACKUP_ENCRYPTION_KEY",
+                        "required": True,
+                    },
+                },
+            },
+            "backup": {
+                "target": {"contractRef": "restic.backup-target"},
+                "encryption": {"keyFrom": "secrets.backup_encryption_key"},
+                "policies": [
+                    {
+                        "workloadClass": "warehouse",
+                        "retentionDays": 30,
+                        "rpoMinutes": 60,
+                        "rtoMinutes": 240,
+                        "restoreVerification": {"frequencyDays": 30},
+                    },
+                    {
+                        "workloadClass": "configuration",
+                        "retentionDays": 90,
+                        "rpoMinutes": 1440,
+                        "rtoMinutes": 120,
+                        "restoreVerification": {"frequencyDays": 90},
+                    },
+                ],
+            },
+        },
+    }
+
+
+class ResticBackupRestoreRuntimeTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if os.getenv("CDS_RUN_DOCKER_SMOKE") != "1":
+            raise unittest.SkipTest("Set CDS_RUN_DOCKER_SMOKE=1 to run Docker runtime proof tests")
+
+        if shutil.which("docker") is None:
+            raise unittest.SkipTest("Docker CLI not available")
+
+        docker_info = subprocess.run(["docker", "info"], capture_output=True, text=True, errors="replace")
+        if docker_info.returncode != 0:
+            raise unittest.SkipTest("Docker daemon is not available")
+
+    def _compose(self, project: str, env_file: Path) -> list[str]:
+        # Bind sources and build contexts resolve relative to the compose
+        # file's directory, so it lives at the repo root like production.
+        return [
+            "docker", "compose",
+            "--env-file", str(env_file),
+            "-f", str(COMPOSE_FILE),
+            "-p", project,
+        ]
+
+    def _run(self, command: list[str], env: dict[str, str], timeout: int = 1200,
+             allow_failure: bool = False) -> subprocess.CompletedProcess:
+        result = subprocess.run(command, env=env, capture_output=True, text=True, errors="replace", timeout=timeout)
+        if result.returncode != 0 and not allow_failure:
+            self.fail(
+                "Command failed: {cmd}\nstdout:\n{stdout}\nstderr:\n{stderr}".format(
+                    cmd=" ".join(command),
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                )
+            )
+        return result
+
+    def _logs(self, project: str, env_file: Path, env: dict[str, str]) -> str:
+        result = subprocess.run(
+            [*self._compose(project, env_file), "logs", "--tail", "150", BACKUP_SERVICE],
+            env=env, capture_output=True, text=True, errors="replace", timeout=120,
+        )
+        return result.stdout + result.stderr
+
+    def _wait_for_backup_pass(self, project: str, env_file: Path, env: dict[str, str],
+                              deadline_seconds: int = 300) -> None:
+        """Wait until the scheduler logs a completed backup pass of the
+        source mount, and fail with the container logs otherwise."""
+        started = time.monotonic()
+        while time.monotonic() - started < deadline_seconds:
+            if "backed up /backup/a" in self._logs(project, env_file, env):
+                return
+            time.sleep(5)
+        self.fail(
+            f"No backup pass appeared within {deadline_seconds}s (project {project}), "
+            f"container logs follow.\n{self._logs(project, env_file, env)}"
+        )
+
+    def _restic(self, project: str, env_file: Path, env: dict[str, str],
+                args: list[str], timeout: int = 600) -> subprocess.CompletedProcess:
+        # RESTIC_REPOSITORY is exported inside the scheduler's process, so a
+        # plain `docker compose exec` does not see it; mirror the
+        # cds-restic-env resolution the entrypoint performs.
+        command = [
+            *self._compose(project, env_file), "exec", "-T", BACKUP_SERVICE,
+            "sh", "-c",
+            ". /usr/local/bin/cds-restic-env && restic_env_setup && restic " + " ".join(args),
+        ]
+        result = subprocess.run(command, env=env, capture_output=True, text=True, errors="replace", timeout=timeout)
+        if result.returncode != 0:
+            self.fail(
+                f"restic {' '.join(args)} failed (project {project})\n"
+                f"stdout:\n{result.stdout}\n"
+                f"stderr:\n{result.stderr}\n"
+                f"logs:\n{self._logs(project, env_file, env)}"
+            )
+        return result
+
+    @staticmethod
+    def _volume_name(project: str, volume: str) -> str:
+        return f"{project}_{volume}"
+
+    @staticmethod
+    def _marker_checksum(marker_text: str) -> str:
+        return hashlib.sha256(marker_text.encode("utf-8")).hexdigest()
+
+    def test_backup_restores_into_clean_environment(self) -> None:
+        # The env file, host directory, and compose file all live inside a
+        # temporary directory under the repo root: `docker compose
+        # --env-file` is executed by the Docker CLI, which on dev machines
+        # may not share the test process's system temp dir, and bind paths
+        # in the rendered Compose resolve relative to the compose file.
+        with tempfile.TemporaryDirectory(prefix="cds-restic-proof-", dir=REPO_ROOT) as tmpdir:
+            work = Path(tmpdir)
+            env_file = work / ".env"
+            env_file.write_text(
+                "CDS_BACKUP_ENCRYPTION_KEY=restic-restore-proof-test-key-9d2f\n",
+                encoding="utf-8",
+            )
+
+            # The bind source lives under the same temporary directory and
+            # is referenced relative to the repo-root compose file.
+            host_dir = work / "duckdb"
+            host_dir.mkdir()
+            # The warehouse module's init service chmods the directory
+            # 0777; mirror that here so the restore (which runs as the
+            # non-root restic user) can write into it.
+            host_dir.chmod(0o777)
+
+            marker_path = host_dir / MARKER_FILE
+
+            def seed_marker(text: str) -> None:
+                marker_path.write_text(text, encoding="utf-8")
+                marker_path.chmod(0o666)
+
+            # Compile path: the production profile must validate, plan,
+            # and render with the backup module bound to the warehouse's
+            # backup-source contract.
+            profile_file = work / "profile.yaml"
+            relative_host_dir = f"./{host_dir.relative_to(REPO_ROOT).as_posix()}"
+            profile_file.write_text(
+                yaml.safe_dump(_profile(relative_host_dir)), encoding="utf-8"
+            )
+
+            with mock.patch.dict(
+                "os.environ", {"CDS_MODULE_PATH": str(REPO_ROOT)}, clear=False
+            ):
+                diagnostics = validate_profile(str(profile_file))
+                self.assertEqual(
+                    [d for d in diagnostics if d.level == "error"], [],
+                    msg=f"unexpected validation errors: {diagnostics}",
+                )
+
+                plan, plan_diags = build_plan(str(profile_file), env_file=str(env_file))
+                self.assertIsNotNone(plan)
+                self.assertEqual(
+                    [d for d in plan_diags if d.level == "error"], [],
+                    msg=f"unexpected plan errors: {plan_diags}",
+                )
+
+                output, render_diags = render_compose(
+                    plan, output_path=str(COMPOSE_FILE), env_file=str(env_file),
+                )
+            self.assertEqual(
+                [d for d in render_diags if d.level == "error"], [],
+                msg=f"unexpected render errors: {render_diags}",
+            )
+            COMPOSE_FILE.write_text(output, encoding="utf-8")
+            self.assertIn(RESTORE_SERVICE, yaml.safe_load(output)["services"])
+
+            policy = next(
+                p
+                for p in _profile(relative_host_dir)["spec"]["backup"]["policies"]
+                if p["workloadClass"] == "warehouse"
+            )
+
+            # Scrub ambient CDS_* so the shell can never override proof values.
+            env = {k: v for k, v in os.environ.items() if not k.startswith("CDS_")}
+
+            def teardown() -> None:
+                for project in (SOURCE_PROJECT, CLEAN_PROJECT):
+                    subprocess.run(
+                        [*self._compose(project, env_file), "--profile", "cds-restore",
+                         "down", "-v", "--remove-orphans"],
+                        env=env, capture_output=True, text=True, errors="replace", timeout=300,
+                    )
+                # The clean repository volume is pre-created before compose
+                # ever sees it, so remove it explicitly.
+                subprocess.run(
+                    ["docker", "volume", "rm", "--force",
+                     self._volume_name(CLEAN_PROJECT, REPO_VOLUME)],
+                    env=env, capture_output=True, text=True, errors="replace", timeout=60,
+                )
+                COMPOSE_FILE.unlink(missing_ok=True)
+
+            try:
+                self._run(
+                    [*self._compose(SOURCE_PROJECT, env_file), "build", BACKUP_SERVICE], env,
+                    timeout=1800,
+                )
+
+                # Source environment: backup sidecar over seeded marker data.
+                marker_v1 = f"{MARKER_TOKEN}-v1\n"
+                seed_marker(marker_v1)
+                self._run(
+                    [*self._compose(SOURCE_PROJECT, env_file), "up", "-d", BACKUP_SERVICE], env,
+                )
+                self._wait_for_backup_pass(SOURCE_PROJECT, env_file, env)
+
+                # Update the marker and take a second backup pass, so the
+                # newest restore point is measured, then verify repository
+                # integrity.
+                marker_v2 = f"{MARKER_TOKEN}-v2\n"
+                seed_marker(marker_v2)
+                self._restic(SOURCE_PROJECT, env_file, env, ["backup", "/backup/a"])
+                self._restic(SOURCE_PROJECT, env_file, env, ["check"])
+                restore_point_epoch = time.time()
+                expected_checksum = self._marker_checksum(marker_v2)
+
+                # The source project's containers stop here; its volumes stay
+                # until the final teardown so failures keep evidence.
+                self._run(
+                    [*self._compose(SOURCE_PROJECT, env_file), "down", "--remove-orphans"], env,
+                )
+
+                # Clean environment: a second compose project with a fresh,
+                # empty source directory. Only the encrypted repository
+                # volume is seeded from the source environment.
+                clean_repo_volume = self._volume_name(CLEAN_PROJECT, REPO_VOLUME)
+                source_repo_volume = self._volume_name(SOURCE_PROJECT, REPO_VOLUME)
+                self._run(["docker", "volume", "create", clean_repo_volume], env)
+                copy_output = subprocess.run(
+                    ["docker", "run", "--rm", "--user", "0:0",
+                     "--entrypoint", "/bin/sh",
+                     "-v", f"{source_repo_volume}:/from:ro",
+                     "-v", f"{clean_repo_volume}:/to",
+                     "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+                     "-c", "cp -a /from/. /to/ && chown -R 10000:10000 /to && chmod 700 /to"],
+                    env=env, capture_output=True, text=True, errors="replace", timeout=300,
+                )
+                self.assertEqual(
+                    copy_output.returncode, 0,
+                    msg="repository volume copy failed:\n" + copy_output.stdout + copy_output.stderr,
+                )
+
+                # Empty the source directory: the clean environment restores
+                # into a fresh, empty warehouse directory.
+                marker_path.unlink()
+                self.assertFalse(marker_path.exists())
+
+                # Encryption proof 1: the marker text must not appear in
+                # plaintext in the repository at rest.
+                grep = subprocess.run(
+                    ["docker", "run", "--rm", "--entrypoint", "/bin/sh",
+                     "-v", f"{clean_repo_volume}:/repo:ro",
+                     "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+                     "-c", f"grep -rasq {MARKER_TOKEN!r} /repo; if [ $? -eq 0 ]; then "
+                           "echo 'marker found in plaintext'; exit 1; fi; exit 0"],
+                    env=env, capture_output=True, text=True, errors="replace", timeout=300,
+                )
+                self.assertEqual(
+                    grep.returncode, 0,
+                    msg="backup repository exposes the marker in plaintext:\n" + grep.stdout + grep.stderr,
+                )
+
+                # Encryption proof 2: restoring with the wrong key must fail.
+                wrong_key = self._run(
+                    [*self._compose(CLEAN_PROJECT, env_file), "--profile", "cds-restore",
+                     "run", "--rm", "-e", "RESTIC_PASSWORD=wrong-key-restore-proof",
+                     RESTORE_SERVICE],
+                    env, allow_failure=True,
+                )
+                self.assertNotEqual(
+                    wrong_key.returncode, 0,
+                    msg="restore with a wrong encryption key succeeded; artifacts are not "
+                        "encrypted or the key is ignored:\n" + wrong_key.stdout + wrong_key.stderr,
+                )
+
+                # Restore the newest restore point with the correct key and
+                # measure the recovery time (policy rtoMinutes).
+                restore_started = time.monotonic()
+                self._run(
+                    [*self._compose(CLEAN_PROJECT, env_file), "--profile", "cds-restore",
+                     "run", "--rm", RESTORE_SERVICE],
+                    env,
+                )
+                elapsed_restore_seconds = time.monotonic() - restore_started
+
+                # The marker must be back byte-for-byte.
+                self.assertTrue(marker_path.is_file(), "marker file missing after restore")
+                restored = marker_path.read_text(encoding="utf-8")
+                self.assertEqual(
+                    self._marker_checksum(restored), expected_checksum,
+                    msg=f"marker data did not survive the clean-environment restore; "
+                        f"expected checksum {expected_checksum!r}, got "
+                        f"{self._marker_checksum(restored)!r}",
+                )
+
+                # Recovery expectations: the measured restore time must stay
+                # inside the profile's rtoMinutes, and the restore point used
+                # must be within rpoMinutes of the marker write.
+                restore_point_age_seconds = time.time() - restore_point_epoch
+                print(
+                    f"\nrestore verification measurements: restore time "
+                    f"{elapsed_restore_seconds:.0f}s (policy rtoMinutes="
+                    f"{policy['rtoMinutes']}), restore point age "
+                    f"{restore_point_age_seconds:.0f}s (policy rpoMinutes="
+                    f"{policy['rpoMinutes']}), data loss: none",
+                    flush=True,
+                )
+                self.assertLess(
+                    elapsed_restore_seconds, policy["rtoMinutes"] * 60,
+                    msg=f"measured restore time {elapsed_restore_seconds:.0f}s exceeds the "
+                        f"profile's rtoMinutes={policy['rtoMinutes']}",
+                )
+                self.assertLess(
+                    restore_point_age_seconds, policy["rpoMinutes"] * 60,
+                    msg=f"restore point age {restore_point_age_seconds:.0f}s exceeds the "
+                        f"profile's rpoMinutes={policy['rpoMinutes']}",
+                )
+            finally:
+                if os.getenv("CDS_KEEP_DOCKER_STACK") != "1":
+                    teardown()
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1077,9 +1077,11 @@ def _check_backup_target_binding(
     durable-state contract (sql-database or file-database) but where no
     module anywhere in the profile consumes a backup-target contract.
 
-    No module in this repository provides a backup-target contract yet
-    (see roadmap items #210, #665, #668, #669), so this is expected to fire
-    on essentially every profile with a durable data store today -- that is
+    The two shipped backup providers (the postgres module's built-in
+    pgBackRest capability, #665, and the restic file backup module, #668)
+    are wired via spec.backup.target.contractRef or backup-source bindings
+    rather than a backup-target consume entry, so this is still expected to
+    fire on every profile that has not wired either provider -- that is
     treated as honest signal about a real, currently-unaddressed gap, not a
     bug. See rule-set.json's $comment on CDS-SEC-080 for the full rationale.
     """
@@ -1118,8 +1120,10 @@ def _check_backup_target_binding(
         "path": "spec.modules",
         "value": None,
         "recommendation": [
-            "Wire a backup/restore-capable module once one is available in "
-            "this stack (see issues #210, #665, #668, #669).",
+            "Wire a backup/restore-capable module into this profile: bind the "
+            "restic file backup module (#668) to the stateful modules' "
+            "backup-source contracts, or the postgres module's built-in "
+            "backup-target provider (#665) via spec.backup.target.",
             "Until then, document and operate an out-of-band backup process "
             "for this profile's stateful modules.",
         ],

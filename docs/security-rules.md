@@ -36,18 +36,15 @@ Flags a profile where at least one module provides a `sql-database` or
 `file-database` contract (durable state) but no module in the profile
 consumes a `backup-target` contract anywhere.
 
-**Known limitation:** no module in this repository provides a
-`backup-target` contract yet (backup/restore support is tracked by
-[#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210),
-[#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665),
-[#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668),
-[#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669),
-all not yet started). This rule is therefore expected to fire on
-essentially every profile with a durable data store today. That is treated
-as honest, accurate signal about a real, currently-unaddressed NIS2
-Article 21(2)(c) business-continuity gap, not a bug -- the finding will stop
-firing for a given profile once a backup-capable module exists and is wired
-into it.
+**Known limitation:** the rule counts only modules *consuming* a
+`backup-target` contract; the two shipped providers (the postgres module's
+built-in pgBackRest capability of issue #665, and the restic file backup
+module of issue #668) are wired into a profile through
+`spec.backup.target.contractRef` or `backup-source` bindings instead, so the
+finding still fires on profiles that have not wired either provider. Treat
+it as honest signal about a real NIS2 Article 21(2)(c) business-continuity
+gap: the finding stops firing for a given profile once a backup-capable
+module exists and is wired into it.
 
 ## CDS-SEC-081: Admin-facing service with no identity/auth module in profile
 

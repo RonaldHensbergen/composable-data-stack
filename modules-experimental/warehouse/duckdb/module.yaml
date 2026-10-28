@@ -63,6 +63,18 @@ spec:
           path: ${config.hostDirectory}/${config.filename}
           readOnly: ${config.readOnly}
 
+    - name: backup-source
+      contract:
+        kind: backup-source
+        spec:
+          # The whole warehouse is one file in the bind-mounted host
+          # directory (issue #668): a backup engine consumes this contract
+          # and bind-mounts the same directory read-only to snapshot it.
+          kind: bind
+          volumeName: ""
+          hostPath: ${config.hostDirectory}
+          readOnly: true
+
   implementation:
     kind: docker-compose
     compose:

@@ -1,0 +1,43 @@
+# images/restic/cds-restic-env
+#
+# Shared environment setup sourced by cds-restic-scheduler and
+# cds-restic-restore. Resolves the repository location from the
+# CDS_BACKUP_* variables rendered by the module:
+#   - CDS_BACKUP_TARGET_TYPE=file (default): the module's own encrypted
+#     restic-repo volume at /var/lib/restic-repo.
+#   - CDS_BACKUP_TARGET_TYPE=s3: restic's native S3 backend against
+#     CDS_BACKUP_S3_ENDPOINT/CDS_BACKUP_S3_BUCKET (any S3-compatible
+#     endpoint), with credentials from AWS_ACCESS_KEY_ID/
+#     AWS_SECRET_ACCESS_KEY (secret placeholders resolved by Docker Compose
+#     at runtime, never written into the rendered Compose file).
+# RESTIC_PASSWORD is mandatory: restic encrypts client-side and refuses to
+# operate without a key (fail closed).
+
+restic_env_setup() {
+    set -u
+
+    : "${CDS_BACKUP_TARGET_TYPE:=file}"
+    : "${RESTIC_CACHE_DIR:=/tmp/restic-cache}"
+    export RESTIC_CACHE_DIR
+    mkdir -p "$RESTIC_CACHE_DIR"
+
+    if [ "$CDS_BACKUP_TARGET_TYPE" = "s3" ]; then
+        if [ -z "${CDS_BACKUP_S3_ENDPOINT:-}" ] || [ -z "${CDS_BACKUP_S3_BUCKET:-}" ]; then
+            echo "cds-restic: CDS_BACKUP_TARGET_TYPE=s3 requires CDS_BACKUP_S3_ENDPOINT and CDS_BACKUP_S3_BUCKET" >&2
+            exit 1
+        fi
+        export RESTIC_REPOSITORY="s3:https://${CDS_BACKUP_S3_ENDPOINT}/${CDS_BACKUP_S3_BUCKET}"
+        if [ -n "${CDS_BACKUP_S3_REGION:-}" ]; then
+            export AWS_DEFAULT_REGION="$CDS_BACKUP_S3_REGION"
+        fi
+    else
+        # restic's local backend prefix is "local:" (the backup-target
+        # contract's protocol vocabulary calls it "file").
+        export RESTIC_REPOSITORY="local:/var/lib/restic-repo"
+    fi
+
+    if [ -z "${RESTIC_PASSWORD:-}" ]; then
+        echo "cds-restic: RESTIC_PASSWORD is empty; the repository is encrypted client-side and refuses to run without a key" >&2
+        exit 1
+    fi
+}
