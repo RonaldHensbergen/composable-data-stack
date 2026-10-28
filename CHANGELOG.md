@@ -13,6 +13,12 @@ The format is based on Keep a Changelog.
   metadata volumes and profile-secret-backed credentials. The module is
   explicitly unsuitable for production because it has no redundancy
   (#663).
+- Added an experimental scheduled object-storage backup module that writes
+  immutable, timestamped S3-compatible snapshots to a separately configured
+  destination (#669). Like the other backup modules it is production-only
+  (E143), and its explicit `productionSuitable: false` marking (plaintext
+  snapshots, operator-managed restore) requires a scoped CDS-SEC-073
+  waiver in production.
 
 ### Fixed
 

@@ -163,7 +163,12 @@ the repository in plaintext, and restores the newest restore point
 byte-for-byte into both sources within the profile's
 `rpoMinutes`/`rtoMinutes`. The object-storage
 ([#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669))
-provider is expected to ship an equivalent automated procedure.
+capability ships as the experimental
+[`object-storage-backup`](../modules-experimental/backup/object-storage/README.md)
+module: scheduled, immutable, timestamped snapshot copies to a separate
+S3-compatible destination. It has no automated runtime proof yet -- restore
+and retention remain operator-managed, and its `productionSuitable: false`
+marking requires a scoped CDS-SEC-073 waiver in production.
 
 ## 6. The built-in warehouse backup provider (#665)
 

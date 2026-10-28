@@ -1,0 +1,167 @@
+# yaml-language-server: $schema=../../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: object-storage-backup
+  category: backup
+  version: "0.1.0"
+  displayName: Object storage snapshots (experimental)
+  productionSuitable: false
+  description: >
+    Scheduled, immutable-prefix copies of an object-storage bucket to a
+    separate S3-compatible destination. Each run creates a timestamped
+    snapshot so overwrites and deletions in the source do not erase earlier
+    copies. Recovery and destination retention remain operator-managed.
+    A production-only piece like the other backup modules: its service
+    renders only in production profiles, and instantiating it elsewhere
+    fails validation (E143).
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: rclone
+      ports: []
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - sourceStorage
+      - destination
+    properties:
+      sourceStorage:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.object-storage$"
+
+      destination:
+        type: object
+        additionalProperties: false
+        required:
+          - endpoint
+          - bucket
+          - region
+          - accessKeyFrom
+          - secretKeyFrom
+        properties:
+          endpoint:
+            type: string
+            minLength: 8
+            pattern: "^https?://[^/]+$"
+            description: >-
+              S3-compatible destination endpoint, including http:// or
+              https:// and an optional port. Prefer a different backend and
+              host from the source.
+          bucket:
+            type: string
+            minLength: 3
+            maxLength: 63
+            pattern: "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])$"
+          region:
+            type: string
+            minLength: 1
+          accessKeyFrom:
+            type: string
+            pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+            description: Profile secret alias with write/list access to the destination.
+          secretKeyFrom:
+            type: string
+            pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+            description: Profile secret alias with write/list access to the destination.
+          pathStyle:
+            type: boolean
+            default: true
+
+      prefix:
+        type: string
+        pattern: "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+        default: cds-object-storage-snapshots
+        description: Destination prefix under which timestamped snapshots are stored.
+
+      intervalHours:
+        type: integer
+        minimum: 1
+        maximum: 720
+        default: 24
+        description: Hours to sleep after each successful snapshot.
+
+  consumes:
+    - name: source
+      contract:
+        kind: object-storage
+      required: true
+      mappedFrom: spec.config.sourceStorage
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        # Snapshot sidecar: copies the bound object-storage bucket to a
+        # timestamped, immutable prefix on the destination on a schedule.
+        # Production pieces only; a non-production render contributes no
+        # services, and instantiating the module outside production fails
+        # validation (E143).
+        rclone:
+          production: true
+          image: rclone/rclone:1.74.0@sha256:d2e0e88359d0b2e67cfcd2c43d5405185eb8adfc207079df27c42da82c5207bc
+          entrypoint:
+            - /bin/sh
+            - -ec
+          command:
+            - |
+              if [ "$${RCLONE_CONFIG_SOURCE_ENDPOINT%/}" = "$${RCLONE_CONFIG_DESTINATION_ENDPOINT%/}" ] &&
+                [ "$${RCLONE_SOURCE_BUCKET}" = "$${RCLONE_DESTINATION_BUCKET}" ]; then
+                echo "Source and destination must not be the same endpoint and bucket." >&2
+                exit 1
+              fi
+              while true; do
+                snapshot="$(date -u +%Y%m%dT%H%M%SZ)"
+                echo "Creating object-storage snapshot $${SNAPSHOT_PREFIX}/$${RCLONE_SOURCE_BUCKET}/$${snapshot}"
+                rclone --config /dev/null copy \
+                  "source:$${RCLONE_SOURCE_BUCKET}" \
+                  "destination:$${RCLONE_DESTINATION_BUCKET}/$${SNAPSHOT_PREFIX}/$${RCLONE_SOURCE_BUCKET}/$${snapshot}" \
+                  --immutable \
+                  --log-level INFO
+                sleep "$${SNAPSHOT_INTERVAL_HOURS}h"
+              done
+          restart: unless-stopped
+          init: true
+          user: "1000:1000"
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 128
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700
+          environment:
+            RCLONE_CONFIG_SOURCE_TYPE: s3
+            RCLONE_CONFIG_SOURCE_PROVIDER: Other
+            RCLONE_CONFIG_SOURCE_ENV_AUTH: "false"
+            RCLONE_CONFIG_SOURCE_ACCESS_KEY_ID: "${bindings.source.accessKey}"
+            RCLONE_CONFIG_SOURCE_SECRET_ACCESS_KEY: "${bindings.source.secretKey}"
+            RCLONE_CONFIG_SOURCE_ENDPOINT: "${bindings.source.endpoint}"
+            RCLONE_CONFIG_SOURCE_REGION: "${bindings.source.region}"
+            RCLONE_CONFIG_SOURCE_FORCE_PATH_STYLE: "${bindings.source.pathStyle}"
+            RCLONE_SOURCE_BUCKET: "${bindings.source.bucket}"
+            RCLONE_CONFIG_DESTINATION_TYPE: s3
+            RCLONE_CONFIG_DESTINATION_PROVIDER: Other
+            RCLONE_CONFIG_DESTINATION_ENV_AUTH: "false"
+            RCLONE_CONFIG_DESTINATION_ACCESS_KEY_ID: "${config.destination.accessKeyFrom}"
+            RCLONE_CONFIG_DESTINATION_SECRET_ACCESS_KEY: "${config.destination.secretKeyFrom}"
+            RCLONE_CONFIG_DESTINATION_ENDPOINT: "${config.destination.endpoint}"
+            RCLONE_CONFIG_DESTINATION_REGION: "${config.destination.region}"
+            RCLONE_CONFIG_DESTINATION_FORCE_PATH_STYLE: "${config.destination.pathStyle}"
+            RCLONE_DESTINATION_BUCKET: "${config.destination.bucket}"
+            SNAPSHOT_PREFIX: "${config.prefix}"
+            SNAPSHOT_INTERVAL_HOURS: "${config.intervalHours}"
