@@ -6,6 +6,14 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added a single-node Garage S3-compatible object-storage module and
+  provider-neutral `object-storage` contract, with persistent data and
+  metadata volumes and profile-secret-backed credentials. The module is
+  explicitly unsuitable for production because it has no redundancy
+  (#663).
+
 ### Fixed
 
 - Fixed PostgreSQL dialect detection in the dagster workdir's event
