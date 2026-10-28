@@ -45,7 +45,12 @@ with `--remote`/`--ref`) for offline/dev workflows. Use `--into` to choose a
 destination root, `--dry-run` to inspect the copy plan first, and `--force` to
 replace conflicting local files. Successful fetches record tracking metadata
 in `.cds/get-manifest.json` (including the resolved commit SHA) for future
-update workflows.
+update workflows. The versioned manifest records typed profile, module,
+contract, and runtime assets with their source and local paths, dependency
+relationships, and SHA-256 hashes for copied files. Contract records point
+to their declaration in `module.yaml`; compare each recorded file hash with
+the local file to detect edits made after fetching. The manifest contains
+provenance and hashes, not copies of asset contents.
 
 Source trust is opt-in. Set `cds config set get.allowedSources
 "owner,owner/repo"` (or the `CDS_GET_ALLOWED_SOURCES` environment variable,

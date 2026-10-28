@@ -1,4 +1,5 @@
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -78,6 +79,98 @@ COPY images/demo/entrypoint.sh /entrypoint.sh
 
 
 class GetterTest(unittest.TestCase):
+    def test_manifest_tracks_assets_dependencies_and_file_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            _write(
+                source_root / "profiles" / "demo" / "profile.yaml",
+                """apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: provider
+      source: ../../modules/apps/demo
+      config: {}
+    - id: consumer
+      source: ../../modules/apps/demo
+      dependsOn: [provider]
+      config:
+        database:
+          contractRef: provider.demo-output
+""",
+            )
+            module_path = source_root / "modules" / "apps" / "demo" / "module.yaml"
+            _write(
+                module_path,
+                """apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: demo
+spec:
+  provides:
+    - name: demo-output
+      contract:
+        kind: sql-database
+  consumes:
+    - name: database
+      contract:
+        kind: sql-database
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        app:
+          build:
+            context: ../../../
+            dockerfile: images/demo/Dockerfile
+""",
+            )
+
+            _actions, manifest_path, _conflicts = fetch_profile(
+                "demo",
+                local=str(source_root),
+                destination_root=destination_root,
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = manifest["profiles"]["demo"]
+            assets = {(asset["type"], asset["id"]): asset for asset in entry["assets"]}
+
+            self.assertEqual(manifest["version"], 2)
+            self.assertIn(("profile", "demo"), assets)
+            self.assertIn(("module", "provider"), assets)
+            self.assertIn(("module", "consumer"), assets)
+            self.assertEqual(
+                assets[("module", "consumer")]["dependencies"],
+                [
+                    {"type": "contract", "id": "provider.demo-output"},
+                    {"type": "module", "id": "provider"},
+                ],
+            )
+            self.assertEqual(
+                assets[("contract", "provider.demo-output")]["direction"],
+                "provided",
+            )
+            self.assertEqual(
+                assets[("contract", "consumer.database")]["direction"],
+                "consumed",
+            )
+            self.assertEqual(
+                assets[("module", "consumer")]["destinationPath"],
+                "modules/apps/demo",
+            )
+
+            local_profile = destination_root / "profiles" / "demo" / "profile.yaml"
+            self.assertEqual(
+                entry["fileHashes"]["profiles/demo/profile.yaml"],
+                hashlib.sha256(local_profile.read_bytes()).hexdigest(),
+            )
+
     def test_fetch_profile_copies_profile_module_and_build_assets(self) -> None:
         with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
             source_root = Path(source_dir)

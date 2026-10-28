@@ -6,6 +6,14 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added typed provenance records to the `cds get` tracking manifest
+  for fetched profiles, modules, contracts, and runtime assets, including
+  source/local paths, dependency relationships, and per-file SHA-256 hashes
+  for detecting local edits. Existing profile entries remain available in
+  the version 2 manifest (#346).
+
 ### Fixed
 
 - Hardened cds-runtime's thread model and measured its read path
