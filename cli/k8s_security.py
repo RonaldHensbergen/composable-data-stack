@@ -78,6 +78,52 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
                         ["Declare both requests and limits for the container."],
                         category="configuration-management",
                     ))
+            service_type = (workload.get("service") or {}).get("type")
+            if service_type in ("NodePort", "LoadBalancer"):
+                findings.append(_finding(
+                    "CDS-K8S-007",
+                    "low",
+                    (
+                        f'Workload "{module_id}/{workload_name}" exposes a '
+                        f"{service_type} service; the generated NetworkPolicy must "
+                        "allow ingress from all sources on its ports."
+                    ),
+                    f"{path}.service.type",
+                    module_id,
+                    [
+                        "Confirm the workload is meant to be reachable cluster-wide "
+                        "or externally; prefer ClusterIP with an explicit ingress "
+                        "controller otherwise."
+                    ],
+                ))
+        for index, rule in enumerate(
+            (kubernetes.get("serviceAccount") or {}).get("rbac") or []
+        ):
+            if not isinstance(rule, dict):
+                continue
+            wildcard_fields = [
+                field
+                for field in ("apiGroups", "resources", "verbs")
+                if isinstance(rule.get(field), list) and "*" in rule[field]
+            ]
+            if wildcard_fields:
+                findings.append(_finding(
+                    "CDS-K8S-006",
+                    "medium",
+                    (
+                        f'RBAC rule {index} of module "{module_id}" grants wildcard '
+                        f'{" and ".join(wildcard_fields)}; least-privilege rules name '
+                        "every API group, resource, and verb explicitly."
+                    ),
+                    f"module:{module_id}.implementation.kubernetes.serviceAccount."
+                    f"rbac.{index}",
+                    module_id,
+                    [
+                        "Replace the wildcard with the explicit API groups, "
+                        "resources, and verbs the workload needs."
+                    ],
+                    category="configuration-management",
+                ))
     return findings
 
 
@@ -124,11 +170,13 @@ def _finding(
         # declarative rule-set engine has no scope for the plan's
         # Kubernetes-specific implementation), so their compliance category
         # can't be looked up the way cli.security.run_security_validation()
-        # does for rule-set findings. CDS-K8S-001-004 are container/pod
+        # does for rule-set findings. CDS-K8S-001-004 and CDS-K8S-007 (the
+        # NodePort/LoadBalancer ingress exposure note) are container/pod
         # runtime-hardening posture checks, so they default to the matching
         # cli.security_common.COMPLIANCE_CATEGORIES value; CDS-K8S-005
-        # (resource requests/limits) overrides this below since it's a
-        # capacity-governance concern rather than runtime-hardening posture.
+        # (resource requests/limits) and CDS-K8S-006 (wildcard RBAC rules)
+        # override this below since they're capacity-governance and
+        # privilege-governance concerns rather than runtime-hardening posture.
         "category": category,
         "message": message,
         "path": path,

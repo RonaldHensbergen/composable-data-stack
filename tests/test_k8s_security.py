@@ -150,6 +150,82 @@ class KubernetesSecurityTest(unittest.TestCase):
 
         self.assertEqual(scan_k8s_security(plan), [])
 
+    def test_wildcard_rbac_rule_is_flagged(self) -> None:
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["serviceAccount"] = {
+            "rbac": [
+                {
+                    "apiGroups": ["*"],
+                    "resources": ["pods"],
+                    "verbs": ["get", "list", "*"],
+                }
+            ]
+        }
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-006"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "medium")
+        self.assertEqual(matching[0]["category"], "configuration-management")
+        self.assertIn("apiGroups", matching[0]["message"])
+        self.assertIn("verbs", matching[0]["message"])
+        self.assertEqual(
+            matching[0]["path"],
+            "module:demo.implementation.kubernetes.serviceAccount.rbac.0",
+        )
+
+    def test_explicit_rbac_rule_is_not_flagged(self) -> None:
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["serviceAccount"] = {
+            "rbac": [
+                {
+                    "apiGroups": [""],
+                    "resources": ["pods"],
+                    "verbs": ["get", "list"],
+                    "resourceNames": ["my-pod"],
+                }
+            ]
+        }
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
+    def test_nodeport_service_exposure_is_flagged(self) -> None:
+        plan = self.secure_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["service"] = {
+            "type": "NodePort",
+            "ports": [{"name": "http", "port": 8080}],
+        }
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-007"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "low")
+        self.assertEqual(matching[0]["category"], "system-hardening")
+        self.assertIn("NodePort", matching[0]["message"])
+        self.assertEqual(
+            matching[0]["path"],
+            "module:demo.implementation.kubernetes.workloads.app.service.type",
+        )
+
+    def test_clusterip_service_is_not_flagged(self) -> None:
+        plan = self.secure_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["service"] = {
+            "type": "ClusterIP",
+            "ports": [{"name": "http", "port": 8080}],
+        }
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
 
 if __name__ == "__main__":
     unittest.main()

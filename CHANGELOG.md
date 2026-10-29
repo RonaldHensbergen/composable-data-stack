@@ -8,6 +8,21 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added NetworkPolicy and ServiceAccount generation to the `helm` render
+  target, completing the Kubernetes production resources (issue #75):
+  every module's chart now ships a default-deny NetworkPolicy whose allow
+  rules are derived from the plan's contract bindings (consumer-to-
+  provider egress and matching provider ingress on the contract port,
+  same-module traffic, and cluster DNS egress; NodePort/LoadBalancer
+  services open ingress on exactly their exposed ports), and every
+  workload runs under a dedicated per-module ServiceAccount with opt-in
+  least-privilege RBAC via the new
+  `implementation.kubernetes.serviceAccount.rbac` rules — no rules means
+  no Role, no RoleBinding, and no mounted API token. Extended the
+  Kubernetes security scan with CDS-K8S-006 (wildcard RBAC grants) and
+  CDS-K8S-007 (NodePort/LoadBalancer ingress exposure), and added a W128
+  warning when a binding carries no port evidence and its egress rule
+  cannot be port-scoped.
 - Added a single-node Garage S3-compatible object-storage module and
   provider-neutral `object-storage` contract, with persistent data and
   metadata volumes and profile-secret-backed credentials. The module is

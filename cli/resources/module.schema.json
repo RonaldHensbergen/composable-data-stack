@@ -293,6 +293,74 @@
             "$ref": "#/$defs/kubernetesConfigMap"
           },
           "description": "Bind-mounted files promoted to ConfigMaps, keyed by the compose bind source path."
+        },
+        "serviceAccount": {
+          "$ref": "#/$defs/kubernetesServiceAccount"
+        }
+      }
+    },
+    "kubernetesServiceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Settings for the module's generated ServiceAccount. The ServiceAccount is always created; RBAC rules are optional and empty by default (least privilege).",
+      "properties": {
+        "rbac": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/kubernetesRbacRule"
+          },
+          "description": "RBAC rules granted to the module's ServiceAccount via a generated Role and RoleBinding. No rules means no API access and no mounted token."
+        }
+      }
+    },
+    "kubernetesRbacRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiGroups",
+        "resources",
+        "verbs"
+      ],
+      "description": "One rbac.authorization.k8s.io rule, rendered verbatim into the module's Role.",
+      "properties": {
+        "apiGroups": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "API groups the rule applies to, e.g. [\"\"] for the core group."
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Resources the rule applies to, e.g. [\"pods\"]."
+        },
+        "verbs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Verbs the rule grants, e.g. [\"get\", \"list\"]."
+        },
+        "resourceNames": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Optional allowlist restricting the rule to named resource instances."
         }
       }
     },
