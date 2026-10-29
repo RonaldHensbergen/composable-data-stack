@@ -11,7 +11,9 @@ trustworthy once restored" is exercised end to end for bucket contents:
    bucket, and start the backup service.
 3. Wait for the service's scheduled snapshot pass: the marker must
    appear under an immutable, UTC-timestamped prefix on the destination
-   (<prefix>/<bucket>/<timestamp>/).
+   (<prefix>/<bucket>/<timestamp>/), and the pass must finish by writing
+   its .cds-snapshot-complete marker -- only a completed prefix counts
+   as a snapshot.
 4. Overwrite the marker in the source bucket, then restore it by copying
    the timestamped prefix back with rclone -- the documented recovery
    procedure -- and verify the original content returned byte-for-byte.
@@ -48,6 +50,7 @@ SNAPSHOT_PREFIX = "cds-object-storage-snapshots"
 SOURCE_BUCKET = "cds-data"
 DESTINATION_BUCKET = "cds-backups"
 MARKER_KEY = "marker.txt"
+COMPLETION_MARKER = ".cds-snapshot-complete"
 MARKER_V1 = "cds-objstore-proof-marker-v1\n"
 MARKER_V2 = "cds-objstore-proof-marker-v2-overwritten\n"
 
@@ -277,7 +280,8 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
 
     def _wait_for_snapshot(self, deadline_seconds: int = 300) -> str:
         """Returns the snapshot's UTC-timestamped directory id once the
-        seeded marker has landed under it on the destination."""
+        seeded marker and the pass's completion marker have both landed
+        under it on the destination."""
         listing_base = f"destination:{DESTINATION_BUCKET}/{SNAPSHOT_PREFIX}/{SOURCE_BUCKET}"
         started = time.monotonic()
         while time.monotonic() - started < deadline_seconds:
@@ -286,13 +290,20 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
                 allow_failure=True,
             )
             if listing.returncode == 0:
+                entries: dict[str, set[str]] = {}
                 for line in listing.stdout.splitlines():
                     parts = line.strip("/").split("/")
-                    if len(parts) == 2 and parts[1] == MARKER_KEY:
-                        return parts[0]
+                    if len(parts) == 2:
+                        entries.setdefault(parts[0], set()).add(parts[1])
+                for snapshot_id in sorted(entries):
+                    # Only a completed pass counts: the module writes the
+                    # .cds-snapshot-complete marker last, so its presence
+                    # proves the marker object made it too.
+                    if entries[snapshot_id] >= {MARKER_KEY, COMPLETION_MARKER}:
+                        return snapshot_id
             time.sleep(5)
         self.fail(
-            f"no snapshot of {SOURCE_BUCKET} appeared on the destination within "
+            f"no completed snapshot of {SOURCE_BUCKET} appeared on the destination within "
             f"{deadline_seconds}s; backup logs:\n"
             + self._run([*self._compose(), "logs", "--tail", "150", BACKUP_SERVICE]).stdout
         )
@@ -309,83 +320,78 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
                 "\n".join(f"{name}={value}" for name, value in ENV_VALUES.items()) + "\n",
                 encoding="utf-8",
             )
-            addCleanup = self.addCleanup
-            try:
-                profile_path = self._work / "profile.yaml"
-                profile_path.write_text(yaml.safe_dump(_profile()), encoding="utf-8")
-                with self.subTest("validate and render"):
-                    diagnostics = validate_profile(str(profile_path))
-                    self.assertEqual(
-                        [d.format() for d in diagnostics if d.level == "error"], []
-                    )
-                    plan, _plan_diagnostics = build_plan(
-                        str(profile_path), env_file=str(self._env_file)
-                    )
-                    assert plan is not None
-                    compose_text, render_diagnostics = render_compose(
-                        plan, env_file=str(self._env_file)
-                    )
-                    self.assertEqual(
-                        [d.format() for d in render_diagnostics if d.level == "error"], []
-                    )
-                    COMPOSE_FILE.write_text(compose_text, encoding="utf-8")
-                addCleanup(lambda: COMPOSE_FILE.unlink(missing_ok=True))
-                addCleanup(
-                    lambda: self._run(
-                        [*self._compose(), "down", "-v", "--remove-orphans"],
-                        timeout=300, allow_failure=True,
-                    )
+            profile_path = self._work / "profile.yaml"
+            profile_path.write_text(yaml.safe_dump(_profile()), encoding="utf-8")
+            with self.subTest("validate and render"):
+                diagnostics = validate_profile(str(profile_path))
+                self.assertEqual(
+                    [d.format() for d in diagnostics if d.level == "error"], []
                 )
+                plan, _plan_diagnostics = build_plan(
+                    str(profile_path), env_file=str(self._env_file)
+                )
+                assert plan is not None
+                compose_text, render_diagnostics = render_compose(
+                    plan, env_file=str(self._env_file)
+                )
+                self.assertEqual(
+                    [d.format() for d in render_diagnostics if d.level == "error"], []
+                )
+                COMPOSE_FILE.write_text(compose_text, encoding="utf-8")
+            self.addCleanup(lambda: COMPOSE_FILE.unlink(missing_ok=True))
+            self.addCleanup(
+                lambda: self._run(
+                    [*self._compose(), "down", "-v", "--remove-orphans"],
+                    timeout=300, allow_failure=True,
+                )
+            )
 
-                with self.subTest("boot storage services and seed the source bucket"):
-                    self._run([*self._compose(), "up", "-d", SOURCE_SERVICE, DESTINATION_SERVICE])
-                    self._wait_healthy(SOURCE_SERVICE)
-                    self._wait_healthy(DESTINATION_SERVICE)
-                    self._seed(MARKER_V1)
+            with self.subTest("boot storage services and seed the source bucket"):
+                self._run([*self._compose(), "up", "-d", SOURCE_SERVICE, DESTINATION_SERVICE])
+                self._wait_healthy(SOURCE_SERVICE)
+                self._wait_healthy(DESTINATION_SERVICE)
+                self._seed(MARKER_V1)
 
-                with self.subTest("scheduled snapshot reaches the destination"):
-                    self._run([*self._compose(), "up", "-d", BACKUP_SERVICE])
-                    snapshot_id = self._wait_for_snapshot()
-                    logs = self._run(
-                        [*self._compose(), "logs", "--tail", "150", BACKUP_SERVICE]
-                    ).stdout
-                    self.assertIn(
-                        f"Creating object-storage snapshot {SNAPSHOT_PREFIX}/{SOURCE_BUCKET}",
-                        logs,
-                    )
-                    self.assertRegex(snapshot_id, r"^\d{8}T\d{6}Z$")
+            with self.subTest("scheduled snapshot reaches the destination"):
+                self._run([*self._compose(), "up", "-d", BACKUP_SERVICE])
+                snapshot_id = self._wait_for_snapshot()
+                logs = self._run(
+                    [*self._compose(), "logs", "--tail", "150", BACKUP_SERVICE]
+                ).stdout
+                self.assertIn(
+                    f"Creating object-storage snapshot {SNAPSHOT_PREFIX}/{SOURCE_BUCKET}",
+                    logs,
+                )
+                self.assertIn(f"Snapshot {snapshot_id} complete", logs)
+                self.assertRegex(snapshot_id, r"^\d{8}T\d{6}Z$")
 
-                with self.subTest("overwrite is recoverable from the snapshot"):
-                    self._seed(MARKER_V2)
-                    restored = self._rclone(
-                        _source_env(),
-                        ["cat", f"source:{SOURCE_BUCKET}/{MARKER_KEY}"],
-                    )
-                    self.assertEqual(restored.stdout, MARKER_V2)
+            with self.subTest("overwrite is recoverable from the snapshot"):
+                self._seed(MARKER_V2)
+                restored = self._rclone(
+                    _source_env(),
+                    ["cat", f"source:{SOURCE_BUCKET}/{MARKER_KEY}"],
+                )
+                self.assertEqual(restored.stdout, MARKER_V2)
 
-                    # The documented recovery procedure: copy the timestamped
-                    # prefix back into the source bucket.
-                    self._rclone(
-                        [*_source_env(), *_destination_env()],
-                        [
-                            "copy",
-                            f"destination:{DESTINATION_BUCKET}/{SNAPSHOT_PREFIX}/{SOURCE_BUCKET}/{snapshot_id}",
-                            f"source:{SOURCE_BUCKET}",
-                        ],
-                    )
-                    recovered = self._rclone(
-                        _source_env(),
-                        ["cat", f"source:{SOURCE_BUCKET}/{MARKER_KEY}"],
-                    )
-                    self.assertEqual(
-                        recovered.stdout,
-                        MARKER_V1,
-                        "the snapshot restore did not bring back the original content",
-                    )
-            finally:
-                # Keep the compose file's teardown order: down -v runs in the
-                # cleanups; this block only guards attribute cleanup.
-                pass
+                # The documented recovery procedure: copy the timestamped
+                # prefix back into the source bucket.
+                self._rclone(
+                    [*_source_env(), *_destination_env()],
+                    [
+                        "copy",
+                        f"destination:{DESTINATION_BUCKET}/{SNAPSHOT_PREFIX}/{SOURCE_BUCKET}/{snapshot_id}",
+                        f"source:{SOURCE_BUCKET}",
+                    ],
+                )
+                recovered = self._rclone(
+                    _source_env(),
+                    ["cat", f"source:{SOURCE_BUCKET}/{MARKER_KEY}"],
+                )
+                self.assertEqual(
+                    recovered.stdout,
+                    MARKER_V1,
+                    "the snapshot restore did not bring back the original content",
+                )
 
 
 if __name__ == "__main__":

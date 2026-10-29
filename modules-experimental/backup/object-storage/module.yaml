@@ -107,9 +107,13 @@ spec:
       services:
         # Snapshot sidecar: copies the bound object-storage bucket to a
         # timestamped, immutable prefix on the destination on a schedule.
-        # Production pieces only; a non-production render contributes no
-        # services, and instantiating the module outside production fails
-        # validation (E143).
+        # Each successful pass ends by writing a .cds-snapshot-complete
+        # marker object into its prefix, so a prefix left behind by a
+        # failed pass is recognizable as partial and never restored from.
+        # A failed pass waits five minutes and retries with a fresh
+        # timestamp instead of crash-looping. Production pieces only; a
+        # non-production render contributes no services, and instantiating
+        # the module outside production fails validation (E143).
         rclone:
           production: true
           image: rclone/rclone:1.74.0@sha256:d2e0e88359d0b2e67cfcd2c43d5405185eb8adfc207079df27c42da82c5207bc
@@ -125,13 +129,22 @@ spec:
               fi
               while true; do
                 snapshot="$(date -u +%Y%m%dT%H%M%SZ)"
+                snapshot_dest="destination:$${RCLONE_DESTINATION_BUCKET}/$${SNAPSHOT_PREFIX}/$${RCLONE_SOURCE_BUCKET}/$${snapshot}"
                 echo "Creating object-storage snapshot $${SNAPSHOT_PREFIX}/$${RCLONE_SOURCE_BUCKET}/$${snapshot}"
-                rclone --config /dev/null copy \
-                  "source:$${RCLONE_SOURCE_BUCKET}" \
-                  "destination:$${RCLONE_DESTINATION_BUCKET}/$${SNAPSHOT_PREFIX}/$${RCLONE_SOURCE_BUCKET}/$${snapshot}" \
-                  --immutable \
-                  --log-level INFO
-                sleep "$${SNAPSHOT_INTERVAL_HOURS}h"
+                if rclone --config /dev/null copy \
+                    "source:$${RCLONE_SOURCE_BUCKET}" \
+                    "$${snapshot_dest}" \
+                    --immutable \
+                    --log-level INFO &&
+                  printf 'snapshot complete\n' | rclone --config /dev/null rcat \
+                    "$${snapshot_dest}/.cds-snapshot-complete" \
+                    --log-level INFO; then
+                  echo "Snapshot $${snapshot} complete"
+                  sleep "$$(($${SNAPSHOT_INTERVAL_HOURS} * 3600))"
+                else
+                  echo "Snapshot $${snapshot} failed; the partial prefix stays behind without a completion marker" >&2
+                  sleep 300
+                fi
               done
           restart: unless-stopped
           init: true

@@ -166,10 +166,14 @@ byte-for-byte into both sources within the profile's
 capability ships as the experimental
 [`object-storage-backup`](../modules-experimental/backup/object-storage/README.md)
 module: scheduled, immutable, timestamped snapshot copies to a separate
-S3-compatible destination. Its runtime proof
+S3-compatible destination; every successful pass ends by writing a
+`.cds-snapshot-complete` marker into its prefix, so a prefix left by a
+failed pass is recognizable as partial and is never restored from. Its
+runtime proof
 (`tests/test_object_storage_backup_runtime.py`) boots two Garage
 instances (source and destination), seeds a marker object, waits for the
-scheduled snapshot pass, overwrites the marker, and restores it
+scheduled snapshot pass and its completion marker, overwrites the marker,
+and restores it
 byte-for-byte from the timestamped prefix with the documented recovery
 procedure. Destination retention stays operator-managed, and the module's
 `productionSuitable: false` marking requires a scoped CDS-SEC-073 waiver

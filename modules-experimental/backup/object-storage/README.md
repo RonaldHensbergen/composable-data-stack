@@ -38,12 +38,17 @@ Source credentials should only need to list and read the selected source
 bucket. Destination credentials need to list and write objects, but do not
 need delete permissions. Prefer a destination on a different backend and host:
 another bucket on the source Garage instance does not protect against failure
-of that instance or its disks.
+of that instance or its disks. The service's same-endpoint guard is a literal
+string comparison of the endpoint and bucket: the same storage reached under
+a different hostname, port, or scheme passes it, so the destination choice
+remains the operator's responsibility.
 
 ## Snapshot layout and recovery
 
 The service starts a snapshot immediately, then sleeps for `intervalHours`
-after each successful copy. Files are stored under:
+after each successful copy. A failed pass logs the error, leaves its partial
+prefix in place, and retries with a fresh timestamp after five minutes
+instead of crash-looping. Files are stored under:
 
 ```text
 <prefix>/<source-bucket>/<UTC timestamp>/<object key>
@@ -55,16 +60,26 @@ For example:
 cds-object-storage-snapshots/cds-data/20261028T120000Z/reports/daily.csv
 ```
 
-To restore a snapshot, copy that timestamped prefix back to the source bucket
-with an S3 client or `rclone copy`. The module does not automatically delete
+Every successful pass ends by writing a `.cds-snapshot-complete` marker
+object into its own timestamped prefix. A prefix without that marker is a
+partial copy left behind by a failed pass; never restore from it. To restore
+a snapshot, copy a marked timestamped prefix back to the source bucket with
+an S3 client or `rclone copy`. `rclone copy` overwrites current objects with
+the snapshot's older contents without confirmation, so run it with `--dry-run`
+first, or restore into a scratch bucket or prefix and verify the contents
+before replacing live data. The marker object is copied along with the
+snapshot; it is harmless, or exclude it with
+`rclone copy --exclude .cds-snapshot-complete`.
+
+The module does not automatically delete
 snapshots; configure and review destination lifecycle policies separately so
 they retain enough recovery points. It copies object contents, not bucket
 policies, access keys, ACLs, or an atomic point-in-time view of a bucket being
 actively modified. Validate restores before relying on them: a Docker-gated
 runtime proof (`tests/test_object_storage_backup_runtime.py`, run in the
 Docker Runtime Smoke Test workflow) exercises exactly this cycle -- seed,
-snapshot, overwrite, restore from the timestamped prefix -- against two real
-Garage instances.
+snapshot, overwrite, restore from a completed, marker-verified timestamped
+prefix -- against two real Garage instances.
 
 ## Example
 
