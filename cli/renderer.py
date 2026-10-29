@@ -10,6 +10,7 @@ import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -28,7 +29,7 @@ from .secret_leak import (
     declared_secret_env_names,
     resolved_secret_values,
 )
-from .utils import _atomic_write
+from .utils import _atomic_write, _compose_service_name, module_dns_host
 from .validator import validate_plan_marker_shapes
 
 
@@ -215,6 +216,8 @@ def render_compose(
     if not compose["volumes"]:
         compose.pop("volumes")
 
+    diagnostics.extend(_validate_provided_contract_hosts(plan, module_service_names))
+
     _add_cross_module_dependencies(compose, plan, module_service_names)
 
     output = yaml.safe_dump(compose, sort_keys=False)
@@ -250,6 +253,99 @@ def _is_valid_backend_port(value: Any) -> bool:
     if isinstance(value, str):
         return value.isdigit() and 1 <= int(value) <= 65535
     return isinstance(value, int) and 1 <= value <= 65535
+
+
+_DNS_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+def _endpoint_hostname(value: Any) -> str | None:
+    """
+    Extract the network hostname a contract endpoint advertises.
+
+    Bare values are hostnames; URL-shaped endpoints contribute only their
+    hostname part. Anything else (external DNS names containing dots,
+    host:port pairs, empty values) is outside the Compose network's
+    namespace and cannot be cross-checked against rendered services.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    if "://" in value:
+        try:
+            return urlsplit(value).hostname
+        except ValueError:
+            return None
+    return value
+
+
+def _validate_provided_contract_hosts(
+    plan: dict[str, Any],
+    module_service_names: dict[str, list[str]],
+) -> list[Diagnostic]:
+    """
+    Cross-check every provided contract's advertised network host against
+    the compose services the render actually produced (issue #1010).
+
+    Mirrors the E136 route check: a contract advertising a host nothing
+    answers on the Compose network fails closed with E147 instead of
+    shipping a broken endpoint. Multi-service modules advertise their
+    serving service via `serviceName`; that name is mapped through the same
+    service-naming rule the renderer uses. Hosts outside the Compose
+    namespace (dots, ports, credentials) are not checked, and modules
+    whose services failed to render are left to their own diagnostics.
+    """
+    diagnostics: list[Diagnostic] = []
+    for module in plan.get("modules", []):
+        if not isinstance(module, dict):
+            continue
+        module_id = str(module.get("id"))
+        rendered = module_service_names.get(module_id) or []
+        if not rendered:
+            continue
+        provides = module.get("provides")
+        if not isinstance(provides, dict):
+            continue
+        for provide_name, provided in provides.items():
+            if not isinstance(provided, dict):
+                continue
+            kind = provided.get("kind")
+            spec = provided.get("spec")
+            if not isinstance(spec, dict):
+                continue
+            candidates: list[tuple[str, str | None]] = []
+            if kind == "http-service":
+                advertised_service = spec.get("serviceName")
+                if isinstance(advertised_service, str) and advertised_service:
+                    candidates.append(
+                        ("serviceName", _compose_service_name(module_id, advertised_service))
+                    )
+                else:
+                    candidates.append(("host", spec.get("host")))
+            elif kind in ("sql-database", "cache-service"):
+                candidates.append(("host", spec.get("host")))
+            elif kind == "object-storage":
+                candidates.append(("endpoint", _endpoint_hostname(spec.get("endpoint"))))
+            for field, host in candidates:
+                if not isinstance(host, str) or not _DNS_LABEL_RE.match(host):
+                    continue
+                if host in rendered:
+                    continue
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E147",
+                    message=(
+                        f'Provided contract "{provide_name}" of module "{module_id}" '
+                        f'advertises network host "{host}", which is not a compose '
+                        "service the render produced for that module (rendered "
+                        f'services: {", ".join(rendered)}); consumers of the contract '
+                        "would resolve a hostname nothing answers. Instantiate "
+                        "the module with an id matching its compose service "
+                        "name, advertise the serving service via a "
+                        "serviceName field, or build the endpoint from "
+                        "${service.dns}."
+                    ),
+                    path=f"module:{module_id}.provides.{provide_name}.spec.{field}",
+                ))
+    return diagnostics
 
 
 def _generate_reverse_proxy_routes(
@@ -803,10 +899,18 @@ def _build_context(
             spec = contract.get("spec", {})
             bindings[consume_name] = spec if isinstance(spec, dict) else {}
 
+    implementation = module.get("implementation") or {}
+    compose_impl = implementation.get("compose") if isinstance(implementation, dict) else None
+    services = compose_impl.get("services") if isinstance(compose_impl, dict) else None
+    module_id = str(module.get("id"))
+
     return {
         "config": module.get("config", {}),
         "bindings": bindings,
-        "service": {"host": module.get("id")},
+        "service": {
+            "host": module_id,
+            "dns": module_dns_host(module_id, services),
+        },
         "secrets": secrets,
         "certificates": certificates,
     }
@@ -1457,13 +1561,6 @@ def _is_named_volume(value: str) -> bool:
     if value.startswith((".", "/", "~")):
         return False
     return "/" not in value and "\\" not in value
-
-
-def _compose_service_name(module_id: str, service_name: str) -> str:
-    """Normalize compose service names so module prefixes are not duplicated."""
-    if service_name == module_id or service_name.startswith(f"{module_id}-"):
-        return service_name
-    return f"{module_id}-{service_name}"
 
 
 def _add_cross_module_dependencies(

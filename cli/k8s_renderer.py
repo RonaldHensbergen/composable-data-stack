@@ -32,7 +32,6 @@ from .confinement import plan_declares_confinement
 from .diagnostics import Diagnostic
 from .renderer import (
     _build_context,
-    _compose_service_name,
     _merge_init_db_env,
     _resolve_expr,
     _resolve_profile_dir,
@@ -45,7 +44,7 @@ from .secret_leak import (
     declared_secret_env_names,
     resolved_secret_values,
 )
-from .utils import _atomic_write
+from .utils import _atomic_write, _compose_service_name
 from .validator import validate_plan_marker_shapes
 
 CHART_API_VERSION = "v2"

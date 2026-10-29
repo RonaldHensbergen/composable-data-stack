@@ -88,6 +88,7 @@ spec:
 - template placeholders, resolved at render time from four namespaces:
   - `${config.<field>}` reads the module configuration validated by `spec.configSchema`
   - `${service.host}` resolves to the module instance `id` declared in the profile, not to a service name under `spec.implementation.compose.services`; modules with multiple Compose services receive the same module `id` for this placeholder
+  - `${service.dns}` resolves to the Compose DNS name the module's services answer to: the renderer's compose service name for a single-service module (`<id>` when the service already carries the id prefix, `<id>-<service>` otherwise), so contract endpoints resolve even when the instance id differs from the service name (issue #1010); modules with multiple Compose services receive the instance `id` and name their serving service explicitly via the contract's `serviceName`
   - `${bindings.<contract>.<field>}` reads a field from a contract declared in `spec.consumes` and resolved by the profile
   - `${secrets.<alias>}` resolves a profile secret alias to a Docker Compose runtime placeholder such as `${CDS_DB_PASSWORD}`; CDS never embeds the secret value
   - `${certificates.<alias>.cert}` / `${certificates.<alias>.key}` (issue #578) resolve one half of a profile certificate alias declared under `spec.certificates.values` to its `${CDS_*}` runtime placeholder. CDS never generates, reads, or embeds certificate or private key material: the alias only names the environment variables the external secret/cert provider supplies, so an undeclared alias, a bare `certificates.<alias>` reference, or an unknown trailing part fails validation with `E129` instead of silently not substituting
@@ -124,6 +125,7 @@ specific source and availability:
 | `${config.<field>}` | The module configuration, after schema validation | The module is being rendered |
 | `${bindings.<contract>.<field>}` | A consumed contract resolved by the profile | The contract is declared in `spec.consumes` and has been bound |
 | `${service.host}` | The module instance `id` from the profile | The module is being rendered |
+| `${service.dns}` | The Compose DNS name of the module's services (single-service modules: the renderer's compose service name; multi-service modules: the instance `id`) | The module is being rendered |
 | `${secrets.<alias>}` | A profile secret alias | The alias is declared in `spec.secrets` |
 | `${certificates.<alias>.cert}` / `${certificates.<alias>.key}` | One half of a profile certificate alias | The alias is declared in `spec.certificates` |
 | `${ifNonempty:<path>,<prefix>,<suffix>}` | Conditional interpolation of a placeholder path | The module is being rendered |
@@ -236,6 +238,18 @@ contract, cross-checks the backend address against the compose services the
 render actually produced, and writes deterministic file-provider
 configuration next to the rendered compose file; invalid routing inputs
 fail with `E136` instead of silently generating broken config.
+
+The same fail-closed cross-check applies to plain provided contracts
+(issue #1010): every `http-service`, `sql-database`, `cache-service`,
+and `object-storage` contract's advertised network host (the `host`
+field, or the `endpoint`'s hostname part) must match a compose service
+the render actually produced for the providing module, and
+`http-service` contracts that advertise a `serviceName` have that name
+mapped through the renderer's service-naming rule first. Mismatches
+fail with `E147` instead of shipping a contract endpoint nothing
+answers. `${service.dns}` resolves through the same naming rule during
+planning, so single-service modules advertise a resolvable host for
+any instance id.
 
 A route's optional `certificate` names a profile certificate alias
 (`spec.certificates.values`, issue #578). The alias is only a name: CDS

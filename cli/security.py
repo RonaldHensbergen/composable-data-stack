@@ -22,7 +22,7 @@ from jsonschema import Draft202012Validator
 from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .planner import build_plan
-from .renderer import _compose_service_name, render_compose
+from .renderer import render_compose
 from .resolver import parse_contract_ref
 from .secret_leak import (
     declared_secret_env_names,
@@ -31,6 +31,7 @@ from .secret_leak import (
 )
 from .secrets import load_secrets_from_env
 from .security_common import SECRET_KEY_RE, SEVERITY_ORDER, infer_profile_class
+from .utils import _compose_service_name
 
 _PROFILE_SCOPES = {
     "profile",
