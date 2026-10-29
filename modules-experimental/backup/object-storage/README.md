@@ -32,6 +32,7 @@ production requires an explicit, scoped runtime-policy waiver for that rule.
 | `destination.pathStyle` | No | Destination addressing mode; defaults to `true` |
 | `prefix` | No | Snapshot prefix inside the destination bucket; defaults to `cds-object-storage-snapshots` |
 | `intervalHours` | No | Delay after each successful snapshot; defaults to 24 hours |
+| `retryDelaySeconds` | No | Delay before retrying a failed pass; defaults to 300 seconds |
 
 Use separate, least-privilege credentials for the source and destination.
 Source credentials should only need to list and read the selected source
@@ -47,8 +48,9 @@ remains the operator's responsibility.
 
 The service starts a snapshot immediately, then sleeps for `intervalHours`
 after each successful copy. A failed pass logs the error, leaves its partial
-prefix in place, and retries with a fresh timestamp after five minutes
-instead of crash-looping. Files are stored under:
+prefix in place, and retries with a fresh timestamp after
+`retryDelaySeconds` (300 seconds by default) instead of crash-looping.
+Files are stored under:
 
 ```text
 <prefix>/<source-bucket>/<UTC timestamp>/<object key>

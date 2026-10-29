@@ -18,7 +18,8 @@ The format is based on Keep a Changelog.
   destination (#669). Every successful pass writes a
   `.cds-snapshot-complete` marker into its prefix, so a prefix left behind
   by a failed pass is recognizable as partial; failed passes retry with a
-  fresh timestamp after five minutes instead of crash-looping. Like the
+  fresh timestamp after a configurable delay (`retryDelaySeconds`,
+  300 seconds by default) instead of crash-looping. Like the
   other backup modules it is production-only
   (E143), and its explicit `productionSuitable: false` marking (plaintext
   snapshots, operator-managed restore) requires a scoped CDS-SEC-073

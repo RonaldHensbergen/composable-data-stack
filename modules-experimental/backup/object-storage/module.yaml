@@ -94,6 +94,13 @@ spec:
         default: 24
         description: Hours to sleep after each successful snapshot.
 
+      retryDelaySeconds:
+        type: integer
+        minimum: 1
+        maximum: 3600
+        default: 300
+        description: Seconds to wait before retrying a failed snapshot pass.
+
   consumes:
     - name: source
       contract:
@@ -110,10 +117,11 @@ spec:
         # Each successful pass ends by writing a .cds-snapshot-complete
         # marker object into its prefix, so a prefix left behind by a
         # failed pass is recognizable as partial and never restored from.
-        # A failed pass waits five minutes and retries with a fresh
-        # timestamp instead of crash-looping. Production pieces only; a
-        # non-production render contributes no services, and instantiating
-        # the module outside production fails validation (E143).
+        # A failed pass waits the configured retry delay and retries with
+        # a fresh timestamp instead of crash-looping. Production pieces
+        # only; a non-production render contributes no services, and
+        # instantiating the module outside production fails validation
+        # (E143).
         rclone:
           production: true
           image: rclone/rclone:1.74.0@sha256:d2e0e88359d0b2e67cfcd2c43d5405185eb8adfc207079df27c42da82c5207bc
@@ -143,7 +151,7 @@ spec:
                   sleep "$$(($${SNAPSHOT_INTERVAL_HOURS} * 3600))"
                 else
                   echo "Snapshot $${snapshot} failed; the partial prefix stays behind without a completion marker" >&2
-                  sleep 300
+                  sleep "$${SNAPSHOT_RETRY_SECONDS}"
                 fi
               done
           restart: unless-stopped
@@ -178,3 +186,4 @@ spec:
             RCLONE_DESTINATION_BUCKET: "${config.destination.bucket}"
             SNAPSHOT_PREFIX: "${config.prefix}"
             SNAPSHOT_INTERVAL_HOURS: "${config.intervalHours}"
+            SNAPSHOT_RETRY_SECONDS: "${config.retryDelaySeconds}"

@@ -121,14 +121,16 @@ class ObjectStorageBackupModuleTest(unittest.TestCase):
     def test_snapshot_pass_writes_completion_marker_and_retries_with_backoff(self) -> None:
         command = "\n".join(self.service["command"])
         # A failed pass must not exit the service: it retries with a fresh
-        # timestamp after a fixed backoff, leaving its partial prefix in
-        # place without a completion marker. The interval sleep is
+        # timestamp after the configured delay, leaving its partial prefix
+        # in place without a completion marker. The interval sleep is
         # arithmetic seconds, so no shell-specific duration suffix is used.
         self.assertIn("rclone --config /dev/null rcat", command)
         self.assertIn("$${snapshot_dest}/.cds-snapshot-complete", command)
-        self.assertIn("sleep 300", command)
+        self.assertIn('sleep "$${SNAPSHOT_RETRY_SECONDS}"', command)
         self.assertIn('sleep "$$(($${SNAPSHOT_INTERVAL_HOURS} * 3600))"', command)
         self.assertNotIn('}h"', command)
+        retry_schema = self.module["spec"]["configSchema"]["properties"]["retryDelaySeconds"]
+        self.assertEqual(retry_schema["default"], 300)
 
     def test_image_is_digest_pinned_and_service_is_hardened(self) -> None:
         self.assertRegex(
@@ -194,6 +196,7 @@ class ObjectStorageBackupModuleTest(unittest.TestCase):
         rendered_command = "\n".join(service["command"])
         self.assertIn('sleep "$$(($${SNAPSHOT_INTERVAL_HOURS} * 3600))"', rendered_command)
         self.assertIn("$${snapshot_dest}/.cds-snapshot-complete", rendered_command)
+        self.assertEqual(service["environment"]["SNAPSHOT_RETRY_SECONDS"], 300)
         self.assertNotIn("destination-secret", compose_text)
         self.assertNotIn("GK0123456789abcdef0123456789abcdef", compose_text)
         self.assertNotIn("a" * 64, compose_text)

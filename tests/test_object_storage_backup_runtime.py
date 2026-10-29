@@ -18,11 +18,20 @@ trustworthy once restored" is exercised end to end for bucket contents:
    the timestamped prefix back with rclone -- the documented recovery
    procedure -- and verify the original content returned byte-for-byte.
 
+Two more proofs cover the failure and guard paths. With the destination
+Garage still down, a pass fails but must not exit the service (no
+crash-restart loop): it logs the failure, keeps its prefix marker-less,
+and retries on the configured delay until the destination is reachable
+and a fresh-timestamp pass completes. And a destination configured as
+literally the source endpoint and bucket makes the service refuse to
+run: it exits 1 with the guard's message.
+
 Runs only with CDS_RUN_DOCKER_SMOKE=1 and a working daemon; skips
 otherwise, like tests/test_restic_backup_restore_runtime.py.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -308,90 +317,201 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
             + self._run([*self._compose(), "logs", "--tail", "150", BACKUP_SERVICE]).stdout
         )
 
+    def _prepare(self, profile: dict) -> None:
+        """Validates and renders the profile, then registers teardown."""
+        tmpdir = tempfile.TemporaryDirectory(dir=REPO_ROOT / "tests")
+        self.addCleanup(tmpdir.cleanup)
+        # The Docker daemon must be able to traverse the bind source and
+        # the compose --env-file path; TemporaryDirectory defaults to
+        # owner-only permissions.
+        self._work = Path(tmpdir.name)
+        self._work.chmod(0o755)
+        self._env_file = self._work / ".env"
+        self._env_file.write_text(
+            "\n".join(f"{name}={value}" for name, value in ENV_VALUES.items()) + "\n",
+            encoding="utf-8",
+        )
+        profile_path = self._work / "profile.yaml"
+        profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+        diagnostics = validate_profile(str(profile_path))
+        self.assertEqual(
+            [d.format() for d in diagnostics if d.level == "error"], []
+        )
+        plan, plan_diagnostics = build_plan(
+            str(profile_path), env_file=str(self._env_file)
+        )
+        assert plan is not None
+        self.assertEqual(
+            [d.format() for d in plan_diagnostics if d.level == "error"], []
+        )
+        compose_text, render_diagnostics = render_compose(
+            plan, env_file=str(self._env_file)
+        )
+        self.assertEqual(
+            [d.format() for d in render_diagnostics if d.level == "error"], []
+        )
+        COMPOSE_FILE.write_text(compose_text, encoding="utf-8")
+        self.addCleanup(lambda: COMPOSE_FILE.unlink(missing_ok=True))
+        self.addCleanup(
+            lambda: self._run(
+                [*self._compose(), "down", "-v", "--remove-orphans"],
+                timeout=300, allow_failure=True,
+            )
+        )
+
+    def _wait_for_log(self, needle: str, deadline_seconds: int = 120) -> None:
+        started = time.monotonic()
+        while time.monotonic() - started < deadline_seconds:
+            logs = self._run(
+                [*self._compose(), "logs", "--tail", "100", BACKUP_SERVICE],
+                allow_failure=True,
+            )
+            if needle in logs.stdout:
+                return
+            time.sleep(5)
+        self.fail(
+            f"{needle!r} did not appear in the {BACKUP_SERVICE} logs within "
+            f"{deadline_seconds}s"
+        )
+
+    def _container_state(self, service: str) -> tuple[str, str, str]:
+        """Returns the service container's (status, exit code, restart count)."""
+        container = self._run(
+            [*self._compose(), "ps", "--all", "-q", service],
+            timeout=60, allow_failure=True,
+        )
+        container_id = container.stdout.strip()
+        if not container_id:
+            return ("missing", "", "")
+        state = subprocess.run(
+            [
+                "docker", "inspect", "--format",
+                "{{.State.Status}} {{.State.ExitCode}} {{.State.RestartCount}}",
+                container_id,
+            ],
+            capture_output=True, text=True, errors="replace", timeout=60,
+        )
+        fields = state.stdout.strip().split()
+        if len(fields) == 3:
+            return (fields[0], fields[1], fields[2])
+        return ("unknown", "", "")
+
+    def test_failed_pass_retries_with_a_fresh_timestamp_and_marker(self) -> None:
+        # The destination Garage stays down for the first pass: the copy
+        # must fail without exiting (no crash-restart loop) and retry on
+        # the configured delay until the destination is reachable and a
+        # fresh-timestamp pass completes with its marker.
+        profile = _profile()
+        profile["spec"]["modules"][2]["config"]["retryDelaySeconds"] = 10
+        self._prepare(profile)
+
+        with self.subTest("a failed pass keeps the service up without a marker"):
+            self._run([*self._compose(), "up", "-d", BACKUP_SERVICE])
+            self._wait_for_log(
+                "failed; the partial prefix stays behind without a completion marker"
+            )
+            status, _exit_code, restarts = self._container_state(BACKUP_SERVICE)
+            self.assertEqual(status, "running")
+            self.assertEqual(restarts, "0")
+
+        with self.subTest("the retry completes once the destination is reachable"):
+            self._run([*self._compose(), "up", "-d", DESTINATION_SERVICE])
+            self._wait_healthy(DESTINATION_SERVICE)
+            snapshot_id = self._wait_for_snapshot()
+            logs = self._run(
+                [*self._compose(), "logs", "--tail", "200", BACKUP_SERVICE]
+            ).stdout
+            self.assertIn(f"Snapshot {snapshot_id} complete", logs)
+            failed_ids = set(re.findall(r"Snapshot (\d{8}T\d{6}Z) failed", logs))
+            self.assertTrue(failed_ids, "expected at least one logged failed pass")
+            self.assertNotIn(snapshot_id, failed_ids)
+            _status, _exit_code, restarts = self._container_state(BACKUP_SERVICE)
+            self.assertEqual(restarts, "0")
+
+    def test_same_endpoint_and_bucket_is_refused(self) -> None:
+        # The service-level guard is part of the documented configuration
+        # contract: a destination that is literally the source endpoint
+        # and bucket must refuse to run instead of copying a bucket into
+        # itself.
+        profile = _profile()
+        profile["spec"]["modules"][2]["config"]["destination"] = {
+            "endpoint": "http://garage:3900",
+            "bucket": SOURCE_BUCKET,
+            "region": "garage",
+            "accessKeyFrom": "secrets.src_access_key",
+            "secretKeyFrom": "secrets.src_secret_key",
+        }
+        self._prepare(profile)
+
+        self._run([*self._compose(), "up", "-d", BACKUP_SERVICE])
+        started = time.monotonic()
+        status, exit_code, _restarts = self._container_state(BACKUP_SERVICE)
+        while time.monotonic() - started < 120:
+            status, exit_code, _restarts = self._container_state(BACKUP_SERVICE)
+            if status in ("exited", "restarting") and exit_code == "1":
+                break
+            time.sleep(5)
+        else:
+            self.fail(
+                f"{BACKUP_SERVICE} did not refuse the same-source destination "
+                f"(last state: {status}, exit code: {exit_code})"
+            )
+        logs = self._run(
+            [*self._compose(), "logs", "--tail", "100", BACKUP_SERVICE]
+        ).stdout
+        self.assertIn(
+            "Source and destination must not be the same endpoint and bucket.", logs
+        )
+
     def test_snapshot_recovers_overwritten_object(self) -> None:
-        with tempfile.TemporaryDirectory(dir=REPO_ROOT / "tests") as tmpdir:
-            self._work = Path(tmpdir)
-            # The Docker daemon must be able to traverse the bind source and
-            # the compose --env-file path; TemporaryDirectory defaults to
-            # owner-only permissions.
-            self._work.chmod(0o755)
-            self._env_file = self._work / ".env"
-            self._env_file.write_text(
-                "\n".join(f"{name}={value}" for name, value in ENV_VALUES.items()) + "\n",
-                encoding="utf-8",
+        self._prepare(_profile())
+
+        with self.subTest("boot storage services and seed the source bucket"):
+            self._run([*self._compose(), "up", "-d", SOURCE_SERVICE, DESTINATION_SERVICE])
+            self._wait_healthy(SOURCE_SERVICE)
+            self._wait_healthy(DESTINATION_SERVICE)
+            self._seed(MARKER_V1)
+
+        with self.subTest("scheduled snapshot reaches the destination"):
+            self._run([*self._compose(), "up", "-d", BACKUP_SERVICE])
+            snapshot_id = self._wait_for_snapshot()
+            logs = self._run(
+                [*self._compose(), "logs", "--tail", "150", BACKUP_SERVICE]
+            ).stdout
+            self.assertIn(
+                f"Creating object-storage snapshot {SNAPSHOT_PREFIX}/{SOURCE_BUCKET}",
+                logs,
             )
-            profile_path = self._work / "profile.yaml"
-            profile_path.write_text(yaml.safe_dump(_profile()), encoding="utf-8")
-            with self.subTest("validate and render"):
-                diagnostics = validate_profile(str(profile_path))
-                self.assertEqual(
-                    [d.format() for d in diagnostics if d.level == "error"], []
-                )
-                plan, _plan_diagnostics = build_plan(
-                    str(profile_path), env_file=str(self._env_file)
-                )
-                assert plan is not None
-                compose_text, render_diagnostics = render_compose(
-                    plan, env_file=str(self._env_file)
-                )
-                self.assertEqual(
-                    [d.format() for d in render_diagnostics if d.level == "error"], []
-                )
-                COMPOSE_FILE.write_text(compose_text, encoding="utf-8")
-            self.addCleanup(lambda: COMPOSE_FILE.unlink(missing_ok=True))
-            self.addCleanup(
-                lambda: self._run(
-                    [*self._compose(), "down", "-v", "--remove-orphans"],
-                    timeout=300, allow_failure=True,
-                )
+            self.assertIn(f"Snapshot {snapshot_id} complete", logs)
+            self.assertRegex(snapshot_id, r"^\d{8}T\d{6}Z$")
+
+        with self.subTest("overwrite is recoverable from the snapshot"):
+            self._seed(MARKER_V2)
+            restored = self._rclone(
+                _source_env(),
+                ["cat", f"source:{SOURCE_BUCKET}/{MARKER_KEY}"],
             )
+            self.assertEqual(restored.stdout, MARKER_V2)
 
-            with self.subTest("boot storage services and seed the source bucket"):
-                self._run([*self._compose(), "up", "-d", SOURCE_SERVICE, DESTINATION_SERVICE])
-                self._wait_healthy(SOURCE_SERVICE)
-                self._wait_healthy(DESTINATION_SERVICE)
-                self._seed(MARKER_V1)
-
-            with self.subTest("scheduled snapshot reaches the destination"):
-                self._run([*self._compose(), "up", "-d", BACKUP_SERVICE])
-                snapshot_id = self._wait_for_snapshot()
-                logs = self._run(
-                    [*self._compose(), "logs", "--tail", "150", BACKUP_SERVICE]
-                ).stdout
-                self.assertIn(
-                    f"Creating object-storage snapshot {SNAPSHOT_PREFIX}/{SOURCE_BUCKET}",
-                    logs,
-                )
-                self.assertIn(f"Snapshot {snapshot_id} complete", logs)
-                self.assertRegex(snapshot_id, r"^\d{8}T\d{6}Z$")
-
-            with self.subTest("overwrite is recoverable from the snapshot"):
-                self._seed(MARKER_V2)
-                restored = self._rclone(
-                    _source_env(),
-                    ["cat", f"source:{SOURCE_BUCKET}/{MARKER_KEY}"],
-                )
-                self.assertEqual(restored.stdout, MARKER_V2)
-
-                # The documented recovery procedure: copy the timestamped
-                # prefix back into the source bucket.
-                self._rclone(
-                    [*_source_env(), *_destination_env()],
-                    [
-                        "copy",
-                        f"destination:{DESTINATION_BUCKET}/{SNAPSHOT_PREFIX}/{SOURCE_BUCKET}/{snapshot_id}",
-                        f"source:{SOURCE_BUCKET}",
-                    ],
-                )
-                recovered = self._rclone(
-                    _source_env(),
-                    ["cat", f"source:{SOURCE_BUCKET}/{MARKER_KEY}"],
-                )
-                self.assertEqual(
-                    recovered.stdout,
-                    MARKER_V1,
-                    "the snapshot restore did not bring back the original content",
-                )
+            # The documented recovery procedure: copy the timestamped
+            # prefix back into the source bucket.
+            self._rclone(
+                [*_source_env(), *_destination_env()],
+                [
+                    "copy",
+                    f"destination:{DESTINATION_BUCKET}/{SNAPSHOT_PREFIX}/{SOURCE_BUCKET}/{snapshot_id}",
+                    f"source:{SOURCE_BUCKET}",
+                ],
+            )
+            recovered = self._rclone(
+                _source_env(),
+                ["cat", f"source:{SOURCE_BUCKET}/{MARKER_KEY}"],
+            )
+            self.assertEqual(
+                recovered.stdout,
+                MARKER_V1,
+                "the snapshot restore did not bring back the original content",
+            )
 
 
 if __name__ == "__main__":
