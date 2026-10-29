@@ -143,7 +143,7 @@ pushes that touch the chart, CLI, images, or `scripts/k8s/`, so the documented
 developer flow and the CI check cannot drift apart. On failure it uploads pod
 descriptions, events, and logs as the `k8s-e2e-logs` artifact.
 
-Local Dagster and Superset images use `imagePullPolicy: Never` and are imported
+Local Dagster, Superset, and PostgreSQL images use `imagePullPolicy: Never` and are imported
 into k3d. This deliberately avoids the common combination of
 `imagePullPolicy: Always`, a nonexistent `localhost:5000` registry, and macOS
 AirPlay's host-port conflict. If a future module requires a registry, expose it

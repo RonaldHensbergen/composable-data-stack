@@ -22,5 +22,7 @@ echo "==> building local/superset:custom"
 # installs after the requirements file and therefore wins.
 SUPERSET_PACKAGES="${CDS_SUPERSET_PACKAGES:-psycopg2-binary==2.9.12 cryptography==46.0.5}"
 docker build -q -f images/superset/base/Dockerfile --build-arg IMAGE_PACKAGES="$SUPERSET_PACKAGES" -t local/superset:custom .
+echo "==> building local/postgres:custom"
+docker build -q -f images/postgres/Dockerfile -t local/postgres:custom .
 echo "==> done"
 docker image ls --format '{{.Repository}}:{{.Tag}}  {{.Size}}' | grep '^local/'

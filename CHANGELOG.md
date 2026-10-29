@@ -14,7 +14,9 @@ The format is based on Keep a Changelog.
   harness scripts: it installs the rendered Helm chart into a throwaway
   cluster, waits for every workload to become Ready, checks PostgreSQL,
   Dagster, and Superset, uploads pod diagnostics on failure, and always
-  deletes the cluster. k3d is pinned and checksum-verified (#76).
+  deletes the cluster. k3d is pinned and checksum-verified, and the
+  harness now also builds and imports the PostgreSQL module's local image
+  (previously the pod failed with `ErrImageNeverPull`) (#76).
 
 - Added a single-node Garage S3-compatible object-storage module and
   provider-neutral `object-storage` contract, with persistent data and

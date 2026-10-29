@@ -42,7 +42,7 @@ export KUBECONFIG="$CDS_KUBECONFIG"
 
 # Images the profile builds locally. They are imported into the node rather than
 # pulled, and the manifests set imagePullPolicy: Never to match.
-CDS_LOCAL_IMAGES=("local/dagster:custom" "local/superset:custom")
+CDS_LOCAL_IMAGES=("local/dagster:custom" "local/superset:custom" "local/postgres:custom")
 
 cds_require_free_ports() {
   local label port
