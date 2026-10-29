@@ -1,6 +1,7 @@
 import contextlib
 import hashlib
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 import yaml
+from jsonschema import Draft202012Validator
 
 from cli.k8s_renderer import _configmap_checksum, render_helm
 from cli.main import _render_helm_chart
@@ -935,6 +937,39 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             e147[0].path,
             "module:demo.implementation.kubernetes.serviceAccount.rbac[0]",
         )
+
+    def test_malformed_service_account_block_fails_closed(self) -> None:
+        # Same bypass class as the RBAC rules: a non-mapping
+        # `serviceAccount` block must fail closed as E147, not crash the
+        # renderer with an AttributeError from `.get()`.
+        plan = self.bound_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["serviceAccount"] = "default"
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e147 = [d for d in diagnostics if d.code == "E147"]
+        self.assertEqual(len(e147), 1)
+        self.assertEqual(
+            e147[0].path,
+            "module:demo.implementation.kubernetes.serviceAccount",
+        )
+
+    def test_module_schema_accepts_the_core_api_group(self) -> None:
+        # The Kubernetes core API group is spelled "" (the schema's own
+        # description uses it as the example); `minLength` on the items
+        # would reject exactly that spelling.
+        schema = json.loads(
+            (Path(__file__).resolve().parent.parent / "cli" / "resources"
+             / "module.schema.json").read_text(encoding="utf-8")
+        )
+        validator = Draft202012Validator(schema["$defs"]["kubernetesRbacRule"])
+        rule = {
+            "apiGroups": [""],
+            "resources": ["pods"],
+            "verbs": ["get", "list"],
+        }
+        self.assertEqual(list(validator.iter_errors(rule)), [])
 
     def test_binding_without_port_falls_back_to_provider_service_ports(self) -> None:
         plan = self.bound_plan()

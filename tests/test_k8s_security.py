@@ -214,6 +214,15 @@ class KubernetesSecurityTest(unittest.TestCase):
             "module:demo.implementation.kubernetes.workloads.app.service.type",
         )
 
+    def test_malformed_service_account_block_does_not_crash_the_scan(self) -> None:
+        # Plan files bypass the module schema; a non-mapping
+        # `serviceAccount` block is a shape error for the renderer to
+        # report (E147), not a reason for the scan to crash.
+        plan = self.secure_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["serviceAccount"] = "default"
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
     def test_clusterip_service_is_not_flagged(self) -> None:
         plan = self.secure_plan()
         workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][

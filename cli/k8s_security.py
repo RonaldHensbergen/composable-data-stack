@@ -96,9 +96,13 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
                         "controller otherwise."
                     ],
                 ))
-        for index, rule in enumerate(
-            (kubernetes.get("serviceAccount") or {}).get("rbac") or []
-        ):
+        service_account = kubernetes.get("serviceAccount") or {}
+        declared_rbac = (
+            service_account.get("rbac")
+            if isinstance(service_account, dict)
+            else None
+        )
+        for index, rule in enumerate(declared_rbac or []):
             if not isinstance(rule, dict):
                 continue
             wildcard_fields = [

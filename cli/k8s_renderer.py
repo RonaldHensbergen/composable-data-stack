@@ -1323,7 +1323,24 @@ def _rbac_rules(
     Role that grants something other than what was declared.
     """
     diagnostics: list[Diagnostic] = []
-    declared = (k8s.get("serviceAccount") or {}).get("rbac")
+    service_account = k8s.get("serviceAccount")
+    if service_account is None:
+        return [], diagnostics
+    if not isinstance(service_account, dict):
+        # A plan loaded from a file bypasses the module schema; a
+        # non-mapping block must fail closed, not crash on `.get`.
+        return [], [Diagnostic(
+            level="error",
+            code="E147",
+            message=(
+                f'The "serviceAccount" block of module "{module_id}" must be a '
+                'mapping with an optional "rbac" rules list. Kubernetes would '
+                "reject anything else at install time, so the renderer fails "
+                "closed instead of shipping a broken Role."
+            ),
+            path=f"module:{module_id}.implementation.kubernetes.serviceAccount",
+        )]
+    declared = service_account.get("rbac")
     if not declared:
         return [], diagnostics
     if not isinstance(declared, list):
@@ -1421,7 +1438,9 @@ def _workload_surfaces(
         enabled_from = workload.get("enabledFrom")
         if enabled_from and _resolve_expr(enabled_from, context) is False:
             continue
-        service = workload.get("service") or {}
+        service = workload.get("service")
+        if not isinstance(service, dict):
+            service = {}
         ports = {
             number
             for number in (
@@ -1472,6 +1491,8 @@ def _network_policy_manifests(
     for module in modules:
         consumer_id = module["id"]
         for consume_name, consume in (module.get("consumes") or {}).items():
+            if not isinstance(consume, dict):
+                continue
             provider_id = str(consume.get("contractRef", "")).split(".", 1)[0]
             if provider_id not in module_ids or provider_id == consumer_id:
                 continue
