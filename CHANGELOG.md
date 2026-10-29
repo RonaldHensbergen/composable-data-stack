@@ -8,6 +8,14 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added a `Kubernetes E2E` GitHub Actions workflow that runs the existing
+  k3d harness (`make k3d-build` and `make k3d-e2e`) against the example
+  profile on pull requests and pushes touching the chart, CLI, images, or
+  harness scripts: it installs the rendered Helm chart into a throwaway
+  cluster, waits for every workload to become Ready, checks PostgreSQL,
+  Dagster, and Superset, uploads pod diagnostics on failure, and always
+  deletes the cluster. k3d is pinned and checksum-verified (#76).
+
 - Added a single-node Garage S3-compatible object-storage module and
   provider-neutral `object-storage` contract, with persistent data and
   metadata volumes and profile-secret-backed credentials. The module is

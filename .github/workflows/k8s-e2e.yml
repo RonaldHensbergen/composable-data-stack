@@ -1,0 +1,124 @@
+name: Kubernetes E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/k8s-e2e.yml"
+      - "cli/**"
+      - "images/**"
+      - "modules/**"
+      - "profiles/**"
+      - "scripts/k8s/**"
+      - "shared/**"
+      - "workdirs/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/k8s-e2e.yml"
+      - "cli/**"
+      - "images/**"
+      - "modules/**"
+      - "profiles/**"
+      - "scripts/k8s/**"
+      - "shared/**"
+      - "workdirs/**"
+  schedule:
+    - cron: "43 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: k8s-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # CI-only throwaway values; the example profile requires every one of them.
+  CDS_ANALYTICS_DB_NAME: analytics
+  CDS_ANALYTICS_DB_PASSWORD: analytics_testpass
+  CDS_ANALYTICS_DB_USER: analytics
+  CDS_DAGSTER_DB_NAME: dagster
+  CDS_DAGSTER_DB_PASSWORD: dagster_testpass
+  CDS_DAGSTER_DB_USER: dagster
+  CDS_POSTGRES_SUPERUSER_PASSWORD: postgres_testpass
+  CDS_SUPERSET_ADMIN_PASSWORD: admin_testpass
+  CDS_SUPERSET_DB_NAME: superset
+  CDS_SUPERSET_DB_PASSWORD: superset_testpass
+  CDS_SUPERSET_DB_USER: superset
+  CDS_SUPERSET_SECRET_KEY: ci-only-superset-secret-key
+  K3D_VERSION: v5.9.0
+  K3D_LINUX_AMD64_SHA256: 06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0
+
+jobs:
+  k3d-e2e:
+    name: k3d install and readiness (example profile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CDS_E2E_KEEP_CLUSTER: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Setup Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.0
+
+      - name: Install k3d (checksum-verified)
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/bin/k3d" \
+            "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+          echo "${K3D_LINUX_AMD64_SHA256}  $RUNNER_TEMP/bin/k3d" | sha256sum --check -
+          chmod +x "$RUNNER_TEMP/bin/k3d"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Install CDS into the harness virtualenv
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install .
+
+      - name: Build local images
+        run: make k3d-build
+
+      - name: Create cluster, install chart, and validate pod readiness
+        run: make k3d-e2e
+
+      - name: Collect cluster diagnostics
+        if: failure()
+        run: |
+          source scripts/k8s/k3d-env.sh
+          mkdir -p k8s-e2e-logs
+          ns="${CDS_NAMESPACE}-e2e"
+          kubectl --context "$CDS_CONTEXT" -n "$ns" get pods,events -o wide \
+            > k8s-e2e-logs/pods-and-events.txt 2>&1 || true
+          kubectl --context "$CDS_CONTEXT" -n "$ns" describe pods \
+            > k8s-e2e-logs/describe-pods.txt 2>&1 || true
+          for pod in $(kubectl --context "$CDS_CONTEXT" -n "$ns" get pods -o name); do
+            echo "=== $pod ===" >> k8s-e2e-logs/pod-logs.txt
+            kubectl --context "$CDS_CONTEXT" -n "$ns" logs "$pod" \
+              --all-containers --tail=500 >> k8s-e2e-logs/pod-logs.txt 2>&1 || true
+          done
+
+      - name: Upload cluster diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: k8s-e2e-logs
+          path: k8s-e2e-logs/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Delete cluster
+        if: always()
+        run: make k3d-down
