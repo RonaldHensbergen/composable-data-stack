@@ -19,12 +19,12 @@ trustworthy once restored" is exercised end to end for bucket contents:
    procedure -- and verify the original content returned byte-for-byte.
 
 Two more proofs cover the failure and guard paths. With the destination
-Garage still down, a pass fails but must not exit the service (no
-crash-restart loop): it logs the failure, keeps its prefix marker-less,
-and retries on the configured delay until the destination is reachable
-and a fresh-timestamp pass completes. And a destination configured as
-literally the source endpoint and bucket makes the service refuse to
-run: it exits 1 with the guard's message.
+running but the module's destination credentials wrong, every pass fails
+fast: no completion marker ever lands on the destination, the service
+keeps running (no crash-restart loop), and retries with fresh timestamps
+on the configured delay. And a destination configured as literally the
+source endpoint and bucket makes the service refuse to run: it exits 1
+with the guard's message.
 
 Runs only with CDS_RUN_DOCKER_SMOKE=1 and a working daemon; skips
 otherwise, like tests/test_restic_backup_restore_runtime.py.
@@ -71,6 +71,9 @@ ENV_VALUES = {
     "CDS_DST_SECRET_KEY": "c" * 64,
     "CDS_DST_RPC_SECRET": "d" * 64,
     "CDS_BACKUP_ENCRYPTION_KEY": "e" * 32,
+    # Deliberately invalid destination credentials for the failure proof.
+    "CDS_BACKUP_BAD_ACCESS_KEY": "GKBADBADBADBADBADBADBADBADBADBADBADBADBADB",
+    "CDS_BACKUP_BAD_SECRET_KEY": "f" * 64,
 }
 
 # Retry only known-transient registry flakes (mirrors the other runtime proofs).
@@ -386,7 +389,7 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         state = subprocess.run(
             [
                 "docker", "inspect", "--format",
-                "{{.State.Status}} {{.State.ExitCode}} {{.State.RestartCount}}",
+                "{{.State.Status}} {{.State.ExitCode}} {{.RestartCount}}",
                 container_id,
             ],
             capture_output=True, text=True, errors="replace", timeout=60,
@@ -397,36 +400,68 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         return ("unknown", "", "")
 
     def test_failed_pass_retries_with_a_fresh_timestamp_and_marker(self) -> None:
-        # The destination Garage stays down for the first pass: the copy
-        # must fail without exiting (no crash-restart loop) and retry on
-        # the configured delay until the destination is reachable and a
-        # fresh-timestamp pass completes with its marker.
+        # Wrong destination credentials are a hard, non-transient failure:
+        # rclone does not retry them, so every pass fails fast. A failed pass
+        # must keep the service up (restart count stays 0, no crash-restart
+        # loop), never write a completion marker anywhere, and retry with a
+        # fresh timestamp on the configured delay. The destination runs and
+        # stays healthy so the failure is auth, not an outage rclone would
+        # ride out with its own internal retries.
         profile = _profile()
         profile["spec"]["modules"][2]["config"]["retryDelaySeconds"] = 10
+        profile["spec"]["modules"][2]["config"]["destination"]["accessKeyFrom"] = (
+            "secrets.backup_bad_access_key"
+        )
+        profile["spec"]["modules"][2]["config"]["destination"]["secretKeyFrom"] = (
+            "secrets.backup_bad_secret_key"
+        )
+        profile["spec"]["secrets"]["values"]["backup_bad_access_key"] = {
+            "env": "CDS_BACKUP_BAD_ACCESS_KEY", "required": True,
+        }
+        profile["spec"]["secrets"]["values"]["backup_bad_secret_key"] = {
+            "env": "CDS_BACKUP_BAD_SECRET_KEY", "required": True,
+        }
         self._prepare(profile)
 
-        with self.subTest("a failed pass keeps the service up without a marker"):
+        with self.subTest("failed passes keep the service up and write no marker"):
+            self._run([*self._compose(), "up", "-d", SOURCE_SERVICE, DESTINATION_SERVICE])
+            self._wait_healthy(SOURCE_SERVICE)
+            self._wait_healthy(DESTINATION_SERVICE)
             self._run([*self._compose(), "up", "-d", BACKUP_SERVICE])
             self._wait_for_log(
                 "failed; the partial prefix stays behind without a completion marker"
             )
+            # A second failed pass on the configured delay proves the loop
+            # retries with a fresh timestamp instead of crash-looping.
+            started = time.monotonic()
+            failed_ids: set[str] = set()
+            logs = ""
+            while time.monotonic() - started < 90:
+                logs = self._run(
+                    [*self._compose(), "logs", "--tail", "200", BACKUP_SERVICE]
+                ).stdout
+                failed_ids = set(re.findall(r"Snapshot (\d{8}T\d{6}Z) failed", logs))
+                if len(failed_ids) >= 2:
+                    break
+                time.sleep(5)
+            self.assertGreaterEqual(
+                len(failed_ids), 2,
+                msg=f"expected at least two failed passes with fresh timestamps, "
+                f"got {sorted(failed_ids)}; logs:\n{logs[-1000:]}",
+            )
+            self.assertEqual(
+                set(re.findall(r"Snapshot (\d{8}T\d{6}Z) complete", logs)), set()
+            )
             status, _exit_code, restarts = self._container_state(BACKUP_SERVICE)
             self.assertEqual(status, "running")
             self.assertEqual(restarts, "0")
-
-        with self.subTest("the retry completes once the destination is reachable"):
-            self._run([*self._compose(), "up", "-d", DESTINATION_SERVICE])
-            self._wait_healthy(DESTINATION_SERVICE)
-            snapshot_id = self._wait_for_snapshot()
-            logs = self._run(
-                [*self._compose(), "logs", "--tail", "200", BACKUP_SERVICE]
-            ).stdout
-            self.assertIn(f"Snapshot {snapshot_id} complete", logs)
-            failed_ids = set(re.findall(r"Snapshot (\d{8}T\d{6}Z) failed", logs))
-            self.assertTrue(failed_ids, "expected at least one logged failed pass")
-            self.assertNotIn(snapshot_id, failed_ids)
-            _status, _exit_code, restarts = self._container_state(BACKUP_SERVICE)
-            self.assertEqual(restarts, "0")
+            # The wrong credentials cannot write anything: no snapshot
+            # prefix and no completion marker may exist on the destination.
+            listing = self._rclone(
+                _destination_env(),
+                ["lsf", "--recursive", f"destination:{DESTINATION_BUCKET}"],
+            )
+            self.assertEqual(listing.stdout, "")
 
     def test_same_endpoint_and_bucket_is_refused(self) -> None:
         # The service-level guard is part of the documented configuration
