@@ -8,9 +8,10 @@ The format is based on Keep a Changelog.
 
 ### Added
 
-- Added NetworkPolicy and ServiceAccount generation to the `helm` render
-  target, completing the Kubernetes production resources (issue #75):
-  every module's chart now ships a default-deny NetworkPolicy whose allow
+- **Breaking (for existing `--target helm` deployments):** Added
+  NetworkPolicy and ServiceAccount generation to the `helm` render target,
+  completing the Kubernetes production resources (issue #75): every
+  module's chart now ships a default-deny NetworkPolicy whose allow
   rules are derived from the plan's contract bindings (consumer-to-
   provider egress and matching provider ingress on the contract port,
   same-module traffic, and cluster DNS egress; NodePort/LoadBalancer
@@ -31,7 +32,10 @@ The format is based on Keep a Changelog.
   CDS-K8S-008 (external-egress passthrough rules), and added a W128
   warning when a binding carries no port evidence and its egress rule
   cannot be port-scoped; documented the network-isolation baseline in
-  `docs/kubernetes.md`.
+  `docs/kubernetes.md`. Charts rendered before this change will deny
+  external and cross-namespace traffic on their next render until the new
+  `networkPolicy` rules are declared (see the "When the baseline denies
+  something you need" section of `docs/kubernetes.md`).
 - Added a single-node Garage S3-compatible object-storage module and
   provider-neutral `object-storage` contract, with persistent data and
   metadata volumes and profile-secret-backed credentials. The module is
