@@ -11,10 +11,34 @@
 # Repository location and S3 settings come from the CDS_BACKUP_*
 # environment variables rendered by the module; the repository is always
 # client-side encrypted with RESTIC_PASSWORD from the profile's secrets.
+#
+# restic is compiled from source instead of using the upstream
+# restic/restic image: 0.19.1 is still the latest upstream release, and its
+# published binary is built with vulnerable Go modules and an old stdlib,
+# so no upstream image refresh can clear those findings (#1001). Building
+# the pinned release tag with the current Go toolchain and the fixed module
+# versions below does. The versions are the fixed versions from the Trivy
+# advisories (x/net v0.60.0 requires x/crypto >= v0.57.0 and x/text
+# >= v0.42.0); Renovate tracks them via the regex manager in renovate.json.
 
-FROM restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510
+FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS restic-build
+ARG RESTIC_VERSION=0.19.1
+WORKDIR /src
+RUN wget -qO- "https://codeload.github.com/restic/restic/tar.gz/refs/tags/v${RESTIC_VERSION}" | tar xz --strip-components=1 \
+    && go get github.com/go-jose/go-jose/v4@v4.1.6 \
+               github.com/klauspost/compress@v1.18.7 \
+               golang.org/x/crypto@v0.57.0 \
+               golang.org/x/net@v0.60.0 \
+               golang.org/x/text@v0.42.0 \
+               google.golang.org/grpc@v1.83.2 \
+    && go mod tidy \
+    && CGO_ENABLED=0 go build -trimpath -o /restic ./cmd/restic
+
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 
 USER root
+
+COPY --from=restic-build /restic /usr/bin/restic
 
 # Pull in Alpine security fixes for the base image's OS packages before
 # creating the user, mirroring images/postgres/Dockerfile: the pinned

@@ -4,6 +4,10 @@ PostgreSQL image with [pgBackRest](https://pgbackrest.org/) for the built-in
 backup capability of the `warehouse/postgres` module (issue #665).
 
 - Base: `postgres:18`, digest-pinned (Renovate keeps the pin current).
+- Replaces the base image's prebuilt `gosu` binary with a build from the
+  pinned gosu tag compiled with the current Go toolchain: the upstream
+  image downloads a prebuilt binary that no `postgres:18` tag rebuilds, so
+  its Go stdlib CVEs are only fixable by compiling gosu here (#1001).
 - Adds the `pgbackrest` package from the pgdg apt repository baked into the
   upstream image, version-pinned for reproducible builds.
 - `cds-pgbackrest-archive` — PostgreSQL `archive_command` handler. Archives WAL

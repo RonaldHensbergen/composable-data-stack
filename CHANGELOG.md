@@ -73,6 +73,21 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Cleared the 34 `.trivyignore` exceptions listed by the trivyignore audit
+  (#1001) by fixing the findings at the source in the rebuilt images instead
+  of ignoring them: the `postgres` image now pins the current `postgres:18`
+  digest (also in `modules/warehouse/postgres/module.yaml`,
+  `docker-compose.yml`, and `.cds/haven-dev-noinit.yml`) and replaces the
+  base image's prebuilt `gosu` binary — which no `postgres:18` tag rebuilds
+  with a fixed Go toolchain — with a build from the pinned gosu 1.20 tag
+  compiled with Go 1.27.3; the `restic` image now compiles restic 0.19.1 (the
+  latest upstream release) from source with Go 1.27.3 and the fixed module
+  versions (`go-jose/v4` 4.1.6, `klauspost/compress` 1.18.7, `x/crypto`
+  0.57.0, `x/net` 0.60.0, `x/text` 0.42.0, `grpc` 1.83.2) on a pinned Alpine
+  base instead of using the vulnerable prebuilt `restic/restic` image. Both
+  rebuilt images scan clean of HIGH/CRITICAL findings with Trivy v0.75.0.
+
+
 - Fixed provided contract endpoints silently breaking when a module
   instance id differs from the module's compose service name (issue
   #1010, found in the review of #1006): contract resolution substituted
