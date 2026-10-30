@@ -23,6 +23,25 @@ The format is based on Keep a Changelog.
   metadata volumes and profile-secret-backed credentials. The module is
   explicitly unsuitable for production because it has no redundancy
   (#663).
+- Added an experimental scheduled object-storage backup module that writes
+  immutable, timestamped S3-compatible snapshots to a separately configured
+  destination (#669). Every successful pass writes a
+  `.cds-snapshot-complete` marker into its prefix, so a prefix left behind
+  by a failed pass is recognizable as partial; failed passes retry with a
+  fresh timestamp after a configurable delay (`retryDelaySeconds`,
+  300 seconds by default) instead of crash-looping. Like the
+  other backup modules it is production-only
+  (E143), and its explicit `productionSuitable: false` marking (plaintext
+  snapshots, operator-managed restore) requires a scoped CDS-SEC-073
+  waiver in production. Every pass is a full copy of the current bucket
+  contents, so destination storage grows linearly with the number of
+  retained snapshots, and a destination configured as literally the bound
+  source endpoint and bucket fails planning with a new E147 diagnostic
+  instead of booting a service that would copy the bucket onto itself. A
+  Docker-gated runtime proof runs in the Docker
+  Runtime Smoke Test workflow: it snapshots a seeded bucket to a second
+  Garage instance, overwrites the source object, and recovers it
+  byte-for-byte from the completed, marker-verified timestamped prefix.
 
 ### Fixed
 

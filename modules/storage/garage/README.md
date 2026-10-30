@@ -62,6 +62,10 @@ Back them up and test restores independently; local persistence is not a
 backup. Use a multi-node Garage deployment with an appropriate replication
 layout for production workloads.
 
+Garage does not support S3 object versioning. For a separate, scheduled
+object-level copy, see the experimental
+[object-storage snapshots module](../../../modules-experimental/backup/object-storage/README.md).
+
 The service runs as root inside the container: the upstream image ships no
 non-root user, and the data volumes are root-owned on first start, so a
 `user` override breaks startup (`Permission denied` creating the data

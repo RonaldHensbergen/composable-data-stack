@@ -86,6 +86,12 @@ jobs:
         run: |
           python -m unittest tests.test_restic_backup_restore_runtime -v
 
+      - name: Run object-storage snapshot proof (scheduled snapshot -> overwrite -> recover from timestamped prefix)
+        env:
+          CDS_RUN_DOCKER_SMOKE: "1"
+        run: |
+          python -m unittest tests.test_object_storage_backup_runtime -v
+
       - name: Ensure Docker Compose cleanup runs even on failure
         if: always()
         run: |
@@ -101,4 +107,7 @@ jobs:
             for p in cds-restic-proof-src cds-restic-proof-clean; do
               docker compose -f docker-compose.restic-proof.yml -p "$p" down -v --remove-orphans || true
             done
+          fi
+          if [ -f docker-compose.objstore-proof.yml ]; then
+            docker compose -f docker-compose.objstore-proof.yml -p cds-objstore-proof down -v --remove-orphans || true
           fi

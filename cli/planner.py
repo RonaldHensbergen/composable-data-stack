@@ -323,6 +323,13 @@ def build_plan_from_profile(
         )
 
     validate_backup_source_bindings(planned_modules, diagnostics)
+    module_categories = {
+        inst["id"]: (inst["module"].get("metadata", {}) or {}).get("category")
+        for inst in loaded_modules
+    }
+    validate_object_storage_backup_destinations(
+        planned_modules, module_categories, diagnostics
+    )
 
     plan = {
         "apiVersion": "cds/v1alpha1",
@@ -609,6 +616,71 @@ def validate_backup_source_bindings(
                         path=f'module:{module["id"]}.consumes.{consume_name}',
                     )
                 )
+
+
+def validate_object_storage_backup_destinations(
+    planned_modules: list[dict[str, Any]],
+    module_categories: dict[str, Any],
+    diagnostics: list[Diagnostic],
+) -> None:
+    """
+    E147: a backup module must not configure its object-storage destination
+    as the bound source itself (issue #669).
+
+    The object-storage snapshot module copies a bound object-storage
+    contract's bucket to a separately configured destination. A destination
+    that is literally the same endpoint and bucket would make every pass
+    copy the bucket onto itself. The service's start-time guard catches this
+    only once the container boots (and restart-loops on it); the resolved
+    plan already knows both endpoints and buckets, so fail closed at plan
+    time instead. The comparison stays a literal string match (trailing
+    slash ignored), like the in-container guard: the same storage reached
+    under a different hostname, port, or scheme is an operator
+    responsibility documented in the module's README.
+    """
+    for module in planned_modules:
+        if not isinstance(module, dict):
+            continue
+        if module_categories.get(module.get("id")) != "backup":
+            continue
+        for consume_name, consumed in (module.get("consumes") or {}).items():
+            if not isinstance(consumed, dict):
+                continue
+            contract = consumed.get("contract") or {}
+            if contract.get("kind") != "object-storage":
+                continue
+            spec = contract.get("spec") or {}
+            source_endpoint = spec.get("endpoint")
+            source_bucket = spec.get("bucket")
+            if not isinstance(source_endpoint, str) or not isinstance(source_bucket, str):
+                continue
+            destination = (module.get("config") or {}).get("destination")
+            if not isinstance(destination, dict):
+                continue
+            destination_endpoint = destination.get("endpoint")
+            destination_bucket = destination.get("bucket")
+            if not isinstance(destination_endpoint, str) or not isinstance(destination_bucket, str):
+                continue
+            if (
+                source_endpoint.rstrip("/") != destination_endpoint.rstrip("/")
+                or source_bucket != destination_bucket
+            ):
+                continue
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E147",
+                    message=(
+                        f'Module "{module["id"]}" binds object-storage source '
+                        f'"{consume_name}" ({consumed.get("contractRef")}) but configures '
+                        f'its destination as the same endpoint and bucket '
+                        f'("{destination_endpoint}", "{destination_bucket}"). Snapshots '
+                        "would copy the bucket onto itself; configure a separate "
+                        "destination endpoint and bucket."
+                    ),
+                    path=f'module:{module["id"]}.config.destination',
+                )
+            )
 
 
 def resolve_provided_contracts(
