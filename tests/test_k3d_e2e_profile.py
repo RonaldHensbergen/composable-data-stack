@@ -1,4 +1,5 @@
 import importlib.util
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -46,6 +47,20 @@ class K3dE2eProfileTest(unittest.TestCase):
 
         self.assertIn('clusterip_profile.py" "$PROFILE" "$E2E_PROFILE"', script)
         self.assertIn('install.sh" "$E2E_PROFILE"', script)
+
+
+class K3dLocalImagesTest(unittest.TestCase):
+    def test_build_script_builds_every_image_imported_into_the_cluster(self) -> None:
+        scripts = Path(__file__).resolve().parent.parent / "scripts" / "k8s"
+        env = (scripts / "k3d-env.sh").read_text(encoding="utf-8")
+        build = (scripts / "build-images.sh").read_text(encoding="utf-8")
+
+        declared = re.search(r"CDS_LOCAL_IMAGES=\((.*?)\)", env).group(1)
+        images = re.findall(r'"([^"]+)"', declared)
+
+        self.assertIn("local/postgres:custom", images)
+        for image in images:
+            self.assertIn(f"-t {image} ", build)
 
 
 if __name__ == "__main__":
