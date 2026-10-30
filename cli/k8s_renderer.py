@@ -13,6 +13,13 @@ cannot express.
 Secret values never reach disk here. `${CDS_*}` references are rewritten to
 Kubernetes `$(VAR)` expansions backed by `secretKeyRef` entries, so the chart is
 safe to commit and the values are supplied at install time.
+
+Every module's pods run under a dedicated ServiceAccount (with opt-in,
+least-privilege RBAC) and are isolated by a generated NetworkPolicy:
+default-deny for ingress and egress, with allow rules derived from the plan's
+contract bindings (issue #75). Cross-module connectivity therefore stays
+explicit on Kubernetes, mirroring the contract-first design used everywhere
+else in CDS.
 """
 
 from __future__ import annotations
@@ -164,6 +171,26 @@ def render_helm(
                 )
             )
 
+    # RBAC rule shapes are re-checked before anything renders (E148): a plan
+    # loaded from a file bypasses the module schema, and shipping a Role
+    # that grants something other than what was declared must not happen.
+    rbac_rules_by_module: dict[str, list[dict[str, Any]]] = {}
+    # Custom NetworkPolicy allow rules (E149) are validated for the same
+    # reason: they are merged verbatim into the module's policy.
+    network_policy_passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] = {}
+    for module in renderable:
+        rbac_rules, rbac_diags = _rbac_rules(
+            module["id"], module["implementation"]["kubernetes"]
+        )
+        rbac_rules_by_module[module["id"]] = rbac_rules
+        diagnostics.extend(rbac_diags)
+
+        passthrough, passthrough_diags = _network_policy_passthrough(
+            module["id"], module["implementation"]["kubernetes"]
+        )
+        network_policy_passthrough[module["id"]] = passthrough
+        diagnostics.extend(passthrough_diags)
+
     if any(diagnostic.level == "error" for diagnostic in diagnostics):
         return {}, diagnostics
 
@@ -179,6 +206,7 @@ def render_helm(
     files: dict[str, str] = {}
     manifests: list[tuple[str, dict[str, Any]]] = []
     secret_keys: set[str] = set()
+    module_surfaces: dict[str, list[dict[str, Any]]] = {}
 
     for module in renderable:
         module_id = module["id"]
@@ -197,6 +225,8 @@ def render_helm(
             True,
         )
         _merge_init_db_env(compose_services, module, secrets)
+
+        module_surfaces[module_id] = _workload_surfaces(k8s, context)
 
         (
             module_values,
@@ -224,6 +254,20 @@ def render_helm(
         files.update(module_files)
         secret_keys.update(module_secret_keys)
         diagnostics.extend(module_diags)
+        manifests.append((
+            f"{module_id}-service-account.yaml",
+            _service_account_manifest(
+                module_id, release, rbac_rules_by_module.get(module_id, [])
+            ),
+        ))
+
+    manifests.extend(_network_policy_manifests(
+        renderable,
+        module_surfaces,
+        release,
+        diagnostics,
+        network_policy_passthrough,
+    ))
 
     if secret_keys:
         manifests.append(
@@ -404,6 +448,7 @@ def _render_module(
         if init_containers:
             pod_spec["initContainers"] = init_containers
         pod_spec["containers"] = containers
+        pod_spec["serviceAccountName"] = _service_account_name(module_id)
         psc = workload.get("podSecurityContext")
         if psc:
             pod_spec["securityContext"] = psc
@@ -1246,6 +1291,431 @@ def _secret_manifest(release: str, keys: list[str]) -> str:
             for key in keys
         )
     )
+
+
+# ---------------------------------------------------------------------------
+# Service accounts, RBAC, and network policies (issue #75)
+# ---------------------------------------------------------------------------
+
+_RBAC_API_GROUP = "rbac.authorization.k8s.io"
+_RBAC_API_VERSION = f"{_RBAC_API_GROUP}/v1"
+
+# Egress to the cluster DNS service is required by every workload that
+# resolves any Service name; it is the only egress allowed without a
+# contract binding.
+_DNS_EGRESS_RULE: dict[str, Any] = {
+    "to": [
+        {
+            "namespaceSelector": {
+                "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+            },
+            "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
+        }
+    ],
+    "ports": [
+        {"protocol": "UDP", "port": 53},
+        {"protocol": "TCP", "port": 53},
+    ],
+}
+
+
+def _service_account_name(module_id: str) -> str:
+    return "{{ .Release.Name }}-" + _k8s_name(module_id)
+
+
+def _rbac_rules(
+    module_id: str, k8s: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
+    """
+    Read the module's optional `serviceAccount.rbac` rules.
+
+    Least privilege means zero rules by default: without declared rules a
+    module's workloads get no Role, no RoleBinding, and no mounted API token.
+    A malformed rule fails closed with E147 instead of silently rendering a
+    Role that grants something other than what was declared.
+    """
+    diagnostics: list[Diagnostic] = []
+    service_account = k8s.get("serviceAccount")
+    if service_account is None:
+        return [], diagnostics
+    if not isinstance(service_account, dict):
+        # A plan loaded from a file bypasses the module schema; a
+        # non-mapping block must fail closed, not crash on `.get`.
+        return [], [Diagnostic(
+            level="error",
+            code="E148",
+            message=(
+                f'The "serviceAccount" block of module "{module_id}" must be a '
+                'mapping with an optional "rbac" rules list. Kubernetes would '
+                "reject anything else at install time, so the renderer fails "
+                "closed instead of shipping a broken Role."
+            ),
+            path=f"module:{module_id}.implementation.kubernetes.serviceAccount",
+        )]
+    declared = service_account.get("rbac")
+    if not declared:
+        return [], diagnostics
+    if not isinstance(declared, list):
+        return [], [_rbac_shape_diagnostic(module_id, "rbac")]
+
+    rules: list[dict[str, Any]] = []
+    for index, rule in enumerate(declared):
+        well_formed = (
+            isinstance(rule, dict)
+            and all(
+                isinstance(rule.get(field), list) and rule[field]
+                for field in ("apiGroups", "resources", "verbs")
+            )
+        )
+        if not well_formed:
+            diagnostics.append(_rbac_shape_diagnostic(module_id, f"rbac[{index}]"))
+            continue
+        rules.append(rule)
+    return rules, diagnostics
+
+
+def _rbac_shape_diagnostic(module_id: str, where: str) -> Diagnostic:
+    return Diagnostic(
+        level="error",
+        code="E148",
+        message=(
+            f'RBAC rule "{where}" of module "{module_id}" must be a mapping with '
+            'non-empty "apiGroups", "resources", and "verbs" lists. Kubernetes '
+            "would reject anything else at install time, so the renderer fails "
+            "closed instead of shipping a broken Role."
+        ),
+        path=f"module:{module_id}.implementation.kubernetes.serviceAccount.{where}",
+    )
+
+
+def _network_policy_passthrough(
+    module_id: str, k8s: dict[str, Any]
+) -> tuple[tuple[list[dict[str, Any]], list[dict[str, Any]]], list[Diagnostic]]:
+    """
+    Read the module's optional `networkPolicy.ingress`/`networkPolicy.egress`
+    custom allow rules, rendered verbatim into the module's NetworkPolicy.
+
+    These exist because contract bindings cannot express everything a real
+    deployment needs: an external API or database a job reads from, or a
+    cross-namespace ingress controller fronting a ClusterIP service, would
+    otherwise be silently denied by the default-deny baseline. A malformed
+    block fails closed with E149 (a plan loaded from a file bypasses the
+    module schema), mirroring the RBAC shape check.
+    """
+    diagnostics: list[Diagnostic] = []
+    empty: tuple[list[dict[str, Any]], list[dict[str, Any]]] = ([], [])
+    network_policy = k8s.get("networkPolicy")
+    if network_policy is None:
+        return empty, diagnostics
+    if not isinstance(network_policy, dict):
+        return empty, [
+            _network_policy_shape_diagnostic(module_id, "networkPolicy")
+        ]
+
+    rules: dict[str, list[dict[str, Any]]] = {}
+    for direction in ("ingress", "egress"):
+        declared = network_policy.get(direction)
+        if declared is None:
+            rules[direction] = []
+            continue
+        if not isinstance(declared, list) or not all(
+            isinstance(rule, dict) for rule in declared
+        ):
+            return empty, [
+                _network_policy_shape_diagnostic(module_id, f"networkPolicy.{direction}")
+            ]
+        rules[direction] = declared
+    return (rules["ingress"], rules["egress"]), diagnostics
+
+
+def _network_policy_shape_diagnostic(module_id: str, where: str) -> Diagnostic:
+    return Diagnostic(
+        level="error",
+        code="E149",
+        message=(
+            f'The "{where}" block of module "{module_id}" must be a mapping with '
+            'optional "ingress"/"egress" lists of NetworkPolicy rule objects '
+            "(mappings). Kubernetes would reject anything else at install time, "
+            "so the renderer fails closed instead of shipping a broken "
+            "NetworkPolicy."
+        ),
+        path=f"module:{module_id}.implementation.kubernetes.{where}",
+    )
+
+
+def _service_account_manifest(
+    module_id: str, release: str, rbac_rules: list[dict[str, Any]]
+) -> str:
+    """
+    One ServiceAccount per module, plus a Role and RoleBinding only when the
+    module declared RBAC rules. The documents are joined by hand because the
+    renderer emits one file per concern, not one object per file.
+    """
+    name = _service_account_name(module_id)
+    service_account: dict[str, Any] = {
+        "apiVersion": "v1",
+        "kind": "ServiceAccount",
+        "metadata": {"name": name, "labels": _labels(release, module_id)},
+    }
+    if not rbac_rules:
+        # Without RBAC rules the workloads have no business talking to the
+        # API server, so no token is mounted into their pods at all.
+        service_account["automountServiceAccountToken"] = False
+
+    documents = [service_account]
+    if rbac_rules:
+        role_name = name + "-role"
+        documents.append(
+            {
+                "apiVersion": _RBAC_API_VERSION,
+                "kind": "Role",
+                "metadata": {"name": role_name, "labels": _labels(release, module_id)},
+                "rules": rbac_rules,
+            }
+        )
+        documents.append(
+            {
+                "apiVersion": _RBAC_API_VERSION,
+                "kind": "RoleBinding",
+                "metadata": {
+                    "name": role_name + "-binding",
+                    "labels": _labels(release, module_id),
+                },
+                "subjects": [{"kind": "ServiceAccount", "name": name}],
+                "roleRef": {
+                    "apiGroup": _RBAC_API_GROUP,
+                    "kind": "Role",
+                    "name": role_name,
+                },
+            }
+        )
+    return "---\n".join(_dump(document) for document in documents)
+
+
+def _workload_surfaces(
+    k8s: dict[str, Any], context: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """
+    Summarize the enabled workloads' exposure for NetworkPolicy generation:
+    the Service type, the container ports reachable through it, and each
+    declared Service port -> targetPort mapping (the contract port is
+    Service-facing while NetworkPolicy ports match the destination pod
+    port, so a remap must translate one to the other).
+    """
+    surfaces: list[dict[str, Any]] = []
+    for workload_raw in (k8s.get("workloads") or {}).values():
+        workload = _substitute_values(deepcopy(workload_raw), context)
+        enabled_from = workload.get("enabledFrom")
+        if enabled_from and _resolve_expr(enabled_from, context) is False:
+            continue
+        service = workload.get("service")
+        if not isinstance(service, dict):
+            service = {}
+        ports: set[int] = set()
+        port_map: dict[int, set[int]] = {}
+        for port in service.get("ports", []) or []:
+            if not isinstance(port, dict):
+                continue
+            target_port = _container_port(port)
+            service_port = _int_or_none(port.get("port"))
+            if target_port is not None:
+                ports.add(target_port)
+            if service_port is not None and target_port is not None:
+                port_map.setdefault(service_port, set()).add(target_port)
+        surfaces.append({
+            "type": service.get("type") or "ClusterIP",
+            "ports": sorted(ports),
+            "port_map": {
+                number: sorted(targets) for number, targets in port_map.items()
+            },
+        })
+    return surfaces
+
+
+def _container_port(port: dict[str, Any]) -> int | None:
+    return _int_or_none(port.get("targetPort", port.get("port")))
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _network_policy_manifests(
+    modules: list[dict[str, Any]],
+    surfaces: dict[str, list[dict[str, Any]]],
+    release: str,
+    diagnostics: list[Diagnostic],
+    passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """
+    One NetworkPolicy per module: default-deny ingress and egress, then allow
+    rules derived from the plan's contract bindings. A binding from module C
+    to provider P yields an egress rule on C's pods and an ingress rule on
+    P's pods, both restricted to the binding's port. Within a module, pods
+    may talk freely (a module is the unit of composition and declares its own
+    internal wiring); DNS egress is the only other unconditional rule.
+
+    Custom `networkPolicy.ingress`/`networkPolicy.egress` rules are appended
+    after the derived rules: bindings cannot name external endpoints or
+    cross-namespace clients (an external API a job reads from, an ingress
+    controller fronting a ClusterIP service), which would otherwise be
+    silently denied. A binding whose provider is absent from the chart
+    cannot occur silently: E072 already fails the whole render for any plan
+    module that lacks a Kubernetes implementation.
+    """
+    module_ids = {module["id"] for module in modules}
+    egress_edges: dict[str, set[tuple[str, tuple[int, ...] | None]]] = {}
+    ingress_edges: dict[str, set[tuple[str, tuple[int, ...] | None]]] = {}
+
+    for module in modules:
+        consumer_id = module["id"]
+        for consume_name, consume in (module.get("consumes") or {}).items():
+            if not isinstance(consume, dict):
+                continue
+            provider_id = str(consume.get("contractRef", "")).split(".", 1)[0]
+            if provider_id not in module_ids or provider_id == consumer_id:
+                continue
+            ports = _binding_ports(
+                consume, provider_id, surfaces, consumer_id, consume_name, diagnostics
+            )
+            egress_edges.setdefault(consumer_id, set()).add((provider_id, ports))
+            ingress_edges.setdefault(provider_id, set()).add((consumer_id, ports))
+
+    manifests: list[tuple[str, dict[str, Any]]] = []
+    for module in modules:
+        module_id = module["id"]
+        ingress: list[dict[str, Any]] = [
+            {"from": [_module_peer(module_id)]}
+        ]
+        for consumer_id, ports in _sorted_edges(ingress_edges.get(module_id)):
+            rule: dict[str, Any] = {"from": [_module_peer(consumer_id)]}
+            if ports is not None:
+                rule["ports"] = _tcp_ports(ports)
+            ingress.append(rule)
+        for surface in surfaces.get(module_id, []):
+            # A NodePort/LoadBalancer Service is an intended entry point:
+            # traffic arrives from sources no binding can name, so ingress
+            # is opened to all sources on exactly the exposed ports.
+            if surface["type"] in ("NodePort", "LoadBalancer") and surface["ports"]:
+                ingress.append({"ports": _tcp_ports(tuple(surface["ports"]))})
+
+        egress: list[dict[str, Any]] = [
+            {"to": [_module_peer(module_id)]},
+            deepcopy(_DNS_EGRESS_RULE),
+        ]
+        for provider_id, ports in _sorted_edges(egress_edges.get(module_id)):
+            rule = {"to": [_module_peer(provider_id)]}
+            if ports is not None:
+                rule["ports"] = _tcp_ports(ports)
+            egress.append(rule)
+
+        # Custom allow rules come after the derived ones: they name
+        # destinations and clients no binding can express (external
+        # endpoints, cross-namespace ingress controllers).
+        custom_ingress, custom_egress = passthrough.get(module_id, ([], []))
+        ingress.extend(deepcopy(rule) for rule in custom_ingress)
+        egress.extend(deepcopy(rule) for rule in custom_egress)
+
+        manifests.append((
+            f"{module_id}-network-policy.yaml",
+            {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "NetworkPolicy",
+                "metadata": {
+                    "name": "{{ .Release.Name }}-" + module_id + "-network-policy",
+                    "labels": _labels(release, module_id),
+                },
+                "spec": {
+                    "podSelector": {"matchLabels": {
+                        "cds.dev/module": module_id,
+                        "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                    }},
+                    "policyTypes": ["Ingress", "Egress"],
+                    "ingress": ingress,
+                    "egress": egress,
+                },
+            },
+        ))
+    return manifests
+
+
+def _binding_ports(
+    consume: dict[str, Any],
+    provider_id: str,
+    surfaces: dict[str, list[dict[str, Any]]],
+    consumer_id: str,
+    consume_name: str,
+    diagnostics: list[Diagnostic],
+) -> tuple[int, ...] | None:
+    """
+    The ports a binding justifies: the contract's port when it is numeric,
+    otherwise the provider's advertised container ports. When neither is
+    available the rule cannot be port-scoped; that broader rule is allowed
+    but reported as W128 so the contract can be tightened.
+
+    The contract's port is Service-facing, while NetworkPolicy ports match
+    the destination POD port: when the provider's Services declare that
+    port with a different targetPort, the rule is generated for the
+    targetPort(s), so a `port: X, targetPort: Y` remap cannot silently
+    break the rule.
+    """
+    spec = (consume.get("contract") or {}).get("spec") or {}
+    port = _int_or_none(spec.get("port"))
+    if port is not None:
+        mapped: set[int] = set()
+        for surface in surfaces.get(provider_id, []):
+            mapped.update(surface.get("port_map", {}).get(port, []))
+        if mapped:
+            return tuple(sorted(mapped))
+        return (port,)
+    advertised = tuple(sorted({
+        number
+        for surface in surfaces.get(provider_id, [])
+        for number in surface["ports"]
+    }))
+    if advertised:
+        return advertised
+    diagnostics.append(Diagnostic(
+        level="warning",
+        code="W128",
+        message=(
+            f'Contract "{consumer_id}.{consume_name}" carries no numeric port and '
+            f'provider module "{provider_id}" advertises no service ports, so the '
+            "generated NetworkPolicy allows egress to it on all ports. Declare the "
+            "port in the contract to keep the rule port-scoped."
+        ),
+        path=f"module:{consumer_id}.consumes.{consume_name}",
+    ))
+    return None
+
+
+def _sorted_edges(
+    edges: set[tuple[str, tuple[int, ...] | None]] | None,
+) -> list[tuple[str, tuple[int, ...] | None]]:
+    return sorted(
+        edges or set(),
+        key=lambda edge: (edge[0], edge[1] is None, edge[1] or ()),
+    )
+
+
+def _tcp_ports(ports: tuple[int, ...]) -> list[dict[str, Any]]:
+    return [{"protocol": "TCP", "port": port} for port in ports]
+
+
+def _module_peer(module_id: str) -> dict[str, Any]:
+    return {
+        "podSelector": {
+            "matchLabels": {
+                "cds.dev/module": module_id,
+                "app.kubernetes.io/instance": "{{ .Release.Name }}",
+            }
+        }
+    }
 
 
 def _labels(release: str, module_id: str) -> dict[str, str]:
