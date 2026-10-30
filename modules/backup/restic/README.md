@@ -1,4 +1,4 @@
-# Restic file backup (experimental)
+# Restic file backup
 
 Generic file/volume backup engine that snapshots data other modules persist
 as plain files or directories (rather than through a SQL protocol) into an
@@ -6,8 +6,8 @@ encrypted restic repository, on a schedule.
 
 ## Purpose
 
-The Postgres warehouse has its own backup capability (pgBackRest, issue
-#665), but several modules persist state as files: the orchestration
+The Postgres warehouse has its own backup capability (pgBackRest,
+issue #665), but several modules persist state as files: the orchestration
 module's IO-manager volume, a file-based warehouse's host directory, an
 ingestion module's pipeline-state volume. This module protects all of them
 with one generic engine (issue #668): modules *opt in* by providing a

@@ -2,7 +2,7 @@
 Committed restic backup wiring test (issue #668).
 
 Proves, via the real validate/plan/render pipeline (not an uncommitted
-scratch profile), that the experimental restic module can protect both
+scratch profile), that the restic module can protect both
 persistence patterns a file-backed module exposes through the backup-source
 contract:
 
@@ -84,7 +84,7 @@ class ResticBackupWiringTest(unittest.TestCase):
                     },
                     {
                         "id": "restic",
-                        "source": "modules-experimental/backup/restic",
+                        "source": "modules/backup/restic",
                         "version": "0.1.0",
                         "enabled": True,
                         "config": {

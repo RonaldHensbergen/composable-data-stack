@@ -28,7 +28,7 @@ lint-deprecated:
 	ruff check .
 
 lint-renovate:
-	npx --yes --package renovate -- renovate-config-validator --strict renovate.json
+	npx --yes --package renovate@44.140.0 -- renovate-config-validator --strict renovate.json
 
 validate:
 	cds validate $(PROFILE)

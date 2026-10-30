@@ -1,7 +1,7 @@
 # images/restic
 
 Restic image for the generic file/volume backup module
-(`modules-experimental/backup/restic`, issue #668).
+(`modules/backup/restic`, issue #668).
 
 - Base: `restic/restic:0.19.1`, digest-pinned (Renovate keeps the pin
   current).

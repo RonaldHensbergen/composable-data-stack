@@ -50,6 +50,16 @@ The format is based on Keep a Changelog.
   message's stray quote and the scheduler's restart-behavior comment
   (issue #1016).
 
+- Fixed `make lint-renovate` (and therefore `make check`) failing: the
+  Makefile ran the Renovate config validator with an unpinned `npx
+  --package renovate`, which resolves to npm's stale `latest` (39.264.1,
+  an older major than the repo's 44.x pins) and rejects the current
+  `renovate.json`. The Makefile now uses the same exact pin as CI
+  (`renovate@44.140.0`), the self-pin Renovate custom manager now also
+  tracks the pins in `Makefile` and `AGENT.md` (so all three stay in sync
+  with CI's), and AGENT.md documents the same pinned command (issue
+  #1024).
+
 - Fixed PostgreSQL dialect detection in the dagster workdir's event
   persistence: a `postgresql+psycopg` (v3) connection URI fell back to
   the sqlite/JSON DDL branch and would have failed against a live
@@ -133,7 +143,7 @@ The format is based on Keep a Changelog.
   local source paths are recorded absolutely for subsequent updates (#348).
 
 - Added a generic file/volume backup capability (issue #668): the new
-  experimental `backup/restic` module snapshots modules whose durable
+  `backup/restic` module snapshots modules whose durable
   state is plain files or directories into an encrypted restic
   repository, complementing the Postgres-specific pgBackRest capability
   (#665). Modules opt in by providing the new `backup-source` contract

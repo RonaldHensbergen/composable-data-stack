@@ -230,7 +230,7 @@ the service's default restore command wholesale, so repeat the
 
 ## 7. The generic file backup provider (#668)
 
-The `backup/restic` module (`modules-experimental/backup/restic`) is the
+The `backup/restic` module (`modules/backup/restic`) is the
 generic file/volume backup engine: it protects modules whose durable state
 is plain files or directories rather than a SQL database. Where the
 Postgres provider (#665) owns both sides (sidecar and repository) inside
