@@ -1,6 +1,7 @@
 import contextlib
 import hashlib
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 import yaml
+from jsonschema import Draft202012Validator
 
 from cli.k8s_renderer import _configmap_checksum, render_helm
 from cli.main import _render_helm_chart
@@ -854,3 +856,434 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
             "module:demo.implementation.kubernetes.workloads.app.enabledFrom",
         )
         self.assertEqual(files, {})
+
+
+class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
+    """The issue #75 resources: per-module ServiceAccounts and contract-derived NetworkPolicies."""
+
+    def module(
+        self,
+        module_id: str,
+        *,
+        service_type: str = "ClusterIP",
+        with_service: bool = True,
+    ) -> dict:
+        module: dict = {
+            "id": module_id,
+            "implementation": {
+                "kind": "docker-compose",
+                "targets": ["docker-compose", "kubernetes"],
+                "compose": {"services": {"app": {"image": "example/app:1"}}},
+                "kubernetes": {
+                    "workloads": {
+                        "app": {
+                            "kind": "Deployment",
+                            "containers": ["app"],
+                        }
+                    }
+                },
+            },
+        }
+        if with_service:
+            module["implementation"]["kubernetes"]["workloads"]["app"]["service"] = {
+                "type": service_type,
+                "ports": [{"name": "http", "port": 8080}],
+            }
+        return module
+
+    def bound_plan(self) -> dict:
+        provider = self.module("demo")
+        consumer = self.module("consumer")
+        consumer["consumes"] = {
+            "backend": {
+                "contractRef": "demo.http",
+                "contract": {
+                    "kind": "http",
+                    "spec": {"host": "demo-app", "port": 8080},
+                },
+            }
+        }
+        isolated = self.module("isolated")
+        return {
+            "metadata": {"name": "test-chart", "version": "1.2.3"},
+            "runtime": {"namespace": "test"},
+            "secrets": {},
+            "modules": [provider, consumer, isolated],
+        }
+
+    def render(self, plan: dict) -> tuple[dict, list]:
+        files, diagnostics = render_helm(plan)
+        errors = [d.format() for d in diagnostics if d.level == "error"]
+        self.assertEqual(errors, [])
+        return files, diagnostics
+
+    def policy(self, files: dict, module_id: str) -> dict:
+        return yaml.safe_load(files[f"templates/{module_id}-network-policy.yaml"])
+
+    def test_policies_default_deny_and_allow_only_contract_bindings(self) -> None:
+        files, _ = self.render(self.bound_plan())
+
+        for module_id in ("demo", "consumer", "isolated"):
+            with self.subTest(module=module_id):
+                policy = self.policy(files, module_id)
+                self.assertEqual(policy["kind"], "NetworkPolicy")
+                self.assertEqual(policy["spec"]["policyTypes"], ["Ingress", "Egress"])
+                self.assertEqual(
+                    policy["spec"]["podSelector"]["matchLabels"]["cds.dev/module"],
+                    module_id,
+                )
+
+        demo = self.policy(files, "demo")
+        consumer_rules = [
+            rule
+            for rule in demo["spec"]["ingress"]
+            if rule.get("from")
+            and rule["from"][0]["podSelector"]["matchLabels"].get("cds.dev/module")
+            == "consumer"
+        ]
+        self.assertEqual(
+            consumer_rules,
+            [{
+                "from": [{
+                    "podSelector": {
+                        "matchLabels": {
+                            "cds.dev/module": "consumer",
+                            "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                        }
+                    }
+                }],
+                "ports": [{"protocol": "TCP", "port": 8080}],
+            }],
+        )
+
+        consumer = self.policy(files, "consumer")
+        egress = consumer["spec"]["egress"]
+        # Same-module egress, DNS egress, and exactly one binding-derived rule.
+        self.assertEqual(len(egress), 3)
+        self.assertEqual(
+            egress[1]["to"][0]["namespaceSelector"]["matchLabels"],
+            {"kubernetes.io/metadata.name": "kube-system"},
+        )
+        self.assertEqual(
+            egress[1]["to"][0]["podSelector"]["matchLabels"],
+            {"k8s-app": "kube-dns"},
+        )
+        self.assertEqual(
+            egress[2],
+            {
+                "to": [{
+                    "podSelector": {
+                        "matchLabels": {
+                            "cds.dev/module": "demo",
+                            "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                        }
+                    }
+                }],
+                "ports": [{"protocol": "TCP", "port": 8080}],
+            },
+        )
+
+        isolated = self.policy(files, "isolated")
+        # No policy allows traffic a binding does not justify: the isolated
+        # module talks to nobody but itself and the cluster DNS.
+        self.assertEqual(len(isolated["spec"]["ingress"]), 1)
+        self.assertEqual(len(isolated["spec"]["egress"]), 2)
+        self.assertNotIn("demo", yaml.safe_dump(isolated["spec"]))
+        self.assertNotIn("consumer", yaml.safe_dump(isolated["spec"]))
+
+    def test_policies_allow_same_module_traffic_and_dns_on_every_module(self) -> None:
+        files, _ = self.render(self.bound_plan())
+
+        for module_id in ("demo", "consumer", "isolated"):
+            policy = self.policy(files, module_id)
+            with self.subTest(module=module_id):
+                self.assertEqual(
+                    policy["spec"]["ingress"][0]["from"][0]["podSelector"][
+                        "matchLabels"
+                    ]["cds.dev/module"],
+                    module_id,
+                )
+                dns = policy["spec"]["egress"][1]
+                self.assertEqual(
+                    dns["ports"],
+                    [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
+                )
+
+    def nodeport_plan(self) -> dict:
+        plan = self.bound_plan()
+        plan["modules"][0] = self.module("demo", service_type="NodePort")
+        return plan
+
+    def test_nodeport_service_opens_ingress_on_its_ports_only(self) -> None:
+        # The NodePort Service is an intended entry point: ingress is
+        # opened to all sources, but only on the exposed ports.
+        files, _ = self.render(self.nodeport_plan())
+
+        demo = self.policy(files, "demo")
+        open_rules = [
+            rule for rule in demo["spec"]["ingress"] if "from" not in rule
+        ]
+        self.assertEqual(
+            open_rules,
+            [{"ports": [{"protocol": "TCP", "port": 8080}]}],
+        )
+
+    def test_workloads_run_under_module_service_accounts(self) -> None:
+        files, _ = self.render(self.bound_plan())
+
+        for module_id in ("demo", "consumer", "isolated"):
+            with self.subTest(module=module_id):
+                documents = list(yaml.safe_load_all(
+                    files[f"templates/{module_id}-service-account.yaml"]
+                ))
+                self.assertEqual(len(documents), 1)
+                service_account = documents[0]
+                self.assertEqual(service_account["kind"], "ServiceAccount")
+                self.assertEqual(
+                    service_account["metadata"]["name"],
+                    f"{{{{ .Release.Name }}}}-{module_id}",
+                )
+                # Least privilege without RBAC rules: no API token at all.
+                self.assertFalse(
+                    service_account["automountServiceAccountToken"]
+                )
+                # The deployment carries Helm's `toYaml` expansion for
+                # resources, so it is checked textually rather than parsed.
+                workload = files[f"templates/{module_id}-app-deployment.yaml"]
+                self.assertIn(
+                    f"serviceAccountName: '{{{{ .Release.Name }}}}-{module_id}'\n",
+                    workload,
+                )
+
+    def test_declared_rbac_rules_render_role_and_binding(self) -> None:
+        plan = self.bound_plan()
+        rule = {
+            "apiGroups": [""],
+            "resources": ["pods"],
+            "verbs": ["get", "list"],
+        }
+        plan["modules"][0]["implementation"]["kubernetes"]["serviceAccount"] = {
+            "rbac": [rule]
+        }
+
+        files, _ = self.render(plan)
+
+        documents = list(yaml.safe_load_all(
+            files["templates/demo-service-account.yaml"]
+        ))
+        self.assertEqual(
+            [document["kind"] for document in documents],
+            ["ServiceAccount", "Role", "RoleBinding"],
+        )
+        service_account, role, binding = documents
+        self.assertNotIn("automountServiceAccountToken", service_account)
+        self.assertEqual(role["rules"], [rule])
+        self.assertEqual(
+            binding["subjects"],
+            [{"kind": "ServiceAccount", "name": "{{ .Release.Name }}-demo"}],
+        )
+        self.assertEqual(
+            binding["roleRef"],
+            {
+                "apiGroup": "rbac.authorization.k8s.io",
+                "kind": "Role",
+                "name": "{{ .Release.Name }}-demo-role",
+            },
+        )
+
+    def test_malformed_rbac_rule_fails_closed(self) -> None:
+        # Plans can be loaded from files and bypass the module schema, so
+        # the renderer re-checks the RBAC rule shape: anything Kubernetes
+        # would reject at install time is an error, not a broken Role.
+        plan = self.bound_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["serviceAccount"] = {
+            "rbac": [{"apiGroups": [""], "resources": ["pods"]}]
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e148 = [d for d in diagnostics if d.code == "E148"]
+        self.assertEqual(len(e148), 1)
+        self.assertEqual(
+            e148[0].path,
+            "module:demo.implementation.kubernetes.serviceAccount.rbac[0]",
+        )
+
+    def test_malformed_service_account_block_fails_closed(self) -> None:
+        # Same bypass class as the RBAC rules: a non-mapping
+        # `serviceAccount` block must fail closed as E147, not crash the
+        # renderer with an AttributeError from `.get()`.
+        plan = self.bound_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["serviceAccount"] = "default"
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e148 = [d for d in diagnostics if d.code == "E148"]
+        self.assertEqual(len(e148), 1)
+        self.assertEqual(
+            e148[0].path,
+            "module:demo.implementation.kubernetes.serviceAccount",
+        )
+
+    def test_module_schema_accepts_the_core_api_group(self) -> None:
+        # The Kubernetes core API group is spelled "" (the schema's own
+        # description uses it as the example); `minLength` on the items
+        # would reject exactly that spelling.
+        schema = json.loads(
+            (Path(__file__).resolve().parent.parent / "cli" / "resources"
+             / "module.schema.json").read_text(encoding="utf-8")
+        )
+        validator = Draft202012Validator(schema["$defs"]["kubernetesRbacRule"])
+        rule = {
+            "apiGroups": [""],
+            "resources": ["pods"],
+            "verbs": ["get", "list"],
+        }
+        self.assertEqual(list(validator.iter_errors(rule)), [])
+
+    def test_binding_without_port_falls_back_to_provider_service_ports(self) -> None:
+        plan = self.bound_plan()
+        contract = plan["modules"][1]["consumes"]["backend"]["contract"]
+        contract["spec"].pop("port")
+
+        files, diagnostics = self.render(plan)
+
+        self.assertNotIn("W128", {d.code for d in diagnostics})
+        consumer = self.policy(files, "consumer")
+        self.assertEqual(
+            consumer["spec"]["egress"][2]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+
+    def test_binding_without_any_port_evidence_warns_and_stays_module_scoped(self) -> None:
+        # E084 requires the binding host to be an exposed Service, but that
+        # Service can belong to a different module than the contractRef
+        # names; when the provider itself advertises no ports, the egress
+        # rule cannot be port-scoped and W128 says so.
+        plan = self.bound_plan()
+        plan["modules"][0] = self.module("demo", with_service=False)
+        contract = plan["modules"][1]["consumes"]["backend"]["contract"]
+        contract["spec"].pop("port")
+        contract["spec"]["host"] = "isolated-app"
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        w128 = [d for d in diagnostics if d.code == "W128"]
+        self.assertEqual(len(w128), 1)
+        self.assertEqual(w128[0].path, "module:consumer.consumes.backend")
+        consumer = self.policy(files, "consumer")
+        self.assertEqual(
+            consumer["spec"]["egress"][2],
+            {
+                "to": [{
+                    "podSelector": {
+                        "matchLabels": {
+                            "cds.dev/module": "demo",
+                            "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                        }
+                    }
+                }]
+            },
+        )
+
+    def test_network_policy_passthrough_renders_verbatim(self) -> None:
+        # Bindings cannot name external endpoints or cross-namespace
+        # clients; the passthrough rules are appended after the derived
+        # rules so both can coexist.
+        plan = self.bound_plan()
+        plan["modules"][1]["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+            "ingress": [{
+                "from": [{
+                    "namespaceSelector": {
+                        "matchLabels": {"kubernetes.io/metadata.name": "ingress"}
+                    }
+                }],
+                "ports": [{"protocol": "TCP", "port": 8080}],
+            }],
+        }
+
+        files, _ = self.render(plan)
+
+        consumer = self.policy(files, "consumer")
+        self.assertEqual(
+            consumer["spec"]["egress"][-1],
+            {
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            },
+        )
+        self.assertEqual(
+            consumer["spec"]["ingress"][-1],
+            {
+                "from": [{
+                    "namespaceSelector": {
+                        "matchLabels": {"kubernetes.io/metadata.name": "ingress"}
+                    }
+                }],
+                "ports": [{"protocol": "TCP", "port": 8080}],
+            },
+        )
+
+    def test_malformed_network_policy_block_fails_closed(self) -> None:
+        # A plan loaded from a file bypasses the module schema: a malformed
+        # passthrough block must fail closed as E149, not crash or render a
+        # broken NetworkPolicy.
+        plan = self.bound_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = "allow-all"
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e149 = [d for d in diagnostics if d.code == "E149"]
+        self.assertEqual(len(e149), 1)
+        self.assertEqual(
+            e149[0].path,
+            "module:demo.implementation.kubernetes.networkPolicy",
+        )
+
+    def test_malformed_passthrough_rule_fails_closed(self) -> None:
+        plan = self.bound_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{"to": []}, "anywhere"]
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e149 = [d for d in diagnostics if d.code == "E149"]
+        self.assertEqual(len(e149), 1)
+        self.assertEqual(
+            e149[0].path,
+            "module:demo.implementation.kubernetes.networkPolicy.egress",
+        )
+
+    def test_contract_port_maps_through_service_target_port(self) -> None:
+        # The contract's port is Service-facing while NetworkPolicy ports
+        # match the destination pod port: a `port: 80, targetPort: 8080`
+        # remap must generate rules for 8080, not 80.
+        plan = self.bound_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]["service"] = {
+            "type": "ClusterIP",
+            "ports": [{"name": "http", "port": 80, "targetPort": 8080}],
+        }
+        plan["modules"][1]["consumes"]["backend"]["contract"]["spec"]["port"] = 80
+
+        files, _ = self.render(plan)
+
+        consumer = self.policy(files, "consumer")
+        demo = self.policy(files, "demo")
+        self.assertEqual(
+            consumer["spec"]["egress"][2]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+        self.assertEqual(
+            demo["spec"]["ingress"][1]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )

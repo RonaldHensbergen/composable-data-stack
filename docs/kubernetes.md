@@ -14,6 +14,7 @@ including k3s through k3d.
 - [Use the isolated k3d harness](#use-the-isolated-k3d-harness)
 - [Access local services](#access-local-services)
 - [Translation boundaries](#translation-boundaries)
+- [Network isolation and least privilege](#network-isolation-and-least-privilege)
 - [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
@@ -187,13 +188,50 @@ guess at semantics that differ between runtimes.
 | Compose healthcheck | Readiness, liveness, and startup probes |
 | Host port binding | Not translated; use a Service or port-forward |
 | Compose network | Not translated; Kubernetes DNS and Services provide reachability |
-| Network policy | Not emitted; the contract graph does not claim exhaustive traffic yet |
+| Network policy | Emitted per module: default-deny ingress/egress with contract-derived allow rules (see [Network isolation](#network-isolation-and-least-privilege)) |
 | `pids_limit` | Not translated by the current schema |
 | Local `build:` | Build first, then import into k3d |
 
 Dagster's Compose-only Unix socket does not cross Pod boundaries. The
 Kubernetes implementation uses Dagster gRPC over a ClusterIP Service, as
 recorded in ADR 0002.
+
+## Network isolation and least privilege
+
+Every module in a rendered chart ships a per-module ServiceAccount and a
+NetworkPolicy (issue #75):
+
+- The NetworkPolicy is default-deny for ingress and egress. Allow rules are
+  derived from the plan's contract bindings: a binding from consumer to
+  provider opens egress on the consumer's pods and matching ingress on the
+  provider's pods, scoped to the binding's port. The contract's port is
+  Service-facing, so it is mapped through the provider's Service
+  `targetPort`: a `port: X, targetPort: Y` remap keeps the rule correct. A
+  binding without a numeric port falls back to the provider's advertised
+  service ports; with no port evidence at all the rule stays module-scoped
+  and the render reports `W128` asking for the port to be declared.
+- Within a module, pods may talk freely on any port: a module is the unit
+  of composition and declares its own internal wiring (which is why the
+  Superset init job and the webserver share one policy).
+- Egress to the cluster DNS service (kube-system `kube-dns`, UDP+TCP 53) is
+  the only other unconditional rule.
+- NodePort and LoadBalancer services are intended entry points: ingress is
+  opened to all sources on exactly their exposed ports, and CDS-K8S-007
+  flags that exposure.
+- The ServiceAccount mounts no API token by default; RBAC is opt-in via
+  `implementation.kubernetes.serviceAccount.rbac` (malformed rules fail
+  closed with E148), and wildcard grants are flagged by CDS-K8S-006.
+
+### When the baseline denies something you need
+
+Bindings cannot name external endpoints or cross-namespace clients: a job
+reading an external API or database, or an ingress controller fronting a
+ClusterIP service, would be silently denied by the default-deny baseline.
+Declare those rules via `implementation.kubernetes.networkPolicy.ingress`/
+`egress` -- they are rendered verbatim after the binding-derived rules, and
+malformed shapes fail closed with E149. The security scan records every
+external-egress rule as a low CDS-K8S-008 finding, so intentional openings
+stay visible in `cds security --target helm`.
 
 ## Troubleshooting
 
