@@ -116,7 +116,7 @@ spec:
         kind: http-service
         spec:
           portFrom: spec.config.httpPort
-          host: ${service.host}
+          host: ${service.dns}
           port: ${config.httpPort}
           protocol: http
   implementation:

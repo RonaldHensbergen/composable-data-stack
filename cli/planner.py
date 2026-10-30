@@ -22,6 +22,7 @@ from .resolver import (
     secret_name_from_ref,
 )
 from .secrets import load_profile_secrets
+from .utils import module_dns_host, module_name_from_source
 
 
 @dataclass
@@ -688,11 +689,29 @@ def resolve_provided_contracts(
 ) -> dict[str, Any]:
     """
     Resolve contracts provided by a module instance.
+
+    The `service` substitution context exposes two names (issue #1010):
+    `${service.host}` is the module instance id (stable for name-prefix
+    use such as backup volume names), while `${service.dns}` is the
+    Compose DNS name the module's serving service answers to -- the
+    renderer's compose service name (`<id>` when the service already
+    carries the id prefix, `<id>-<service>` otherwise) for a module with
+    a single compose service or a namesake service matching the module's
+    own name (e.g. `postgres` alongside its backup job containers), so
+    contract endpoints resolve on the Compose network even when the
+    instance id differs from the service name. Other multi-service
+    modules have no single DNS name; both placeholders keep the instance
+    id and their serving service is named explicitly via the contract's
+    `serviceName` field.
     """
     secrets = secrets if secrets is not None else {}
     provides = inst["module"].get("spec", {}).get("provides", [])
     resolved: dict[str, Any] = {}
-    service_name = inst["id"]
+    implementation = (inst["module"].get("spec", {}) or {}).get("implementation", {}) or {}
+    compose_impl = implementation.get("compose") if isinstance(implementation, dict) else None
+    services = compose_impl.get("services") if isinstance(compose_impl, dict) else None
+    service_host = str(inst["id"])
+    module_name = str((inst["module"].get("metadata") or {}).get("name") or module_name_from_source(inst.get("source")))
 
     for provided in provides:
         provide_name = provided.get("name")
@@ -702,7 +721,10 @@ def resolve_provided_contracts(
             contract,
             context={
                 "config": inst["config"],
-                "service": {"host": service_name},
+                "service": {
+                    "host": service_host,
+                    "dns": module_dns_host(service_host, services, module_name),
+                },
                 "secrets": secrets,
                 "bindings": {},
             },

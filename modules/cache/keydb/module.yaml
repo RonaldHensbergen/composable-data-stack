@@ -59,12 +59,12 @@ spec:
       contract:
         kind: cache-service
         spec:
-          host: ${service.host}
+          host: ${service.dns}
           port: ${config.port}
           protocol: redis
           password: ${ifNonempty:config.passwordFrom,,}
           authentication: ${ifNonempty:config.passwordFrom,required,}
-          connectionUri: "redis://${ifNonempty:config.passwordFrom,:,@}${service.host}:${config.port}"
+          connectionUri: "redis://${ifNonempty:config.passwordFrom,:,@}${service.dns}:${config.port}"
 
   implementation:
     kind: docker-compose

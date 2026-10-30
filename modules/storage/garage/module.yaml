@@ -79,11 +79,12 @@ spec:
         spec:
           # config.port only republishes S3 on the host loopback; the API
           # always listens on the fixed container port inside the network,
-          # so consumers must not follow a host port override. ${service.host}
-          # resolves to the module instance id, so profiles must instantiate
-          # this module with id "garage" for the endpoint to match the
-          # Compose service DNS name (see the module README).
-          endpoint: http://${service.host}:3900
+          # so consumers must not follow a host port override. ${service.dns}
+          # resolves to the Compose service DNS name, so any instance id
+          # works: the renderer prefixes ids that differ from the service
+          # name (an "object-storage" instance advertises
+          # "object-storage-garage").
+          endpoint: http://${service.dns}:3900
           bucket: ${config.bucket}
           region: garage
           accessKey: ${config.accessKeyFrom}

@@ -35,6 +35,29 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed provided contract endpoints silently breaking when a module
+  instance id differs from the module's compose service name (issue
+  #1010, found in the review of #1006): contract resolution substituted
+  `${service.host}` with the instance id, while the renderer names each
+  compose service `<id>`/`<id>-<service>`, so profiles instantiating,
+  e.g., the S3-compatible object-storage module as
+  `id: object-storage` produced a contract endpoint no sibling container
+  could resolve. The interpolation vocabulary now separates the two
+  roles: `${service.host}` keeps resolving to the instance id (name
+  prefixes such as backup volume names), while the new
+  `${service.dns}` resolves through the same service-naming rule the
+  renderer uses -- the compose name of the module's single service, or
+  of its namesake service when auxiliary services exist (e.g.
+  `postgres` next to its backup job containers); the explicit
+  `serviceName` mechanism keeps covering other multi-service modules. The single-service modules advertising
+  network endpoints (KeyDB-compatible cache, identity provider, reverse
+  proxy, object storage, the Postgres warehouse, and the Superset BI
+  app) now build them from `${service.dns}`, and the
+  render cross-checks every provided `http-service`, `sql-database`,
+  `cache-service`, and `object-storage` contract's advertised network
+  host against the compose services it actually produced, failing with
+  `E150` instead of shipping a broken endpoint.
+
 - Fixed the restic file backup module's restore path for multiple bound
   sources (issue #1014, found in the post-merge review of #1011): the
   scheduler took one separate restic snapshot per source, but the restore

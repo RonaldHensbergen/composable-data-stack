@@ -248,49 +248,52 @@ spec:
       contract:
         kind: sql-database
         spec:
-          host: ${service.host}
+          # ${service.dns} resolves to the Compose service DNS name, so any
+          # instance id works (an "analytics-db" instance advertises
+          # "analytics-db-postgres"); see issue #1010.
+          host: ${service.dns}
           port: ${config.port}
           database: ${config.database}
           username: ${config.username}
           password: ${config.passwordFrom}
           authentication: ${config.authentication.hostAuth}
-          connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.host}:${config.port}/${config.database}
+          connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.dns}:${config.port}/${config.database}
 
     - name: dagster-database
       contract:
         kind: sql-database
         spec:
-          host: ${service.host}
+          host: ${service.dns}
           port: ${config.port}
           database: ${config.dagsterDatabase.name}
           username: ${config.dagsterDatabase.username}
           password: ${config.dagsterDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
-          connectionUri: postgresql://${config.dagsterDatabase.username}:${config.dagsterDatabase.passwordFrom}@${service.host}:${config.port}/${config.dagsterDatabase.name}
+          connectionUri: postgresql://${config.dagsterDatabase.username}:${config.dagsterDatabase.passwordFrom}@${service.dns}:${config.port}/${config.dagsterDatabase.name}
 
     - name: superset-database
       contract:
         kind: sql-database
         spec:
-          host: ${service.host}
+          host: ${service.dns}
           port: ${config.port}
           database: ${config.supersetDatabase.name}
           username: ${config.supersetDatabase.username}
           password: ${config.supersetDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
-          connectionUri: postgresql://${config.supersetDatabase.username}:${config.supersetDatabase.passwordFrom}@${service.host}:${config.port}/${config.supersetDatabase.name}
+          connectionUri: postgresql://${config.supersetDatabase.username}:${config.supersetDatabase.passwordFrom}@${service.dns}:${config.port}/${config.supersetDatabase.name}
 
     - name: marquez-database
       contract:
         kind: sql-database
         spec:
-          host: ${service.host}
+          host: ${service.dns}
           port: ${config.port}
           database: ${config.marquezDatabase.name}
           username: ${config.marquezDatabase.username}
           password: ${config.marquezDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
-          connectionUri: postgresql://${config.marquezDatabase.username}:${config.marquezDatabase.passwordFrom}@${service.host}:${config.port}/${config.marquezDatabase.name}
+          connectionUri: postgresql://${config.marquezDatabase.username}:${config.marquezDatabase.passwordFrom}@${service.dns}:${config.port}/${config.marquezDatabase.name}
 
     - name: data-provider-metadata
       contract:
