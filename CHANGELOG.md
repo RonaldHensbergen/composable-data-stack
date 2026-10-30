@@ -18,11 +18,20 @@ The format is based on Keep a Changelog.
   workload runs under a dedicated per-module ServiceAccount with opt-in
   least-privilege RBAC via the new
   `implementation.kubernetes.serviceAccount.rbac` rules — no rules means
-  no Role, no RoleBinding, and no mounted API token. Extended the
-  Kubernetes security scan with CDS-K8S-006 (wildcard RBAC grants) and
-  CDS-K8S-007 (NodePort/LoadBalancer ingress exposure), and added a W128
+  no Role, no RoleBinding, and no mounted API token (malformed rules fail
+  closed with E148). Custom allow rules for destinations no binding can
+  name — an external API or database a job reads from, a cross-namespace
+  ingress controller — are opt-in via
+  `implementation.kubernetes.networkPolicy.ingress`/`egress`, rendered
+  verbatim after the binding-derived rules (malformed shapes fail closed
+  with E149), and the contract's Service-facing port is mapped through the
+  provider's Service `targetPort` so a port remap cannot silently break a
+  rule. Extended the Kubernetes security scan with CDS-K8S-006 (wildcard
+  RBAC grants), CDS-K8S-007 (NodePort/LoadBalancer ingress exposure), and
+  CDS-K8S-008 (external-egress passthrough rules), and added a W128
   warning when a binding carries no port evidence and its egress rule
-  cannot be port-scoped.
+  cannot be port-scoped; documented the network-isolation baseline in
+  `docs/kubernetes.md`.
 - Added a single-node Garage S3-compatible object-storage module and
   provider-neutral `object-storage` contract, with persistent data and
   metadata volumes and profile-secret-backed credentials. The module is

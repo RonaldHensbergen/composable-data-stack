@@ -931,10 +931,10 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         files, diagnostics = render_helm(plan)
 
         self.assertEqual(files, {})
-        e147 = [d for d in diagnostics if d.code == "E147"]
-        self.assertEqual(len(e147), 1)
+        e148 = [d for d in diagnostics if d.code == "E148"]
+        self.assertEqual(len(e148), 1)
         self.assertEqual(
-            e147[0].path,
+            e148[0].path,
             "module:demo.implementation.kubernetes.serviceAccount.rbac[0]",
         )
 
@@ -948,10 +948,10 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         files, diagnostics = render_helm(plan)
 
         self.assertEqual(files, {})
-        e147 = [d for d in diagnostics if d.code == "E147"]
-        self.assertEqual(len(e147), 1)
+        e148 = [d for d in diagnostics if d.code == "E148"]
+        self.assertEqual(len(e148), 1)
         self.assertEqual(
-            e147[0].path,
+            e148[0].path,
             "module:demo.implementation.kubernetes.serviceAccount",
         )
 
@@ -1015,4 +1015,103 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
                     }
                 }]
             },
+        )
+
+    def test_network_policy_passthrough_renders_verbatim(self) -> None:
+        # Bindings cannot name external endpoints or cross-namespace
+        # clients; the passthrough rules are appended after the derived
+        # rules so both can coexist.
+        plan = self.bound_plan()
+        plan["modules"][1]["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+            "ingress": [{
+                "from": [{
+                    "namespaceSelector": {
+                        "matchLabels": {"kubernetes.io/metadata.name": "ingress"}
+                    }
+                }],
+                "ports": [{"protocol": "TCP", "port": 8080}],
+            }],
+        }
+
+        files, _ = self.render(plan)
+
+        consumer = self.policy(files, "consumer")
+        self.assertEqual(
+            consumer["spec"]["egress"][-1],
+            {
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            },
+        )
+        self.assertEqual(
+            consumer["spec"]["ingress"][-1],
+            {
+                "from": [{
+                    "namespaceSelector": {
+                        "matchLabels": {"kubernetes.io/metadata.name": "ingress"}
+                    }
+                }],
+                "ports": [{"protocol": "TCP", "port": 8080}],
+            },
+        )
+
+    def test_malformed_network_policy_block_fails_closed(self) -> None:
+        # A plan loaded from a file bypasses the module schema: a malformed
+        # passthrough block must fail closed as E149, not crash or render a
+        # broken NetworkPolicy.
+        plan = self.bound_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = "allow-all"
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e149 = [d for d in diagnostics if d.code == "E149"]
+        self.assertEqual(len(e149), 1)
+        self.assertEqual(
+            e149[0].path,
+            "module:demo.implementation.kubernetes.networkPolicy",
+        )
+
+    def test_malformed_passthrough_rule_fails_closed(self) -> None:
+        plan = self.bound_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{"to": []}, "anywhere"]
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e149 = [d for d in diagnostics if d.code == "E149"]
+        self.assertEqual(len(e149), 1)
+        self.assertEqual(
+            e149[0].path,
+            "module:demo.implementation.kubernetes.networkPolicy.egress",
+        )
+
+    def test_contract_port_maps_through_service_target_port(self) -> None:
+        # The contract's port is Service-facing while NetworkPolicy ports
+        # match the destination pod port: a `port: 80, targetPort: 8080`
+        # remap must generate rules for 8080, not 80.
+        plan = self.bound_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]["service"] = {
+            "type": "ClusterIP",
+            "ports": [{"name": "http", "port": 80, "targetPort": 8080}],
+        }
+        plan["modules"][1]["consumes"]["backend"]["contract"]["spec"]["port"] = 80
+
+        files, _ = self.render(plan)
+
+        consumer = self.policy(files, "consumer")
+        demo = self.policy(files, "demo")
+        self.assertEqual(
+            consumer["spec"]["egress"][2]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+        self.assertEqual(
+            demo["spec"]["ingress"][1]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
         )

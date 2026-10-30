@@ -296,6 +296,30 @@
         },
         "serviceAccount": {
           "$ref": "#/$defs/kubernetesServiceAccount"
+        },
+        "networkPolicy": {
+          "$ref": "#/$defs/kubernetesNetworkPolicy"
+        }
+      }
+    },
+    "kubernetesNetworkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Custom allow rules merged verbatim into the module's generated NetworkPolicy (issue #75). The generated policy is default-deny for ingress and egress; these rules exist because contract bindings cannot name external endpoints (e.g. an external API a job reads from) or cross-namespace clients (e.g. an ingress controller fronting a ClusterIP service), which would otherwise be silently denied.",
+      "properties": {
+        "egress": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Additional NetworkPolicy egress rules (networking.k8s.io/v1 rule objects), rendered verbatim after the binding-derived rules. Scope each rule to the minimum: a specific ipBlock cidr or a namespace/pod selector peer, and a TCP port list; the security scan reports every external-egress rule as a low finding (CDS-K8S-008)."
+        },
+        "ingress": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Additional NetworkPolicy ingress rules (networking.k8s.io/v1 rule objects), rendered verbatim after the binding-derived rules, e.g. to admit a cross-namespace ingress controller that no contract binding can name."
         }
       }
     },
