@@ -18,13 +18,14 @@ trustworthy once restored" is exercised end to end for bucket contents:
    the timestamped prefix back with rclone -- the documented recovery
    procedure -- and verify the original content returned byte-for-byte.
 
-Two more proofs cover the failure and guard paths. With the destination
-running but the module's destination credentials wrong, every pass fails
-fast: no completion marker ever lands on the destination, the service
-keeps running (no crash-restart loop), and retries with fresh timestamps
-on the configured delay. And a destination configured as literally the
-source endpoint and bucket makes the service refuse to run: it exits 1
-with the guard's message.
+One more proof covers the failure path. With the destination running but
+the module's destination credentials wrong, every pass fails fast: no
+completion marker ever lands on the destination, the service keeps running
+(no crash-restart loop), and retries with fresh timestamps on the configured
+delay. A destination configured as literally the source endpoint and
+bucket no longer reaches a container: it fails planning with E147 and is
+proven offline in tests/test_object_storage_backup_module.py; the
+service's start-time guard remains as a defense-in-depth backstop.
 
 Runs only with CDS_RUN_DOCKER_SMOKE=1 and a working daemon; skips
 otherwise, like tests/test_restic_backup_restore_runtime.py.
@@ -462,41 +463,6 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
                 ["lsf", "--recursive", f"destination:{DESTINATION_BUCKET}"],
             )
             self.assertEqual(listing.stdout, "")
-
-    def test_same_endpoint_and_bucket_is_refused(self) -> None:
-        # The service-level guard is part of the documented configuration
-        # contract: a destination that is literally the source endpoint
-        # and bucket must refuse to run instead of copying a bucket into
-        # itself.
-        profile = _profile()
-        profile["spec"]["modules"][2]["config"]["destination"] = {
-            "endpoint": "http://garage:3900",
-            "bucket": SOURCE_BUCKET,
-            "region": "garage",
-            "accessKeyFrom": "secrets.src_access_key",
-            "secretKeyFrom": "secrets.src_secret_key",
-        }
-        self._prepare(profile)
-
-        self._run([*self._compose(), "up", "-d", BACKUP_SERVICE])
-        started = time.monotonic()
-        status, exit_code, _restarts = self._container_state(BACKUP_SERVICE)
-        while time.monotonic() - started < 120:
-            status, exit_code, _restarts = self._container_state(BACKUP_SERVICE)
-            if status in ("exited", "restarting") and exit_code == "1":
-                break
-            time.sleep(5)
-        else:
-            self.fail(
-                f"{BACKUP_SERVICE} did not refuse the same-source destination "
-                f"(last state: {status}, exit code: {exit_code})"
-            )
-        logs = self._run(
-            [*self._compose(), "logs", "--tail", "100", BACKUP_SERVICE]
-        ).stdout
-        self.assertIn(
-            "Source and destination must not be the same endpoint and bucket.", logs
-        )
 
     def test_snapshot_recovers_overwritten_object(self) -> None:
         self._prepare(_profile())

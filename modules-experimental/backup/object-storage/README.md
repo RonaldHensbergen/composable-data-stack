@@ -39,10 +39,13 @@ Source credentials should only need to list and read the selected source
 bucket. Destination credentials need to list and write objects, but do not
 need delete permissions. Prefer a destination on a different backend and host:
 another bucket on the source Garage instance does not protect against failure
-of that instance or its disks. The service's same-endpoint guard is a literal
-string comparison of the endpoint and bucket: the same storage reached under
-a different hostname, port, or scheme passes it, so the destination choice
-remains the operator's responsibility.
+of that instance or its disks. A destination configured as literally the
+bound source endpoint and bucket fails planning with `E147` before anything
+boots. Both that check and the service's start-time guard (a backstop for
+compose files run without the CLI) are literal string comparisons of the
+endpoint and bucket: the same storage reached under a different hostname,
+port, or scheme passes them, so the destination choice remains the
+operator's responsibility.
 
 ## Snapshot layout and recovery
 
@@ -75,7 +78,10 @@ snapshot; it is harmless, or exclude it with
 
 The module does not automatically delete
 snapshots; configure and review destination lifecycle policies separately so
-they retain enough recovery points. It copies object contents, not bucket
+they retain enough recovery points. Every pass is a full copy of the current
+bucket contents into its fresh prefix, so destination storage grows
+linearly with the number of retained snapshots -- size the destination and
+its lifecycle policy accordingly. It copies object contents, not bucket
 policies, access keys, ACLs, or an atomic point-in-time view of a bucket being
 actively modified. Validate restores before relying on them: a Docker-gated
 runtime proof (`tests/test_object_storage_backup_runtime.py`, run in the

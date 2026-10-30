@@ -118,7 +118,10 @@ spec:
         # marker object into its prefix, so a prefix left behind by a
         # failed pass is recognizable as partial and never restored from.
         # A failed pass waits the configured retry delay and retries with
-        # a fresh timestamp instead of crash-looping. Production pieces
+        # a fresh timestamp instead of crash-looping. A destination that is
+        # literally the bound source endpoint and bucket fails planning with
+        # E147; the start-time guard below stays as a defense-in-depth
+        # backstop for compose files run without the CLI. Production pieces
         # only; a non-production render contributes no services, and
         # instantiating the module outside production fails validation
         # (E143).

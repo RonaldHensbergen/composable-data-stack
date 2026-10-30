@@ -88,6 +88,7 @@ enforced by `profile.schema.json` (`E010`). `cds validate` adds:
 | `E142` | The built-in backup capability is enabled while rendering the `helm` target, which has no backup sidecar workload yet (#665). |
 | `E143` | A module's built-in backup capability (a production-only piece) is enabled outside a production profile (#665); also fires for a backup module (`metadata.category: backup`, e.g. restic, #668) instantiated outside a production profile, since its services would silently not render. |
 | `E146` | A bound `backup-source` contract advertises a Compose volume the producing module does not declare, so the backup engine would mount an empty implicit volume and protect nothing (plan stage, #668). |
+| `E147` | A backup module configures its object-storage destination as literally the bound source endpoint and bucket, so snapshots would copy the bucket onto itself (plan stage, #669). |
 
 `spec.backup` is optional outside production, but is validated whenever it is
 present. Because `cds test` stops later stages on validation errors, a
@@ -175,7 +176,10 @@ instances (source and destination), seeds a marker object, waits for the
 scheduled snapshot pass and its completion marker, overwrites the marker,
 and restores it
 byte-for-byte from the timestamped prefix with the documented recovery
-procedure. Destination retention stays operator-managed, and the module's
+procedure. Each pass is a full copy, so destination storage grows linearly
+with the number of retained snapshots; a destination configured as
+literally the source endpoint and bucket fails planning with `E147`.
+Destination retention stays operator-managed, and the module's
 `productionSuitable: false` marking requires a scoped CDS-SEC-073 waiver
 in production.
 

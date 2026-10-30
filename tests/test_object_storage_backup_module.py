@@ -118,7 +118,7 @@ class ObjectStorageBackupModuleTest(unittest.TestCase):
         self.assertNotIn("rclone sync", command)
         self.assertEqual(self.service["restart"], "unless-stopped")
 
-    def test_snapshot_pass_writes_completion_marker_and_retries_with_backoff(self) -> None:
+    def test_snapshot_pass_writes_completion_marker_and_retries_after_delay(self) -> None:
         command = "\n".join(self.service["command"])
         # A failed pass must not exit the service: it retries with a fresh
         # timestamp after the configured delay, leaving its partial prefix
@@ -226,6 +226,56 @@ class ObjectStorageBackupModuleTest(unittest.TestCase):
             any(d.level == "error" and d.code == "E143" for d in diagnostics),
             msg=[d.format() for d in diagnostics],
         )
+
+    def test_same_endpoint_and_bucket_fails_planning_with_e147(self) -> None:
+        # The sameness refusal is a plan-stage check (E147): the resolved
+        # plan knows the bound source endpoint/bucket and the configured
+        # destination, so a bucket-onto-itself configuration fails before
+        # anything boots. The service's start-time guard remains as a
+        # defense-in-depth backstop for compose files run without the CLI.
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT / "tests") as tmp:
+            for endpoint in ("http://garage:3900", "http://garage:3900/"):
+                with self.subTest(endpoint=endpoint):
+                    profile = _profile()
+                    profile["spec"]["modules"][1]["config"]["destination"][
+                        "endpoint"
+                    ] = endpoint
+                    profile["spec"]["modules"][1]["config"]["destination"][
+                        "bucket"
+                    ] = "cds-data"
+                    profile_path = Path(tmp) / "profile.yaml"
+                    profile_path.write_text(
+                        yaml.safe_dump(profile), encoding="utf-8"
+                    )
+                    with patch.dict(os.environ, _ENV):
+                        plan, plan_diagnostics = build_plan(str(profile_path))
+                    self.assertTrue(
+                        any(
+                            d.level == "error" and d.code == "E147"
+                            for d in plan_diagnostics
+                        ),
+                        msg=[d.format() for d in plan_diagnostics],
+                    )
+
+    def test_same_endpoint_with_different_bucket_plans_cleanly(self) -> None:
+        # Only an identical endpoint AND bucket pair is refused: a different
+        # bucket on the same endpoint is a valid (if less resilient)
+        # destination, and the operator-facing guidance to prefer a
+        # different host stays documentation.
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT / "tests") as tmp:
+            profile = _profile()
+            profile["spec"]["modules"][1]["config"]["destination"][
+                "endpoint"
+            ] = "http://garage:3900"
+            profile_path = Path(tmp) / "profile.yaml"
+            profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+            with patch.dict(os.environ, _ENV):
+                plan, plan_diagnostics = build_plan(str(profile_path))
+            self.assertIsNotNone(plan)
+            self.assertEqual(
+                [d.format() for d in plan_diagnostics if d.level == "error"],
+                [],
+            )
 
     def test_production_security_pass_raises_no_finding_against_the_module(self) -> None:
         with tempfile.TemporaryDirectory(dir=REPO_ROOT / "tests") as tmp:
