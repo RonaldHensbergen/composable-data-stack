@@ -29,7 +29,12 @@ from .secret_leak import (
     declared_secret_env_names,
     resolved_secret_values,
 )
-from .utils import _atomic_write, _compose_service_name, module_dns_host
+from .utils import (
+    _atomic_write,
+    _compose_service_name,
+    module_dns_host,
+    module_name_from_source,
+)
 from .validator import validate_plan_marker_shapes
 
 
@@ -286,7 +291,7 @@ def _validate_provided_contract_hosts(
     the compose services the render actually produced (issue #1010).
 
     Mirrors the E136 route check: a contract advertising a host nothing
-    answers on the Compose network fails closed with E147 instead of
+    answers on the Compose network fails closed with E150 instead of
     shipping a broken endpoint. Multi-service modules advertise their
     serving service via `serviceName`; that name is mapped through the same
     service-naming rule the renderer uses. Hosts outside the Compose
@@ -331,7 +336,7 @@ def _validate_provided_contract_hosts(
                     continue
                 diagnostics.append(Diagnostic(
                     level="error",
-                    code="E147",
+                    code="E150",
                     message=(
                         f'Provided contract "{provide_name}" of module "{module_id}" '
                         f'advertises network host "{host}", which is not a compose '
@@ -903,13 +908,14 @@ def _build_context(
     compose_impl = implementation.get("compose") if isinstance(implementation, dict) else None
     services = compose_impl.get("services") if isinstance(compose_impl, dict) else None
     module_id = str(module.get("id"))
+    module_name = module_name_from_source(module.get("source"))
 
     return {
         "config": module.get("config", {}),
         "bindings": bindings,
         "service": {
             "host": module_id,
-            "dns": module_dns_host(module_id, services),
+            "dns": module_dns_host(module_id, services, module_name),
         },
         "secrets": secrets,
         "certificates": certificates,

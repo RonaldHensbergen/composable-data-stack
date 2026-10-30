@@ -43,19 +43,30 @@ def _compose_service_name(module_id: str, service_name: str) -> str:
     return f"{module_id}-{service_name}"
 
 
-def module_dns_host(module_id: str, compose_services: Any) -> str:
-    """
-    The Compose DNS name a module instance's services answer to.
+def module_name_from_source(source: Any) -> str:
+    """The module name a `source` path points at (its last path segment)."""
+    return str(source or "").rstrip("/").rsplit("/", 1)[-1]
 
-    A module with a single compose service renders under
-    `_compose_service_name(module_id, service)`, so endpoints advertised
-    via `${service.host}` resolve on the Compose network even when the
-    instance id differs from the service name (issue #1010). Multi-service
-    modules have no single answer and keep the instance id; they name
-    their serving service explicitly via the contract's `serviceName`
-    field, which route generation and the E147 host check map through the
-    same naming rule.
+
+def module_dns_host(module_id: str, compose_services: Any, module_name: str | None = None) -> str:
     """
-    if isinstance(compose_services, dict) and len(compose_services) == 1:
-        return _compose_service_name(module_id, next(iter(compose_services)))
+    The Compose DNS name a module instance's serving service answers to.
+
+    The renderer names each compose service `_compose_service_name(module_id,
+    service)`. A module whose compose services include exactly one service --
+    or a namesake service matching the module's own name (e.g. `postgres`
+    alongside its `postgres-backup`/`postgres-restore` job containers) --
+    therefore renders its serving service under that rule, and endpoints
+    advertised via `${service.dns}` resolve on the Compose network even when
+    the instance id differs from the service name (issue #1010). Other
+    multi-service modules have no single answer and keep the instance id;
+    they name their serving service explicitly via the contract's
+    `serviceName` field, which route generation and the E150 host check map
+    through the same naming rule.
+    """
+    if isinstance(compose_services, dict):
+        if len(compose_services) == 1:
+            return _compose_service_name(module_id, next(iter(compose_services)))
+        if module_name and module_name in compose_services:
+            return _compose_service_name(module_id, module_name)
     return module_id

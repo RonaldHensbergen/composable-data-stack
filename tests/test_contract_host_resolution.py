@@ -24,20 +24,21 @@ _TEST_SECRETS = {
 }
 
 
-def _instance(inst_id, services, provides):
-    return {
-        "id": inst_id,
-        "config": {},
-        "module": {
-            "spec": {
-                "provides": provides,
-                "implementation": {
-                    "kind": "docker-compose",
-                    "compose": {"services": services},
-                },
-            }
-        },
+def _instance(inst_id, services, provides, module_name=None):
+    module_doc = {
+        "spec": {
+            "provides": provides,
+            "implementation": {
+                "kind": "docker-compose",
+                "compose": {"services": services},
+            },
+        }
     }
+    inst = {"id": inst_id, "config": {}, "module": module_doc}
+    if module_name:
+        inst["source"] = f"category/{module_name}"
+        module_doc["metadata"] = {"name": module_name}
+    return inst
 
 
 def _object_storage_provide(endpoint):
@@ -100,6 +101,33 @@ class ModuleDnsHostTest(unittest.TestCase):
             "dagster",
         )
 
+    def test_namesake_service_among_auxiliary_services_is_prefixed(self):
+        # postgres ships job containers next to the serving service.
+        self.assertEqual(
+            module_dns_host(
+                "analytics-db",
+                {"postgres": {}, "postgres-backup": {}, "postgres-restore": {}},
+                "postgres",
+            ),
+            "analytics-db-postgres",
+        )
+
+    def test_namesake_service_matching_id_stays_the_id(self):
+        self.assertEqual(
+            module_dns_host("postgres", {"postgres": {}, "postgres-backup": {}}, "postgres"),
+            "postgres",
+        )
+
+    def test_multi_service_without_namesake_keeps_the_instance_id(self):
+        self.assertEqual(
+            module_dns_host(
+                "dagster",
+                {"user-code": {}, "dagster-webserver": {}, "dagster-daemon": {}},
+                "dagster",
+            ),
+            "dagster",
+        )
+
     def test_missing_or_non_dict_services_keep_the_instance_id(self):
         self.assertEqual(module_dns_host("mod", {}), "mod")
         self.assertEqual(module_dns_host("mod", None), "mod")
@@ -144,6 +172,33 @@ class ResolveProvidedContractsHostTest(unittest.TestCase):
         resolved = resolve_provided_contracts(inst)
         self.assertEqual(resolved["object-storage"]["spec"]["endpoint"], "http://garage:3900")
 
+    def test_namesake_module_instance_resolves_the_serving_service(self):
+        # postgres-style module: serving service matches the module name,
+        # auxiliary job services do not affect the DNS answer.
+        inst = _instance(
+            "analytics-db",
+            {"postgres": {}, "postgres-backup": {}, "postgres-restore": {}},
+            [
+                {
+                    "name": "sql-database",
+                    "contract": {
+                        "kind": "sql-database",
+                        "spec": {
+                            "host": "${service.dns}",
+                            "connectionUri": "postgresql://u:p@${service.dns}:5432/db",
+                        },
+                    },
+                }
+            ],
+            module_name="postgres",
+        )
+        resolved = resolve_provided_contracts(inst)
+        self.assertEqual(resolved["sql-database"]["spec"]["host"], "analytics-db-postgres")
+        self.assertEqual(
+            resolved["sql-database"]["spec"]["connectionUri"],
+            "postgresql://u:p@analytics-db-postgres:5432/db",
+        )
+
     def test_multi_service_instance_keeps_the_instance_id_for_both(self):
         inst = _instance(
             "orchestration",
@@ -183,7 +238,7 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
             ]
         }
         diagnostics = _validate_provided_contract_hosts(plan, {"superset": ["superset-init"]})
-        self.assertEqual([d.code for d in diagnostics], ["E147"])
+        self.assertEqual([d.code for d in diagnostics], ["E150"])
         self.assertEqual(diagnostics[0].level, "error")
         self.assertEqual(diagnostics[0].path, "module:superset.provides.http-service.spec.host")
         self.assertIn("not a compose service", diagnostics[0].message)
@@ -223,7 +278,7 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
 
         broken = {"dagster": ["dagster-user-code", "dagster-daemon"]}
         diagnostics = _validate_provided_contract_hosts(plan, broken)
-        self.assertEqual([d.code for d in diagnostics], ["E147"])
+        self.assertEqual([d.code for d in diagnostics], ["E150"])
         self.assertEqual(diagnostics[0].path, "module:dagster.provides.http-service.spec.serviceName")
 
     def test_sql_database_and_object_storage_hosts_are_checked(self):
@@ -245,7 +300,7 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
             ]
         }
         diagnostics = _validate_provided_contract_hosts(plan, {"analytics-db": ["analytics-db-postgres"]})
-        self.assertEqual([d.code for d in diagnostics], ["E147", "E147"])
+        self.assertEqual([d.code for d in diagnostics], ["E150", "E150"])
         self.assertEqual(
             [d.path for d in diagnostics],
             [
@@ -335,6 +390,46 @@ class GarageCustomInstanceIdTest(unittest.TestCase):
         )
         compose = yaml.safe_load(compose_text)
         self.assertIn("object-storage-garage", compose["services"])
+
+
+_CHECKED_KINDS = {"http-service", "sql-database", "cache-service", "object-storage"}
+_HOST_FIELDS = ("host", "endpoint", "connectionUri")
+
+
+class ModuleYamlDnsMigrationTest(unittest.TestCase):
+    """Checked-in modules with a resolvable serving service must advertise
+    checked contract kinds via ${service.dns}, not ${service.host} (#1010)."""
+
+    def test_checked_contracts_use_service_dns(self):
+        offenders = []
+        for root in ("modules", "modules-experimental"):
+            for path in sorted((REPO_ROOT / root).rglob("module.yaml")):
+                doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+                spec = doc.get("spec") or {}
+                module_name = str((doc.get("metadata") or {}).get("name") or "")
+                services = ((spec.get("implementation") or {}).get("compose") or {}).get("services") or {}
+                if not isinstance(services, dict):
+                    continue
+                if len(services) == 1:
+                    serving = next(iter(services))
+                elif module_name and module_name in services:
+                    serving = module_name
+                else:
+                    continue  # multi-service without namesake: serviceName mechanism
+                for provided in spec.get("provides") or []:
+                    contract = provided.get("contract") or {}
+                    if contract.get("kind") not in _CHECKED_KINDS:
+                        continue
+                    fields = contract.get("spec") or {}
+                    for field in _HOST_FIELDS:
+                        value = fields.get(field)
+                        if not isinstance(value, str) or "${service." not in value:
+                            continue
+                        if "${service.host}" in value:
+                            offenders.append(f"{path}:{provided.get('name')}.{field} uses ${{service.host}}")
+                        elif serving and "${service.dns}" not in value:
+                            offenders.append(f"{path}:{provided.get('name')}.{field} uses neither placeholder")
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":

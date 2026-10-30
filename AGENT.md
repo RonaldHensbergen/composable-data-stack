@@ -123,10 +123,12 @@ repository, in addition to `CONTRIBUTING.md`.
   consumed contract fields, `${service.host}` resolves to the
   profile's module instance ID (stable for name-prefix uses such as
   backup volume names), and `${service.dns}` resolves to the Compose
-  DNS name the module's services answer to (the renderer's compose
-  service name for single-service modules, the instance ID for
-  multi-service modules, which name their serving service via the
-  contract's `serviceName`). Renderer-local service dependencies,
+  DNS name the module's serving service answers to (the renderer's
+  compose service name for single-service modules, or when a namesake
+  compose service matches the module name such as `postgres` next to
+  its backup job containers; the instance ID for other multi-service
+  modules, which name their serving service via the contract's
+  `serviceName`). Renderer-local service dependencies,
   volumes, build contexts, and service names are rewritten relative to
   the module/profile and namespaced by module ID.
 - Never resolve secret values into plans or rendered Compose. Profiles

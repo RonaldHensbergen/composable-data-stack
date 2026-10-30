@@ -27,14 +27,17 @@ The format is based on Keep a Changelog.
   roles: `${service.host}` keeps resolving to the instance id (name
   prefixes such as backup volume names), while the new
   `${service.dns}` resolves through the same service-naming rule the
-  renderer uses (the explicit `serviceName` mechanism keeps covering
-  multi-service modules). The single-service modules advertising
+  renderer uses -- the compose name of the module's single service, or
+  of its namesake service when auxiliary services exist (e.g.
+  `postgres` next to its backup job containers); the explicit
+  `serviceName` mechanism keeps covering other multi-service modules. The single-service modules advertising
   network endpoints (KeyDB-compatible cache, identity provider, reverse
-  proxy, object storage) now build them from `${service.dns}`, and the
+  proxy, object storage, the Postgres warehouse, and the Superset BI
+  app) now build them from `${service.dns}`, and the
   render cross-checks every provided `http-service`, `sql-database`,
   `cache-service`, and `object-storage` contract's advertised network
   host against the compose services it actually produced, failing with
-  `E147` instead of shipping a broken endpoint.
+  `E150` instead of shipping a broken endpoint.
 
 - Fixed the restic file backup module's restore path for multiple bound
   sources (issue #1014, found in the post-merge review of #1011): the
