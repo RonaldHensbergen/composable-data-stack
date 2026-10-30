@@ -253,6 +253,11 @@
           "type": "boolean",
           "default": true
         },
+        "ignoreRendererReferences": {
+          "type": "boolean",
+          "default": false,
+          "description": "For rules that match on secret-like *values*: skip values that are entirely a renderer reference expression (bare 'config.x'/'secrets.x'/'bindings.x'/'service.x'/'certificates.x' or the ${...}-wrapped form). The declarative engine scans the planned config where those references are still unresolved strings, but the renderer resolves them before anything is executed (secrets.*/certificates.* become ${CDS_*} Compose placeholders), so they are pointers, not literal secrets (#979)."
+        },
         "codeEnforced": {
           "type": "boolean",
           "default": true,

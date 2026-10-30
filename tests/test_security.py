@@ -13,9 +13,11 @@ from cli.security import (
     _check_admin_service_identity_binding,
     _check_backup_target_binding,
     _check_production_plaintext_exposure,
+    _check_secret_reuse,
     _eval_condition,
     _flatten_profile_by_module,
     _flatten_rendered_leak_surfaces,
+    _is_renderer_reference,
     _map_service_to_module,
     _module_provides_plaintext_http,
     _module_provides_tls_reverse_proxy,
@@ -24,6 +26,7 @@ from cli.security import (
     _plaintext_module_ids_fronted_by_tls_reverse_proxy,
     _port_is_non_local_host_exposure,
     _redact,
+    _rule_matches,
     _try_render_compose_for_scan,
     _validate_rule_set,
     run_security_validation,
@@ -39,7 +42,7 @@ class BundledSecurityRulesTest(unittest.TestCase):
     def test_default_rule_set_is_available_as_package_data(self):
         rule_set = _validate_rule_set()
 
-        self.assertEqual(rule_set["version"], "1.0.0")
+        self.assertEqual(rule_set["version"], "1.0.1")
         self.assertGreater(len(rule_set["rules"]), 0)
 
     def test_invalid_rule_set_raises_validation_error_with_paths(self):
@@ -463,6 +466,234 @@ class EnvFilePathRuleTest(unittest.TestCase):
 
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
         self.assertEqual(hits, [], "a bare project-root .env must not be flagged")
+
+    def test_root_env_file_not_flagged_when_invoked_outside_project_root(self):
+        """#979: with cwd outside the project (e.g. CDS_PROFILE_PATH set), the
+        project-root .env arrives as an absolute path; matching it relative to
+        the project root keeps it the bare '.env', which must not fire."""
+        with tempfile.TemporaryDirectory() as project_dir, tempfile.TemporaryDirectory() as other_dir:
+            project_root = Path(project_dir)
+            (project_root / ".git").mkdir()  # project-root marker
+            profile_path = project_root / "profile.yaml"
+            profile_path.write_text(
+                "apiVersion: cds/v1alpha1\nkind: Profile\n"
+                "metadata:\n  name: tmp\n  environment: local\n"
+                "spec:\n  modules: []\n",
+                encoding="utf-8",
+            )
+            root_env = project_root / ".env"
+            root_env.write_text("SOME_VAR=value\n", encoding="utf-8")
+
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(other_dir)
+                findings, _diags = run_security_validation(
+                    profile_path,
+                    _RULE_SCHEMA_PATH,
+                    _RULE_SET_PATH,
+                    env_file=str(root_env),
+                )
+            finally:
+                os.chdir(original_cwd)
+
+        hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
+        self.assertEqual(
+            hits, [],
+            "a project-root .env must not be flagged even when the CLI runs from another directory",
+        )
+
+    def test_nested_env_file_flagged_relative_to_project_root(self):
+        """#979: a nested .env is still flagged, with the path shown relative
+        to the project root rather than to the invocation cwd."""
+        with tempfile.TemporaryDirectory() as project_dir, tempfile.TemporaryDirectory() as other_dir:
+            project_root = Path(project_dir)
+            (project_root / ".git").mkdir()
+            profile_path = project_root / "profile.yaml"
+            profile_path.write_text(
+                "apiVersion: cds/v1alpha1\nkind: Profile\n"
+                "metadata:\n  name: tmp\n  environment: local\n"
+                "spec:\n  modules: []\n",
+                encoding="utf-8",
+            )
+            nested_env = project_root / "nested" / ".env"
+            nested_env.parent.mkdir()
+            nested_env.write_text("SOME_VAR=value\n", encoding="utf-8")
+
+            original_cwd = Path.cwd()
+            try:
+                os.chdir(other_dir)
+                findings, _diags = run_security_validation(
+                    profile_path,
+                    _RULE_SCHEMA_PATH,
+                    _RULE_SET_PATH,
+                    env_file=str(nested_env),
+                )
+            finally:
+                os.chdir(original_cwd)
+
+        hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["path"], "nested/.env")
+
+
+class RendererReferenceDetectionTest(unittest.TestCase):
+    def test_bare_and_wrapped_reference_forms_are_references(self):
+        for value in (
+            "config.passwordFrom",
+            "config.dagsterDatabase.username",
+            "secrets.cache_password",
+            "bindings.db.host",
+            "service.host",
+            "certificates.web.cert",
+            "${config.passwordFrom}",
+            "${secrets.cache_password}",
+            "${bindings.db.host}",
+        ):
+            self.assertTrue(_is_renderer_reference(value), value)
+
+    def test_literals_placeholders_and_mixed_strings_are_not_references(self):
+        for value in (
+            "${CDS_ANALYTICS_DB_NAME}",
+            "db://${bindings.db.host}:5432",
+            "Sup3r-Secret-Literal-2026!",
+            "example",
+            "",
+            123,
+            None,
+        ):
+            self.assertFalse(_is_renderer_reference(value), value)
+
+
+class RendererReferenceSecretRuleTest(unittest.TestCase):
+    """#979: secret-value rules must not flag renderer references, which the
+    declarative engine sees unresolved in the planned config but the renderer
+    resolves (to ${CDS_*} placeholders) before anything executes."""
+
+    def _rule(self, rule_id):
+        return next(r for r in _validate_rule_set()["rules"] if r["id"] == rule_id)
+
+    def test_reference_flagged_rules_skip_renderer_references(self):
+        items = [
+            ("postgres", "initDbEnv.ANALYTICS_DB_PASSWORD", "config.passwordFrom"),
+            ("postgres", "initDbEnv.DAGSTER_DB_PASSWORD", "config.dagsterDatabase.passwordFrom"),
+            ("postgres", "initDbEnv.DAGSTER_DB_USER", "config.dagsterDatabase.username"),
+            ("postgres", "initDbEnv.SUPERSET_DB_USER", "config.supersetDatabase.username"),
+            ("postgres", "passwordFrom", "secrets.analytics_db_password"),
+            ("postgres", "secretKeyFrom", "${secrets.superset_secret_key}"),
+        ]
+        for rule_id in ("CDS-SEC-001", "CDS-SEC-003", "CDS-SEC-033"):
+            rule = self._rule(rule_id)
+            self.assertTrue(rule.get("ignoreRendererReferences"), rule_id)
+            self.assertEqual(
+                _rule_matches(rule, items, "prod"), [],
+                f"{rule_id} must not fire on renderer references",
+            )
+
+    def test_secret_value_rules_still_flag_literal_secrets(self):
+        items = [
+            ("postgres", "initDbEnv.ANALYTICS_DB_PASSWORD", "Sup3r-Secret-Literal-2026!x"),
+            ("postgres", "passwordFrom", "hunter2-literal"),
+        ]
+        for rule_id in ("CDS-SEC-001", "CDS-SEC-003", "CDS-SEC-033"):
+            findings = _rule_matches(self._rule(rule_id), items, "prod")
+            self.assertTrue(findings, f"{rule_id} must still fire on literal secret values")
+
+    def test_rules_without_the_flag_do_not_skip_references(self):
+        # The skip is an explicit per-rule opt-in: a rule that does not set
+        # ignoreRendererReferences still sees the raw reference value.
+        rule = {
+            "id": "CDS-SEC-999",
+            "severity": "low",
+            "match": {"any": [{"valueRegex": r"^config\."}]},
+            "message": "m",
+            "recommendation": [],
+        }
+        items = [("postgres", "initDbEnv.X", "config.passwordFrom")]
+        self.assertEqual(len(_rule_matches(rule, items, "prod")), 1)
+
+    def test_secret_reuse_check_skips_renderer_references(self):
+        items = [
+            ("<profile>", "backup.encryption.keyFrom", "secrets.backup_encryption_key"),
+            ("postgres", "backup.encryptionKeyFrom", "secrets.backup_encryption_key"),
+        ]
+        self.assertEqual(_check_secret_reuse(items), [])
+
+    def test_secret_reuse_check_still_flags_reused_literal_values(self):
+        items = [
+            ("<env>", "secrets.CDS_A_PASSWORD", "Shared-Literal-Value-2026!"),
+            ("<env>", "secrets.CDS_B_PASSWORD", "Shared-Literal-Value-2026!"),
+        ]
+        findings = _check_secret_reuse(items)
+        self.assertEqual(len(findings), 2)
+        self.assertTrue(all(f["rule_id"] == "CDS-SEC-013" for f in findings))
+
+
+class WaiverReasonFlattenedPathTest(unittest.TestCase):
+    def test_entropy_rule_ignores_unprefixed_waiver_reason_path(self):
+        # _flatten_profile_by_module emits spec-level keys without the
+        # "spec." prefix, so the waiver reason flattens to
+        # "security.waivers.runtimePolicy.reason" (#979).
+        matched = _eval_condition(
+            path="security.waivers.runtimePolicy.reason",
+            key="reason",
+            value="Dagster and Superset images set a non-root USER in their Dockerfiles.",
+            cond={"entropy": "high", "minLength": 24},
+            profile_class="prod",
+        )
+        self.assertFalse(matched)
+
+
+class ReferenceProfileRegressionTest(unittest.TestCase):
+    """#979 end-to-end: the reference production profile's initDbEnv
+    references, waiver reason, and shared key references produce no
+    CDS-SEC-001/003/013/033 findings."""
+
+    _ENV = "\n".join(
+        f"{k}={v}"
+        for k, v in {
+            "CDS_POSTGRES_SUPERUSER_PASSWORD": "Str0ng!Superuser#2026x",
+            "CDS_ANALYTICS_DB_PASSWORD": "An4lytics!Pass#2026x",
+            "CDS_DAGSTER_DB_PASSWORD": "D4gster!Pass#2026x",
+            "CDS_SUPERSET_DB_PASSWORD": "Sup3rset!Pass#2026x",
+            "CDS_SUPERSET_SECRET_KEY": "Sup3rsetSecretKey!2026x",
+            "CDS_SUPERSET_ADMIN_PASSWORD": "Adm1n!Pass#2026x",
+            "CDS_CACHE_PASSWORD": "C4che!Pass#2026x",
+            "CDS_BACKUP_ENCRYPTION_KEY": "B4ckup!Key#2026x",
+            "CDS_ANALYTICS_DB_NAME": "analytics",
+            "CDS_ANALYTICS_DB_USER": "analytics_user",
+            "CDS_DAGSTER_DB_NAME": "dagster",
+            "CDS_DAGSTER_DB_USER": "dagster_user",
+            "CDS_SUPERSET_DB_NAME": "superset",
+            "CDS_SUPERSET_DB_USER": "superset_user",
+        }.items()
+    ) + "\n"
+
+    def test_team_prod_profile_reference_false_positives_are_gone(self):
+        profile_path = (
+            _REPO_ROOT / "profiles" / "team-dagster-postgres-superset" / "profile.yaml"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_file = Path(tmp_dir) / ".env"
+            env_file.write_text(self._ENV, encoding="utf-8")
+            findings, _diags = run_security_validation(
+                profile_path,
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                env_file=str(env_file),
+                environment="prod",
+            )
+
+        false_positives = [
+            f for f in findings
+            if f["rule_id"] in {"CDS-SEC-001", "CDS-SEC-003", "CDS-SEC-013", "CDS-SEC-033"}
+            and (
+                "initDbEnv" in f["path"]
+                or "waivers" in f["path"]
+                or f["path"].endswith("keyFrom")
+                or f["path"].endswith("encryptionKeyFrom")
+            )
+        ]
+        self.assertEqual(false_positives, [])
 
 
 class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
