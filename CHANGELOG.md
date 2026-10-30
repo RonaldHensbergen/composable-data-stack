@@ -73,6 +73,10 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- The `Kubernetes E2E` workflow now pins its k3d cluster name
+  (`cds-k8s-e2e-ci`) instead of deriving `cds-head` from the detached-HEAD
+  checkout, so CI logs and failure diagnostics are attributable at a glance
+  (#1040).
 - Fixed provided contract endpoints silently breaking when a module
   instance id differs from the module's compose service name (issue
   #1010, found in the review of #1006): contract resolution substituted
