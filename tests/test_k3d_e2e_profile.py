@@ -49,10 +49,6 @@ class K3dE2eProfileTest(unittest.TestCase):
         self.assertIn('install.sh" "$E2E_PROFILE"', script)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class K3dLocalImagesTest(unittest.TestCase):
     def test_build_script_builds_every_image_imported_into_the_cluster(self) -> None:
         scripts = Path(__file__).resolve().parent.parent / "scripts" / "k8s"
@@ -65,3 +61,7 @@ class K3dLocalImagesTest(unittest.TestCase):
         self.assertIn("local/postgres:custom", images)
         for image in images:
             self.assertIn(f"-t {image} ", build)
+
+
+if __name__ == "__main__":
+    unittest.main()

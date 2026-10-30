@@ -10,8 +10,8 @@ The format is based on Keep a Changelog.
 
 - Added a `Kubernetes E2E` GitHub Actions workflow that runs the existing
   k3d harness (`make k3d-build` and `make k3d-e2e`) against the example
-  profile on pull requests and pushes touching the chart, CLI, images, or
-  harness scripts: it installs the rendered Helm chart into a throwaway
+  profile on pull requests and pushes touching the chart, CLI, images, harness
+  scripts, the Makefile's k3d targets, or `pyproject.toml`: it installs the rendered Helm chart into a throwaway
   cluster, waits for every workload to become Ready, checks PostgreSQL,
   Dagster, and Superset, uploads pod diagnostics on failure, and always
   deletes the cluster. k3d is pinned and checksum-verified, and the

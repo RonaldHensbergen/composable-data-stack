@@ -139,9 +139,10 @@ resources running for inspection.
 
 The `Kubernetes E2E` workflow (`.github/workflows/k8s-e2e.yml`) runs exactly
 this harness (`make k3d-build` then `make k3d-e2e`) in CI on pull requests and
-pushes that touch the chart, CLI, images, or `scripts/k8s/`, so the documented
-developer flow and the CI check cannot drift apart. On failure it uploads pod
-descriptions, events, and logs as the `k8s-e2e-logs` artifact.
+pushes that touch the chart, CLI, images, harness scripts, the Makefile's k3d
+targets, or `pyproject.toml`, so the documented developer flow and the CI check
+cannot drift apart. On failure it uploads pod descriptions, events, and logs as
+the `k8s-e2e-logs` artifact.
 
 Local Dagster, Superset, and PostgreSQL images use `imagePullPolicy: Never` and are imported
 into k3d. This deliberately avoids the common combination of

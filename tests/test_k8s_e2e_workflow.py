@@ -18,7 +18,13 @@ class K8sE2eWorkflowTest(unittest.TestCase):
         self.assertEqual(
             triggers["push"]["paths"], triggers["pull_request"]["paths"]
         )
-        self.assertIn("scripts/k8s/**", triggers["pull_request"]["paths"])
+        paths = triggers["pull_request"]["paths"]
+        for required in (
+            "scripts/k8s/**",
+            "Makefile",
+            "pyproject.toml",
+        ):
+            self.assertIn(required, paths)
 
     def test_runs_documented_harness_and_always_deletes_cluster(self) -> None:
         steps = {step["name"]: step for step in self.job["steps"]}

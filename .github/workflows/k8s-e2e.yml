@@ -6,10 +6,12 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/k8s-e2e.yml"
+      - "Makefile"
       - "cli/**"
       - "images/**"
       - "modules/**"
       - "profiles/**"
+      - "pyproject.toml"
       - "scripts/k8s/**"
       - "shared/**"
       - "workdirs/**"
@@ -17,10 +19,12 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/k8s-e2e.yml"
+      - "Makefile"
       - "cli/**"
       - "images/**"
       - "modules/**"
       - "profiles/**"
+      - "pyproject.toml"
       - "scripts/k8s/**"
       - "shared/**"
       - "workdirs/**"
