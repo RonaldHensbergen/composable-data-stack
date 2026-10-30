@@ -137,7 +137,14 @@ release. It removes only resources it created and deletes the cluster only when
 the suite created that cluster. Setting `CDS_E2E_KEEP_CLUSTER=1` leaves its
 resources running for inspection.
 
-Local Dagster and Superset images use `imagePullPolicy: Never` and are imported
+The `Kubernetes E2E` workflow (`.github/workflows/k8s-e2e.yml`) runs exactly
+this harness (`make k3d-build` then `make k3d-e2e`) in CI on pull requests and
+pushes that touch the chart, CLI, images, harness scripts, the Makefile's k3d
+targets, or `pyproject.toml`, so the documented developer flow and the CI check
+cannot drift apart. On failure it uploads pod descriptions, events, and logs as
+the `k8s-e2e-logs` artifact.
+
+Local Dagster, Superset, and PostgreSQL images use `imagePullPolicy: Never` and are imported
 into k3d. This deliberately avoids the common combination of
 `imagePullPolicy: Always`, a nonexistent `localhost:5000` registry, and macOS
 AirPlay's host-port conflict. If a future module requires a registry, expose it
