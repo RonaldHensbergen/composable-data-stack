@@ -91,12 +91,13 @@ class TestCDSWorkflow(unittest.TestCase):
     def test_test_command(self):
         """`cds test` bundles validate/security/plan/render into one exit code.
 
-        This profile's committed secret values (from `cds init`) are the
-        same kind of low-entropy, non-external-reference values CI supplies
-        via env vars, so the security stage always reports HIGH findings
-        (CDS-SEC-001/003) here -- the same reason CI's "Run end-to-end smoke
-        test" step (see .github/workflows/ci.yml) asserts this specific
-        per-stage outcome instead of requiring `cds test` to exit 0.
+        The init'd project's committed `.env` holds generated placeholder
+        secret values, so the security stage always reports HIGH findings
+        (CDS-SEC-012 weak/predictable values on those literals) here and
+        `cds test` exits 1. CI's "Run end-to-end smoke test" step
+        (.github/workflows/ci.yml) instead supplies env vars and, since
+        #979 removed the renderer-reference false positives, expects every
+        stage to pass there.
         """
         env_with_profile = {"CDS_PROFILE_PATH": self.profile_file}
 

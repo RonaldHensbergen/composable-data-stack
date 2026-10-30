@@ -467,10 +467,11 @@ class EnvFilePathRuleTest(unittest.TestCase):
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
         self.assertEqual(hits, [], "a bare project-root .env must not be flagged")
 
-    def test_root_env_file_not_flagged_when_invoked_outside_project_root(self):
-        """#979: with cwd outside the project (e.g. CDS_PROFILE_PATH set), the
-        project-root .env arrives as an absolute path; matching it relative to
-        the project root keeps it the bare '.env', which must not fire."""
+    def _scan_env_from_outside_project(self, env_rel: str) -> list[dict]:
+        """Build a throwaway project (`.git` marker + minimal profile + an
+        .env at `env_rel`), then run the scan from an unrelated cwd with the
+        env file passed as an absolute path — the CDS_PROFILE_PATH scenario
+        from #979. Returns the full findings list."""
         with tempfile.TemporaryDirectory() as project_dir, tempfile.TemporaryDirectory() as other_dir:
             project_root = Path(project_dir)
             (project_root / ".git").mkdir()  # project-root marker
@@ -481,8 +482,9 @@ class EnvFilePathRuleTest(unittest.TestCase):
                 "spec:\n  modules: []\n",
                 encoding="utf-8",
             )
-            root_env = project_root / ".env"
-            root_env.write_text("SOME_VAR=value\n", encoding="utf-8")
+            env_file = project_root / env_rel
+            env_file.parent.mkdir(parents=True, exist_ok=True)
+            env_file.write_text("SOME_VAR=value\n", encoding="utf-8")
 
             original_cwd = Path.cwd()
             try:
@@ -491,11 +493,17 @@ class EnvFilePathRuleTest(unittest.TestCase):
                     profile_path,
                     _RULE_SCHEMA_PATH,
                     _RULE_SET_PATH,
-                    env_file=str(root_env),
+                    env_file=str(env_file),
                 )
             finally:
                 os.chdir(original_cwd)
+        return findings
 
+    def test_root_env_file_not_flagged_when_invoked_outside_project_root(self):
+        """#979: with cwd outside the project (e.g. CDS_PROFILE_PATH set), the
+        project-root .env arrives as an absolute path; matching it relative to
+        the project root keeps it the bare '.env', which must not fire."""
+        findings = self._scan_env_from_outside_project(".env")
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
         self.assertEqual(
             hits, [],
@@ -505,32 +513,7 @@ class EnvFilePathRuleTest(unittest.TestCase):
     def test_nested_env_file_flagged_relative_to_project_root(self):
         """#979: a nested .env is still flagged, with the path shown relative
         to the project root rather than to the invocation cwd."""
-        with tempfile.TemporaryDirectory() as project_dir, tempfile.TemporaryDirectory() as other_dir:
-            project_root = Path(project_dir)
-            (project_root / ".git").mkdir()
-            profile_path = project_root / "profile.yaml"
-            profile_path.write_text(
-                "apiVersion: cds/v1alpha1\nkind: Profile\n"
-                "metadata:\n  name: tmp\n  environment: local\n"
-                "spec:\n  modules: []\n",
-                encoding="utf-8",
-            )
-            nested_env = project_root / "nested" / ".env"
-            nested_env.parent.mkdir()
-            nested_env.write_text("SOME_VAR=value\n", encoding="utf-8")
-
-            original_cwd = Path.cwd()
-            try:
-                os.chdir(other_dir)
-                findings, _diags = run_security_validation(
-                    profile_path,
-                    _RULE_SCHEMA_PATH,
-                    _RULE_SET_PATH,
-                    env_file=str(nested_env),
-                )
-            finally:
-                os.chdir(original_cwd)
-
+        findings = self._scan_env_from_outside_project("nested/.env")
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0]["path"], "nested/.env")

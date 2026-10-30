@@ -60,7 +60,6 @@ The format is based on Keep a Changelog.
   when the CLI is invoked from another directory (e.g. with
   `CDS_PROFILE_PATH` set).
 
-
 - Fixed the `helm` render target lacking the provide-side contract-host
   cross-check that the compose target got for issue #1010: the Kubernetes
   renderer only validated the consume side (E084), so a provided
