@@ -87,7 +87,6 @@ The format is based on Keep a Changelog.
   base instead of using the vulnerable prebuilt `restic/restic` image. Both
   rebuilt images scan clean of HIGH/CRITICAL findings with Trivy v0.75.0.
 
-
 - Fixed provided contract endpoints silently breaking when a module
   instance id differs from the module's compose service name (issue
   #1010, found in the review of #1006): contract resolution substituted
