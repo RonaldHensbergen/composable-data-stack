@@ -227,7 +227,9 @@ spec:
         kind: http-service
         spec:
           portFrom: spec.config.webPort
-          host: ${service.host}
+          # ${service.dns}: the Compose service DNS name, so any instance
+          # id works (issue #1010).
+          host: ${service.dns}
           port: ${config.webPort}
           healthPath: /health
           protocol: http

@@ -38,9 +38,9 @@ def _garage_profile(environment: str = "local", config: dict | None = None) -> d
             "runtime": {"type": "docker-compose"},
             "modules": [
                 {
-                    # The contract endpoint advertises the instance id as
-                    # the S3 hostname; profiles must use the module's own
-                    # service name so the Compose DNS name matches.
+                    # The contract endpoint advertises the Compose service DNS
+                    # name derived from the instance id; the conventional
+                    # id "garage" equals the module's service name.
                     "id": "garage",
                     "source": "storage/garage",
                     "version": "0.1.0",

@@ -205,10 +205,10 @@ spec:
       contract:
         kind: reverse-proxy
         spec:
-          host: ${service.host}
+          host: ${service.dns}
           port: 443
           protocol: https
-          connectionUri: "https://${service.host}:443"
+          connectionUri: "https://${service.dns}:443"
           tls: true
           tlsMinVersion: ${config.tls.minVersion}
           tlsMaxVersion: ${config.tls.maxVersion}

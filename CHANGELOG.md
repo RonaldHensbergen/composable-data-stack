@@ -41,8 +41,50 @@ The format is based on Keep a Changelog.
   metadata volumes and profile-secret-backed credentials. The module is
   explicitly unsuitable for production because it has no redundancy
   (#663).
+- Added an experimental scheduled object-storage backup module that writes
+  immutable, timestamped S3-compatible snapshots to a separately configured
+  destination (#669). Every successful pass writes a
+  `.cds-snapshot-complete` marker into its prefix, so a prefix left behind
+  by a failed pass is recognizable as partial; failed passes retry with a
+  fresh timestamp after a configurable delay (`retryDelaySeconds`,
+  300 seconds by default) instead of crash-looping. Like the
+  other backup modules it is production-only
+  (E143), and its explicit `productionSuitable: false` marking (plaintext
+  snapshots, operator-managed restore) requires a scoped CDS-SEC-073
+  waiver in production. Every pass is a full copy of the current bucket
+  contents, so destination storage grows linearly with the number of
+  retained snapshots, and a destination configured as literally the bound
+  source endpoint and bucket fails planning with a new E147 diagnostic
+  instead of booting a service that would copy the bucket onto itself. A
+  Docker-gated runtime proof runs in the Docker
+  Runtime Smoke Test workflow: it snapshots a seeded bucket to a second
+  Garage instance, overwrites the source object, and recovers it
+  byte-for-byte from the completed, marker-verified timestamped prefix.
 
 ### Fixed
+
+- Fixed provided contract endpoints silently breaking when a module
+  instance id differs from the module's compose service name (issue
+  #1010, found in the review of #1006): contract resolution substituted
+  `${service.host}` with the instance id, while the renderer names each
+  compose service `<id>`/`<id>-<service>`, so profiles instantiating,
+  e.g., the S3-compatible object-storage module as
+  `id: object-storage` produced a contract endpoint no sibling container
+  could resolve. The interpolation vocabulary now separates the two
+  roles: `${service.host}` keeps resolving to the instance id (name
+  prefixes such as backup volume names), while the new
+  `${service.dns}` resolves through the same service-naming rule the
+  renderer uses -- the compose name of the module's single service, or
+  of its namesake service when auxiliary services exist (e.g.
+  `postgres` next to its backup job containers); the explicit
+  `serviceName` mechanism keeps covering other multi-service modules. The single-service modules advertising
+  network endpoints (KeyDB-compatible cache, identity provider, reverse
+  proxy, object storage, the Postgres warehouse, and the Superset BI
+  app) now build them from `${service.dns}`, and the
+  render cross-checks every provided `http-service`, `sql-database`,
+  `cache-service`, and `object-storage` contract's advertised network
+  host against the compose services it actually produced, failing with
+  `E150` instead of shipping a broken endpoint.
 
 - Fixed the restic file backup module's restore path for multiple bound
   sources (issue #1014, found in the post-merge review of #1011): the
@@ -58,6 +100,16 @@ The format is based on Keep a Changelog.
   clean-environment restore. Also corrected the backup-module E143
   message's stray quote and the scheduler's restart-behavior comment
   (issue #1016).
+
+- Fixed `make lint-renovate` (and therefore `make check`) failing: the
+  Makefile ran the Renovate config validator with an unpinned `npx
+  --package renovate`, which resolves to npm's stale `latest` (39.264.1,
+  an older major than the repo's 44.x pins) and rejects the current
+  `renovate.json`. The Makefile now uses the same exact pin as CI
+  (`renovate@44.140.0`), the self-pin Renovate custom manager now also
+  tracks the pins in `Makefile` and `AGENT.md` (so all three stay in sync
+  with CI's), and AGENT.md documents the same pinned command (issue
+  #1024).
 
 - Fixed PostgreSQL dialect detection in the dagster workdir's event
   persistence: a `postgresql+psycopg` (v3) connection URI fell back to

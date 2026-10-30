@@ -215,6 +215,7 @@ docker-compose.yaml
 docker-compose.vault-proof.yml
 docker-compose.restore-proof.yml
 docker-compose.restic-proof.yml
+docker-compose.objstore-proof.yml
 /cds-restore-proof-*/
 
 # Container logs collected by the Docker smoke test on failure

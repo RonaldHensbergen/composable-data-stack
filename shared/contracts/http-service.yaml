@@ -27,13 +27,15 @@ spec:
       type: string
       required: false
       description: >-
-        Resolvable service hostname (the module instance id on the shared
-        Compose network) that consumers such as the reverse-proxy route
-        generator (issue #581) use as the backend address; absent means the
+        Resolvable service hostname on the shared Compose network (the
+        renderer's compose service name for single-service providers)
+        that consumers such as the reverse-proxy route generator
+        (issue #581) use as the backend address; absent means the
         provider does not advertise a directly reachable address. Route
-        generation cross-checks the resolved address against the compose
-        services the render actually produced and fails with a diagnostic
-        when nothing answers it.
+        generation and the provided-contract host check (issue #1010)
+        cross-check the resolved address against the compose services
+        the render actually produced and fail with a diagnostic when
+        nothing answers it.
     serviceName:
       type: string
       required: false

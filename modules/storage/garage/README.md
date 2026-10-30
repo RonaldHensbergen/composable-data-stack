@@ -16,12 +16,11 @@ persists object data and metadata in separate named volumes.
 
 The S3 region is fixed to `garage`.
 
-Use `garage` as the module instance id. The `object-storage` contract
-endpoint advertises the instance id as the S3 hostname, and Compose only
-gives the service that DNS name when the instance id matches the module's
-service name (the same single-service convention as `postgres` and
-`keydb`); any other id leaves the contract endpoint unresolvable on the
-shared network.
+Any module instance id works. The `object-storage` contract endpoint
+advertises the Compose service DNS name via `${service.dns}`, which the
+renderer derives from the instance id (`garage` for an instance id
+matching the module's service name, `<id>-garage` otherwise), so the
+endpoint always resolves on the shared network.
 
 Generate credentials without storing them in the profile:
 
@@ -61,6 +60,10 @@ Garage data is persisted in the `garage-data` and `garage-meta` named volumes.
 Back them up and test restores independently; local persistence is not a
 backup. Use a multi-node Garage deployment with an appropriate replication
 layout for production workloads.
+
+Garage does not support S3 object versioning. For a separate, scheduled
+object-level copy, see the experimental
+[object-storage snapshots module](../../../modules-experimental/backup/object-storage/README.md).
 
 The service runs as root inside the container: the upstream image ships no
 non-root user, and the data volumes are root-owned on first start, so a

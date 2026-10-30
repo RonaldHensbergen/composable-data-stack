@@ -59,7 +59,8 @@ repository, in addition to `CONTRIBUTING.md`.
   `npx --yes markdownlint-cli@0.49.0 "**/*.md" ".github/**/*.md"`, YAML with
   `yamllint .`, Python deprecations with `ruff check .` (configured for
   Ruff's `UP` pyupgrade rules only), and Renovate config with
-  `npx --yes --package renovate@44.65.5 -- renovate-config-validator --strict renovate.json`.
+  `npx --yes --package renovate@44.140.0 -- renovate-config-validator --strict renovate.json`
+  (the same exact pin `make lint-renovate` and CI use).
   `pre-commit run --all-files` additionally runs the repository's selected
   Flake8 checks and file hygiene hooks.
 - Validate a profile with `cds validate <profile-name-or-path>` or
@@ -119,8 +120,15 @@ repository, in addition to `CONTRIBUTING.md`.
   external roots in CLI and test scenarios.
 - Preserve the interpolation vocabulary across planning and rendering:
   `${config.*}` reads normalized module config, `${bindings.*}` reads
-  consumed contract fields, and `${service.host}` resolves to the
-  profile's module instance ID. Renderer-local service dependencies,
+  consumed contract fields, `${service.host}` resolves to the
+  profile's module instance ID (stable for name-prefix uses such as
+  backup volume names), and `${service.dns}` resolves to the Compose
+  DNS name the module's serving service answers to (the renderer's
+  compose service name for single-service modules, or when a namesake
+  compose service matches the module name such as `postgres` next to
+  its backup job containers; the instance ID for other multi-service
+  modules, which name their serving service via the contract's
+  `serviceName`). Renderer-local service dependencies,
   volumes, build contexts, and service names are rewritten relative to
   the module/profile and namespaced by module ID.
 - Never resolve secret values into plans or rendered Compose. Profiles
