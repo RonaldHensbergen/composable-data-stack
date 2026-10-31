@@ -89,6 +89,7 @@ spec:
   - `${config.<field>}` reads the module configuration validated by `spec.configSchema`
   - `${service.host}` resolves to the module instance `id` declared in the profile, not to a service name under `spec.implementation.compose.services`; modules with multiple Compose services receive the same module `id` for this placeholder
   - `${service.dns}` resolves to the Compose DNS name the module's serving service answers to: the renderer's compose service name (`<id>` when the service already carries the id prefix, `<id>-<service>` otherwise) when the module has a single Compose service or a namesake service matching the module name (e.g. `postgres` alongside its `postgres-backup`/`postgres-restore` job containers), so contract endpoints resolve even when the instance id differs from the service name (issue #1010); other modules with multiple Compose services receive the instance `id` and name their serving service explicitly via the contract's `serviceName`
+  - `${service.services.<name>}` resolves to the Compose DNS name of one specific service as written under `spec.implementation.compose.services`, mapped through the same service-naming rule (`<id>-<service>` unless already prefixed), so multi-service modules can point an endpoint at a particular service (e.g. a `lineage-sink` provider's API service) for any instance `id` (issue #1029)
   - `${bindings.<contract>.<field>}` reads a field from a contract declared in `spec.consumes` and resolved by the profile
   - `${secrets.<alias>}` resolves a profile secret alias to a Docker Compose runtime placeholder such as `${CDS_DB_PASSWORD}`; CDS never embeds the secret value
   - `${certificates.<alias>.cert}` / `${certificates.<alias>.key}` (issue #578) resolve one half of a profile certificate alias declared under `spec.certificates.values` to its `${CDS_*}` runtime placeholder. CDS never generates, reads, or embeds certificate or private key material: the alias only names the environment variables the external secret/cert provider supplies, so an undeclared alias, a bare `certificates.<alias>` reference, or an unknown trailing part fails validation with `E129` instead of silently not substituting
@@ -126,6 +127,7 @@ specific source and availability:
 | `${bindings.<contract>.<field>}` | A consumed contract resolved by the profile | The contract is declared in `spec.consumes` and has been bound |
 | `${service.host}` | The module instance `id` from the profile | The module is being rendered |
 | `${service.dns}` | The Compose DNS name of the module's serving service (single-service modules or modules with a namesake compose service: the renderer's compose service name; other multi-service modules: the instance `id`) | The module is being rendered |
+| `${service.services.<name>}` | The Compose DNS name of the compose service `<name>` as written in the module, mapped through the renderer's service-naming rule (issue #1029) | The module is being rendered |
 | `${secrets.<alias>}` | A profile secret alias | The alias is declared in `spec.secrets` |
 | `${certificates.<alias>.cert}` / `${certificates.<alias>.key}` | One half of a profile certificate alias | The alias is declared in `spec.certificates` |
 | `${ifNonempty:<path>,<prefix>,<suffix>}` | Conditional interpolation of a placeholder path | The module is being rendered |
@@ -240,16 +242,19 @@ configuration next to the rendered compose file; invalid routing inputs
 fail with `E136` instead of silently generating broken config.
 
 The same fail-closed cross-check applies to plain provided contracts
-(issue #1010): every `http-service`, `sql-database`, `cache-service`,
-and `object-storage` contract's advertised network host (the `host`
-field, or the `endpoint`'s hostname part) must match a compose service
-the render actually produced for the providing module, and
-`http-service` contracts that advertise a `serviceName` have that name
-mapped through the renderer's service-naming rule first. Mismatches
-fail with `E150` instead of shipping a contract endpoint nothing
-answers. `${service.dns}` resolves through the same naming rule during
-planning, so modules with a single or namesake compose service
-advertise a resolvable host for any instance id. On the `helm` target
+(issues #1010, #1029): every `http-service`, `sql-database`,
+`cache-service`, `object-storage`, `lineage-sink`, and `log-sink`
+contract's advertised network host (the `host` field, the `endpoint`'s
+hostname part, or -- for the sink kinds -- the `connectionUri`'s
+hostname part) must match a compose service the render actually
+produced for the providing module, and contracts that advertise a
+`serviceName` have that name mapped through the renderer's
+service-naming rule first. Mismatches fail with `E150` instead of
+shipping a contract endpoint nothing answers. `${service.dns}`
+resolves through the same naming rule during planning, so modules with
+a single or namesake compose service advertise a resolvable host for
+any instance id, and multi-service modules can build a specific
+service's endpoint from `${service.services.<name>}`. On the `helm` target
 the same cross-check runs against the Kubernetes Services the render
 produces for the module (workloads with a `service` block, plus the
 governing Service of every StatefulSet), so a provided contract whose

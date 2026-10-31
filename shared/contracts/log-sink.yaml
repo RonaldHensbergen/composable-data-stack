@@ -39,6 +39,17 @@ spec:
       type: integer
       required: false
       description: Longer retention window the sink applies to structured, high-value events.
+    serviceName:
+      type: string
+      required: false
+      description: >-
+        Compose service name (as written in the provider module's compose
+        fragment) that serves the collector endpoint. Multi-service
+        providers whose instance id does not resolve on the Compose network
+        set this so the provided-contract host check (E150) can map it
+        through the renderer's service-naming rule; `host` should then be
+        built from `${service.services.<name>}` for the same service
+        (issue #1029).
   examples:
     - host: log-collector
       port: 3100
