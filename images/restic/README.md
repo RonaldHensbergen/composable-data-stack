@@ -8,8 +8,10 @@ Restic image for the generic file/volume backup module
   the upstream release tag (0.19.1 is still the latest release) and the
   `go get` line pins the fixed Go module versions from the Trivy advisories
   against the published 0.19.1 binary, compiled with the current Go
-  toolchain (#1001); Renovate tracks the ARG and the module pins. Using the
-  prebuilt `restic/restic` image instead would reintroduce those findings.
+  toolchain (#1001); Renovate tracks the ARG and the module pins. The source
+  tarball is verified against the pinned `RESTIC_TARBALL_SHA256` during the
+  build (bump it together with `RESTIC_VERSION`). Using the prebuilt
+  `restic/restic` image instead would reintroduce those findings.
 - Adds a dedicated non-root `restic` user (uid 10000) and the repository /
   source mount points (`/var/lib/restic-repo`, `/backup`) with the right
   ownership, so a fresh named volume inherits uid/gid 10000 on first use

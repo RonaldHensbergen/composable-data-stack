@@ -18,11 +18,21 @@
 # the Go stdlib CVEs against that binary are not fixable by a base digest
 # bump alone (#1001). Build gosu from the pinned upstream tag with the
 # current Go toolchain instead; the result is a static binary
-# (CGO_ENABLED=0), verified against the Go checksum database.
+# (CGO_ENABLED=0). The source tarball is verified against the pinned
+# sha256 below (review hardening on #1041); module dependencies would be
+# covered by the Go checksum database, but gosu has none.
 FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS gosu
 ARG GOSU_VERSION=1.20
+# sha256 of https://codeload.github.com/tianon/gosu/tar.gz/refs/tags/${GOSU_VERSION}
+# (verified stable across downloads). No Renovate datasource exists for
+# codeload tarball hashes, so bump this ARG together with GOSU_VERSION —
+# the build fails closed on a mismatch.
+ARG GOSU_TARBALL_SHA256=207a2045e890d3ca3326027c5f585733085960b401a49dbc00e3bb628c054cf8
 RUN mkdir -p /src \
-    && wget -qO- "https://codeload.github.com/tianon/gosu/tar.gz/refs/tags/${GOSU_VERSION}" | tar xz --strip-components=1 -C /src \
+    && wget -qO /tmp/gosu.tar.gz "https://codeload.github.com/tianon/gosu/tar.gz/refs/tags/${GOSU_VERSION}" \
+    && echo "${GOSU_TARBALL_SHA256}  /tmp/gosu.tar.gz" | sha256sum -c - \
+    && tar xz --strip-components=1 -C /src -f /tmp/gosu.tar.gz \
+    && rm /tmp/gosu.tar.gz \
     && cd /src \
     && CGO_ENABLED=0 go build -trimpath -o /go/bin/gosu .
 

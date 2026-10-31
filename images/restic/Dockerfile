@@ -23,8 +23,17 @@
 
 FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS restic-build
 ARG RESTIC_VERSION=0.19.1
+# sha256 of https://codeload.github.com/restic/restic/tar.gz/refs/tags/v${RESTIC_VERSION}
+# (verified stable across downloads). No Renovate datasource exists for
+# codeload tarball hashes, so bump this ARG together with RESTIC_VERSION —
+# the build fails closed on a mismatch. Module deps fetched by go get/go mod
+# tidy are covered by the Go checksum database.
+ARG RESTIC_TARBALL_SHA256=bb9b1a19040744d26d8a79be029d4e6b189c45ccc9d8831d7fe367d3c33df725
 WORKDIR /src
-RUN wget -qO- "https://codeload.github.com/restic/restic/tar.gz/refs/tags/v${RESTIC_VERSION}" | tar xz --strip-components=1 \
+RUN wget -qO /tmp/restic.tar.gz "https://codeload.github.com/restic/restic/tar.gz/refs/tags/v${RESTIC_VERSION}" \
+    && echo "${RESTIC_TARBALL_SHA256}  /tmp/restic.tar.gz" | sha256sum -c - \
+    && tar xz --strip-components=1 -f /tmp/restic.tar.gz \
+    && rm /tmp/restic.tar.gz \
     && go get github.com/go-jose/go-jose/v4@v4.1.6 \
                github.com/klauspost/compress@v1.18.7 \
                golang.org/x/crypto@v0.57.0 \

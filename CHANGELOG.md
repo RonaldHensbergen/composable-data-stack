@@ -84,8 +84,10 @@ The format is based on Keep a Changelog.
   latest upstream release) from source with Go 1.27.3 and the fixed module
   versions (`go-jose/v4` 4.1.6, `klauspost/compress` 1.18.7, `x/crypto`
   0.57.0, `x/net` 0.60.0, `x/text` 0.42.0, `grpc` 1.83.2) on a pinned Alpine
-  base instead of using the vulnerable prebuilt `restic/restic` image. Both
-  rebuilt images scan clean of HIGH/CRITICAL findings with Trivy v0.75.0.
+  base instead of using the vulnerable prebuilt `restic/restic` image; both
+  source tarballs are verified against pinned sha256 hashes in the builder
+  stages. Both rebuilt images scan clean of HIGH/CRITICAL findings with
+  Trivy v0.75.0.
 
 - Fixed provided contract endpoints silently breaking when a module
   instance id differs from the module's compose service name (issue
