@@ -99,6 +99,18 @@ could be backed by Loki, Fluent Bit's HTTP input, an OpenSearch ingest
 pipeline, or a simple internal collector — the contract only commits to the
 wire-level fields needed to reach it.
 
+The experimental
+[`loki` module](../modules-experimental/observability/loki/README.md) provides
+this contract using a Vector HTTP gateway and Loki storage. It accepts one
+JSON object per `POST` to `/logs`; records containing the required string
+fields `service`, `profile`, `environment`, `timestamp`, and `severity` are
+stored in the structured tier, while other records use the raw tier. Loki
+applies its default retention to raw records and a `tier="structured"`
+retention override to structured events. The gateway classifies by field
+presence and type, but does not validate the full event schema or tail
+container logs automatically; configure applications or a separate shipper
+to POST records to the provided endpoint.
+
 ## 6. Profile-level opt-in without naming a module
 
 A profile can opt into log shipping and declare retention tiers without

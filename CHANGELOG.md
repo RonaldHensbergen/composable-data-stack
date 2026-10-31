@@ -8,6 +8,9 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added an experimental Loki log-aggregation module implementing the shared
+  `log-sink` contract, with Vector HTTP ingestion, structured-event
+  classification, and configurable raw/structured retention tiers (#662).
 - Added GitOps rendering support (issue #767): a new vendor-neutral
   `gitops-target` contract (`shared/contracts/gitops-target.yaml`: repository
   URL, branch, path, sync interval, target namespace), validated by
