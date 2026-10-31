@@ -39,12 +39,12 @@ from .confinement import plan_declares_confinement
 from .diagnostics import Diagnostic
 from .renderer import (
     _build_context,
-    _contract_host_candidates,
     _merge_init_db_env,
     _resolve_expr,
     _resolve_profile_dir,
     _resolve_project_root,
     _substitute_values,
+    _validate_provided_contract_hosts_against,
     apply_production_gates,
 )
 from .secret_leak import (
@@ -1883,19 +1883,15 @@ def _check_provided_contract_services(
     cross-check every provided contract's advertised network host against
     the Kubernetes Services the render actually produces for that module.
 
-    The compose renderer's E150 check has the same job for the compose
-    target; here the rendered service names come from the workloads that
-    get a Service manifest (`_collect_service_names`), so a provided
+    Delegates to the E150 core shared with the compose renderer, with the
+    rendered service names taken from the workloads that get a Service
+    manifest (`_collect_service_names`). A `serviceName` advertisement
+    names a workload and is resolved to the Service name that workload
+    renders (a workload-level `serviceName` override may rename it), so a
     contract advertising a host no rendered Service answers fails closed
-    instead of shipping an endpoint consumers cannot resolve. A
-    `serviceName` advertisement names a workload and is resolved to the
-    Service name that workload renders (a workload-level `serviceName`
-    override may rename it). Hosts outside the cluster namespace (dots,
-    ports, credentials) are not checked, and modules whose workloads
-    render no Service at all are left to their own diagnostics --
-    mirroring the compose check.
+    instead of shipping an endpoint consumers cannot resolve.
     """
-    diagnostics: list[Diagnostic] = []
+    rendered_by_module: dict[str, list[str]] = {}
     for module in modules:
         if not isinstance(module, dict):
             continue
@@ -1907,40 +1903,19 @@ def _check_provided_contract_services(
             for workload_name in workloads
             if (full := _compose_service_name(module_id, workload_name)) in service_names
         }
-        if not rendered:
-            continue
-        provides = module.get("provides")
-        if not isinstance(provides, dict):
-            continue
-        for provide_name, provided in provides.items():
-            if not isinstance(provided, dict):
-                continue
-            kind = provided.get("kind")
-            spec = provided.get("spec")
-            if not isinstance(spec, dict):
-                continue
-            for field, host in _contract_host_candidates(module_id, kind, spec):
-                if field == "serviceName":
-                    host = service_names.get(host, host)
-                if host in rendered:
-                    continue
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E150",
-                    message=(
-                        f'Provided contract "{provide_name}" of module "{module_id}" '
-                        f'advertises network host "{host}", which is not a Kubernetes '
-                        "Service the render produced for that module (rendered "
-                        f'services: {", ".join(sorted(rendered))}); consumers of the '
-                        "contract would resolve a hostname nothing answers. Render "
-                        "the serving workload with a service block (or as a "
-                        "StatefulSet), advertise the serving workload via a "
-                        "serviceName field, or build the endpoint from "
-                        "${service.dns}."
-                    ),
-                    path=f"module:{module_id}.provides.{provide_name}.spec.{field}",
-                ))
-    return diagnostics
+        if rendered:
+            rendered_by_module[module_id] = sorted(rendered)
+    return _validate_provided_contract_hosts_against(
+        modules,
+        rendered_by_module,
+        service_kind="Kubernetes Service",
+        fix_hint=(
+            "Render the serving workload with a service block (or as a "
+            "StatefulSet), advertise the serving workload via a serviceName "
+            "field, or build the endpoint from ${service.dns}."
+        ),
+        resolve_service_name=lambda _module_id, host: service_names.get(host, host),
+    )
 
 
 def _sanitize_name(name: str) -> str:

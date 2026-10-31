@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -282,34 +283,89 @@ def _endpoint_hostname(value: Any) -> str | None:
     return value
 
 
-def _contract_host_candidates(
-    module_id: str, kind: Any, spec: dict[str, Any]
-) -> list[tuple[str, str]]:
+def _provided_contract_host_candidates(
+    kind: Any, spec: dict[str, Any], module_id: str
+) -> list[tuple[str, str | None]]:
     """
-    Collect the (field, host) pairs a provided contract advertises, filtered
-    to cluster-local names. Hosts outside the rendered namespace (dots,
-    ports, credentials) cannot be cross-checked against rendered services,
-    so they are dropped here. Shared by the compose and Kubernetes E150
-    checks.
+    The (field, host) pairs a provided contract's spec advertises as network
+    addresses, per contract kind. Shared by both render targets' E150
+    cross-checks (issues #1010, #1035).
     """
-    raw: list[tuple[str, Any]] = []
+    candidates: list[tuple[str, str | None]] = []
     if kind == "http-service":
         advertised_service = spec.get("serviceName")
         if isinstance(advertised_service, str) and advertised_service:
-            raw.append(
+            candidates.append(
                 ("serviceName", _compose_service_name(module_id, advertised_service))
             )
         else:
-            raw.append(("host", spec.get("host")))
+            candidates.append(("host", spec.get("host")))
     elif kind in ("sql-database", "cache-service"):
-        raw.append(("host", spec.get("host")))
+        candidates.append(("host", spec.get("host")))
     elif kind == "object-storage":
-        raw.append(("endpoint", _endpoint_hostname(spec.get("endpoint"))))
-    return [
-        (field, host)
-        for field, host in raw
-        if isinstance(host, str) and _DNS_LABEL_RE.match(host)
-    ]
+        candidates.append(("endpoint", _endpoint_hostname(spec.get("endpoint"))))
+    return candidates
+
+
+def _validate_provided_contract_hosts_against(
+    modules: Any,
+    rendered_by_module: dict[str, list[str]],
+    *,
+    service_kind: str,
+    fix_hint: str,
+    resolve_service_name: Callable[[str, str], str] | None = None,
+) -> list[Diagnostic]:
+    """
+    E150 cross-check core shared by both render targets (issues #1010,
+    #1035): every provided contract's advertised network host must match
+    a service the render produced for that module, else the render fails
+    closed instead of shipping a broken endpoint. `service_kind` and
+    `fix_hint` word the diagnostic for the target ("compose service" vs
+    "Kubernetes Service"); `resolve_service_name` optionally maps a
+    `serviceName` advertisement to the name the workload actually renders
+    (the helm target's workload-level `serviceName` overrides). Hosts
+    outside the cluster namespace (dots, ports, credentials) are not
+    checked, and modules whose services failed to render are left to
+    their own diagnostics.
+    """
+    diagnostics: list[Diagnostic] = []
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        module_id = str(module.get("id"))
+        rendered = rendered_by_module.get(module_id) or []
+        if not rendered:
+            continue
+        provides = module.get("provides")
+        if not isinstance(provides, dict):
+            continue
+        for provide_name, provided in provides.items():
+            if not isinstance(provided, dict):
+                continue
+            kind = provided.get("kind")
+            spec = provided.get("spec")
+            if not isinstance(spec, dict):
+                continue
+            for field, host in _provided_contract_host_candidates(kind, spec, module_id):
+                if not isinstance(host, str) or not _DNS_LABEL_RE.match(host):
+                    continue
+                if field == "serviceName" and resolve_service_name is not None:
+                    host = resolve_service_name(module_id, host)
+                if host in rendered:
+                    continue
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E150",
+                    message=(
+                        f'Provided contract "{provide_name}" of module "{module_id}" '
+                        f'advertises network host "{host}", which is not a {service_kind} '
+                        "the render produced for that module (rendered "
+                        f'services: {", ".join(rendered)}); consumers of the contract '
+                        "would resolve a hostname nothing answers. " + fix_hint
+                    ),
+                    path=f"module:{module_id}.provides.{provide_name}.spec.{field}",
+                ))
+    return diagnostics
 
 
 def _validate_provided_contract_hosts(
@@ -324,48 +380,18 @@ def _validate_provided_contract_hosts(
     answers on the Compose network fails closed with E150 instead of
     shipping a broken endpoint. Multi-service modules advertise their
     serving service via `serviceName`; that name is mapped through the same
-    service-naming rule the renderer uses. Hosts outside the Compose
-    namespace (dots, ports, credentials) are not checked, and modules
-    whose services failed to render are left to their own diagnostics.
+    service-naming rule the renderer uses.
     """
-    diagnostics: list[Diagnostic] = []
-    for module in plan.get("modules", []):
-        if not isinstance(module, dict):
-            continue
-        module_id = str(module.get("id"))
-        rendered = module_service_names.get(module_id) or []
-        if not rendered:
-            continue
-        provides = module.get("provides")
-        if not isinstance(provides, dict):
-            continue
-        for provide_name, provided in provides.items():
-            if not isinstance(provided, dict):
-                continue
-            kind = provided.get("kind")
-            spec = provided.get("spec")
-            if not isinstance(spec, dict):
-                continue
-            for field, host in _contract_host_candidates(module_id, kind, spec):
-                if host in rendered:
-                    continue
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E150",
-                    message=(
-                        f'Provided contract "{provide_name}" of module "{module_id}" '
-                        f'advertises network host "{host}", which is not a compose '
-                        "service the render produced for that module (rendered "
-                        f'services: {", ".join(rendered)}); consumers of the contract '
-                        "would resolve a hostname nothing answers. Instantiate "
-                        "the module with an id matching its compose service "
-                        "name, advertise the serving service via a "
-                        "serviceName field, or build the endpoint from "
-                        "${service.dns}."
-                    ),
-                    path=f"module:{module_id}.provides.{provide_name}.spec.{field}",
-                ))
-    return diagnostics
+    return _validate_provided_contract_hosts_against(
+        plan.get("modules", []),
+        module_service_names,
+        service_kind="compose service",
+        fix_hint=(
+            "Instantiate the module with an id matching its compose service "
+            "name, advertise the serving service via a serviceName field, or "
+            "build the endpoint from ${service.dns}."
+        ),
+    )
 
 
 def _generate_reverse_proxy_routes(
