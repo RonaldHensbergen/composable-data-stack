@@ -57,12 +57,18 @@ spec:
       contract:
         kind: log-sink
         spec:
+          # This module renders two compose services (loki, loki-storage);
+          # the namesake `loki` service serves the ingest endpoint, so
+          # ${service.dns} resolves to its rendered DNS name. serviceName
+          # advertises the same serving service explicitly for the E150
+          # host cross-check (issue #1029), matching the marquez module.
           host: ${service.dns}
           port: ${config.ingestPort}
           protocol: http
           ingestPath: /logs
           rawRetentionDays: ${config.rawRetentionDays}
           structuredRetentionDays: ${config.structuredRetentionDays}
+          serviceName: loki
 
   implementation:
     kind: docker-compose

@@ -52,6 +52,7 @@ class LokiModuleTest(unittest.TestCase):
             contract["structuredRetentionDays"],
             "${config.structuredRetentionDays}",
         )
+        self.assertEqual(contract["serviceName"], "loki")
 
     def test_profile_validation_and_render_publish_the_contract_endpoint(self) -> None:
         profile = {
@@ -104,6 +105,7 @@ class LokiModuleTest(unittest.TestCase):
                 self.assertEqual(provided["ingestPath"], "/logs")
                 self.assertEqual(provided["rawRetentionDays"], 7)
                 self.assertEqual(provided["structuredRetentionDays"], 90)
+                self.assertEqual(provided["serviceName"], "loki")
 
                 rendered, render_diagnostics = render_compose(plan)
 
