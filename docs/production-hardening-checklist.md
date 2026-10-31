@@ -178,19 +178,27 @@ Expected: `cds state` shows every service healthy; the proxy's TLS entry
 points answer (for example `curl -v https://<host>/`) and the backend ports
 answer only through the proxy. `cds down` stops the stack.
 
-## 4. Expected findings (snapshot 2026-10-26)
+## 4. Expected findings (snapshot 2026-10-30)
 
 `cds security team-dagster-postgres-superset --environment prod` currently
 exits 1 with the following findings. The set is stable; a deviation in either
 direction is the operator's signal to stop and investigate.
 
+Renderer references (for example `config.passwordFrom` in `initDbEnv.*`,
+`${secrets.*}` aliases) and the free-text waiver reason are no longer
+flagged: since #979 the secret-value rules CDS-SEC-001/003/033 skip values
+that are entirely a renderer reference (new `ignoreRendererReferences` rule
+flag), the CDS-SEC-013 reuse check skips such references, the waiver-reason
+entropy exemption covers the flattened `security.waivers.*.reason` path, and
+CDS-SEC-031 matches the env file path relative to the project root so a bare
+project-root `.env` never fires regardless of the invocation directory.
+Rendered output still contains only `${CDS_*}` placeholders.
+
 | Finding | Count | Classification | Action / tracking |
 | --- | --- | --- | --- |
-| `CDS-SEC-001`/`CDS-SEC-033` on `initDbEnv.*`; `CDS-SEC-003` on `initDbEnv.*` and on the waiver reason | 11 | False positive: the flagged values are renderer references (for example `config.passwordFrom`) or free-text waiver reasons, not secrets; rendered output contains only `${CDS_*}` placeholders | [#979](https://github.com/RonaldHensbergen/composable-data-stack/issues/979) |
 | `CDS-SEC-074` on `services.dagster-webserver.ports[0]` and `services.superset.ports[0]` | 2 | True positive: the admin backends still publish directly to the host, allowing a proxy bypass | Remove the backend host publishes (proxy becomes the sole entry point), or set `spec.security.waivers.plaintextEndpointExposure.reason` |
 | `CDS-SEC-081` on the admin-facing services | 3 | Known gap: no identity module is bound | [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) |
 | `CDS-SEC-080` on `spec.modules` | 1 | Known gap: the backup policy is declared at profile level (`spec.backup`), which the rule does not yet recognize as contract consumption | [backup-restore.md](backup-restore.md) follow-ups ([#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210)) |
-| `CDS-SEC-013` on `backup.encryption.keyFrom` / `backup.encryptionKeyFrom` | 2 | Accepted: one backup encryption key is deliberately referenced by both the module capability and the profile policy | None (single purpose, single key) |
 | `W103` on `spec.security.waivers.runtimePolicy` | 1 | Informational: the documented non-root waiver for images that set `USER` in their Dockerfiles | Keep the waiver reason accurate |
 
 Additional `CDS-SEC-004` (placeholder/weak secret) or `CDS-SEC-012` (too

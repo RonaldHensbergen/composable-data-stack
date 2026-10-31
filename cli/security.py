@@ -30,7 +30,12 @@ from .secret_leak import (
     resolved_secret_values,
 )
 from .secrets import load_secrets_from_env
-from .security_common import SECRET_KEY_RE, SEVERITY_ORDER, infer_profile_class
+from .security_common import (
+    SECRET_KEY_RE,
+    SEVERITY_ORDER,
+    infer_profile_class,
+    resolve_project_root,
+)
 from .utils import _compose_service_name
 
 _PROFILE_SCOPES = {
@@ -192,29 +197,42 @@ def _flatten_env_secrets(secrets: dict[str, str]) -> list[tuple[str, str, Any]]:
     return [("<env>", f"secrets.{key}", value) for key, value in secrets.items()]
 
 
-def _normalize_scan_path(path: Path) -> str:
+def _normalize_scan_path(path: Path, project_root: Path | None = None) -> str:
+    """
+    Render a scanned file path relative to the project root when possible, so
+    the project-root `.env` is always the bare ".env" no matter which directory
+    the CLI was invoked from (e.g. with CDS_PROFILE_PATH set); fall back to a
+    cwd-relative path, then to the absolute path.
+    """
     resolved = path.resolve()
-    try:
-        return resolved.relative_to(Path.cwd().resolve()).as_posix()
-    except ValueError:
-        return resolved.as_posix()
+    for base in (project_root, Path.cwd().resolve()):
+        if base is None:
+            continue
+        try:
+            return resolved.relative_to(base).as_posix()
+        except ValueError:
+            continue
+    return resolved.as_posix()
 
 
 def _flatten_env_inputs(
     secrets: dict[str, str],
     env_file: str | None,
+    project_root: Path | None = None,
 ) -> list[tuple[str, str, Any]]:
     """
     Emit both loaded .env secrets and the env file path itself when present.
 
     Some rules evaluate how a secret-bearing env file is located or managed
     rather than inspecting individual secret values. Represent the file path as
-    a synthetic flat item so those rules can use the same matcher.
+    a synthetic flat item so those rules can use the same matcher. The path is
+    normalized against `project_root` (not just cwd) so a bare project-root
+    `.env` stays bare regardless of the invocation directory.
     """
     items = _flatten_env_secrets(secrets)
     env_path = Path(env_file) if env_file is not None else Path(".env")
     if env_path.exists():
-        scan_path = _normalize_scan_path(env_path)
+        scan_path = _normalize_scan_path(env_path, project_root)
         items.append(("<env>", scan_path, scan_path))
     return items
 
@@ -223,7 +241,10 @@ def _is_windows() -> bool:
     return os.name == "nt"
 
 
-def _flatten_file_permissions(env_file: str | None) -> list[tuple[str, str, Any]]:
+def _flatten_file_permissions(
+    env_file: str | None,
+    project_root: Path | None = None,
+) -> list[tuple[str, str, Any]]:
     """
     Emit the POSIX permission bits of the secret-bearing .env file as a
     synthetic item whose value is the octal mode string (e.g. "0644").
@@ -240,7 +261,7 @@ def _flatten_file_permissions(env_file: str | None) -> list[tuple[str, str, Any]
         mode = stat.S_IMODE(env_path.stat().st_mode)
     except OSError:
         return []
-    return [("<env>", f"{_normalize_scan_path(env_path)}.permissions", f"{mode:04o}")]
+    return [("<env>", f"{_normalize_scan_path(env_path, project_root)}.permissions", f"{mode:04o}")]
 
 
 def _permission_mode(value: str) -> int | None:
@@ -329,6 +350,28 @@ def _is_secret_reference(value: Any) -> bool:
     return isinstance(value, str) and bool(_SECRET_REF_RE.match(value))
 
 
+# The renderer's reference vocabulary (cli/renderer.py's _resolve_expr), in
+# both its bare form (e.g. "config.passwordFrom", "secrets.cache_password",
+# used in module config positions the renderer resolves, such as initDbEnv)
+# and its ${...}-wrapped form (e.g. "${config.passwordFrom}"). A value that
+# is entirely such an expression is a pointer the renderer resolves at render
+# time (secrets.*/certificates.* become ${CDS_*} Compose placeholders), never
+# a literal secret, so secret-value rules that opt in via the rule's
+# `ignoreRendererReferences` flag skip it (#979).
+_RENDERER_REF_RE = re.compile(
+    r"^\$\{(?:secrets|certificates|config|bindings|service)\.[^}]+\}$"  # ${config.x}
+    r"|^(?:secrets|certificates|config|bindings|service)\.[A-Za-z0-9_.]+$"  # config.x
+)
+
+def _is_renderer_reference(value: Any) -> bool:
+    """
+    Returns True if value is entirely a renderer reference expression
+    (bare "config.x"/"secrets.x"/... or "${config.x}"/"${secrets.x}"/...),
+    i.e. a value the renderer resolves at render time rather than a literal.
+    """
+    return isinstance(value, str) and bool(_RENDERER_REF_RE.match(value))
+
+
 # ---------------------------------------------------------------------------
 # Profile class inference
 # ---------------------------------------------------------------------------
@@ -394,9 +437,13 @@ _NON_SECRET_PATH_SUFFIXES = (
 # secret heuristic. Unlike _NON_SECRET_PATH_SUFFIXES, these only suppress the
 # check for the exact documented field, so an unrelated key that happens to
 # end in "reason" (e.g. a genuine secret named "authFailureReason") is still
-# scanned normally.
+# scanned normally. Both the "spec."-prefixed and the bare form are listed:
+# _flatten_profile_by_module emits spec-level keys without the "spec." prefix
+# (e.g. "security.waivers.runtimePolicy.reason"), while callers that flatten
+# the raw profile document use the prefixed form.
 _NON_SECRET_PATH_PATTERNS = (
     "spec.security.waivers.*.reason",
+    "security.waivers.*.reason",
 )
 def _eval_condition(
     path: str,
@@ -498,6 +545,12 @@ def _check_secret_reuse(
     for module_id, path, value in flat_items:
         if not isinstance(value, str) or not value:
             continue
+        # Renderer references (e.g. "secrets.backup_encryption_key") are
+        # pointers resolved at render time, not secret values: sharing one
+        # reference across fields is the intended indirection, not reuse of
+        # the underlying value (#979).
+        if _is_renderer_reference(value):
+            continue
         if not SECRET_KEY_RE.search(path.split(".")[-1]):
             continue
         value_to_locations.setdefault(value, []).append((module_id, path))
@@ -535,11 +588,19 @@ def _rule_matches(
 
     findings: list[dict[str, Any]] = []
     match = rule["match"]
+    # Rules flagging secret-like *values* can opt out of renderer references
+    # (bare "config.x" or "${secrets.x}" expressions): the declarative engine
+    # scans the planned config where those references are still unresolved
+    # strings, but the renderer resolves them before anything is executed,
+    # and rendered output only ever contains ${CDS_*} placeholders (#979).
+    skip_renderer_refs = bool(rule.get("ignoreRendererReferences", False))
 
     for module_id, path, value in flat_items:
         # Skip unresolved ${secrets.*} references in profile config.
         # They are intentional indirections, not real values.
         if _is_secret_reference(value):
+            continue
+        if skip_renderer_refs and _is_renderer_reference(value):
             continue
 
         key = path.split(".")[-1] if path else ""
@@ -1382,8 +1443,13 @@ def run_security_validation(
     secrets, secret_diags = load_secrets_from_env(env_file)
 
     flat_profile = _flatten_profile_by_module(profile, profile_dir=profile_path.parent)
-    flat_env = _flatten_env_inputs(secrets, env_file)
-    flat_permissions = _flatten_file_permissions(env_file)
+    # Normalize scanned file paths (e.g. the .env path CDS-SEC-031 matches on)
+    # against the same project root resolve_env_file_path uses, so a bare
+    # project-root .env never matches regardless of the invocation directory
+    # (e.g. when CDS_PROFILE_PATH points at a profile while cwd is elsewhere).
+    scan_project_root = resolve_project_root(str(profile_path))
+    flat_env = _flatten_env_inputs(secrets, env_file, project_root=scan_project_root)
+    flat_permissions = _flatten_file_permissions(env_file, project_root=scan_project_root)
 
     # Planning and rendering the profile is only useful when some enabled
     # rule actually declares the "rendered-compose" scope -- e.g. a custom
