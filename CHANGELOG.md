@@ -73,6 +73,16 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the `helm` render target lacking the provide-side contract-host
+  cross-check that the compose target got for issue #1010: the Kubernetes
+  renderer only validated the consume side (E084), so a provided
+  `http-service`, `sql-database`, `cache-service`, or `object-storage`
+  contract advertising a host no rendered Kubernetes Service matches did
+  not fail closed. `render_helm` now cross-checks every provided
+  contract's advertised network host (the `host` field, the `endpoint`'s
+  hostname part, or a `serviceName` resolved to the serving workload's
+  Service name) against the Services the render produces for that module
+  and fails with `E150` on mismatch (issue #1035).
 - The `Kubernetes E2E` workflow now pins its k3d cluster name
   (`cds-k8s-e2e-ci`) instead of deriving `cds-head` from the detached-HEAD
   checkout, so CI logs and failure diagnostics are attributable at a glance

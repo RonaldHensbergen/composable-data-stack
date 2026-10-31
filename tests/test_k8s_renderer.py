@@ -536,6 +536,178 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
         self.assertEqual(files, {})
         self.assertIn("E084", {diagnostic.code for diagnostic in diagnostics})
 
+    def test_provided_contract_host_without_matching_service_is_rejected(self) -> None:
+        # Provide-side counterpart of the E084 test above (issue #1035): a
+        # provided contract advertising a host no rendered k8s Service
+        # matches must fail closed with E150, like the compose renderer does.
+        plan = self.minimal_plan()
+        plan["modules"][0]["provides"] = {
+            "http": {
+                "kind": "http-service",
+                "spec": {"host": "nowhere", "port": 8080},
+            }
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        matching = [d for d in diagnostics if d.code == "E150"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0].level, "error")
+        self.assertEqual(
+            matching[0].path, "module:demo.provides.http.spec.host"
+        )
+        self.assertIn("not a Kubernetes Service", matching[0].message)
+
+    def test_provided_contract_matching_a_rendered_service_passes(self) -> None:
+        plan = self.minimal_plan()
+        plan["modules"][0]["provides"] = {
+            "http": {
+                "kind": "http-service",
+                "spec": {"host": "demo-app", "port": 8080},
+            },
+            "sql": {
+                "kind": "sql-database",
+                "spec": {"host": "demo-app", "port": 5432},
+            },
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertTrue(files)
+
+    def test_provided_contract_service_name_maps_through_naming_rule(self) -> None:
+        plan = self.minimal_plan()
+        plan["modules"][0]["provides"] = {
+            "http": {
+                "kind": "http-service",
+                "spec": {"host": "demo", "serviceName": "app", "port": 8080},
+            }
+        }
+
+        # The workload "app" renders Service "demo-app", so serviceName
+        # "app" resolves even though the bare host "demo" does not.
+        files, diagnostics = render_helm(plan)
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertTrue(files)
+
+        broken = self.minimal_plan()
+        broken["modules"][0]["provides"] = {
+            "http": {
+                "kind": "http-service",
+                "spec": {"host": "demo", "serviceName": "missing", "port": 8080},
+            }
+        }
+        files, diagnostics = render_helm(broken)
+        self.assertEqual(files, {})
+        matching = [d for d in diagnostics if d.code == "E150"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(
+            matching[0].path, "module:demo.provides.http.spec.serviceName"
+        )
+
+    def test_provided_sql_database_and_object_storage_hosts_are_checked(self) -> None:
+        plan = self.minimal_plan()
+        plan["modules"][0]["provides"] = {
+            "sql": {"kind": "sql-database", "spec": {"host": "no-db"}},
+            "storage": {
+                "kind": "object-storage",
+                "spec": {"endpoint": "http://no-store:3900"},
+            },
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        matching = [d for d in diagnostics if d.code == "E150"]
+        self.assertEqual(
+            [d.path for d in matching],
+            [
+                "module:demo.provides.sql.spec.host",
+                "module:demo.provides.storage.spec.endpoint",
+            ],
+        )
+
+    def test_provided_contract_external_hosts_are_skipped(self) -> None:
+        plan = self.minimal_plan()
+        plan["modules"][0]["provides"] = {
+            "sql": {
+                "kind": "sql-database",
+                "spec": {"host": "db.internal.example.com"},
+            },
+            "storage": {
+                "kind": "object-storage",
+                "spec": {"endpoint": "https://s3.example.com:443"},
+            },
+            "http": {"kind": "http-service", "spec": {}},
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertTrue(files)
+
+    def test_provided_contract_module_without_rendered_services_is_skipped(self) -> None:
+        # Mirrors the compose check: a module whose workloads render no
+        # Service at all is left to its own diagnostics.
+        plan = self.minimal_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload.pop("service")
+        workload["kind"] = "Deployment"
+        plan["modules"][0]["provides"] = {
+            "http": {"kind": "http-service", "spec": {"host": "nowhere"}}
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertNotIn("E150", {diagnostic.code for diagnostic in diagnostics})
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+
+    def test_provided_contract_host_resolves_workload_service_name_override(self) -> None:
+        # A workload-level serviceName renames the rendered Service, so the
+        # advertised host must be the Service name, and a serviceName
+        # advertisement resolves through the override.
+        plan = self.minimal_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["serviceName"] = "custom-svc"
+        plan["modules"][0]["provides"] = {
+            "http": {
+                "kind": "http-service",
+                "spec": {"host": "custom-svc", "port": 8080},
+            }
+        }
+
+        files, diagnostics = render_helm(plan)
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertIn(
+            "name: '{{ .Release.Name }}-custom-svc'",
+            files["templates/demo-app-service.yaml"],
+        )
+
+        plan["modules"][0]["provides"] = {
+            "http": {
+                "kind": "http-service",
+                "spec": {"host": "demo-app", "port": 8080},
+            }
+        }
+        files, diagnostics = render_helm(plan)
+        self.assertEqual(files, {})
+        self.assertIn("E150", {d.code for d in diagnostics})
+
+        plan["modules"][0]["provides"] = {
+            "http": {
+                "kind": "http-service",
+                "spec": {"serviceName": "app", "port": 8080},
+            }
+        }
+        files, diagnostics = render_helm(plan)
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+
     def test_missing_resources_emit_warning(self) -> None:
         plan = self.minimal_plan()
         plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"].pop(

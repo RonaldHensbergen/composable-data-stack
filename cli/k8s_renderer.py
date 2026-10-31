@@ -44,6 +44,7 @@ from .renderer import (
     _resolve_profile_dir,
     _resolve_project_root,
     _substitute_values,
+    _validate_provided_contract_hosts_against,
     apply_production_gates,
 )
 from .secret_leak import (
@@ -149,6 +150,7 @@ def render_helm(
     # ${k8s.service.*} can point forward to a workload declared later.
     service_names = _collect_service_names(renderable)
     diagnostics.extend(_check_binding_services(renderable, service_names))
+    diagnostics.extend(_check_provided_contract_services(renderable, service_names))
 
     # The built-in backup capability (config.backup.enabled, issue #665) is
     # only implemented for the compose target: there is no Kubernetes
@@ -1871,6 +1873,49 @@ def _check_binding_services(
                     )
                 )
     return diagnostics
+
+
+def _check_provided_contract_services(
+    modules: list[dict[str, Any]], service_names: dict[str, str]
+) -> list[Diagnostic]:
+    """
+    Provide-side counterpart of the E084 consume-side check (issue #1035):
+    cross-check every provided contract's advertised network host against
+    the Kubernetes Services the render actually produces for that module.
+
+    Delegates to the E150 core shared with the compose renderer, with the
+    rendered service names taken from the workloads that get a Service
+    manifest (`_collect_service_names`). A `serviceName` advertisement
+    names a workload and is resolved to the Service name that workload
+    renders (a workload-level `serviceName` override may rename it), so a
+    contract advertising a host no rendered Service answers fails closed
+    instead of shipping an endpoint consumers cannot resolve.
+    """
+    rendered_by_module: dict[str, list[str]] = {}
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        module_id = str(module.get("id"))
+        k8s = (module.get("implementation") or {}).get("kubernetes") or {}
+        workloads = k8s.get("workloads") or {}
+        rendered = {
+            service_names[full]
+            for workload_name in workloads
+            if (full := _compose_service_name(module_id, workload_name)) in service_names
+        }
+        if rendered:
+            rendered_by_module[module_id] = sorted(rendered)
+    return _validate_provided_contract_hosts_against(
+        modules,
+        rendered_by_module,
+        service_kind="Kubernetes Service",
+        fix_hint=(
+            "Render the serving workload with a service block (or as a "
+            "StatefulSet), advertise the serving workload via a serviceName "
+            "field, or build the endpoint from ${service.dns}."
+        ),
+        resolve_service_name=lambda _module_id, host: service_names.get(host, host),
+    )
 
 
 def _sanitize_name(name: str) -> str:
