@@ -545,6 +545,14 @@ class SinkContractHostValidationTest(unittest.TestCase):
         plan = self._plan({"host": "loki.example.com", "connectionUri": "https://loki.example.com:3100"})
         self.assertEqual(_validate_provided_contract_hosts(plan, self._RENDERED), [])
 
+    def test_scheme_less_sink_host_and_connection_uri_are_checked(self):
+        # Issue #1036: the host part of a scheme-less host:port value is
+        # cross-checked, for `host` and `connectionUri` alike.
+        plan = self._plan({"host": "marquez-api:5000", "connectionUri": "marquez:5000"})
+        diagnostics = _validate_provided_contract_hosts(plan, self._RENDERED)
+        self.assertEqual([d.code for d in diagnostics], ["E150"])
+        self.assertEqual(diagnostics[0].path, "module:marquez.provides.lineage-sink.spec.connectionUri")
+
 
 class GarageCustomInstanceIdTest(unittest.TestCase):
     """The issue #1010 reproduction: garage instantiated as id \"object-storage\"."""
