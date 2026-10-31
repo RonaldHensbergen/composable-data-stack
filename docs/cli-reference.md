@@ -45,13 +45,17 @@ Kubernetes cluster. The tiers are cumulative:
   backup provider.
 - **Observed** additionally requires at least one logging, metrics, or tracing
   provider.
-- **Secured** additionally requires at least one TLS-certificate, service-mesh,
-  or identity-broker provider.
+- **Secured** additionally requires at least one TLS-certificate or
+  service-mesh provider, or an identity-broker provider alongside a separate
+  OIDC provider (a broker that is the only identity provider adds no extra
+  control).
 - **Resilient** additionally requires backup coverage for every stateful
   module instance. A module is treated as stateful when it provides a
   `sql-database` or `file-database` contract; coverage is recognized from an
   enabled built-in backup, a module consuming its `backup-target`, or a backup
-  provider consuming its `backup-source`.
+  provider consuming its `backup-source`. Backup-source bindings to modules
+  that are not databases (for example a Dagster volume) are valid backups but
+  do not count towards this requirement.
 
 GitOps and other recognized capabilities are reported but do not gate these
 tiers. Use `--format json` for machine-readable output; the default `text`

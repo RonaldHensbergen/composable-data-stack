@@ -225,7 +225,7 @@ own* component readiness, not a *deployed profile's* compliance level):
 | **Basic** | Profile provides a database and cache |
 | **Automated** | Basic, plus identity, TLS/reverse proxy, and a backup provider |
 | **Observed** | Automated, plus at least one logging, metrics, or tracing provider |
-| **Secured** | Observed, plus a TLS-certificate, service-mesh, or identity-broker provider |
+| **Secured** | Observed, plus a TLS-certificate or service-mesh provider, or an identity-broker provider alongside a separate OIDC provider |
 | **Resilient** | Secured, plus backup coverage for every stateful module instance |
 
 Implementation sketch:

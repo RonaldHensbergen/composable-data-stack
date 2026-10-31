@@ -142,6 +142,75 @@ class MaturityReportTest(unittest.TestCase):
             [True, True, True, True, False],
         )
 
+    def test_identity_broker_alone_does_not_make_profile_secured(self) -> None:
+        broker_only = _automated_modules(identity_kind="identity-broker") + [
+            _module("loki", "log-sink")
+        ]
+        report = build_maturity_report(
+            {"metadata": {"name": "broker-only"}, "modules": broker_only}
+        )
+        self.assertEqual(report["highestTier"], "Observed")
+
+        same_module = _automated_modules(identity_kind="oidc-provider")
+        keycloak = next(m for m in same_module if m["id"] == "keycloak")
+        keycloak["provides"]["broker"] = {"kind": "identity-broker"}
+        report = build_maturity_report(
+            {
+                "metadata": {"name": "single-idp"},
+                "modules": same_module + [_module("loki", "log-sink")],
+            }
+        )
+        self.assertEqual(report["highestTier"], "Observed")
+
+    def test_identity_broker_with_separate_oidc_provider_is_secured(self) -> None:
+        modules = _automated_modules(identity_kind="oidc-provider") + [
+            _module("loki", "log-sink"),
+            _module("broker", "identity-broker"),
+        ]
+        report = build_maturity_report(
+            {"metadata": {"name": "brokered"}, "modules": modules}
+        )
+        self.assertEqual(report["highestTier"], "Secured")
+
+    def test_resilient_with_realistic_restic_topology(self) -> None:
+        restic = _module("restic", "backup-target")
+        restic["consumes"] = {
+            "a": {
+                "contract": {"kind": "backup-source"},
+                "contractRef": "duckdb.backup-source",
+            },
+            "b": {
+                "contract": {"kind": "backup-source"},
+                "contractRef": "dagster.backup-source",
+            },
+            "c": {
+                "contract": {"kind": "backup-source"},
+                "contractRef": "postgres.backup-source",
+            },
+        }
+        modules = [
+            _module("postgres", "sql-database", "backup-source"),
+            _module("duckdb", "file-database", "backup-source"),
+            _module("dagster", "backup-source"),
+            _module("keydb", "cache-service"),
+            _module("keycloak", "oidc-provider"),
+            _module("traefik", "reverse-proxy"),
+            restic,
+            _module("loki", "log-sink"),
+            _module("certs", "tls-cert"),
+        ]
+        report = build_maturity_report(
+            {"metadata": {"name": "realistic"}, "modules": modules}
+        )
+
+        self.assertEqual(report["highestTier"], "Resilient")
+
+        restic["consumes"].pop("a")
+        report = build_maturity_report(
+            {"metadata": {"name": "realistic"}, "modules": modules}
+        )
+        self.assertEqual(report["highestTier"], "Secured")
+
     def test_resilient_requires_backup_for_each_stateful_instance(self) -> None:
         modules = _automated_modules() + [
             _module("loki", "log-sink"),

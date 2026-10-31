@@ -77,9 +77,19 @@ def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
         and bound_by_id["backup"]
     )
     observed_achieved = automated_achieved and observability_achieved
-    secured_achieved = observed_achieved and any(
-        providers_by_kind.get(contract_kind)
-        for contract_kind in ("tls-cert", "service-mesh", "identity-broker")
+    # An identity broker also satisfies the identity capability, so it only
+    # counts as an extra security control when a different module provides
+    # the OIDC identity it fronts.
+    broker_is_security_control = bool(
+        providers_by_kind.get("identity-broker")
+    ) and bool(
+        providers_by_kind.get("oidc-provider", set())
+        - providers_by_kind["identity-broker"]
+    )
+    secured_achieved = observed_achieved and (
+        bool(providers_by_kind.get("tls-cert"))
+        or bool(providers_by_kind.get("service-mesh"))
+        or broker_is_security_control
     )
     backed_up_instances = _backed_up_stateful_instances(
         modules, stateful_instances
@@ -237,7 +247,8 @@ def format_maturity_report(report: dict[str, Any]) -> str:
         {
             "observability": "at least one of logging, metrics, or tracing",
             "security-control": (
-                "at least one of TLS certificate, service mesh, or identity broker"
+                "a TLS certificate, service mesh, or identity broker fronting a "
+                "separate OIDC provider"
             ),
             "stateful-backups": "a backup target for every stateful module",
         }
