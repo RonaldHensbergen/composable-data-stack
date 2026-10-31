@@ -11,6 +11,42 @@
   "customManagers": [
     {
       "customType": "regex",
+      "description": "Track the gosu source tag compiled in images/postgres/Dockerfile to replace the postgres base image's prebuilt gosu binary (upstream publishes unprefixed tags like 1.20, hence the loose versioning); when the tag changes, bump GOSU_TARBALL_SHA256 in the same file — no datasource covers codeload tarball hashes, so the sha256 is manual",
+      "matchStrings": [
+        "ARG GOSU_VERSION=(?<currentValue>\\S+)"
+      ],
+      "depNameTemplate": "tianon/gosu",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "loose",
+      "managerFilePatterns": [
+        "/^images/postgres/Dockerfile$/"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Track the restic source tag compiled in images/restic/Dockerfile (restic is built from source with patched Go modules; the upstream restic/restic image is no longer used as a base); when the tag changes, bump RESTIC_TARBALL_SHA256 in the same file — no datasource covers codeload tarball hashes, so the sha256 is manual",
+      "matchStrings": [
+        "ARG RESTIC_VERSION=(?<currentValue>\\S+)"
+      ],
+      "depNameTemplate": "restic/restic",
+      "datasourceTemplate": "docker",
+      "managerFilePatterns": [
+        "/^images/restic/Dockerfile$/"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Track the Go module versions pinned in the `go get` line of images/restic/Dockerfile (the fixed versions from the Trivy advisories against the restic 0.19.1 binary)",
+      "matchStrings": [
+        "(?<depName>[\\w./-]+)@(?<currentValue>v[\\w.-]+)"
+      ],
+      "datasourceTemplate": "golang",
+      "managerFilePatterns": [
+        "/^images/restic/Dockerfile$/"
+      ]
+    },
+    {
+      "customType": "regex",
       "description": "Track pip pins in Dagster entrypoint script",
       "matchStrings": [
         "(?<depName>dagster-postgres)==(?<currentValue>\\S+)",

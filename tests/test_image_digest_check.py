@@ -42,13 +42,13 @@ class _FakeHeadResponse:
 class ParsePinnedReferenceTest(unittest.TestCase):
     def test_parses_tag_and_digest(self):
         parsed = parse_pinned_reference(
-            "postgres:18@sha256:32ca0af8e77bfb8c6610c488e4691f83f972a3e9e64d3b02facf3ab111ad5500"
+            "postgres:18@sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4"
         )
         self.assertEqual(
             parsed,
             (
                 "postgres:18",
-                "sha256:32ca0af8e77bfb8c6610c488e4691f83f972a3e9e64d3b02facf3ab111ad5500",
+                "sha256:979bccfde35445db618c65107d27d08c6c21339d8dc3ad4c830c6633947be0e4",
             ),
         )
 
