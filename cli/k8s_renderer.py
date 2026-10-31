@@ -1912,7 +1912,8 @@ def _check_provided_contract_services(
         fix_hint=(
             "Render the serving workload with a service block (or as a "
             "StatefulSet), advertise the serving workload via a serviceName "
-            "field, or build the endpoint from ${service.dns}."
+            "field, or build the endpoint from ${service.dns} or "
+            "${service.services.<name>}."
         ),
         resolve_service_name=lambda _module_id, host: service_names.get(host, host),
     )
