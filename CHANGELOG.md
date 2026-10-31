@@ -91,6 +91,7 @@ The format is based on Keep a Changelog.
   both render targets, so this mismatch class fails loudly at render
   time instead of silently shipping a broken endpoint; the `serviceName`
   field is now declared on both sink contracts.
+
 - Cleared the 34 `.trivyignore` exceptions listed by the trivyignore audit
   (#1001) by fixing the findings at the source in the rebuilt images instead
   of ignoring them: the `postgres` image now pins the current `postgres:18`
@@ -106,6 +107,7 @@ The format is based on Keep a Changelog.
   source tarballs are verified against pinned sha256 hashes in the builder
   stages. Both rebuilt images scan clean of HIGH/CRITICAL findings with
   Trivy v0.75.0.
+
 - Fixed `cds security` false positives on the reference production profile
   (#979): the secret-value rules CDS-SEC-001/003/033 no longer flag values
   that are entirely a renderer reference (`config.passwordFrom`,
