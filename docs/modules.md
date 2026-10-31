@@ -249,7 +249,12 @@ mapped through the renderer's service-naming rule first. Mismatches
 fail with `E150` instead of shipping a contract endpoint nothing
 answers. `${service.dns}` resolves through the same naming rule during
 planning, so modules with a single or namesake compose service
-advertise a resolvable host for any instance id.
+advertise a resolvable host for any instance id. On the `helm` target
+the same cross-check runs against the Kubernetes Services the render
+produces for the module (workloads with a `service` block, plus the
+governing Service of every StatefulSet), so a provided contract whose
+host matches no rendered Service also fails with `E150` there
+(issue #1035).
 
 A route's optional `certificate` names a profile certificate alias
 (`spec.certificates.values`, issue #578). The alias is only a name: CDS
