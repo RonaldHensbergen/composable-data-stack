@@ -1,0 +1,201 @@
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: otel-collector
+  category: observability
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: OpenTelemetry Collector (experimental)
+  description: >
+    Reference OpenTelemetry Collector (OTLP receiver) providing the shared
+    `log-sink`, `metrics-sink`, and `trace-sink` contracts, so instrumented
+    services can emit OTLP telemetry (logs/metrics/traces) without the
+    profile hardcoding a backend (issue #777). Each signal can optionally be
+    forwarded to a bound backend module (e.g. the `loki`/`grafana` modules
+    recommended by #662/#369) through the `backends.*` consumes entries. See
+    docs/observability.md#opentelemetry-otlp-ingestion for how module authors
+    instrument a service and bind it. Experimental: single-node,
+    unauthenticated OTLP endpoints and no persistent storage of its own —
+    retention lives in the bound backend.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: otel-collector
+      ports:
+        - name: otlp-grpc
+          containerPort: 4317
+          protocol: TCP
+        - name: otlp-http
+          containerPort: 4318
+          protocol: TCP
+        - name: health
+          containerPort: 13133
+          protocol: TCP
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    $defs:
+      contractBinding:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+    properties:
+      otlpGrpcPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 4317
+        description: Container port of the OTLP/gRPC receiver (the OTel SDK default transport).
+
+      otlpHttpPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 4318
+        description: Container port of the OTLP/HTTP receiver (per-signal paths /v1/logs, /v1/metrics, /v1/traces).
+
+      healthPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 13133
+        description: Container port of the collector's health_check extension.
+
+      backends:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Optional per-signal forwarding target. Each entry binds a backend
+          module instance that provides the matching sink contract
+          (`<module-id>.<provide-name>`); the collector forwards the signal
+          to the backend's OTLP/HTTP endpoint. Leave a signal unset to keep
+          it collector-local (exported to the collector's own log only).
+        properties:
+          logs:
+            $ref: "#/$defs/contractBinding"
+          metrics:
+            $ref: "#/$defs/contractBinding"
+          traces:
+            $ref: "#/$defs/contractBinding"
+
+      healthcheck:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+  consumes:
+    - name: log-backend
+      contract:
+        kind: log-sink
+      required: false
+      mappedFrom: spec.config.backends.logs
+
+    - name: metrics-backend
+      contract:
+        kind: metrics-sink
+      required: false
+      mappedFrom: spec.config.backends.metrics
+
+    - name: trace-backend
+      contract:
+        kind: trace-sink
+      required: false
+      mappedFrom: spec.config.backends.traces
+
+  provides:
+    - name: log-sink
+      contract:
+        kind: log-sink
+        spec:
+          host: ${service.dns}
+          port: ${config.otlpHttpPort}
+          protocol: otlp-http
+          ingestPath: /v1/logs
+          connectionUri: http://${service.dns}:${config.otlpHttpPort}
+
+    - name: metrics-sink
+      contract:
+        kind: metrics-sink
+        spec:
+          host: ${service.dns}
+          port: ${config.otlpHttpPort}
+          protocol: otlp-http
+          ingestPath: /v1/metrics
+          connectionUri: http://${service.dns}:${config.otlpHttpPort}
+
+    - name: trace-sink
+      contract:
+        kind: trace-sink
+        spec:
+          host: ${service.dns}
+          port: ${config.otlpHttpPort}
+          protocol: otlp-http
+          ingestPath: /v1/traces
+          connectionUri: http://${service.dns}:${config.otlpHttpPort}
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        otel-collector:
+          image: otel/opentelemetry-collector-contrib:0.164.0@sha256:ac0bb9cdc844b55d2fd2655d03e596243787d6a8c52dd408b1dc96dd1bd372ee
+          command:
+            - --config
+            - /etc/otelcol/collector.yaml
+          restart: unless-stopped
+          # The contrib image's default non-root user.
+          user: "10001:10001"
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 256
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,mode=1777
+          ports:
+            - "127.0.0.1:${config.otlpGrpcPort}:4317"
+            - "127.0.0.1:${config.otlpHttpPort}:4318"
+            - "127.0.0.1:${config.healthPort}:13133"
+          volumes:
+            - type: bind
+              source: collector.yaml
+              target: /etc/otelcol/collector.yaml
+              read_only: true
+          environment:
+            OTLP_GRPC_PORT: "4317"
+            OTLP_HTTP_PORT: "4318"
+            HEALTH_PORT: "13133"
+            # Forwarding targets, resolved from the optional backend bindings'
+            # connectionUri. Unbound signals render empty, in which case the
+            # collector config falls back to a static discard endpoint (the
+            # per-signal *_endpoint keys override `endpoint` only when set).
+            BACKEND_LOGS_ENDPOINT: "${ifNonempty:bindings.log-backend.connectionUri,,}"
+            BACKEND_METRICS_ENDPOINT: "${ifNonempty:bindings.metrics-backend.connectionUri,,}"
+            BACKEND_TRACES_ENDPOINT: "${ifNonempty:bindings.trace-backend.connectionUri,,}"
+          healthcheck:
+            conditionallyEnabledFrom: config.healthcheck.enabled
+            test:
+              - CMD-SHELL
+              - wget --spider -q "http://127.0.0.1:13133/" || exit 1
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 15s

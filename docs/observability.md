@@ -273,3 +273,85 @@ documents how to verify ingestion end-to-end by posting sample OpenLineage
 events directly to Marquez's API (bypassing the broken
 `openlineage-dagster` package), since Dagster's OpenLineage producer
 integration isn't functional upstream today.
+
+## 12. OpenTelemetry (OTLP) ingestion
+
+Workstream 3.3 of [docs/haven-parity-plan.md](haven-parity-plan.md) adds
+`metrics-sink` and `trace-sink` contracts alongside the shipped `log-sink`
+contract (issue #777, coordinated with the Grafana module scope of #369):
+
+- [`shared/contracts/trace-sink.yaml`](../shared/contracts/trace-sink.yaml)
+  (`kind: trace-sink`): `host`/`port`/`protocol` (required) plus optional
+  `ingestPath`, `connectionUri`, `serviceName` — shaped so an OpenTelemetry
+  Collector OTLP receiver conforms (`protocol: otlp-grpc` on 4317 or
+  `otlp-http` on 4318 with `ingestPath: /v1/traces`).
+- [`shared/contracts/metrics-sink.yaml`](../shared/contracts/metrics-sink.yaml)
+  (`kind: metrics-sink`): same shape, plus an optional `scrapePath` so a
+  Prometheus-style scrape endpoint (`protocol: prometheus`) also conforms.
+
+Both stay vendor-neutral: nothing in the CLI hardcodes OTel — the contracts
+only commit to the wire-level fields needed to reach a collector.
+
+### Reference provider: the `otel-collector` experimental module
+
+[`modules-experimental/observability/otel-collector`](../modules-experimental/observability/otel-collector/module.yaml)
+runs an OpenTelemetry Collector Contrib instance that **provides**
+`log-sink`, `metrics-sink`, and `trace-sink` over OTLP/HTTP (port 4318,
+per-signal paths `/v1/logs`, `/v1/metrics`, `/v1/traces`; OTLP/gRPC on 4317
+is also open for SDKs that prefer it). Each signal can optionally be
+forwarded to a bound backend module (e.g. the `loki`/`grafana` modules
+recommended by #662/#369) via `spec.config.backends.<signal>.contractRef`;
+forwarding uses the backend's advertised `connectionUri` over OTLP/HTTP, and
+unbound signals stay collector-local. The module is experimental
+(`productionSuitable: false`): single-node, unauthenticated OTLP endpoints,
+no storage of its own.
+
+### How a module author emits OTLP and binds to the collector
+
+Instrument the service with any OTel SDK/exporter pointed at the bound
+contract — no CDS-specific code path is needed:
+
+```yaml
+# module.yaml (consumer side)
+spec:
+  configSchema:
+    properties:
+      telemetry:
+        $ref: "#/$defs/contractBinding"   # { contractRef: "<module-id>.trace-sink" }
+  consumes:
+    - name: trace-sink
+      contract:
+        kind: trace-sink
+      required: false
+      mappedFrom: spec.config.telemetry
+  # ...
+  implementation:
+    compose:
+      services:
+        my-service:
+          environment:
+            # empty when unbound — wrap in ifNonempty like lineage-sink above
+            OTEL_EXPORTER_OTLP_ENDPOINT: "${ifNonempty:bindings.trace-sink.connectionUri,,}"
+            OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+```
+
+```yaml
+# profile.yaml
+spec:
+  modules:
+    - id: otel
+      source: modules-experimental/observability/otel-collector
+      config: {}
+    - id: my-module
+      source: modules/...
+      config:
+        telemetry:
+          contractRef: otel.trace-sink   # or otel.log-sink / otel.metrics-sink
+```
+
+The same `consumes`/`mappedFrom` + `contractRef` pattern as `sql-database`
+or `lineage-sink` applies; `${ifNonempty:bindings.<name>.connectionUri,,}`
+renders empty when the binding is absent, so optional telemetry is purely
+additive. The provided-contract host check (E150) now also covers
+`metrics-sink` and `trace-sink` providers, so a mis-advertised collector
+endpoint fails closed at render time.

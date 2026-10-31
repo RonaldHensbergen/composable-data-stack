@@ -1,0 +1,69 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: trace-sink
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared, vendor-neutral contract describing the values a centralized trace
+    collector exposes so any module can ship distributed traces to it without
+    the profile hardcoding a specific tracing backend. Shaped so an
+    OpenTelemetry Collector OTLP receiver can be a conforming provider
+    (protocol "otlp-grpc" on port 4317 or "otlp-http" on port 4318), without
+    hardcoding OTel as the only possible implementation — consistent with the
+    vendor-neutral pattern of `log-sink` (see docs/observability.md, issue
+    #777). Companion contract to `metrics-sink` (coordinated with #369).
+
+spec:
+  fields:
+    host:
+      type: string
+      required: true
+      description: Hostname or service name clients use to reach the trace collector.
+    port:
+      type: integer
+      required: true
+      description: >-
+        TCP port the collector listens on (OTLP/gRPC default 4317, OTLP/HTTP
+        default 4318).
+    protocol:
+      type: string
+      required: true
+      description: >-
+        Wire protocol expected by the collector, e.g. "otlp-grpc", "otlp-http",
+        "grpc", "http", or "jaeger".
+    ingestPath:
+      type: string
+      required: false
+      description: >-
+        Optional path/endpoint suffix for HTTP-based protocols (e.g.
+        "/v1/traces" for OTLP/HTTP).
+    connectionUri:
+      type: string
+      required: false
+      description: >-
+        Fully composed base endpoint ("<scheme>://<host>:<port>") a client
+        dials directly, mirroring the `connectionUri` field on
+        `sql-database`/`lineage-sink`.
+    serviceName:
+      type: string
+      required: false
+      description: >-
+        Compose service name (as written in the provider module's compose
+        fragment) that serves the collector endpoint. Multi-service
+        providers whose instance id does not resolve on the Compose network
+        set this so the provided-contract host check (E150) can map it
+        through the renderer's service-naming rule; `host` should then be
+        built from `${service.services.<name>}` for the same service
+        (issue #1029).
+  examples:
+    - host: otel-collector
+      port: 4317
+      protocol: otlp-grpc
+    - host: otel-collector
+      port: 4318
+      protocol: otlp-http
+      ingestPath: /v1/traces
+      connectionUri: http://otel-collector:4318

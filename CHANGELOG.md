@@ -24,6 +24,7 @@ The format is based on Keep a Changelog.
   not run the controllers) is documented in `docs/kubernetes.md` and the
   module README.
 - Added `cds maturity` to report Basic/Automated tiers and recognized platform contract providers in text or JSON without requiring runtime secret values (#769).
+- Added the `trace-sink` and `metrics-sink` shared contracts (`shared/contracts/trace-sink.yaml`, `shared/contracts/metrics-sink.yaml`) shaped so an OpenTelemetry Collector OTLP receiver conforms without hardcoding OTel, plus an experimental `otel-collector` reference module (`modules-experimental/observability/otel-collector/`) that provides `log-sink`/`metrics-sink`/`trace-sink` over OTLP/HTTP (gRPC 4317 also open) and can forward each signal to a bound backend via `spec.config.backends.<signal>.contractRef`; the E150 provided-contract host check now also covers `metrics-sink`/`trace-sink` providers, and `docs/observability.md` documents OTLP instrumentation and binding (#777).
 - Published the Kubernetes target docs and example profiles (issue #77):
   `docs/kubernetes.md` gains a "Migrating from Docker Compose" guide (same
   profile, `--target helm` render flag, what translates and what does not),
