@@ -269,7 +269,7 @@ spec:
     compose:
       services:
         superset-init:
-          image: apache/superset:6.1.0-py311@sha256:95b060f3450f3314019700642c20d2149dc0e0b41d65c0ef8a1bd8018fbf385c
+          image: apache/superset:6.1.0-dev@sha256:be6a6d4938aeb7888bd29cd4b84fa37c6d071c36ae19fef8b929024bf6d5ab8f
           read_only: true
           cap_drop:
             - ALL
@@ -331,7 +331,7 @@ spec:
               - /app/docker/init.sh
             command: []
         superset:
-          image: apache/superset:6.1.0-py311@sha256:95b060f3450f3314019700642c20d2149dc0e0b41d65c0ef8a1bd8018fbf385c
+          image: apache/superset:6.1.0-dev@sha256:be6a6d4938aeb7888bd29cd4b84fa37c6d071c36ae19fef8b929024bf6d5ab8f
           read_only: true
           cap_drop:
             - ALL

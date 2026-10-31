@@ -22,9 +22,11 @@ The module applies the `production` tag convention (see
 [`docs/modules.md`](../../../docs/modules.md)):
 
 - Learning/development profiles use the pinned upstream
-  `apache/superset:6.1.0-py311` image for both services and do not build
-  locally. The init service runs the database migration, admin bootstrap,
-  and role synchronization commands directly in that image.
+  `apache/superset:6.1.0-dev` image for both services and do not build
+  locally. This upstream variant includes the PostgreSQL and Redis drivers
+  required by the module's bindings; the lean image omits them. The init
+  service runs the database migration, admin bootstrap, and role
+  synchronization commands directly in that image.
 - Production profiles replace both services' image with the hardened local
   build from `images/superset/base/Dockerfile`. The init service uses the
   image's bundled `/app/docker/init.sh`.

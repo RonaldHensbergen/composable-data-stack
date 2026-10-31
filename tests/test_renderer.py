@@ -1609,8 +1609,8 @@ class ProductionGateTest(unittest.TestCase):
         learning = renderer.apply_production_gates(services, is_production=False)
         self.assertEqual(
             learning["superset"]["image"],
-            "apache/superset:6.1.0-py311@sha256:"
-            "95b060f3450f3314019700642c20d2149dc0e0b41d65c0ef8a1bd8018fbf385c",
+            "apache/superset:6.1.0-dev@sha256:"
+            "be6a6d4938aeb7888bd29cd4b84fa37c6d071c36ae19fef8b929024bf6d5ab8f",
         )
         self.assertNotIn("build", learning["superset"])
         self.assertEqual(learning["superset-init"]["image"], learning["superset"]["image"])
