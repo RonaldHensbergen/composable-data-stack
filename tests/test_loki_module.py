@@ -38,13 +38,13 @@ class LokiModuleTest(unittest.TestCase):
             r"^grafana/loki:3\.6\.1@sha256:[0-9a-f]{64}$",
         )
 
-    def test_log_sink_contract_exposes_configured_ingest_and_retention(self) -> None:
+    def test_log_sink_contract_exposes_internal_ingest_and_retention(self) -> None:
         provided = self.module["spec"]["provides"][0]
         self.assertEqual(provided["name"], "log-sink")
         self.assertEqual(provided["contract"]["kind"], "log-sink")
         contract = provided["contract"]["spec"]
         self.assertEqual(contract["host"], "${service.dns}")
-        self.assertEqual(contract["port"], "${config.ingestPort}")
+        self.assertEqual(contract["port"], 8686)
         self.assertEqual(contract["protocol"], "http")
         self.assertEqual(contract["ingestPath"], "/logs")
         self.assertEqual(contract["rawRetentionDays"], "${config.rawRetentionDays}")
@@ -67,7 +67,7 @@ class LokiModuleTest(unittest.TestCase):
                         "source": "observability/loki",
                         "version": "0.1.0",
                         "enabled": True,
-                        "config": {},
+                        "config": {"ingestPort": 18686},
                     }
                 ],
                 "observability": {
@@ -118,7 +118,7 @@ class LokiModuleTest(unittest.TestCase):
         self.assertIn("logs-loki-storage", compose["services"])
         self.assertEqual(
             compose["services"]["logs-loki"]["ports"],
-            ["127.0.0.1:8686:8686"],
+            ["127.0.0.1:18686:8686"],
         )
         self.assertEqual(
             compose["services"]["logs-loki-storage"]["environment"],

@@ -63,7 +63,8 @@ spec:
           # advertises the same serving service explicitly for the E150
           # host cross-check (issue #1029), matching the marquez module.
           host: ${service.dns}
-          port: ${config.ingestPort}
+          # Consumers use the in-network listener, not the host-published port.
+          port: 8686
           protocol: http
           ingestPath: /logs
           rawRetentionDays: ${config.rawRetentionDays}

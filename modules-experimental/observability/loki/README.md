@@ -40,4 +40,6 @@ the configured retention period to each tier.
 `rawRetentionDays` defaults to 7 and `structuredRetentionDays` defaults to
 90. Loki enforces the raw period by default and overrides it for the
 `tier="structured"` stream. Logs are persisted in the `loki-data` named
-volume; back it up and test restores independently.
+volume; back it up and test restores independently. `ingestPort` changes only
+the host loopback publish port; the `log-sink` contract always advertises the
+Vector listener's in-network port, `8686`.
