@@ -8,6 +8,21 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added GitOps rendering support (issue #767): a new vendor-neutral
+  `gitops-target` contract (`shared/contracts/gitops-target.yaml`: repository
+  URL, branch, path, sync interval, target namespace), validated by
+  `cli/validator.py` like the other shared contracts, and an experimental
+  FluxCD reference module (`modules-experimental/gitops/fluxcd/`) that
+  provides the contract and renders a Flux `GitRepository` +
+  `Kustomization`/`HelmRelease` bootstrap manifest set over the
+  `--target helm` chart output. To support it, the module schema gains an
+  `implementation.kubernetes.manifests` block whose raw manifests the Helm
+  renderer emits as extra chart templates (release-scoped names, standard
+  module labels, `enabledFrom` gating, shape-checked with the new E151
+  diagnostic); manifest-only modules get no ServiceAccount/NetworkPolicy, and
+  the GitOps handoff (rendered-chart-as-artifact vs. chart-as-source, CDS does
+  not run the controllers) is documented in `docs/kubernetes.md` and the
+  module README.
 - Published the Kubernetes target docs and example profiles (issue #77):
   `docs/kubernetes.md` gains a "Migrating from Docker Compose" guide (same
   profile, `--target helm` render flag, what translates and what does not),

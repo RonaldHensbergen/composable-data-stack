@@ -267,10 +267,19 @@
     "kubernetesImplementation": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "workloads"
+      "anyOf": [
+        {
+          "required": [
+            "workloads"
+          ]
+        },
+        {
+          "required": [
+            "manifests"
+          ]
+        }
       ],
-      "description": "Kubernetes orchestration shape. Container-level detail (image, command, env, healthcheck, tmpfs, hardening flags) is translated from the compose fragment; this block declares only what compose cannot express.",
+      "description": "Kubernetes orchestration shape. Container-level detail (image, command, env, healthcheck, tmpfs, hardening flags) is translated from the compose fragment; this block declares only what compose cannot express. At least one of workloads or manifests must be present: a manifests-only module is render-only (no pods of its own), e.g. a GitOps bootstrap module.",
       "properties": {
         "workloads": {
           "type": "object",
@@ -279,6 +288,13 @@
             "$ref": "#/$defs/kubernetesWorkload"
           },
           "description": "Workload name -> spec. Each groups one or more compose services into a single Pod."
+        },
+        "manifests": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/kubernetesManifest"
+          },
+          "description": "Manifest name -> raw Kubernetes manifest. Emitted verbatim (after ${...} substitution) as an extra chart template, for CRDs the workload model cannot express (e.g. FluxCD GitRepository/Kustomization/HelmRelease in a GitOps module). metadata.name is prefixed with the Helm release name unless it already contains a {{ .Release.Name }} template."
         },
         "volumes": {
           "type": "object",
@@ -301,6 +317,43 @@
           "$ref": "#/$defs/kubernetesNetworkPolicy"
         }
       }
+    },
+    "kubernetesManifest": {
+      "type": "object",
+      "required": [
+        "apiVersion",
+        "kind",
+        "metadata"
+      ],
+      "properties": {
+        "apiVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metadata": {
+          "type": "object",
+          "required": [
+            "name"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Object name. The helm renderer prefixes it with \"{{ .Release.Name }}-\" unless the name already contains a {{ .Release.Name }} template. May reference ${service.host} for the module instance id."
+            }
+          }
+        },
+        "enabledFrom": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional config path expression gating the manifest (e.g. \"config.mode==chart\"); the manifest is skipped when the expression resolves to False. Stripped from the rendered output."
+        }
+      },
+      "description": "A raw Kubernetes manifest (any CRD) emitted as an extra chart template. Values support the same ${config.*}/${bindings.*}/${service.*}/${k8s.service.*} substitution as workloads; ${secrets.*} references are rejected by the renderer (E078) because chart files must never carry secret material."
     },
     "kubernetesNetworkPolicy": {
       "type": "object",

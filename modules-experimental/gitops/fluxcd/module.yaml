@@ -1,0 +1,165 @@
+# yaml-language-server: $schema=../../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: fluxcd
+  category: gitops
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: FluxCD GitOps bootstrap (experimental)
+  description: >
+    Reference provider of the shared gitops-target contract. Renders a
+    FluxCD GitRepository plus either a Kustomization (rendered-manifests
+    mode) or a HelmRelease (chart-as-source mode) that bootstraps the CDS
+    Helm chart committed to a Git repository. Kubernetes render target only:
+    CDS renders the bootstrap manifests but does not run the FluxCD
+    controllers themselves. See README.md in this directory and the
+    "GitOps handoff" section of docs/kubernetes.md (issue #767).
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: fluxcd
+      ports: []
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - repositoryUrl
+      - path
+    properties:
+      repositoryUrl:
+        type: string
+        pattern: "^(https?://|ssh://|git@)[^\\s]+$"
+        description: >-
+          Git URL of the GitOps source-of-truth repository the controller
+          syncs from, e.g. "https://github.com/org/cds-gitops.git".
+      branch:
+        type: string
+        minLength: 1
+        default: main
+        description: Branch (or other ref) the controller tracks.
+      path:
+        type: string
+        pattern: "^(\\./)?[A-Za-z0-9._/-]+$"
+        description: >-
+          Path within the repository holding what the controller applies:
+          in "rendered" mode the directory of committed `cds render --target
+          helm` output, in "chart" mode the chart directory.
+      mode:
+        type: string
+        enum:
+          - rendered
+          - chart
+        default: rendered
+        description: >-
+          rendered: commit the `cds render --target helm` output and let a
+          Flux Kustomization apply the manifests at `path`
+          (rendered-chart-as-artifact). chart: commit the chart directory
+          and let a Flux HelmRelease install the chart at `chartPath`
+          (chart-as-source).
+      syncInterval:
+        type: string
+        pattern: "^[0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h)([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))*$"
+        default: 1m0s
+        description: Reconciliation interval of the rendered Flux resources, in Go duration format (e.g. "1m0s", "5m").
+      prune:
+        type: boolean
+        default: true
+        description: Whether the Kustomization deletes resources that disappeared from the repository (rendered mode only).
+      targetNamespace:
+        type: string
+        pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        default: cds-local
+        description: Namespace the controller deploys the stack into.
+      releaseName:
+        type: string
+        pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        default: cds
+        description: Helm release name the HelmRelease installs (chart mode only).
+      chartPath:
+        type: string
+        pattern: "^(\\./)?[A-Za-z0-9._/-]+$"
+        default: ./chart
+        description: Chart location within the Git source, e.g. "./chart" (chart mode only).
+      fluxNamespace:
+        type: string
+        pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+        default: flux-system
+        description: >-
+          Namespace the rendered Flux CRs (GitRepository/Kustomization/
+          HelmRelease) live in; this is the namespace the Flux controllers
+          watch by default.
+
+  provides:
+    - name: gitops-target
+      contract:
+        kind: gitops-target
+        spec:
+          repositoryUrl: ${config.repositoryUrl}
+          branch: ${config.branch}
+          path: ${config.path}
+          syncInterval: ${config.syncInterval}
+          targetNamespace: ${config.targetNamespace}
+
+  implementation:
+    kind: kubernetes
+    targets:
+      - kubernetes
+    kubernetes:
+      manifests:
+        # Source of truth the controllers sync from. Always rendered.
+        git-repository:
+          apiVersion: source.toolkit.fluxcd.io/v1
+          kind: GitRepository
+          metadata:
+            name: "{{ .Release.Name }}-${service.host}-source"
+            namespace: ${config.fluxNamespace}
+          spec:
+            interval: ${config.syncInterval}
+            url: ${config.repositoryUrl}
+            ref:
+              branch: ${config.branch}
+
+        # rendered-chart-as-artifact: apply the committed `cds render
+        # --target helm` output at `path`.
+        kustomization:
+          enabledFrom: "config.mode==rendered"
+          apiVersion: kustomize.toolkit.fluxcd.io/v1
+          kind: Kustomization
+          metadata:
+            name: "{{ .Release.Name }}-${service.host}"
+            namespace: ${config.fluxNamespace}
+          spec:
+            interval: ${config.syncInterval}
+            prune: ${config.prune}
+            path: ${config.path}
+            sourceRef:
+              kind: GitRepository
+              name: "{{ .Release.Name }}-${service.host}-source"
+            targetNamespace: ${config.targetNamespace}
+
+        # chart-as-source: install the chart committed at `chartPath`.
+        helm-release:
+          enabledFrom: "config.mode==chart"
+          apiVersion: helm.toolkit.fluxcd.io/v2
+          kind: HelmRelease
+          metadata:
+            name: "{{ .Release.Name }}-${service.host}"
+            namespace: ${config.fluxNamespace}
+          spec:
+            interval: ${config.syncInterval}
+            releaseName: ${config.releaseName}
+            targetNamespace: ${config.targetNamespace}
+            chart:
+              spec:
+                chart: ${config.chartPath}
+                sourceRef:
+                  kind: GitRepository
+                  name: "{{ .Release.Name }}-${service.host}-source"
+                interval: ${config.syncInterval}
