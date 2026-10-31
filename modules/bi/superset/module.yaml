@@ -281,34 +281,35 @@ spec:
           entrypoint:
             - /bin/bash
             - -c
-          command: |
-            set -e
+          command:
+            - |
+              set -e
 
-            retry() {
-              local attempts=5 delay=5 n=1
-              until "$@"; do
-                if (( n >= attempts )); then
-                  echo "Command failed after $attempts attempts: $*" >&2
-                  return 1
+              retry() {
+                local attempts=5 delay=5 n=1
+                until "$$@"; do
+                  if (( n >= attempts )); then
+                    echo "Command failed after $$attempts attempts: $$*" >&2
+                    return 1
+                  fi
+                  echo "Attempt $$n/$$attempts failed; retrying in $$delay seconds: $$*" >&2
+                  n=$$((n + 1))
+                  sleep "$$delay"
+                done
+              }
+
+              if [[ -n "$$SUPERSET__SQLALCHEMY_DATABASE_URI" ]]; then
+                retry superset db upgrade
+                if [[ -n "$$SUPERSET_ADMIN_USERNAME" && -n "$$SUPERSET_ADMIN_PASSWORD" && -n "$$SUPERSET_ADMIN_EMAIL" ]]; then
+                  superset fab create-admin \
+                    --username "$$SUPERSET_ADMIN_USERNAME" \
+                    --password "$$SUPERSET_ADMIN_PASSWORD" \
+                    --email "$$SUPERSET_ADMIN_EMAIL" \
+                    --firstname "Admin" \
+                    --lastname "User" || echo "Admin user already exists or creation failed"
                 fi
-                echo "Attempt $n/$attempts failed; retrying in $delay seconds: $*" >&2
-                n=$((n + 1))
-                sleep "$delay"
-              done
-            }
-
-            if [[ -n "$SUPERSET__SQLALCHEMY_DATABASE_URI" ]]; then
-              retry superset db upgrade
-              if [[ -n "$SUPERSET_ADMIN_USERNAME" && -n "$SUPERSET_ADMIN_PASSWORD" && -n "$SUPERSET_ADMIN_EMAIL" ]]; then
-                superset fab create-admin \
-                  --username "$SUPERSET_ADMIN_USERNAME" \
-                  --password "$SUPERSET_ADMIN_PASSWORD" \
-                  --email "$SUPERSET_ADMIN_EMAIL" \
-                  --firstname "Admin" \
-                  --lastname "User" || echo "Admin user already exists or creation failed"
+                retry superset init
               fi
-              retry superset init
-            fi
           environment:
             SUPERSET_SECRET_KEY: "${config.secretKeyFrom}"
             SUPERSET_ADMIN_USERNAME: "${config.adminUser.username}"

@@ -1615,9 +1615,34 @@ class ProductionGateTest(unittest.TestCase):
         self.assertNotIn("build", learning["superset"])
         self.assertEqual(learning["superset-init"]["image"], learning["superset"]["image"])
         self.assertNotIn("build", learning["superset-init"])
-        self.assertIn("superset db upgrade", learning["superset-init"]["command"])
-        self.assertIn("superset fab create-admin", learning["superset-init"]["command"])
-        self.assertIn("superset init", learning["superset-init"]["command"])
+        command = learning["superset-init"]["command"]
+        self.assertIsInstance(command, list)
+        self.assertEqual(len(command), 1)
+        self.assertIn("superset db upgrade", command[0])
+        self.assertIn("superset fab create-admin", command[0])
+        self.assertIn("superset init", command[0])
+        self.assertNotRegex(command[0], r"(?<!\$)\$(?!\$)")
+        output, diagnostics = render_compose({
+            "metadata": {"name": "superset-test", "environment": "local"},
+            "modules": [{
+                "id": "superset",
+                "config": {},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {"services": {
+                        "superset-init": {
+                            "image": learning["superset-init"]["image"],
+                            "entrypoint": learning["superset-init"]["entrypoint"],
+                            "command": command,
+                        },
+                    }},
+                },
+            }],
+        })
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        rendered_init = yaml.safe_load(output)["services"]["superset-init"]
+        self.assertEqual(rendered_init["command"], command)
+        self.assertEqual(rendered_init["entrypoint"], ["/bin/bash", "-c"])
 
         production = renderer.apply_production_gates(services, is_production=True)
         for service_name in ("superset", "superset-init"):

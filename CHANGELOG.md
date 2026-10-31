@@ -257,6 +257,9 @@ The format is based on Keep a Changelog.
 
 - Fixed the experimental Loki `log-sink` contract to advertise its in-network
   listener port independently of the host-published port (#662).
+- Fixed Compose parsing and runtime shell-variable interpolation in the
+  learning Superset initialization command (#959, #1071).
+
 - Fixed the Windows CI test job (`test (windows-latest, 3.14)`) failing on
   PR #1057: `tests/test_maturity.py` asserted the literal POSIX string
   `env_file="/profiles/minimal/.env"`, but `str(Path(...))` yields

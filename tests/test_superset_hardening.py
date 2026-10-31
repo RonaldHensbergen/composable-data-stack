@@ -149,8 +149,8 @@ class SupersetHardeningTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertEqual(init_service["entrypoint"], ["/bin/bash", "-c"])
-        self.assertIn("retry superset db upgrade", init_service["command"])
-        self.assertIn("retry superset init", init_service["command"])
+        self.assertIn("retry superset db upgrade", init_service["command"][0])
+        self.assertIn("retry superset init", init_service["command"][0])
         self.assertEqual(
             init_service["production"]["entrypoint"], ["/app/docker/init.sh"]
         )
