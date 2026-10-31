@@ -8,6 +8,14 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Published the Kubernetes target docs and example profiles (issue #77):
+  `docs/kubernetes.md` gains a "Migrating from Docker Compose" guide (same
+  profile, `--target helm` render flag, what translates and what does not),
+  and two ready-made example profiles that render successfully to Helm —
+  `profiles/local-kubernetes-example` (local k3d stack) and
+  `profiles/production-kubernetes-example` with a `prod` environment overlay
+  promoting it to the production security policy. README links the guide
+  and the examples.
 - **Breaking (for existing `--target helm` deployments):** Added
   NetworkPolicy and ServiceAccount generation to the `helm` render target,
   completing the Kubernetes production resources (issue #75): every
@@ -272,6 +280,14 @@ The format is based on Keep a Changelog.
   resolve back to the vulnerable 0.6.4 (CVE-2026-119194/95/96/97;
   Dependabot alerts #65-#68); the hash-locked `requirements.txt` already
   pins `pyasn1==0.6.5`.
+
+- Documented the split bot ownership of pip locks (issue #1048):
+  `.github/dependabot.yml` now states it manages only the root manifests
+  (`pyproject.toml`/`uv.lock`), while the `images/*` pip-compile locks
+  (including `images/dagster/`) are Renovate-managed — so Dependabot alerts on
+  those manifests show "cannot update to the required version" by design and
+  are remediated by Renovate PRs. `docs/image-scanning.md` carries the same
+  note next to the lock-maintenance rules.
 
 ### Added
 

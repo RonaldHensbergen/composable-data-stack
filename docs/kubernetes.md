@@ -13,6 +13,7 @@ including k3s through k3d.
 - [Stop the stack](#stop-the-stack)
 - [Use the isolated k3d harness](#use-the-isolated-k3d-harness)
 - [Access local services](#access-local-services)
+- [Migrating from Docker Compose](#migrating-from-docker-compose)
 - [Translation boundaries](#translation-boundaries)
 - [Network isolation and least privilege](#network-isolation-and-least-privilege)
 - [Troubleshooting](#troubleshooting)
@@ -174,6 +175,42 @@ Set `CDS_EXPOSE_LOCALHOST=0` when installing a second release into the same
 cluster. NodePorts are cluster-global, so only one release can own the local
 host mappings. The isolated E2E release disables them and uses bounded temporary
 forwards for its own boundary checks.
+
+## Migrating from Docker Compose
+
+You do not write a separate profile for Kubernetes: the render target is a
+CLI flag, so the same profile renders to either runtime. Pick a profile,
+validate and render it for Helm, and supply secrets at install time:
+
+```bash
+cds validate my-profile --target helm
+cds render my-profile --target helm --output chart/
+cds up my-profile --target helm        # or install chart/ with helm directly
+```
+
+Ready-made example profiles (issue #77), both render successfully with
+`--target helm`:
+
+- `profiles/local-kubernetes-example` — local development stack on the k3d
+  harness: `cds render local-kubernetes-example --target helm`.
+- `profiles/production-kubernetes-example` — production-style stack: the base
+  profile locks the cache down with a required secret, and the `prod`
+  environment overlay (`environments/prod.yaml`) promotes it to the
+  production security policy: `cds render production-kubernetes-example
+  --environment prod --target helm`.
+
+What carries over and what does not is summarized in
+[Translation boundaries](#translation-boundaries): compose services become
+workloads plus Services, healthchecks become probes, `depends_on` becomes
+bounded init-container wait gates, and named volumes become StatefulSet
+`volumeClaimTemplates`. Host port bindings do not translate — expose UIs
+through the workload's Service (e.g. the `kubernetesService` NodePort config
+used by the example profiles) or port-forward. Modules that build locally
+(`image.source: build`) must be built and imported into the cluster first
+(`make k3d-build`). One capability is compose-only for now: the Postgres
+pgBackRest backup sidecar is not rendered for Helm yet (E142), so the
+production-style example declares its backup policies without enabling the
+sidecar.
 
 ## Translation boundaries
 
