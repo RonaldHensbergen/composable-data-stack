@@ -294,6 +294,10 @@ class MaturityReportTest(unittest.TestCase):
         self.assertIn("Observed: not met", text)
         self.assertIn("Secured: not met", text)
         self.assertIn("Resilient: not met", text)
+        self.assertIn(
+            "not effective runtime enforcement or NIST SP 800-207 conformity",
+            text,
+        )
 
 
 class MaturityCommandTest(unittest.TestCase):

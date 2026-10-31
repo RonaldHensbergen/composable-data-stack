@@ -28,6 +28,9 @@ The format is based on Keep a Changelog.
 - Extended `cds maturity` with Observed, Secured, and Resilient tiers;
   observability now advances a profile from Automated to Observed, and
   Resilient requires backup coverage for every stateful module (#1059).
+- Documented how CDS security capabilities map to NIST SP 800-207, clarified
+  the contract-based meaning and limits of the Secured maturity tier, and
+  filed the separate workload-identity gap (#778, #1068).
 - Published the Kubernetes target docs and example profiles (issue #77):
   `docs/kubernetes.md` gains a "Migrating from Docker Compose" guide (same
   profile, `--target helm` render flag, what translates and what does not),

@@ -264,4 +264,8 @@ def format_maturity_report(report: dict[str, Any]) -> str:
     lines.append(
         "Note: GitOps is reported but does not affect the maturity tiers."
     )
+    lines.append(
+        "Note: Tier results reflect declared contract presence, not effective "
+        "runtime enforcement or NIST SP 800-207 conformity."
+    )
     return "\n".join(lines)
