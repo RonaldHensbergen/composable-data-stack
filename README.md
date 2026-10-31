@@ -962,7 +962,7 @@ Development helper tools are located in the gitignored `tools/` directory. See
 - [Quickstart](README.md#-quickstart) — get running in 5 minutes
 - [CLI Reference](docs/cli-reference.md) — full command/flag table and `[profile]` resolution rules
 - [How CDS Works](docs/how-it-works.md) — C4 + sequence diagrams of the validate → plan → render engine
-- [Kubernetes Target](docs/kubernetes.md): Helm rendering and isolated local k3s workflow
+- [Kubernetes Target](docs/kubernetes.md): Helm rendering, Docker Compose migration guide, and isolated local k3s workflow — with ready-made example profiles (`profiles/local-kubernetes-example`, `profiles/production-kubernetes-example` with its `prod` overlay)
 - [From Docker Compose to CDS Profile](docs/from-docker-to-cds-profile.md) — complete transformation guide
 - [Architecture](docs/architecture.md) — design and core concepts
 - [Modules](docs/modules.md) — how to structure reusable components

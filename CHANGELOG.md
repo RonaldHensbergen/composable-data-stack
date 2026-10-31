@@ -8,6 +8,14 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Published the Kubernetes target docs and example profiles (issue #77):
+  `docs/kubernetes.md` gains a "Migrating from Docker Compose" guide (same
+  profile, `--target helm` render flag, what translates and what does not),
+  and two ready-made example profiles that render successfully to Helm —
+  `profiles/local-kubernetes-example` (local k3d stack) and
+  `profiles/production-kubernetes-example` with a `prod` environment overlay
+  promoting it to the production security policy. README links the guide
+  and the examples.
 - **Breaking (for existing `--target helm` deployments):** Added
   NetworkPolicy and ServiceAccount generation to the `helm` render target,
   completing the Kubernetes production resources (issue #75): every

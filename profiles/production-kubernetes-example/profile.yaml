@@ -1,0 +1,35 @@
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: production-kubernetes-example
+  environment: local
+  displayName: Production-Style Kubernetes Example (Helm)
+  description: >
+    The local-dagster-postgres-superset stack shaped for a production-style
+    Kubernetes deployment (issue #77): the cache rejects unauthenticated
+    clients via a required secret, and the `prod` environment overlay promotes
+    the profile to the production security policy (explicit SCRAM host
+    authentication plus encrypted, restore-verified backup policies). Render
+    with `--environment prod --target helm`; see README.md in this directory.
+    Composes the base profile via extends.
+
+extends:
+  - local-dagster-postgres-superset
+
+spec:
+  modules:
+    - id: keydb
+      config:
+        # The cache is shared infrastructure, not a single-operator
+        # convenience: it must reject unauthenticated clients even in
+        # development (issue #206), and the superset binding picks the
+        # password up automatically in its connectionUri.
+        passwordFrom: secrets.cache_password
+
+  secrets:
+    values:
+      cache_password:
+        env: CDS_CACHE_PASSWORD
+        required: true
