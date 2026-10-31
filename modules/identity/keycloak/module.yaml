@@ -59,6 +59,22 @@ spec:
               front of it. Production profiles reject the development mode
               (E140) and this module altogether (CDS-SEC-073) until it is
               production-suitable.
+      realm:
+        type: string
+        pattern: "^[A-Za-z0-9._-]+$"
+        default: master
+        description: >-
+          Realm advertised through the oidc-provider contract. Non-master
+          realms are imported on startup if they do not already exist.
+      publicUrl:
+        type: string
+        pattern: "^https?://[^/\\s?#]+(?:/[^\\s?#]+)*$"
+        default: "http://localhost:8080"
+        description: >-
+          Canonical externally reachable Keycloak base URL without a trailing
+          slash. It must resolve from both the user's browser and consuming
+          service containers; set it to the TLS reverse-proxy URL in deployed
+          profiles.
       metadataDatabase:
         type: object
         additionalProperties: false
@@ -119,6 +135,12 @@ spec:
           host: ${service.dns}
           port: ${config.httpPort}
           protocol: http
+    - name: oidc-provider
+      contract:
+        kind: oidc-provider
+        spec:
+          issuerUrl: "${config.publicUrl}/realms/${config.realm}"
+          realm: ${config.realm}
   implementation:
     kind: docker-compose
     compose:
@@ -149,8 +171,16 @@ spec:
             - /bin/bash
             - -ec
             - |
+              REALM="$${CDS_KEYCLOAK_REALM:-master}"
+              if [ "$$REALM" != "master" ]; then
+                  mkdir -p /opt/keycloak/data/import
+                  printf '{"realm":"%s","enabled":true}' "$$REALM" > "/opt/keycloak/data/import/$$REALM-realm.json"
+                  IMPORT_REALM="--import-realm"
+              else
+                  IMPORT_REALM=""
+              fi
               if [ "$${CDS_WEBSERVER_MODE:-production}" = "development" ]; then
-                  exec /opt/keycloak/bin/kc.sh start-dev
+                  exec /opt/keycloak/bin/kc.sh start-dev $$IMPORT_REALM
               fi
               # Plain HTTP on the localhost-only bind for the TLS-terminating
               # reverse proxy in front (docs/serving-modes.md). Keycloak's
@@ -158,7 +188,7 @@ spec:
               # ("hostname is not configured") until KC hostname/proxy-header
               # configuration lands with the reverse-proxy contract work
               # (#579/#581), so hostname-strict stays relaxed here.
-              exec /opt/keycloak/bin/kc.sh start --http-enabled=true --hostname-strict=false
+              exec /opt/keycloak/bin/kc.sh start --http-enabled=true --hostname-strict=false $$IMPORT_REALM
           ports:
             - "127.0.0.1:${config.httpPort}:8080"
           environment:
@@ -172,6 +202,7 @@ spec:
             KC_BOOTSTRAP_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
             KC_HEALTH_ENABLED: "true"
             CDS_WEBSERVER_MODE: "${config.webServer.mode}"
+            CDS_KEYCLOAK_REALM: "${config.realm}"
           healthcheck:
             conditionallyEnabledFrom: config.healthcheck.enabled
             test:

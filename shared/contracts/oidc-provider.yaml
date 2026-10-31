@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: oidc-provider
+  category: shared
+  version: "0.1.0"
+  description: >-
+    OpenID Connect issuer metadata for modules that delegate user
+    authentication to a shared identity provider. OAuth client credentials
+    remain consumer-specific and are supplied through profile secrets.
+
+spec:
+  fields:
+    issuerUrl:
+      type: string
+      required: true
+      description: OpenID Connect issuer URL used for discovery and browser redirects.
+    realm:
+      type: string
+      required: true
+      description: Identity-provider realm that issues tokens for this profile.
+  examples:
+    - issuerUrl: https://identity.example.com/realms/cds
+      realm: cds

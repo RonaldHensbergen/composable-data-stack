@@ -100,6 +100,12 @@ A profile is the unit that should eventually become installable, testable, and s
 
 Two mechanisms are core to how CDS wires a stack together without leaking credentials or coupling modules directly: **secret refs** and **contract refs**. Both resolve through the same `validate → plan → render` pipeline (see the [README Internal Flow diagram](../README.md#internal-flow)).
 
+Identity providers advertise issuer metadata through the shared
+`oidc-provider` contract. Consumers such as Superset bind to that contract
+for discovery while keeping their OAuth client secret in a profile secret
+alias; generated plans and Compose files retain only its `${CDS_*}`
+placeholder.
+
 ![Secret and contract resolution flow](https://raw.githubusercontent.com/RonaldHensbergen/composable-data-stack/main/docs/diagrams/architecture/secret_and_contract_resolution.svg)
 
 **End-to-end example** (from `profiles/local-dagster-postgres-superset/profile.yaml`):

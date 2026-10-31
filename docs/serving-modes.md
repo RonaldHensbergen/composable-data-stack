@@ -26,10 +26,11 @@ The defaults are deliberate:
   the box; the Flask development server is an explicit opt-in for local
   debugging.
 - `identity/keycloak` defaults to `development` while it is marked
-  `productionSuitable: false` (no realm configuration, no `oidc-provider`
-  contract, `KC_DB`/driver checks still open — #680/#681/#682). Its
-  production mode is available now so the switch is a one-line profile
-  override the day those blockers land.
+  `productionSuitable: false` (realm import and the `oidc-provider`
+  contract are available, but `KC_DB`/driver checks and the remaining
+  production hardening are still open — #682). Its production mode is
+  available, but profiles remain subject to the existing production
+  security gates.
 
 ## Health and readiness
 

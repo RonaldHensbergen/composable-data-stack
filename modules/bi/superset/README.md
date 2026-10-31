@@ -14,6 +14,8 @@ this module and wire a `sql-database` binding to `metadataDatabase`.
 - The `superset-init` container bootstraps the metadata database and the admin user on first start and then exits, the main container waits for it via `service_completed_successfully`
 - The healthcheck has a 180 second start period, first startup takes a while before the web UI reports healthy
 - The image is built locally from `images/superset/base/Dockerfile`, startup includes a Docker build step
+- OIDC login is optional and requires a separately provisioned client in the
+  bound identity provider's realm.
 
 ## Web serving modes (issue #216)
 
@@ -43,3 +45,21 @@ Health semantics are identical in both modes: `/health` on container port
 
 - `secretKeyFrom` and `adminUser.passwordFrom` reference `secrets.*` values resolved from the profile
 - The optional `cacheService` binding wires Redis-backed caching into Superset when connected to a `cache-service` contract
+
+## OIDC login
+
+Set `identityProvider.contractRef` to a provider's `oidc-provider` contract,
+provide the registered `clientId`, and reference the client secret with
+`clientSecretFrom: secrets.<alias>`. The `issuerUrl` is taken from the bound
+contract; Superset uses its OpenID Connect discovery document and requests
+the `openid`, `email`, and `profile` scopes. Without this configuration,
+Superset retains its built-in database authentication. OIDC is enabled only
+when the issuer, client ID, and secret are all present; partial runtime
+configuration fails during Superset startup.
+
+Newly authenticated users are registered with the least-privileged `Gamma`
+role. Register the exact Superset callback URL
+`<public-superset-url>/oauth-authorized/keycloak` in the identity-provider
+client, enable Standard Flow, and ensure the issuer URL is reachable and
+consistent for both browsers and Superset containers. Client secrets remain
+runtime `${CDS_*}` placeholders in rendered Compose output.
