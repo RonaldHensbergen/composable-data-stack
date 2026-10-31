@@ -6,7 +6,9 @@ _CAPABILITIES = (
     ("database", "Database", ("sql-database",)),
     ("cache", "Cache", ("cache-service",)),
     ("identity", "Identity", ("oidc-provider", "identity-broker")),
+    ("identity-broker", "Identity broker", ("identity-broker",)),
     ("tls", "TLS / ingress", ("reverse-proxy",)),
+    ("tls-cert", "TLS certificate", ("tls-cert",)),
     ("logging", "Logging", ("log-sink",)),
     ("metrics", "Metrics", ("metrics-sink",)),
     ("tracing", "Tracing", ("trace-sink",)),
@@ -14,6 +16,8 @@ _CAPABILITIES = (
     ("gitops", "GitOps", ("gitops-target",)),
     ("service-mesh", "Service mesh", ("service-mesh",)),
 )
+
+_STATEFUL_CONTRACT_KINDS = {"sql-database", "file-database"}
 
 
 def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
@@ -23,6 +27,7 @@ def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Maturity reporting requires a resolved Plan with a modules list.")
 
     providers_by_kind: dict[str, set[str]] = {}
+    stateful_instances: set[str] = set()
     for module in modules:
         if not isinstance(module, dict):
             raise ValueError("Resolved Plan contains a malformed module entry.")
@@ -36,6 +41,8 @@ def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
             contract_kind = contract.get("kind")
             if isinstance(contract_kind, str):
                 providers_by_kind.setdefault(contract_kind, set()).add(module_id)
+                if contract_kind in _STATEFUL_CONTRACT_KINDS:
+                    stateful_instances.add(module_id)
 
     capabilities = []
     bound_by_id: dict[str, bool] = {}
@@ -67,9 +74,28 @@ def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
         basic_achieved
         and bound_by_id["identity"]
         and bound_by_id["tls"]
-        and observability_achieved
         and bound_by_id["backup"]
     )
+    observed_achieved = automated_achieved and observability_achieved
+    # An identity broker also satisfies the identity capability, so it only
+    # counts as an extra security control when a different module provides
+    # the OIDC identity it fronts.
+    broker_is_security_control = bool(
+        providers_by_kind.get("identity-broker")
+    ) and bool(
+        providers_by_kind.get("oidc-provider", set())
+        - providers_by_kind["identity-broker"]
+    )
+    secured_achieved = observed_achieved and (
+        bool(providers_by_kind.get("tls-cert"))
+        or bool(providers_by_kind.get("service-mesh"))
+        or broker_is_security_control
+    )
+    backed_up_instances = _backed_up_stateful_instances(
+        modules, stateful_instances
+    )
+    missing_stateful_backups = sorted(stateful_instances - backed_up_instances)
+    resilient_achieved = secured_achieved and not missing_stateful_backups
     tiers = [
         {
             "name": "Basic",
@@ -83,17 +109,28 @@ def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
                 "Basic",
                 "identity",
                 "tls",
-                "observability",
                 "backup",
             ],
         },
+        {
+            "name": "Observed",
+            "achieved": observed_achieved,
+            "requirements": ["Automated", "observability"],
+        },
+        {
+            "name": "Secured",
+            "achieved": secured_achieved,
+            "requirements": ["Observed", "security-control"],
+        },
+        {
+            "name": "Resilient",
+            "achieved": resilient_achieved,
+            "requirements": ["Secured", "stateful-backups"],
+        },
     ]
-    highest_tier = (
-        "Automated"
-        if automated_achieved
-        else "Basic"
-        if basic_achieved
-        else None
+    highest_tier = next(
+        (tier["name"] for tier in reversed(tiers) if tier["achieved"]),
+        None,
     )
     metadata = plan.get("metadata", {})
     if not isinstance(metadata, dict):
@@ -111,6 +148,70 @@ def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
         "tiers": tiers,
         "capabilities": capabilities,
     }
+
+
+def _backed_up_stateful_instances(
+    modules: list[dict[str, Any]],
+    stateful_instances: set[str],
+) -> set[str]:
+    backup_target_providers: set[str] = set()
+    backup_source_bindings: list[tuple[str, str]] = []
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        module_id = module.get("id")
+        if not isinstance(module_id, str):
+            continue
+        provides = module.get("provides", {})
+        if not isinstance(provides, dict):
+            continue
+        provided_kinds = {
+            contract.get("kind")
+            for contract in provides.values()
+            if isinstance(contract, dict)
+            and isinstance(contract.get("kind"), str)
+        }
+        if "backup-target" in provided_kinds:
+            backup_target_providers.add(module_id)
+        config = module.get("config", {})
+        backup = config.get("backup") if isinstance(config, dict) else None
+        if (
+            provided_kinds & _STATEFUL_CONTRACT_KINDS
+            and isinstance(backup, dict)
+            and backup.get("enabled") is True
+        ):
+            backup_source_bindings.append((module_id, module_id))
+
+        consumes = module.get("consumes", {})
+        if not isinstance(consumes, dict):
+            continue
+        for consumed in consumes.values():
+            if not isinstance(consumed, dict):
+                continue
+            contract = consumed.get("contract", {})
+            if not isinstance(contract, dict):
+                continue
+            if contract.get("kind") == "backup-target":
+                contract_ref = consumed.get("contractRef")
+                if isinstance(contract_ref, str):
+                    backup_source_bindings.append(
+                        (contract_ref.split(".", 1)[0], module_id)
+                    )
+            elif contract.get("kind") == "backup-source":
+                contract_ref = consumed.get("contractRef")
+                if isinstance(contract_ref, str):
+                    backup_source_bindings.append(
+                        (module_id, contract_ref.split(".", 1)[0])
+                    )
+
+    backed_up: set[str] = set()
+    for backup_module_id, stateful_module_id in backup_source_bindings:
+        if (
+            backup_module_id in backup_target_providers
+            and stateful_module_id in stateful_instances
+        ):
+            backed_up.add(stateful_module_id)
+    return backed_up
 
 
 def format_maturity_report(report: dict[str, Any]) -> str:
@@ -138,7 +239,20 @@ def format_maturity_report(report: dict[str, Any]) -> str:
             f"{capability['name']} | {contract_kinds} | {bound} | {providers}"
         )
 
-    labels = {capability["id"]: capability["name"] for capability in report["capabilities"]}
+    labels = {
+        capability["id"]: capability["name"]
+        for capability in report["capabilities"]
+    }
+    labels.update(
+        {
+            "observability": "at least one of logging, metrics, or tracing",
+            "security-control": (
+                "a TLS certificate, service mesh, or identity broker fronting a "
+                "separate OIDC provider"
+            ),
+            "stateful-backups": "a backup target for every stateful module",
+        }
+    )
     lines.extend(["", "Tier requirements:"])
     for tier in report["tiers"]:
         requirements = [
@@ -148,7 +262,6 @@ def format_maturity_report(report: dict[str, Any]) -> str:
         status = "met" if tier["achieved"] else "not met"
         lines.append(f"  {tier['name']}: {status} ({', '.join(requirements)})")
     lines.append(
-        "Note: GitOps and service-mesh capabilities are reported but do not "
-        "affect the Basic or Automated tiers."
+        "Note: GitOps is reported but does not affect the maturity tiers."
     )
     return "\n".join(lines)
