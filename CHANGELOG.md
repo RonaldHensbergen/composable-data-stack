@@ -8,6 +8,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added optional module-instance scoping for production runtime-policy waivers; unknown module IDs are rejected (#932).
 - Added GitOps rendering support (issue #767): a new vendor-neutral
   `gitops-target` contract (`shared/contracts/gitops-target.yaml`: repository
   URL, branch, path, sync interval, target namespace), validated by
