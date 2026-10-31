@@ -237,6 +237,12 @@ The format is based on Keep a Changelog.
   marker positions (`production` on workloads and configMap entries,
   `enabledFrom` on configMap entries) were silently ignored.
 
+- Raised the `pyasn1` floor in `images/superset/requirements.in` from
+  `>=0.6.4` to `>=0.6.5` so recompiling the Superset image lock can never
+  resolve back to the vulnerable 0.6.4 (CVE-2026-119194/95/96/97;
+  Dependabot alerts #65-#68); the hash-locked `requirements.txt` already
+  pins `pyasn1==0.6.5`.
+
 ### Added
 
 - Added typed provenance records to the `cds get` tracking manifest
