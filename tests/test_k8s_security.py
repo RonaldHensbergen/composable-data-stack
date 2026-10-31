@@ -150,6 +150,162 @@ class KubernetesSecurityTest(unittest.TestCase):
 
         self.assertEqual(scan_k8s_security(plan), [])
 
+    def test_wildcard_rbac_rule_is_flagged(self) -> None:
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["serviceAccount"] = {
+            "rbac": [
+                {
+                    "apiGroups": ["*"],
+                    "resources": ["pods"],
+                    "verbs": ["get", "list", "*"],
+                }
+            ]
+        }
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-006"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "medium")
+        self.assertEqual(matching[0]["category"], "configuration-management")
+        self.assertIn("apiGroups", matching[0]["message"])
+        self.assertIn("verbs", matching[0]["message"])
+        self.assertEqual(
+            matching[0]["path"],
+            "module:demo.implementation.kubernetes.serviceAccount.rbac.0",
+        )
+
+    def test_explicit_rbac_rule_is_not_flagged(self) -> None:
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["serviceAccount"] = {
+            "rbac": [
+                {
+                    "apiGroups": [""],
+                    "resources": ["pods"],
+                    "verbs": ["get", "list"],
+                    "resourceNames": ["my-pod"],
+                }
+            ]
+        }
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
+    def test_nodeport_service_exposure_is_flagged(self) -> None:
+        plan = self.secure_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["service"] = {
+            "type": "NodePort",
+            "ports": [{"name": "http", "port": 8080}],
+        }
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-007"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "low")
+        self.assertEqual(matching[0]["category"], "system-hardening")
+        self.assertIn("NodePort", matching[0]["message"])
+        self.assertEqual(
+            matching[0]["path"],
+            "module:demo.implementation.kubernetes.workloads.app.service.type",
+        )
+
+    def test_malformed_service_account_block_does_not_crash_the_scan(self) -> None:
+        # Plan files bypass the module schema; a non-mapping
+        # `serviceAccount` block is a shape error for the renderer to
+        # report (E147), not a reason for the scan to crash.
+        plan = self.secure_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["serviceAccount"] = "default"
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
+    def test_clusterip_service_is_not_flagged(self) -> None:
+        plan = self.secure_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["service"] = {
+            "type": "ClusterIP",
+            "ports": [{"name": "http", "port": 8080}],
+        }
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
+    def test_unrestricted_custom_egress_is_flagged(self) -> None:
+        # The passthrough exists precisely to open what bindings cannot
+        # name; an unrestricted rule (no "to", or an ipBlock peer) re-opens
+        # external egress and is reported as CDS-K8S-008.
+        plan = self.secure_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [
+                {"ports": [{"protocol": "TCP", "port": 443}]},
+                {"to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}]},
+            ]
+        }
+
+        findings = scan_k8s_security(plan)
+        flagged = [f for f in findings if f["rule_id"] == "CDS-K8S-008"]
+
+        self.assertEqual(len(flagged), 2)
+        self.assertEqual(
+            {f["path"].rsplit(".", 1)[-1] for f in flagged},
+            {"0", "1"},
+        )
+        self.assertEqual(
+            {f["category"] for f in flagged},
+            {"configuration-management"},
+        )
+
+    def test_selector_scoped_custom_egress_is_not_flagged(self) -> None:
+        # Selector-based peers stay cluster-internal: no external egress,
+        # no finding.
+        plan = self.secure_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{
+                    "namespaceSelector": {
+                        "matchLabels": {"kubernetes.io/metadata.name": "team"}
+                    }
+                }],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+            "ingress": [{
+                "from": [{"namespaceSelector": {"matchLabels": {"a": "b"}}}],
+                "ports": [{"protocol": "TCP", "port": 8080}],
+            }],
+        }
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
+    def test_narrow_ipblock_custom_egress_is_still_recorded(self) -> None:
+        # Any ipBlock peer leaves the cluster, so even a tightly scoped rule
+        # is recorded as a low finding: the scan is the audit record of an
+        # intentionally opened external destination, and the recommendation
+        # is to narrow it, not to silence it.
+        plan = self.secure_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+
+        findings = [
+            f for f in scan_k8s_security(plan) if f["rule_id"] == "CDS-K8S-008"
+        ]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "low")
+
+    def test_malformed_network_policy_block_does_not_crash_the_scan(self) -> None:
+        plan = self.secure_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = "allow-all"
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
 
 if __name__ == "__main__":
     unittest.main()

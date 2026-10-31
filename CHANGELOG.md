@@ -8,6 +8,34 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- **Breaking (for existing `--target helm` deployments):** Added
+  NetworkPolicy and ServiceAccount generation to the `helm` render target,
+  completing the Kubernetes production resources (issue #75): every
+  module's chart now ships a default-deny NetworkPolicy whose allow
+  rules are derived from the plan's contract bindings (consumer-to-
+  provider egress and matching provider ingress on the contract port,
+  same-module traffic, and cluster DNS egress; NodePort/LoadBalancer
+  services open ingress on exactly their exposed ports), and every
+  workload runs under a dedicated per-module ServiceAccount with opt-in
+  least-privilege RBAC via the new
+  `implementation.kubernetes.serviceAccount.rbac` rules — no rules means
+  no Role, no RoleBinding, and no mounted API token (malformed rules fail
+  closed with E148). Custom allow rules for destinations no binding can
+  name — an external API or database a job reads from, a cross-namespace
+  ingress controller — are opt-in via
+  `implementation.kubernetes.networkPolicy.ingress`/`egress`, rendered
+  verbatim after the binding-derived rules (malformed shapes fail closed
+  with E149), and the contract's Service-facing port is mapped through the
+  provider's Service `targetPort` so a port remap cannot silently break a
+  rule. Extended the Kubernetes security scan with CDS-K8S-006 (wildcard
+  RBAC grants), CDS-K8S-007 (NodePort/LoadBalancer ingress exposure), and
+  CDS-K8S-008 (external-egress passthrough rules), and added a W128
+  warning when a binding carries no port evidence and its egress rule
+  cannot be port-scoped; documented the network-isolation baseline in
+  `docs/kubernetes.md`. Charts rendered before this change will deny
+  external and cross-namespace traffic on their next render until the new
+  `networkPolicy` rules are declared (see the "When the baseline denies
+  something you need" section of `docs/kubernetes.md`).
 - Added a `Kubernetes E2E` GitHub Actions workflow that runs the existing
   k3d harness (`make k3d-build` and `make k3d-e2e`) against the example
   profile on pull requests and pushes touching the chart, CLI, images, harness

@@ -293,6 +293,97 @@
             "$ref": "#/$defs/kubernetesConfigMap"
           },
           "description": "Bind-mounted files promoted to ConfigMaps, keyed by the compose bind source path."
+        },
+        "serviceAccount": {
+          "$ref": "#/$defs/kubernetesServiceAccount"
+        },
+        "networkPolicy": {
+          "$ref": "#/$defs/kubernetesNetworkPolicy"
+        }
+      }
+    },
+    "kubernetesNetworkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Custom allow rules merged verbatim into the module's generated NetworkPolicy (issue #75). The generated policy is default-deny for ingress and egress; these rules exist because contract bindings cannot name external endpoints (e.g. an external API a job reads from) or cross-namespace clients (e.g. an ingress controller fronting a ClusterIP service), which would otherwise be silently denied.",
+      "properties": {
+        "egress": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Additional NetworkPolicy egress rules (networking.k8s.io/v1 rule objects), rendered verbatim after the binding-derived rules. Scope each rule to the minimum: a specific ipBlock cidr or a namespace/pod selector peer, and a TCP port list; the security scan reports every external-egress rule as a low finding (CDS-K8S-008)."
+        },
+        "ingress": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Additional NetworkPolicy ingress rules (networking.k8s.io/v1 rule objects), rendered verbatim after the binding-derived rules, e.g. to admit a cross-namespace ingress controller that no contract binding can name."
+        }
+      }
+    },
+    "kubernetesServiceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Settings for the module's generated ServiceAccount. The ServiceAccount is always created; RBAC rules are optional and empty by default (least privilege).",
+      "properties": {
+        "rbac": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/kubernetesRbacRule"
+          },
+          "description": "RBAC rules granted to the module's ServiceAccount via a generated Role and RoleBinding. No rules means no API access and no mounted token."
+        }
+      }
+    },
+    "kubernetesRbacRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "apiGroups",
+        "resources",
+        "verbs"
+      ],
+      "description": "One rbac.authorization.k8s.io rule, rendered verbatim into the module's Role.",
+      "properties": {
+        "apiGroups": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "API groups the rule applies to, e.g. [\"\"] for the core group."
+        },
+        "resources": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Resources the rule applies to, e.g. [\"pods\"]."
+        },
+        "verbs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Verbs the rule grants, e.g. [\"get\", \"list\"]."
+        },
+        "resourceNames": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Optional allowlist restricting the rule to named resource instances."
         }
       }
     },

@@ -78,6 +78,96 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
                         ["Declare both requests and limits for the container."],
                         category="configuration-management",
                     ))
+            service_type = (workload.get("service") or {}).get("type")
+            if service_type in ("NodePort", "LoadBalancer"):
+                findings.append(_finding(
+                    "CDS-K8S-007",
+                    "low",
+                    (
+                        f'Workload "{module_id}/{workload_name}" exposes a '
+                        f"{service_type} service; the generated NetworkPolicy must "
+                        "allow ingress from all sources on its ports."
+                    ),
+                    f"{path}.service.type",
+                    module_id,
+                    [
+                        "Confirm the workload is meant to be reachable cluster-wide "
+                        "or externally; prefer ClusterIP with an explicit ingress "
+                        "controller plus the cross-namespace ingress rules that "
+                        "controller needs (implementation.kubernetes.networkPolicy."
+                        "ingress), since the generated NetworkPolicy denies it by "
+                        "default."
+                    ],
+                ))
+        service_account = kubernetes.get("serviceAccount") or {}
+        declared_rbac = (
+            service_account.get("rbac")
+            if isinstance(service_account, dict)
+            else None
+        )
+        for index, rule in enumerate(declared_rbac or []):
+            if not isinstance(rule, dict):
+                continue
+            wildcard_fields = [
+                field
+                for field in ("apiGroups", "resources", "verbs")
+                if isinstance(rule.get(field), list) and "*" in rule[field]
+            ]
+            if wildcard_fields:
+                findings.append(_finding(
+                    "CDS-K8S-006",
+                    "medium",
+                    (
+                        f'RBAC rule {index} of module "{module_id}" grants wildcard '
+                        f'{" and ".join(wildcard_fields)}; least-privilege rules name '
+                        "every API group, resource, and verb explicitly."
+                    ),
+                    f"module:{module_id}.implementation.kubernetes.serviceAccount."
+                    f"rbac.{index}",
+                    module_id,
+                    [
+                        "Replace the wildcard with the explicit API groups, "
+                        "resources, and verbs the workload needs."
+                    ],
+                    category="configuration-management",
+                ))
+        network_policy = kubernetes.get("networkPolicy") or {}
+        if isinstance(network_policy, dict):
+            for index, rule in enumerate(network_policy.get("egress") or []):
+                if not isinstance(rule, dict):
+                    continue
+                # An egress rule without a "to" restriction (or with an
+                # ipBlock peer) opens external egress that the default-deny
+                # baseline would otherwise block. Selector-based peers stay
+                # cluster-internal and are not flagged.
+                destinations = rule.get("to")
+                opens_external = True
+                if isinstance(destinations, list):
+                    opens_external = any(
+                        isinstance(peer, dict) and "ipBlock" in peer
+                        for peer in destinations
+                    )
+                if opens_external:
+                    findings.append(_finding(
+                        "CDS-K8S-008",
+                        "low",
+                        (
+                            f'Custom egress rule {index} of module "{module_id}" opens '
+                            "external egress (no destination restriction or an "
+                            "ipBlock peer), which the default-deny NetworkPolicy "
+                            "baseline would otherwise block."
+                        ),
+                        f"module:{module_id}.implementation.kubernetes.networkPolicy."
+                        f"egress.{index}",
+                        module_id,
+                        [
+                            "Confirm the external destination is intended; scope the "
+                            "rule to the minimum: the smallest ipBlock cidr (with "
+                            "except where possible) or a selector-based peer, and a "
+                            "TCP port list."
+                        ],
+                        category="configuration-management",
+                    ))
     return findings
 
 
@@ -124,11 +214,14 @@ def _finding(
         # declarative rule-set engine has no scope for the plan's
         # Kubernetes-specific implementation), so their compliance category
         # can't be looked up the way cli.security.run_security_validation()
-        # does for rule-set findings. CDS-K8S-001-004 are container/pod
+        # does for rule-set findings. CDS-K8S-001-004 and CDS-K8S-007 (the
+        # NodePort/LoadBalancer ingress exposure note) are container/pod
         # runtime-hardening posture checks, so they default to the matching
         # cli.security_common.COMPLIANCE_CATEGORIES value; CDS-K8S-005
-        # (resource requests/limits) overrides this below since it's a
-        # capacity-governance concern rather than runtime-hardening posture.
+        # (resource requests/limits), CDS-K8S-006 (wildcard RBAC rules), and
+        # CDS-K8S-008 (unrestricted custom egress) override this below since
+        # they're capacity-, privilege-, and network-governance concerns
+        # rather than runtime-hardening posture.
         "category": category,
         "message": message,
         "path": path,
