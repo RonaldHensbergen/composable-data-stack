@@ -79,6 +79,8 @@ These work but may have breaking changes in upcoming releases:
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
 - Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode by default (`start-dev`, configurable via `config.webServer.mode`, #216), backed by a consumed `sql-database` contract; wired into the `local-haven-reference` profile (#772), no realm configuration (#680) or `oidc-provider` contract for other modules to consume (#681)
 - Module: Marquez (`modules-experimental/observability/marquez/`) — OpenLineage-compatible lineage backend, reference provider for the `lineage-sink` contract; demoed by `local-dagster-postgres-marquez` (#779)
+- Module: Loki (`modules-experimental/observability/loki/`) — experimental `log-sink` provider using Vector HTTP ingestion and Loki retention tiers (#662)
+- Module: FluxCD (`modules-experimental/gitops/fluxcd/`) — experimental reference provider of the new vendor-neutral `gitops-target` contract (`shared/contracts/gitops-target.yaml`); renders Flux `GitRepository`/`Kustomization`/`HelmRelease` bootstrap manifests over the `--target helm` chart output via the new `implementation.kubernetes.manifests` block (#767, see the "GitOps handoff" section of [docs/kubernetes.md](kubernetes.md))
 - Profile: `local-dagster-postgres-superset-vault` — not tested thoroughly yet
 - Profile: `local-haven-reference` — Common Ground/Haven-aligned reference stack (identity, TLS ingress, database), experimental while Keycloak lacks realm configuration/an `oidc-provider` contract (#772, see [docs/common-ground-alignment.md](common-ground-alignment.md))
 - `scripts/compose_to_module.py` — scaffolds a starter `module.yaml` from an existing `docker-compose.yml`
@@ -91,7 +93,7 @@ These work but may have breaking changes in upcoming releases:
 - 📋 **Stabilize Vault-backed profile** — validate and harden `local-dagster-postgres-superset-vault` for regular use
 - 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
 - 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
-- 📋 **Haven parity — previously untracked workstreams** — GitOps rendering/module support (#767) and the Kubernetes-native database operator pattern (#768); the initial Basic/Automated profile maturity report landed in #769
+- 🚧 **Haven parity — GitOps rendering/module support** — in progress: `gitops-target` contract + FluxCD reference module rendering Flux bootstrap manifests over the Helm chart output (#767); the remaining previously untracked workstream is the Kubernetes-native database operator pattern (#768); the initial Basic/Automated profile maturity report landed in #769
 - 📋 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink` contract + OpenTelemetry Collector reference module (#777)
 
 ---

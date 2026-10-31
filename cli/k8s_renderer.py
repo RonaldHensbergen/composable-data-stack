@@ -256,15 +256,24 @@ def render_helm(
         files.update(module_files)
         secret_keys.update(module_secret_keys)
         diagnostics.extend(module_diags)
-        manifests.append((
-            f"{module_id}-service-account.yaml",
-            _service_account_manifest(
-                module_id, release, rbac_rules_by_module.get(module_id, [])
-            ),
-        ))
+        # A manifest-only module (e.g. a GitOps bootstrap, issue #767) runs
+        # no pods of its own, so it gets no ServiceAccount and no
+        # NetworkPolicy: both would select nothing.
+        if k8s.get("workloads"):
+            manifests.append((
+                f"{module_id}-service-account.yaml",
+                _service_account_manifest(
+                    module_id, release, rbac_rules_by_module.get(module_id, [])
+                ),
+            ))
 
+    workload_modules = [
+        module
+        for module in renderable
+        if (module.get("implementation", {}).get("kubernetes") or {}).get("workloads")
+    ]
     manifests.extend(_network_policy_manifests(
-        renderable,
+        workload_modules,
         module_surfaces,
         release,
         diagnostics,
@@ -507,7 +516,111 @@ def _render_module(
             "resources": workload.get("resources", {}),
         }
 
+    manifests.extend(
+        _render_manifests(module_id, k8s, context, release, diagnostics)
+    )
+
     return module_values, manifests, files, secret_keys, diagnostics
+
+
+def _render_manifests(
+    module_id: str,
+    k8s: dict[str, Any],
+    context: dict[str, Any],
+    release: str,
+    diagnostics: list[Diagnostic],
+) -> list[tuple[str, dict[str, Any]]]:
+    """
+    Render the raw `kubernetes.manifests` entries as extra chart templates.
+
+    These are CRDs the workload model cannot express (e.g. FluxCD
+    GitRepository/Kustomization/HelmRelease in a GitOps module, issue #767),
+    so they are emitted nearly verbatim: values get the same ${...}
+    substitution as workloads, metadata.name is prefixed with the Helm
+    release name unless it already contains a {{ .Release.Name }} template,
+    and the standard module/release labels are merged into metadata.labels.
+    The `enabledFrom` gate (config path expression, resolved like workload
+    gates) is stripped from the rendered output.
+
+    Plans can be loaded from files, bypassing module.schema.json, so the
+    manifest shape is re-checked here and fails closed with E151. Secret
+    references are not translated on purpose: a leftover ${CDS_*} is caught
+    by _check_secret_references (E078), keeping secret material out of the
+    committed chart.
+    """
+    rendered: list[tuple[str, dict[str, Any]]] = []
+    for manifest_name, raw in (k8s.get("manifests") or {}).items():
+        entry_path = f"module:{module_id}.implementation.kubernetes.manifests.{manifest_name}"
+        if not isinstance(raw, dict):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E151",
+                    message=(
+                        f'Raw manifest "{manifest_name}" of module "{module_id}" must be '
+                        "an object with apiVersion, kind, and metadata.name."
+                    ),
+                    path=entry_path,
+                )
+            )
+            continue
+
+        entry = deepcopy(raw)
+        enabled_from = entry.pop("enabledFrom", None)
+        if enabled_from is not None:
+            if not isinstance(enabled_from, str) or not enabled_from.strip():
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E145",
+                        message=(
+                            f'The `enabledFrom` marker of manifest "{manifest_name}" in '
+                            f'module "{module_id}" must be a non-empty string holding a '
+                            "config path expression (e.g. `config.mode==chart`)."
+                        ),
+                        path=f"{entry_path}.enabledFrom",
+                    )
+                )
+                continue
+            if _resolve_expr(enabled_from, context) is False:
+                continue
+
+        metadata = entry.get("metadata")
+        if (
+            not isinstance(entry.get("apiVersion"), str)
+            or not entry.get("apiVersion")
+            or not isinstance(entry.get("kind"), str)
+            or not entry.get("kind")
+            or not isinstance(metadata, dict)
+            or not isinstance(metadata.get("name"), str)
+            or not metadata.get("name")
+        ):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E151",
+                    message=(
+                        f'Raw manifest "{manifest_name}" of module "{module_id}" must '
+                        "declare non-empty string apiVersion, kind, and metadata.name."
+                    ),
+                    path=entry_path,
+                )
+            )
+            continue
+
+        manifest = _substitute_values(entry, context)
+        md = manifest.setdefault("metadata", {})
+        name = md.get("name")
+        if isinstance(name, str) and "{{ .Release.Name }}" not in name:
+            md["name"] = "{{ .Release.Name }}-" + name
+        labels = md.get("labels")
+        if not isinstance(labels, dict):
+            labels = {}
+        labels.update(_labels(release, module_id))
+        md["labels"] = labels
+
+        rendered.append((f"{module_id}-manifest-{manifest_name}.yaml", manifest))
+    return rendered
 
 
 def _missing_service(module_id: str, workload: str, compose_name: str) -> Diagnostic:
