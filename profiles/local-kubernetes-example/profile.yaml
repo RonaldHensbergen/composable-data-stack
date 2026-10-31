@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: local-kubernetes-example
+  environment: local
+  displayName: Local Kubernetes Example (Helm)
+  description: >
+    The local-dagster-postgres-superset stack as a ready-to-run Kubernetes
+    example: same modules, rendered to a Helm chart with `--target helm` and
+    deployed to the isolated k3d harness (issue #77). Composes the base
+    profile via extends; see README.md in this directory and
+    docs/kubernetes.md.
+
+extends:
+  - local-dagster-postgres-superset
