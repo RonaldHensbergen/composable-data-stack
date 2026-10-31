@@ -173,6 +173,22 @@ def validate_profile_shape(profile: dict[str, Any]) -> list[Diagnostic]:
                 elif isinstance(module_id, str):
                     seen_ids.add(module_id)
 
+            security = spec.get("security")
+            waivers = security.get("waivers") if isinstance(security, dict) else None
+            waiver = waivers.get("runtimePolicy") if isinstance(waivers, dict) else None
+            waiver_modules = waiver.get("modules") if isinstance(waiver, dict) else None
+            if isinstance(waiver_modules, list):
+                for i, module_id in enumerate(waiver_modules):
+                    if isinstance(module_id, str) and module_id not in seen_ids:
+                        diagnostics.append(
+                            Diagnostic(
+                                "error",
+                                "E012",
+                                f'Runtime policy waiver references unknown module id "{module_id}".',
+                                f"spec.security.waivers.runtimePolicy.modules[{i}]",
+                            )
+                        )
+
     return diagnostics
 
 
