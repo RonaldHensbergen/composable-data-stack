@@ -255,6 +255,7 @@ The format is based on Keep a Changelog.
   bad shapes on volume specs silently misbehaved, and unsupported
   marker positions (`production` on workloads and configMap entries,
   `enabledFrom` on configMap entries) were silently ignored.
+
 - Fixed the E150 provided-contract host check silently skipping
   scheme-less `host:port` endpoints (issue #1036): the check only
   validated values matching the DNS-label pattern, so an endpoint like
