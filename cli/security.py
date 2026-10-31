@@ -854,15 +854,23 @@ def _runs_as_root(user: Any) -> bool:
     return name in {"0", "root"} or (name.isdigit() and int(name) == 0)
 
 
-def _runtime_policy_waived_checks(profile: dict[str, Any]) -> set[str]:
+def _runtime_policy_waiver(
+    profile: dict[str, Any],
+) -> tuple[set[str], set[str] | None]:
     waiver = profile.get("spec", {}).get("security", {}).get("waivers", {}).get("runtimePolicy")
     if not isinstance(waiver, dict):
-        return set()
+        return set(), None
     reason = waiver.get("reason")
     checks = waiver.get("checks")
     if not isinstance(reason, str) or not reason.strip() or not isinstance(checks, list):
-        return set()
-    return {check for check in checks if isinstance(check, str)}
+        return set(), None
+    modules = waiver.get("modules")
+    module_scope = (
+        {module_id for module_id in modules if isinstance(module_id, str)}
+        if isinstance(modules, list)
+        else None
+    )
+    return {check for check in checks if isinstance(check, str)}, module_scope
 
 
 # Kernel-escape capabilities: granting any of these is comparable to or worse
@@ -920,13 +928,15 @@ def _check_runtime_policy(
     rules: dict[str, dict[str, Any] | None],
     profile_class: str,
     waived: set[str] | None = None,
+    waived_modules: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     """CDS-SEC-090/091: production runtime policy over the rendered Compose services.
 
     `rules` maps rule id to its rule-set entry, or None when that rule is
-    disabled. `waived` holds profile-waived CDS-SEC-090 check names. Only
-    prod-class profiles are evaluated. Also returns a warning when a waiver
-    suppressed a violation (W103) or is declared on a non-prod profile (W104).
+    disabled. `waived` holds profile-waived CDS-SEC-090 check names, and
+    `waived_modules` optionally scopes them to module IDs. Only prod-class
+    profiles are evaluated. Also returns a warning when a waiver suppressed
+    a violation (W103) or is declared on a non-prod profile (W104).
     """
     policy_rule, confinement_rule = rules.get("CDS-SEC-090"), rules.get("CDS-SEC-091")
     waiver_path = "spec.security.waivers.runtimePolicy"
@@ -947,14 +957,20 @@ def _check_runtime_policy(
         return [], []
     findings: list[dict[str, Any]] = []
     suppressed_checks: set[str] = set()
+    suppressed_modules: set[str] = set()
     for service_name, service in (rendered_compose.get("services") or {}).items():
         if not isinstance(service, dict):
             continue
         module_id = service_to_module.get(service_name, service_name)
         path = f"services.{service_name}"
         if policy_rule is not None:
-            violations, suppressed = _runtime_policy_violations(service, waived or set())
+            service_waivers = waived or set()
+            if waived_modules is not None and module_id not in waived_modules:
+                service_waivers = set()
+            violations, suppressed = _runtime_policy_violations(service, service_waivers)
             suppressed_checks |= suppressed
+            if suppressed:
+                suppressed_modules.add(module_id)
             if violations:
                 findings.append({
                     "rule_id": policy_rule["id"],
@@ -988,7 +1004,13 @@ def _check_runtime_policy(
             code="W103",
             message=(
                 "Applied runtime policy waiver for production profile (checks: "
-                f"{', '.join(sorted(suppressed_checks))}). See {waiver_path}.reason."
+                f"{', '.join(sorted(suppressed_checks))}"
+                + (
+                    f"; modules: {', '.join(sorted(suppressed_modules))}"
+                    if waived_modules is not None and suppressed_modules
+                    else ""
+                )
+                + f"). See {waiver_path}.reason."
             ),
             path=waiver_path,
         ))
@@ -1548,7 +1570,7 @@ def run_security_validation(
 
     runtime_findings, runtime_diags = _check_runtime_policy(
         rendered_compose, service_to_module, runtime_policy_rules, profile_class,
-        _runtime_policy_waived_checks(profile),
+        *_runtime_policy_waiver(profile),
     )
     findings.extend(runtime_findings)
 
