@@ -65,7 +65,7 @@ class SupersetHardeningTest(unittest.TestCase):
             "pillow": "12.3.0",
             "pyopenssl": "26.0.0",
             "pyarrow": "23.0.1",
-            "pyasn1": "0.6.4",
+            "pyasn1": "0.6.5",
             "setuptools": "83.0.0",
             "urllib3": "2.7.0",
             "wheel": "0.46.2",

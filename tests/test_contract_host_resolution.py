@@ -1,4 +1,5 @@
-"""Tests for ${service.host} resolution and provided-contract host checks (#1010)."""
+"""Tests for ${service.host}/${service.dns}/${service.services.*} resolution and
+provided-contract host checks (#1010, #1029)."""
 import os
 import tempfile
 import unittest
@@ -13,6 +14,7 @@ from cli.renderer import (
     module_dns_host,
     render_compose,
 )
+from cli.utils import module_service_dns_names
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GARAGE_MODULE_PATH = REPO_ROOT / "modules" / "storage" / "garage" / "module.yaml"
@@ -134,6 +136,28 @@ class ModuleDnsHostTest(unittest.TestCase):
         self.assertEqual(module_dns_host("mod", ["svc"]), "mod")
 
 
+class ModuleServiceDnsNamesTest(unittest.TestCase):
+    """${service.services.<name>} maps each compose service through the
+    renderer's naming rule (issue #1029)."""
+
+    def test_each_service_maps_through_the_naming_rule(self):
+        self.assertEqual(
+            module_service_dns_names("lineage", {"marquez-api": {}, "marquez-web": {}}),
+            {"marquez-api": "lineage-marquez-api", "marquez-web": "lineage-marquez-web"},
+        )
+
+    def test_already_prefixed_service_is_not_duplicated(self):
+        self.assertEqual(
+            module_service_dns_names("marquez", {"marquez-api": {}, "marquez-web": {}}),
+            {"marquez-api": "marquez-api", "marquez-web": "marquez-web"},
+        )
+
+    def test_missing_or_non_dict_services_give_an_empty_map(self):
+        self.assertEqual(module_service_dns_names("mod", None), {})
+        self.assertEqual(module_service_dns_names("mod", ["svc"]), {})
+        self.assertEqual(module_service_dns_names("mod", {}), {})
+
+
 class ResolveProvidedContractsHostTest(unittest.TestCase):
     def test_single_service_instance_resolves_service_dns_name(self):
         inst = _instance(
@@ -220,6 +244,55 @@ class ResolveProvidedContractsHostTest(unittest.TestCase):
         resolved = resolve_provided_contracts(inst)
         self.assertEqual(resolved["http-service"]["spec"]["host"], "orchestration")
         self.assertEqual(resolved["http-service"]["spec"]["dns"], "orchestration")
+
+    def test_multi_service_instance_resolves_a_specific_service_via_placeholder(self):
+        # The issue #1029 reproduction: a marquez-style multi-service module
+        # points its lineage-sink endpoint at the API service's rendered DNS
+        # name, which survives non-conventional instance ids.
+        provides = [
+            {
+                "name": "lineage-sink",
+                "contract": {
+                    "kind": "lineage-sink",
+                    "spec": {
+                        "host": "${service.services.marquez-api}",
+                        "port": "${config.apiPort}",
+                        "connectionUri": "http://${service.services.marquez-api}:${config.apiPort}",
+                        "serviceName": "marquez-api",
+                    },
+                },
+            }
+        ]
+        services = {"marquez-api": {}, "marquez-web": {}}
+
+        resolved = resolve_provided_contracts(_instance("marquez", services, provides, module_name="marquez") | {"config": {"apiPort": 5000}})
+        self.assertEqual(resolved["lineage-sink"]["spec"]["host"], "marquez-api")
+        self.assertEqual(
+            resolved["lineage-sink"]["spec"]["connectionUri"], "http://marquez-api:5000"
+        )
+
+        resolved = resolve_provided_contracts(_instance("lineage", services, provides, module_name="marquez") | {"config": {"apiPort": 5000}})
+        self.assertEqual(resolved["lineage-sink"]["spec"]["host"], "lineage-marquez-api")
+        self.assertEqual(
+            resolved["lineage-sink"]["spec"]["connectionUri"], "http://lineage-marquez-api:5000"
+        )
+
+    def test_unknown_service_placeholder_stays_unresolved(self):
+        inst = _instance(
+            "marquez",
+            {"marquez-api": {}},
+            [
+                {
+                    "name": "lineage-sink",
+                    "contract": {
+                        "kind": "lineage-sink",
+                        "spec": {"host": "${service.services.marquez-web}"},
+                    },
+                }
+            ],
+        )
+        resolved = resolve_provided_contracts(inst)
+        self.assertEqual(resolved["lineage-sink"]["spec"]["host"], "${service.services.marquez-web}")
 
 
 class ProvidedContractHostValidationTest(unittest.TestCase):
@@ -402,6 +475,77 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
         self.assertEqual(_validate_provided_contract_hosts(plan, {}), [])
 
 
+class SinkContractHostValidationTest(unittest.TestCase):
+    """E150 coverage for the sink contract kinds (#1029): consumers dial
+    `host`/`connectionUri` directly, so both are cross-checked, and a
+    `serviceName` advertisement is mapped through the naming rule."""
+
+    _RENDERED = {"marquez": ["marquez-api", "marquez-web"]}
+
+    def _plan(self, spec, kind="lineage-sink", module_id="marquez"):
+        return {
+            "modules": [
+                {
+                    "id": module_id,
+                    "provides": {"lineage-sink": {"kind": kind, "spec": spec}},
+                }
+            ]
+        }
+
+    def test_unresolvable_host_fails_loudly(self):
+        # The #1029 bug shape: instance id advertised although only
+        # marquez-api/marquez-web render.
+        plan = self._plan({"host": "marquez", "connectionUri": "http://marquez:5000"})
+        diagnostics = _validate_provided_contract_hosts(plan, self._RENDERED)
+        self.assertEqual([d.code for d in diagnostics], ["E150", "E150"])
+        self.assertEqual(
+            [d.path for d in diagnostics],
+            [
+                "module:marquez.provides.lineage-sink.spec.host",
+                "module:marquez.provides.lineage-sink.spec.connectionUri",
+            ],
+        )
+
+    def test_connection_uri_alone_can_fail(self):
+        plan = self._plan({"host": "marquez-api", "connectionUri": "http://marquez:5000"})
+        diagnostics = _validate_provided_contract_hosts(plan, self._RENDERED)
+        self.assertEqual([d.code for d in diagnostics], ["E150"])
+        self.assertEqual(diagnostics[0].path, "module:marquez.provides.lineage-sink.spec.connectionUri")
+
+    def test_service_name_maps_through_compose_naming_rule(self):
+        plan = self._plan(
+            {"host": "lineage-marquez-api", "serviceName": "marquez-api"},
+            module_id="lineage",
+        )
+        rendered = {"lineage": ["lineage-marquez-api", "lineage-marquez-web"]}
+        self.assertEqual(_validate_provided_contract_hosts(plan, rendered), [])
+
+        broken = self._plan({"host": "marquez-api", "serviceName": "marquez-web-extra"})
+        diagnostics = _validate_provided_contract_hosts(broken, self._RENDERED)
+        self.assertEqual([d.code for d in diagnostics], ["E150"])
+        self.assertEqual(diagnostics[0].path, "module:marquez.provides.lineage-sink.spec.serviceName")
+
+    def test_fixed_marquez_shape_passes(self):
+        plan = self._plan(
+            {
+                "host": "marquez-api",
+                "port": 5000,
+                "connectionUri": "http://marquez-api:5000",
+                "serviceName": "marquez-api",
+            }
+        )
+        self.assertEqual(_validate_provided_contract_hosts(plan, self._RENDERED), [])
+
+    def test_log_sink_kind_is_checked_too(self):
+        plan = self._plan({"host": "marquez", "connectionUri": "http://marquez:3100"}, kind="log-sink")
+        diagnostics = _validate_provided_contract_hosts(plan, self._RENDERED)
+        self.assertEqual([d.code for d in diagnostics], ["E150", "E150"])
+
+    def test_external_sink_hosts_are_skipped(self):
+        plan = self._plan({"host": "loki.example.com", "connectionUri": "https://loki.example.com:3100"})
+        self.assertEqual(_validate_provided_contract_hosts(plan, self._RENDERED), [])
+
+
 class GarageCustomInstanceIdTest(unittest.TestCase):
     """The issue #1010 reproduction: garage instantiated as id \"object-storage\"."""
 
@@ -444,43 +588,75 @@ class GarageCustomInstanceIdTest(unittest.TestCase):
         self.assertIn("object-storage-garage", compose["services"])
 
 
-_CHECKED_KINDS = {"http-service", "sql-database", "cache-service", "object-storage"}
+_CHECKED_KINDS = {"http-service", "sql-database", "cache-service", "object-storage", "lineage-sink", "log-sink"}
+_SINK_KINDS = {"lineage-sink", "log-sink"}
 _HOST_FIELDS = ("host", "endpoint", "connectionUri")
 
 
 class ModuleYamlDnsMigrationTest(unittest.TestCase):
     """Checked-in modules with a resolvable serving service must advertise
-    checked contract kinds via ${service.dns}, not ${service.host} (#1010)."""
+    checked contract kinds via ${service.dns}, not ${service.host} (#1010);
+    multi-service modules without a namesake service must point sink
+    endpoints at a specific service via ${service.services.<name>} (#1029)."""
 
-    def test_checked_contracts_use_service_dns(self):
-        offenders = []
+    def _modules(self):
         for root in ("modules", "modules-experimental"):
             for path in sorted((REPO_ROOT / root).rglob("module.yaml")):
                 doc = yaml.safe_load(path.read_text(encoding="utf-8"))
                 spec = doc.get("spec") or {}
                 module_name = str((doc.get("metadata") or {}).get("name") or "")
                 services = ((spec.get("implementation") or {}).get("compose") or {}).get("services") or {}
-                if not isinstance(services, dict):
+                if isinstance(services, dict):
+                    yield path, module_name, services, spec
+
+    def test_checked_contracts_use_service_dns(self):
+        offenders = []
+        for path, module_name, services, spec in self._modules():
+            if len(services) == 1:
+                serving = next(iter(services))
+            elif module_name and module_name in services:
+                serving = module_name
+            else:
+                continue  # multi-service without namesake: serviceName mechanism
+            for provided in spec.get("provides") or []:
+                contract = provided.get("contract") or {}
+                if contract.get("kind") not in _CHECKED_KINDS:
                     continue
-                if len(services) == 1:
-                    serving = next(iter(services))
-                elif module_name and module_name in services:
-                    serving = module_name
-                else:
-                    continue  # multi-service without namesake: serviceName mechanism
-                for provided in spec.get("provides") or []:
-                    contract = provided.get("contract") or {}
-                    if contract.get("kind") not in _CHECKED_KINDS:
+                fields = contract.get("spec") or {}
+                for field in _HOST_FIELDS:
+                    value = fields.get(field)
+                    if not isinstance(value, str) or "${service." not in value:
                         continue
-                    fields = contract.get("spec") or {}
-                    for field in _HOST_FIELDS:
-                        value = fields.get(field)
-                        if not isinstance(value, str) or "${service." not in value:
-                            continue
-                        if "${service.host}" in value:
-                            offenders.append(f"{path}:{provided.get('name')}.{field} uses ${{service.host}}")
-                        elif serving and "${service.dns}" not in value:
-                            offenders.append(f"{path}:{provided.get('name')}.{field} uses neither placeholder")
+                    if "${service.host}" in value:
+                        offenders.append(f"{path}:{provided.get('name')}.{field} uses ${{service.host}}")
+                    elif serving and "${service.dns}" not in value:
+                        offenders.append(f"{path}:{provided.get('name')}.{field} uses neither placeholder")
+        self.assertEqual(offenders, [])
+
+    def test_multi_service_sink_providers_use_per_service_placeholder(self):
+        # Sink kinds are dialed by consumers via host/connectionUri, so a
+        # multi-service module without a namesake service (e.g. marquez)
+        # must resolve a specific service's DNS name (#1029) instead of the
+        # instance id.
+        offenders = []
+        for path, module_name, services, spec in self._modules():
+            if len(services) == 1 or (module_name and module_name in services):
+                continue
+            for provided in spec.get("provides") or []:
+                contract = provided.get("contract") or {}
+                if contract.get("kind") not in _SINK_KINDS:
+                    continue
+                fields = contract.get("spec") or {}
+                for field in ("host", "connectionUri"):
+                    value = fields.get(field)
+                    if not isinstance(value, str) or "${service." not in value:
+                        continue
+                    if "${service.host}" in value or "${service.dns}" in value:
+                        offenders.append(
+                            f"{path}:{provided.get('name')}.{field} uses instance id, not ${{service.services.<name>}}"
+                        )
+                    elif "${service.services." not in value:
+                        offenders.append(f"{path}:{provided.get('name')}.{field} uses neither placeholder")
         self.assertEqual(offenders, [])
 
 

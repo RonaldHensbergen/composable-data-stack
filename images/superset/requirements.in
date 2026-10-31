@@ -16,7 +16,9 @@ pyOpenSSL>=26.0.0
 # pandas on top of the base. Cap it instead; renovate.json disables pyarrow
 # updates for this lock to keep the bot from lifting the cap again.
 pyarrow>=23.0.1,<26
-pyasn1>=0.6.4
+# pyasn1 through 0.6.4 has quadratic CPU consumption in constructed BIT
+# STRING decoding (CVE-2026-119194/95/96/97); fixed in 0.6.5
+pyasn1>=0.6.5
 setuptools>=83.0.0
 urllib3>=2.7.0
 wheel>=0.46.2
