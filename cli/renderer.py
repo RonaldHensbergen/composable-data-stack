@@ -35,6 +35,7 @@ from .utils import (
     _compose_service_name,
     module_dns_host,
     module_name_from_source,
+    module_service_dns_names,
 )
 from .validator import validate_plan_marker_shapes
 
@@ -268,9 +269,10 @@ def _endpoint_hostname(value: Any) -> str | None:
     """
     Extract the network hostname a contract endpoint advertises.
 
-    Bare values are hostnames; URL-shaped endpoints contribute only their
-    hostname part. Anything else (external DNS names containing dots,
-    host:port pairs, empty values) is outside the Compose network's
+    Bare values are hostnames, URL-shaped endpoints contribute only their
+    hostname part, and a scheme-less ``host:port`` pair contributes its
+    host part (issue #1036). Anything else (external DNS names containing
+    dots, IPv6 literals, empty values) is outside the Compose network's
     namespace and cannot be cross-checked against rendered services.
     """
     if not isinstance(value, str) or not value:
@@ -280,6 +282,12 @@ def _endpoint_hostname(value: Any) -> str | None:
             return urlsplit(value).hostname
         except ValueError:
             return None
+    if ":" in value:
+        # Scheme-less host:port: the host part is still cross-checkable.
+        host, _, port = value.rpartition(":")
+        if host and port.isdigit():
+            return host
+        return None
     return value
 
 
@@ -289,7 +297,12 @@ def _provided_contract_host_candidates(
     """
     The (field, host) pairs a provided contract's spec advertises as network
     addresses, per contract kind. Shared by both render targets' E150
-    cross-checks (issues #1010, #1035).
+    cross-checks (issues #1010, #1029, #1035).
+
+    Sink kinds (`lineage-sink`, `log-sink`) are dialed by consumers through
+    both `host` and the pre-composed `connectionUri`, so both are checked;
+    a `serviceName` advertisement (as on `http-service`) is checked as
+    well, mapped through the renderer's service-naming rule.
     """
     candidates: list[tuple[str, str | None]] = []
     if kind == "http-service":
@@ -304,6 +317,14 @@ def _provided_contract_host_candidates(
         candidates.append(("host", spec.get("host")))
     elif kind == "object-storage":
         candidates.append(("endpoint", _endpoint_hostname(spec.get("endpoint"))))
+    elif kind in ("lineage-sink", "log-sink"):
+        advertised_service = spec.get("serviceName")
+        if isinstance(advertised_service, str) and advertised_service:
+            candidates.append(
+                ("serviceName", _compose_service_name(module_id, advertised_service))
+            )
+        candidates.append(("host", spec.get("host")))
+        candidates.append(("connectionUri", _endpoint_hostname(spec.get("connectionUri"))))
     return candidates
 
 
@@ -324,9 +345,10 @@ def _validate_provided_contract_hosts_against(
     "Kubernetes Service"); `resolve_service_name` optionally maps a
     `serviceName` advertisement to the name the workload actually renders
     (the helm target's workload-level `serviceName` overrides). Hosts
-    outside the cluster namespace (dots, ports, credentials) are not
-    checked, and modules whose services failed to render are left to
-    their own diagnostics.
+    outside the cluster namespace (external DNS names, credentials, IPv6
+    literals) are not checked; a scheme-less `host:port` advertisement is
+    checked by its host part (issue #1036). Modules whose services failed
+    to render are left to their own diagnostics.
     """
     diagnostics: list[Diagnostic] = []
     for module in modules:
@@ -346,7 +368,8 @@ def _validate_provided_contract_hosts_against(
             spec = provided.get("spec")
             if not isinstance(spec, dict):
                 continue
-            for field, host in _provided_contract_host_candidates(kind, spec, module_id):
+            for field, advertised in _provided_contract_host_candidates(kind, spec, module_id):
+                host = _endpoint_hostname(advertised)
                 if not isinstance(host, str) or not _DNS_LABEL_RE.match(host):
                     continue
                 if field == "serviceName" and resolve_service_name is not None:
@@ -379,8 +402,9 @@ def _validate_provided_contract_hosts(
     Mirrors the E136 route check: a contract advertising a host nothing
     answers on the Compose network fails closed with E150 instead of
     shipping a broken endpoint. Multi-service modules advertise their
-    serving service via `serviceName`; that name is mapped through the same
-    service-naming rule the renderer uses.
+    serving service via `serviceName` (or point the endpoint at a specific
+    compose service via `${service.services.<name>}`); that name is mapped
+    through the same service-naming rule the renderer uses.
     """
     return _validate_provided_contract_hosts_against(
         plan.get("modules", []),
@@ -389,7 +413,7 @@ def _validate_provided_contract_hosts(
         fix_hint=(
             "Instantiate the module with an id matching its compose service "
             "name, advertise the serving service via a serviceName field, or "
-            "build the endpoint from ${service.dns}."
+            "build the endpoint from ${service.dns} or ${service.services.<name>}."
         ),
     )
 
@@ -957,6 +981,7 @@ def _build_context(
         "service": {
             "host": module_id,
             "dns": module_dns_host(module_id, services, module_name),
+            "services": module_service_dns_names(module_id, services),
         },
         "secrets": secrets,
         "certificates": certificates,
