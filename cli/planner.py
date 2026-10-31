@@ -36,6 +36,7 @@ def build_plan(
     environment: str | None = None,
     hardened: bool = False,
     image_source: str | None = None,
+    allow_missing_secrets: bool = False,
 ) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
     """
     Build a resolved plan from a profile.
@@ -67,6 +68,9 @@ def build_plan(
             re-derives the tag from the module's schema-pinned default (see
             `_apply_image_source_override`), correctly re-prefixing it for
             `--hardened`/other non-base variants.
+        allow_missing_secrets: When True, retain declared secret aliases as
+            runtime placeholders without requiring their environment values.
+            Intended for static reports that do not inspect or render secrets.
 
     Returns:
         Tuple of (plan, diagnostics)
@@ -108,6 +112,7 @@ def build_plan(
         env_file=env_file,
         hardened=hardened,
         image_source=image_source,
+        allow_missing_secrets=allow_missing_secrets,
         environment=environment,
         provenance=provenance,
         source_label=str(profile_file),
@@ -125,6 +130,7 @@ def build_plan_from_profile(
     environment: str | None = None,
     provenance: dict[str, str] | None = None,
     source_label: str | None = None,
+    allow_missing_secrets: bool = False,
 ) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
     """
     In-memory/dict-based counterpart to build_plan() (issue #349): builds a
@@ -162,6 +168,7 @@ def build_plan_from_profile(
         source_label: Value to record on the returned plan's
             "sourceProfile" field in place of a real file path (default:
             "<in-memory profile>").
+        allow_missing_secrets: See build_plan().
 
     Returns:
         Tuple of (plan, diagnostics)
@@ -171,7 +178,9 @@ def build_plan_from_profile(
     source_label = source_label or "<in-memory profile>"
 
     spec = profile.get("spec", {})
-    secrets, secret_diags = load_profile_secrets(spec.get("secrets"), env_file)
+    secrets, secret_diags = load_profile_secrets(
+        spec.get("secrets"), env_file, allow_missing=allow_missing_secrets
+    )
     diagnostics.extend(secret_diags)
     certificates = build_certificate_env_map(spec.get("certificates"))
 

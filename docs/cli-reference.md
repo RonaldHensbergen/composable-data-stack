@@ -13,6 +13,7 @@ common ones (`validate`, `plan`, `render`, `up`), see the
 |cds validate [profile]|Validate modules and contracts; use `--target helm` for Kubernetes checks|
 |cds preflight [profile]|Check runtime tools, required environment values, host ports, and advisory Docker host hardening ([baseline](docker-host-hardening.md)) without starting services|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
+|cds maturity [profile] [--environment \<name\>] [--format text\|json]|Report bound platform capabilities and the profile's Basic/Automated maturity tiers|
 |cds render [profile]|Generate Docker Compose or a Helm chart from a resolved plan|
 |cds up [profile]|Validate, plan, render, and start the Compose or Helm target; use `--target helm` for Kubernetes|
 |cds down [profile]|Stop Compose or uninstall a Helm release; Helm PVCs are retained by default|
@@ -27,10 +28,23 @@ common ones (`validate`, `plan`, `render`, `up`), see the
 |cds config get\|set\|unset\|list|Manage persisted project defaults in `.cds/config.json`|
 |cds completion \<bash\|zsh\|powershell\>|Print shell setup instructions for tab-completion|
 
-`init`, `validate`, `preflight`, `plan`, `render`, `up`, `test`, `security`,
-and `report` all accept `--environment <name>` (or `-e <name>`) to merge
+`init`, `validate`, `preflight`, `plan`, `maturity`, `render`, `up`, `test`,
+`security`, and `report` all accept `--environment <name>` (or `-e <name>`) to merge
 `environments/<name>.yaml` over the base profile before resolving; see
 [Environment Overlays](../README.md#environment-overlays).
+
+## `cds maturity`
+
+`cds maturity [profile]` statically evaluates the resolved profile plan and
+reports each recognized platform capability, its contract kind, and the
+module instances that provide it. It does not start containers or require a
+Kubernetes cluster. The **Basic** tier requires a database and cache. The
+**Automated** tier additionally requires identity, TLS/reverse proxy, at least
+one logging/metrics/tracing capability, and backup. GitOps and service-mesh
+capabilities are shown when present but do not gate these initial tiers.
+Use `--format json` for machine-readable output; the default `text` format is
+a terminal-friendly table. Missing runtime secret values do not prevent this
+read-only report; secret values are never included in the output.
 
 ## `cds get`
 

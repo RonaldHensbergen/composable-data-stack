@@ -114,6 +114,7 @@ def resolve_secret(key: str, secrets: dict[str, str], required: bool = False) ->
 def load_profile_secrets(
     spec_secrets: dict[str, Any] | None,
     env_file: Path | None = None,
+    allow_missing: bool = False,
 ) -> tuple[dict[str, str], list[Diagnostic]]:
     """
     Returns:
@@ -156,12 +157,14 @@ def load_profile_secrets(
             continue
 
         if env_name not in raw_secrets:
-            if required:
+            if required and not allow_missing:
                 diagnostics.append(Diagnostic(
                     level="error", code="E081",
                     message=f'Required secret "{env_name}" not found in environment.',
                     path=f"spec.secrets.values.{secret_name}",
                 ))
+            if allow_missing:
+                secrets[secret_name] = env_name
             continue
 
         # Map logical name → CDS_* var name, NOT the value.

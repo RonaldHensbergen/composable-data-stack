@@ -45,12 +45,12 @@ anything; it is the plan the roadmap items below should be pulled from.
 | Haven+ trait | CDS today | Gap |
 | --- | --- | --- |
 | Kubernetes-native rendering | `cli/renderer.py` (Compose) plus `cli/k8s_renderer.py` (Helm), landed via PR [#608](https://github.com/RonaldHensbergen/composable-data-stack/pull/608) | Largely closed for the core render/deploy path; NetworkPolicy generation and CI-based cluster validation remain (see 7.1) |
-| GitOps | None | No module/contract for declarative continuous deployment; no tracked issue yet |
+| GitOps | None | No module/contract for declarative continuous deployment at drafting time; tracked by [#767](https://github.com/RonaldHensbergen/composable-data-stack/issues/767) — `gitops-target` contract + FluxCD reference module now in progress |
 | Observability stack (metrics/logs/traces) | `log-sink` contract + structured-event schema shipped (issue [#174](https://github.com/RonaldHensbergen/composable-data-stack/issues/174), [docs/observability.md](observability.md)) | No reference module implementing `log-sink`/metrics/tracing yet — tracked by [#369](https://github.com/RonaldHensbergen/composable-data-stack/issues/369) and [#662](https://github.com/RonaldHensbergen/composable-data-stack/issues/662) |
 | Security platform (cert lifecycle, service mesh, IAM, secrets sync) | `modules/secrets/vault` (secrets only); `cli/security.py` rule-based static checks; new `cli/k8s_security.py` (PR #608) adds pod/container hardening rules (non-root, read-only rootfs, capability drop, no privilege escalation, resource limits) | No cert-management, service-mesh, or IAM/identity-broker modules yet — tracked by [#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580) (TLS), [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) (identity) |
-| Database operators | `modules/warehouse/postgres` (plain container; StatefulSet+PVC on the new Kubernetes target, still not operator-managed) | No operator-managed/HA warehouse module; no tracked issue yet |
+| Database operators | `modules/warehouse/postgres` (plain container; StatefulSet+PVC on the new Kubernetes target, still not operator-managed) | No operator-managed/HA warehouse module yet — tracked by [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) |
 | Backup/restore | `backup-target` contract + `spec.backup` profile policies ([docs/backup-restore.md](backup-restore.md)) | No backup provider module yet — tracked by parent issue [#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210) and module-specific issues [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665) (Postgres), [#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668) (generic file/volume), [#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669) (object storage) |
-| Maturity model | None (roadmap uses "stable"/"experimental" tags only, which describe CDS's own component maturity, not a deployed profile's compliance level) | No profile-facing maturity model or scoring; no tracked issue yet |
+| Maturity model | `cds maturity` reports Basic/Automated profile tiers from resolved platform contracts (#769) | Higher tiers remain deferred until their GitOps/service-mesh and policy-enforcement workstreams land |
 
 ## 3. Workstreams
 
@@ -254,7 +254,7 @@ gap is narrower than section 2 suggested when this document was drafted:
 | 3.4 Security platform modules | Pod/container hardening rules done; TLS/mesh/IAM open | Hardening in PR #608 (`cli/k8s_security.py`); TLS tracked by [#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580); identity tracked by [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370); service mesh (mTLS) tracked by [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776); consolidated Zero-Trust framing tracked by [#778](https://github.com/RonaldHensbergen/composable-data-stack/issues/778) |
 | 3.5 Backup and restore | Not started, but scoped into 4 issues already | [#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210) (contracts), [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665) (Postgres), [#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668) (generic file/volume), [#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669) (object storage) |
 | 3.6 Database operators | Filed, not started | [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) |
-| 3.7 Maturity model | Filed, not started | [#769](https://github.com/RonaldHensbergen/composable-data-stack/issues/769) |
+| 3.7 Maturity model | **In progress** — Basic/Automated tiers land in PR #1057 (`cds maturity`); higher tiers deferred to [#1059](https://github.com/RonaldHensbergen/composable-data-stack/issues/1059) | [#769](https://github.com/RonaldHensbergen/composable-data-stack/issues/769) |
 
 Notable duplicates closed in favor of the issues above:
 [#664](https://github.com/RonaldHensbergen/composable-data-stack/issues/664)
@@ -283,7 +283,9 @@ current status in section 4:
    to pick up now.
 3. **3.7 Maturity model (Basic/Automated tiers only)** — can be scaffolded
    now that 3.1 has landed, even before 3.3–3.6 exist, since it is a
-   read-only reporting tool over Plan bindings. No issue filed yet.
+   read-only reporting tool over Plan bindings. Tracked by #769; the
+   Basic/Automated tiers land in PR #1057, higher tiers stay deferred until
+   3.2–3.6 land.
 4. **3.4 Security platform modules** (issues #205/#370/#577/#579/#580) and
    **3.2 GitOps** (#767, in progress) — parallelizable now that 3.1 has landed.
 5. **3.5 Backup** (issues #210/#665/#668/#669) and **3.6 Database operators**
@@ -322,7 +324,7 @@ following CDS's existing `modules/<category>/<name>/module.yaml` convention
 | 3.5 Backup — generic files | `modules/backup/` | `restic` | provides `backup-target` | Closes #668 (Dagster IO manager, DuckDB, dlt). Define the contract here first (#210); #665/#669 should bind to it rather than inventing their own. |
 | 3.5 Backup — object storage | `modules/backup/` | extend `restic` module or add a `restic-s3` variant | consumes `backup-target` | Closes #669; depends on #668 landing first per that issue's own text. |
 | 3.6 Database operators | `modules-experimental/warehouse/` | `postgres-operator` (CloudNativePG) | same `sql-database` contract as `modules/warehouse/postgres`, Kubernetes-only implementation | Additive, not a replacement — keep the Compose-based `postgres` module as-is for local/dev; this is the Kubernetes-native HA alternative, gated to the Helm render target. |
-| 3.7 Maturity model | *(no module)* | `cds maturity` CLI feature reading Plan bindings | — | Not a module — a reporting layer over which of the above contracts a profile binds. Don't file it as a module issue. |
+| 3.7 Maturity model | *(no module)* | `cds maturity` CLI feature reading Plan bindings | — | Implemented for Basic/Automated tiers (#769); higher tiers remain deferred. Not a module — a reporting layer over which platform contracts a profile provides. |
 
 Suggested build order: `log-sink` (`loki`) and the Keycloak identity module
 first — both have existing issues/scaffolding and no Kubernetes dependency

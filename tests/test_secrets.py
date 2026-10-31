@@ -155,6 +155,26 @@ class LoadProfileSecretsTest(unittest.TestCase):
         errors = [d for d in diagnostics if d.code == "E082"]
         self.assertEqual(len(errors), 1)
 
+    def test_allow_missing_keeps_required_secret_alias_as_runtime_name(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            missing_env_file = Path(tmpdir) / ".env"
+            with mock.patch.dict("os.environ", {}, clear=True):
+                secrets, diagnostics = load_profile_secrets(
+                    {
+                        "values": {
+                            "db_password": {
+                                "env": "CDS_DB_PASSWORD",
+                                "required": True,
+                            }
+                        }
+                    },
+                    env_file=missing_env_file,
+                    allow_missing=True,
+                )
+
+        self.assertEqual(secrets, {"db_password": "CDS_DB_PASSWORD"})
+        self.assertEqual(diagnostics, [])
+
 
 if __name__ == "__main__":
     unittest.main()

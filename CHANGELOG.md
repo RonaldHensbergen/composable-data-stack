@@ -23,6 +23,7 @@ The format is based on Keep a Changelog.
   the GitOps handoff (rendered-chart-as-artifact vs. chart-as-source, CDS does
   not run the controllers) is documented in `docs/kubernetes.md` and the
   module README.
+- Added `cds maturity` to report Basic/Automated tiers and recognized platform contract providers in text or JSON without requiring runtime secret values (#769).
 - Published the Kubernetes target docs and example profiles (issue #77):
   `docs/kubernetes.md` gains a "Migrating from Docker Compose" guide (same
   profile, `--target helm` render flag, what translates and what does not),
@@ -95,6 +96,12 @@ The format is based on Keep a Changelog.
   byte-for-byte from the completed, marker-verified timestamped prefix.
 
 ### Fixed
+
+- Fixed the Windows CI test job (`test (windows-latest, 3.14)`) failing on
+  PR #1057: `tests/test_maturity.py` asserted the literal POSIX string
+  `env_file="/profiles/minimal/.env"`, but `str(Path(...))` yields
+  backslashes on Windows; the assertion now uses
+  `str(Path("/profiles/minimal/.env"))` so it matches on every platform.
 
 - Fixed the experimental `marquez` module advertising unresolvable
   endpoints (issue #1029): it is a multi-service module (`marquez-api`,
