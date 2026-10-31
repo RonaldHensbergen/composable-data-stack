@@ -369,6 +369,76 @@ spec:
 
             self.assertEqual(collect_module_images(module_root), [])
 
+    def test_environment_default_resolves_variant_dockerfile(self):
+        import yaml
+
+        with tempfile.TemporaryDirectory() as tmp:
+            module_root = Path(tmp)
+            module_dir = module_root / "orchestration" / "dagster"
+            for variant in ("base", "hardened"):
+                dockerfile = (
+                    module_dir / "images" / "dagster" / variant / "Dockerfile"
+                )
+                dockerfile.parent.mkdir(parents=True, exist_ok=True)
+                dockerfile.write_text("FROM scratch\n", encoding="utf-8")
+            module = {
+                "apiVersion": "cds/v1alpha1",
+                "kind": "Module",
+                "spec": {
+                    "configSchema": {
+                        "type": "object",
+                        "properties": {
+                            "image": {
+                                "type": "object",
+                                "default": {},
+                                "properties": {
+                                    "variant": {
+                                        "type": "string",
+                                        "defaultByEnvironment": {
+                                            "default": "base",
+                                            "production": "hardened",
+                                        },
+                                    }
+                                },
+                            }
+                        },
+                    },
+                    "implementation": {
+                        "kind": "docker-compose",
+                        "compose": {
+                            "services": {
+                                "web": {
+                                    "image": "local/dagster:custom",
+                                    "build": {
+                                        "context": ".",
+                                        "dockerfile": "images/dagster/${config.image.variant}/Dockerfile",
+                                    },
+                                }
+                            }
+                        },
+                    },
+                },
+            }
+            module_dir.mkdir(parents=True, exist_ok=True)
+            (module_dir / "module.yaml").write_text(
+                yaml.safe_dump(module), encoding="utf-8"
+            )
+
+            images = collect_module_images(module_root)
+            self.assertEqual(len(images), 1)
+            self.assertEqual(
+                images[0]["dockerfile"],
+                str(module_dir / "images" / "dagster" / "base" / "Dockerfile"),
+            )
+
+            images = collect_module_images(module_root, environment="production")
+
+            self.assertEqual(len(images), 1)
+            self.assertEqual(
+                images[0]["dockerfile"],
+                str(module_dir / "images" / "dagster" / "hardened" / "Dockerfile"),
+            )
+
 
 class CheckImageUpdateTest(unittest.TestCase):
     def test_local_custom_tag_without_dockerfile(self):

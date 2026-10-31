@@ -148,7 +148,13 @@ class SupersetHardeningTest(unittest.TestCase):
             self.repo_root / "images" / "superset" / "entrypoint-web.sh"
         ).read_text(encoding="utf-8")
 
-        self.assertEqual(init_service["entrypoint"], ["/app/docker/init.sh"])
+        self.assertEqual(init_service["entrypoint"], ["/bin/bash", "-c"])
+        self.assertIn("retry superset db upgrade", init_service["command"])
+        self.assertIn("retry superset init", init_service["command"])
+        self.assertEqual(
+            init_service["production"]["entrypoint"], ["/app/docker/init.sh"]
+        )
+        self.assertEqual(init_service["production"]["command"], [])
         self.assertEqual(init_service["restart"], "no")
         self.assertEqual(
             web_service["depends_on"]["superset-init"]["condition"],

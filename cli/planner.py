@@ -264,7 +264,8 @@ def build_plan_from_profile(
         try:
             normalized_config = apply_defaults(
                 module_instance.get("config", {}),
-                module_def.get("spec", {}).get("configSchema", {})
+                module_def.get("spec", {}).get("configSchema", {}),
+                environment=_profile_environment(profile),
             )
             if hardened and _supports_image_variant(module_def):
                 normalized_config.setdefault("image", {})["variant"] = "hardened"
@@ -514,12 +515,37 @@ def _apply_image_source_override(
         image_config["tag"] = f"{variant}-{default_tag}"
 
 
-def apply_defaults(config: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+def _profile_environment(profile: dict[str, Any]) -> str | None:
+    metadata = profile.get("metadata")
+    environment = metadata.get("environment") if isinstance(metadata, dict) else None
+    return environment if isinstance(environment, str) else None
+
+
+def apply_defaults(
+    config: dict[str, Any], schema: dict[str, Any], environment: str | None = None
+) -> dict[str, Any]:
     config_copy = deepcopy(config)
-    return _apply_schema_defaults(config_copy, schema)
+    return _apply_schema_defaults(config_copy, schema, environment=environment)
 
 
-def _apply_schema_defaults(value: Any, schema: dict[str, Any], _depth: int = 0) -> Any:
+def _schema_default(schema: dict[str, Any], environment: str | None) -> tuple[bool, Any]:
+    environment_defaults = schema.get("defaultByEnvironment")
+    if isinstance(environment_defaults, dict):
+        if environment is not None and environment in environment_defaults:
+            return True, deepcopy(environment_defaults[environment])
+        if "default" in environment_defaults:
+            return True, deepcopy(environment_defaults["default"])
+    if "default" in schema:
+        return True, deepcopy(schema["default"])
+    return False, None
+
+
+def _apply_schema_defaults(
+    value: Any,
+    schema: dict[str, Any],
+    _depth: int = 0,
+    environment: str | None = None,
+) -> Any:
     if _depth > MAX_NESTING_DEPTH:
         raise MaxNestingDepthExceeded(
             f"Schema/config nesting exceeds the maximum supported depth ({MAX_NESTING_DEPTH})."
@@ -527,8 +553,10 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any], _depth: int = 0) 
 
     schema_type = schema.get("type")
 
-    if value is None and "default" in schema:
-        value = deepcopy(schema["default"])
+    if value is None:
+        has_default, default = _schema_default(schema, environment)
+        if has_default:
+            value = default
 
     if schema_type == "object":
         if value is None:
@@ -541,20 +569,25 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any], _depth: int = 0) 
 
         for prop_name, prop_schema in props.items():
             if prop_name not in result:
-                if "default" in prop_schema:
+                has_default, default = _schema_default(prop_schema, environment)
+                if has_default:
                     # Recurse so nested properties of an object-typed default
                     # (e.g. healthcheck: {type: object, default: {}, properties:
                     # {enabled: {default: true}}}) get their own defaults filled
                     # in too, instead of stopping at the raw literal default.
                     result[prop_name] = _apply_schema_defaults(
-                        deepcopy(prop_schema["default"]), prop_schema, _depth + 1
+                        default, prop_schema, _depth + 1, environment
                     )
                 elif prop_schema.get("type") == "object":
-                    nested_default = _apply_schema_defaults({}, prop_schema, _depth + 1)
+                    nested_default = _apply_schema_defaults(
+                        {}, prop_schema, _depth + 1, environment
+                    )
                     if nested_default:
                         result[prop_name] = nested_default
             else:
-                result[prop_name] = _apply_schema_defaults(result[prop_name], prop_schema, _depth + 1)
+                result[prop_name] = _apply_schema_defaults(
+                    result[prop_name], prop_schema, _depth + 1, environment
+                )
 
         return result
 
@@ -564,7 +597,10 @@ def _apply_schema_defaults(value: Any, schema: dict[str, Any], _depth: int = 0) 
         if not isinstance(value, list):
             return value
         item_schema = schema.get("items", {})
-        return [_apply_schema_defaults(item, item_schema, _depth + 1) for item in value]
+        return [
+            _apply_schema_defaults(item, item_schema, _depth + 1, environment)
+            for item in value
+        ]
 
     return value
 

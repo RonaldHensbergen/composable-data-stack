@@ -132,7 +132,12 @@ class PlannerRegressionTest(unittest.TestCase):
                 "postgres://localhost:5432/test",
             )
 
-    def _write_module_with_image_variant(self, module_dir: Path, supports_variant: bool) -> None:
+    def _write_module_with_image_variant(
+        self,
+        module_dir: Path,
+        supports_variant: bool,
+        default_by_environment: dict | None = None,
+    ) -> None:
         import yaml
 
         config_schema: dict = {
@@ -149,7 +154,11 @@ class PlannerRegressionTest(unittest.TestCase):
                     "variant": {
                         "type": "string",
                         "enum": ["base", "hardened"],
-                        "default": "base",
+                        **(
+                            {"defaultByEnvironment": default_by_environment}
+                            if default_by_environment is not None
+                            else {"default": "base"}
+                        ),
                     }
                 },
             }
@@ -231,22 +240,90 @@ class PlannerRegressionTest(unittest.TestCase):
             dagster_entry = next(m for m in plan["modules"] if m["id"] == "dagster")
             self.assertEqual(dagster_entry["config"]["image"]["variant"], "base")
 
+    def test_apply_defaults_selects_environment_default_and_preserves_explicit_value(self):
+        schema = {
+            "type": "object",
+            "properties": {
+                "image": {
+                    "type": "object",
+                    "default": {},
+                    "properties": {
+                        "variant": {
+                            "type": "string",
+                            "defaultByEnvironment": {
+                                "default": "base",
+                                "production": "hardened",
+                            },
+                        }
+                    },
+                }
+            },
+        }
+
+        self.assertEqual(
+            planner.apply_defaults({}, schema, environment="production")["image"]["variant"],
+            "hardened",
+        )
+        self.assertEqual(
+            planner.apply_defaults({}, schema, environment="local")["image"]["variant"],
+            "base",
+        )
+        self.assertEqual(
+            planner.apply_defaults(
+                {"image": {"variant": "base"}}, schema, environment="production"
+            )["image"]["variant"],
+            "base",
+        )
+
+    def test_dagster_module_schema_uses_production_variant_default(self):
+        import yaml
+
+        module_path = (
+            Path(__file__).resolve().parent.parent
+            / "modules"
+            / "orchestration"
+            / "dagster"
+            / "module.yaml"
+        )
+        with module_path.open(encoding="utf-8") as module_file:
+            module = yaml.safe_load(module_file)
+        config_schema = module["spec"]["configSchema"]
+
+        self.assertEqual(
+            planner.apply_defaults({}, config_schema, environment="production")["image"][
+                "variant"
+            ],
+            "hardened",
+        )
+        self.assertEqual(
+            planner.apply_defaults({}, config_schema, environment="local")["image"][
+                "variant"
+            ],
+            "base",
+        )
+
     def _write_module_with_image_source(
         self,
         module_dir: Path,
         supports_source: bool,
         supports_variant: bool = False,
         default_tag: str | None = None,
+        default_by_environment: dict | None = None,
     ) -> None:
         import yaml
 
         image_properties: dict = {}
         if supports_variant:
-            image_properties["variant"] = {
+            variant_schema = {
                 "type": "string",
                 "enum": ["base", "hardened"],
-                "default": "base",
             }
+            variant_schema.update(
+                {"defaultByEnvironment": default_by_environment}
+                if default_by_environment is not None
+                else {"default": "base"}
+            )
+            image_properties["variant"] = variant_schema
         if supports_source:
             image_properties["source"] = {
                 "type": "string",
@@ -283,13 +360,24 @@ class PlannerRegressionTest(unittest.TestCase):
         module_dir.mkdir(parents=True)
         (module_dir / "module.yaml").write_text(yaml.safe_dump(module_def), encoding="utf-8")
 
-    def _build_single_module_plan(self, profile_dir: Path, module_id: str, config: dict, hardened: bool = False, image_source: str | None = None):
+    def _build_single_module_plan(
+        self,
+        profile_dir: Path,
+        module_id: str,
+        config: dict,
+        hardened: bool = False,
+        image_source: str | None = None,
+        environment: str | None = None,
+    ):
         import yaml
 
+        metadata = {"name": "local-test"}
+        if environment is not None:
+            metadata["environment"] = environment
         profile = {
             "apiVersion": "cds/v1alpha1",
             "kind": "Profile",
-            "metadata": {"name": "local-test"},
+            "metadata": metadata,
             "spec": {
                 "runtime": {"type": "docker-compose"},
                 "modules": [
@@ -374,6 +462,56 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertEqual(entry["config"]["image"]["variant"], "hardened")
             self.assertEqual(entry["config"]["image"]["source"], "registry")
             self.assertEqual(entry["config"]["image"]["tag"], "hardened-1.13.20")
+
+    def test_build_plan_production_default_selects_dagster_variant_and_registry_tag(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profiles" / "production"
+            self._write_module_with_image_source(
+                profile_dir / "modules" / "dagster",
+                supports_source=True,
+                supports_variant=True,
+                default_tag="1.13.20",
+                default_by_environment={"default": "base", "production": "hardened"},
+            )
+
+            plan, diagnostics = self._build_single_module_plan(
+                profile_dir,
+                "dagster",
+                config={},
+                image_source="registry",
+                environment="production",
+            )
+
+            self.assertIsNotNone(plan)
+            self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+            entry = next(m for m in plan["modules"] if m["id"] == "dagster")
+            self.assertEqual(entry["config"]["image"]["variant"], "hardened")
+            self.assertEqual(entry["config"]["image"]["tag"], "hardened-1.13.20")
+
+    def test_build_plan_explicit_dagster_variant_wins_over_production_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profile_dir = Path(tmpdir) / "profiles" / "production"
+            self._write_module_with_image_source(
+                profile_dir / "modules" / "dagster",
+                supports_source=True,
+                supports_variant=True,
+                default_tag="1.13.20",
+                default_by_environment={"default": "base", "production": "hardened"},
+            )
+
+            plan, diagnostics = self._build_single_module_plan(
+                profile_dir,
+                "dagster",
+                config={"image": {"variant": "base"}},
+                image_source="registry",
+                environment="production",
+            )
+
+            self.assertIsNotNone(plan)
+            self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+            entry = next(m for m in plan["modules"] if m["id"] == "dagster")
+            self.assertEqual(entry["config"]["image"]["variant"], "base")
+            self.assertEqual(entry["config"]["image"]["tag"], "1.13.20")
 
     def test_build_plan_image_source_build_leaves_tag_default_bare(self):
         with tempfile.TemporaryDirectory() as tmpdir:

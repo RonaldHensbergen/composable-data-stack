@@ -13,14 +13,28 @@ this module and wire a `sql-database` binding to `metadataDatabase`.
 - `metadataDatabase` is mandatory, the module does not start without a `sql-database` binding
 - The `superset-init` container bootstraps the metadata database and the admin user on first start and then exits, the main container waits for it via `service_completed_successfully`
 - The healthcheck has a 180 second start period, first startup takes a while before the web UI reports healthy
-- The image is built locally from `images/superset/base/Dockerfile`, startup includes a Docker build step
 - OIDC login is optional and requires a separately provisioned client in the
   bound identity provider's realm.
+
+## Production and learning variants
+
+The module applies the `production` tag convention (see
+[`docs/modules.md`](../../../docs/modules.md)):
+
+- Learning/development profiles use the pinned upstream
+  `apache/superset:6.1.0-py311` image for both services and do not build
+  locally. The init service runs the database migration, admin bootstrap,
+  and role synchronization commands directly in that image.
+- Production profiles replace both services' image with the hardened local
+  build from `images/superset/base/Dockerfile`. The init service uses the
+  image's bundled `/app/docker/init.sh`.
+- `config.image.source: registry` continues to use the published CDS image
+  for both services in either environment.
 
 ## Web serving modes (issue #216)
 
 The module serves HTTP in two modes, selected with `config.webServer.mode`
-(see [`docs/serving-modes.md`](../../docs/serving-modes.md)):
+(see [`docs/serving-modes.md`](../../../docs/serving-modes.md)):
 
 - `production` (default): gunicorn with `webServer.workers` workers
   (default 4), `webServer.timeoutSeconds` per-request timeout (default 60),

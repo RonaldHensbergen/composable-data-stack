@@ -79,7 +79,9 @@ spec:
             enum:
               - base
               - hardened
-            default: base
+            defaultByEnvironment:
+              default: base
+              production: hardened
             description: >
               Selects the image build directory under images/dagster/ used
               for the user-code, webserver, and daemon services. "base"
@@ -91,7 +93,9 @@ spec:
               distro's own patch cadence for OS packages can leave either
               variant ahead on open vulnerabilities (see .trivyignore and
               docs/image-scanning.md). Both variants run as a non-root
-              user with no build tooling in the final image.
+              user with no build tooling in the final image. When omitted,
+              the variant defaults to "hardened" in production profiles and
+              "base" otherwise; an explicit value takes precedence.
           source:
             type: string
             enum:

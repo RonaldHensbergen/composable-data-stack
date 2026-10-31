@@ -16,6 +16,16 @@ and the configured storage bindings.
 - `sharedData.hostPath` is bind-mounted into the containers, the host directory must exist before `cds up`
 - The task daemon runs only when `daemon.enabled` is true, schedules and sensors need it
 
+## Production and learning variants
+
+When `config.image.variant` is omitted, the planner selects `base` for
+learning/development profiles and `hardened` for production profiles. An
+explicit `config.image.variant` takes precedence over that environment
+default, so either image can still be tested in either environment. The
+`--hardened` CLI option remains an explicit override that forces the hardened
+variant. For registry images, the resolved variant also prefixes the default
+tag (for example, `hardened-1.13.26`).
+
 ## Upstream documentation
 
 - [Dagster documentation](https://docs.dagster.io/)

@@ -24,25 +24,31 @@ def _read_max_pages() -> int:
         return 3
     return value if value > 0 else 3
 
-def _default_config_context(module_def: dict[str, Any]) -> dict[str, Any] | None:
+def _default_config_context(
+    module_def: dict[str, Any], environment: str | None = None
+) -> dict[str, Any] | None:
     """
     Build a ${config.*}-only interpolation context from a module's configSchema
     defaults, so build.dockerfile (and other compose template) expressions that
     reference ${config.*} (e.g. a variant selector) can be statically resolved
-    without a profile. Bindings/secrets are intentionally left empty since
-    those require profile-time contract resolution this function doesn't have.
+    without a profile. When an environment is supplied, resolve its
+    environment-aware defaults too. Bindings/secrets are intentionally left
+    empty since those require profile-time contract resolution this function
+    doesn't have.
     """
     config_schema = module_def.get("spec", {}).get("configSchema")
     if not isinstance(config_schema, dict) or not config_schema:
         return None
     try:
-        default_config = apply_defaults({}, config_schema)
+        default_config = apply_defaults({}, config_schema, environment=environment)
     except MaxNestingDepthExceeded:
         return None
     return {"config": default_config, "bindings": {}, "service": {}, "secrets": {}}
 
 
-def collect_module_images(module_root: Path) -> list[dict[str, Any]]:
+def collect_module_images(
+    module_root: Path, environment: str | None = None
+) -> list[dict[str, Any]]:
     images: list[dict[str, Any]] = []
     for module_file in sorted(module_root.rglob("module.yaml")):
         module_def, diags = load_yaml_file(module_file)
@@ -51,7 +57,7 @@ def collect_module_images(module_root: Path) -> list[dict[str, Any]]:
 
         module_name = str(module_file.parent.relative_to(module_root))
         compose = module_def.get("spec", {}).get("implementation", {}).get("compose", {})
-        context = _default_config_context(module_def)
+        context = _default_config_context(module_def, environment=environment)
         module_images = find_images_in_compose(
             compose, module_dir=module_file.parent, context=context
         )

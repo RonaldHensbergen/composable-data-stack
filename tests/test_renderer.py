@@ -1599,6 +1599,39 @@ class ProductionGateTest(unittest.TestCase):
         module.update(module_overrides)
         return {"metadata": {"name": "cds-test", "environment": environment}, "modules": [module]}
 
+    def test_superset_learning_and_production_variants_keep_init_semantics(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        module_path = repo_root / "modules" / "bi" / "superset" / "module.yaml"
+        with module_path.open(encoding="utf-8") as module_file:
+            module = yaml.safe_load(module_file)
+        services = module["spec"]["implementation"]["compose"]["services"]
+
+        learning = renderer.apply_production_gates(services, is_production=False)
+        self.assertEqual(
+            learning["superset"]["image"],
+            "apache/superset:6.1.0-py311@sha256:"
+            "95b060f3450f3314019700642c20d2149dc0e0b41d65c0ef8a1bd8018fbf385c",
+        )
+        self.assertNotIn("build", learning["superset"])
+        self.assertEqual(learning["superset-init"]["image"], learning["superset"]["image"])
+        self.assertNotIn("build", learning["superset-init"])
+        self.assertIn("superset db upgrade", learning["superset-init"]["command"])
+        self.assertIn("superset fab create-admin", learning["superset-init"]["command"])
+        self.assertIn("superset init", learning["superset-init"]["command"])
+
+        production = renderer.apply_production_gates(services, is_production=True)
+        for service_name in ("superset", "superset-init"):
+            with self.subTest(service=service_name):
+                self.assertEqual(production[service_name]["image"], "local/superset:custom")
+                self.assertEqual(
+                    production[service_name]["build"]["dockerfile"],
+                    "images/superset/base/Dockerfile",
+                )
+        self.assertEqual(
+            production["superset-init"]["entrypoint"], ["/app/docker/init.sh"]
+        )
+        self.assertEqual(production["superset-init"]["command"], [])
+
     def test_learning_profile_keeps_base_variant(self):
         output, diagnostics = render_compose(self._plan(environment="local"))
         self.assertEqual([d for d in diagnostics if d.level == "error"], [])

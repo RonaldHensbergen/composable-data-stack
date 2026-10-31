@@ -269,10 +269,7 @@ spec:
     compose:
       services:
         superset-init:
-          build:
-            context: ../../../
-            dockerfile: images/superset/base/Dockerfile
-          image: local/superset:custom
+          image: apache/superset:6.1.0-py311@sha256:95b060f3450f3314019700642c20d2149dc0e0b41d65c0ef8a1bd8018fbf385c
           read_only: true
           cap_drop:
             - ALL
@@ -282,7 +279,36 @@ spec:
             - /tmp:rw,noexec,nosuid,nodev
             - /app/superset_home:rw,noexec,nosuid,nodev
           entrypoint:
-            - /app/docker/init.sh
+            - /bin/bash
+            - -c
+          command: |
+            set -e
+
+            retry() {
+              local attempts=5 delay=5 n=1
+              until "$@"; do
+                if (( n >= attempts )); then
+                  echo "Command failed after $attempts attempts: $*" >&2
+                  return 1
+                fi
+                echo "Attempt $n/$attempts failed; retrying in $delay seconds: $*" >&2
+                n=$((n + 1))
+                sleep "$delay"
+              done
+            }
+
+            if [[ -n "$SUPERSET__SQLALCHEMY_DATABASE_URI" ]]; then
+              retry superset db upgrade
+              if [[ -n "$SUPERSET_ADMIN_USERNAME" && -n "$SUPERSET_ADMIN_PASSWORD" && -n "$SUPERSET_ADMIN_EMAIL" ]]; then
+                superset fab create-admin \
+                  --username "$SUPERSET_ADMIN_USERNAME" \
+                  --password "$SUPERSET_ADMIN_PASSWORD" \
+                  --email "$SUPERSET_ADMIN_EMAIL" \
+                  --firstname "Admin" \
+                  --lastname "User" || echo "Admin user already exists or creation failed"
+              fi
+              retry superset init
+            fi
           environment:
             SUPERSET_SECRET_KEY: "${config.secretKeyFrom}"
             SUPERSET_ADMIN_USERNAME: "${config.adminUser.username}"
@@ -295,11 +321,16 @@ spec:
           healthcheck:
             disable: true
           restart: "no"
+          production:
+            image: local/superset:custom
+            build:
+              context: ../../../
+              dockerfile: images/superset/base/Dockerfile
+            entrypoint:
+              - /app/docker/init.sh
+            command: []
         superset:
-          build:
-            context: ../../../
-            dockerfile: images/superset/base/Dockerfile
-          image: local/superset:custom
+          image: apache/superset:6.1.0-py311@sha256:95b060f3450f3314019700642c20d2149dc0e0b41d65c0ef8a1bd8018fbf385c
           read_only: true
           cap_drop:
             - ALL
@@ -339,6 +370,11 @@ spec:
             interval: 10s
             timeout: 5s
             retries: 20
+          production:
+            image: local/superset:custom
+            build:
+              context: ../../../
+              dockerfile: images/superset/base/Dockerfile
 
     kubernetes:
       workloads:
