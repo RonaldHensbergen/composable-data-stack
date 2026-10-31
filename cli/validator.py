@@ -1587,6 +1587,28 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
                     ),
                     path=f"{base_path}.workloads.{name}.production",
                 ))
+
+    # Raw manifests (issue #767): enabledFrom gates are implemented by the
+    # helm renderer, production gates are not.
+    manifests = kubernetes.get("manifests", {})
+    if isinstance(manifests, dict):
+        for name, spec in manifests.items():
+            if not isinstance(spec, dict):
+                continue
+            diagnostics.extend(_condition_shape(
+                spec.get("enabledFrom"), f"{base_path}.manifests.{name}.enabledFrom"
+            ))
+            if "production" in spec:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E144",
+                    message=(
+                        "The `production` marker is not implemented on kubernetes "
+                        "manifest entries (only on volume and configMap entries); the "
+                        "helm renderer would silently ignore it."
+                    ),
+                    path=f"{base_path}.manifests.{name}.production",
+                ))
     return diagnostics
 
 

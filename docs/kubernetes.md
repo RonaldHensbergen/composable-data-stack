@@ -16,6 +16,7 @@ including k3s through k3d.
 - [Migrating from Docker Compose](#migrating-from-docker-compose)
 - [Translation boundaries](#translation-boundaries)
 - [Network isolation and least privilege](#network-isolation-and-least-privilege)
+- [GitOps handoff](#gitops-handoff)
 - [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
@@ -269,6 +270,44 @@ Declare those rules via `implementation.kubernetes.networkPolicy.ingress`/
 malformed shapes fail closed with E149. The security scan records every
 external-egress rule as a low CDS-K8S-008 finding, so intentional openings
 stay visible in `cds security --target helm`.
+
+## GitOps handoff
+
+`cds render --target helm` output is designed to become the source-of-truth
+artifact a pull-based GitOps controller (FluxCD, ArgoCD) reconciles against,
+instead of requiring `cds up --target helm` to be run by hand against a live
+cluster (issue #767). The vendor-neutral
+[`gitops-target` contract](../shared/contracts/gitops-target.yaml) describes
+that source of truth — `repositoryUrl`, `branch`, `path`, `syncInterval`,
+`targetNamespace` — and the experimental reference provider
+[`modules-experimental/gitops/fluxcd`](../modules-experimental/gitops/fluxcd/)
+renders the Flux bootstrap resources: a `GitRepository` plus a `Kustomization`
+or `HelmRelease` (selected by the module's `config.mode`).
+
+Two handoff layouts are supported:
+
+- **Rendered-chart-as-artifact (default):** commit the `cds render --target
+  helm` output directory under `path` in the GitOps repository; the rendered
+  `Kustomization` applies those manifests into `targetNamespace`. The chart
+  contains no secret values (they stay `$(CDS_*)` expansions backed by
+  `secretKeyRef`), so the commit is safe to publish.
+- **Chart-as-source:** commit the chart directory itself and point the
+  rendered `HelmRelease` at it (`config.chartPath`); Flux installs the release
+  and reconciles it on every `syncInterval`.
+
+The module declares raw Kubernetes manifests via
+`implementation.kubernetes.manifests`, a new module-schema block the Helm
+renderer emits verbatim as extra chart templates (substituted like any other
+module value, named `{{ .Release.Name }}-...`, and shape-checked with E151).
+Because a GitOps module has no workloads of its own, it gets no ServiceAccount
+or NetworkPolicy, and rendering a profile that contains it with
+`--target compose` fails closed with E070.
+
+Non-goals: CDS does not install or run the GitOps controllers themselves —
+the cluster needs a FluxCD (or ArgoCD) installation with its CRDs present
+before the rendered chart is applied — and CDS does not commit to the GitOps
+repository; rendering produces local files the operator commits. ArgoCD can be
+added later as a second provider of the same `gitops-target` contract.
 
 ## Troubleshooting
 

@@ -95,18 +95,32 @@ follow-ups.
 
 ### 3.2 GitOps
 
-No issue currently tracks this workstream — it should be filed once 3.1's
-remaining follow-ups (NetworkPolicy, CI cluster validation) are scoped.
+Tracked by [#767](https://github.com/RonaldHensbergen/composable-data-stack/issues/767)
+(in progress): the `gitops-target` contract is defined in
+[`shared/contracts/gitops-target.yaml`](../shared/contracts/gitops-target.yaml)
+(repo URL, branch, path, sync interval, target namespace), and the reference
+FluxCD module lives at
+[`modules-experimental/gitops/fluxcd`](../modules-experimental/gitops/fluxcd/).
 
 - Define a `gitops-target` contract (repo URL, path, branch, sync interval)
   that a GitOps module (FluxCD- or ArgoCD-shaped, vendor-neutral contract
   fields only, per CDS's existing "contract, not vendor" convention) can
-  provide.
-- Add a reference module under `modules-experimental/platform/gitops/` (or a
-  new `platform` category) with a `docker-compose` implementation for local
-  testing and a `kubernetes` implementation for real use once 3.1 lands.
+  provide. — **done**: `shared/contracts/gitops-target.yaml`, validated by
+  `cli/validator.py`.
+- Add a reference module under `modules-experimental/gitops/` with a
+  `kubernetes` implementation that renders the controller's bootstrap
+  resources. — **done**: `modules-experimental/gitops/fluxcd` renders a Flux
+  `GitRepository` + `Kustomization`/`HelmRelease` manifest set from the
+  Helm-target chart via the new `implementation.kubernetes.manifests` block.
+  It is Kubernetes-only on purpose: CDS does not run the FluxCD controllers
+  themselves, so there is no `docker-compose` implementation for local
+  testing of the controller (a local cluster such as k3d with `flux`
+  installed serves that role).
 - `cds render` output becomes the GitOps source of truth artifact; document
   how a rendered Kubernetes manifest set is expected to be committed/synced.
+  — **done**: the "GitOps handoff" section of
+  [docs/kubernetes.md](kubernetes.md) covers rendered-chart-as-artifact vs.
+  chart-as-source and the non-goals.
 
 ### 3.3 Observability platform module
 
@@ -225,7 +239,7 @@ Implementation sketch:
   semantics, and a profile with zero platform-layer bindings still validates
   and renders exactly as it does today (tier: Basic).
 
-## 4. Current status vs. tracked work (as of 2026-09-11)
+## 4. Current status vs. tracked work (as of 2026-10-31)
 
 Cross-referencing this plan against open GitHub issues and PR #608 shows the
 gap is narrower than section 2 suggested when this document was drafted:
@@ -235,7 +249,7 @@ gap is narrower than section 2 suggested when this document was drafted:
 | 3.1 Kubernetes rendering target | **Done, pending merge** — implemented end-to-end with real k3d E2E verification | PR [#608](https://github.com/RonaldHensbergen/composable-data-stack/pull/608); originating issues [#65](https://github.com/RonaldHensbergen/composable-data-stack/issues/65), [#73](https://github.com/RonaldHensbergen/composable-data-stack/issues/73), [#74](https://github.com/RonaldHensbergen/composable-data-stack/issues/74), [#77](https://github.com/RonaldHensbergen/composable-data-stack/issues/77) should close on merge |
 | 3.1 follow-up: NetworkPolicy generation | Open, not started | [#75](https://github.com/RonaldHensbergen/composable-data-stack/issues/75) (partially — also covered secrets/PVC, which #608 did deliver) |
 | 3.1 follow-up: CI cluster validation (kind/k3d apply in CI, not just `helm lint`/`template`) | Open, not started | [#76](https://github.com/RonaldHensbergen/composable-data-stack/issues/76) |
-| 3.2 GitOps | Filed, not started | [#767](https://github.com/RonaldHensbergen/composable-data-stack/issues/767) |
+| 3.2 GitOps | **In progress** — `gitops-target` contract + FluxCD reference module (`modules-experimental/gitops/fluxcd`) rendering Flux bootstrap manifests over the Helm chart | [#767](https://github.com/RonaldHensbergen/composable-data-stack/issues/767) |
 | 3.3 Observability platform module | Contract/schema done; reference module open | Design closed via [#174](https://github.com/RonaldHensbergen/composable-data-stack/issues/174); module tracked by [#369](https://github.com/RonaldHensbergen/composable-data-stack/issues/369), [#662](https://github.com/RonaldHensbergen/composable-data-stack/issues/662); OpenTelemetry trace-sink/collector tracked by [#777](https://github.com/RonaldHensbergen/composable-data-stack/issues/777); OpenLineage `lineage-sink` contract and Dagster wiring delivered by [#779](https://github.com/RonaldHensbergen/composable-data-stack/issues/779) (PR #831), with an experimental Marquez reference backend (`modules-experimental/observability/marquez`) |
 | 3.4 Security platform modules | Pod/container hardening rules done; TLS/mesh/IAM open | Hardening in PR #608 (`cli/k8s_security.py`); TLS tracked by [#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580); identity tracked by [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370); service mesh (mTLS) tracked by [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776); consolidated Zero-Trust framing tracked by [#778](https://github.com/RonaldHensbergen/composable-data-stack/issues/778) |
 | 3.5 Backup and restore | Not started, but scoped into 4 issues already | [#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210) (contracts), [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665) (Postgres), [#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668) (generic file/volume), [#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669) (object storage) |
@@ -271,7 +285,7 @@ current status in section 4:
    now that 3.1 has landed, even before 3.3–3.6 exist, since it is a
    read-only reporting tool over Plan bindings. No issue filed yet.
 4. **3.4 Security platform modules** (issues #205/#370/#577/#579/#580) and
-   **3.2 GitOps** (no issue yet) — parallelizable now that 3.1 has landed.
+   **3.2 GitOps** (#767, in progress) — parallelizable now that 3.1 has landed.
 5. **3.5 Backup** (issues #210/#665/#668/#669) and **3.6 Database operators**
    (no issue yet) — lowest priority; highest Kubernetes-specific complexity,
    least reusable by Compose-only users.

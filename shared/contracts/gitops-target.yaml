@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: gitops-target
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared, vendor-neutral contract describing a pull-based GitOps source of
+    truth (repository URL, branch, path, sync cadence) that a deployment
+    controller such as FluxCD or ArgoCD reconciles against, so a profile does
+    not hardcode a specific GitOps product. The provider renders the
+    controller's bootstrap resources (e.g. Flux Kustomization/HelmRelease);
+    CDS itself never runs the controller. See docs/kubernetes.md "GitOps
+    handoff" and modules-experimental/gitops/fluxcd/ (issue #767).
+
+spec:
+  fields:
+    repositoryUrl:
+      type: string
+      required: true
+      description: >-
+        Git URL of the repository the controller syncs from, e.g.
+        "https://github.com/org/cds-gitops.git" or "ssh://git@github.com/org/cds-gitops.git".
+    branch:
+      type: string
+      required: true
+      description: Branch (or other ref) the controller tracks, e.g. "main".
+    path:
+      type: string
+      required: true
+      description: >-
+        Path within the repository holding the manifests to apply: either the
+        directory of `cds render --target helm` output (rendered-chart-as-artifact)
+        or a Helm chart directory (chart-as-source).
+    syncInterval:
+      type: string
+      required: false
+      description: >-
+        Reconciliation interval in duration format (e.g. "1m0s", "5m"). Absent
+        means the provider's default.
+    targetNamespace:
+      type: string
+      required: false
+      description: >-
+        Namespace the controller deploys the stack into. Absent means the
+        controller's own namespace.
+  examples:
+    - repositoryUrl: https://github.com/example/cds-gitops.git
+      branch: main
+      path: clusters/local/chart
+      syncInterval: 1m0s
+      targetNamespace: cds-local
+    - repositoryUrl: ssh://git@github.com/example/cds-gitops.git
+      branch: main
+      path: clusters/prod/rendered
+      syncInterval: 5m0s
+      targetNamespace: cds
