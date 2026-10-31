@@ -24,6 +24,9 @@ The format is based on Keep a Changelog.
   not run the controllers) is documented in `docs/kubernetes.md` and the
   module README.
 - Added `cds maturity` to report Basic/Automated tiers and recognized platform contract providers in text or JSON without requiring runtime secret values (#769).
+- Extended `cds maturity` with Observed, Secured, and Resilient tiers;
+  observability now advances a profile from Automated to Observed, and
+  Resilient requires backup coverage for every stateful module (#1059).
 - Published the Kubernetes target docs and example profiles (issue #77):
   `docs/kubernetes.md` gains a "Migrating from Docker Compose" guide (same
   profile, `--target helm` render flag, what translates and what does not),

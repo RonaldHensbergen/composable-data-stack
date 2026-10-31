@@ -13,7 +13,7 @@ common ones (`validate`, `plan`, `render`, `up`), see the
 |cds validate [profile]|Validate modules and contracts; use `--target helm` for Kubernetes checks|
 |cds preflight [profile]|Check runtime tools, required environment values, host ports, and advisory Docker host hardening ([baseline](docker-host-hardening.md)) without starting services|
 |cds plan [profile]|Resolve dependencies and generate an execution plan|
-|cds maturity [profile] [--environment \<name\>] [--format text\|json]|Report bound platform capabilities and the profile's Basic/Automated maturity tiers|
+|cds maturity [profile] [--environment \<name\>] [--format text\|json]|Report bound platform capabilities and the profile's Basic/Automated/Observed/Secured/Resilient maturity tiers|
 |cds render [profile]|Generate Docker Compose or a Helm chart from a resolved plan|
 |cds up [profile]|Validate, plan, render, and start the Compose or Helm target; use `--target helm` for Kubernetes|
 |cds down [profile]|Stop Compose or uninstall a Helm release; Helm PVCs are retained by default|
@@ -38,13 +38,25 @@ common ones (`validate`, `plan`, `render`, `up`), see the
 `cds maturity [profile]` statically evaluates the resolved profile plan and
 reports each recognized platform capability, its contract kind, and the
 module instances that provide it. It does not start containers or require a
-Kubernetes cluster. The **Basic** tier requires a database and cache. The
-**Automated** tier additionally requires identity, TLS/reverse proxy, at least
-one logging/metrics/tracing capability, and backup. GitOps and service-mesh
-capabilities are shown when present but do not gate these initial tiers.
-Use `--format json` for machine-readable output; the default `text` format is
-a terminal-friendly table. Missing runtime secret values do not prevent this
-read-only report; secret values are never included in the output.
+Kubernetes cluster. The tiers are cumulative:
+
+- **Basic** requires a database and cache.
+- **Automated** additionally requires identity, TLS/reverse proxy, and a
+  backup provider.
+- **Observed** additionally requires at least one logging, metrics, or tracing
+  provider.
+- **Secured** additionally requires at least one TLS-certificate, service-mesh,
+  or identity-broker provider.
+- **Resilient** additionally requires backup coverage for every stateful
+  module instance. A module is treated as stateful when it provides a
+  `sql-database` or `file-database` contract; coverage is recognized from an
+  enabled built-in backup, a module consuming its `backup-target`, or a backup
+  provider consuming its `backup-source`.
+
+GitOps and other recognized capabilities are reported but do not gate these
+tiers. Use `--format json` for machine-readable output; the default `text`
+format is a terminal-friendly table. Missing runtime secret values do not
+prevent this read-only report; secret values are never included in the output.
 
 ## `cds get`
 
