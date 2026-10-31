@@ -135,7 +135,7 @@ class MaturityCommandTest(unittest.TestCase):
         )
         build_plan.assert_called_once_with(
             "/profiles/minimal/profile.yaml",
-            env_file="/profiles/minimal/.env",
+            env_file=str(Path("/profiles/minimal/.env")),
             environment="prod",
             allow_missing_secrets=True,
         )

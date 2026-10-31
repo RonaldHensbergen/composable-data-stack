@@ -82,6 +82,12 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the Windows CI test job (`test (windows-latest, 3.14)`) failing on
+  PR #1057: `tests/test_maturity.py` asserted the literal POSIX string
+  `env_file="/profiles/minimal/.env"`, but `str(Path(...))` yields
+  backslashes on Windows; the assertion now uses
+  `str(Path("/profiles/minimal/.env"))` so it matches on every platform.
+
 - Fixed the experimental `marquez` module advertising unresolvable
   endpoints (issue #1029): it is a multi-service module (`marquez-api`,
   `marquez-web`), so the instance id is not a DNS name on the Compose
