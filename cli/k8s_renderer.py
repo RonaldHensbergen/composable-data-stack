@@ -38,9 +38,8 @@ import yaml
 from .confinement import plan_declares_confinement
 from .diagnostics import Diagnostic
 from .renderer import (
-    _DNS_LABEL_RE,
     _build_context,
-    _endpoint_hostname,
+    _contract_host_candidates,
     _merge_init_db_env,
     _resolve_expr,
     _resolve_profile_dir,
@@ -1920,22 +1919,7 @@ def _check_provided_contract_services(
             spec = provided.get("spec")
             if not isinstance(spec, dict):
                 continue
-            candidates: list[tuple[str, str | None]] = []
-            if kind == "http-service":
-                advertised_service = spec.get("serviceName")
-                if isinstance(advertised_service, str) and advertised_service:
-                    candidates.append(
-                        ("serviceName", _compose_service_name(module_id, advertised_service))
-                    )
-                else:
-                    candidates.append(("host", spec.get("host")))
-            elif kind in ("sql-database", "cache-service"):
-                candidates.append(("host", spec.get("host")))
-            elif kind == "object-storage":
-                candidates.append(("endpoint", _endpoint_hostname(spec.get("endpoint"))))
-            for field, host in candidates:
-                if not isinstance(host, str) or not _DNS_LABEL_RE.match(host):
-                    continue
+            for field, host in _contract_host_candidates(module_id, kind, spec):
                 if field == "serviceName":
                     host = service_names.get(host, host)
                 if host in rendered:

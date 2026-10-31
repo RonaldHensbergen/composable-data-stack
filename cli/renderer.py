@@ -282,6 +282,36 @@ def _endpoint_hostname(value: Any) -> str | None:
     return value
 
 
+def _contract_host_candidates(
+    module_id: str, kind: Any, spec: dict[str, Any]
+) -> list[tuple[str, str]]:
+    """
+    Collect the (field, host) pairs a provided contract advertises, filtered
+    to cluster-local names. Hosts outside the rendered namespace (dots,
+    ports, credentials) cannot be cross-checked against rendered services,
+    so they are dropped here. Shared by the compose and Kubernetes E150
+    checks.
+    """
+    raw: list[tuple[str, Any]] = []
+    if kind == "http-service":
+        advertised_service = spec.get("serviceName")
+        if isinstance(advertised_service, str) and advertised_service:
+            raw.append(
+                ("serviceName", _compose_service_name(module_id, advertised_service))
+            )
+        else:
+            raw.append(("host", spec.get("host")))
+    elif kind in ("sql-database", "cache-service"):
+        raw.append(("host", spec.get("host")))
+    elif kind == "object-storage":
+        raw.append(("endpoint", _endpoint_hostname(spec.get("endpoint"))))
+    return [
+        (field, host)
+        for field, host in raw
+        if isinstance(host, str) and _DNS_LABEL_RE.match(host)
+    ]
+
+
 def _validate_provided_contract_hosts(
     plan: dict[str, Any],
     module_service_names: dict[str, list[str]],
@@ -316,22 +346,7 @@ def _validate_provided_contract_hosts(
             spec = provided.get("spec")
             if not isinstance(spec, dict):
                 continue
-            candidates: list[tuple[str, str | None]] = []
-            if kind == "http-service":
-                advertised_service = spec.get("serviceName")
-                if isinstance(advertised_service, str) and advertised_service:
-                    candidates.append(
-                        ("serviceName", _compose_service_name(module_id, advertised_service))
-                    )
-                else:
-                    candidates.append(("host", spec.get("host")))
-            elif kind in ("sql-database", "cache-service"):
-                candidates.append(("host", spec.get("host")))
-            elif kind == "object-storage":
-                candidates.append(("endpoint", _endpoint_hostname(spec.get("endpoint"))))
-            for field, host in candidates:
-                if not isinstance(host, str) or not _DNS_LABEL_RE.match(host):
-                    continue
+            for field, host in _contract_host_candidates(module_id, kind, spec):
                 if host in rendered:
                     continue
                 diagnostics.append(Diagnostic(
