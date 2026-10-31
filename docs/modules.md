@@ -242,8 +242,9 @@ fail with `E136` instead of silently generating broken config.
 The same fail-closed cross-check applies to plain provided contracts
 (issue #1010): every `http-service`, `sql-database`, `cache-service`,
 and `object-storage` contract's advertised network host (the `host`
-field, or the `endpoint`'s hostname part) must match a compose service
-the render actually produced for the providing module, and
+field, or the `endpoint`'s hostname part; a scheme-less `host:port`
+value contributes its host part, issue #1036) must match a compose
+service the render actually produced for the providing module, and
 `http-service` contracts that advertise a `serviceName` have that name
 mapped through the renderer's service-naming rule first. Mismatches
 fail with `E150` instead of shipping a contract endpoint nothing

@@ -268,9 +268,10 @@ def _endpoint_hostname(value: Any) -> str | None:
     """
     Extract the network hostname a contract endpoint advertises.
 
-    Bare values are hostnames; URL-shaped endpoints contribute only their
-    hostname part. Anything else (external DNS names containing dots,
-    host:port pairs, empty values) is outside the Compose network's
+    Bare values are hostnames, URL-shaped endpoints contribute only their
+    hostname part, and a scheme-less ``host:port`` pair contributes its
+    host part (issue #1036). Anything else (external DNS names containing
+    dots, IPv6 literals, empty values) is outside the Compose network's
     namespace and cannot be cross-checked against rendered services.
     """
     if not isinstance(value, str) or not value:
@@ -280,6 +281,12 @@ def _endpoint_hostname(value: Any) -> str | None:
             return urlsplit(value).hostname
         except ValueError:
             return None
+    if ":" in value:
+        # Scheme-less host:port: the host part is still cross-checkable.
+        host, _, port = value.rpartition(":")
+        if host and port.isdigit():
+            return host
+        return None
     return value
 
 
@@ -324,9 +331,10 @@ def _validate_provided_contract_hosts_against(
     "Kubernetes Service"); `resolve_service_name` optionally maps a
     `serviceName` advertisement to the name the workload actually renders
     (the helm target's workload-level `serviceName` overrides). Hosts
-    outside the cluster namespace (dots, ports, credentials) are not
-    checked, and modules whose services failed to render are left to
-    their own diagnostics.
+    outside the cluster namespace (external DNS names, credentials, IPv6
+    literals) are not checked; a scheme-less `host:port` advertisement is
+    checked by its host part (issue #1036). Modules whose services failed
+    to render are left to their own diagnostics.
     """
     diagnostics: list[Diagnostic] = []
     for module in modules:
@@ -346,7 +354,8 @@ def _validate_provided_contract_hosts_against(
             spec = provided.get("spec")
             if not isinstance(spec, dict):
                 continue
-            for field, host in _provided_contract_host_candidates(kind, spec, module_id):
+            for field, advertised in _provided_contract_host_candidates(kind, spec, module_id):
+                host = _endpoint_hostname(advertised)
                 if not isinstance(host, str) or not _DNS_LABEL_RE.match(host):
                     continue
                 if field == "serviceName" and resolve_service_name is not None:

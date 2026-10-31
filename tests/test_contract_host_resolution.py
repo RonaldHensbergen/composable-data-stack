@@ -333,6 +333,58 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
             [],
         )
 
+    def test_scheme_less_host_port_is_checked_by_its_host_part(self):
+        # Issue #1036: a "garage:3900" endpoint contains a colon and used
+        # to be skipped by the _DNS_LABEL_RE gate; its host part is
+        # cross-checkable just like a URL endpoint's hostname part.
+        plan = {
+            "modules": [
+                {
+                    "id": "garage",
+                    "provides": {
+                        "object-storage": {
+                            "kind": "object-storage",
+                            "spec": {"endpoint": "garage:3900"},
+                        },
+                        "sql-database": {
+                            "kind": "sql-database",
+                            "spec": {"host": "garage:5432"},
+                        },
+                    },
+                }
+            ]
+        }
+        self.assertEqual(_validate_provided_contract_hosts(plan, {"garage": ["garage"]}), [])
+        diagnostics = _validate_provided_contract_hosts(plan, {"garage": ["other"]})
+        self.assertEqual([d.code for d in diagnostics], ["E150", "E150"])
+        self.assertEqual(
+            [d.path for d in diagnostics],
+            [
+                "module:garage.provides.object-storage.spec.endpoint",
+                "module:garage.provides.sql-database.spec.host",
+            ],
+        )
+
+    def test_scheme_less_host_port_with_non_numeric_port_is_skipped(self):
+        plan = {
+            "modules": [
+                {
+                    "id": "garage",
+                    "provides": {
+                        "sql-database": {
+                            "kind": "sql-database",
+                            "spec": {"host": "garage:abc"},
+                        },
+                        "cache-service": {
+                            "kind": "cache-service",
+                            "spec": {"host": "[::1]:6379"},
+                        },
+                    },
+                }
+            ]
+        }
+        self.assertEqual(_validate_provided_contract_hosts(plan, {"garage": ["other"]}), [])
+
     def test_module_without_rendered_services_is_skipped(self):
         plan = {
             "modules": [
