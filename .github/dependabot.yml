@@ -1,3 +1,9 @@
+# Dependabot manages only the root pip manifests (pyproject.toml / uv.lock).
+# The per-image pip-compile locks (images/*/requirements*.txt) and
+# dagster/requirements.txt are owned by Renovate's pip-compile manager (see
+# renovate.json), so Dependabot security alerts on those manifests cannot be
+# auto-fixed and show "cannot update to the required version". That error is
+# expected there: remediation is a Renovate PR, not a Dependabot PR (#1048).
 version: 2
 updates:
 - package-ecosystem: "pip" # See documentation for possible values
