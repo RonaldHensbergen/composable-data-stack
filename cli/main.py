@@ -46,6 +46,7 @@ from .k8s_renderer import render_helm
 from .k8s_runner import get_k8s_state, helm_down, helm_up
 from .k8s_security import scan_k8s_security
 from .loader import load_yaml_file, save_generated_profile
+from .maturity import build_maturity_report, format_maturity_report
 from .overlay import _merge_profile_docs, resolve_extends, resolve_profile
 from .planner import build_plan
 from .preflight import preflight_passed, run_preflight
@@ -1567,6 +1568,19 @@ def _run() -> int:
     )
     plan_parser.add_argument("--json", action="store_true", help="Output plan as JSON (default when printing to stdout)")
 
+    maturity_parser = subparsers.add_parser(
+        "maturity",
+        help="Report profile maturity from its platform contracts",
+    )
+    _add_profile_arg(maturity_parser)
+    _add_environment_arg(maturity_parser)
+    maturity_parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="Output format (default: text).",
+    )
+
     render_parser = subparsers.add_parser(
         "render",
         help="Render docker compose from a profile or plan file",
@@ -1980,7 +1994,7 @@ def _run() -> int:
 
     args = parser.parse_args()
     environment_explicit = hasattr(args, "environment")
-    if args.command in {"validate", "plan", "render", "up", "test", "preflight", "init", "security", "down", "state", "report"}:
+    if args.command in {"validate", "plan", "maturity", "render", "up", "test", "preflight", "init", "security", "down", "state", "report"}:
         args.environment = getattr(args, "environment", None) or load_saved_environment()
     if args.command in {"render", "up", "test", "report"}:
         args.image_source = getattr(args, "image_source", None) or load_saved_image_source()
@@ -2203,6 +2217,46 @@ def _run() -> int:
             # Output to stdout
             print(plan_json)
 
+        return 0
+
+    if args.command == "maturity":
+        try:
+            profile_path = resolve_profile_path(args.profile)
+        except ValueError as exc:
+            print(f"ERROR {exc}")
+            return 1
+
+        validation_diags = validate_profile(
+            profile_path, environment=args.environment
+        )
+        if has_errors(validation_diags):
+            print_diagnostics(validation_diags, file=sys.stderr)
+            print(
+                "Cannot build maturity report because validation failed.",
+                file=sys.stderr,
+            )
+            return 1
+
+        env_file = str(resolve_env_file_path(profile_path))
+        plan, plan_diags = build_plan(
+            profile_path,
+            env_file=env_file,
+            environment=args.environment,
+            allow_missing_secrets=True,
+        )
+        if plan is None or has_errors(plan_diags):
+            print_diagnostics(plan_diags, file=sys.stderr)
+            print(
+                "Cannot build maturity report because plan generation failed.",
+                file=sys.stderr,
+            )
+            return 1
+
+        report = build_maturity_report(plan)
+        if args.format == "json":
+            print(json.dumps(report, indent=2))
+        else:
+            print(format_maturity_report(report))
         return 0
 
     if args.command == "render":

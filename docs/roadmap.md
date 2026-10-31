@@ -91,7 +91,7 @@ These work but may have breaking changes in upcoming releases:
 - 📋 **Stabilize Vault-backed profile** — validate and harden `local-dagster-postgres-superset-vault` for regular use
 - 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
 - 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
-- 📋 **Haven parity — previously untracked workstreams** — the three [docs/haven-parity-plan.md](haven-parity-plan.md) gaps that had no issue filed: GitOps rendering/module support (#767), Kubernetes-native database operator pattern (#768), `cds maturity` profile-maturity report (#769)
+- 📋 **Haven parity — previously untracked workstreams** — GitOps rendering/module support (#767) and the Kubernetes-native database operator pattern (#768); the initial Basic/Automated profile maturity report landed in #769
 - 📋 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink` contract + OpenTelemetry Collector reference module (#777)
 
 ---

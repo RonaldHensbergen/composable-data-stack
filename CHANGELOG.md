@@ -8,6 +8,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added `cds maturity` to report Basic/Automated tiers and recognized platform contract providers in text or JSON without requiring runtime secret values (#769).
 - Published the Kubernetes target docs and example profiles (issue #77):
   `docs/kubernetes.md` gains a "Migrating from Docker Compose" guide (same
   profile, `--target helm` render flag, what translates and what does not),
