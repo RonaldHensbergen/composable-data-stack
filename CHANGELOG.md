@@ -256,6 +256,17 @@ The format is based on Keep a Changelog.
   marker positions (`production` on workloads and configMap entries,
   `enabledFrom` on configMap entries) were silently ignored.
 
+- Fixed the E150 provided-contract host check silently skipping
+  scheme-less `host:port` endpoints (issue #1036): the check only
+  validated values matching the DNS-label pattern, so an endpoint like
+  `garage:3900` (no scheme, but with a port) never got cross-checked
+  against the rendered services, while a full URL (`http://garage:3900`)
+  did. The host part of a scheme-less `host:port` value is now extracted
+  and cross-checked for every advertised field (`host`, `endpoint`,
+  `connectionUri`) on both render targets; values with a non-numeric
+  port or an IPv6 literal are still skipped as outside the cluster
+  namespace.
+
 - Raised the `pyasn1` floor in `images/superset/requirements.in` from
   `>=0.6.4` to `>=0.6.5` so recompiling the Superset image lock can never
   resolve back to the vulnerable 0.6.4 (CVE-2026-119194/95/96/97;

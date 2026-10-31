@@ -246,7 +246,8 @@ The same fail-closed cross-check applies to plain provided contracts
 `cache-service`, `object-storage`, `lineage-sink`, and `log-sink`
 contract's advertised network host (the `host` field, the `endpoint`'s
 hostname part, or -- for the sink kinds -- the `connectionUri`'s
-hostname part) must match a compose service the render actually
+hostname part; a scheme-less `host:port` value contributes its host
+part, issue #1036) must match a compose service the render actually
 produced for the providing module, and contracts that advertise a
 `serviceName` have that name mapped through the renderer's
 service-naming rule first. Mismatches fail with `E150` instead of
