@@ -1,6 +1,6 @@
 {
   "$schema": "rule-schema.json",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "metadata": {
     "name": "cds-core-security-rules",
     "description": "Core security validation rules for cds validate --security",
@@ -30,7 +30,8 @@
         "Move the value to environment variables or a secret backend.",
         "Replace literal values with references."
       ],
-      "enabled": true
+      "enabled": true,
+      "ignoreRendererReferences": true
     },
     {
       "id": "CDS-SEC-002",
@@ -81,7 +82,8 @@
         "Store private keys in a secret backend or mounted secret file.",
         "Do not keep cryptographic material directly in profile YAML."
       ],
-      "enabled": true
+      "enabled": true,
+      "ignoreRendererReferences": true
     },
     {
       "id": "CDS-SEC-004",
@@ -439,7 +441,7 @@
     },
     {
       "id": "CDS-SEC-031",
-      "$comment": "Only the project-root .env is covered by this repo's `/.env` .gitignore entry (leading slash pins it to the root). Any nested .env (profile-scoped, rendered/generated output, or otherwise) is NOT covered by that ignore rule and can be committed accidentally, so the pathPatterns below only flag paths with at least one directory component before the filename; a bare root '.env' is the expected, already-ignored location and must not fire here.",
+      "$comment": "Only the project-root .env is covered by this repo's `/.env` .gitignore entry (leading slash pins it to the root). Any nested .env (profile-scoped, rendered/generated output, or otherwise) is NOT covered by that ignore rule and can be committed accidentally, so the pathPatterns below only flag paths with at least one directory component before the filename; a bare root '.env' is the expected, already-ignored location and must not fire here. The engine matches the env file path relative to the project root (resolved from the profile path, same marker walk as resolve_env_file_path), not relative to the invocation cwd, so an absolute project-root .env (e.g. when the CLI runs from another directory with CDS_PROFILE_PATH set) is still seen as the bare '.env' and never matches (#979).",
       "title": "Env file path appears repository-managed or unmanaged",
       "severity": "medium",
       "category": "file-output-safety",
@@ -512,7 +514,8 @@
         "Use environment or secret-backend references for sensitive fields.",
         "Keep profiles declarative and secret-free."
       ],
-      "enabled": true
+      "enabled": true,
+      "ignoreRendererReferences": true
     },
     {
       "id": "CDS-SEC-040",

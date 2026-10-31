@@ -1,9 +1,31 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def resolve_project_root(profile_path: str) -> Path:
+    """
+    Resolve a project root for output artifacts.
+
+    The resolver walks up from the selected profile location and picks the
+    first directory containing `.cds` (CDS's own state directory, checked
+    first so it takes priority over an unrelated ancestor repository),
+    `pyproject.toml`, or `.git`. If no marker is found, it falls back to the
+    current working directory.
+    """
+    start = Path(profile_path).resolve().parent
+    for directory in [start, *start.parents]:
+        if (
+            (directory / ".cds").exists()
+            or (directory / "pyproject.toml").exists()
+            or (directory / ".git").exists()
+        ):
+            return directory
+    return Path.cwd().resolve()
 
 # Closed set of informational compliance control categories a rule-set.json
 # rule can be tagged with (rule-schema.json's $defs.complianceCategory),

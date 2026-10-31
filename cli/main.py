@@ -62,6 +62,7 @@ from .security_common import (
     NIS2_ARTICLE_21_MEASURES,
     SEVERITY_ORDER,
     infer_profile_class,
+    resolve_project_root,
 )
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 from .up_runner import (
@@ -736,27 +737,6 @@ def resolve_profile_path(profile: str | None) -> str:
         "to save a default, or set CDS_PROFILE_PATH to a profile file or directory "
         "containing a single profile."
     )
-
-
-def resolve_project_root(profile_path: str) -> Path:
-    """
-    Resolve a project root for output artifacts.
-
-    The resolver walks up from the selected profile location and picks the
-    first directory containing `.cds` (CDS's own state directory, checked
-    first so it takes priority over an unrelated ancestor repository),
-    `pyproject.toml`, or `.git`. If no marker is found, it falls back to the
-    current working directory.
-    """
-    start = Path(profile_path).resolve().parent
-    for directory in [start, *start.parents]:
-        if (
-            (directory / ".cds").exists()
-            or (directory / "pyproject.toml").exists()
-            or (directory / ".git").exists()
-        ):
-            return directory
-    return Path.cwd().resolve()
 
 
 def resolve_env_file_path(profile_path: str) -> Path:

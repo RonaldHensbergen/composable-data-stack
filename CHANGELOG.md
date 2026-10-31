@@ -73,6 +73,21 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed `cds security` false positives on the reference production profile
+  (#979): the secret-value rules CDS-SEC-001/003/033 no longer flag values
+  that are entirely a renderer reference (`config.passwordFrom`,
+  `${secrets.x}`, ...), which the declarative engine sees unresolved in the
+  planned config but the renderer resolves to `${CDS_*}` placeholders at
+  render time (new opt-in `ignoreRendererReferences` rule flag, rule set
+  1.0.1); the CDS-SEC-013 secret-reuse check skips such references as well;
+  the waiver-reason entropy exemption now also matches the flattened
+  `security.waivers.*.reason` path (spec-level keys flatten without the
+  `spec.` prefix); and CDS-SEC-031 matches the env file path relative to the
+  project root (the same marker walk `resolve_env_file_path` uses, now shared
+  via `cli/security_common.py`), so a bare project-root `.env` never fires
+  when the CLI is invoked from another directory (e.g. with
+  `CDS_PROFILE_PATH` set).
+
 - Fixed the `helm` render target lacking the provide-side contract-host
   cross-check that the compose target got for issue #1010: the Kubernetes
   renderer only validated the consume side (E084), so a provided
