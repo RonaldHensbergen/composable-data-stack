@@ -245,11 +245,11 @@ The format is based on Keep a Changelog.
 
 - Documented the split bot ownership of pip locks (issue #1048):
   `.github/dependabot.yml` now states it manages only the root manifests
-  (`pyproject.toml`/`uv.lock`), while the `images/*` and `dagster/` pip-compile
-  locks are Renovate-managed — so Dependabot alerts on those manifests show
-  "cannot update to the required version" by design and are remediated by
-  Renovate PRs. `docs/image-scanning.md` carries the same note next to the
-  lock-maintenance rules.
+  (`pyproject.toml`/`uv.lock`), while the `images/*` pip-compile locks
+  (including `images/dagster/`) are Renovate-managed — so Dependabot alerts on
+  those manifests show "cannot update to the required version" by design and
+  are remediated by Renovate PRs. `docs/image-scanning.md` carries the same
+  note next to the lock-maintenance rules.
 
 ### Added
 

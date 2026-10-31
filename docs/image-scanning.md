@@ -71,8 +71,9 @@ The dependency graph still parses those locks, so Dependabot opens security
 alerts for them as well — but they sit outside `.github/dependabot.yml`'s
 scope, so its security updater cannot write a fix PR and the alert shows
 "cannot update to the required version". That error is expected on alerts
-for `images/**` and `dagster/requirements.txt`: remediation is the Renovate PR
-(or a manual lock refresh) described above, not a Dependabot PR (#1048).
+for `images/**` locks (the `images/dagster/` locks included): remediation is
+the Renovate PR (or a manual lock refresh) described above, not a Dependabot
+PR (#1048).
 
 Two supporting locks follow the same rules: `images/superset/requirements-uv.txt`
 (the `uv` that performs the hash-verified Superset install) and
