@@ -55,10 +55,23 @@ spec:
         when the backend requires authenticated ingestion. Empty string when
         the backend accepts unauthenticated requests (e.g. a local/dev
         Marquez instance).
+    serviceName:
+      type: string
+      required: false
+      description: >-
+        Compose service name (as written in the provider module's compose
+        fragment) that serves the lineage API. Multi-service providers
+        (e.g. Marquez, whose `marquez-api` and `marquez-web` services leave
+        the instance id unresolvable on the Compose network) set this so
+        the provided-contract host check (E150) can map it through the
+        renderer's service-naming rule; `host`/`connectionUri` should then
+        be built from `${service.services.<name>}` for the same service
+        (issue #1029).
   examples:
-    - host: marquez
+    - host: marquez-api
       port: 5000
       protocol: http
       ingestPath: /api/v1/lineage
-      connectionUri: http://marquez:5000
+      connectionUri: http://marquez-api:5000
       authToken: ""
+      serviceName: marquez-api

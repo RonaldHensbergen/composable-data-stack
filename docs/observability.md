@@ -259,7 +259,13 @@ concretely implementable: it consumes a `sql-database` contract and
 provides `lineage-sink`, running Marquez's `marquez-api` and `marquez-web`
 services with pinned image digests and the same container-hardening
 baseline as other modules (read-only root filesystem, dropped capabilities,
-non-root UID, `tmpfs` for `/tmp`).
+non-root UID, `tmpfs` for `/tmp`). Because the module renders two compose
+services, the instance id alone does not resolve on the Compose network:
+the contract's `host`/`connectionUri` and the web UI's `MARQUEZ_HOST` are
+built from `${service.services.marquez-api}` (the API service's rendered
+DNS name through the renderer's service-naming rule), and the provide
+entry advertises `serviceName: marquez-api` so the E150 host cross-check
+fails closed if that ever drifts from the rendered services (issue #1029).
 
 [`profiles/local-dagster-postgres-marquez`](../profiles/local-dagster-postgres-marquez/README.md)
 is a demo profile wiring `postgres` + `marquez` + `dagster` together and

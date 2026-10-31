@@ -73,6 +73,25 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the experimental `marquez` module advertising unresolvable
+  endpoints (issue #1029): it is a multi-service module (`marquez-api`,
+  `marquez-web`), so the instance id is not a DNS name on the Compose
+  network, yet its `lineage-sink` contract's `host`/`connectionUri` and
+  the web UI's `MARQUEZ_HOST` all substituted `${service.host}` —
+  consumers such as Dagster (`OPENLINEAGE_URL`) and the marquez web UI
+  dialed `http://marquez:5000`, which nothing answers. Added the
+  `${service.services.<name>}` placeholder (resolved during both
+  planning and rendering through the renderer's service-naming rule,
+  `_compose_service_name(id, service)`), pointed the marquez contract
+  and `MARQUEZ_HOST` at `${service.services.marquez-api}`, and
+  advertised `serviceName: marquez-api` on the provide entry. The E150
+  provided-contract host cross-check now also covers the `lineage-sink`
+  and `log-sink` kinds (both `host` and the `connectionUri` hostname,
+  plus a `serviceName` advertisement mapped through the naming rule) on
+  both render targets, so this mismatch class fails loudly at render
+  time instead of silently shipping a broken endpoint; the `serviceName`
+  field is now declared on both sink contracts.
+
 - Cleared the 34 `.trivyignore` exceptions listed by the trivyignore audit
   (#1001) by fixing the findings at the source in the rebuilt images instead
   of ignoring them: the `postgres` image now pins the current `postgres:18`
@@ -236,6 +255,17 @@ The format is based on Keep a Changelog.
   bad shapes on volume specs silently misbehaved, and unsupported
   marker positions (`production` on workloads and configMap entries,
   `enabledFrom` on configMap entries) were silently ignored.
+
+- Fixed the E150 provided-contract host check silently skipping
+  scheme-less `host:port` endpoints (issue #1036): the check only
+  validated values matching the DNS-label pattern, so an endpoint like
+  `garage:3900` (no scheme, but with a port) never got cross-checked
+  against the rendered services, while a full URL (`http://garage:3900`)
+  did. The host part of a scheme-less `host:port` value is now extracted
+  and cross-checked for every advertised field (`host`, `endpoint`,
+  `connectionUri`) on both render targets; values with a non-numeric
+  port or an IPv6 literal are still skipped as outside the cluster
+  namespace.
 
 - Raised the `pyasn1` floor in `images/superset/requirements.in` from
   `>=0.6.4` to `>=0.6.5` so recompiling the Superset image lock can never

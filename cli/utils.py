@@ -48,6 +48,19 @@ def module_name_from_source(source: Any) -> str:
     return str(source or "").rstrip("/").rsplit("/", 1)[-1]
 
 
+def module_service_dns_names(module_id: str, compose_services: Any) -> dict[str, str]:
+    """
+    Map each compose service name as written in the module's compose fragment
+    to the DNS name the renderer actually gives it on the Compose network
+    (`_compose_service_name(module_id, service)`), so multi-service modules
+    can advertise a specific service's address via `${service.services.<name>}`
+    (issue #1029). Empty when the module declares no compose services.
+    """
+    if not isinstance(compose_services, dict):
+        return {}
+    return {str(name): _compose_service_name(module_id, str(name)) for name in compose_services}
+
+
 def module_dns_host(module_id: str, compose_services: Any, module_name: str | None = None) -> str:
     """
     The Compose DNS name a module instance's serving service answers to.

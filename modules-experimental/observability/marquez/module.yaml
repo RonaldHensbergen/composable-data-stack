@@ -98,12 +98,19 @@ spec:
       contract:
         kind: lineage-sink
         spec:
-          host: ${service.host}
+          # This module renders two compose services (marquez-api,
+          # marquez-web), so the instance id alone does not resolve on the
+          # Compose network; point consumers at the API service's rendered
+          # DNS name through the renderer's service-naming rule (issue
+          # #1029). serviceName advertises the same serving service for
+          # the E150 host cross-check.
+          host: ${service.services.marquez-api}
           port: ${config.apiPort}
           protocol: http
           ingestPath: /api/v1/lineage
-          connectionUri: http://${service.host}:${config.apiPort}
+          connectionUri: http://${service.services.marquez-api}:${config.apiPort}
           authToken: ""
+          serviceName: marquez-api
 
   implementation:
     kind: docker-compose
@@ -173,7 +180,10 @@ spec:
           ports:
             - "127.0.0.1:${config.web.port}:${config.web.port}"
           environment:
-            MARQUEZ_HOST: "${service.host}"
+            # The web UI proxies to the API service over the Compose
+            # network, so it needs the API service's rendered DNS name,
+            # not the module instance id (issue #1029).
+            MARQUEZ_HOST: "${service.services.marquez-api}"
             MARQUEZ_PORT: "${config.apiPort}"
             WEB_PORT: "${config.web.port}"
             REACT_APP_ADVANCED_SEARCH: "false"
