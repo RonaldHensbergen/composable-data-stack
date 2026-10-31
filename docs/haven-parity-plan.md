@@ -269,7 +269,9 @@ current status in section 4:
    to pick up now.
 3. **3.7 Maturity model (Basic/Automated tiers only)** — can be scaffolded
    now that 3.1 has landed, even before 3.3–3.6 exist, since it is a
-   read-only reporting tool over Plan bindings. No issue filed yet.
+   read-only reporting tool over Plan bindings. Tracked by #769; the
+   Basic/Automated tiers land in PR #1057, higher tiers stay deferred until
+   3.2–3.6 land.
 4. **3.4 Security platform modules** (issues #205/#370/#577/#579/#580) and
    **3.2 GitOps** (no issue yet) — parallelizable now that 3.1 has landed.
 5. **3.5 Backup** (issues #210/#665/#668/#669) and **3.6 Database operators**
