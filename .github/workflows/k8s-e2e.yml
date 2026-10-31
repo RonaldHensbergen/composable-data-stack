@@ -61,6 +61,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
+      # actions/checkout leaves the runner at a detached HEAD, so the
+      # branch-derived default in k3d-env.sh would name the cluster "cds-head".
+      CDS_CLUSTER: cds-k8s-e2e-ci
       CDS_E2E_KEEP_CLUSTER: "1"
     steps:
       - name: Checkout

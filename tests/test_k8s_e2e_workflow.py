@@ -35,6 +35,13 @@ class K8sE2eWorkflowTest(unittest.TestCase):
         self.assertEqual(steps["Delete cluster"]["if"], "always()")
         self.assertEqual(steps["Delete cluster"]["run"], "make k3d-down")
 
+    def test_job_pins_a_stable_cluster_name(self) -> None:
+        # The checkout is a detached HEAD, so without this pin the
+        # branch-derived default in k3d-env.sh would name the cluster
+        # "cds-head", which is hard to attribute in logs and diagnostics.
+        self.assertIn("CDS_CLUSTER", self.job["env"])
+        self.assertRegex(self.job["env"]["CDS_CLUSTER"], r"^[a-z0-9][a-z0-9-]*$")
+
     def test_k3d_binary_is_pinned_and_checksum_verified(self) -> None:
         env = self.workflow["env"]
         run = next(
