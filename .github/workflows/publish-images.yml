@@ -265,7 +265,10 @@ jobs:
               base_version="$(grep -m1 '^FROM postgres:' images/postgres/Dockerfile | sed -E 's#^FROM postgres:([^@[:space:]]+).*#\1#')"
               ;;
             restic)
-              base_version="$(grep -m1 '^FROM restic/restic:' images/restic/Dockerfile | sed -E 's#^FROM restic/restic:([^@[:space:]]+).*#\1#')"
+              # restic is compiled from source in images/restic/Dockerfile (the
+              # upstream restic/restic image is no longer the base), so the base
+              # version comes from the pinned source tag ARG.
+              base_version="$(grep -m1 '^ARG RESTIC_VERSION=' images/restic/Dockerfile | cut -d= -f3)"
               ;;
             *)
               echo "No version scheme defined for image '${{ matrix.image.name }}'" >&2
