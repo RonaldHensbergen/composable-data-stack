@@ -27,7 +27,8 @@ if all(_oidc_values):
         {
             "name": "keycloak",
             "icon": "fa-key",
-            "token_key": "access_token",
+            # "access_token" is an OAuth response field name, not a credential.
+            "token_key": "access_token",  # nosec B105
             "remote_app": {
                 "client_id": _oidc_client_id,
                 "client_secret": _oidc_client_secret,
