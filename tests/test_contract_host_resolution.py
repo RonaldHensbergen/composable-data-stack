@@ -596,8 +596,8 @@ class GarageCustomInstanceIdTest(unittest.TestCase):
         self.assertIn("object-storage-garage", compose["services"])
 
 
-_CHECKED_KINDS = {"http-service", "sql-database", "cache-service", "object-storage", "lineage-sink", "log-sink"}
-_SINK_KINDS = {"lineage-sink", "log-sink"}
+_CHECKED_KINDS = {"http-service", "sql-database", "cache-service", "object-storage", "lineage-sink", "log-sink", "metrics-sink", "trace-sink"}
+_SINK_KINDS = {"lineage-sink", "log-sink", "metrics-sink", "trace-sink"}
 _HOST_FIELDS = ("host", "endpoint", "connectionUri")
 
 
