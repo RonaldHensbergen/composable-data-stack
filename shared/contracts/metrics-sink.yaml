@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: metrics-sink
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Shared, vendor-neutral contract describing the values a centralized
+    metrics collector exposes so any module can push or expose metrics to it
+    without the profile hardcoding a specific metrics backend. Shaped so an
+    OpenTelemetry Collector OTLP receiver can be a conforming provider
+    (protocol "otlp-grpc"/"otlp-http"), or a Prometheus-style scrape
+    endpoint (protocol "prometheus" with `scrapePath`). Defined alongside
+    `trace-sink` for workstream 3.3; coordinated with the Grafana module
+    scope of #369, which remains the reference storage/query provider (issue
+    #777). See docs/observability.md.
+
+spec:
+  fields:
+    host:
+      type: string
+      required: true
+      description: Hostname or service name clients use to reach the metrics collector.
+    port:
+      type: integer
+      required: true
+      description: >-
+        TCP port the collector listens on (OTLP/gRPC default 4317, OTLP/HTTP
+        default 4318, Prometheus scrape default 9090).
+    protocol:
+      type: string
+      required: true
+      description: >-
+        Wire protocol expected by the collector, e.g. "otlp-grpc",
+        "otlp-http", or "prometheus".
+    ingestPath:
+      type: string
+      required: false
+      description: >-
+        Optional push endpoint path for push-based protocols (e.g.
+        "/v1/metrics" for OTLP/HTTP).
+    scrapePath:
+      type: string
+      required: false
+      description: >-
+        Optional scrape path for scrape-based protocols (e.g. "/metrics" for
+        Prometheus).
+    connectionUri:
+      type: string
+      required: false
+      description: >-
+        Fully composed base endpoint ("<scheme>://<host>:<port>") a client
+        dials directly, mirroring the `connectionUri` field on
+        `sql-database`/`lineage-sink`.
+    serviceName:
+      type: string
+      required: false
+      description: >-
+        Compose service name (as written in the provider module's compose
+        fragment) that serves the collector endpoint. Multi-service
+        providers whose instance id does not resolve on the Compose network
+        set this so the provided-contract host check (E150) can map it
+        through the renderer's service-naming rule; `host` should then be
+        built from `${service.services.<name>}` for the same service
+        (issue #1029).
+  examples:
+    - host: otel-collector
+      port: 4318
+      protocol: otlp-http
+      ingestPath: /v1/metrics
+      connectionUri: http://otel-collector:4318
+    - host: prometheus
+      port: 9090
+      protocol: prometheus
+      scrapePath: /metrics

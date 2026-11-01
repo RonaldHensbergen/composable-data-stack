@@ -299,10 +299,11 @@ def _provided_contract_host_candidates(
     addresses, per contract kind. Shared by both render targets' E150
     cross-checks (issues #1010, #1029, #1035).
 
-    Sink kinds (`lineage-sink`, `log-sink`) are dialed by consumers through
-    both `host` and the pre-composed `connectionUri`, so both are checked;
-    a `serviceName` advertisement (as on `http-service`) is checked as
-    well, mapped through the renderer's service-naming rule.
+    Sink kinds (`lineage-sink`, `log-sink`, `metrics-sink`, `trace-sink`) are
+    dialed by consumers through both `host` and the pre-composed
+    `connectionUri`, so both are checked; a `serviceName` advertisement (as
+    on `http-service`) is checked as well, mapped through the renderer's
+    service-naming rule.
     """
     candidates: list[tuple[str, str | None]] = []
     if kind == "http-service":
@@ -317,7 +318,7 @@ def _provided_contract_host_candidates(
         candidates.append(("host", spec.get("host")))
     elif kind == "object-storage":
         candidates.append(("endpoint", _endpoint_hostname(spec.get("endpoint"))))
-    elif kind in ("lineage-sink", "log-sink"):
+    elif kind in ("lineage-sink", "log-sink", "metrics-sink", "trace-sink"):
         advertised_service = spec.get("serviceName")
         if isinstance(advertised_service, str) and advertised_service:
             candidates.append(
