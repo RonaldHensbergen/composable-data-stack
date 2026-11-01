@@ -62,10 +62,11 @@ of scope for this profile.
   Keycloak routing is hand-authored dynamic configuration
   ([`traefik/dynamic/keycloak.yml`](../traefik/dynamic/keycloak.yml)), not
   resolved from the profile's contract graph.
-- The `keycloak` module has no realm configuration (#680) or
-  `oidc-provider` contract for other modules to consume (#681); it is
-  listed under Experimental Components in [docs/roadmap.md](roadmap.md)
-  until those land.
+- Keycloak realm import and the shared `oidc-provider` contract are
+  implemented; consumers must still provision their own clients and
+  configure an issuer URL reachable from both browsers and service
+  containers. Keycloak remains experimental because its default development
+  mode is not production-suitable.
 - The experimental Loki `log-sink` provider (#662) is not wired into the
   reference profile by default; add it when centralized logging is needed.
 

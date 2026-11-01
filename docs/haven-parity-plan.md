@@ -159,9 +159,10 @@ that provide it are still open, tracked by
   is authentication, a different capability that Haven+ also treats as a
   separate component. The Keycloak identity module landed under
   [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370);
-  its shared `oidc-provider` contract and first consumer remain tracked by
-  [#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681)
-  and [#1055](https://github.com/RonaldHensbergen/composable-data-stack/issues/1055).
+  its shared `oidc-provider` contract and first consumer (Superset) landed in
+  PR [#1064](https://github.com/RonaldHensbergen/composable-data-stack/pull/1064)
+  ([#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681),
+  [#1055](https://github.com/RonaldHensbergen/composable-data-stack/issues/1055)).
 - Extend `cli/resources/rule-schema.json` / `rule-set.json` with security
   rules that apply to the new contracts (e.g., "profile exposes a service
   externally without a `tls-cert` binding" the same way existing rules flag
@@ -250,7 +251,7 @@ gap is narrower than section 2 suggested when this document was drafted:
 | 3.1 follow-up: CI cluster validation (kind/k3d apply in CI, not just `helm lint`/`template`) | Open, not started | [#76](https://github.com/RonaldHensbergen/composable-data-stack/issues/76) |
 | 3.2 GitOps | **In progress** — `gitops-target` contract + FluxCD reference module (`modules-experimental/gitops/fluxcd`) rendering Flux bootstrap manifests over the Helm chart | [#767](https://github.com/RonaldHensbergen/composable-data-stack/issues/767) |
 | 3.3 Observability platform module | Contract/schema done; reference module open | Design closed via [#174](https://github.com/RonaldHensbergen/composable-data-stack/issues/174); module tracked by [#369](https://github.com/RonaldHensbergen/composable-data-stack/issues/369), [#662](https://github.com/RonaldHensbergen/composable-data-stack/issues/662); OpenTelemetry trace-sink/collector tracked by [#777](https://github.com/RonaldHensbergen/composable-data-stack/issues/777); OpenLineage `lineage-sink` contract and Dagster wiring delivered by [#779](https://github.com/RonaldHensbergen/composable-data-stack/issues/779) (PR #831), with an experimental Marquez reference backend (`modules-experimental/observability/marquez`) |
-| 3.4 Security platform modules | Kubernetes pod/container hardening and default-deny NetworkPolicy done; TLS policy exists; OIDC contract and service mesh remain open | Hardening and NetworkPolicy in PR [#608](https://github.com/RonaldHensbergen/composable-data-stack/pull/608) / [#75](https://github.com/RonaldHensbergen/composable-data-stack/issues/75); TLS tracked by [#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580); identity module delivered via [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370), with the shared OIDC contract and consumer tracked by [#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681) and [#1055](https://github.com/RonaldHensbergen/composable-data-stack/issues/1055); service mesh (mTLS) tracked by [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776); workload identity by [#1068](https://github.com/RonaldHensbergen/composable-data-stack/issues/1068); consolidated Zero-Trust framing by [#778](https://github.com/RonaldHensbergen/composable-data-stack/issues/778) |
+| 3.4 Security platform modules | Kubernetes pod/container hardening and default-deny NetworkPolicy done; TLS policy exists; OIDC contract and first consumer done; service mesh remains open | Hardening and NetworkPolicy in PR [#608](https://github.com/RonaldHensbergen/composable-data-stack/pull/608) / [#75](https://github.com/RonaldHensbergen/composable-data-stack/issues/75); TLS tracked by [#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580); identity module delivered via [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370), with the shared OIDC contract and first consumer delivered in PR [#1064](https://github.com/RonaldHensbergen/composable-data-stack/pull/1064) ([#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681), [#1055](https://github.com/RonaldHensbergen/composable-data-stack/issues/1055)); service mesh (mTLS) tracked by [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776); workload identity by [#1068](https://github.com/RonaldHensbergen/composable-data-stack/issues/1068); consolidated Zero-Trust framing by [#778](https://github.com/RonaldHensbergen/composable-data-stack/issues/778) |
 | 3.5 Backup and restore | Not started, but scoped into 4 issues already | [#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210) (contracts), [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665) (Postgres), [#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668) (generic file/volume), [#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669) (object storage) |
 | 3.6 Database operators | Filed, not started | [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) |
 | 3.7 Maturity model | **Implemented** — Basic/Automated/Observed/Secured/Resilient tiers are reported by `cds maturity` (#769, #1059) | [#769](https://github.com/RonaldHensbergen/composable-data-stack/issues/769), [#1059](https://github.com/RonaldHensbergen/composable-data-stack/issues/1059) |
@@ -278,9 +279,10 @@ current status in section 4:
    closes an already-designed but unimplemented contract
    ([docs/observability.md](observability.md)); issues #369/#662 are ready
    to pick up now.
-3. **3.4 Security platform modules** — continue the OIDC contract/consumer
-   (#681/#1055), service mesh (#776), and workload identity (#1068) follow-ups;
-   the TLS contract work has landed. See the [Zero Trust mapping](zero-trust-architecture.md)
+3. **3.4 Security platform modules** — continue the service mesh (#776) and
+   workload identity (#1068) follow-ups and OIDC per-resource authorization;
+   the OIDC contract/consumer landed in PR #1064 (#681/#1055) and the TLS
+   contract work has landed. See the [Zero Trust mapping](zero-trust-architecture.md)
    for how these capabilities relate without claiming full NIST conformity.
 4. **3.5 Backup** (issues #210/#665/#668/#669) and **3.6 Database operators**
    (#768) — Kubernetes-specific work with less reuse for Compose-only users.

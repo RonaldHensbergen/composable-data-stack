@@ -17,7 +17,7 @@ controls or a security certification.
 
 | Principle | CDS capabilities and tracking | Limits |
 | --- | --- | --- |
-| **Verify explicitly** — authenticate and authorize access using relevant identity and context rather than network location alone. | Database and cache authentication policies reject insecure trust modes in production profiles ([#206](https://github.com/RonaldHensbergen/composable-data-stack/issues/206)). Shared TLS requirements and reverse-proxy metadata let consumers declare and validate transport expectations ([#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580)). The identity module work began under [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370); its shared OIDC contract and consumer wiring remain tracked by [#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681) and [#1055](https://github.com/RonaldHensbergen/composable-data-stack/issues/1055). | Declared TLS does not prove that every connection is encrypted or that certificates are trusted. OIDC provider wiring is not yet a general per-service authorization policy, and a network boundary does not authenticate a workload. |
+| **Verify explicitly** — authenticate and authorize access using relevant identity and context rather than network location alone. | Database and cache authentication policies reject insecure trust modes in production profiles ([#206](https://github.com/RonaldHensbergen/composable-data-stack/issues/206)). Shared TLS requirements and reverse-proxy metadata let consumers declare and validate transport expectations ([#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580)). The identity module work began under [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370); its shared OIDC contract and first consumer (Superset) landed in PR [#1064](https://github.com/RonaldHensbergen/composable-data-stack/pull/1064) ([#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681), [#1055](https://github.com/RonaldHensbergen/composable-data-stack/issues/1055)). | Declared TLS does not prove that every connection is encrypted or that certificates are trusted. OIDC provider wiring is not yet a general per-service authorization policy, and a network boundary does not authenticate a workload. |
 | **Use least-privilege access** — grant only the access needed to a resource. | The Helm renderer emits a per-module default-deny ingress/egress NetworkPolicy, then permits contract-derived traffic, same-module traffic, and DNS; custom allow rules are explicit. This work was delivered under [#75](https://github.com/RonaldHensbergen/composable-data-stack/issues/75). Kubernetes pod hardening and opt-in RBAC are covered by [PR #608](https://github.com/RonaldHensbergen/composable-data-stack/pull/608). The optional service-mesh capability for mTLS and traffic policy is tracked by [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776). | NetworkPolicy and pod hardening apply to the Helm target, not Docker Compose. The default-deny policy limits network reachability; it does not itself establish peer identity or application authorization. A service mesh is not yet implemented. |
 | **Assume breach** — minimize blast radius, continuously assess access, and retain evidence for detection and response. | Per-module network boundaries and hardened Kubernetes workloads reduce some lateral movement. The local audit trail records rendered/applied command outcomes and module/image versions ([#737](https://github.com/RonaldHensbergen/composable-data-stack/issues/737)). | The audit trail is local command history, not centralized or continuous runtime monitoring. It does not collect workload activity or provide incident response. |
 
@@ -49,14 +49,18 @@ also states this limitation in its text report.
 
 - **Workload identity and attestation:** There is no provider-neutral contract
   for cryptographically attested workload identity or trust-domain evidence.
-  This is distinct from user-facing OIDC identity ([#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681))
+  This is distinct from user-facing OIDC identity, for which the shared
+  `oidc-provider` contract and the first consumer landed in PR
+  [#1064](https://github.com/RonaldHensbergen/composable-data-stack/pull/1064)
+  ([#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681))
   and from network-level mTLS. A focused follow-up, [#1068](https://github.com/RonaldHensbergen/composable-data-stack/issues/1068),
   tracks the contract and an initial Kubernetes reference.
 - **OIDC authorization wiring:** The Keycloak `oidc-provider` contract and
-  its first consumer remain open in [#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681)
-  and [#1055](https://github.com/RonaldHensbergen/composable-data-stack/issues/1055).
-  Even when implemented, provider binding alone will not represent every
-  per-resource authorization policy.
+  its first consumer (Superset) landed in PR [#1064](https://github.com/RonaldHensbergen/composable-data-stack/pull/1064)
+  ([#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681),
+  [#1055](https://github.com/RonaldHensbergen/composable-data-stack/issues/1055));
+  Keycloak remains experimental pending production hardening. Provider
+  binding alone will not represent every per-resource authorization policy.
 - **Service-mesh enforcement:** mTLS and traffic-policy support remain open
   under [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776).
 - **Target coverage:** The default-deny NetworkPolicy is generated for Helm;

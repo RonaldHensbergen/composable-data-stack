@@ -27,5 +27,6 @@ Pygments>=2.20.0
 idna>=3.15
 python-dotenv>=1.2.2
 requests>=2.33.0
+Authlib>=1.6.5
 psycopg2-binary==2.9.13
 brotli>=1.2.1

@@ -77,12 +77,12 @@ These work but may have breaking changes in upcoming releases:
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
 - Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
-- Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode by default (`start-dev`, configurable via `config.webServer.mode`, #216), backed by a consumed `sql-database` contract; wired into the `local-haven-reference` profile (#772), no realm configuration (#680) or `oidc-provider` contract for other modules to consume (#681)
+- Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode by default (`start-dev`, configurable via `config.webServer.mode`, #216), backed by a consumed `sql-database` contract and providing `oidc-provider`; wired into the `local-haven-reference` profile (#772), remains experimental pending production hardening
 - Module: Marquez (`modules-experimental/observability/marquez/`) — OpenLineage-compatible lineage backend, reference provider for the `lineage-sink` contract; demoed by `local-dagster-postgres-marquez` (#779)
 - Module: Loki (`modules-experimental/observability/loki/`) — experimental `log-sink` provider using Vector HTTP ingestion and Loki retention tiers (#662)
 - Module: FluxCD (`modules-experimental/gitops/fluxcd/`) — experimental reference provider of the new vendor-neutral `gitops-target` contract (`shared/contracts/gitops-target.yaml`); renders Flux `GitRepository`/`Kustomization`/`HelmRelease` bootstrap manifests over the `--target helm` chart output via the new `implementation.kubernetes.manifests` block (#767, see the "GitOps handoff" section of [docs/kubernetes.md](kubernetes.md))
 - Profile: `local-dagster-postgres-superset-vault` — not tested thoroughly yet
-- Profile: `local-haven-reference` — Common Ground/Haven-aligned reference stack (identity, TLS ingress, database), experimental while Keycloak lacks realm configuration/an `oidc-provider` contract (#772, see [docs/common-ground-alignment.md](common-ground-alignment.md))
+- Profile: `local-haven-reference` — Common Ground/Haven-aligned reference stack (identity, TLS ingress, database), experimental while Keycloak remains unsuitable for production (#772, see [docs/common-ground-alignment.md](common-ground-alignment.md))
 - `scripts/compose_to_module.py` — scaffolds a starter `module.yaml` from an existing `docker-compose.yml`
 - `scripts/ai_profile_review.py` — optional AI-assisted guardrail/simplification review for profiles
 

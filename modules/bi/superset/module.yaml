@@ -193,6 +193,27 @@ spec:
             pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
             description: "Reference to cache-service binding (e.g., keydb.cache-service)"
 
+      identityProvider:
+        type: object
+        additionalProperties: false
+        required:
+          - contractRef
+          - clientId
+          - clientSecretFrom
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+            description: Reference to an oidc-provider contract.
+          clientId:
+            type: string
+            minLength: 1
+            description: OAuth client ID registered in the identity provider.
+          clientSecretFrom:
+            type: string
+            pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+            description: Secret reference for the OAuth client secret.
+
       healthcheck:
         type: object
         additionalProperties: false
@@ -220,6 +241,12 @@ spec:
         kind: cache-service
       required: false
       mappedFrom: spec.config.cacheService
+
+    - name: oidc-provider
+      contract:
+        kind: oidc-provider
+      required: false
+      mappedFrom: spec.config.identityProvider
 
   provides:
     - name: http-service
@@ -298,6 +325,9 @@ spec:
             CDS_WEBSERVER_MODE: "${config.webServer.mode}"
             CDS_WEBSERVER_WORKERS: "${config.webServer.workers}"
             CDS_WEBSERVER_TIMEOUT: "${config.webServer.timeoutSeconds}"
+            CDS_OIDC_ISSUER_URL: "${ifNonempty:bindings.oidc-provider.issuerUrl,,}"
+            CDS_OIDC_CLIENT_ID: "${ifNonempty:config.identityProvider.clientId,,}"
+            CDS_OIDC_CLIENT_SECRET: "${ifNonempty:config.identityProvider.clientSecretFrom,,}"
           healthcheck:
             conditionallyEnabledFrom: config.healthcheck.enabled
             test:

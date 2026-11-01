@@ -58,8 +58,9 @@ with mkcert) and load them in the dynamic config.
   compose up -d`. Pipelines are code, not UI artifacts.
 - **Superset is multi-user:** the bootstrap admin account is provisioned
   from `CDS_SUPERSET_ADMIN_PASSWORD`; that admin creates individual
-  accounts and roles in Settings → Users. Access control is per-user, not
-  SSO.
+  accounts and roles in Settings → Users. This profile does not configure
+  SSO; Superset can optionally consume an `oidc-provider` contract when a
+  client is provisioned and its secret is added to the profile.
 - **Dagster has no authentication.** Anyone who can reach port 443 can
   view and trigger runs. Until proxy-level SSO exists (below), protect
   the edge: add a `basicAuth` middleware to the dagster router in the
@@ -74,12 +75,11 @@ with mkcert) and load them in the dynamic config.
 
 ## Deliberately not included
 
-- **Keycloak/SSO:** the keycloak module has no realm configuration yet
-  (#680) and no `oidc-provider` contract (#681), and neither the superset
-  nor the dagster module exposes an OAuth/OIDC config surface. Running an
-  IdP nothing authenticates against adds cost without SSO. The realistic
-  path is Traefik `forwardAuth` against Keycloak for Dagster (which will
-  never have native OIDC) plus a Superset OAuth config surface.
+- **Keycloak/SSO:** this profile intentionally does not include Keycloak or
+  configure Superset OIDC. Superset's optional OIDC surface is available
+  through `identityProvider`; configure it with an `oidc-provider` contract
+  and a separately provisioned client. Dagster still has no native OIDC, so
+  protecting it requires a proxy-level authentication integration.
 - **Vault:** env-file secrets with `required: true` (missing value fails
   closed) are the supported simple path for a single Docker host; the
   Vault dev container in
