@@ -15,6 +15,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history: the agent approval policy check reads PR commits.
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -46,6 +49,13 @@ jobs:
       - name: Run prompt trust-boundary lint
         run: |
           python scripts/check_prompts.py
+
+      - name: Enforce agent approval policy on protected paths
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/check_agent_policy.py --base origin/main --head HEAD
 
       - name: Validate Renovate config
         run: |

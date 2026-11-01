@@ -8,6 +8,14 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Agent approval policy (#1084), enforced in CI: `AGENT.md` now has an
+  "Agent approval policy" section (autonomous vs human-approval actions),
+  and the CI lint job runs `scripts/check_agent_policy.py` — agent-authored
+  commits (Mistral Vibe footer) touching protected paths (workflows, prompts,
+  security tooling, `AGENT.md`, certs, dependency/policy config) fail unless
+  the PR carries the `agent-approved` label. Tests in
+  `tests/test_agent_policy.py`.
+
 - Follow-ups from the 2026-10 EAISI masterclass on AI-assisted coding (Kapitan): CONTRIBUTING.md "How We Work" now states the spec-first rule (the design/spec artifact is the source of truth humans edit; the executable Contract is what machines check) and the one-canonical-instruction-file rule (`AGENT.md` canonical, tool-specific paths symlinked locally). Runtime agent-security policy (Agent Security Kernel) is tracked as #1084.
 
 - Adopted working practices from [Impatient Programming](https://impatientprogramming.org/)
