@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check contract-coverage test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -17,6 +17,20 @@ test:
 	python scripts/run_tests_with_deprecation_gate.py
 
 check: lint test
+
+# Regenerate the published contract-coverage report (docs/contract-coverage.md).
+# CI runs `python scripts/check_contract_coverage.py --check` and fails if the
+# committed report is stale.
+contract-coverage:
+	python scripts/check_contract_coverage.py
+
+# Kill matrix (mutation testing): every test must earn its place by catching a
+# mutant no other test catches. Installs mutmut ad hoc (pinned) so the
+# project's own lockfile is untouched; see pyproject.toml [tool.mutmut].
+test-mutation:
+	python -m pip install "mutmut==3.8.1" pytest
+	python -m mutmut run
+	python -m mutmut results
 
 lint-markdown:
 	npx --yes markdownlint-cli@0.49.0 "**/*.md" ".github/**/*.md"

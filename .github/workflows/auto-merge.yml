@@ -1,0 +1,55 @@
+name: Auto-merge Green PRs
+
+# "Let green merge itself", scoped: a PR labeled `automerge` whose head
+# pipeline (the CI run for its head SHA) succeeded is switched to auto-merge
+# (squash, delete branch). Branch protection still applies, so the PR merges
+# only once required checks and any required review are satisfied. Every PR
+# without the label keeps the normal human review path — see
+# docs/maintainer-merge-policy.md.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-merge
+  cancel-in-progress: false
+
+jobs:
+  automerge:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+    steps:
+      - name: Enable auto-merge on labeled PRs with a green head pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -e
+          prs="$(
+            gh pr list \
+              --repo "$GITHUB_REPOSITORY" \
+              --state open \
+              --label automerge \
+              --json number,headRefOid \
+              --jq '.[] | select(.headRefOid == env.HEAD_SHA) | .number'
+          )"
+          if [[ -z "$prs" ]]; then
+            echo "No open PR labeled 'automerge' at head SHA $HEAD_SHA."
+            exit 0
+          fi
+          for pr in $prs; do
+            echo "Enabling auto-merge on #$pr"
+            gh pr merge "$pr" \
+              --repo "$GITHUB_REPOSITORY" \
+              --auto --squash --delete-branch \
+              || echo "Could not enable auto-merge on #$pr; leaving it open for the normal path."
+          done

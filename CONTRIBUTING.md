@@ -16,6 +16,22 @@ New here? Read [docs/good-first-issues.md](docs/good-first-issues.md) first. It 
 
 New to CDS? Start with [docs/from-docker-to-cds-profile.md](docs/from-docker-to-cds-profile.md) for a complete guide on transforming Docker Compose configurations into reusable CDS modules and profiles. It covers the entire process from analysis through rendering, with practical examples.
 
+## How We Work
+
+This repo adopts the working style of [Impatient Programming](https://impatientprogramming.org/) — XP rewritten for teams building with coding agents. The practices below are the ones that live in this repository; the PR and issue templates encode them.
+
+- **Get your story straight before you commit to building.** Every feature request carries success criteria ("how will we know this worked?") and starts with the One Question: *what do we still need to learn before we can build this?*
+- **Ship in small, frequent PRs from short-lived branches.** Long-lived branches go stale in hours when agents write code all day; rebase on `main` and keep the PR focused.
+- **Every PR breathes in and out.** The agent may sprawl while exploring, but the exhale happens in the same PR: fold what you learned back into the existing code. No new technical debt ships.
+- **Label throughput honestly.** `fix:` means a defect in code that is live in production. Polishing work that was never shipped is `refine:` — git-cliff groups it under "Refinements" in the changelog so dashboards don't read refinement as collapsing quality.
+- **The Contract is written down and executable.** The JSON Schemas in `cli/resources/` plus each `module.yaml`'s `contracts:` blocks are the Contract. `tests/test_module_contract_schema.py` enforces it on every module and profile in CI, and [docs/contract-coverage.md](docs/contract-coverage.md) publishes how much of the system the Contract covers with executable tests (`make contract-coverage`).
+- **Every test must earn its place.** Run the kill matrix (`make test-mutation`, mutation testing via mutmut) and keep a test only if it catches a mutant no other test catches. CI runs the matrix on changed files for every PR and publishes the full report weekly (`.github/workflows/mutation-tests.yml`).
+- **Pin behavior before you change it.** When touching existing code, add a golden or characterization test that pins the current behavior first, then change the code.
+- **Bug fixes get a regression test.** See "Writing Regression Tests" below.
+- **Spikes are cheap — run them, then delete them.** Throwaway prototypes that answer one question stay out of the repo; only the distilled result lands in a PR. When a design needs talking through first, produce a design artifact (options with trade-offs, a rejected comp, one recommendation) before writing code — see `.github/prompts/design-artifact.prompt.yml`.
+- **Green merges itself where it is safe.** Label a PR `automerge` and, once CI is green, `.github/workflows/auto-merge.yml` merges it automatically. Human review still guards everything else — see [docs/maintainer-merge-policy.md](docs/maintainer-merge-policy.md).
+- **Work in the open, with your agents.** Agent instructions live in `AGENT.md` and `.github/copilot-instructions.md`; keep agent-produced changes reviewable like any other PR.
+
 ## Development Setup
 
 Linux/macOS:
@@ -111,7 +127,7 @@ Hooks included:
 
 ## Branch And PR Flow
 
-1. Create a feature branch from main.
+1. Create a feature branch from main. Keep it short-lived: rebase on `main` early and often.
 2. Keep changes focused and small.
 3. Add or update tests when behavior changes.
 4. Open a PR with a clear summary and test evidence.
@@ -122,13 +138,16 @@ If your PR touches a SonarCloud-flagged security/vulnerability finding, read [do
 
 ## Commit Message Guidance
 
-Use imperative style and keep scope clear.
+Use imperative style, keep scope clear, and prefix conventional types so git-cliff groups the changelog correctly: `feat:`, `fix:`, `refine:`, `refactor:`, `perf:`, `docs:`, `test:`, `chore:`.
+
+`fix:` is reserved for defects in code that is live in production. Refinement of work that has not shipped yet is `refine:`, not `fix:` — label honestly so throughput metrics stay truthful (see "How We Work").
 
 Examples:
 
-- Add default render output path
-- Fix secret placeholder rendering
-- Update planner regression tests
+- `feat: add default render output path`
+- `fix: resolve secret placeholder rendering`
+- `refine: simplify planner regression test setup`
+- `docs: update planner regression tests`
 
 ## Coding Guidelines
 
@@ -141,6 +160,7 @@ Examples:
 
 - New features should include tests.
 - Bug fixes should include a regression test when possible.
+- Every test must earn its place: run the kill matrix with `make test-mutation` (mutation testing via mutmut) and keep a test only if it catches a mutant that no other test catches. CI publishes the matrix for changed files on PRs and the full report weekly.
 - PRs should pass CI before merge.
 
 ### Writing Regression Tests

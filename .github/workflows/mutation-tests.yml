@@ -1,0 +1,93 @@
+name: Mutation Tests (Kill Matrix)
+
+# Every test must earn its place: mutmut runs the test suite against mutants
+# of the contract/security core of the CLI (scoped in pyproject.toml
+# [tool.mutmut]) and reports which mutants survived. A test that catches
+# nothing of its own is redundant; a surviving mutant is a behavior no test
+# pins. See CONTRIBUTING.md "How We Work" and `make test-mutation` locally.
+#
+# This workflow is informational, not a required check: surviving mutants
+# mean missing or redundant tests, not broken code. The full kill matrix is
+# published as a workflow artifact and job summary on every PR and weekly.
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "5 6 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-tests
+  cancel-in-progress: false
+
+jobs:
+  kill-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Full history so mutmut's git change detection has a baseline.
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]" "mutmut==3.8.1" pytest
+
+      - name: Run kill matrix
+        run: |
+          python -m mutmut run
+
+      - name: Export stats, badge, and results
+        run: |
+          python -m mutmut export-cicd-stats
+          python -m mutmut badge --output "$RUNNER_TEMP/mutation-badge.svg" --label "mutation score"
+          python -m mutmut results --all true > "$RUNNER_TEMP/mutmut-results.txt" || true
+          cat "$RUNNER_TEMP/mutmut-results.txt"
+
+      - name: Mutation score summary
+        shell: bash
+        run: |
+          python - "$RUNNER_TEMP" <<'EOF'
+          import json, sys
+          from pathlib import Path
+          temp = Path(sys.argv[1])
+          stats_path = Path("mutants/mutmut-cicd-stats.json")
+          lines = ["## Kill matrix (mutation testing)", ""]
+          if stats_path.exists():
+              stats = json.loads(stats_path.read_text(encoding="utf-8"))
+              lines.append("```json")
+              lines.append(json.dumps(stats, indent=2, sort_keys=True))
+              lines.append("```")
+          else:
+              lines.append("_No stats exported._")
+          summary = Path(temp / "summary.md")
+          summary.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          with open(summary, "a", encoding="utf-8") as fh:
+              fh.write("\nFull per-mutant results: workflow artifact `mutmut-kill-matrix`.\n")
+          import os
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as gh:
+              gh.write(summary.read_text(encoding="utf-8"))
+          EOF
+
+      - name: Upload kill matrix report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mutmut-kill-matrix
+          path: |
+            mutants/mutmut-cicd-stats.json
+            mutants/mutants.log
+            ${{ runner.temp }}/mutation-badge.svg
+            ${{ runner.temp }}/mutmut-results.txt
+          if-no-files-found: warn

@@ -8,6 +8,34 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Adopted working practices from [Impatient Programming](https://impatientprogramming.org/)
+  where they can be enforced by the repository itself (see CONTRIBUTING.md
+  "How We Work"):
+  - The Contract is now executable in CI: `tests/test_module_contract_schema.py`
+    validates every `module.yaml` under `modules/` and `modules-experimental/`
+    against `cli/resources/module.schema.json`, and every profile through the
+    real validator pipeline (extends resolution included).
+  - Contract coverage is published: `scripts/check_contract_coverage.py`
+    (make target `make contract-coverage`, CI workflow `contract-coverage.yml`)
+    regenerates `docs/contract-coverage.md`, and CI fails when the committed
+    report is stale. Current coverage: 30 of 37 modules/profiles/shared
+    contracts (modules 15/17, profiles 3/8, shared contracts 12/12).
+  - A kill matrix runs mutation testing (mutmut) over the contract/security
+    core of the CLI (`make test-mutation`, workflow `mutation-tests.yml`), so
+    every test must prove it catches something no other test catches.
+  - Issue and PR templates now encode the IMP practices: feature requests
+    require success criteria and the One Question; PRs require the Contract
+    to be kept current, existing behavior pinned before changes, breathe-out
+    in the same PR, tests that earn their place, regression tests for fixes,
+    and short-lived branches. `refine:` commits are grouped under
+    "Refinements" in the changelog (cliff.toml) so non-defect polishing is
+    labeled honestly.
+  - Label-gated auto-merge: a PR labeled `automerge` with a green CI head
+    pipeline is switched to auto-merge by `auto-merge.yml`; all other PRs
+    keep the human review path.
+  - New `.github/prompts/design-artifact.prompt.yml` produces a written
+    design artifact (options, rejected comp, recommendation, success
+    criteria) before implementation.
 - Added the shared `oidc-provider` contract, configurable Keycloak realm
   import and issuer advertisement, and optional Superset OIDC login using
   provider discovery and profile-backed client secrets (#1055, #680, #681).

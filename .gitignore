@@ -50,6 +50,8 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+# mutmut kill-matrix working tree (make test-mutation)
+/mutants/
 
 # Translations
 *.mo

@@ -26,6 +26,29 @@ body:
     required: true
 
 - type: textarea
+  id: success-criteria
+  attributes:
+    label: Success criteria
+    description: |
+      How will we know this worked? Write the observable outcomes that prove
+      the feature is done — the account you can give of what was built. Work
+      does not start on a request without these.
+    placeholder: |
+      e.g. `cds validate profiles/x/profile.yaml` exits 0 and the rendered
+      compose file contains the new service with the documented ports.
+  validations:
+    required: true
+
+- type: textarea
+  id: one-question
+  attributes:
+    label: The One Question
+    description: What do we still need to learn before we can build this?
+    placeholder: e.g. Whether the module needs a dedicated network or can share the default one
+  validations:
+    required: true
+
+- type: textarea
   id: alternatives
   attributes:
     label: Alternatives considered
