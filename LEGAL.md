@@ -14,6 +14,8 @@ need to be discovered individually across the repository root and `docs/`.
 
 - [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — expected behavior for anyone
   participating in the project.
+- [`ACCESSIBILITY.md`](ACCESSIBILITY.md) — accessibility commitment, scope,
+  known limitations, and how to report a barrier.
 
 ## Security
 
