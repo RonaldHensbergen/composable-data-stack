@@ -1,0 +1,36 @@
+data_dir: /tmp
+
+sources:
+  log_ingest:
+    type: http_server
+    address: 0.0.0.0:8686
+    path: /logs
+    decoding:
+      codec: json
+
+transforms:
+  classify_retention_tier:
+    type: remap
+    inputs:
+      - log_ingest
+    source: |
+      if exists(.service) && exists(.profile) && exists(.environment) && exists(.timestamp) && exists(.severity) {
+        if is_string(.service) && is_string(.profile) && is_string(.environment) && is_string(.timestamp) && is_string(.severity) {
+          .tier = "structured"
+        } else {
+          .tier = "raw"
+        }
+      } else {
+        .tier = "raw"
+      }
+
+sinks:
+  loki:
+    type: loki
+    inputs:
+      - classify_retention_tier
+    endpoint: "${LOKI_ENDPOINT}"
+    encoding:
+      codec: json
+    labels:
+      tier: "{{ tier }}"

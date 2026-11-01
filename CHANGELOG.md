@@ -11,6 +11,9 @@ The format is based on Keep a Changelog.
 - Added the shared `oidc-provider` contract, configurable Keycloak realm
   import and issuer advertisement, and optional Superset OIDC login using
   provider discovery and profile-backed client secrets (#1055, #680, #681).
+- Added an experimental Loki log-aggregation module implementing the shared
+  `log-sink` contract, with Vector HTTP ingestion, structured-event
+  classification, and configurable raw/structured retention tiers (#662).
 - Added optional module-instance scoping for production runtime-policy waivers; unknown module IDs are rejected (#932).
 - Added GitOps rendering support (issue #767): a new vendor-neutral
   `gitops-target` contract (`shared/contracts/gitops-target.yaml`: repository
@@ -247,6 +250,8 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the experimental Loki `log-sink` contract to advertise its in-network
+  listener port independently of the host-published port (#662).
 - Fixed the Windows CI test job (`test (windows-latest, 3.14)`) failing on
   PR #1057: `tests/test_maturity.py` asserted the literal POSIX string
   `env_file="/profiles/minimal/.env"`, but `str(Path(...))` yields

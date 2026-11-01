@@ -31,7 +31,7 @@ incremental rather than a big-bang platform migration.
 | Vendor-neutral interface, swappable implementation | A shared contract kind (e.g. `sql-database`, `http-service`, `reverse-proxy`) that any conforming module can provide or consume, see [shared/contracts/](../shared/contracts/) |
 | Incremental, non-big-bang adoption | Profile composition: start from one module, extend a profile with more modules/contracts over time ([`cds compose-profile`](cli-reference.md), profile layering) rather than redesigning the whole stack at once |
 | Haven's platform baseline (GitOps, observability, security, networking, backup) | Tracked as an explicit, larger gap in [docs/haven-parity-plan.md](haven-parity-plan.md); CDS today covers the application layer (orchestration, warehouse, BI, cache, secrets, transformation, identity, integration) and is actively closing platform-layer gaps module by module |
-| A Haven-style component stack (identity, ingress, database, observability) | [`profiles/local-haven-reference`](../profiles/local-haven-reference), combining the `keycloak` (identity), `traefik` (TLS-terminating ingress), and `postgres` (`sql-database`) modules; a `log-sink` provider (#662) is a planned addition once available |
+| A Haven-style component stack (identity, ingress, database, observability) | [`profiles/local-haven-reference`](../profiles/local-haven-reference), combining the `keycloak` (identity), `traefik` (TLS-terminating ingress), and `postgres` (`sql-database`) modules; the experimental Loki `log-sink` provider (#662) can be added when centralized logging is needed |
 
 ## 3. What the reference profile demonstrates
 
@@ -67,9 +67,8 @@ of scope for this profile.
   configure an issuer URL reachable from both browsers and service
   containers. Keycloak remains experimental because its default development
   mode is not production-suitable.
-- No `log-sink` provider module exists yet (#662); once one does, it is a
-  natural addition to this reference profile for Haven-aligned centralized
-  logging.
+- The experimental Loki `log-sink` provider (#662) is not wired into the
+  reference profile by default; add it when centralized logging is needed.
 
 ## 5. References
 

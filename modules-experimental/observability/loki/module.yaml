@@ -1,0 +1,131 @@
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: loki
+  category: observability
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: Loki log aggregation (experimental)
+  description: >
+    Local and development log aggregation using Vector as an HTTP ingestion
+    gateway and Grafana Loki as the log store. Provides the shared log-sink
+    contract with separate retention for raw records and structured runtime
+    events. The unauthenticated endpoint and single-node storage are not
+    suitable for production.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: loki
+      ports:
+        - name: ingest
+          containerPort: 8686
+          protocol: TCP
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      ingestPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 8686
+        description: >-
+          Host loopback port for the Vector HTTP ingestion endpoint. Other
+          Compose services should use the provided log-sink contract.
+
+      rawRetentionDays:
+        type: integer
+        minimum: 1
+        default: 7
+        description: Retention for raw log records that do not match the structured event shape.
+
+      structuredRetentionDays:
+        type: integer
+        minimum: 1
+        default: 90
+        description: Retention for records with the required structured-event fields.
+
+  provides:
+    - name: log-sink
+      contract:
+        kind: log-sink
+        spec:
+          # This module renders two compose services (loki, loki-storage);
+          # the namesake `loki` service serves the ingest endpoint, so
+          # ${service.dns} resolves to its rendered DNS name. serviceName
+          # advertises the same serving service explicitly for the E150
+          # host cross-check (issue #1029), matching the marquez module.
+          host: ${service.dns}
+          # Consumers use the in-network listener, not the host-published port.
+          port: 8686
+          protocol: http
+          ingestPath: /logs
+          rawRetentionDays: ${config.rawRetentionDays}
+          structuredRetentionDays: ${config.structuredRetentionDays}
+          serviceName: loki
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        loki:
+          image: timberio/vector:0.51.0-alpine@sha256:cef2a4d33b43b3e9196ba0bd9f1d8b9006a03bfe15363514c5a0f78b8cb8e9d9
+          command:
+            - --config
+            - /etc/vector/vector.yaml
+          restart: unless-stopped
+          user: "1000:1000"
+          read_only: true
+          cap_drop:
+            - ALL
+          # Both pinned images fail to exec with no-new-privileges in this
+          # Docker runtime; capability dropping and read-only filesystems
+          # remain enabled.
+          pids_limit: 128
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700
+          ports:
+            - "127.0.0.1:${config.ingestPort}:8686"
+          volumes:
+            - type: bind
+              source: vector.yaml
+              target: /etc/vector/vector.yaml
+              read_only: true
+          environment:
+            LOKI_ENDPOINT: "http://${service.host}-loki-storage:3100"
+          depends_on:
+            loki-storage:
+              condition: service_started
+
+        loki-storage:
+          image: grafana/loki:3.6.1@sha256:92bd5700577b6640235820c49ab454fbd792675ba8f4898ac56d522058a88389
+          command:
+            - -config.file=/etc/loki/loki.yaml
+            - -config.expand-env=true
+          restart: unless-stopped
+          user: "10001:10001"
+          read_only: true
+          cap_drop:
+            - ALL
+          pids_limit: 256
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700
+          volumes:
+            - type: bind
+              source: loki.yaml
+              target: /etc/loki/loki.yaml
+              read_only: true
+            - loki-data:/loki
+          environment:
+            RAW_RETENTION_DAYS: "${config.rawRetentionDays}d"
+            STRUCTURED_RETENTION_DAYS: "${config.structuredRetentionDays}d"
+
+      volumes:
+        loki-data: {}
