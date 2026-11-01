@@ -30,9 +30,12 @@ enforces the policy below and fails the build on violations.
    number/labels/milestone/timestamps/url and never collects issue titles or
    bodies — and (b) scrub what remains: it runs `scripts/redact_secrets.py`
    over the JSON (secret-pattern and injection-pattern replacement with
-   `[REDACTED]`, control-char stripping) before inference. External inference is acceptable only with
-   both steps; the question of moving to a local/self-hosted model entirely
-   is tracked in issue #1082.
+   `[REDACTED]`, control-char stripping) before inference. The lint also
+   enforces this at the workflow level: any `actions/ai-inference` step with
+   `file_input` must produce each input file via `scripts/redact_secrets.py`
+   in the same workflow. External inference is acceptable only with these
+   controls; moving to a local/self-hosted model entirely is tracked in
+   issue #1082.
 
 ## Adding a new prompt
 

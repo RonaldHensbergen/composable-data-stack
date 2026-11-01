@@ -60,14 +60,15 @@ jobs:
             --json number,labels,milestone,createdAt,updatedAt,url \
             > "$RUNNER_TEMP/open-issues.json"
           python3 scripts/redact_secrets.py \
-            "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.redacted.json"
-          mv "$RUNNER_TEMP/open-issues.redacted.json" "$RUNNER_TEMP/open-issues.json"
+            "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.json"
           git log \
             --since="90 days ago" \
             --max-count=100 \
             --format="%h %ad %s" \
             --date=short \
             > "$RUNNER_TEMP/recent-commits.txt"
+          python3 scripts/redact_secrets.py \
+            "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"
 
       - name: Setup Node
         if: steps.cadence.outputs.run == 'true'

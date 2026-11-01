@@ -61,6 +61,18 @@ class RedactSecretsTest(unittest.TestCase):
         self.assertNotIn("ghp_", out[0]["title"])
         json.dumps(out)  # must stay valid JSON
 
+    def test_plain_text_input_redacted(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+            fh.write("abc123 fix: rotate password=hunter2 now\n")
+            path = fh.name
+        out_path = path + ".out"
+        rc = redact_secrets.main([path, out_path])
+        text = Path(out_path).read_text(encoding="utf-8")
+        self.assertEqual(0, rc)
+        self.assertNotIn("hunter2", text)
+        self.assertIn("[REDACTED]", text)
+
 
 if __name__ == "__main__":
     unittest.main()

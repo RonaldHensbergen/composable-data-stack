@@ -86,8 +86,42 @@ class PromptsLintTest(unittest.TestCase):
             self.assertTrue(any("invalid YAML" in e for e in lint_file(path)))
 
     def test_repo_prompts_pass(self):
-        # The checked-in prompts must satisfy the policy at all times.
+        # The checked-in prompts and workflows must satisfy the policy at all times.
         self.assertEqual([], lint_all())
+
+    def _workflow(self, tmp: Path, name: str, body: str) -> Path:
+        return self._write(tmp, name, body)
+
+    def test_workflow_with_redacted_file_input_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = """jobs:
+  audit:
+    steps:
+      - run: |
+          python3 scripts/redact_secrets.py "$RUNNER_TEMP/issues.json" "$RUNNER_TEMP/issues.json"
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{ runner.temp }}/issues.json
+"""
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_with_unredacted_file_input_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = """jobs:
+  audit:
+    steps:
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{ runner.temp }}/issues.json
+"""
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("redact_secrets.py" in e for e in errors))
 
 
 if __name__ == "__main__":

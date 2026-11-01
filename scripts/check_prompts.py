@@ -14,6 +14,10 @@ control. The policy enforced here (see .github/prompts/README.md):
    the allowlist exists for workflows that pass data via `file_input` (the
    substitution happens in the ai-inference action, not in free chat).
 
+3. Workflows that call `actions/ai-inference` with `file_input` must produce
+   each input file via `scripts/redact_secrets.py` earlier in the same
+   workflow (minimize + redact before any external inference).
+
 Runs in CI (lint job), pre-commit, and `make lint-prompts`. Exit 1 on any
 violation; the script never modifies files.
 """
@@ -94,6 +98,55 @@ def lint_file(path: Path) -> list[str]:
     return errors
 
 
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+AI_INFERENCE_ACTION = "actions/ai-inference"
+FILE_INPUT_RE = re.compile(r"^\s*\w[\w-]*:\s*(\S.*)$", re.MULTILINE)
+
+
+def lint_workflow(path: Path) -> list[str]:
+    """Durable trust-boundary rule for workflows: any actions/ai-inference
+    step that passes `file_input` files must produce those files through
+    scripts/redact_secrets.py earlier in the same workflow, so user-controlled
+    content is minimized/redacted before it can cross to an external model."""
+    errors: list[str] = []
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return []  # not a workflow document; yamllint's job
+    if not isinstance(doc, dict):
+        return []
+    text = path.read_text(encoding="utf-8")
+    jobs = doc.get("jobs") or {}
+    for job_name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            uses = str(step.get("uses", ""))
+            if AI_INFERENCE_ACTION not in uses:
+                continue
+            file_input = str((step.get("with") or {}).get("file_input") or "")
+            if not file_input.strip():
+                continue
+            inputs = FILE_INPUT_RE.findall(file_input)
+            for raw in inputs:
+                target = raw.strip()
+                base = target.rsplit("/", 1)[-1]
+                # the same workflow must contain a redact_secrets.py call whose
+                # output argument is this file
+                if "redact_secrets.py" not in text or not re.search(
+                    r"redact_secrets\.py\s+\S+\s+\S*" + re.escape(base), text
+                ):
+                    errors.append(
+                        f"{path.name} (job {job_name}): ai-inference file_input "
+                        f"'{target}' is not produced via scripts/redact_secrets.py — "
+                        f"minimize and redact before any external inference "
+                        f"(.github/prompts/README.md)"
+                    )
+    return errors
+
+
 def lint_all(prompts_dir: Path = PROMPTS_DIR) -> list[str]:
     errors: list[str] = []
     files = sorted(prompts_dir.glob("*.prompt.yml"))
@@ -101,6 +154,8 @@ def lint_all(prompts_dir: Path = PROMPTS_DIR) -> list[str]:
         errors.append(f"no *.prompt.yml files found in {prompts_dir}")
     for path in files:
         errors.extend(lint_file(path))
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")):
+        errors.extend(lint_workflow(path))
     return errors
 
 

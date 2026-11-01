@@ -65,6 +65,11 @@ The format is based on Keep a Changelog.
   - `auto-merge.yml` now only considers non-fork PRs (`isCrossRepository ==
     false`) at the green head SHA; `scripts/check_practices_audit.py`
     sanitizes untrusted PR titles before persisting them into report issues.
+  - The prompt lint also covers workflows: any `actions/ai-inference` step
+    with `file_input` must produce each input file via `scripts/redact_secrets.py`
+    in the same workflow, and `redact_secrets.py` now neutralizes
+    instruction-like content (role tags, tool directives, "ignore previous
+    instructions") in addition to secrets, for JSON and plain text.
 - Added the shared `oidc-provider` contract, configurable Keycloak realm
   import and issuer advertisement, and optional Superset OIDC login using
   provider discovery and profile-backed client secrets (#1055, #680, #681).

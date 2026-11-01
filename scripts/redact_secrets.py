@@ -4,10 +4,11 @@ external model (actions/ai-inference).
 
 Reads a JSON file of GitHub issues (as produced by `gh issue list --json`)
 and writes the same structure with secret-looking values in string fields
-replaced by [REDACTED]. Used by biweekly-issue-audit.yml on open-issues.json
-before it is passed as `file_input` to a prompt, so user-controlled issue
-text crosses the trust boundary only after scrubbing. Deny-by-default for
-recognizable secret patterns; never touches structure, only string values.
+replaced by [REDACTED]. Plain-text input (e.g. `git log` output) is redacted
+line by line. Used by biweekly-issue-audit.yml on every file passed as
+`file_input` to a prompt, so user-controlled text crosses the trust boundary
+only after scrubbing. Deny-by-default for recognizable secret patterns;
+never touches JSON structure, only string values.
 
 Usage: python scripts/redact_secrets.py input.json [output.json]
 (default output: stdout). Stdlib only.
@@ -75,9 +76,13 @@ def main(argv: list[str] | None = None) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     src = Path(args[0])
-    data = json.loads(src.read_text(encoding="utf-8"))
-    redacted = redact_obj(data)
-    out = json.dumps(redacted, indent=2, ensure_ascii=False)
+    raw = src.read_text(encoding="utf-8")
+    try:
+        data = json.loads(raw)
+        redacted = redact_obj(data)
+        out = json.dumps(redacted, indent=2, ensure_ascii=False)
+    except json.JSONDecodeError:
+        out = "\n".join(redact_text(line) for line in raw.splitlines())
     if len(args) > 1:
         Path(args[1]).write_text(out + "\n", encoding="utf-8")
     else:
