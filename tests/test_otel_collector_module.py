@@ -162,8 +162,13 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
 
     def test_compose_service_is_hardened_and_pinned(self) -> None:
         service = self.module["spec"]["implementation"]["compose"]["services"]["otel-collector"]
-        self.assertIn("@sha256:", service["image"])
-        self.assertTrue(service["image"].startswith("otel/opentelemetry-collector-contrib:"))
+        # Multi-arch manifest-list digest (not an amd64-only manifest), so the
+        # pin pulls the native image on arm64 hosts too.
+        self.assertEqual(
+            service["image"],
+            "otel/opentelemetry-collector-contrib:0.164.0"
+            "@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b",
+        )
         self.assertEqual(service["cap_drop"], ["ALL"])
         self.assertTrue(service["read_only"])
         self.assertIn("no-new-privileges:true", service["security_opt"])
@@ -225,7 +230,10 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
         self.assertNotIn("metrics-backend", otel["consumes"])
 
         env = compose["services"]["otel-collector"]["environment"]
-        self.assertEqual(env["BACKEND_TRACES_ENDPOINT"], "http://otel-backend-otel-collector:4318")
+        # The otlphttp exporter uses a per-signal endpoint as the complete URL
+        # (no /v1/<signal> is appended), so the forwarded value must be the
+        # backend's connectionUri + ingestPath.
+        self.assertEqual(env["BACKEND_TRACES_ENDPOINT"], "http://otel-backend-otel-collector:4318/v1/traces")
         self.assertEqual(env["BACKEND_LOGS_ENDPOINT"], "")
 
     def test_unknown_backend_contract_ref_fails_validation(self) -> None:

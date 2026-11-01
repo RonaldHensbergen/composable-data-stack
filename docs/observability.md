@@ -299,12 +299,14 @@ runs an OpenTelemetry Collector Contrib instance that **provides**
 `log-sink`, `metrics-sink`, and `trace-sink` over OTLP/HTTP (port 4318,
 per-signal paths `/v1/logs`, `/v1/metrics`, `/v1/traces`; OTLP/gRPC on 4317
 is also open for SDKs that prefer it). Each signal can optionally be
-forwarded to a bound backend module (e.g. the `loki`/`grafana` modules
-recommended by #662/#369) via `spec.config.backends.<signal>.contractRef`;
-forwarding uses the backend's advertised `connectionUri` over OTLP/HTTP, and
-unbound signals stay collector-local. The module is experimental
-(`productionSuitable: false`): single-node, unauthenticated OTLP endpoints,
-no storage of its own.
+forwarded to a bound backend module via `spec.config.backends.<signal>.contractRef`;
+forwarding uses the backend's advertised `connectionUri` **+ `ingestPath`**
+over OTLP/HTTP (the collector's `otlphttp` exporter treats a per-signal
+endpoint as the complete URL and does not append `/v1/<signal>` itself), so
+the backend must expose an OTLP/HTTP ingest endpoint — as the sink contracts
+provided here do. Unbound signals stay collector-local. The module is
+experimental (`productionSuitable: false`): single-node, unauthenticated
+OTLP endpoints, no storage of its own.
 
 ### How a module author emits OTLP and binds to the collector
 
@@ -334,6 +336,12 @@ spec:
             OTEL_EXPORTER_OTLP_ENDPOINT: "${ifNonempty:bindings.trace-sink.connectionUri,,}"
             OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
 ```
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` is the base URL: with `http/protobuf` the SDK
+appends `/v1/<signal>` itself. If you set a per-signal variable instead
+(`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`), the SDK uses it as the complete URL,
+so compose it as `connectionUri` + `ingestPath`:
+`"${ifNonempty:bindings.trace-sink.connectionUri,,}${ifNonempty:bindings.trace-sink.ingestPath,,}"`.
 
 ```yaml
 # profile.yaml

@@ -33,17 +33,19 @@ sink contract, via `spec.config.backends.<signal>.contractRef`:
   source: modules-experimental/observability/otel-collector
   config:
     backends:
-      logs:
-        contractRef: loki.log-sink
       traces:
-        contractRef: tempo.trace-sink
+        contractRef: otel-backend.trace-sink   # another OTLP/HTTP backend
 ```
 
 Forwarding uses OTLP/HTTP (`otlphttp` exporter) to the backend's advertised
-`connectionUri`, so the backend must expose an HTTP ingest endpoint (the
-`trace-sink`/`metrics-sink` contracts provided here do). Unbound signals are
-kept collector-local: the per-signal endpoint stays empty, the collector
-falls back to a discard endpoint, and every pipeline also exports to the
+`connectionUri` + `ingestPath` — the exporter treats a per-signal endpoint as
+the complete URL and does not append `/v1/<signal> itself, so the ingest path
+must be included. The backend must therefore expose an OTLP/HTTP ingest
+endpoint (as the `trace-sink`/`metrics-sink` contracts provided here do);
+plain-JSON sinks such as the Vector gateway in the `loki` module are not
+OTLP-capable and stay collector-local. Unbound signals are kept
+collector-local: the per-signal endpoint stays empty, the collector falls
+back to a discard endpoint, and every pipeline also exports to the
 collector's own log.
 
 ## Instrumenting a service (module authors)

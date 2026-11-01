@@ -13,8 +13,10 @@ metadata:
     `log-sink`, `metrics-sink`, and `trace-sink` contracts, so instrumented
     services can emit OTLP telemetry (logs/metrics/traces) without the
     profile hardcoding a backend (issue #777). Each signal can optionally be
-    forwarded to a bound backend module (e.g. the `loki`/`grafana` modules
-    recommended by #662/#369) through the `backends.*` consumes entries. See
+    forwarded to a bound backend module that speaks OTLP/HTTP (e.g. a second
+    `otel-collector` instance, or the Grafana-stack backend planned in #369)
+    through the `backends.*` consumes entries, using the backend's advertised
+    `connectionUri` + `ingestPath`. See
     docs/observability.md#opentelemetry-otlp-ingestion for how module authors
     instrument a service and bind it. Experimental: single-node,
     unauthenticated OTLP endpoints and no persistent storage of its own —
@@ -81,8 +83,10 @@ spec:
           Optional per-signal forwarding target. Each entry binds a backend
           module instance that provides the matching sink contract
           (`<module-id>.<provide-name>`); the collector forwards the signal
-          to the backend's OTLP/HTTP endpoint. Leave a signal unset to keep
-          it collector-local (exported to the collector's own log only).
+          over OTLP/HTTP to the backend's advertised `connectionUri` +
+          `ingestPath` (the backend must expose an OTLP/HTTP ingest endpoint).
+          Leave a signal unset to keep it collector-local (exported to the
+          collector's own log only).
         properties:
           logs:
             $ref: "#/$defs/contractBinding"
@@ -155,7 +159,7 @@ spec:
     compose:
       services:
         otel-collector:
-          image: otel/opentelemetry-collector-contrib:0.164.0@sha256:ac0bb9cdc844b55d2fd2655d03e596243787d6a8c52dd408b1dc96dd1bd372ee
+          image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
           command:
             - --config
             - /etc/otelcol/collector.yaml
@@ -184,12 +188,15 @@ spec:
             OTLP_HTTP_PORT: "4318"
             HEALTH_PORT: "13133"
             # Forwarding targets, resolved from the optional backend bindings'
-            # connectionUri. Unbound signals render empty, in which case the
-            # collector config falls back to a static discard endpoint (the
-            # per-signal *_endpoint keys override `endpoint` only when set).
-            BACKEND_LOGS_ENDPOINT: "${ifNonempty:bindings.log-backend.connectionUri,,}"
-            BACKEND_METRICS_ENDPOINT: "${ifNonempty:bindings.metrics-backend.connectionUri,,}"
-            BACKEND_TRACES_ENDPOINT: "${ifNonempty:bindings.trace-backend.connectionUri,,}"
+            # connectionUri + ingestPath: the otlphttp exporter uses a
+            # per-signal *_endpoint as the complete URL (it does NOT append
+            # /v1/<signal>), so the ingest path must be part of the value.
+            # Unbound signals render empty, in which case the collector config
+            # falls back to a static discard endpoint (the per-signal
+            # *_endpoint keys override `endpoint` only when non-empty).
+            BACKEND_LOGS_ENDPOINT: "${ifNonempty:bindings.log-backend.connectionUri,,}${ifNonempty:bindings.log-backend.ingestPath,,}"
+            BACKEND_METRICS_ENDPOINT: "${ifNonempty:bindings.metrics-backend.connectionUri,,}${ifNonempty:bindings.metrics-backend.ingestPath,,}"
+            BACKEND_TRACES_ENDPOINT: "${ifNonempty:bindings.trace-backend.connectionUri,,}${ifNonempty:bindings.trace-backend.ingestPath,,}"
           healthcheck:
             conditionallyEnabledFrom: config.healthcheck.enabled
             test:

@@ -3,11 +3,14 @@
 #
 # Receives OTLP logs/metrics/traces on gRPC (4317) and HTTP (4318), and
 # forwards each signal to the bound backend module over OTLP/HTTP when a
-# `backends.<signal>` binding is configured. The backend's connectionUri
-# arrives as an environment variable rendered from the contract binding;
-# an unbound signal leaves the per-signal endpoint empty, in which case the
-# static discard `endpoint` (127.0.0.1:1) is used — export failures are
-# non-fatal, and every pipeline also exports to the collector's own log.
+# `backends.<signal>` binding is configured. The backend's full ingest URL
+# (connectionUri + ingestPath) arrives as an environment variable rendered
+# from the contract binding; the otlphttp exporter uses a per-signal
+# *_endpoint as the complete URL — it does not append /v1/<signal> — so the
+# ingest path must be part of the value. An unbound signal leaves the
+# per-signal endpoint empty, in which case the static discard `endpoint`
+# (127.0.0.1:1) applies (export failures are non-fatal), and every pipeline
+# also exports to the collector's own log.
 receivers:
   otlp:
     protocols:
