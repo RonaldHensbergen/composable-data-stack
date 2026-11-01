@@ -8,6 +8,8 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Follow-ups from the 2026-10 EAISI masterclass on AI-assisted coding (Kapitan): CONTRIBUTING.md "How We Work" now states the spec-first rule (the design/spec artifact is the source of truth humans edit; the executable Contract is what machines check) and the one-canonical-instruction-file rule (`AGENT.md` canonical, tool-specific paths symlinked locally). Runtime agent-security policy (Agent Security Kernel) is tracked as #1084.
+
 - Adopted working practices from [Impatient Programming](https://impatientprogramming.org/)
   where they can be enforced by the repository itself (see CONTRIBUTING.md
   "How We Work"):
