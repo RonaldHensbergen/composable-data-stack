@@ -36,7 +36,13 @@ The module applies the `production` tag convention (see
 - Production profiles replace both services' image with the hardened local
   build from `images/superset/base/Dockerfile`, which bakes
   `superset_config.py` in; the init service uses the image's bundled
-  `/app/docker/init.sh`.
+  `/app/docker/init.sh`. The `superset` service's host port publish is also
+  cleared in production (`ports: []` in its `production:` mapping): the TLS
+  reverse proxy is the sole host-published entry point and `CDS-SEC-074`
+  does not fire (issue #981). Learning/dev profiles keep the direct
+  `webPort:8088` publish for local access. The Kubernetes target always
+  declares the container port via `containerOverrides`, independent of the
+  compose host publish.
 - `config.image.source: registry` continues to use the published CDS image
   for both services in either environment.
 
