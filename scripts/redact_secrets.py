@@ -36,10 +36,21 @@ PATTERNS: list[re.Pattern[str]] = [
 
 CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
+# Instruction-like content that must never reach the model as text records.
+INJECTION_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"(?i)\b(ignore|disregard|forget)\s+(all\s+|any\s+|the\s+)?(previous|prior|above)\s+instructions?\b[^\n]*"),
+    re.compile(r"(?i)^\s*(system|assistant|user|developer)\s*:\s*", re.MULTILINE),
+    re.compile(r"(?i)\b(system\s+prompt|tool[_-]?call|function[_-]?call)\b[^\n]*"),
+    re.compile(r"(?i)</?\s*(instruction|prompt|system)\s*>"),
+]
+
 
 def redact_text(text: str) -> str:
-    """Replace secret-looking substrings and strip control characters."""
+    """Strip control characters, neutralize injection-like content, and
+    replace secret-looking substrings."""
     out = CONTROL_CHARS.sub("", text)
+    for pattern in INJECTION_PATTERNS:
+        out = pattern.sub(REDACTED, out)
     for pattern in PATTERNS:
         if pattern.groups >= 2:  # key/value pattern: keep the key name
             out = pattern.sub(lambda m: f"{m.group(1)}{m.group(2)}{REDACTED}", out)

@@ -68,9 +68,8 @@ def lint_file(path: Path) -> list[str]:
                     f"protocol marker {marker!r} (see .github/prompts/README.md)"
                 )
 
-    all_text = "\n".join(
-        str(m.get("content", "")) for m in doc["messages"] if isinstance(m, dict)
-    )
+    message_texts = [str(m.get("content", "")) for m in doc["messages"] if isinstance(m, dict)]
+    all_text = "\n".join(message_texts)
     variables = sorted(set(VAR_RE.findall(all_text)))
     if variables and path.name not in ALLOWLIST:
         errors.append(
@@ -80,16 +79,18 @@ def lint_file(path: Path) -> list[str]:
         )
     if variables and path.name in ALLOWLIST:
         # Structural control for allowlisted interpolation: every {{var}} must
-        # sit between explicit BEGIN/END UNTRUSTED DATA fences so the payload
-        # is delimited as inert data, not blended into instructions.
-        for match in VAR_RE.finditer(all_text):
-            begin = all_text.rfind("BEGIN_UNTRUSTED_DATA", 0, match.start())
-            end = all_text.find("END_UNTRUSTED_DATA", match.end())
-            if begin == -1 or end == -1:
-                errors.append(
-                    f"{path.name}: interpolation {match.group(0)} is not wrapped in "
-                    f"BEGIN_UNTRUSTED_DATA / END_UNTRUSTED_DATA fences"
-                )
+        # sit between explicit BEGIN/END UNTRUSTED DATA fences *within the same
+        # message* so the payload is delimited as inert data, not blended into
+        # instructions from another message.
+        for text in message_texts:
+            for match in VAR_RE.finditer(text):
+                begin = text.rfind("BEGIN_UNTRUSTED_DATA", 0, match.start())
+                end = text.find("END_UNTRUSTED_DATA", match.end())
+                if begin == -1 or end == -1:
+                    errors.append(
+                        f"{path.name}: interpolation {match.group(0)} is not wrapped in "
+                        f"BEGIN_UNTRUSTED_DATA / END_UNTRUSTED_DATA fences in the same message"
+                    )
     return errors
 
 

@@ -47,17 +47,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          # Data minimization before the trust boundary: bodies are
-          # user-authored free text, so they are never collected; titles and
-          # metadata only. Remaining user-controlled text (titles) is scrubbed
-          # by redact_secrets.py before file_input inference (policy:
+          # Data minimization before the trust boundary: issue titles and
+          # bodies are user-authored free text, so neither is ever collected —
+          # metadata + url only. The remaining fields are still scrubbed by
+          # redact_secrets.py before file_input inference (policy:
           # .github/prompts/README.md).
           gh issue list \
             --repo "$GITHUB_REPOSITORY" \
             --state open \
             --search "-label:issue-audit" \
             --limit 200 \
-            --json number,title,labels,milestone,createdAt,updatedAt,url \
+            --json number,labels,milestone,createdAt,updatedAt,url \
             > "$RUNNER_TEMP/open-issues.json"
           python3 scripts/redact_secrets.py \
             "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.redacted.json"

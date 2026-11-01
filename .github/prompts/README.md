@@ -26,11 +26,11 @@ enforces the policy below and fails the build on violations.
    `biweekly-issue-audit.yml` from `file_input` files.
 3. **Data minimization plus deterministic redaction for `file_input`.**
    `file_input` data is user-controlled, so workflows must (a) collect only
-   the fields the task needs — `biweekly-issue-audit.yml` gathers
-   number/title/labels/milestone/timestamps/url and never collects issue
+   non-free-text fields — `biweekly-issue-audit.yml` gathers
+   number/labels/milestone/timestamps/url and never collects issue titles or
    bodies — and (b) scrub what remains: it runs `scripts/redact_secrets.py`
-   over the JSON (secret-pattern replacement with `[REDACTED]`, control-char
-   stripping) before inference. External inference is acceptable only with
+   over the JSON (secret-pattern and injection-pattern replacement with
+   `[REDACTED]`, control-char stripping) before inference. External inference is acceptable only with
    both steps; the question of moving to a local/self-hosted model entirely
    is tracked in issue #1082.
 
