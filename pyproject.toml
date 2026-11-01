@@ -111,6 +111,12 @@ source_paths = [
   "cli/security_common.py",
 ]
 pytest_add_cli_args_test_selection = ["tests/"]
+# test_cds_workflow spawns the cds CLI as a subprocess (hermetic tmp project).
+# During mutmut's stats phase the original cli/*.py are trampoline-instrumented
+# in place, and that subprocess — running with a cwd that has no
+# [tool.mutmut] — then crashes loading mutmut's config. Exclude it from the
+# kill matrix; cli.main is covered in-process by the other tests.
+pytest_add_cli_args = ["--ignore=tests/test_cds_workflow.py"]
 # mutmut runs pytest from mutants/, and the tests resolve the repo root from
 # their own __file__, so every top-level path they may read must be copied
 # (e.g. tests/test_audit_trivyignore.py reads .github/workflows/ via REPO_ROOT).
