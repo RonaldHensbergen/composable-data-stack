@@ -123,6 +123,23 @@ class PromptsLintTest(unittest.TestCase):
             errors = check_prompts.lint_workflow(path)
             self.assertTrue(any("redact_secrets.py" in e for e in errors))
 
+    def test_workflow_redaction_matches_full_path_not_basename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # redacts a DIFFERENT directory's issues.json — must not count
+            wf = """jobs:
+  audit:
+    steps:
+      - run: python3 scripts/redact_secrets.py --strict "$RUNNER_TEMP/other/issues.json" "$RUNNER_TEMP/other/issues.json"
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{ runner.temp }}/issues.json
+"""
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("issues.json" in e for e in errors))
+
     def test_workflow_redaction_must_precede_inference_and_match_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             # redaction exists but targets a different file, and after the call

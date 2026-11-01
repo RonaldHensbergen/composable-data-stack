@@ -55,12 +55,16 @@ def _redact_kv(match: re.Match[str]) -> str:
     return f"{match.group(1)}{match.group(2)}{REDACTED}"
 
 
-def redact_text(text: str) -> str:
+def redact_text(text: str, hits: list[str] | None = None) -> str:
     """Strip control characters, neutralize injection-like content, and
-    replace secret-looking substrings."""
+    replace secret-looking substrings. If `hits` is a list, every matched
+    injection pattern is recorded there (for --strict fail-closed signaling)."""
     out = CONTROL_CHARS.sub("", text)
     for pattern in INJECTION_PATTERNS:
-        out = pattern.sub(REDACTED, out)
+        if pattern.search(out):
+            if hits is not None:
+                hits.append(pattern.pattern)
+            out = pattern.sub(REDACTED, out)
     for pattern in PATTERNS:
         if pattern.groups >= 3:  # key/value pattern: keep the key name
             out = pattern.sub(_redact_kv, out)
@@ -69,33 +73,39 @@ def redact_text(text: str) -> str:
     return out
 
 
-def redact_obj(obj: object) -> object:
+def redact_obj(obj: object, hits: list[str] | None = None) -> object:
     if isinstance(obj, str):
-        return redact_text(obj)
+        return redact_text(obj, hits)
     if isinstance(obj, list):
-        return [redact_obj(item) for item in obj]
+        return [redact_obj(item, hits) for item in obj]
     if isinstance(obj, dict):
-        return {key: redact_obj(value) for key, value in obj.items()}
+        return {key: redact_obj(value, hits) for key, value in obj.items()}
     return obj
 
 
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
+    strict = "--strict" in args
+    args = [a for a in args if a != "--strict"]
     if not args:
         print(__doc__, file=sys.stderr)
         return 2
+    hits: list[str] = []
     src = Path(args[0])
     raw = src.read_text(encoding="utf-8")
     try:
         data = json.loads(raw)
-        redacted = redact_obj(data)
+        redacted = redact_obj(data, hits)
         out = json.dumps(redacted, indent=2, ensure_ascii=False)
     except json.JSONDecodeError:
-        out = "\n".join(redact_text(line) for line in raw.splitlines())
+        out = "\n".join(redact_text(line, hits) for line in raw.splitlines())
     if len(args) > 1:
         Path(args[1]).write_text(out + "\n", encoding="utf-8")
     else:
         print(out)
+    if strict and hits:
+        print(f"strict mode: {len(hits)} injection-like pattern(s) detected and redacted", file=sys.stderr)
+        return 3
     return 0
 
 

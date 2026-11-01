@@ -116,7 +116,7 @@ def lint_workflow(path: Path) -> list[str]:
     if not isinstance(doc, dict):
         return []
     jobs = doc.get("jobs") or {}
-    redact_call_re = re.compile(r"redact_secrets\.py\s+\S+\s+(\S+)")
+    redact_call_re = re.compile(r"redact_secrets\.py\s+(?:--strict\s+)?(\S+)\s+(\S+)")
     for job_name, job in jobs.items():
         if not isinstance(job, dict):
             continue
@@ -126,7 +126,7 @@ def lint_workflow(path: Path) -> list[str]:
                 continue
             run_script = str(step.get("run") or "").replace("\\\n", " ")
             for match in redact_call_re.finditer(run_script):
-                redacted_outputs.add(match.group(1).strip("\"'").rsplit("/", 1)[-1])
+                redacted_outputs.add(_canon_path(match.group(2)))
             uses = str(step.get("uses", ""))
             if AI_INFERENCE_ACTION not in uses:
                 continue
@@ -134,8 +134,8 @@ def lint_workflow(path: Path) -> list[str]:
             if not file_input.strip():
                 continue
             for raw in FILE_INPUT_RE.findall(file_input):
-                base = raw.strip().rsplit("/", 1)[-1]
-                if base not in redacted_outputs:
+                target = _canon_path(raw)
+                if target not in redacted_outputs:
                     errors.append(
                         f"{path.name} (job {job_name}): ai-inference file_input "
                         f"'{raw.strip()}' is not produced by an earlier "
@@ -144,6 +144,17 @@ def lint_workflow(path: Path) -> list[str]:
                         f"(.github/prompts/README.md)"
                     )
     return errors
+
+
+def _canon_path(raw: str) -> str:
+    """Normalize a path token for exact comparison: strip quotes, unify temp
+    dir spellings, POSIX separators, drop leading ./"""
+    token = raw.strip().strip("\"'")
+    token = token.replace("${{ runner.temp }}", "__TEMP__").replace("$RUNNER_TEMP", "__TEMP__")
+    token = token.replace("\\", "/")
+    while token.startswith("./"):
+        token = token[2:]
+    return token
 
 
 def lint_all(prompts_dir: Path = PROMPTS_DIR) -> list[str]:

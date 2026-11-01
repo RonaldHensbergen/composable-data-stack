@@ -59,7 +59,7 @@ jobs:
             --limit 200 \
             --json number,labels,milestone,createdAt,updatedAt,url \
             > "$RUNNER_TEMP/open-issues.json"
-          python3 scripts/redact_secrets.py \
+          python3 scripts/redact_secrets.py --strict \
             "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.json"
           git log \
             --since="90 days ago" \
@@ -67,7 +67,7 @@ jobs:
             --format="%h %ad %s" \
             --date=short \
             > "$RUNNER_TEMP/recent-commits.txt"
-          python3 scripts/redact_secrets.py \
+          python3 scripts/redact_secrets.py --strict \
             "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"
 
       - name: Setup Node
