@@ -6,6 +6,7 @@ metadata:
   name: airflow
   category: orchestration
   version: "0.1.0"
+  productionSuitable: false
   displayName: Airflow (experimental)
   description: >
     Experimental Airflow module placeholder kept for future modernization.

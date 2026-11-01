@@ -367,6 +367,12 @@ The format is based on Keep a Changelog.
   environment where applicable) (#1079). Profile contract coverage in
   `docs/contract-coverage.md` is now 8/8.
 
+- Naming tests for the last two uncovered experimental modules
+  (`tests/test_marquez_module.py`, `tests/test_airflow_module.py`): each loads
+  its `module.yaml`, validates it against `cli/resources/module.schema.json`,
+  and pins its provided contract(s) (#1080). Module contract coverage in
+  `docs/contract-coverage.md` is now 18/18.
+
 ### Fixed
 
 - Production profiles no longer host-publish the Dagster webserver and
@@ -603,6 +609,12 @@ The format is based on Keep a Changelog.
   those manifests show "cannot update to the required version" by design and
   are remediated by Renovate PRs. `docs/image-scanning.md` carries the same
   note next to the lock-maintenance rules.
+
+- The experimental airflow placeholder module now declares
+  `productionSuitable: false` like every other `modules-experimental/`
+  module: the schema default is `true` and CDS-SEC-073 only fires on an
+  explicit `false`, so a staging/prod profile could previously compose it
+  unflagged (#1080).
 
 ## [0.14.0] - 2026-10-26
 

@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 40 of 41 (98%)** — modules 17/18 (94%), profiles 8/8 (100%), shared contracts 15/15 (100%)
+**Overall contract coverage: 41 of 41 (100%)** — modules 18/18 (100%), profiles 8/8 (100%), shared contracts 15/15 (100%)
 
 ## Modules
 
@@ -37,7 +37,7 @@ everyone how much of the system is still unwritten.
 | `modules-experimental/observability/loki` | loki | yes |
 | `modules-experimental/observability/marquez` | marquez | yes |
 | `modules-experimental/observability/otel-collector` | otel-collector | yes |
-| `modules-experimental/orchestration/airflow` | airflow | **no** |
+| `modules-experimental/orchestration/airflow` | airflow | yes |
 | `modules-experimental/warehouse/duckdb` | duckdb | yes |
 
 ## Profiles
