@@ -269,10 +269,7 @@ spec:
     compose:
       services:
         superset-init:
-          build:
-            context: ../../../
-            dockerfile: images/superset/base/Dockerfile
-          image: local/superset:custom
+          image: apache/superset:6.1.0-dev@sha256:be6a6d4938aeb7888bd29cd4b84fa37c6d071c36ae19fef8b929024bf6d5ab8f
           read_only: true
           cap_drop:
             - ALL
@@ -281,8 +278,46 @@ spec:
           tmpfs:
             - /tmp:rw,noexec,nosuid,nodev
             - /app/superset_home:rw,noexec,nosuid,nodev
+          # The stock upstream image has no CDS config baked in; mount the
+          # CDS superset_config.py (secret key, session hardening, OIDC)
+          # over the image's pythonpath entry.
+          volumes:
+            - type: bind
+              source: images/superset/superset_config.py
+              target: /app/pythonpath/superset_config.py
+              read_only: true
           entrypoint:
-            - /app/docker/init.sh
+            - /bin/bash
+            - -c
+          command:
+            - |
+              set -e
+
+              retry() {
+                local attempts=5 delay=5 n=1
+                until "$$@"; do
+                  if (( n >= attempts )); then
+                    echo "Command failed after $$attempts attempts: $$*" >&2
+                    return 1
+                  fi
+                  echo "Attempt $$n/$$attempts failed; retrying in $$delay seconds: $$*" >&2
+                  n=$$((n + 1))
+                  sleep "$$delay"
+                done
+              }
+
+              if [[ -n "$$SUPERSET__SQLALCHEMY_DATABASE_URI" ]]; then
+                retry superset db upgrade
+                if [[ -n "$$SUPERSET_ADMIN_USERNAME" && -n "$$SUPERSET_ADMIN_PASSWORD" && -n "$$SUPERSET_ADMIN_EMAIL" ]]; then
+                  superset fab create-admin \
+                    --username "$$SUPERSET_ADMIN_USERNAME" \
+                    --password "$$SUPERSET_ADMIN_PASSWORD" \
+                    --email "$$SUPERSET_ADMIN_EMAIL" \
+                    --firstname "Admin" \
+                    --lastname "User" || echo "Admin user already exists or creation failed"
+                fi
+                retry superset init
+              fi
           environment:
             SUPERSET_SECRET_KEY: "${config.secretKeyFrom}"
             SUPERSET_ADMIN_USERNAME: "${config.adminUser.username}"
@@ -295,11 +330,20 @@ spec:
           healthcheck:
             disable: true
           restart: "no"
+          production:
+            image: local/superset:custom
+            build:
+              context: ../../../
+              dockerfile: images/superset/base/Dockerfile
+            entrypoint:
+              - /app/docker/init.sh
+            command: []
+            # The hardened image bakes superset_config.py in; do not shadow it
+            # with a host bind (in Kubernetes the bind would become an
+            # emptyDir).
+            volumes: []
         superset:
-          build:
-            context: ../../../
-            dockerfile: images/superset/base/Dockerfile
-          image: local/superset:custom
+          image: apache/superset:6.1.0-dev@sha256:be6a6d4938aeb7888bd29cd4b84fa37c6d071c36ae19fef8b929024bf6d5ab8f
           read_only: true
           cap_drop:
             - ALL
@@ -308,6 +352,13 @@ spec:
           tmpfs:
             - /tmp:rw,noexec,nosuid,nodev
             - /app/superset_home:rw,noexec,nosuid,nodev
+          # Same CDS config mount as superset-init: the stock upstream image
+          # does not carry superset_config.py.
+          volumes:
+            - type: bind
+              source: images/superset/superset_config.py
+              target: /app/pythonpath/superset_config.py
+              read_only: true
           ports:
             - "${config.webPort}:8088"
           depends_on:
@@ -339,6 +390,13 @@ spec:
             interval: 10s
             timeout: 5s
             retries: 20
+          production:
+            image: local/superset:custom
+            build:
+              context: ../../../
+              dockerfile: images/superset/base/Dockerfile
+            # Keep the image-baked superset_config.py (see superset-init).
+            volumes: []
 
     kubernetes:
       workloads:

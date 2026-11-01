@@ -15,6 +15,11 @@ The format is based on Keep a Changelog.
   `log-sink` contract, with Vector HTTP ingestion, structured-event
   classification, and configurable raw/structured retention tiers (#662).
 - Added optional module-instance scoping for production runtime-policy waivers; unknown module IDs are rejected (#932).
+- Applied the production/learning split to Superset and Dagster (issue
+  #959): learning Superset profiles pull the pinned upstream image without
+  local builds, production profiles retain the hardened local build, and
+  Dagster now defaults to its hardened variant in production while
+  preserving explicit variant overrides and variant-prefixed registry tags.
 - Added GitOps rendering support (issue #767): a new vendor-neutral
   `gitops-target` contract (`shared/contracts/gitops-target.yaml`: repository
   URL, branch, path, sync interval, target namespace), validated by
@@ -253,6 +258,19 @@ The format is based on Keep a Changelog.
 
 - Fixed the experimental Loki `log-sink` contract to advertise its in-network
   listener port independently of the host-published port (#662).
+- Fixed Compose parsing and runtime shell-variable interpolation in the
+  learning Superset initialization command (#959, #1071).
+- Switched learning Superset services to the pinned upstream development
+  image, which includes the PostgreSQL and Redis drivers required to boot
+  without a local build (#959, #1071).
+- Fetched build assets (`cds get`/`cds update`) now also include builds
+  nested in a service's `production:` mapping, so fetched profiles can
+  still build the hardened production images (#959, #1071).
+- Learning Superset services bind-mount `images/superset/superset_config.py`
+  over the stock upstream image's pythonpath entry, so the secret key,
+  session-cookie hardening, and optional OIDC login (#1064) apply without a
+  local build; production keeps the image-baked copy (#959, #1071).
+
 - Fixed the Windows CI test job (`test (windows-latest, 3.14)`) failing on
   PR #1057: `tests/test_maturity.py` asserted the literal POSIX string
   `env_file="/profiles/minimal/.env"`, but `str(Path(...))` yields

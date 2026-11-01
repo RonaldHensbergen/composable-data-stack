@@ -396,6 +396,127 @@ class ModuleAssetsTest(unittest.TestCase):
         ):
             self.assertIsNone(_module_interpolation_context(schema, {}))
 
+    def test_interpolation_context_applies_profile_environment_default(self) -> None:
+        module_doc = {
+            "spec": {
+                "configSchema": {
+                    "type": "object",
+                    "properties": {
+                        "image": {
+                            "type": "object",
+                            "default": {},
+                            "properties": {
+                                "variant": {
+                                    "type": "string",
+                                    "defaultByEnvironment": {
+                                        "default": "base",
+                                        "production": "hardened",
+                                    },
+                                }
+                            },
+                        }
+                    },
+                }
+            }
+        }
+
+        context = _module_interpolation_context(
+            module_doc, {"config": {}}, environment="production"
+        )
+
+        self.assertIsNotNone(context)
+        if context is None:
+            self.fail("production environment should resolve a config context")
+        self.assertEqual(context["config"]["image"]["variant"], "hardened")
+
+    def test_module_assets_include_learning_and_production_build_variants(self) -> None:
+        module_doc = {
+            "spec": {
+                "configSchema": {
+                    "type": "object",
+                    "properties": {
+                        "image": {
+                            "type": "object",
+                            "default": {},
+                            "properties": {
+                                "variant": {
+                                    "type": "string",
+                                    "defaultByEnvironment": {
+                                        "default": "base",
+                                        "production": "hardened",
+                                    },
+                                }
+                            },
+                        }
+                    },
+                },
+                "implementation": {
+                    "compose": {
+                        "services": {
+                            "web": {
+                                "build": {
+                                    "context": ".",
+                                    "dockerfile": "images/dagster/${config.image.variant}/Dockerfile",
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        }
+        observed_variants: set[str] = set()
+
+        def capture_build(_repo, _module, _build, *, interpolation_context):
+            if interpolation_context is None:
+                return set()
+            observed_variants.add(interpolation_context["config"]["image"]["variant"])
+            return set()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "module.yaml").write_text("unused", encoding="utf-8")
+            with (
+                patch.object(getter, "load_yaml_file", return_value=(module_doc, [])),
+                patch.object(getter, "_collect_build_assets", side_effect=capture_build),
+            ):
+                _collect_module_runtime_assets(root, root, {}, environment="local")
+
+        self.assertEqual(observed_variants, {"base", "hardened"})
+
+    def test_production_mapping_build_assets_are_collected(self) -> None:
+        module_doc = {
+            "spec": {
+                "implementation": {
+                    "compose": {
+                        "services": {
+                            "web": {
+                                "image": "example/stock:1.0",
+                                "production": {
+                                    "image": "local/web:custom",
+                                    "build": {
+                                        "context": ".",
+                                        "dockerfile": "images/web/Dockerfile",
+                                    },
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            dockerfile = root / "images" / "web" / "Dockerfile"
+            dockerfile.parent.mkdir(parents=True)
+            dockerfile.write_text("FROM scratch\n", encoding="utf-8")
+            with patch.object(getter, "load_yaml_file", return_value=(module_doc, [])):
+                for environment in (None, "local", "production"):
+                    with self.subTest(environment=environment):
+                        assets = _collect_module_runtime_assets(
+                            root, root, {}, environment=environment
+                        )
+                        self.assertIn(dockerfile, assets)
+
 
 class BuildAssetsTest(unittest.TestCase):
     def _build(self, build, files=None, ctx=None):

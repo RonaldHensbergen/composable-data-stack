@@ -850,7 +850,12 @@ def _collect_asset_roots(source_repo: Path, profile_path: Path) -> list[Path]:
         _require_within_repo(module_dir, source_repo, f'module source "{source}"')
         asset_roots.add(module_dir.resolve())
         asset_roots.update(
-            _collect_module_runtime_assets(source_repo, module_dir.resolve(), module)
+            _collect_module_runtime_assets(
+                source_repo,
+                module_dir.resolve(),
+                module,
+                environment=_profile_environment(profile_doc),
+            )
         )
 
     return sorted(asset_roots)
@@ -860,6 +865,8 @@ def _collect_module_runtime_assets(
     source_repo: Path,
     module_dir: Path,
     module_instance: dict[str, Any],
+    *,
+    environment: str | None = None,
 ) -> set[Path]:
     module_doc, module_diags = load_yaml_file(module_dir / "module.yaml")
     if module_diags or module_doc is None:
@@ -878,19 +885,34 @@ def _collect_module_runtime_assets(
     if not isinstance(services, dict):
         return assets
 
-    context = _module_interpolation_context(module_doc, module_instance)
+    contexts: list[dict[str, Any] | None] = [None]
+    for selected_environment in (None, "production", environment):
+        context = _module_interpolation_context(
+            module_doc, module_instance, environment=selected_environment
+        )
+        if context is not None and context not in contexts:
+            contexts.append(context)
 
     for service in services.values():
         if not isinstance(service, dict):
             continue
-        assets.update(
-            _collect_build_assets(
-                source_repo,
-                module_dir,
-                service.get("build"),
-                interpolation_context=context,
-            )
-        )
+        build_specs = [service.get("build")]
+        # A production mapping can carry its own build block (the hardened
+        # local image); collect it too so fetched profiles can still build
+        # the production variant.
+        marker = service.get("production")
+        if isinstance(marker, dict):
+            build_specs.append(marker.get("build"))
+        for context in contexts:
+            for build in build_specs:
+                assets.update(
+                    _collect_build_assets(
+                        source_repo,
+                        module_dir,
+                        build,
+                        interpolation_context=context,
+                    )
+                )
 
     return assets
 
@@ -1089,6 +1111,8 @@ def _strip_dockerfile_comment(line: str) -> str:
 def _module_interpolation_context(
     module_doc: dict[str, Any],
     module_instance: dict[str, Any],
+    *,
+    environment: str | None = None,
 ) -> dict[str, Any] | None:
     config_schema = module_doc.get("spec", {}).get("configSchema")
     if not isinstance(config_schema, dict):
@@ -1101,7 +1125,9 @@ def _module_interpolation_context(
         return None
 
     try:
-        normalized_config = apply_defaults(raw_config, config_schema)
+        normalized_config = apply_defaults(
+            raw_config, config_schema, environment=environment
+        )
     except MaxNestingDepthExceeded:
         return None
 
@@ -1111,6 +1137,12 @@ def _module_interpolation_context(
         "service": {},
         "secrets": {},
     }
+
+
+def _profile_environment(profile: dict[str, Any]) -> str | None:
+    metadata = profile.get("metadata")
+    environment = metadata.get("environment") if isinstance(metadata, dict) else None
+    return environment if isinstance(environment, str) else None
 
 
 def _resolve_template_value(

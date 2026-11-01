@@ -405,6 +405,24 @@ production (for example the postgres backup capability, whose sidecar is
 less than requested (`E143` for `config.backup.enabled` outside a
 production profile).
 
+For config values that select a variant without gating the service itself,
+module config schemas may use `defaultByEnvironment` on a property:
+
+```yaml
+variant:
+  type: string
+  enum: [base, hardened]
+  defaultByEnvironment:
+    default: base
+    production: hardened
+```
+
+The planner applies the matching environment default only when the profile
+does not set that property; an explicit config value wins. `default` is the
+fallback for environments not named in the mapping and for profiles without
+an environment. This is useful when production selects a hardened default
+but both variants remain available in every environment.
+
 ## Custom images
 
 When a module requires a custom Docker image, the build context belongs in the `images/` directory at the repository root, not inside the module directory. Reference it from `spec.implementation.compose.services.<name>`, the same place any other Compose service field goes:
