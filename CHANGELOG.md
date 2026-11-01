@@ -8,6 +8,9 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added the shared `oidc-provider` contract, configurable Keycloak realm
+  import and issuer advertisement, and optional Superset OIDC login using
+  provider discovery and profile-backed client secrets (#1055, #680, #681).
 - Added an experimental Loki log-aggregation module implementing the shared
   `log-sink` contract, with Vector HTTP ingestion, structured-event
   classification, and configurable raw/structured retention tiers (#662).

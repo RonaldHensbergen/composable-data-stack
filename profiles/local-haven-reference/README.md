@@ -10,10 +10,11 @@ for the concept mapping between CDS and Haven/Common Ground principles.
 ## Status
 
 Experimental (tracked in [docs/roadmap.md](../../docs/roadmap.md) under
-Experimental Components) until the Keycloak module gains realm
-configuration (#680) and an `oidc-provider` contract (#681). No new
-Common Ground-specific modules were introduced for this profile; it only
-wires together modules CDS already has.
+Experimental Components) because Keycloak is not yet production-suitable.
+The profile configures the `cds` realm and advertises an OIDC issuer, but
+does not provision an application client. No new Common Ground-specific
+modules were introduced for this profile; it only wires together modules
+CDS already has.
 
 ## Purpose
 
@@ -21,7 +22,7 @@ wires together modules CDS already has.
   metadata store (an `identity` database distinct from any
   application-data database another profile might add).
 - `keycloak` consumes that `sql-database` contract and runs in development
-  mode (`start-dev`), providing an `http-service` contract on port 8080.
+  mode (`start-dev`), providing `http-service` and `oidc-provider` contracts.
 - `traefik` fronts the stack with TLS 1.2+ enforcement and a file-provider
   dynamic configuration ([`traefik/dynamic/keycloak.yml`](../../traefik/dynamic/keycloak.yml))
   routing its `websecure` entrypoint to the Keycloak container over the
@@ -65,6 +66,10 @@ Start the stack with `cds up local-haven-reference` (add `-d` to detach).
 Reach Keycloak directly at `http://localhost:8081`, or through Traefik's
 TLS entrypoint at `https://localhost` (self-signed certificate, expect a
 browser warning). Traefik's own dashboard is on `http://127.0.0.1:8080`.
+The profile advertises `http://localhost:8081/realms/cds` as its issuer.
+That URL is suitable for the local browser; OIDC consumers in containers
+need a shared host name or reverse-proxy URL reachable both from the browser
+and from the containers.
 
 ## Teardown
 

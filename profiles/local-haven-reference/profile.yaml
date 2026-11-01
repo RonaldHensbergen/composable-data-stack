@@ -11,8 +11,7 @@ metadata:
     a Haven-aligned shape: an identity provider (Keycloak), a TLS-terminating
     reverse proxy (Traefik), and a sql-database provider (Postgres). See
     docs/common-ground-alignment.md for the concept mapping. Experimental
-    while the Keycloak module lacks realm configuration (#680) and an
-    oidc-provider contract (#681).
+    while the Keycloak module remains unsuitable for production use.
 
 spec:
   runtime:
@@ -52,6 +51,8 @@ spec:
         - postgres
       config:
         httpPort: 8081
+        publicUrl: http://localhost:8081
+        realm: cds
         metadataDatabase:
           contractRef: postgres.sql-database
           driver: postgres
@@ -101,5 +102,7 @@ spec:
         from: postgres.sql-database
       identityApi:
         from: keycloak.http-service
+      identityProvider:
+        from: keycloak.oidc-provider
       edge:
         from: traefik.reverse-proxy
