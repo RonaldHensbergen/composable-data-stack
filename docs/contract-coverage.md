@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 30 of 37 (81%)** — modules 15/17 (88%), profiles 3/8 (38%), shared contracts 12/12 (100%)
+**Overall contract coverage: 33 of 38 (87%)** — modules 16/17 (94%), profiles 4/8 (50%), shared contracts 13/13 (100%)
 
 ## Modules
 
@@ -35,7 +35,7 @@ everyone how much of the system is still unwritten.
 | `modules-experimental/gitops/fluxcd` | fluxcd | yes |
 | `modules-experimental/ingestion/dlt` | dlt | yes |
 | `modules-experimental/observability/loki` | loki | yes |
-| `modules-experimental/observability/marquez` | marquez | **no** |
+| `modules-experimental/observability/marquez` | marquez | yes |
 | `modules-experimental/orchestration/airflow` | airflow | **no** |
 | `modules-experimental/warehouse/duckdb` | duckdb | yes |
 
@@ -43,7 +43,7 @@ everyone how much of the system is still unwritten.
 
 | Path | Name | Covered by tests |
 | --- | --- | --- |
-| `profiles/local-dagster-postgres-marquez` | local-dagster-postgres-marquez | **no** |
+| `profiles/local-dagster-postgres-marquez` | local-dagster-postgres-marquez | yes |
 | `profiles/local-dagster-postgres-superset` | local-dagster-postgres-superset | yes |
 | `profiles/local-dagster-postgres-superset-dbt` | local-dagster-postgres-superset-dbt | **no** |
 | `profiles/local-dagster-postgres-superset-vault` | local-dagster-postgres-superset-vault | yes |
@@ -65,6 +65,7 @@ everyone how much of the system is still unwritten.
 | `shared/contracts/lineage-sink.yaml` | lineage-sink | yes |
 | `shared/contracts/log-sink.yaml` | log-sink | yes |
 | `shared/contracts/object-storage.yaml` | object-storage | yes |
+| `shared/contracts/oidc-provider.yaml` | oidc-provider | yes |
 | `shared/contracts/open-data-provider.yaml` | open-data-provider | yes |
 | `shared/contracts/reverse-proxy.yaml` | reverse-proxy | yes |
 | `shared/contracts/sql-database.yaml` | sql-database | yes |
