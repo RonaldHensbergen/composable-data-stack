@@ -341,9 +341,11 @@ The format is based on Keep a Changelog.
   `comments`) via `--json` or re-extract them via `--jq` — metadata only.
   Field lists are parsed as shell tokens (`shlex`) with a quote-aware regex
   fallback, so quoted (`--json "number,title"`), `--flag=value`, and
-  `$(gh ...)` forms cannot bypass the lint (github-advanced-security review
-  on #1087). Tests in `tests/test_prompts_lint.py`; the agent-side protocol
-  is recorded in `AGENT.md` "Agent-side untrusted-content protocol".
+  `$(gh ...)` forms cannot bypass the lint, and dynamic or missing arguments
+  (`--json "$FIELDS"`, `--json "$(cat fields.txt)"`, bare `--json`) fail
+  closed as unverifiable (github-advanced-security reviews on #1087). Tests
+  in `tests/test_prompts_lint.py`; the agent-side protocol is recorded in
+  `AGENT.md` "Agent-side untrusted-content protocol".
 
 ### Fixed
 

@@ -62,6 +62,17 @@ GH_CMD_RE = re.compile(
 # --json 'f, g' (github-advanced-security review on PR #1087: a regex over
 # raw text that does not account for quotes misses --json "number,title").
 GH_JSON_RE = re.compile(r"--json[=\s]*[\"']?\s*([A-Za-z0-9_]+(?:\s*,\s*[A-Za-z0-9_]+)*)")
+# Dynamic (non-literal) --json/--jq arguments — --json "$FIELDS",
+# --json "$(cat fields.txt)", globs, or a missing value — cannot be verified
+# statically, so they fail closed via a sentinel that downstream checks treat
+# as disallowed (github-advanced-security review on PR #1087).
+DYNAMIC_ARG = "<dynamic-argument>"
+DYNAMIC_ARG_RE = re.compile(r"[$*?`]")
+# A value token that is actually a shell operator means --json/--jq has no
+# value at all — also fail closed.
+SHELL_OPERATORS = frozenset({">", ">>", "<", "|", "||", "&&", ";", "&"})
+GH_JSON_DYNAMIC_RE = re.compile(r"--json[=\s]+[\"']?\S*[$*?`]\S*|--json[=\s]*$")
+GH_JQ_DYNAMIC_RE = re.compile(r"--jq[=\s]+[\"']?\S*[$*?`]\S*|--jq[=\s]*$")
 # --jq expressions can re-extract free-text fields at runtime even when the
 # --json list itself is metadata-only, so they are checked against the same
 # field set (`.title`, `.["title"]` forms).
@@ -90,6 +101,8 @@ def _gh_json_fields(line: str) -> set[str]:
     fields: set[str] = set()
     for match in GH_JSON_RE.finditer(line):
         fields.update(f.strip() for f in match.group(1).split(",") if f.strip())
+    if GH_JSON_DYNAMIC_RE.search(line):
+        fields.add(DYNAMIC_ARG)
     try:
         tokens = shlex.split(line)
     except ValueError:
@@ -97,12 +110,27 @@ def _gh_json_fields(line: str) -> set[str]:
     i = 0
     while i < len(tokens):
         tok = tokens[i]
-        if tok == "--json" and i + 1 < len(tokens):
-            fields.update(f.strip() for f in tokens[i + 1].split(",") if f.strip())
+        if tok == "--json":
+            if (
+                i + 1 >= len(tokens)
+                or tokens[i + 1].startswith("-")
+                or tokens[i + 1] in SHELL_OPERATORS
+            ):
+                fields.add(DYNAMIC_ARG)  # bare --json with no value: fail closed
+            else:
+                value = tokens[i + 1]
+                if DYNAMIC_ARG_RE.search(value):
+                    fields.add(DYNAMIC_ARG)
+                else:
+                    fields.update(f.strip() for f in value.split(",") if f.strip())
             i += 2
             continue
         if tok.startswith("--json="):
-            fields.update(f.strip() for f in tok[len("--json="):].split(",") if f.strip())
+            value = tok[len("--json="):]
+            if not value or DYNAMIC_ARG_RE.search(value):
+                fields.add(DYNAMIC_ARG)
+            else:
+                fields.update(f.strip() for f in value.split(",") if f.strip())
         i += 1
     return fields
 
@@ -111,6 +139,8 @@ def _gh_jq_expressions(line: str) -> set[str]:
     """Every --jq expression in the line (--jq <e>, --jq=<e>, quoted), via
     shlex tokens plus a quote-aware regex union, mirroring _gh_json_fields."""
     exprs: set[str] = set()
+    if GH_JQ_DYNAMIC_RE.search(line):
+        exprs.add(DYNAMIC_ARG)
     try:
         tokens = shlex.split(line)
     except ValueError:
@@ -118,12 +148,21 @@ def _gh_jq_expressions(line: str) -> set[str]:
     i = 0
     while i < len(tokens):
         tok = tokens[i]
-        if tok == "--jq" and i + 1 < len(tokens):
-            exprs.add(tokens[i + 1])
+        if tok == "--jq":
+            if (
+                i + 1 >= len(tokens)
+                or tokens[i + 1].startswith("-")
+                or tokens[i + 1] in SHELL_OPERATORS
+            ):
+                exprs.add(DYNAMIC_ARG)  # bare --jq with no value: fail closed
+            else:
+                value = tokens[i + 1]
+                exprs.add(DYNAMIC_ARG if DYNAMIC_ARG_RE.search(value) else value)
             i += 2
             continue
         if tok.startswith("--jq="):
-            exprs.add(tok[len("--jq="):])
+            value = tok[len("--jq="):]
+            exprs.add(DYNAMIC_ARG if not value or DYNAMIC_ARG_RE.search(value) else value)
         i += 1
     for match in re.finditer(r"--jq[=\s]+[\"']([^\"']+)[\"']|--jq[=\s]+(\S+)", line):
         exprs.add(match.group(1) or match.group(2) or "")
@@ -257,14 +296,28 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
         for line in script.splitlines():
             if not _is_gh_collection_cmd(line):
                 continue
-            free_text = sorted(_gh_json_fields(line) & FREE_TEXT_FIELDS)
+            fields = _gh_json_fields(line)
+            free_text = sorted(fields & FREE_TEXT_FIELDS)
+            dynamic_json = DYNAMIC_ARG in fields
+            jq_exprs = _gh_jq_expressions(line)
             jq_free = sorted(
                 field
-                for expr in _gh_jq_expressions(line)
+                for expr in jq_exprs
+                if expr != DYNAMIC_ARG
                 for field in FREE_TEXT_FIELDS
                 if JQ_REF_RES[field].search(expr)
             )
-            if free_text or jq_free:
+            dynamic_jq = DYNAMIC_ARG in jq_exprs
+            if dynamic_json or dynamic_jq:
+                errors.append(
+                    f"{path.name} (job {job_name}): gh command uses a dynamic or missing "
+                    f"--json/--jq argument (shell expansion like $VAR, $(...), backticks, "
+                    f"or a glob) that cannot be verified statically — fail closed: only "
+                    f"literal metadata field lists (number, labels, milestone, timestamps, "
+                    f"url) are allowed for ai-inference file_input "
+                    f"(.github/prompts/README.md, decided in #1082)"
+                )
+            elif free_text or jq_free:
                 errors.append(
                     f"{path.name} (job {job_name}): gh command collects free-text "
                     f"field(s) {sorted(set(free_text) | set(jq_free))} via --json/--jq — "

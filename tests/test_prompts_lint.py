@@ -287,6 +287,41 @@ class PromptsLintTest(unittest.TestCase):
             path = self._workflow(Path(tmp), "wf.yml", wf)
             self.assertEqual([], check_prompts.lint_workflow(path))
 
+    def test_workflow_dynamic_json_argument_fails_closed(self):
+        # github-advanced-security on #1087 (2nd round): --json "$FIELDS" or
+        # --json "$(cat fields.txt)" cannot be verified statically — reject.
+        for collect in (
+            'gh issue list --json "$FIELDS" > "$RUNNER_TEMP/open-issues.json"',
+            'gh issue list --json "$(cat fields.txt)" > "$RUNNER_TEMP/open-issues.json"',
+            'gh issue list --json ${FIELDS} > "$RUNNER_TEMP/open-issues.json"',
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(collect)
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("dynamic" in e for e in errors),
+                    f"expected dynamic-argument failure for: {collect}",
+                )
+
+    def test_workflow_bare_json_flag_without_value_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("dynamic" in e for e in errors))
+
+    def test_workflow_dynamic_jq_argument_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --json number --jq "$JQ_EXPR" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("dynamic" in e for e in errors))
+
     def test_workflow_unbalanced_quote_falls_back_to_regex(self):
         # Not valid shell, so shlex tokenization fails: the regex fallback
         # must still catch the free-text field (fail closed).

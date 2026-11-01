@@ -41,7 +41,9 @@ enforces the policy below and fails the build on violations.
    milestone, timestamps, url. Field lists are extracted by shell-token
    parsing (`shlex`) with a quote-aware regex fallback, so quoted
    (`--json "number,title"`), `--flag=value`, and `$(gh ...)` forms cannot
-   bypass the check.
+   bypass the check; dynamic or missing arguments (`--json "$FIELDS"`,
+   `--json "$(cat fields.txt)"`, bare `--json`) cannot be verified statically
+   and fail closed.
 
 ## Adding a new prompt
 
