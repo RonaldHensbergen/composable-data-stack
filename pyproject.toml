@@ -112,12 +112,21 @@ source_paths = [
 ]
 pytest_add_cli_args_test_selection = ["tests/"]
 # mutmut runs pytest from mutants/, and the tests resolve the repo root from
-# their own __file__, so every top-level path they may read must be copied.
+# their own __file__, so every top-level path they may read must be copied
+# (e.g. tests/test_audit_trivyignore.py reads .github/workflows/ via REPO_ROOT).
 also_copy = [
+  ".cds/",
+  ".github/",
+  ".gitignore",
+  ".markdownlint.json",
+  ".markdownlintignore",
+  ".pre-commit-config.yaml",
+  ".trivyignore",
+  ".yamllint.yml",
   "assets/",
   "certs/",
-  "cli/resources/",
   "chart/",
+  "cli/resources/",
   "docs/",
   "images/",
   "modules/",
@@ -134,11 +143,14 @@ also_copy = [
   "AGENT.md",
   "CHANGELOG.md",
   "CONTRIBUTING.md",
+  "Makefile",
   "README.md",
   "cliff.toml",
   "docker-compose.yml",
   "local-test-skips.md",
   "pyproject.toml",
   "renovate.json",
+  "sonar-project.properties",
+  "uv.lock",
 ]
 
