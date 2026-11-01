@@ -145,7 +145,7 @@ def helm_up(
     ]
 
     try:
-        result = run_streamed(command, log_file, timeout=timeout + 30)
+        result = run_streamed(command, log_file, use_color=use_color, timeout=timeout + 30)
     finally:
         secret_path.unlink(missing_ok=True)
     if result != 0 or detach:

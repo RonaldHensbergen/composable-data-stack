@@ -33,6 +33,11 @@ common ones (`validate`, `plan`, `render`, `up`), see the
 `environments/<name>.yaml` over the base profile before resolving; see
 [Environment Overlays](../README.md#environment-overlays).
 
+Color output is terminal-only: when stdout is piped or redirected, `cds` prints
+plain text. On a terminal, `cds up` and `cds state` accept `--no-color`, and a
+non-empty `NO_COLOR` environment variable (<https://no-color.org/>) disables
+colors and the ANSI in-place redraw of the live state view for every command.
+
 ## `cds maturity`
 
 `cds maturity [profile]` statically evaluates the resolved profile plan and

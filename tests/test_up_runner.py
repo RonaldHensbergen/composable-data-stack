@@ -1,4 +1,5 @@
 import io
+import os
 import subprocess
 import threading
 import time
@@ -8,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from cli.up_runner import (
     default_log_path,
+    no_color_requested,
     poll_state_until_settled,
     run_streamed,
     start_log_tail,
@@ -163,10 +165,30 @@ class RunStreamedTest(unittest.TestCase):
         mock_popen.return_value = process
 
         log_file = io.StringIO()
-        run_streamed(["docker", "compose", "build"], log_file, echo=True, group_by_image=True)
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NO_COLOR", None)
+            run_streamed(["docker", "compose", "build"], log_file, echo=True, group_by_image=True)
 
         written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
         self.assertIn("\033[36m── Building web ", written)
+
+    @patch("cli.up_runner.sys.stdout")
+    @patch("cli.up_runner.subprocess.Popen")
+    def test_group_by_image_omits_ansi_codes_when_no_color_env_set(self, mock_popen, mock_stdout):
+        mock_stdout.isatty.return_value = True
+        process = MagicMock()
+        process.stdout = MagicMock()
+        process.stdout.__iter__.return_value = iter(["web: Building 0.5s\n"])
+        process.wait.return_value = 0
+        mock_popen.return_value = process
+
+        log_file = io.StringIO()
+        with patch.dict(os.environ, {"NO_COLOR": "1"}, clear=False):
+            run_streamed(["docker", "compose", "build"], log_file, echo=True, group_by_image=True)
+
+        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+        self.assertIn("── Building web ", written)
+        self.assertNotIn("\033[", written)
 
     @patch("cli.up_runner.sys.stdout")
     @patch("cli.up_runner.subprocess.Popen")
@@ -228,6 +250,27 @@ class LogTailTest(unittest.TestCase):
         process.kill.assert_called_once()
 
 
+class NoColorRequestedTest(unittest.TestCase):
+    def test_flag_disables_color(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NO_COLOR", None)
+            self.assertTrue(no_color_requested(True))
+
+    def test_non_empty_no_color_env_disables_color_regardless_of_value(self):
+        for value in ("1", "0", "yes"):
+            with patch.dict(os.environ, {"NO_COLOR": value}, clear=False):
+                self.assertTrue(no_color_requested(False))
+
+    def test_empty_no_color_env_does_not_disable_color(self):
+        with patch.dict(os.environ, {"NO_COLOR": ""}, clear=False):
+            self.assertFalse(no_color_requested(False))
+
+    def test_unset_env_and_no_flag_keeps_color(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NO_COLOR", None)
+            self.assertFalse(no_color_requested(False))
+
+
 class DefaultRedrawTest(unittest.TestCase):
     @patch("cli.up_runner.sys.stdout")
     def test_emits_ansi_clear_codes_on_a_real_tty(self, mock_stdout):
@@ -235,7 +278,9 @@ class DefaultRedrawTest(unittest.TestCase):
 
         from cli.up_runner import _default_redraw
 
-        _default_redraw("state text")
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NO_COLOR", None)
+            _default_redraw("state text")
 
         written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
         self.assertIn("\033[2J\033[H", written)
@@ -248,6 +293,33 @@ class DefaultRedrawTest(unittest.TestCase):
         from cli.up_runner import _default_redraw
 
         _default_redraw("state text")
+
+        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+        self.assertNotIn("\033[2J\033[H", written)
+        self.assertIn("state text", written)
+
+    @patch("cli.up_runner.sys.stdout")
+    def test_no_color_env_suppresses_ansi_redraw_on_a_tty(self, mock_stdout):
+        mock_stdout.isatty.return_value = True
+
+        from cli.up_runner import _default_redraw
+
+        with patch.dict(os.environ, {"NO_COLOR": "1"}, clear=False):
+            _default_redraw("state text")
+
+        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+        self.assertNotIn("\033[2J\033[H", written)
+        self.assertIn("state text", written)
+
+    @patch("cli.up_runner.sys.stdout")
+    def test_explicit_use_ansi_false_suppresses_ansi_redraw_on_a_tty(self, mock_stdout):
+        mock_stdout.isatty.return_value = True
+
+        from cli.up_runner import _default_redraw
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NO_COLOR", None)
+            _default_redraw("state text", use_ansi=False)
 
         written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
         self.assertNotIn("\033[2J\033[H", written)
@@ -351,6 +423,42 @@ class PollStateUntilSettledTest(unittest.TestCase):
 
         redraw_fn.assert_called_once()
         self.assertIn("RUNNING", redraw_fn.call_args[0][0])
+
+    @patch("cli.up_runner.sys.stdout")
+    def test_default_redraw_uses_ansi_clear_codes_on_a_tty_when_color_enabled(self, mock_stdout):
+        mock_stdout.isatty.return_value = True
+        ps_fn = MagicMock(return_value=_ps('{"Service": "web", "State": "running"}'))
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NO_COLOR", None)
+            poll_state_until_settled(
+                "docker-compose.yml",
+                ps_fn=ps_fn,
+                sleep_fn=MagicMock(),
+                now_fn=MagicMock(side_effect=[0.0, 0.0]),
+                use_color=True,
+            )
+
+        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+        self.assertIn("\033[2J\033[H", written)
+        self.assertIn("\033[32mRUNNING:\033[0m", written)
+
+    @patch("cli.up_runner.sys.stdout")
+    def test_default_redraw_is_plain_when_color_disabled(self, mock_stdout):
+        mock_stdout.isatty.return_value = True
+        ps_fn = MagicMock(return_value=_ps('{"Service": "web", "State": "running"}'))
+
+        poll_state_until_settled(
+            "docker-compose.yml",
+            ps_fn=ps_fn,
+            sleep_fn=MagicMock(),
+            now_fn=MagicMock(side_effect=[0.0, 0.0]),
+            use_color=False,
+        )
+
+        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+        self.assertNotIn("\033", written)
+        self.assertIn("RUNNING:", written)
 
     def test_treats_failed_ps_call_as_no_services_yet(self):
         failed = _ps("", returncode=1)

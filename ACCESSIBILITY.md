@@ -12,10 +12,13 @@ repository. For the surfaces we own, we commit to:
 
 - Plain, structured text output from the `cds` CLI. Color is only emitted when
   stdout is a terminal, so piped or redirected output is plain text that
-  screen readers and braille displays can consume. The interactive `up` and
-  `state` commands accept `--no-color` to disable colored labels even on a
-  color-capable terminal, and their live state view redraws in place only on a
-  terminal — when output is redirected, each update is printed as plain text.
+  screen readers and braille displays can consume. On a terminal, colors and
+  the ANSI in-place redraw of the live state view can be disabled globally by
+  setting the `NO_COLOR` environment variable to a non-empty value
+  (<https://no-color.org/>), or per invocation with `--no-color` on the
+  interactive `up` and `state` commands. The live state view redraws in place
+  only on a terminal — when output is redirected or color is disabled, each
+  update is printed as plain text.
 - Machine-readable output where it exists (for example `cds plan --json`), so
   output can be processed by tooling instead of read visually.
 - Documentation written in clear language, using proper Markdown headings,
@@ -43,9 +46,6 @@ above applies equally on all supported platforms.
 
 ## Known Limitations
 
-- The `NO_COLOR` environment-variable convention (<https://no-color.org/>) is
-  not honored; use the `--no-color` flag on `cds up` / `cds state`, or pipe
-  the output (color is terminal-only, so piped output is already plain).
 - No formal accessibility audit (WCAG evaluation or VPAT) has been performed
   yet for the CLI or for this documentation.
 - The accessibility of bundled third-party web UIs varies and is not audited

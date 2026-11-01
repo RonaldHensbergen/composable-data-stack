@@ -1,6 +1,7 @@
 # cli/up_runner.py
 from __future__ import annotations
 
+import os
 import re
 import subprocess  # nosec B404
 import sys
@@ -22,6 +23,17 @@ DEFAULT_TIMEOUT_SECONDS = 180.0
 
 _SETTLED_BUCKETS = {"HEALTHY", "RUNNING", "HEALTHY EXIT", "UNHEALTHY EXIT", "UNHEALTHY"}
 _FAILURE_BUCKETS = {"UNHEALTHY", "UNHEALTHY EXIT"}
+
+
+def no_color_requested(flag: bool = False) -> bool:
+    """Effective no-color setting for CLI output.
+
+    True when the caller passed `--no-color` (`flag`) or when the `NO_COLOR`
+    environment variable is present and non-empty — per
+    <https://no-color.org/> the variable's value is irrelevant, and an empty
+    string does not disable color.
+    """
+    return bool(flag) or bool(os.environ.get("NO_COLOR"))
 
 
 def _validate_command(cmd: list[str]) -> list[str]:
@@ -70,12 +82,15 @@ def run_streamed(
 
     Section headers are colored only when `use_color` is True and
     stdout is a TTY, matching the ANSI handling in `_default_redraw`
-    (e.g. CI logs and redirected output stay plain).
+    (e.g. CI logs and redirected output stay plain). A non-empty `NO_COLOR`
+    environment variable (<https://no-color.org/>) disables the headers
+    regardless of `use_color`.
 
     Returns the command's exit code. Raises ValueError for an unsupported
     executable or malformed argument, and FileNotFoundError if an allowed
     executable isn't on PATH.
     """
+    use_color = use_color and not no_color_requested()
     process = subprocess.Popen(  # nosec B603  # noqa: S603
         _validate_command(cmd),
         stdout=subprocess.PIPE,
@@ -196,12 +211,28 @@ def _is_settled(grouped: dict[str, list[str]], expected_service_count: int | Non
     return True
 
 
-def _default_redraw(text: str) -> None:
-    if sys.stdout.isatty():
+def _default_redraw(text: str, use_ansi: bool | None = None) -> None:
+    """Redraw the live state view in place on a terminal.
+
+    `use_ansi` defaults to "terminal output allowed": the ANSI clear-screen
+    sequence is only written when stdout is a TTY and no color was disabled
+    (a non-empty `NO_COLOR` env var suppresses it too — the clear-screen
+    codes are ANSI, so with color off the view falls back to plain
+    line-by-line printing, matching non-TTY output).
+    """
+    if use_ansi is None:
+        use_ansi = not no_color_requested()
+    if use_ansi and sys.stdout.isatty():
         sys.stdout.write("\033[2J\033[H")
         sys.stdout.write(text + "\n")
     else:
         print(text)
+    sys.stdout.flush()
+
+
+def _print_redraw(text: str) -> None:
+    """Plain line-by-line redraw used when color/ANSI output is disabled."""
+    print(text)
     sys.stdout.flush()
 
 
@@ -241,7 +272,10 @@ def _poll_until_settled(
     `up_done_fn` reports a successful result (exit code 0).
     """
     if redraw_fn is None:
-        redraw_fn = _default_redraw
+        # `use_color` is False whenever color was disabled (--no-color or
+        # NO_COLOR) or stdout is not a TTY; in both cases the live view must
+        # not emit ANSI clear-screen codes either, so redraw plainly.
+        redraw_fn = _default_redraw if use_color else _print_redraw
 
     if up_done_fn is None:
         # No background apply process to track: behave as if it had
