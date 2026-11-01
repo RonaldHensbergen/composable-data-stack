@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate lint-prompts docker-build test check contract-coverage practices-audit practices-audit-pin branch-hygiene test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -6,7 +6,7 @@ PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 install:
 	pip install -e ".[test]"
 
-lint: lint-markdown lint-yaml lint-deprecated lint-renovate
+lint: lint-markdown lint-yaml lint-deprecated lint-renovate lint-prompts
 
 test:
 	# Only fail repo-owned deprecations so third-party library warnings do not
@@ -18,6 +18,38 @@ test:
 
 check: lint test
 
+# Regenerate the published contract-coverage report (docs/contract-coverage.md).
+# CI runs `python scripts/check_contract_coverage.py --check` and fails if the
+# committed report is stale.
+contract-coverage:
+	python scripts/check_contract_coverage.py
+
+# Biweekly roll-up of the adopted working practices (contract coverage,
+# fix:/refine: commit mix, automerge usage, latest kill-matrix run).
+# Filed as an issue by .github/workflows/practices-audit.yml.
+practices-audit:
+	python scripts/check_practices_audit.py
+
+# Re-pin the sha256 of https://impatientprogramming.org/rules/ after the
+# rules change has been read and handled (the biweekly audit files a
+# tracking issue when the live page drifts from scripts/imp-rules.sha256).
+practices-audit-pin:
+	python scripts/check_practices_audit.py --pin
+
+# Branch hygiene: list branches/worktrees whose work is fully merged into
+# origin/main (stale, safe to delete). Daily CI report: branch-hygiene.yml.
+# Locally also covers local branches and worktrees; CI sees remote refs only.
+branch-hygiene:
+	python scripts/check_branch_hygiene.py
+
+# Kill matrix (mutation testing): every test must earn its place by catching a
+# mutant no other test catches. Installs mutmut ad hoc (pinned) so the
+# project's own lockfile is untouched; see pyproject.toml [tool.mutmut].
+test-mutation:
+	python -m pip install "mutmut==3.8.1" pytest
+	python -m mutmut run
+	python -m mutmut results
+
 lint-markdown:
 	npx --yes markdownlint-cli@0.49.0 "**/*.md" ".github/**/*.md"
 
@@ -26,6 +58,11 @@ lint-yaml:
 
 lint-deprecated:
 	ruff check .
+
+# Prompt trust-boundary policy (see .github/prompts/README.md): fail on
+# missing untrusted-data protocol or non-allowlisted {{...}} interpolation.
+lint-prompts:
+	python scripts/check_prompts.py
 
 lint-renovate:
 	npx --yes --package renovate@44.140.0 -- renovate-config-validator --strict renovate.json

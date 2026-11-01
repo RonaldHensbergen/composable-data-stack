@@ -8,6 +8,68 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Adopted working practices from [Impatient Programming](https://impatientprogramming.org/)
+  where they can be enforced by the repository itself (see CONTRIBUTING.md
+  "How We Work"):
+  - The Contract is now executable in CI: `tests/test_module_contract_schema.py`
+    validates every `module.yaml` under `modules/` and `modules-experimental/`
+    against `cli/resources/module.schema.json`, and every profile through the
+    real validator pipeline (extends resolution included).
+  - Contract coverage is published: `scripts/check_contract_coverage.py`
+    (make target `make contract-coverage`, CI workflow `contract-coverage.yml`)
+    regenerates `docs/contract-coverage.md`, and CI fails when the committed
+    report is stale. Current coverage: 30 of 37 modules/profiles/shared
+    contracts (modules 15/17, profiles 3/8, shared contracts 12/12).
+  - A kill matrix runs mutation testing (mutmut) over the contract/security
+    core of the CLI (`make test-mutation`, workflow `mutation-tests.yml`), so
+    every test must prove it catches something no other test catches.
+  - Issue and PR templates now encode the IMP practices: feature requests
+    require success criteria and the One Question; PRs require the Contract
+    to be kept current, existing behavior pinned before changes, breathe-out
+    in the same PR, tests that earn their place, regression tests for fixes,
+    and short-lived branches. `refine:` commits are grouped under
+    "Refinements" in the changelog (cliff.toml) so non-defect polishing is
+    labeled honestly.
+  - Label-gated auto-merge: a PR labeled `automerge` with a green CI head
+    pipeline is switched to auto-merge by `auto-merge.yml`; all other PRs
+    keep the human review path.
+  - New `.github/prompts/design-artifact.prompt.yml` produces a written
+    design artifact (options, rejected comp, recommendation, success
+    criteria) before implementation.
+  - Added a biweekly practices audit (`scripts/check_practices_audit.py`,
+    `make practices-audit`, workflow `practices-audit.yml`) that files a
+    roll-up issue with contract coverage, the `fix:`/`refine:` commit mix,
+    `automerge` usage, and the latest kill-matrix run. The audit also pins a
+    sha256 of <https://impatientprogramming.org/rules/> in
+    `scripts/imp-rules.sha256`; when the live rules page changes,
+    `practices-audit.yml` files a tracking issue to re-read the rules and
+    re-assess the adoption (`make practices-audit-pin` re-pins the hash).
+  - Added a daily branch-hygiene audit (`scripts/check_branch_hygiene.py`,
+    `make branch-hygiene`, workflow `branch-hygiene.yml`) that classifies
+    branches as merged-into-main (ancestor or patch-equivalent via
+    `git cherry`), active-PR, or open-work, and files a `branch-hygiene`
+    report issue listing stale branches that are safe to delete.
+  - Added a prompt trust-boundary lint (`scripts/check_prompts.py`, wired
+    into CI, pre-commit, and `make lint-prompts`; policy in
+    `.github/prompts/README.md`, tests in `tests/test_prompts_lint.py`):
+    every prompt's system message must carry the fail-closed untrusted-data
+    protocol (markers `untrusted`/`refuse`/`credentials`), and `{{...}}`
+    interpolation is denied unless the file is in the script's justified
+    ALLOWLIST. `issue-consistency-audit.prompt.yml` was hardened with the
+    full protocol and `BEGIN/END_UNTRUSTED_DATA` fences (now lint-enforced
+    for allowlisted files); the design-artifact prompt carries no input at all.
+  - Added deterministic pre-inference redaction: `scripts/redact_secrets.py`
+    (tests in `tests/test_redact_secrets.py`) scrubs secret patterns from
+    user-controlled issue JSON before it is sent to the external model via
+    `file_input` in `biweekly-issue-audit.yml`.
+  - `auto-merge.yml` now only considers non-fork PRs (`isCrossRepository ==
+    false`) at the green head SHA; `scripts/check_practices_audit.py`
+    sanitizes untrusted PR titles before persisting them into report issues.
+  - The prompt lint also covers workflows: any `actions/ai-inference` step
+    with `file_input` must produce each input file via `scripts/redact_secrets.py`
+    in the same workflow, and `redact_secrets.py` now neutralizes
+    instruction-like content (role tags, tool directives, "ignore previous
+    instructions") in addition to secrets, for JSON and plain text.
 - Added the shared `oidc-provider` contract, configurable Keycloak realm
   import and issuer advertisement, and optional Superset OIDC login using
   provider discovery and profile-backed client secrets (#1055, #680, #681).

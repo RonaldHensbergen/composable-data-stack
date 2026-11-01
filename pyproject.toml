@@ -96,3 +96,72 @@ select = ["UP", "F", "B", "S", "I"]
 # URLs to poll test fixtures (S310).
 "tests/*" = ["S101", "S103", "S108", "S310", "S603", "S607"]
 
+# Kill matrix (mutation testing) — see CONTRIBUTING.md "How We Work" and
+# `make test-mutation`. mutmut 3 runs pytest from the mutants/ directory, so
+# everything the tests read at runtime via the repo root is copied along.
+# Scope the matrix to the contract/security core of the CLI; extend the list
+# as those areas grow.
+[tool.mutmut]
+source_paths = [
+  "cli/validator.py",
+  "cli/resolver.py",
+  "cli/planner.py",
+  "cli/composer.py",
+  "cli/secret_leak.py",
+  "cli/security_common.py",
+]
+pytest_add_cli_args_test_selection = ["tests/"]
+# Four test files spawn the cds CLI as a subprocess from a hermetic tmp
+# project (init_env/_find_cds). Under mutmut the imported cli code carries
+# trampolines whose config() call crashes in that subprocess (its cwd has no
+# [tool.mutmut]), so they would fail every mutant run. Exclude them from the
+# kill matrix; the CLI is covered in-process by the remaining tests.
+pytest_add_cli_args = [
+  "--ignore=tests/test_cds_workflow.py",
+  "--ignore=tests/test_completion.py",
+  "--ignore=tests/test_report.py",
+  "--ignore=tests/test_team_profile.py",
+]
+# mutmut runs pytest from mutants/, and the tests resolve the repo root from
+# their own __file__, so every top-level path they may read must be copied
+# (e.g. tests/test_audit_trivyignore.py reads .github/workflows/ via REPO_ROOT).
+also_copy = [
+  ".cds/",
+  ".github/",
+  ".gitignore",
+  ".markdownlint.json",
+  ".markdownlintignore",
+  ".pre-commit-config.yaml",
+  ".trivyignore",
+  ".yamllint.yml",
+  "assets/",
+  "certs/",
+  "chart/",
+  "cli/resources/",
+  "docs/",
+  "images/",
+  "modules/",
+  "modules-experimental/",
+  "profiles/",
+  "runtime/",
+  "schemas/",
+  "scripts/",
+  "shared/",
+  "tests/",
+  "tools/",
+  "traefik/",
+  "workdirs/",
+  "AGENT.md",
+  "CHANGELOG.md",
+  "CONTRIBUTING.md",
+  "Makefile",
+  "README.md",
+  "cliff.toml",
+  "docker-compose.yml",
+  "local-test-skips.md",
+  "pyproject.toml",
+  "renovate.json",
+  "sonar-project.properties",
+  "uv.lock",
+]
+

@@ -34,3 +34,8 @@ repos:
         entry: npx --yes markdownlint-cli@0.49.0 --config .markdownlint.json
         language: system
         files: \.md$
+      - id: lint-prompts
+        name: lint-prompts (trust-boundary policy for .github/prompts)
+        entry: python scripts/check_prompts.py
+        language: system
+        files: ^\.github/prompts/

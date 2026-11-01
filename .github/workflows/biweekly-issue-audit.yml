@@ -47,19 +47,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          # Data minimization before the trust boundary: issue titles and
+          # bodies are user-authored free text, so neither is ever collected —
+          # metadata + url only. The remaining fields are still scrubbed by
+          # redact_secrets.py before file_input inference (policy:
+          # .github/prompts/README.md).
           gh issue list \
             --repo "$GITHUB_REPOSITORY" \
             --state open \
             --search "-label:issue-audit" \
             --limit 200 \
-            --json number,title,body,labels,milestone,createdAt,updatedAt,url \
+            --json number,labels,milestone,createdAt,updatedAt,url \
             > "$RUNNER_TEMP/open-issues.json"
+          python3 scripts/redact_secrets.py --strict \
+            "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.json"
+          # Commit subjects are free text — exclude them entirely (hash +
+          # date only); redaction below stays as defense-in-depth.
           git log \
             --since="90 days ago" \
             --max-count=100 \
-            --format="%h %ad %s" \
+            --format="%h %ad" \
             --date=short \
             > "$RUNNER_TEMP/recent-commits.txt"
+          python3 scripts/redact_secrets.py --strict \
+            "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"
 
       - name: Setup Node
         if: steps.cadence.outputs.run == 'true'
