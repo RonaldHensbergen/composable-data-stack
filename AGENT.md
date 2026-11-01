@@ -279,7 +279,9 @@ reviews on #1078 and #1087):
   (`--json "$FIELDS"`, `--json "$(cat fields.txt)"`, globs), missing values
   (bare `--json` before a redirect/operator), re-extraction via `--jq`
   (`.title`, `.["tit"+"le"]` computed keys — so `--jq` fails closed
-  outright), and alternate entrypoints (`gh api`, `gh api graphql`,
-  `--field`/`--template` — so `gh api` fails closed outright in
-  model-feeding contexts). All of these must fail closed, never be silently
+  outright), alternate entrypoints (`gh api`, `gh api graphql` — so `gh api`
+  fails closed outright in model-feeding contexts), computed output flags
+  (`--template`/`-t` on any gh command), and missing field lists (a gh
+  collection command without `--json` prints the default table, which
+  includes titles). All of these must fail closed, never be silently
   skipped.

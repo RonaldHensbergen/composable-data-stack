@@ -323,6 +323,28 @@ class PromptsLintTest(unittest.TestCase):
             errors = check_prompts.lint_workflow(path)
             self.assertTrue(any("gh api" in e for e in errors))
 
+    def test_workflow_gh_list_without_json_fails_closed(self):
+        # Self-review finding: default tabular output of gh issue/pr list
+        # includes titles, so a collection command with no --json at all must
+        # fail closed in file_input-feeding jobs.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --state open > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("--json" in e for e in errors))
+
+    def test_workflow_gh_template_flag_fails_closed(self):
+        # Self-review finding: --template on list commands is computed output.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh pr list --template "{{.title}} {{.body}}" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("--template" in e for e in errors))
+
     def test_workflow_gh_api_in_non_inference_job_passes(self):
         with tempfile.TemporaryDirectory() as tmp:
             wf = """jobs:

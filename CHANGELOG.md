@@ -344,8 +344,10 @@ The format is based on Keep a Changelog.
   are parsed as shell tokens (`shlex`) with a quote-aware regex fallback, so
   quoted (`--json "number,title"`), `--flag=value`, and `$(gh ...)` forms
   cannot bypass the lint, and dynamic or missing arguments (`--json "$FIELDS"`,
-  `--json "$(cat fields.txt)"`, bare `--json`) fail closed as unverifiable
-  (github-advanced-security reviews on #1087). Tests in
+  `--json "$(cat fields.txt)"`, bare `--json`) fail closed as unverifiable.
+  Also fail closed: `--template` on any gh command, and gh collection
+  commands without `--json` (default tabular output includes titles)
+  (github-advanced-security reviews on #1087 plus self-review). Tests in
   `tests/test_prompts_lint.py`; the agent-side protocol is recorded in
   `AGENT.md` "Agent-side untrusted-content protocol".
 

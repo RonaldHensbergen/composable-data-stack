@@ -41,8 +41,10 @@ enforces the policy below and fails the build on violations.
    `search issues|prs`, and not via `gh api` at all (REST responses can
    include free text by default and `gh api graphql` can select arbitrary
    fields — neither is statically verifiable, so every `gh api` call fails
-   closed). `--jq` is likewise disallowed outright: computed key access
-   (e.g. `.["tit"+"le"]`) cannot be verified statically. Metadata only:
+   closed). `--jq` and `--template` are likewise disallowed outright
+   (computed access such as `.["tit"+"le"]` cannot be verified statically),
+   and a collection command with no `--json` at all fails closed because the
+   default tabular output includes titles. Metadata only:
    number, labels, milestone, timestamps, url. Field lists are extracted by
    shell-token parsing (`shlex`) with a quote-aware regex fallback, so quoted
    (`--json "number,title"`), `--flag=value`, and `$(gh ...)` forms cannot

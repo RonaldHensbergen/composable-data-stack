@@ -173,6 +173,38 @@ def _gh_jq_expressions(line: str) -> set[str]:
     return exprs
 
 
+def _gh_flag_hits(line: str) -> list[str]:
+    """--field/-F values and --template/-t on a matched gh command: computed
+    output cannot be verified statically — fail closed on any presence."""
+    hits: list[str] = []
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        tokens = []
+    if tokens:
+        i = 0
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok in ("--field", "-F") and i + 1 < len(tokens):
+                if tokens[i + 1].strip().strip("\"'").lower() in FREE_TEXT_FIELDS:
+                    hits.append(f"--field {tokens[i + 1]}")
+                i += 2
+                continue
+            if tok.startswith("--field=") and tok.split("=", 1)[1].strip().lower() in FREE_TEXT_FIELDS:
+                hits.append(f"--field={tok.split('=', 1)[1]}")
+            if tok in ("--template", "-t"):
+                hits.append("--template (computed output cannot be verified statically)")
+            i += 1
+    else:
+        # Unparseable line: conservative raw-text fallbacks.
+        for match in re.finditer(r"--field[=\s]+[\"']?(\w+)", line):
+            if match.group(1).lower() in FREE_TEXT_FIELDS:
+                hits.append(f"--field {match.group(1)}")
+        if re.search(r"--template(=|\s)", line):
+            hits.append("--template (raw match)")
+    return hits
+
+
 def _gh_api_free_text_hits(line: str) -> list[str]:
     """gh api in an inference-feeding job always fails closed: REST responses
     can include titles/bodies/comments by default, `gh api graphql` can select
@@ -195,28 +227,9 @@ def _gh_api_free_text_hits(line: str) -> list[str]:
                 if not endpoint.startswith("-") and API_FREE_TEXT_RESOURCE_RE.search(endpoint):
                     hits.append(f"endpoint '{endpoint}' returns free text by default")
                 break
-        i = 0
-        while i < len(tokens):
-            tok = tokens[i]
-            if tok in ("--field", "-F") and i + 1 < len(tokens):
-                if tokens[i + 1].strip().strip("\"'").lower() in FREE_TEXT_FIELDS:
-                    hits.append(f"--field {tokens[i + 1]}")
-                i += 2
-                continue
-            if tok.startswith("--field=") and tok.split("=", 1)[1].strip().lower() in FREE_TEXT_FIELDS:
-                hits.append(f"--field={tok.split('=', 1)[1]}")
-            if tok in ("--template", "-t"):
-                hits.append("--template (computed output cannot be verified statically)")
-            i += 1
-    else:
-        # Unparseable line: conservative raw-text fallbacks.
-        if API_FREE_TEXT_RESOURCE_RE.search(line):
-            hits.append("gh api endpoint with free-text resource (raw match)")
-        for match in re.finditer(r"--field[=\s]+[\"']?(\w+)", line):
-            if match.group(1).lower() in FREE_TEXT_FIELDS:
-                hits.append(f"--field {match.group(1)}")
-        if re.search(r"--template(=|\s)", line):
-            hits.append("--template (raw match)")
+    elif API_FREE_TEXT_RESOURCE_RE.search(line):
+        hits.append("gh api endpoint with free-text resource (raw match)")
+    hits.extend(_gh_flag_hits(line))
     return hits
 
 REQUIRED_MARKERS = ["untrusted", "refuse", "credentials"]
@@ -353,6 +366,7 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
             jq_exprs = _gh_jq_expressions(line)
             dynamic_jq = DYNAMIC_ARG in jq_exprs
             api_hits = _gh_api_free_text_hits(line)
+            flag_hits = [] if api_hits else _gh_flag_hits(line)
             problems: list[str] = []
             if dynamic_json or dynamic_jq:
                 problems.append(
@@ -370,6 +384,17 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
                 )
             if api_hits:
                 problems.append(f"gh api free-text exposure: {', '.join(api_hits)}")
+            if not api_hits:
+                # A matched gh collection command without any --json flag prints
+                # the default table, which includes titles — fail closed unless
+                # an explicit literal metadata field list is given.
+                if not re.search(r"--json\b", line):
+                    problems.append(
+                        "no explicit --json metadata field list (default output "
+                        "includes titles)"
+                    )
+                if flag_hits:
+                    problems.append(", ".join(flag_hits))
             if problems:
                 errors.append(
                     f"{path.name} (job {job_name}): gh command rejected for ai-inference "
