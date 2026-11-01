@@ -480,6 +480,12 @@ spec:
             interval: 10s
             timeout: 5s
             retries: 10
+          # Production profiles must not publish the webserver directly on
+          # the host: the TLS reverse proxy is the sole host-published entry
+          # point (CDS-SEC-074, issue #981). Learning/dev profiles keep the
+          # direct publish for local access.
+          production:
+            ports: []
 
         dagster-daemon:
           enabledFrom: config.daemon.enabled
@@ -639,6 +645,11 @@ spec:
                 nodePort: "${config.kubernetesService.nodePort}"
           containerOverrides:
             dagster-webserver:
+              # Explicit container port so the k8s render does not depend
+              # on the compose host-publish (cleared in production, #981).
+              ports:
+                - name: http
+                  containerPort: 3000
               dropVolumeMounts:
                 - /var/run/dagster
               dropProbes:

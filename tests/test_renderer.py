@@ -1667,10 +1667,32 @@ class ProductionGateTest(unittest.TestCase):
                 # The hardened image bakes superset_config.py in; the
                 # production mapping must not shadow it with a host bind.
                 self.assertEqual(production[service_name]["volumes"], [])
+        # Production clears the host port publish (CDS-SEC-074, #981): the
+        # TLS reverse proxy is the sole host-published entry point.
+        self.assertEqual(production["superset"]["ports"], [])
+        # Learning keeps the direct publish for local access.
+        self.assertEqual(learning["superset"]["ports"], ["${config.webPort}:8088"])
         self.assertEqual(
             production["superset-init"]["entrypoint"], ["/app/docker/init.sh"]
         )
         self.assertEqual(production["superset-init"]["command"], [])
+
+    def test_dagster_production_gate_clears_webserver_host_ports(self):
+        # CDS-SEC-074 (#981): in production the dagster-webserver must not
+        # publish on the host; learning keeps the direct publish.
+        repo_root = Path(__file__).resolve().parent.parent
+        module_path = repo_root / "modules" / "orchestration" / "dagster" / "module.yaml"
+        with module_path.open(encoding="utf-8") as module_file:
+            module = yaml.safe_load(module_file)
+        services = module["spec"]["implementation"]["compose"]["services"]
+
+        learning = renderer.apply_production_gates(services, is_production=False)
+        self.assertEqual(
+            learning["dagster-webserver"]["ports"], ["${config.webPort}:3000"]
+        )
+
+        production = renderer.apply_production_gates(services, is_production=True)
+        self.assertEqual(production["dagster-webserver"]["ports"], [])
 
     def test_learning_profile_keeps_base_variant(self):
         output, diagnostics = render_compose(self._plan(environment="local"))
