@@ -31,6 +31,7 @@ This repo adopts the working style of [Impatient Programming](https://impatientp
 - **Spikes are cheap — run them, then delete them.** Throwaway prototypes that answer one question stay out of the repo; only the distilled result lands in a PR. When a design needs talking through first, produce a design artifact (options with trade-offs, a rejected comp, one recommendation) before writing code — see `.github/prompts/design-artifact.prompt.yml`.
 - **Green merges itself where it is safe.** Label a PR `automerge` and, once CI is green, `.github/workflows/auto-merge.yml` merges it automatically. Human review still guards everything else — see [docs/maintainer-merge-policy.md](docs/maintainer-merge-policy.md).
 - **Work in the open, with your agents.** Agent instructions live in `AGENT.md` and `.github/copilot-instructions.md`; keep agent-produced changes reviewable like any other PR.
+- **The practices are audited, not just written down.** Contract coverage and the kill matrix run on schedules (`contract-coverage.yml`, `mutation-tests.yml`), and a biweekly audit (`make practices-audit`, filed by `practices-audit.yml`) rolls up coverage, the `fix:`/`refine:` commit mix, `automerge` usage, and the latest kill-matrix run into one issue.
 
 ## Development Setup
 

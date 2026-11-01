@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check contract-coverage test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check contract-coverage practices-audit test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -23,6 +23,12 @@ check: lint test
 # committed report is stale.
 contract-coverage:
 	python scripts/check_contract_coverage.py
+
+# Biweekly roll-up of the adopted working practices (contract coverage,
+# fix:/refine: commit mix, automerge usage, latest kill-matrix run).
+# Filed as an issue by .github/workflows/practices-audit.yml.
+practices-audit:
+	python scripts/check_practices_audit.py
 
 # Kill matrix (mutation testing): every test must earn its place by catching a
 # mutant no other test catches. Installs mutmut ad hoc (pinned) so the

@@ -36,6 +36,10 @@ The format is based on Keep a Changelog.
   - New `.github/prompts/design-artifact.prompt.yml` produces a written
     design artifact (options, rejected comp, recommendation, success
     criteria) before implementation.
+  - Added a biweekly practices audit (`scripts/check_practices_audit.py`,
+    `make practices-audit`, workflow `practices-audit.yml`) that files a
+    roll-up issue with contract coverage, the `fix:`/`refine:` commit mix,
+    `automerge` usage, and the latest kill-matrix run.
 - Added the shared `oidc-provider` contract, configurable Keycloak realm
   import and issuer advertisement, and optional Superset OIDC login using
   provider discovery and profile-backed client secrets (#1055, #680, #681).
