@@ -50,7 +50,24 @@ jobs:
 
       - name: Run kill matrix
         run: |
-          python -m mutmut run
+          set +e
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            # PR runs are time-capped: hosted runners have been observed to
+            # cancel long jobs mid-run, so keep the matrix bounded and accept
+            # a partial result (exit 124 from timeout). Weekly schedule runs
+            # are uncapped and produce the full matrix.
+            timeout 240 python -m mutmut run
+          else
+            python -m mutmut run
+          fi
+          rc=$?
+          set -e
+          if [[ $rc -ne 0 && $rc -ne 124 ]]; then
+            exit $rc
+          fi
+          if [[ $rc -eq 124 ]]; then
+            echo "Kill matrix time-capped on PR run; publishing the partial matrix (weekly run completes the full one)."
+          fi
 
       - name: Export stats, badge, and results
         run: |

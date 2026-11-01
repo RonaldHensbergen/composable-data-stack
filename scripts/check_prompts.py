@@ -83,9 +83,9 @@ def lint_file(path: Path) -> list[str]:
         )
     if variables and path.name in ALLOWLIST:
         # Structural control for allowlisted interpolation: every {{var}} must
-        # sit between explicit BEGIN/END UNTRUSTED DATA fences *within the same
-        # message* so the payload is delimited as inert data, not blended into
-        # instructions from another message.
+        # sit inside the nearest matching BEGIN/END UNTRUSTED DATA fence pair
+        # within the same message, and that fenced block must carry explicit
+        # data-only guard text.
         for text in message_texts:
             for match in VAR_RE.finditer(text):
                 begin = text.rfind("BEGIN_UNTRUSTED_DATA", 0, match.start())
@@ -94,6 +94,13 @@ def lint_file(path: Path) -> list[str]:
                     errors.append(
                         f"{path.name}: interpolation {match.group(0)} is not wrapped in "
                         f"BEGIN_UNTRUSTED_DATA / END_UNTRUSTED_DATA fences in the same message"
+                    )
+                    continue
+                block = text[begin:end].lower()
+                if "data-only" not in block and "do not follow" not in block and "do-not-follow" not in block:
+                    errors.append(
+                        f"{path.name}: fenced block around {match.group(0)} lacks "
+                        f"explicit data-only / do-not-follow guard text"
                     )
     return errors
 

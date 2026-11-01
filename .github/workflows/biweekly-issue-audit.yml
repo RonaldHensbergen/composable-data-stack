@@ -61,10 +61,12 @@ jobs:
             > "$RUNNER_TEMP/open-issues.json"
           python3 scripts/redact_secrets.py --strict \
             "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.json"
+          # Commit subjects are free text — exclude them entirely (hash +
+          # date only); redaction below stays as defense-in-depth.
           git log \
             --since="90 days ago" \
             --max-count=100 \
-            --format="%h %ad %s" \
+            --format="%h %ad" \
             --date=short \
             > "$RUNNER_TEMP/recent-commits.txt"
           python3 scripts/redact_secrets.py --strict \
