@@ -338,13 +338,15 @@ The format is based on Keep a Changelog.
   `scripts/check_prompts.py` (`make lint-prompts`, CI, pre-commit): in any
   job that feeds `file_input` to `actions/ai-inference`, a `gh` command may
   no longer collect user-authored free-text fields (`title`, `body`,
-  `comments`) via `--json` or re-extract them via `--jq` — metadata only.
-  Field lists are parsed as shell tokens (`shlex`) with a quote-aware regex
-  fallback, so quoted (`--json "number,title"`), `--flag=value`, and
-  `$(gh ...)` forms cannot bypass the lint, and dynamic or missing arguments
-  (`--json "$FIELDS"`, `--json "$(cat fields.txt)"`, bare `--json`) fail
-  closed as unverifiable (github-advanced-security reviews on #1087). Tests
-  in `tests/test_prompts_lint.py`; the agent-side protocol is recorded in
+  `comments`) — not via `--json`/`--field`, not via `gh api` (REST or
+  graphql; always fails closed), and not via `--jq` (computed access like
+  `.["tit"+"le"]` is unverifiable, so any `--jq` fails closed). Field lists
+  are parsed as shell tokens (`shlex`) with a quote-aware regex fallback, so
+  quoted (`--json "number,title"`), `--flag=value`, and `$(gh ...)` forms
+  cannot bypass the lint, and dynamic or missing arguments (`--json "$FIELDS"`,
+  `--json "$(cat fields.txt)"`, bare `--json`) fail closed as unverifiable
+  (github-advanced-security reviews on #1087). Tests in
+  `tests/test_prompts_lint.py`; the agent-side protocol is recorded in
   `AGENT.md` "Agent-side untrusted-content protocol".
 
 ### Fixed

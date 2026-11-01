@@ -35,15 +35,19 @@ enforces the policy below and fails the build on violations.
    `file_input` must produce each input file via `scripts/redact_secrets.py`
    in the same workflow.
 4. **Data minimization is lint-enforced, not just documented.** In any job
-   that feeds `file_input` to `actions/ai-inference`, no `gh` command may
-   request user-authored free-text fields (`title`, `body`, `comments`) via
-   `--json` or re-extract them via `--jq`. Metadata only: number, labels,
-   milestone, timestamps, url. Field lists are extracted by shell-token
-   parsing (`shlex`) with a quote-aware regex fallback, so quoted
+   that feeds `file_input` to `actions/ai-inference`, no `gh` collection
+   command may gather user-authored free-text fields (`title`, `body`,
+   `comments`): not via `--json`/`--field` on `issue/pr list|view` or
+   `search issues|prs`, and not via `gh api` at all (REST responses can
+   include free text by default and `gh api graphql` can select arbitrary
+   fields — neither is statically verifiable, so every `gh api` call fails
+   closed). `--jq` is likewise disallowed outright: computed key access
+   (e.g. `.["tit"+"le"]`) cannot be verified statically. Metadata only:
+   number, labels, milestone, timestamps, url. Field lists are extracted by
+   shell-token parsing (`shlex`) with a quote-aware regex fallback, so quoted
    (`--json "number,title"`), `--flag=value`, and `$(gh ...)` forms cannot
    bypass the check; dynamic or missing arguments (`--json "$FIELDS"`,
-   `--json "$(cat fields.txt)"`, bare `--json`) cannot be verified statically
-   and fail closed.
+   `--json "$(cat fields.txt)"`, bare `--json`) fail closed too.
 
 ## Adding a new prompt
 

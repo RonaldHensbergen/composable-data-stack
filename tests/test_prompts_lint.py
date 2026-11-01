@@ -267,23 +267,70 @@ class PromptsLintTest(unittest.TestCase):
             path = self._workflow(Path(tmp), "wf.yml", wf)
             self.assertEqual([], check_prompts.lint_workflow(path))
 
-    def test_workflow_jq_reextracting_free_text_field_fails(self):
-        # Even with a metadata-only --json list, --jq must not re-extract
-        # free-text fields at runtime.
+    def test_workflow_any_jq_argument_fails_closed(self):
+        # github-advanced-security on #1087 (3rd round): computed jq key
+        # access (e.g. .["tit"+"le"]) cannot be verified statically, so ANY
+        # --jq on a gh collection command feeding file_input is rejected —
+        # even one that looks metadata-only.
+        for jq in ('.[].title', '.[]."tit"+"le"', '.[].number'):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(
+                    f'gh issue list --json number,labels --jq "{jq}" > "$RUNNER_TEMP/open-issues.json"'
+                )
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("--jq" in e for e in errors),
+                    f"expected --jq rejection for jq={jq}",
+                )
+
+    def test_workflow_gh_api_free_text_endpoint_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             wf = self._inference_workflow(
-                'gh issue list --json number --jq ".[].title" > "$RUNNER_TEMP/open-issues.json"'
+                'gh api repos/OWNER/REPO/issues > "$RUNNER_TEMP/open-issues.json"'
             )
             path = self._workflow(Path(tmp), "wf.yml", wf)
             errors = check_prompts.lint_workflow(path)
-            self.assertTrue(any("free-text" in e for e in errors))
-            self.assertTrue(any("title" in e for e in errors))
+            self.assertTrue(any("gh api" in e for e in errors))
 
-    def test_workflow_jq_metadata_only_passes(self):
+    def test_workflow_gh_api_graphql_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             wf = self._inference_workflow(
-                'gh issue list --json number,labels --jq ".[].number" > "$RUNNER_TEMP/open-issues.json"'
+                "gh api graphql -f query='query { repository(owner:\"O\", name:\"R\") { issues { nodes { body } } } }' > \"$RUNNER_TEMP/open-issues.json\""
             )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("graphql" in e for e in errors))
+
+    def test_workflow_gh_api_field_flag_free_text_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh api repos/OWNER/REPO/issues/1 --field title --field number > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("--field" in e for e in errors))
+
+    def test_workflow_gh_api_metadata_endpoint_also_fails_closed(self):
+        # Even a metadata-looking gh api endpoint fails: the response shape
+        # cannot be verified statically, so all gh api is rejected in
+        # file_input-feeding jobs.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh api repos/OWNER/REPO/issues/1/labels > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("gh api" in e for e in errors))
+
+    def test_workflow_gh_api_in_non_inference_job_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = """jobs:
+  report:
+    steps:
+      - run: |
+          gh api repos/OWNER/REPO/issues --field title,body > issues.json
+"""
             path = self._workflow(Path(tmp), "wf.yml", wf)
             self.assertEqual([], check_prompts.lint_workflow(path))
 

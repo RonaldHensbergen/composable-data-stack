@@ -277,6 +277,9 @@ reviews on #1078 and #1087):
   `--flag=value` forms, command substitution (`$(gh ...)`, backticks),
   env-prefixed invocations (`GH_TOKEN=... gh ...`), dynamic arguments
   (`--json "$FIELDS"`, `--json "$(cat fields.txt)"`, globs), missing values
-  (bare `--json` before a redirect/operator), and re-extraction via `--jq`
-  (`.title`, `.["title"]`). All of these must fail closed, never be silently
+  (bare `--json` before a redirect/operator), re-extraction via `--jq`
+  (`.title`, `.["tit"+"le"]` computed keys — so `--jq` fails closed
+  outright), and alternate entrypoints (`gh api`, `gh api graphql`,
+  `--field`/`--template` — so `gh api` fails closed outright in
+  model-feeding contexts). All of these must fail closed, never be silently
   skipped.

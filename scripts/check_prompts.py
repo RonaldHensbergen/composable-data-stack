@@ -18,9 +18,13 @@ control. The policy enforced here (see .github/prompts/README.md):
    each input file via `scripts/redact_secrets.py` earlier in the same
    workflow (minimize + redact before any external inference).
 4. Data minimization is enforced, not just documented: in any job that feeds
-   `file_input` to `actions/ai-inference`, no `gh` command may collect
-   user-authored free-text fields (`title`, `body`, `comments`) via `--json`.
-   Collect metadata only (number, labels, milestone, timestamps, url).
+   `file_input` to `actions/ai-inference`, no `gh` collection command
+   (`issue/pr list|view`, `search issues|prs`, `gh api`) may collect
+   user-authored free-text fields (`title`, `body`, `comments`) — not via
+   `--json`/`--field`, not via free-text REST endpoints or `gh api graphql`,
+   and not via `--jq` (computed access cannot be verified statically, so any
+   `--jq` fails closed). Dynamic or missing arguments fail closed too.
+   Collect literal metadata only (number, labels, milestone, timestamps, url).
 
 Runs in CI (lint job), pre-commit, and `make lint-prompts`. Exit 1 on any
 violation; the script never modifies files.
@@ -52,12 +56,18 @@ ALLOWLIST: dict[str, str] = {
 # (data minimization; decided in issue #1082). Metadata fields such as number,
 # labels, milestone, createdAt/updatedAt, and url remain allowed.
 FREE_TEXT_FIELDS = frozenset({"title", "body", "comments"})
-# Detection: any gh issue/pr list|view or gh search issues|prs invocation,
-# including env-prefixed (GH_TOKEN=... gh ...) and $(gh ...) forms. Fail
-# closed: a false positive here only fails the lint, never opens a hole.
+# Detection: any gh collection-capable invocation — issue/pr list|view,
+# search issues|prs, and gh api (REST or graphql; github-advanced-security
+# review on PR #1087: gh api could fetch titles/bodies unnoticed) — including
+# env-prefixed (GH_TOKEN=... gh ...) and $(gh ...) forms. Fail closed: a false
+# positive here only fails the lint, never opens a hole.
 GH_CMD_RE = re.compile(
-    r"\bgh\s+(?:(?:issue|pr)\s+(?:list|view)|search\s+(?:issues|prs))\b"
+    r"\bgh\s+(?:(?:issue|pr)\s+(?:list|view)|search\s+(?:issues|prs)|api\b)"
 )
+GH_API_RE = re.compile(r"\bgh\s+api\b")
+GH_API_GRAPHQL_RE = re.compile(r"\bgh\s+api\s+graphql\b")
+# gh api endpoints whose responses contain user-authored free text by default.
+API_FREE_TEXT_RESOURCE_RE = re.compile(r"(?:^|/)(?:issues|pulls|comments|reviews|discussions)(?:/|$|\?)")
 # Field-list extraction, quote-aware: --json=f, --json f, --json "f,g",
 # --json 'f, g' (github-advanced-security review on PR #1087: a regex over
 # raw text that does not account for quotes misses --json "number,title").
@@ -73,16 +83,10 @@ DYNAMIC_ARG_RE = re.compile(r"[$*?`]")
 SHELL_OPERATORS = frozenset({">", ">>", "<", "|", "||", "&&", ";", "&"})
 GH_JSON_DYNAMIC_RE = re.compile(r"--json[=\s]+[\"']?\S*[$*?`]\S*|--json[=\s]*$")
 GH_JQ_DYNAMIC_RE = re.compile(r"--jq[=\s]+[\"']?\S*[$*?`]\S*|--jq[=\s]*$")
-# --jq expressions can re-extract free-text fields at runtime even when the
-# --json list itself is metadata-only, so they are checked against the same
-# field set (`.title`, `.["title"]` forms).
-JQ_REF_RES = {
-    field: re.compile(
-        rf"\.\s*{re.escape(field)}\b|\[\s*[\"']{re.escape(field)}[\"']\s*\]",
-        re.IGNORECASE,
-    )
-    for field in FREE_TEXT_FIELDS
-}
+# --jq is disallowed outright on gh collection commands that feed file_input:
+# computed key access (e.g. .["tit"+"le"]) cannot be verified statically, so
+# any jq expression — literal or dynamic — fails closed
+# (github-advanced-security review on PR #1087).
 
 
 def _is_gh_collection_cmd(line: str) -> bool:
@@ -167,6 +171,53 @@ def _gh_jq_expressions(line: str) -> set[str]:
     for match in re.finditer(r"--jq[=\s]+[\"']([^\"']+)[\"']|--jq[=\s]+(\S+)", line):
         exprs.add(match.group(1) or match.group(2) or "")
     return exprs
+
+
+def _gh_api_free_text_hits(line: str) -> list[str]:
+    """gh api in an inference-feeding job always fails closed: REST responses
+    can include titles/bodies/comments by default, `gh api graphql` can select
+    arbitrary fields, and --field/--template output is computed — none of it
+    can be verified statically (github-advanced-security review on PR #1087).
+    Returns the reasons when the line invokes gh api, else an empty list."""
+    if not GH_API_RE.search(line):
+        return []
+    hits = ["gh api is not allowed in jobs that feed ai-inference file_input"]
+    if GH_API_GRAPHQL_RE.search(line):
+        hits.append("gh api graphql query can select arbitrary fields incl. free text")
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        tokens = []
+    if tokens:
+        for i, tok in enumerate(tokens):
+            if tok == "api" and i + 1 < len(tokens):
+                endpoint = tokens[i + 1]
+                if not endpoint.startswith("-") and API_FREE_TEXT_RESOURCE_RE.search(endpoint):
+                    hits.append(f"endpoint '{endpoint}' returns free text by default")
+                break
+        i = 0
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok in ("--field", "-F") and i + 1 < len(tokens):
+                if tokens[i + 1].strip().strip("\"'").lower() in FREE_TEXT_FIELDS:
+                    hits.append(f"--field {tokens[i + 1]}")
+                i += 2
+                continue
+            if tok.startswith("--field=") and tok.split("=", 1)[1].strip().lower() in FREE_TEXT_FIELDS:
+                hits.append(f"--field={tok.split('=', 1)[1]}")
+            if tok in ("--template", "-t"):
+                hits.append("--template (computed output cannot be verified statically)")
+            i += 1
+    else:
+        # Unparseable line: conservative raw-text fallbacks.
+        if API_FREE_TEXT_RESOURCE_RE.search(line):
+            hits.append("gh api endpoint with free-text resource (raw match)")
+        for match in re.finditer(r"--field[=\s]+[\"']?(\w+)", line):
+            if match.group(1).lower() in FREE_TEXT_FIELDS:
+                hits.append(f"--field {match.group(1)}")
+        if re.search(r"--template(=|\s)", line):
+            hits.append("--template (raw match)")
+    return hits
 
 REQUIRED_MARKERS = ["untrusted", "refuse", "credentials"]
 VAR_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
@@ -300,30 +351,31 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
             free_text = sorted(fields & FREE_TEXT_FIELDS)
             dynamic_json = DYNAMIC_ARG in fields
             jq_exprs = _gh_jq_expressions(line)
-            jq_free = sorted(
-                field
-                for expr in jq_exprs
-                if expr != DYNAMIC_ARG
-                for field in FREE_TEXT_FIELDS
-                if JQ_REF_RES[field].search(expr)
-            )
             dynamic_jq = DYNAMIC_ARG in jq_exprs
+            api_hits = _gh_api_free_text_hits(line)
+            problems: list[str] = []
             if dynamic_json or dynamic_jq:
-                errors.append(
-                    f"{path.name} (job {job_name}): gh command uses a dynamic or missing "
-                    f"--json/--jq argument (shell expansion like $VAR, $(...), backticks, "
-                    f"or a glob) that cannot be verified statically — fail closed: only "
-                    f"literal metadata field lists (number, labels, milestone, timestamps, "
-                    f"url) are allowed for ai-inference file_input "
-                    f"(.github/prompts/README.md, decided in #1082)"
+                problems.append(
+                    "a dynamic or missing --json/--jq argument (shell expansion like "
+                    "$VAR, $(...), backticks, or a glob) that cannot be verified statically"
                 )
-            elif free_text or jq_free:
+            if free_text:
+                problems.append(f"free-text field(s) {free_text} via --json")
+            if jq_exprs and not dynamic_jq:
+                # Any jq expression fails closed: computed key access such as
+                # .["tit"+"le"] cannot be verified statically (#1087 review).
+                problems.append(
+                    "a --jq expression (computed access cannot be verified statically, "
+                    "so it can re-extract free-text fields)"
+                )
+            if api_hits:
+                problems.append(f"gh api free-text exposure: {', '.join(api_hits)}")
+            if problems:
                 errors.append(
-                    f"{path.name} (job {job_name}): gh command collects free-text "
-                    f"field(s) {sorted(set(free_text) | set(jq_free))} via --json/--jq — "
-                    f"user-authored text must never be collected for ai-inference "
-                    f"file_input; collect metadata only (number, labels, milestone, "
-                    f"timestamps, url) (.github/prompts/README.md, decided in #1082)"
+                    f"{path.name} (job {job_name}): gh command rejected for ai-inference "
+                    f"file_input — {'; '.join(problems)} — user-authored text must never "
+                    f"be collected; use a literal metadata-only field list (number, labels, "
+                    f"milestone, timestamps, url) (.github/prompts/README.md, decided in #1082)"
                 )
     return errors
 
