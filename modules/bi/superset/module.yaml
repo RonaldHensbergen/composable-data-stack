@@ -278,6 +278,14 @@ spec:
           tmpfs:
             - /tmp:rw,noexec,nosuid,nodev
             - /app/superset_home:rw,noexec,nosuid,nodev
+          # The stock upstream image has no CDS config baked in; mount the
+          # CDS superset_config.py (secret key, session hardening, OIDC)
+          # over the image's pythonpath entry.
+          volumes:
+            - type: bind
+              source: images/superset/superset_config.py
+              target: /app/pythonpath/superset_config.py
+              read_only: true
           entrypoint:
             - /bin/bash
             - -c
@@ -330,6 +338,10 @@ spec:
             entrypoint:
               - /app/docker/init.sh
             command: []
+            # The hardened image bakes superset_config.py in; do not shadow it
+            # with a host bind (in Kubernetes the bind would become an
+            # emptyDir).
+            volumes: []
         superset:
           image: apache/superset:6.1.0-dev@sha256:be6a6d4938aeb7888bd29cd4b84fa37c6d071c36ae19fef8b929024bf6d5ab8f
           read_only: true
@@ -340,6 +352,13 @@ spec:
           tmpfs:
             - /tmp:rw,noexec,nosuid,nodev
             - /app/superset_home:rw,noexec,nosuid,nodev
+          # Same CDS config mount as superset-init: the stock upstream image
+          # does not carry superset_config.py.
+          volumes:
+            - type: bind
+              source: images/superset/superset_config.py
+              target: /app/pythonpath/superset_config.py
+              read_only: true
           ports:
             - "${config.webPort}:8088"
           depends_on:
@@ -376,6 +395,8 @@ spec:
             build:
               context: ../../../
               dockerfile: images/superset/base/Dockerfile
+            # Keep the image-baked superset_config.py (see superset-init).
+            volumes: []
 
     kubernetes:
       workloads:

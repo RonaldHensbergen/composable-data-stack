@@ -26,10 +26,17 @@ The module applies the `production` tag convention (see
   locally. This upstream variant includes the PostgreSQL and Redis drivers
   required by the module's bindings; the lean image omits them. The init
   service runs the database migration, admin bootstrap, and role
-  synchronization commands directly in that image.
+  synchronization commands directly in that image. Because the stock image
+  carries no CDS config, both services bind-mount `images/superset/superset_config.py`
+  (secret key, session-cookie hardening, optional OIDC login) over the
+  image's `/app/pythonpath` entry; the file is part of the module's fetched
+  build assets. The stock image also serves HTTP with its own entrypoint, so
+  `config.webServer.mode` (issue #216) is honored only by the CDS-built
+  images (production local build or `registry` source).
 - Production profiles replace both services' image with the hardened local
-  build from `images/superset/base/Dockerfile`. The init service uses the
-  image's bundled `/app/docker/init.sh`.
+  build from `images/superset/base/Dockerfile`, which bakes
+  `superset_config.py` in; the init service uses the image's bundled
+  `/app/docker/init.sh`.
 - `config.image.source: registry` continues to use the published CDS image
   for both services in either environment.
 

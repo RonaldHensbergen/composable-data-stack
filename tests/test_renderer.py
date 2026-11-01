@@ -1615,6 +1615,18 @@ class ProductionGateTest(unittest.TestCase):
         self.assertNotIn("build", learning["superset"])
         self.assertEqual(learning["superset-init"]["image"], learning["superset"]["image"])
         self.assertNotIn("build", learning["superset-init"])
+        # The stock upstream image carries no CDS config; both learning
+        # services bind-mount superset_config.py over the pythonpath entry.
+        for service_name in ("superset", "superset-init"):
+            with self.subTest(service=service_name):
+                mounts = learning[service_name]["volumes"]
+                self.assertEqual(len(mounts), 1)
+                self.assertEqual(mounts[0]["type"], "bind")
+                self.assertEqual(
+                    mounts[0]["target"], "/app/pythonpath/superset_config.py"
+                )
+                self.assertTrue(mounts[0]["read_only"])
+                self.assertTrue(mounts[0]["source"].endswith("superset_config.py"))
         command = learning["superset-init"]["command"]
         self.assertIsInstance(command, list)
         self.assertEqual(len(command), 1)
@@ -1652,6 +1664,9 @@ class ProductionGateTest(unittest.TestCase):
                     production[service_name]["build"]["dockerfile"],
                     "images/superset/base/Dockerfile",
                 )
+                # The hardened image bakes superset_config.py in; the
+                # production mapping must not shadow it with a host bind.
+                self.assertEqual(production[service_name]["volumes"], [])
         self.assertEqual(
             production["superset-init"]["entrypoint"], ["/app/docker/init.sh"]
         )

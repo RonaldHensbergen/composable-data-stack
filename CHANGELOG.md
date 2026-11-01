@@ -265,6 +265,10 @@ The format is based on Keep a Changelog.
 - Fetched build assets (`cds get`/`cds update`) now also include builds
   nested in a service's `production:` mapping, so fetched profiles can
   still build the hardened production images (#959, #1071).
+- Learning Superset services bind-mount `images/superset/superset_config.py`
+  over the stock upstream image's pythonpath entry, so the secret key,
+  session-cookie hardening, and optional OIDC login (#1064) apply without a
+  local build; production keeps the image-baked copy (#959, #1071).
 
 - Fixed the Windows CI test job (`test (windows-latest, 3.14)`) failing on
   PR #1057: `tests/test_maturity.py` asserted the literal POSIX string
