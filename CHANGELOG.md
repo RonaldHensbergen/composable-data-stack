@@ -326,6 +326,16 @@ The format is based on Keep a Changelog.
   tests.test_postgres_backup_restore_runtime -v`; see
   `docs/backup-restore.md` section 5.
 
+- Naming tests for the four remaining uncovered profiles
+  (`tests/test_local_dagster_postgres_superset_dbt_profile.py`,
+  `tests/test_local_haven_reference_profile.py`,
+  `tests/test_local_kubernetes_example_profile.py`,
+  `tests/test_production_kubernetes_example_profile.py`): each validates
+  the profile with `cli.validator.validate_profile` and plans/renders it
+  through the real pipeline (docker-compose or Helm, base and prod
+  environment where applicable) (#1079). Profile contract coverage in
+  `docs/contract-coverage.md` is now 8/8.
+
 ### Fixed
 
 - Production profiles no longer host-publish the Dagster webserver and
