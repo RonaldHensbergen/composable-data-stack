@@ -171,6 +171,237 @@ class PromptsLintTest(unittest.TestCase):
             errors = check_prompts.lint_workflow(path)
             self.assertTrue(any("issues.json" in e for e in errors))
 
+    def _inference_workflow(self, collect_step: str) -> str:
+        indented = "          " + collect_step.replace("\n", "\n          ")
+        return f"""jobs:
+  audit:
+    steps:
+      - run: |
+{indented}
+          python3 scripts/redact_secrets.py --strict "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.json"
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{{{ runner.temp }}}}/open-issues.json
+"""
+
+    def test_workflow_collecting_free_text_fields_for_file_input_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --state open \\\n'
+                '  --json number,title,body,labels > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+            self.assertTrue(any("title" in e and "body" in e for e in errors))
+
+    def test_workflow_metadata_only_collection_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --state open \\\n'
+                '  --json number,labels,milestone,createdAt,updatedAt,url \\\n'
+                '  > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_gh_pr_view_body_in_inference_job_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'GH_TOKEN="$GH_TOKEN" gh pr view 42 --json number,body > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+
+    def test_workflow_free_text_collection_outside_inference_job_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # No ai-inference file_input in this job: the minimization rule is
+            # scoped to jobs that feed the model, so this stays allowed.
+            wf = """jobs:
+  report:
+    steps:
+      - run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" --json number,title,body > issues.json
+"""
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_quoted_json_field_list_fails(self):
+        # github-advanced-security on #1087: a quoted field list must not
+        # bypass the lint.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json "number,title,body" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+
+    def test_workflow_json_equals_form_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh pr list --json=number,comments > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+            self.assertTrue(any("comments" in e for e in errors))
+
+    def test_workflow_gh_in_command_substitution_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'ISSUES="$(gh issue list --json number,body)"; printf "%s" "$ISSUES" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+
+    def test_workflow_quoted_metadata_only_collection_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json "number,labels,milestone,createdAt,updatedAt,url" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_any_jq_argument_fails_closed(self):
+        # github-advanced-security on #1087 (3rd round): computed jq key
+        # access (e.g. .["tit"+"le"]) cannot be verified statically, so ANY
+        # --jq on a gh collection command feeding file_input is rejected —
+        # even one that looks metadata-only.
+        for jq in ('.[].title', '.[]."tit"+"le"', '.[].number'):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(
+                    f'gh issue list --json number,labels --jq "{jq}" > "$RUNNER_TEMP/open-issues.json"'
+                )
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("--jq" in e for e in errors),
+                    f"expected --jq rejection for jq={jq}",
+                )
+
+    def test_workflow_gh_api_free_text_endpoint_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh api repos/OWNER/REPO/issues > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("gh api" in e for e in errors))
+
+    def test_workflow_gh_api_graphql_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                "gh api graphql -f query='query { repository(owner:\"O\", name:\"R\") { issues { nodes { body } } } }' > \"$RUNNER_TEMP/open-issues.json\""
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("graphql" in e for e in errors))
+
+    def test_workflow_gh_api_field_flag_free_text_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh api repos/OWNER/REPO/issues/1 --field title --field number > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("--field" in e for e in errors))
+
+    def test_workflow_gh_api_metadata_endpoint_also_fails_closed(self):
+        # Even a metadata-looking gh api endpoint fails: the response shape
+        # cannot be verified statically, so all gh api is rejected in
+        # file_input-feeding jobs.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh api repos/OWNER/REPO/issues/1/labels > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("gh api" in e for e in errors))
+
+    def test_workflow_gh_list_without_json_fails_closed(self):
+        # Self-review finding: default tabular output of gh issue/pr list
+        # includes titles, so a collection command with no --json at all must
+        # fail closed in file_input-feeding jobs.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --state open > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("--json" in e for e in errors))
+
+    def test_workflow_gh_template_flag_fails_closed(self):
+        # Self-review finding: --template on list commands is computed output.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh pr list --template "{{.title}} {{.body}}" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("--template" in e for e in errors))
+
+    def test_workflow_gh_api_in_non_inference_job_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = """jobs:
+  report:
+    steps:
+      - run: |
+          gh api repos/OWNER/REPO/issues --field title,body > issues.json
+"""
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_dynamic_json_argument_fails_closed(self):
+        # github-advanced-security on #1087 (2nd round): --json "$FIELDS" or
+        # --json "$(cat fields.txt)" cannot be verified statically — reject.
+        for collect in (
+            'gh issue list --json "$FIELDS" > "$RUNNER_TEMP/open-issues.json"',
+            'gh issue list --json "$(cat fields.txt)" > "$RUNNER_TEMP/open-issues.json"',
+            'gh issue list --json ${FIELDS} > "$RUNNER_TEMP/open-issues.json"',
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(collect)
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("dynamic" in e for e in errors),
+                    f"expected dynamic-argument failure for: {collect}",
+                )
+
+    def test_workflow_bare_json_flag_without_value_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("dynamic" in e for e in errors))
+
+    def test_workflow_dynamic_jq_argument_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --json number --jq "$JQ_EXPR" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("dynamic" in e for e in errors))
+
+    def test_workflow_unbalanced_quote_falls_back_to_regex(self):
+        # Not valid shell, so shlex tokenization fails: the regex fallback
+        # must still catch the free-text field (fail closed).
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --json number,title > "$RUNNER_TEMP/open-issues.json'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()
