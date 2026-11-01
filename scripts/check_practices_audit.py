@@ -8,15 +8,22 @@ Rolls the repo-enforceable IMP signals into one report:
   honest (a fix means a defect in code that is live; everything else is
   refinement),
 - open PRs labeled `automerge` (green merges itself, where gated),
-- the latest kill-matrix (mutation-tests.yml) workflow run.
+- the latest kill-matrix (mutation-tests.yml) workflow run,
+- whether the IMP rules page itself changed, detected against the pinned
+  sha256 in scripts/imp-rules.sha256 (the workflow files a tracking issue
+  to re-read the rules when it drifts).
 
 Used by .github/workflows/practices-audit.yml on a biweekly cadence; the
 workflow files the report as an issue labeled `practices-audit`. Also
 runnable locally: `python scripts/check_practices_audit.py` (GitHub sections
-are skipped when `gh` is unavailable or unauthenticated).
+are skipped when `gh` is unavailable or unauthenticated), and
+`python scripts/check_practices_audit.py --pin` re-pins the rules hash after
+the change has been read and handled.
 """
 from __future__ import annotations
 
+import argparse
+import hashlib
 import json
 import os
 import re
@@ -24,12 +31,17 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.request import Request, urlopen
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 COVERAGE_SCRIPT = REPO_ROOT / "scripts" / "check_contract_coverage.py"
 OVERALL_RE = re.compile(r"\*\*Overall contract coverage:.*?\*\*.*")
 COMMIT_PREFIXES = ["feat", "fix", "refine", "refactor", "perf", "docs", "test", "chore"]
 SINCE = "14 days ago"
+
+RULES_URL = "https://impatientprogramming.org/rules/"
+RULES_HASH_FILE = REPO_ROOT / "scripts" / "imp-rules.sha256"
+RULES_CHANGED_MARKER = "IMP rules CHANGED"
 
 
 def _run(cmd: list[str]) -> str | None:
@@ -121,6 +133,58 @@ def _kill_matrix_section() -> list[str]:
     ]
 
 
+def _fetch_rules() -> str | None:
+    request = Request(RULES_URL, headers={"User-Agent": "cds-practices-audit/1.0"})  # nosec B310  # noqa: S310
+    try:
+        with urlopen(request, timeout=30) as response:  # nosec B310 - fixed https host  # noqa: S310
+            return response.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+
+
+def _rules_hash(text: str) -> str:
+    normalized = "\n".join(line.rstrip() for line in text.replace("\r\n", "\n").split("\n"))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _pinned_rules_hash() -> str | None:
+    if not RULES_HASH_FILE.exists():
+        return None
+    fields = RULES_HASH_FILE.read_text(encoding="utf-8").splitlines()[0].split()
+    return fields[0] if fields else None
+
+
+def pin_rules_hash() -> int:
+    text = _fetch_rules()
+    if text is None:
+        print(f"Could not fetch {RULES_URL}", file=sys.stderr)
+        return 1
+    digest = _rules_hash(text)
+    RULES_HASH_FILE.write_text(f"{digest}  impatientprogramming.org/rules/\n", encoding="utf-8")
+    print(f"Pinned {RULES_HASH_FILE.relative_to(REPO_ROOT)} = {digest}")
+    return 0
+
+
+def _rules_section() -> list[str]:
+    text = _fetch_rules()
+    if text is None:
+        return [f"_Rules page {RULES_URL} unreachable; change detection skipped._"]
+    current = _rules_hash(text)
+    pinned = _pinned_rules_hash()
+    if pinned is None:
+        return ["_No pinned hash yet; run `make practices-audit-pin` to start tracking._"]
+    if current == pinned:
+        return [f"IMP rules unchanged (sha256 `{current[:12]}…` matches `scripts/imp-rules.sha256`)."]
+    return [
+        f"**{RULES_CHANGED_MARKER}**: pinned sha256 `{pinned[:12]}…`, live page hashes to `{current[:12]}…`.",
+        f"- Rules page: {RULES_URL}",
+        "- `practices-audit.yml` files a tracking issue to re-read the rules and re-assess",
+        "  the adoption (CONTRIBUTING.md \"How We Work\" and the implemented mechanisms).",
+        "- After handling it, re-pin with `make practices-audit-pin`; the next audit run",
+        "  closes the tracking issue once the hashes match again.",
+    ]
+
+
 def render_report() -> str:
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     rows, total = _commit_mix()
@@ -155,11 +219,22 @@ def render_report() -> str:
     lines += _automerge_section()
     lines += ["", "## Kill matrix (rule 26)", ""]
     lines += _kill_matrix_section()
+    lines += ["", "## IMP rules (source method)", ""]
+    lines += _rules_section()
     lines.append("")
     return "\n".join(lines)
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--pin",
+        action="store_true",
+        help="pin the current sha256 of the IMP rules page into scripts/imp-rules.sha256",
+    )
+    args = parser.parse_args()
+    if args.pin:
+        return pin_rules_hash()
     print(render_report())
     return 0
 

@@ -39,7 +39,11 @@ The format is based on Keep a Changelog.
   - Added a biweekly practices audit (`scripts/check_practices_audit.py`,
     `make practices-audit`, workflow `practices-audit.yml`) that files a
     roll-up issue with contract coverage, the `fix:`/`refine:` commit mix,
-    `automerge` usage, and the latest kill-matrix run.
+    `automerge` usage, and the latest kill-matrix run. The audit also pins a
+    sha256 of <https://impatientprogramming.org/rules/> in
+    `scripts/imp-rules.sha256`; when the live rules page changes,
+    `practices-audit.yml` files a tracking issue to re-read the rules and
+    re-assess the adoption (`make practices-audit-pin` re-pins the hash).
 - Added the shared `oidc-provider` contract, configurable Keycloak realm
   import and issuer advertisement, and optional Superset OIDC login using
   provider discovery and profile-backed client secrets (#1055, #680, #681).

@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check contract-coverage practices-audit test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check contract-coverage practices-audit practices-audit-pin test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -29,6 +29,12 @@ contract-coverage:
 # Filed as an issue by .github/workflows/practices-audit.yml.
 practices-audit:
 	python scripts/check_practices_audit.py
+
+# Re-pin the sha256 of https://impatientprogramming.org/rules/ after the
+# rules change has been read and handled (the biweekly audit files a
+# tracking issue when the live page drifts from scripts/imp-rules.sha256).
+practices-audit-pin:
+	python scripts/check_practices_audit.py --pin
 
 # Kill matrix (mutation testing): every test must earn its place by catching a
 # mutant no other test catches. Installs mutmut ad hoc (pinned) so the

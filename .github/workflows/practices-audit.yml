@@ -113,3 +113,49 @@ jobs:
               --label practices-audit \
               --body-file "$report"
           fi
+
+      - name: File or close the IMP rules tracking issue
+        if: steps.cadence.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -e
+          report="$RUNNER_TEMP/practices-audit.md"
+          title="IMP rules changed on impatientprogramming.org — re-read and assess"
+          existing="$(
+            gh issue list \
+              --repo "$GITHUB_REPOSITORY" \
+              --state open \
+              --label practices-audit \
+              --limit 20 \
+              --json number,title \
+              --jq ".[] | select(.title == \"$title\") | .number" \
+              | head -n 1
+          )"
+
+          if grep -q "IMP rules CHANGED" "$report"; then
+            body="$RUNNER_TEMP/imp-rules-issue.md"
+            {
+              printf '<!-- imp-rules-changed -->\n'
+              printf 'Detected by [%s](%s/actions/runs/%s) via `scripts/check_practices_audit.py`: the live rules page no longer matches the pinned sha256 in `scripts/imp-rules.sha256`.\n\n' \
+                "$GITHUB_WORKFLOW" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+              sed -n '/## IMP rules/,$p' "$report"
+              printf '\n**To resolve:** re-read the 29 rules at https://impatientprogramming.org/rules/, compare them with CONTRIBUTING.md "How We Work" and the mechanisms implemented here (executable Contract + contract coverage, kill matrix, issue/PR templates, `refine:` labeling, label-gated auto-merge, design-artifact prompt), file follow-up issues or PRs for anything that changed, then run `make practices-audit-pin` and commit the updated `scripts/imp-rules.sha256`. The next audit run closes this issue once the pinned hash matches the live page again.\n'
+            } > "$body"
+            if [[ -n "$existing" ]]; then
+              gh issue edit "$existing" \
+                --repo "$GITHUB_REPOSITORY" \
+                --body-file "$body"
+            else
+              gh issue create \
+                --repo "$GITHUB_REPOSITORY" \
+                --title "$title" \
+                --label practices-audit \
+                --body-file "$body"
+            fi
+          elif [[ -n "$existing" ]]; then
+            gh issue close "$existing" \
+              --repo "$GITHUB_REPOSITORY" \
+              --comment "The pinned sha256 in \`scripts/imp-rules.sha256\` matches the live rules page again (checked by \`practices-audit.yml\`)."
+          fi
