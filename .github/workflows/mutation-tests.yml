@@ -26,6 +26,9 @@ concurrency:
 
 jobs:
   kill-matrix:
+    # Dependabot lock bumps get no analysis value here and no secrets, same
+    # reasoning as the sonarcloud job in ci.yml (#970).
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
