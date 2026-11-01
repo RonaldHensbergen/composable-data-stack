@@ -94,6 +94,27 @@ class MarquezLineageSinkHostTest(unittest.TestCase):
             self.assertEqual(env["OPENLINEAGE_URL"], "http://marquez-api:5000")
             self.assertEqual(env["OPENLINEAGE_ENDPOINT"], "/api/v1/lineage")
 
+    def test_host_published_ports_match_process_listen_ports(self):
+        """Non-default apiPort must not publish to a dead container port (#1049)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            doc = yaml.safe_load(PROFILE_PATH.read_text(encoding="utf-8"))
+            for module in doc["spec"]["modules"]:
+                module["source"] = module["source"].replace("../../", "")
+                if module["id"] == "marquez":
+                    module.setdefault("config", {})
+                    module["config"]["apiPort"] = 15000
+                    module["config"]["apiAdminPort"] = 15001
+            profile_path = Path(tmpdir) / "profile.yaml"
+            profile_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+            _plan, compose = _plan_and_render(str(profile_path))
+
+        ports = compose["services"]["marquez-api"]["ports"]
+        self.assertIn("127.0.0.1:15000:15000", ports)
+        self.assertIn("127.0.0.1:15001:15001", ports)
+        env = compose["services"]["marquez-api"]["environment"]
+        self.assertEqual(str(env["MARQUEZ_PORT"]), "15000")
+        self.assertEqual(str(env["MARQUEZ_ADMIN_PORT"]), "15001")
+
     def test_non_conventional_instance_id_survives_the_naming_rule(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             plan, compose = _plan_and_render(_profile_variant(tmpdir, new_marquez_id="lineage"))
