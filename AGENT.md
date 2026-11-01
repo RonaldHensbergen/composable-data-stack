@@ -271,4 +271,12 @@ reviews on #1078 and #1087):
   quoted values, `--flag=value`, and command substitution uniformly, keep a
   conservative fallback for unparseable input, and self-probe the control for
   bypasses before calling it done. Treat advanced-security review findings as
-  deterministic-control requirements, not style nits.
+  deterministic-control requirements, not style nits. Known bypass classes to
+  probe for in any parser over shell/CLI text (each pinned by a test in
+  `tests/test_prompts_lint.py`): quoted values (`--json "number,title"`),
+  `--flag=value` forms, command substitution (`$(gh ...)`, backticks),
+  env-prefixed invocations (`GH_TOKEN=... gh ...`), dynamic arguments
+  (`--json "$FIELDS"`, `--json "$(cat fields.txt)"`, globs), missing values
+  (bare `--json` before a redirect/operator), and re-extraction via `--jq`
+  (`.title`, `.["title"]`). All of these must fail closed, never be silently
+  skipped.
