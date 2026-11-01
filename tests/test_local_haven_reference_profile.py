@@ -74,7 +74,9 @@ class LocalHavenReferenceProfileTest(unittest.TestCase):
         keycloak_env = services["keycloak"]["environment"]
         self.assertEqual(keycloak_env["KC_DB"], "postgres")
         self.assertEqual(keycloak_env["KC_DB_URL_HOST"], "postgres")
-        self.assertEqual(keycloak_env["KC_DB_URL_PORT"], 5432)
+        # Compare stringified: the contract is the port value, not the YAML
+        # scalar type the renderer happens to emit.
+        self.assertEqual(str(keycloak_env["KC_DB_URL_PORT"]), "5432")
 
 
 if __name__ == "__main__":
