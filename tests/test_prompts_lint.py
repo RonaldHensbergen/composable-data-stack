@@ -67,8 +67,18 @@ class PromptsLintTest(unittest.TestCase):
     def test_allowlisted_file_may_interpolate(self):
         with tempfile.TemporaryDirectory() as tmp:
             name = next(iter(check_prompts.ALLOWLIST))
-            path = self._write(Path(tmp), name, WITH_VAR)
+            fenced = GOOD_PROMPT.replace(
+                "Do the task.", "BEGIN_UNTRUSTED_DATA\n{{issue}}\nEND_UNTRUSTED_DATA"
+            )
+            path = self._write(Path(tmp), name, fenced)
             self.assertEqual([], lint_file(path))
+
+    def test_allowlisted_file_requires_untrusted_data_fences(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            name = next(iter(check_prompts.ALLOWLIST))
+            path = self._write(Path(tmp), name, WITH_VAR)  # no fences
+            errors = lint_file(path)
+            self.assertTrue(any("UNTRUSTED_DATA" in e for e in errors))
 
     def test_invalid_yaml_fails(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -54,6 +54,12 @@ jobs:
             --limit 200 \
             --json number,title,body,labels,milestone,createdAt,updatedAt,url \
             > "$RUNNER_TEMP/open-issues.json"
+          # Issue text is user-controlled: scrub secrets before it is sent to
+          # the external model via file_input (prompt trust-boundary policy,
+          # .github/prompts/README.md).
+          python3 scripts/redact_secrets.py \
+            "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.redacted.json"
+          mv "$RUNNER_TEMP/open-issues.redacted.json" "$RUNNER_TEMP/open-issues.json"
           git log \
             --since="90 days ago" \
             --max-count=100 \

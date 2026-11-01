@@ -46,13 +46,15 @@ jobs:
         shell: bash
         run: |
           set -e
+          # Trust gate: only non-fork PRs (isCrossRepository == false) at the
+          # CI head SHA are eligible; fork PRs never get automated merges.
           prs="$(
             gh pr list \
               --repo "$GITHUB_REPOSITORY" \
               --state open \
               --label automerge \
               --json number,headRefOid,isCrossRepository \
-              --jq '.[] | select(.headRefOid == env.HEAD_SHA and (.isCrossRepository | not)) | .number'
+              --jq '.[] | select(.headRefOid == env.HEAD_SHA and .isCrossRepository == false) | .number'
           )"
           if [[ -z "$prs" ]]; then
             echo "No open non-fork PR labeled 'automerge' at head SHA $HEAD_SHA."

@@ -18,11 +18,20 @@ enforces the policy below and fails the build on violations.
 2. **No `{{...}}` variable interpolation by default.** New prompts must not
    interpolate variables — describe the topic in the conversation instead.
    Interpolation is allowed only for files listed in the `ALLOWLIST` in
-   `scripts/check_prompts.py`, each with a written justification. Today that
-   is only `issue-consistency-audit.prompt.yml`, whose `{{issues}}` /
-   `{{recent_commits}}` are substituted by `biweekly-issue-audit.yml` from
-   `file_input` files (open-issues JSON, recent commits). Its residual risk
-   — issue text reaching the external model — is tracked in issue #1082.
+   `scripts/check_prompts.py`, each with a written justification, and every
+   interpolated `{{var}}` in an allowlisted file must be wrapped in
+   `BEGIN_UNTRUSTED_DATA` / `END_UNTRUSTED_DATA` fences (the lint enforces
+   this). Today the only allowlisted file is `issue-consistency-audit.prompt.yml`,
+   whose `{{issues}}` / `{{recent_commits}}` are substituted by
+   `biweekly-issue-audit.yml` from `file_input` files.
+3. **Deterministic pre-inference redaction for `file_input`.** Data passed
+   via `file_input` is user-controlled (issue titles/bodies). Workflows must
+   scrub it before inference — `biweekly-issue-audit.yml` runs
+   `scripts/redact_secrets.py` over the issues JSON (secret-pattern
+   replacement with `[REDACTED]`, control-char stripping) so only redacted
+   content crosses the trust boundary. External inference is acceptable only
+   with this sanitization/minimization step; the question of moving to a
+   local/self-hosted model entirely is tracked in issue #1082.
 
 ## Adding a new prompt
 
@@ -31,7 +40,9 @@ enforces the policy below and fails the build on violations.
    `modelParameters`.
 2. If your workflow must pass data, use `file_input` (as
    `biweekly-issue-audit.yml` does), add the file to `ALLOWLIST` with a
-   justification, and keep the protocol in the system message.
+   justification, wrap the placeholders in `BEGIN/END_UNTRUSTED_DATA`
+   fences, keep the protocol in the system message, and redact the input
+   with `scripts/redact_secrets.py` before inference.
 3. Run `make lint-prompts` and the unit tests in `tests/test_prompts_lint.py`.
 
 ## Open policy question

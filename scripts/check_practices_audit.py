@@ -42,6 +42,7 @@ SINCE = "14 days ago"
 RULES_URL = "https://impatientprogramming.org/rules/"
 RULES_HASH_FILE = REPO_ROOT / "scripts" / "imp-rules.sha256"
 RULES_CHANGED_MARKER = "IMP rules CHANGED"
+CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 def _run(cmd: list[str]) -> str | None:
@@ -104,12 +105,14 @@ def _gh_json(args: list[str], fields: list[str]) -> object | None:
         return None
 
 
-def _sanitize_markdown_text(value: object) -> str:
-    text = str(value) if value is not None else ""
-    text = text.replace("\r", " ").replace("\n", " ")
-    text = "".join(ch for ch in text if ch.isprintable())
-    text = text.replace("\\", "\\\\").replace("`", "\\`")
-    return text.strip() or "(untitled)"
+def _sanitize_markdown_text(text: object) -> str:
+    """Neutralize untrusted text (e.g. attacker-controlled PR titles) before
+    it is persisted into a markdown report: single line, control chars
+    stripped, markdown-significant characters escaped."""
+    cleaned = CONTROL_CHARS_RE.sub("", str(text))
+    cleaned = cleaned.replace("\\", "\\\\").replace("`", "\\`")
+    cleaned = " ".join(cleaned.split())
+    return cleaned
 
 
 def _automerge_section() -> list[str]:
@@ -119,8 +122,7 @@ def _automerge_section() -> list[str]:
     prs = data if isinstance(data, list) else []
     lines = [f"{len(prs)} open PR(s) labeled `automerge`:"]
     for pr in prs:
-        title = _sanitize_markdown_text(pr.get("title"))
-        lines.append(f"- #{pr.get('number')} {title}")
+        lines.append(f"- #{pr.get('number')} {_sanitize_markdown_text(pr.get('title', ''))}")
     if not prs:
         lines.append("- none")
     return lines

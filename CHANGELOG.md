@@ -56,7 +56,15 @@ The format is based on Keep a Changelog.
     protocol (markers `untrusted`/`refuse`/`credentials`), and `{{...}}`
     interpolation is denied unless the file is in the script's justified
     ALLOWLIST. `issue-consistency-audit.prompt.yml` was hardened with the
-    full protocol; the design-artifact prompt carries no input at all.
+    full protocol and `BEGIN/END_UNTRUSTED_DATA` fences (now lint-enforced
+    for allowlisted files); the design-artifact prompt carries no input at all.
+  - Added deterministic pre-inference redaction: `scripts/redact_secrets.py`
+    (tests in `tests/test_redact_secrets.py`) scrubs secret patterns from
+    user-controlled issue JSON before it is sent to the external model via
+    `file_input` in `biweekly-issue-audit.yml`.
+  - `auto-merge.yml` now only considers non-fork PRs (`isCrossRepository ==
+    false`) at the green head SHA; `scripts/check_practices_audit.py`
+    sanitizes untrusted PR titles before persisting them into report issues.
 - Added the shared `oidc-provider` contract, configurable Keycloak realm
   import and issuer advertisement, and optional Superset OIDC login using
   provider discovery and profile-backed client secrets (#1055, #680, #681).

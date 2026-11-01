@@ -78,6 +78,18 @@ def lint_file(path: Path) -> list[str]:
             f"ALLOWLIST in scripts/check_prompts.py — add it there with a "
             f"justification, or remove the interpolation"
         )
+    if variables and path.name in ALLOWLIST:
+        # Structural control for allowlisted interpolation: every {{var}} must
+        # sit between explicit BEGIN/END UNTRUSTED DATA fences so the payload
+        # is delimited as inert data, not blended into instructions.
+        for match in VAR_RE.finditer(all_text):
+            begin = all_text.rfind("BEGIN_UNTRUSTED_DATA", 0, match.start())
+            end = all_text.find("END_UNTRUSTED_DATA", match.end())
+            if begin == -1 or end == -1:
+                errors.append(
+                    f"{path.name}: interpolation {match.group(0)} is not wrapped in "
+                    f"BEGIN_UNTRUSTED_DATA / END_UNTRUSTED_DATA fences"
+                )
     return errors
 
 
