@@ -196,8 +196,16 @@ def _is_settled(grouped: dict[str, list[str]], expected_service_count: int | Non
     return True
 
 
-def _default_redraw(text: str) -> None:
-    if sys.stdout.isatty():
+def _default_redraw(text: str, *, clear_screen: bool = True) -> None:
+    """Redraw the live state view.
+
+    When `clear_screen` is True and stdout is a TTY, emit the ANSI
+    clear-screen sequence before writing. Callers that disable color
+    (``--no-color`` / ``NO_COLOR``) should pass ``clear_screen=False`` so
+    screen-reader users get plain line-by-line output instead of ANSI
+    control sequences.
+    """
+    if clear_screen and sys.stdout.isatty():
         sys.stdout.write("\033[2J\033[H")
         sys.stdout.write(text + "\n")
     else:
@@ -241,7 +249,12 @@ def _poll_until_settled(
     `up_done_fn` reports a successful result (exit code 0).
     """
     if redraw_fn is None:
-        redraw_fn = _default_redraw
+        # Color-off (and NO_COLOR) also suppress the ANSI clear-screen so
+        # assistive tech sees plain progressive output.
+        clear_screen = use_color
+
+        def redraw_fn(text: str, *, _clear: bool = clear_screen) -> None:
+            _default_redraw(text, clear_screen=_clear)
 
     if up_done_fn is None:
         # No background apply process to track: behave as if it had

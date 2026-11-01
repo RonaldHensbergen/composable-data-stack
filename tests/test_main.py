@@ -2249,7 +2249,11 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
+            with patch.dict(
+                os.environ,
+                {"CDS_PROFILE_PATH": str(self.profiles_root), "NO_COLOR": ""},
+                clear=False,
+            ), patch.object(
                 sys,
                 "argv",
                 ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
@@ -2258,6 +2262,42 @@ spec:
 
         self.assertEqual(result, 0)
         self.assertTrue(mock_poll.call_args.kwargs["use_color"])
+
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_no_color_env_disables_color_in_live_view(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+    ):
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.return_value = (True, {})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = os.path.join(tmpdir, "up.log")
+            with patch.dict(
+                os.environ,
+                {"CDS_PROFILE_PATH": str(self.profiles_root), "NO_COLOR": "1"},
+                clear=False,
+            ), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            ), patch("sys.stdout.isatty", return_value=True):
+                result = main()
+
+        self.assertEqual(result, 0)
+        self.assertFalse(mock_poll.call_args.kwargs["use_color"])
 
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
@@ -3348,12 +3388,18 @@ class StateCLITest(unittest.TestCase):
 
         self.assertEqual(result, 17)
 
-    def _run_state_with_tty(self, argv_extra, isatty_return):
+    def _run_state_with_tty(self, argv_extra, isatty_return, env_extra=None):
         with tempfile.TemporaryDirectory() as tmpdir:
             project_root = Path(tmpdir)
             (project_root / "docker-compose.yml").write_text("services: {}")
             captured = io.StringIO()
             captured.isatty = lambda: isatty_return
+
+            # Clear ambient NO_COLOR (common in CI / agent shells) unless a
+            # test deliberately opts in via env_extra.
+            env = {"CDS_PROFILE_PATH": str(self.profiles_root), "NO_COLOR": ""}
+            if env_extra:
+                env.update(env_extra)
 
             with patch("cli.main.resolve_project_root", return_value=project_root), patch(
                 "cli.main.subprocess.run",
@@ -3364,7 +3410,7 @@ class StateCLITest(unittest.TestCase):
                     stderr="",
                 ),
             ), patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+                os.environ, env, clear=False
             ), patch.object(
                 sys, "argv", ["cds", "state", "local-dagster-postgres-superset"] + argv_extra
             ), contextlib.redirect_stdout(
@@ -3378,6 +3424,16 @@ class StateCLITest(unittest.TestCase):
         result, output = self._run_state_with_tty(["--no-color"], isatty_return=True)
         self.assertEqual(result, 0)
         self.assertNotIn("\033", output)
+
+    def test_no_color_env_suppresses_ansi_even_on_a_tty(self):
+        result, output = self._run_state_with_tty([], isatty_return=True, env_extra={"NO_COLOR": "1"})
+        self.assertEqual(result, 0)
+        self.assertNotIn("\033", output)
+
+    def test_empty_no_color_env_keeps_color_on_a_tty(self):
+        result, output = self._run_state_with_tty([], isatty_return=True, env_extra={"NO_COLOR": ""})
+        self.assertEqual(result, 0)
+        self.assertIn("\033", output)
 
     def test_color_suppressed_on_a_non_tty_without_the_flag(self):
         result, output = self._run_state_with_tty([], isatty_return=False)

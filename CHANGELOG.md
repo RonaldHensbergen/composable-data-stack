@@ -338,6 +338,12 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Honor the [`NO_COLOR`](https://no-color.org/) environment variable as a
+  global color disable across `cds up` / `cds state` (and Helm equivalents):
+  a present, non-empty `NO_COLOR` now behaves like `--no-color`, including
+  suppressing the live state view's ANSI clear-screen redraw in favor of
+  plain line-by-line output for screen-reader users (#1094). `--no-color`
+  still works; empty `NO_COLOR=` does not disable color.
 - Production profiles no longer host-publish the Dagster webserver and
   Superset UI on all interfaces: both modules' compose services now carry a
   `production: { ports: [] }` mapping, so the TLS reverse proxy is the sole
