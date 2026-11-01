@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 36 of 41 (88%)** — modules 17/18 (94%), profiles 4/8 (50%), shared contracts 15/15 (100%)
+**Overall contract coverage: 40 of 41 (98%)** — modules 17/18 (94%), profiles 8/8 (100%), shared contracts 15/15 (100%)
 
 ## Modules
 
@@ -46,11 +46,11 @@ everyone how much of the system is still unwritten.
 | --- | --- | --- |
 | `profiles/local-dagster-postgres-marquez` | local-dagster-postgres-marquez | yes |
 | `profiles/local-dagster-postgres-superset` | local-dagster-postgres-superset | yes |
-| `profiles/local-dagster-postgres-superset-dbt` | local-dagster-postgres-superset-dbt | **no** |
+| `profiles/local-dagster-postgres-superset-dbt` | local-dagster-postgres-superset-dbt | yes |
 | `profiles/local-dagster-postgres-superset-vault` | local-dagster-postgres-superset-vault | yes |
-| `profiles/local-haven-reference` | local-haven-reference | **no** |
-| `profiles/local-kubernetes-example` | local-kubernetes-example | **no** |
-| `profiles/production-kubernetes-example` | production-kubernetes-example | **no** |
+| `profiles/local-haven-reference` | local-haven-reference | yes |
+| `profiles/local-kubernetes-example` | local-kubernetes-example | yes |
+| `profiles/production-kubernetes-example` | production-kubernetes-example | yes |
 | `profiles/team-dagster-postgres-superset` | team-dagster-postgres-superset | yes |
 
 ## Shared contracts
