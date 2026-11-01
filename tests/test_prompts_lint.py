@@ -123,6 +123,23 @@ class PromptsLintTest(unittest.TestCase):
             errors = check_prompts.lint_workflow(path)
             self.assertTrue(any("redact_secrets.py" in e for e in errors))
 
+    def test_workflow_redaction_must_precede_inference_and_match_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # redaction exists but targets a different file, and after the call
+            wf = """jobs:
+  audit:
+    steps:
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{ runner.temp }}/issues.json
+      - run: python3 scripts/redact_secrets.py "$RUNNER_TEMP/a.json" "$RUNNER_TEMP/other.json"
+"""
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("issues.json" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

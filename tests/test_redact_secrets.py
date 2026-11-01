@@ -27,6 +27,13 @@ class RedactSecretsTest(unittest.TestCase):
         self.assertIn("[REDACTED]", out)
         self.assertNotIn("hunter2", out)
 
+    def test_quoted_key_value_secret_redacted(self):
+        for text in ('password="s3cr3t-value"', "token: 'abc123xyz'"):
+            out = redact_secrets.redact_text(text)
+            self.assertIn("[REDACTED]", out)
+            self.assertNotIn("s3cr3t-value", out)
+            self.assertNotIn("abc123xyz", out)
+
     def test_private_key_block_redacted(self):
         text = "-----BEGIN RSA PRIVATE KEY-----\nMIIabc\n-----END RSA PRIVATE KEY-----"
         self.assertEqual("[REDACTED]", redact_secrets.redact_text(text))

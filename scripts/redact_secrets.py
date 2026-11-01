@@ -29,8 +29,12 @@ PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL),
-    # Key/value style secrets in text.
-    re.compile(r"(?i)\b(api[_-]?key|secret|token|password|passwd|authorization|auth[_-]?header)\b(\s*[:=]\s*)[^\s,;\"']+"),
+    # Key/value style secrets in text, including quoted values
+    # (password="x", token: 'y'). Matched via _redact_kv below.
+    re.compile(
+        r"(?i)\b(api[_-]?key|secret|token|password|passwd|authorization|auth[_-]?header)\b"
+        r"(\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|[^\s,;\"']+)"
+    ),
     # Bearer/basic credentials in free text.
     re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}"),
 ]
@@ -46,6 +50,11 @@ INJECTION_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
+def _redact_kv(match: re.Match[str]) -> str:
+    """Keep the key name, replace the value (quotes included) with [REDACTED]."""
+    return f"{match.group(1)}{match.group(2)}{REDACTED}"
+
+
 def redact_text(text: str) -> str:
     """Strip control characters, neutralize injection-like content, and
     replace secret-looking substrings."""
@@ -53,8 +62,8 @@ def redact_text(text: str) -> str:
     for pattern in INJECTION_PATTERNS:
         out = pattern.sub(REDACTED, out)
     for pattern in PATTERNS:
-        if pattern.groups >= 2:  # key/value pattern: keep the key name
-            out = pattern.sub(lambda m: f"{m.group(1)}{m.group(2)}{REDACTED}", out)
+        if pattern.groups >= 3:  # key/value pattern: keep the key name
+            out = pattern.sub(_redact_kv, out)
         else:
             out = pattern.sub(REDACTED, out)
     return out

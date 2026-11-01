@@ -115,33 +115,32 @@ def lint_workflow(path: Path) -> list[str]:
         return []  # not a workflow document; yamllint's job
     if not isinstance(doc, dict):
         return []
-    text = path.read_text(encoding="utf-8")
     jobs = doc.get("jobs") or {}
+    redact_call_re = re.compile(r"redact_secrets\.py\s+\S+\s+(\S+)")
     for job_name, job in jobs.items():
         if not isinstance(job, dict):
             continue
+        redacted_outputs: set[str] = set()
         for step in job.get("steps") or []:
             if not isinstance(step, dict):
                 continue
+            run_script = str(step.get("run") or "").replace("\\\n", " ")
+            for match in redact_call_re.finditer(run_script):
+                redacted_outputs.add(match.group(1).strip("\"'").rsplit("/", 1)[-1])
             uses = str(step.get("uses", ""))
             if AI_INFERENCE_ACTION not in uses:
                 continue
             file_input = str((step.get("with") or {}).get("file_input") or "")
             if not file_input.strip():
                 continue
-            inputs = FILE_INPUT_RE.findall(file_input)
-            for raw in inputs:
-                target = raw.strip()
-                base = target.rsplit("/", 1)[-1]
-                # the same workflow must contain a redact_secrets.py call whose
-                # output argument is this file
-                if "redact_secrets.py" not in text or not re.search(
-                    r"redact_secrets\.py\s+\S+\s+\S*" + re.escape(base), text
-                ):
+            for raw in FILE_INPUT_RE.findall(file_input):
+                base = raw.strip().rsplit("/", 1)[-1]
+                if base not in redacted_outputs:
                     errors.append(
                         f"{path.name} (job {job_name}): ai-inference file_input "
-                        f"'{target}' is not produced via scripts/redact_secrets.py — "
-                        f"minimize and redact before any external inference "
+                        f"'{raw.strip()}' is not produced by an earlier "
+                        f"scripts/redact_secrets.py call in the same job — minimize "
+                        f"and redact before any external inference "
                         f"(.github/prompts/README.md)"
                     )
     return errors
