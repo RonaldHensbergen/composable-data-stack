@@ -26,7 +26,19 @@ jobs:
     permissions:
       pull-requests: write
       contents: write
+      issues: write
     steps:
+      - name: Ensure the automerge label exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh label create automerge \
+            --repo "$GITHUB_REPOSITORY" \
+            --color "0e8a16" \
+            --description "Green PRs with this label auto-merge once CI passes and review rules allow it" \
+            --force
+
       - name: Enable auto-merge on labeled PRs with a green head pipeline
         env:
           GH_TOKEN: ${{ github.token }}

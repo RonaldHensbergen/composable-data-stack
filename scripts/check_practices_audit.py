@@ -91,11 +91,11 @@ def _commit_mix() -> tuple[list[tuple[str, int]], int]:
     return rows, len(subjects)
 
 
-def _gh_json(args: list[str]) -> object | None:
+def _gh_json(args: list[str], fields: list[str]) -> object | None:
     repo = _repo()
     if not repo:
         return None
-    out = _run(["gh", *args, "--repo", repo, "--json", "number,title,status,conclusion,createdAt,url", "--jq", "."])
+    out = _run(["gh", *args, "--repo", repo, "--json", ",".join(fields), "--jq", "."])
     if not out:
         return None
     try:
@@ -105,7 +105,7 @@ def _gh_json(args: list[str]) -> object | None:
 
 
 def _automerge_section() -> list[str]:
-    data = _gh_json(["pr", "list", "--state", "open", "--label", "automerge", "--limit", "50"])
+    data = _gh_json(["pr", "list", "--state", "open", "--label", "automerge", "--limit", "50"], ["number", "title"])
     if data is None:
         return ["_gh CLI unavailable or unauthenticated; skipping GitHub sections._"]
     prs = data if isinstance(data, list) else []
@@ -118,7 +118,10 @@ def _automerge_section() -> list[str]:
 
 
 def _kill_matrix_section() -> list[str]:
-    data = _gh_json(["run", "list", "--workflow", "mutation-tests.yml", "--limit", "1"])
+    data = _gh_json(
+        ["run", "list", "--workflow", "mutation-tests.yml", "--limit", "1"],
+        ["databaseId", "status", "conclusion", "createdAt", "url"],
+    )
     if data is None:
         return ["_gh CLI unavailable or unauthenticated; skipping GitHub sections._"]
     runs = data if isinstance(data, list) else []
