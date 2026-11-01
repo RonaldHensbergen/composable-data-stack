@@ -336,6 +336,12 @@ The format is based on Keep a Changelog.
   environment where applicable) (#1079). Profile contract coverage in
   `docs/contract-coverage.md` is now 8/8.
 
+- Naming tests for the last two uncovered experimental modules
+  (`tests/test_marquez_module.py`, `tests/test_airflow_module.py`): each loads
+  its `module.yaml`, validates it against `cli/resources/module.schema.json`,
+  and pins its provided contract(s) (#1080). Module contract coverage in
+  `docs/contract-coverage.md` is now 18/18.
+
 ### Fixed
 
 - Production profiles no longer host-publish the Dagster webserver and
