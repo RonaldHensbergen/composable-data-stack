@@ -99,6 +99,14 @@ class MarquezModuleTest(unittest.TestCase):
             self.assertEqual(service["cap_drop"], ["ALL"])
             self.assertTrue(service["read_only"])
             self.assertIn("no-new-privileges:true", service["security_opt"])
+            mounts = service.get("volumes", [])
+            self.assertFalse(
+                any(
+                    isinstance(mount, dict)
+                    and mount.get("source") == "/var/run/docker.sock"
+                    for mount in mounts
+                )
+            )
 
 
 if __name__ == "__main__":

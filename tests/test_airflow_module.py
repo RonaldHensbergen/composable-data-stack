@@ -35,6 +35,9 @@ class AirflowModuleTest(unittest.TestCase):
         metadata = self.module["metadata"]
         self.assertEqual(metadata["name"], "airflow")
         self.assertEqual(metadata["category"], "orchestration")
+        # Experimental modules must declare this explicitly: the schema
+        # default is true and CDS-SEC-073 only fires on an explicit false.
+        self.assertFalse(metadata["productionSuitable"])
         config_schema = self.module["spec"]["configSchema"]
         Draft202012Validator.check_schema(config_schema)
         properties = config_schema["properties"]
