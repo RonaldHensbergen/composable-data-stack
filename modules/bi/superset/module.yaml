@@ -397,6 +397,11 @@ spec:
               dockerfile: images/superset/base/Dockerfile
             # Keep the image-baked superset_config.py (see superset-init).
             volumes: []
+            # Production profiles must not publish the UI directly on the
+            # host: the TLS reverse proxy is the sole host-published entry
+            # point (CDS-SEC-074, issue #981). Learning/dev profiles keep
+            # the direct publish for local access.
+            ports: []
 
     kubernetes:
       workloads:
@@ -421,6 +426,13 @@ spec:
                 port: "${config.webPort}"
                 targetPort: 8088
                 nodePort: "${config.kubernetesService.nodePort}"
+          containerOverrides:
+            superset:
+              # Explicit container port so the k8s render does not depend
+              # on the compose host-publish (cleared in production, #981).
+              ports:
+                - name: http
+                  containerPort: 8088
           resources:
             superset:
               requests:

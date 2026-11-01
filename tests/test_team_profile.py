@@ -113,6 +113,22 @@ class TeamProfileWorkflowTest(unittest.TestCase):
             postgres_args = services["postgres"]["environment"]["POSTGRES_INITDB_ARGS"]
             self.assertIn("--auth-host=scram-sha-256", postgres_args)
 
+            if environment == "prod":
+                # Prod overlay clears the admin backends' direct host
+                # publishes: the TLS proxy is the sole host-published entry
+                # point (CDS-SEC-074, issue #981).
+                for backend in ("dagster-webserver", "superset"):
+                    self.assertIn(backend, services)
+                    ports = services[backend].get("ports", [])
+                    self.assertEqual(
+                        ports, [],
+                        f"environment=prod: {backend} must not host-publish ports, got {ports}",
+                    )
+            else:
+                # Base/learning profile keeps direct local access.
+                self.assertEqual(services["dagster-webserver"]["ports"], ["3000:3000"])
+                self.assertEqual(services["superset"]["ports"], ["8088:8088"])
+
             # No generated default ("change-me") or real secret value is
             # embedded in the rendered output; only placeholders are.
             self.assertNotIn("change-me", rendered)
