@@ -32,6 +32,7 @@ This repo adopts the working style of [Impatient Programming](https://impatientp
 - **Green merges itself where it is safe.** Label a PR `automerge` and, once CI is green, `.github/workflows/auto-merge.yml` merges it automatically. Human review still guards everything else — see [docs/maintainer-merge-policy.md](docs/maintainer-merge-policy.md).
 - **Work in the open, with your agents.** Agent instructions live in `AGENT.md` and `.github/copilot-instructions.md`; keep agent-produced changes reviewable like any other PR.
 - **The practices are audited, not just written down.** Contract coverage and the kill matrix run on schedules (`contract-coverage.yml`, `mutation-tests.yml`), and a biweekly audit (`make practices-audit`, filed by `practices-audit.yml`) rolls up coverage, the `fix:`/`refine:` commit mix, `automerge` usage, and the latest kill-matrix run into one issue. The audit also watches the source method itself: a pinned sha256 of <https://impatientprogramming.org/rules/> lives in `scripts/imp-rules.sha256`, and when the live rules page drifts from it the audit files a tracking issue to re-read the rules and re-assess this adoption — after handling it, re-pin with `make practices-audit-pin`.
+- **Branches are audited for staleness daily.** `make branch-hygiene` (local; also covers local branches and worktrees) or the daily `branch-hygiene.yml` run lists branches whose work is fully merged into `main` — safe to delete. The workflow files a `branch-hygiene` report issue when stale branches exist and closes it when clean.
 
 ## Development Setup
 

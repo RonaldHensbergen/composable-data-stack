@@ -44,6 +44,11 @@ The format is based on Keep a Changelog.
     `scripts/imp-rules.sha256`; when the live rules page changes,
     `practices-audit.yml` files a tracking issue to re-read the rules and
     re-assess the adoption (`make practices-audit-pin` re-pins the hash).
+  - Added a daily branch-hygiene audit (`scripts/check_branch_hygiene.py`,
+    `make branch-hygiene`, workflow `branch-hygiene.yml`) that classifies
+    branches as merged-into-main (ancestor or patch-equivalent via
+    `git cherry`), active-PR, or open-work, and files a `branch-hygiene`
+    report issue listing stale branches that are safe to delete.
 - Added the shared `oidc-provider` contract, configurable Keycloak realm
   import and issuer advertisement, and optional Superset OIDC login using
   provider discovery and profile-backed client secrets (#1055, #680, #681).

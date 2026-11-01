@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check contract-coverage practices-audit practices-audit-pin test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check contract-coverage practices-audit practices-audit-pin branch-hygiene test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -35,6 +35,12 @@ practices-audit:
 # tracking issue when the live page drifts from scripts/imp-rules.sha256).
 practices-audit-pin:
 	python scripts/check_practices_audit.py --pin
+
+# Branch hygiene: list branches/worktrees whose work is fully merged into
+# origin/main (stale, safe to delete). Daily CI report: branch-hygiene.yml.
+# Locally also covers local branches and worktrees; CI sees remote refs only.
+branch-hygiene:
+	python scripts/check_branch_hygiene.py
 
 # Kill matrix (mutation testing): every test must earn its place by catching a
 # mutant no other test catches. Installs mutmut ad hoc (pinned) so the
