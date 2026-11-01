@@ -326,6 +326,21 @@ The format is based on Keep a Changelog.
   tests.test_postgres_backup_restore_runtime -v`; see
   `docs/backup-restore.md` section 5.
 
+- Resolved the prompt trust-boundary tracking issue #1082: the open policy
+  questions are now decided and documented in `.github/prompts/README.md`
+  ("Decisions" section) — no `{{...}}` interpolation of untrusted content is
+  enforced repo policy, sanitization lives deterministically in the invoking
+  pipeline (`scripts/redact_secrets.py`, lint-enforced for every
+  `actions/ai-inference` `file_input`), prompts needing issue context are kept
+  under the `file_input` + metadata-only + redaction path rather than dropped,
+  and external inference stays under those controls with local/self-hosted
+  models evaluated and deferred. New deterministic control in
+  `scripts/check_prompts.py` (`make lint-prompts`, CI, pre-commit): in any
+  job that feeds `file_input` to `actions/ai-inference`, a `gh` command may
+  no longer collect user-authored free-text fields (`title`, `body`,
+  `comments`) via `--json` — metadata only. Tests in
+  `tests/test_prompts_lint.py`.
+
 ### Fixed
 
 - Fixed the experimental Loki `log-sink` contract to advertise its in-network

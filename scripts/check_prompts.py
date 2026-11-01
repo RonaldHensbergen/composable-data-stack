@@ -17,6 +17,10 @@ control. The policy enforced here (see .github/prompts/README.md):
 3. Workflows that call `actions/ai-inference` with `file_input` must produce
    each input file via `scripts/redact_secrets.py` earlier in the same
    workflow (minimize + redact before any external inference).
+4. Data minimization is enforced, not just documented: in any job that feeds
+   `file_input` to `actions/ai-inference`, no `gh` command may collect
+   user-authored free-text fields (`title`, `body`, `comments`) via `--json`.
+   Collect metadata only (number, labels, milestone, timestamps, url).
 
 Runs in CI (lint job), pre-commit, and `make lint-prompts`. Exit 1 on any
 violation; the script never modifies files.
@@ -37,10 +41,20 @@ ALLOWLIST: dict[str, str] = {
     "issue-consistency-audit.prompt.yml": (
         "interpolates file_input data (open-issues JSON, recent commits) supplied "
         "by biweekly-issue-audit.yml via actions/ai-inference; system prompt must "
-        "carry the untrusted-data protocol. Residual disclosure risk of issue "
-        "content reaching the external model is tracked in issue #1082."
+        "carry the untrusted-data protocol. Residual disclosure risk is governed "
+        "by the resolved policy in .github/prompts/README.md (issue #1082): "
+        "metadata-only collection plus scripts/redact_secrets.py before inference."
     ),
 }
+
+# User-authored free-text fields that must never be collected for file_input
+# (data minimization; decided in issue #1082). Metadata fields such as number,
+# labels, milestone, createdAt/updatedAt, and url remain allowed.
+FREE_TEXT_FIELDS = frozenset({"title", "body", "comments"})
+GH_JSON_RE = re.compile(r"--json[=\s]+([A-Za-z0-9_,\s]+)")
+GH_CMD_RE = re.compile(
+    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*gh\s+(?:(?:issue|pr)\s+(?:list|view)|search\s+(?:issues|prs))\b"
+)
 
 REQUIRED_MARKERS = ["untrusted", "refuse", "credentials"]
 VAR_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
@@ -128,10 +142,14 @@ def lint_workflow(path: Path) -> list[str]:
         if not isinstance(job, dict):
             continue
         redacted_outputs: set[str] = set()
+        run_scripts: list[str] = []
+        feeds_inference = False
         for step in job.get("steps") or []:
             if not isinstance(step, dict):
                 continue
             run_script = str(step.get("run") or "").replace("\\\n", " ")
+            if run_script.strip():
+                run_scripts.append(run_script)
             for match in redact_call_re.finditer(run_script):
                 redacted_outputs.add(_canon_path(match.group(2)))
             uses = str(step.get("uses", ""))
@@ -140,6 +158,7 @@ def lint_workflow(path: Path) -> list[str]:
             file_input = str((step.get("with") or {}).get("file_input") or "")
             if not file_input.strip():
                 continue
+            feeds_inference = True
             for raw in FILE_INPUT_RE.findall(file_input):
                 target = _canon_path(raw)
                 if target not in redacted_outputs:
@@ -149,6 +168,32 @@ def lint_workflow(path: Path) -> list[str]:
                         f"scripts/redact_secrets.py call in the same job — minimize "
                         f"and redact before any external inference "
                         f"(.github/prompts/README.md)"
+                    )
+        if feeds_inference:
+            errors.extend(_lint_minimization(path, job_name, run_scripts))
+    return errors
+
+
+def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> list[str]:
+    """Data minimization as a deterministic control (decided in issue #1082):
+    in a job that feeds file_input to actions/ai-inference, no gh command may
+    request user-authored free-text fields via --json — titles, bodies, and
+    comments are free text and must never cross the trust boundary."""
+    errors: list[str] = []
+    for script in run_scripts:
+        for line in script.splitlines():
+            if not GH_CMD_RE.search(line):
+                continue
+            for match in GH_JSON_RE.finditer(line):
+                fields = {f.strip() for f in match.group(1).split(",") if f.strip()}
+                free_text = sorted(fields & FREE_TEXT_FIELDS)
+                if free_text:
+                    errors.append(
+                        f"{path.name} (job {job_name}): gh command collects free-text "
+                        f"field(s) {free_text} — user-authored text must never be "
+                        f"collected for ai-inference file_input; collect metadata only "
+                        f"(number, labels, milestone, timestamps, url) "
+                        f"(.github/prompts/README.md, decided in #1082)"
                     )
     return errors
 

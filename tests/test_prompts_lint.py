@@ -171,6 +171,64 @@ class PromptsLintTest(unittest.TestCase):
             errors = check_prompts.lint_workflow(path)
             self.assertTrue(any("issues.json" in e for e in errors))
 
+    def _inference_workflow(self, collect_step: str) -> str:
+        indented = "          " + collect_step.replace("\n", "\n          ")
+        return f"""jobs:
+  audit:
+    steps:
+      - run: |
+{indented}
+          python3 scripts/redact_secrets.py --strict "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.json"
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{{{ runner.temp }}}}/open-issues.json
+"""
+
+    def test_workflow_collecting_free_text_fields_for_file_input_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --state open \\\n'
+                '  --json number,title,body,labels > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+            self.assertTrue(any("title" in e and "body" in e for e in errors))
+
+    def test_workflow_metadata_only_collection_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --state open \\\n'
+                '  --json number,labels,milestone,createdAt,updatedAt,url \\\n'
+                '  > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_gh_pr_view_body_in_inference_job_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'GH_TOKEN="$GH_TOKEN" gh pr view 42 --json number,body > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+
+    def test_workflow_free_text_collection_outside_inference_job_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # No ai-inference file_input in this job: the minimization rule is
+            # scoped to jobs that feed the model, so this stays allowed.
+            wf = """jobs:
+  report:
+    steps:
+      - run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" --json number,title,body > issues.json
+"""
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
 
 if __name__ == "__main__":
     unittest.main()
