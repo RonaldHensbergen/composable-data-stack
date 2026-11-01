@@ -229,6 +229,75 @@ class PromptsLintTest(unittest.TestCase):
             path = self._workflow(Path(tmp), "wf.yml", wf)
             self.assertEqual([], check_prompts.lint_workflow(path))
 
+    def test_workflow_quoted_json_field_list_fails(self):
+        # github-advanced-security on #1087: a quoted field list must not
+        # bypass the lint.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json "number,title,body" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+
+    def test_workflow_json_equals_form_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh pr list --json=number,comments > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+            self.assertTrue(any("comments" in e for e in errors))
+
+    def test_workflow_gh_in_command_substitution_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'ISSUES="$(gh issue list --json number,body)"; printf "%s" "$ISSUES" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+
+    def test_workflow_quoted_metadata_only_collection_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json "number,labels,milestone,createdAt,updatedAt,url" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_jq_reextracting_free_text_field_fails(self):
+        # Even with a metadata-only --json list, --jq must not re-extract
+        # free-text fields at runtime.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --json number --jq ".[].title" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+            self.assertTrue(any("title" in e for e in errors))
+
+    def test_workflow_jq_metadata_only_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --json number,labels --jq ".[].number" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_unbalanced_quote_falls_back_to_regex(self):
+        # Not valid shell, so shlex tokenization fails: the regex fallback
+        # must still catch the free-text field (fail closed).
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --json number,title > "$RUNNER_TEMP/open-issues.json'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("free-text" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,7 +37,11 @@ enforces the policy below and fails the build on violations.
 4. **Data minimization is lint-enforced, not just documented.** In any job
    that feeds `file_input` to `actions/ai-inference`, no `gh` command may
    request user-authored free-text fields (`title`, `body`, `comments`) via
-   `--json`. Metadata only: number, labels, milestone, timestamps, url.
+   `--json` or re-extract them via `--jq`. Metadata only: number, labels,
+   milestone, timestamps, url. Field lists are extracted by shell-token
+   parsing (`shlex`) with a quote-aware regex fallback, so quoted
+   (`--json "number,title"`), `--flag=value`, and `$(gh ...)` forms cannot
+   bypass the check.
 
 ## Adding a new prompt
 

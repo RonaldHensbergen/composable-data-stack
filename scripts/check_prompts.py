@@ -28,6 +28,7 @@ violation; the script never modifies files.
 from __future__ import annotations
 
 import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -51,10 +52,82 @@ ALLOWLIST: dict[str, str] = {
 # (data minimization; decided in issue #1082). Metadata fields such as number,
 # labels, milestone, createdAt/updatedAt, and url remain allowed.
 FREE_TEXT_FIELDS = frozenset({"title", "body", "comments"})
-GH_JSON_RE = re.compile(r"--json[=\s]+([A-Za-z0-9_,\s]+)")
+# Detection: any gh issue/pr list|view or gh search issues|prs invocation,
+# including env-prefixed (GH_TOKEN=... gh ...) and $(gh ...) forms. Fail
+# closed: a false positive here only fails the lint, never opens a hole.
 GH_CMD_RE = re.compile(
-    r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*gh\s+(?:(?:issue|pr)\s+(?:list|view)|search\s+(?:issues|prs))\b"
+    r"\bgh\s+(?:(?:issue|pr)\s+(?:list|view)|search\s+(?:issues|prs))\b"
 )
+# Field-list extraction, quote-aware: --json=f, --json f, --json "f,g",
+# --json 'f, g' (github-advanced-security review on PR #1087: a regex over
+# raw text that does not account for quotes misses --json "number,title").
+GH_JSON_RE = re.compile(r"--json[=\s]*[\"']?\s*([A-Za-z0-9_]+(?:\s*,\s*[A-Za-z0-9_]+)*)")
+# --jq expressions can re-extract free-text fields at runtime even when the
+# --json list itself is metadata-only, so they are checked against the same
+# field set (`.title`, `.["title"]` forms).
+JQ_REF_RES = {
+    field: re.compile(
+        rf"\.\s*{re.escape(field)}\b|\[\s*[\"']{re.escape(field)}[\"']\s*\]",
+        re.IGNORECASE,
+    )
+    for field in FREE_TEXT_FIELDS
+}
+
+
+def _is_gh_collection_cmd(line: str) -> bool:
+    """True when the line invokes one of the gh commands whose --json output
+    could be collected as ai-inference file_input."""
+    return bool(GH_CMD_RE.search(line))
+
+
+def _gh_json_fields(line: str) -> set[str]:
+    """Every --json field name in the line. Primary path tokenizes with
+    shlex and inspects --json / --json= tokens uniformly (quoted values are
+    handled naturally); a quote-aware regex union covers forms shlex cannot
+    see (e.g. inside $(...) substitution), and remains the fallback when the
+    line is not valid shell at all. Never silently returns empty on a line
+    that does carry --json."""
+    fields: set[str] = set()
+    for match in GH_JSON_RE.finditer(line):
+        fields.update(f.strip() for f in match.group(1).split(",") if f.strip())
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        return fields  # malformed shell: regex extraction above still applies
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--json" and i + 1 < len(tokens):
+            fields.update(f.strip() for f in tokens[i + 1].split(",") if f.strip())
+            i += 2
+            continue
+        if tok.startswith("--json="):
+            fields.update(f.strip() for f in tok[len("--json="):].split(",") if f.strip())
+        i += 1
+    return fields
+
+
+def _gh_jq_expressions(line: str) -> set[str]:
+    """Every --jq expression in the line (--jq <e>, --jq=<e>, quoted), via
+    shlex tokens plus a quote-aware regex union, mirroring _gh_json_fields."""
+    exprs: set[str] = set()
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        tokens = []
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--jq" and i + 1 < len(tokens):
+            exprs.add(tokens[i + 1])
+            i += 2
+            continue
+        if tok.startswith("--jq="):
+            exprs.add(tok[len("--jq="):])
+        i += 1
+    for match in re.finditer(r"--jq[=\s]+[\"']([^\"']+)[\"']|--jq[=\s]+(\S+)", line):
+        exprs.add(match.group(1) or match.group(2) or "")
+    return exprs
 
 REQUIRED_MARKERS = ["untrusted", "refuse", "credentials"]
 VAR_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
@@ -182,19 +255,23 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
     errors: list[str] = []
     for script in run_scripts:
         for line in script.splitlines():
-            if not GH_CMD_RE.search(line):
+            if not _is_gh_collection_cmd(line):
                 continue
-            for match in GH_JSON_RE.finditer(line):
-                fields = {f.strip() for f in match.group(1).split(",") if f.strip()}
-                free_text = sorted(fields & FREE_TEXT_FIELDS)
-                if free_text:
-                    errors.append(
-                        f"{path.name} (job {job_name}): gh command collects free-text "
-                        f"field(s) {free_text} — user-authored text must never be "
-                        f"collected for ai-inference file_input; collect metadata only "
-                        f"(number, labels, milestone, timestamps, url) "
-                        f"(.github/prompts/README.md, decided in #1082)"
-                    )
+            free_text = sorted(_gh_json_fields(line) & FREE_TEXT_FIELDS)
+            jq_free = sorted(
+                field
+                for expr in _gh_jq_expressions(line)
+                for field in FREE_TEXT_FIELDS
+                if JQ_REF_RES[field].search(expr)
+            )
+            if free_text or jq_free:
+                errors.append(
+                    f"{path.name} (job {job_name}): gh command collects free-text "
+                    f"field(s) {sorted(set(free_text) | set(jq_free))} via --json/--jq — "
+                    f"user-authored text must never be collected for ai-inference "
+                    f"file_input; collect metadata only (number, labels, milestone, "
+                    f"timestamps, url) (.github/prompts/README.md, decided in #1082)"
+                )
     return errors
 
 
