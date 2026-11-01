@@ -57,8 +57,11 @@ Superset retains its built-in database authentication. OIDC is enabled only
 when the issuer, client ID, and secret are all present; partial runtime
 configuration fails during Superset startup.
 
-Newly authenticated users are registered with the least-privileged `Gamma`
-role. Register the exact Superset callback URL
+With OIDC enabled, web UI sign-in is exclusively through the provider; the
+bootstrap admin account created at init remains available for CLI and
+bootstrap tasks but cannot sign in through the UI. Newly authenticated
+users are registered with the least-privileged `Gamma` role. Register the
+exact Superset callback URL
 `<public-superset-url>/oauth-authorized/keycloak` in the identity-provider
 client, enable Standard Flow, and ensure the issuer URL is reachable and
 consistent for both browsers and Superset containers. Client secrets remain

@@ -10,8 +10,8 @@ metadata:
     Reference profile showing CDS's module/contract/profile model wired into
     a Haven-aligned shape: an identity provider (Keycloak), a TLS-terminating
     reverse proxy (Traefik), and a sql-database provider (Postgres). See
-    docs/common-ground-alignment.md for the concept mapping.     Experimental while the Keycloak module remains unsuitable for
-    production use.
+    docs/common-ground-alignment.md for the concept mapping. Experimental
+    while the Keycloak module remains unsuitable for production use.
 
 spec:
   runtime:
