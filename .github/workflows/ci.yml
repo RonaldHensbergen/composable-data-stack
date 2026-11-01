@@ -43,6 +43,10 @@ jobs:
         run: |
           ruff check .
 
+      - name: Run prompt trust-boundary lint
+        run: |
+          python scripts/check_prompts.py
+
       - name: Validate Renovate config
         run: |
           npx --yes --package renovate@44.140.0 -- renovate-config-validator --strict renovate.json

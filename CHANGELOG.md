@@ -49,6 +49,14 @@ The format is based on Keep a Changelog.
     branches as merged-into-main (ancestor or patch-equivalent via
     `git cherry`), active-PR, or open-work, and files a `branch-hygiene`
     report issue listing stale branches that are safe to delete.
+  - Added a prompt trust-boundary lint (`scripts/check_prompts.py`, wired
+    into CI, pre-commit, and `make lint-prompts`; policy in
+    `.github/prompts/README.md`, tests in `tests/test_prompts_lint.py`):
+    every prompt's system message must carry the fail-closed untrusted-data
+    protocol (markers `untrusted`/`refuse`/`credentials`), and `{{...}}`
+    interpolation is denied unless the file is in the script's justified
+    ALLOWLIST. `issue-consistency-audit.prompt.yml` was hardened with the
+    full protocol; the design-artifact prompt carries no input at all.
 - Added the shared `oidc-provider` contract, configurable Keycloak realm
   import and issuer advertisement, and optional Superset OIDC login using
   provider discovery and profile-backed client secrets (#1055, #680, #681).

@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate docker-build test check contract-coverage practices-audit practices-audit-pin branch-hygiene test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
+.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate lint-prompts docker-build test check contract-coverage practices-audit practices-audit-pin branch-hygiene test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -6,7 +6,7 @@ PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 install:
 	pip install -e ".[test]"
 
-lint: lint-markdown lint-yaml lint-deprecated lint-renovate
+lint: lint-markdown lint-yaml lint-deprecated lint-renovate lint-prompts
 
 test:
 	# Only fail repo-owned deprecations so third-party library warnings do not
@@ -58,6 +58,11 @@ lint-yaml:
 
 lint-deprecated:
 	ruff check .
+
+# Prompt trust-boundary policy (see .github/prompts/README.md): fail on
+# missing untrusted-data protocol or non-allowlisted {{...}} interpolation.
+lint-prompts:
+	python scripts/check_prompts.py
 
 lint-renovate:
 	npx --yes --package renovate@44.140.0 -- renovate-config-validator --strict renovate.json
