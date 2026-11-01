@@ -8,6 +8,13 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- The `cds` CLI now honors the `NO_COLOR` environment variable (#1094): when
+  present and non-empty (<https://no-color.org/>), colors and the ANSI
+  in-place redraw of the live state view are disabled for every command, as
+  if `--no-color` had been passed. `--no-color` still works, and
+  `cds up --target helm` now forwards its color setting to the Helm apply
+  output as well. `ACCESSIBILITY.md` and `docs/cli-reference.md` updated.
+
 - Added `ACCESSIBILITY.md` (#1092): the project's accessibility commitment,
   scope (the `cds` CLI and repository docs versus third-party module web UIs),
   the WCAG 2.2 AA target for CDS-hosted web content, supported environments,

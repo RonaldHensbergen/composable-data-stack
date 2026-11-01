@@ -69,6 +69,7 @@ from .state import format_state_output, group_services_by_health, parse_compose_
 from .up_runner import (
     DEFAULT_TIMEOUT_SECONDS,
     default_log_path,
+    no_color_requested,
     poll_state_until_settled,
     run_streamed,
     start_log_tail,
@@ -1651,7 +1652,8 @@ def _run() -> int:
     up_parser.add_argument(
         "--no-color",
         action="store_true",
-        help="Disable colored labels in the live state view",
+        help="Disable colored labels and ANSI redraw in the live state view "
+        "(also disabled by a non-empty NO_COLOR environment variable, https://no-color.org/)",
     )
     _add_hardened_arg(up_parser)
     _add_image_source_arg(up_parser)
@@ -1754,7 +1756,8 @@ def _run() -> int:
     state_parser.add_argument(
         "--no-color",
         action="store_true",
-        help="Disable colored health labels even on a color-capable terminal",
+        help="Disable colored health labels even on a color-capable terminal "
+        "(also disabled by a non-empty NO_COLOR environment variable, https://no-color.org/)",
     )
 
     init_parser = subparsers.add_parser(
@@ -2411,6 +2414,8 @@ def _run() -> int:
             return 0
 
     if args.command == "up":
+        # --no-color flag or a non-empty NO_COLOR env var (https://no-color.org/)
+        no_color = no_color_requested(args.no_color)
         try:
             profile_path = resolve_profile_path(args.profile)
         except ValueError as exc:
@@ -2481,7 +2486,7 @@ def _run() -> int:
                         timeout=args.timeout,
                         detach=args.detach,
                         log_file=log_file,
-                        use_color=(not args.no_color) and sys.stdout.isatty(),
+                        use_color=(not no_color) and sys.stdout.isatty(),
                     )
             except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
                 print(f"ERROR {exc}")
@@ -2550,7 +2555,7 @@ def _run() -> int:
                         log_file,
                         group_by_image=True,
                         service_to_image=service_to_image,
-                        use_color=not args.no_color,
+                        use_color=not no_color,
                     )
                     if build_returncode != 0:
                         print(f"Build failed (exit {build_returncode}). See {log_path} for details.")
@@ -2596,7 +2601,7 @@ def _run() -> int:
                     log_tail_process = start_log_tail(output_path, log_file)
 
                 try:
-                    use_rich = sys.stdout.isatty() and not args.no_color
+                    use_rich = sys.stdout.isatty() and not no_color
                     if use_rich:
                         from rich.live import Live
                         from rich.text import Text
@@ -2618,7 +2623,7 @@ def _run() -> int:
                             output_path,
                             expected_service_count=expected_service_count,
                             timeout=args.timeout,
-                            use_color=(not args.no_color) and sys.stdout.isatty(),
+                            use_color=(not no_color) and sys.stdout.isatty(),
                             up_done_fn=up_process.poll,
                             on_up_finished=_begin_log_tail,
                         )
@@ -3006,6 +3011,8 @@ def _run() -> int:
         return 1
 
     if args.command == "state":
+        # --no-color flag or a non-empty NO_COLOR env var (https://no-color.org/)
+        no_color = no_color_requested(args.no_color)
         try:
             profile_path = resolve_profile_path(args.profile)
         except ValueError as exc:
@@ -3024,7 +3031,7 @@ def _run() -> int:
                 print(f"ERROR {exc}")
                 return 1
             grouped = group_services_by_health(services)
-            use_color = (not args.no_color) and sys.stdout.isatty()
+            use_color = (not no_color) and sys.stdout.isatty()
             print(format_state_output(grouped, use_color=use_color))
             return 0
 
@@ -3046,7 +3053,7 @@ def _run() -> int:
 
         services = parse_compose_ps_json(ps_result.stdout)
         grouped = group_services_by_health(services)
-        use_color = (not args.no_color) and sys.stdout.isatty()
+        use_color = (not no_color) and sys.stdout.isatty()
         print(format_state_output(grouped, use_color=use_color))
         return 0
 

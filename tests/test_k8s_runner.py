@@ -84,6 +84,24 @@ class KubernetesRunnerTest(unittest.TestCase):
         # workload rollout.
         self.assertNotIn("--wait", command)
 
+    @patch("cli.k8s_runner.run_streamed", return_value=0)
+    def test_helm_up_forwards_use_color_to_apply_output(self, mock_run) -> None:
+        for use_color, expected in ((True, True), (False, False)):
+            with self.subTest(use_color=use_color):
+                result = helm_up(
+                    {"secrets": {}},
+                    Path("chart"),
+                    namespace="test",
+                    release="cds",
+                    kube_context="k3d-test",
+                    timeout=30,
+                    detach=True,
+                    log_file=io.StringIO(),
+                    use_color=use_color,
+                )
+                self.assertEqual(result, 0)
+                self.assertEqual(mock_run.call_args.kwargs["use_color"], expected)
+
     @patch("cli.k8s_runner.get_k8s_state", return_value=[])
     @patch("cli.k8s_runner.get_k8s_workloads", return_value=[])
     @patch("cli.k8s_runner.run_streamed", return_value=0)
