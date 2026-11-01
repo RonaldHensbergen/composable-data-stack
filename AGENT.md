@@ -220,3 +220,31 @@ Rules of use:
 - Mechanic: `gh project item-edit 1 --owner RonaldHensbergen --url
   <issue-url> --field Order --value <n>`; the `Status` field is
   `Todo` / `In Progress` / `Done`.
+
+## Agent approval policy
+
+What agents may do autonomously vs. what always requires a human. The
+CI lint job enforces the protected-path part (`scripts/check_agent_policy.py`):
+agent-authored commits (the `Co-Authored-By: Mistral Vibe` footer) that touch
+a protected path fail CI unless the PR carries the `agent-approved` label —
+the label is the human approval token.
+
+**Autonomous (no approval needed):** edit code, tests, docs, modules, profiles
+in a PR branch; run tests/lint locally; open PRs; comment on issues/PRs.
+
+**Human approval required (never do autonomously):**
+
+- merge or push to protected branches (`main` and friends); merges go through
+  review, or label-gated auto-merge (`.github/workflows/auto-merge.yml`) only
+  for green, non-fork PRs labeled `automerge`
+- any change to protected paths: `.github/workflows/`, `.github/prompts/`,
+  `.github/CODEOWNERS`, `.github/dependabot.yml`, templates,
+  `.pre-commit-config.yaml`, `certs/`, `scripts/check_prompts.py`,
+  `scripts/redact_secrets.py`, `renovate.json`, `sonar-project.properties`,
+  `AGENT.md` (this file), `docs/maintainer-merge-policy.md`,
+  `docs/security-rules.md`
+- secrets access, credential handling, or reading/writing outside the repo
+- adding/removing labels, closing issues/PRs, editing branch protection
+
+When in doubt, stop and ask — a wrong merge or workflow change is much more
+expensive than a question.
