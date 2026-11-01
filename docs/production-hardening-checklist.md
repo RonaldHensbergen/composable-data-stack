@@ -151,9 +151,11 @@ EOF
 ```
 
 Database and cache services should publish loopback-only
-(`127.0.0.1:...`); the proxy publishes the TLS entry points. The reference
-profile currently still host-publishes the two admin backends — a true
-`CDS-SEC-074` finding tracked in section 4.
+(`127.0.0.1:...`); the proxy publishes the TLS entry points. The admin
+backends (dagster-webserver, superset) no longer host-publish in the prod
+overlay — their compose `ports` are cleared by the modules' `production:`
+mapping, leaving the proxy as the sole host-published entry point
+(resolved in [#981](https://github.com/RonaldHensbergen/composable-data-stack/issues/981)).
 
 ### Step 6: export the evidence report
 
@@ -196,7 +198,6 @@ Rendered output still contains only `${CDS_*}` placeholders.
 
 | Finding | Count | Classification | Action / tracking |
 | --- | --- | --- | --- |
-| `CDS-SEC-074` on `services.dagster-webserver.ports[0]` and `services.superset.ports[0]` | 2 | True positive: the admin backends still publish directly to the host, allowing a proxy bypass | Remove the backend host publishes (proxy becomes the sole entry point), or set `spec.security.waivers.plaintextEndpointExposure.reason` |
 | `CDS-SEC-081` on the admin-facing services | 3 | Known gap: no identity module is bound | [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) |
 | `CDS-SEC-080` on `spec.modules` | 1 | Known gap: the backup policy is declared at profile level (`spec.backup`), which the rule does not yet recognize as contract consumption | [backup-restore.md](backup-restore.md) follow-ups ([#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210)) |
 | `W103` on `spec.security.waivers.runtimePolicy` | 1 | Informational: the documented non-root waiver for images that set `USER` in their Dockerfiles | Keep the waiver reason accurate |

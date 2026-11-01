@@ -328,6 +328,12 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Production profiles no longer host-publish the Dagster webserver and
+  Superset UI on all interfaces: both modules' compose services now carry a
+  `production: { ports: [] }` mapping, so the TLS reverse proxy is the sole
+  host-published entry point and `CDS-SEC-074` no longer fires on the
+  `team-dagster-postgres-superset --environment prod` profile (#981).
+  Learning/dev profiles keep their direct host publishes for local access.
 - Fixed the experimental Loki `log-sink` contract to advertise its in-network
   listener port independently of the host-published port (#662).
 - Fixed Compose parsing and runtime shell-variable interpolation in the
