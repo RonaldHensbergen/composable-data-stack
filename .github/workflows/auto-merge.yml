@@ -51,11 +51,11 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --state open \
               --label automerge \
-              --json number,headRefOid \
-              --jq '.[] | select(.headRefOid == env.HEAD_SHA) | .number'
+              --json number,headRefOid,isCrossRepository \
+              --jq '.[] | select(.headRefOid == env.HEAD_SHA and (.isCrossRepository | not)) | .number'
           )"
           if [[ -z "$prs" ]]; then
-            echo "No open PR labeled 'automerge' at head SHA $HEAD_SHA."
+            echo "No open non-fork PR labeled 'automerge' at head SHA $HEAD_SHA."
             exit 0
           fi
           for pr in $prs; do

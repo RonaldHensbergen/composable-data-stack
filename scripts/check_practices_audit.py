@@ -104,6 +104,14 @@ def _gh_json(args: list[str], fields: list[str]) -> object | None:
         return None
 
 
+def _sanitize_markdown_text(value: object) -> str:
+    text = str(value) if value is not None else ""
+    text = text.replace("\r", " ").replace("\n", " ")
+    text = "".join(ch for ch in text if ch.isprintable())
+    text = text.replace("\\", "\\\\").replace("`", "\\`")
+    return text.strip() or "(untitled)"
+
+
 def _automerge_section() -> list[str]:
     data = _gh_json(["pr", "list", "--state", "open", "--label", "automerge", "--limit", "50"], ["number", "title"])
     if data is None:
@@ -111,7 +119,8 @@ def _automerge_section() -> list[str]:
     prs = data if isinstance(data, list) else []
     lines = [f"{len(prs)} open PR(s) labeled `automerge`:"]
     for pr in prs:
-        lines.append(f"- #{pr.get('number')} {pr.get('title')}")
+        title = _sanitize_markdown_text(pr.get("title"))
+        lines.append(f"- #{pr.get('number')} {title}")
     if not prs:
         lines.append("- none")
     return lines
