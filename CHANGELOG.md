@@ -8,6 +8,12 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added `ACCESSIBILITY.md` (#1092): the project's accessibility commitment,
+  scope (the `cds` CLI and repository docs versus third-party module web UIs),
+  the WCAG 2.2 AA target for CDS-hosted web content, supported environments,
+  known limitations, and how to report a barrier. Linked from `README.md` and
+  `LEGAL.md`.
+
 - Agent approval policy (#1084), enforced in CI: `AGENT.md` now has an
   "Agent approval policy" section (autonomous vs human-approval actions),
   and the CI lint job runs `scripts/check_agent_policy.py` — agent-authored

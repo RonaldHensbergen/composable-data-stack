@@ -948,6 +948,8 @@ Please read these first:
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [docs/maintainer-merge-policy.md](docs/maintainer-merge-policy.md)
 - [SECURITY.md](SECURITY.md) — how to report a vulnerability
+- [ACCESSIBILITY.md](ACCESSIBILITY.md) — our accessibility commitment and how
+  to report a barrier
 - [LEGAL.md](LEGAL.md) — license, code of conduct, security, support, and
   regulatory-compliance documentation index
 - [CHANGELOG.md](CHANGELOG.md)
