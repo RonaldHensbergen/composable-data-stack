@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 33 of 38 (87%)** — modules 16/17 (94%), profiles 4/8 (50%), shared contracts 13/13 (100%)
+**Overall contract coverage: 36 of 41 (88%)** — modules 17/18 (94%), profiles 4/8 (50%), shared contracts 15/15 (100%)
 
 ## Modules
 
@@ -36,6 +36,7 @@ everyone how much of the system is still unwritten.
 | `modules-experimental/ingestion/dlt` | dlt | yes |
 | `modules-experimental/observability/loki` | loki | yes |
 | `modules-experimental/observability/marquez` | marquez | yes |
+| `modules-experimental/observability/otel-collector` | otel-collector | yes |
 | `modules-experimental/orchestration/airflow` | airflow | **no** |
 | `modules-experimental/warehouse/duckdb` | duckdb | yes |
 
@@ -64,10 +65,12 @@ everyone how much of the system is still unwritten.
 | `shared/contracts/http-service.yaml` | http-service | yes |
 | `shared/contracts/lineage-sink.yaml` | lineage-sink | yes |
 | `shared/contracts/log-sink.yaml` | log-sink | yes |
+| `shared/contracts/metrics-sink.yaml` | metrics-sink | yes |
 | `shared/contracts/object-storage.yaml` | object-storage | yes |
 | `shared/contracts/oidc-provider.yaml` | oidc-provider | yes |
 | `shared/contracts/open-data-provider.yaml` | open-data-provider | yes |
 | `shared/contracts/reverse-proxy.yaml` | reverse-proxy | yes |
 | `shared/contracts/sql-database.yaml` | sql-database | yes |
+| `shared/contracts/trace-sink.yaml` | trace-sink | yes |
 
 To cover an item, add a test in `tests/` that names it (e.g. `test_<name>_*.py` or a reference to its repo-relative path) and exercises its contract behavior.
