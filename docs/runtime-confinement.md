@@ -79,14 +79,13 @@ rendered service against one runtime policy:
 CDS cannot see a non-root `USER` baked into an image, so a service that
 relies on one must either declare `user:` explicitly or be covered by a
 documented waiver. Waivers never cover privileged mode, dangerous
-`cap_add` or confinement. Until
-[#932](https://github.com/RonaldHensbergen/composable-data-stack/issues/932)
-lands, the waiver applies to **every service in the profile**, not to a
-specific module instance -- a waiver justified by one service's image
-also suppresses the check for unrelated services, so keep the check list
-as narrow as the reason actually justifies. An applied waiver emits
-warning `W103` listing the suppressed checks, and a waiver on a
-non-production profile emits `W104` because it has no effect there:
+`cap_add` or confinement. By default, runtime-policy waivers apply to every
+service in the profile. Add `modules` to restrict the waiver to specific
+module instances; a waiver justified by one service's image will then not
+suppress the check for unrelated modules. An applied waiver emits warning
+`W103` listing the suppressed checks and, when scoped, the module IDs. A
+waiver on a non-production profile emits `W104` because it has no effect
+there:
 
 ```yaml
 spec:
@@ -95,7 +94,11 @@ spec:
       runtimePolicy:
         reason: Images set a non-root USER in their Dockerfile.
         checks: [nonRootUser]   # capDrop, noNewPrivileges, nonRootUser, readOnlyRootFilesystem
+        modules: [db]            # optional; omit to apply to every module
 ```
+
+Every ID in `modules` must match a module instance declared under
+`spec.modules`; otherwise `cds validate` reports an error.
 
 Kubernetes security contexts remain tracked under #65; this page covers
 the Compose target only.
@@ -126,5 +129,8 @@ If your production profile fails with CDS-SEC-090/091 after upgrading:
          runtimePolicy:
            reason: "Legacy images cannot be modified immediately. Tracking in JIRA-123."
            checks: [nonRootUser, readOnlyRootFilesystem]
+           modules: [legacy-app]
    ```
-   Note: Privileged mode, dangerous `cap_add` (kernel-escape capabilities), and confinement **cannot be waived**.
+   Omit `modules` to apply the waiver profile-wide. Privileged mode,
+   dangerous `cap_add` (kernel-escape capabilities), and confinement
+   **cannot be waived**.

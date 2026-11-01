@@ -8,6 +8,10 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added an experimental Loki log-aggregation module implementing the shared
+  `log-sink` contract, with Vector HTTP ingestion, structured-event
+  classification, and configurable raw/structured retention tiers (#662).
+- Added optional module-instance scoping for production runtime-policy waivers; unknown module IDs are rejected (#932).
 - Added GitOps rendering support (issue #767): a new vendor-neutral
   `gitops-target` contract (`shared/contracts/gitops-target.yaml`: repository
   URL, branch, path, sync interval, target namespace), validated by
@@ -25,6 +29,12 @@ The format is based on Keep a Changelog.
   module README.
 - Added `cds maturity` to report Basic/Automated tiers and recognized platform contract providers in text or JSON without requiring runtime secret values (#769).
 - Added the `trace-sink` and `metrics-sink` shared contracts (`shared/contracts/trace-sink.yaml`, `shared/contracts/metrics-sink.yaml`) shaped so an OpenTelemetry Collector OTLP receiver conforms without hardcoding OTel, plus an experimental `otel-collector` reference module (`modules-experimental/observability/otel-collector/`, multi-arch digest-pinned contrib image, hardened container) that provides `log-sink`/`metrics-sink`/`trace-sink` over OTLP/HTTP (gRPC 4317 also open) and can forward each signal to a bound OTLP/HTTP backend via `spec.config.backends.<signal>.contractRef` (`connectionUri` + `ingestPath`, since the collector's per-signal exporter endpoints are complete URLs); the E150 provided-contract host check now also covers `metrics-sink`/`trace-sink` providers, and `docs/observability.md` documents OTLP instrumentation and binding (#777).
+- Extended `cds maturity` with Observed, Secured, and Resilient tiers;
+  observability now advances a profile from Automated to Observed, and
+  Resilient requires backup coverage for every stateful module (#1059).
+- Documented how CDS security capabilities map to NIST SP 800-207, clarified
+  the contract-based meaning and limits of the Secured maturity tier, and
+  filed the separate workload-identity gap (#778, #1068).
 - Published the Kubernetes target docs and example profiles (issue #77):
   `docs/kubernetes.md` gains a "Migrating from Docker Compose" guide (same
   profile, `--target helm` render flag, what translates and what does not),
@@ -96,8 +106,150 @@ The format is based on Keep a Changelog.
   Garage instance, overwrites the source object, and recovers it
   byte-for-byte from the completed, marker-verified timestamped prefix.
 
+- Added typed provenance records to the `cds get` tracking manifest
+  for fetched profiles, modules, contracts, and runtime assets, including
+  source/local paths, dependency relationships, and per-file SHA-256 hashes
+  for detecting local edits. Existing profile entries remain available in
+  the version 2 manifest (#346).
+- Added `cds update` to refresh tracked profiles, modules, contracts, and
+  runtime assets while reporting and preserving locally modified files;
+  local source paths are recorded absolutely for subsequent updates (#348).
+
+- Added a generic file/volume backup capability (issue #668): the new
+  `backup/restic` module snapshots modules whose durable
+  state is plain files or directories into an encrypted restic
+  repository, complementing the Postgres-specific pgBackRest capability
+  (#665). Modules opt in by providing the new `backup-source` contract
+  (a named Compose volume or a host directory); the shipped providers
+  are the orchestration module's IO-manager storage volume, the
+  file-based warehouse's host directory, and the ingestion module's
+  pipeline-state volume. A profile binds up to three sources to the
+  restic module's source slots; its `restic-backup` sidecar mounts each
+  source read-only and takes scheduled, encrypted, integrity-checked
+  backups with retention, into a local repository volume by default or
+  any S3-compatible endpoint via restic's native S3 backend. The module
+  provides the vendor-neutral `backup-target` contract for
+  `spec.backup.target.contractRef`, is a production-only piece like the
+  Postgres capability (E143 outside production), and ships a gated
+  one-shot `restic-restore` service plus a Docker-gated
+  clean-environment restore-verification runtime test. The renderer now
+  supports cross-module named-volume mounts (a source mounted by its
+  fully rendered `<module-id>-<volume>` Compose name is no longer
+  re-namespaced), and plan validation fails loudly when a bound
+  backup-source advertises a volume the producer does not declare
+  (E146), instead of silently protecting an empty implicit volume.
+
+- `.trivyignore` exceptions now also accept GHSA ids for scan findings
+  reported without a CVE alias (GitHub security advisories): trivy's
+  native ignore format supports any advisory id, and without this the
+  restic image's grpc finding (GHSA-hrxh-6v49-42gf, no CVE alias) could
+  not be excepted at all. `tests/test_trivyignore.py` and
+  `docs/image-scanning.md` document the extended format.
+
+- Migrated the Python workdirs to cds-runtime and demonstrated the
+  workload API across two runtimes (issue #987): the dagster workdir
+  resolves its connections through `cds_runtime.connections`
+  (adopting the module's `CDS_ANALYTICS_DB_*` environment block via the
+  prefix, legacy `_NAME`/`_USER` spellings included) and its
+  dagster-specific event persistence is ported onto cds-runtime inside
+  the workdir; the shared example workload `workdirs/db_roundtrip.py`
+  runs unchanged as a dagster asset (canonical `analytics` connection)
+  and as the dlt pipeline's pre-load check (canonical `destination`
+  connection), with both runtime images baking `runtime/cds_runtime` in
+  at `/app/runtime`. The legacy `shared/python/db/connection.py`
+  helper is deprecated (kept in the images for externally supplied
+  definitions files); the dagster and dlt modules gained additive
+  canonical `CDS_DB_*` environment blocks.
+
+- Added a `cds-runtime` job to CI (issue #985): the opt-in backend
+  integration tests in `tests/test_cds_runtime_backends.py` now run
+  against real PostgreSQL and MySQL service containers on every push,
+  and the built `cds-runtime` wheel is installed into a fresh virtualenv
+  and smoke-tested (`py.typed`, metadata, engine-backed roundtrip),
+  guarding the package's packaging and data path on every change.
+
+- Added the production hardening checklist and operator verification
+  procedure (issue #72): `docs/production-hardening-checklist.md` maps every
+  hardening control to CDS enforcement or operator responsibility, and
+  defines a reproducible command sequence (`cds validate`, `cds init`,
+  `cds preflight`, `cds security`, `cds render`, `cds report --hardened`,
+  `cds up`/`cds state`) with documented expected output against the
+  reference production profile (`team-dagster-postgres-superset` with the
+  `prod` overlay), including the current known-findings snapshot and its
+  per-finding classifications.
+
+- Added a production web-serving mode for HTTP modules (issue #216): a
+  provider-neutral `config.webServer` convention with `mode`
+  (`production`/`development`). `bi/superset` now serves through gunicorn
+  by default (worker and timeout settings via `config.webServer.workers`
+  and `config.webServer.timeoutSeconds`) instead of Superset's development
+  server, and `identity/keycloak` can switch between development mode
+  (`start-dev`, still its default while the module is not
+  production-suitable) and Keycloak production mode. Production profiles
+  that explicitly select `webServer.mode: development` fail validation
+  with `E140`; see `docs/serving-modes.md`. The gunicorn configuration
+  preloads the app in the master process before forking workers, so
+  workers cannot race each other creating the metadata schema when the
+  web process starts before the init container.
+
+- Added `cds-runtime`, an installable Python package giving CDS workloads
+  one stable API for named database connections (issue #219):
+  `connections.database(name)` resolves a connection from the profile's
+  bound `sql-database` contracts through a fixed environment-variable
+  convention (`CDS_DB_<NAME>_CONNECTION_URI`, or `CDS_DB_<NAME>_BACKEND`
+  plus host/port/database/username/password fields, or a SQLite path),
+  so application code no longer duplicates URI construction, SQLAlchemy
+  setup, and cleanup in per-tool helper files. The core package is
+  dependency-free (SQLAlchemy and the database drivers are lazily
+  imported optional extras); imports are side-effect free; the API
+  covers parameterized reads and writes (`fetch_all`/`fetch_one`/
+  `execute`), bulk inserts with validated identifiers and bound
+  parameters (`insert_rows`), explicit transactions, and deterministic
+  engine cleanup (`close`, `close_all`, context managers); rows are
+  plain dicts; PostgreSQL, MySQL, and SQLite are supported where
+  compatible drivers are installed; errors are typed
+  (`UnknownConnectionError`, `MissingConnectionSettingsError`,
+  `DriverUnavailableError`, `ConnectionSetupError`,
+  `QueryExecutionError`) and never carry credentials or unredacted
+  connection URIs (query and engine-creation failures redact both the
+  `_PASSWORD` field and a password embedded in `CONNECTION_URI`, plus
+  any URI-shaped substring the driver echoes);
+  field-based config validates `_PORT` as a port number (1-65535),
+  accepts an empty `_PASSWORD` for password-less authentication, and
+  resolves the legacy `_NAME`/`_USER` spellings (as shipped by the
+  dagster module's environment block) as aliases for
+  `_DATABASE`/`_USERNAME`; field-assembled postgres URLs pin the
+  psycopg2 driver (`postgresql+psycopg2://`) so engine creation stays
+  independent of SQLAlchemy's default-driver changes;
+  `insert_rows` is one atomic transaction and
+  quotes identifiers through the active dialect (backticks on MySQL,
+  double quotes elsewhere); the
+  dagster adapter rejects non-PostgreSQL URLs up front; the wheel ships
+  `py.typed` and the Apache-2.0 license text; secrets flow exclusively
+  through the configured secret provider's runtime placeholders, and
+  platform metadata connections stay separate from workload contracts by
+  name. A Dagster adapter (`postgres_url`) bridges named connections into
+  Dagster's PostgreSQL storage configuration. Documented in
+  `docs/runtime-api.md`, including migration from the legacy
+  `shared/python/db/connection.py` helper.
+
+- Added an automated restore verification for the built-in backup
+  capability (issue #210): the Docker-gated runtime proof
+  `tests/test_postgres_backup_restore_runtime.py` renders the shipped
+  production overlay, writes marker data, seeds a clean Compose project
+  with only the encrypted backup repository volume, proves a restore with
+  the wrong key fails, restores the newest restore point, and verifies
+  the data survived byte-for-byte within the profile's
+  `rpoMinutes`/`rtoMinutes`. It runs in the Docker Runtime Smoke Test
+  workflow or locally with
+  `CDS_RUN_DOCKER_SMOKE=1 python -m unittest
+  tests.test_postgres_backup_restore_runtime -v`; see
+  `docs/backup-restore.md` section 5.
+
 ### Fixed
 
+- Fixed the experimental Loki `log-sink` contract to advertise its in-network
+  listener port independently of the host-published port (#662).
 - Fixed the Windows CI test job (`test (windows-latest, 3.14)`) failing on
   PR #1057: `tests/test_maturity.py` asserted the literal POSIX string
   `env_file="/profiles/minimal/.env"`, but `str(Path(...))` yields
@@ -312,147 +464,6 @@ The format is based on Keep a Changelog.
   are remediated by Renovate PRs. `docs/image-scanning.md` carries the same
   note next to the lock-maintenance rules.
 
-### Added
-
-- Added typed provenance records to the `cds get` tracking manifest
-  for fetched profiles, modules, contracts, and runtime assets, including
-  source/local paths, dependency relationships, and per-file SHA-256 hashes
-  for detecting local edits. Existing profile entries remain available in
-  the version 2 manifest (#346).
-- Added `cds update` to refresh tracked profiles, modules, contracts, and
-  runtime assets while reporting and preserving locally modified files;
-  local source paths are recorded absolutely for subsequent updates (#348).
-
-- Added a generic file/volume backup capability (issue #668): the new
-  `backup/restic` module snapshots modules whose durable
-  state is plain files or directories into an encrypted restic
-  repository, complementing the Postgres-specific pgBackRest capability
-  (#665). Modules opt in by providing the new `backup-source` contract
-  (a named Compose volume or a host directory); the shipped providers
-  are the orchestration module's IO-manager storage volume, the
-  file-based warehouse's host directory, and the ingestion module's
-  pipeline-state volume. A profile binds up to three sources to the
-  restic module's source slots; its `restic-backup` sidecar mounts each
-  source read-only and takes scheduled, encrypted, integrity-checked
-  backups with retention, into a local repository volume by default or
-  any S3-compatible endpoint via restic's native S3 backend. The module
-  provides the vendor-neutral `backup-target` contract for
-  `spec.backup.target.contractRef`, is a production-only piece like the
-  Postgres capability (E143 outside production), and ships a gated
-  one-shot `restic-restore` service plus a Docker-gated
-  clean-environment restore-verification runtime test. The renderer now
-  supports cross-module named-volume mounts (a source mounted by its
-  fully rendered `<module-id>-<volume>` Compose name is no longer
-  re-namespaced), and plan validation fails loudly when a bound
-  backup-source advertises a volume the producer does not declare
-  (E146), instead of silently protecting an empty implicit volume.
-
-- `.trivyignore` exceptions now also accept GHSA ids for scan findings
-  reported without a CVE alias (GitHub security advisories): trivy's
-  native ignore format supports any advisory id, and without this the
-  restic image's grpc finding (GHSA-hrxh-6v49-42gf, no CVE alias) could
-  not be excepted at all. `tests/test_trivyignore.py` and
-  `docs/image-scanning.md` document the extended format.
-
-- Migrated the Python workdirs to cds-runtime and demonstrated the
-  workload API across two runtimes (issue #987): the dagster workdir
-  resolves its connections through `cds_runtime.connections`
-  (adopting the module's `CDS_ANALYTICS_DB_*` environment block via the
-  prefix, legacy `_NAME`/`_USER` spellings included) and its
-  dagster-specific event persistence is ported onto cds-runtime inside
-  the workdir; the shared example workload `workdirs/db_roundtrip.py`
-  runs unchanged as a dagster asset (canonical `analytics` connection)
-  and as the dlt pipeline's pre-load check (canonical `destination`
-  connection), with both runtime images baking `runtime/cds_runtime` in
-  at `/app/runtime`. The legacy `shared/python/db/connection.py`
-  helper is deprecated (kept in the images for externally supplied
-  definitions files); the dagster and dlt modules gained additive
-  canonical `CDS_DB_*` environment blocks.
-
-- Added a `cds-runtime` job to CI (issue #985): the opt-in backend
-  integration tests in `tests/test_cds_runtime_backends.py` now run
-  against real PostgreSQL and MySQL service containers on every push,
-  and the built `cds-runtime` wheel is installed into a fresh virtualenv
-  and smoke-tested (`py.typed`, metadata, engine-backed roundtrip),
-  guarding the package's packaging and data path on every change.
-
-- Added the production hardening checklist and operator verification
-  procedure (issue #72): `docs/production-hardening-checklist.md` maps every
-  hardening control to CDS enforcement or operator responsibility, and
-  defines a reproducible command sequence (`cds validate`, `cds init`,
-  `cds preflight`, `cds security`, `cds render`, `cds report --hardened`,
-  `cds up`/`cds state`) with documented expected output against the
-  reference production profile (`team-dagster-postgres-superset` with the
-  `prod` overlay), including the current known-findings snapshot and its
-  per-finding classifications.
-
-- Added a production web-serving mode for HTTP modules (issue #216): a
-  provider-neutral `config.webServer` convention with `mode`
-  (`production`/`development`). `bi/superset` now serves through gunicorn
-  by default (worker and timeout settings via `config.webServer.workers`
-  and `config.webServer.timeoutSeconds`) instead of Superset's development
-  server, and `identity/keycloak` can switch between development mode
-  (`start-dev`, still its default while the module is not
-  production-suitable) and Keycloak production mode. Production profiles
-  that explicitly select `webServer.mode: development` fail validation
-  with `E140`; see `docs/serving-modes.md`. The gunicorn configuration
-  preloads the app in the master process before forking workers, so
-  workers cannot race each other creating the metadata schema when the
-  web process starts before the init container.
-
-- Added `cds-runtime`, an installable Python package giving CDS workloads
-  one stable API for named database connections (issue #219):
-  `connections.database(name)` resolves a connection from the profile's
-  bound `sql-database` contracts through a fixed environment-variable
-  convention (`CDS_DB_<NAME>_CONNECTION_URI`, or `CDS_DB_<NAME>_BACKEND`
-  plus host/port/database/username/password fields, or a SQLite path),
-  so application code no longer duplicates URI construction, SQLAlchemy
-  setup, and cleanup in per-tool helper files. The core package is
-  dependency-free (SQLAlchemy and the database drivers are lazily
-  imported optional extras); imports are side-effect free; the API
-  covers parameterized reads and writes (`fetch_all`/`fetch_one`/
-  `execute`), bulk inserts with validated identifiers and bound
-  parameters (`insert_rows`), explicit transactions, and deterministic
-  engine cleanup (`close`, `close_all`, context managers); rows are
-  plain dicts; PostgreSQL, MySQL, and SQLite are supported where
-  compatible drivers are installed; errors are typed
-  (`UnknownConnectionError`, `MissingConnectionSettingsError`,
-  `DriverUnavailableError`, `ConnectionSetupError`,
-  `QueryExecutionError`) and never carry credentials or unredacted
-  connection URIs (query and engine-creation failures redact both the
-  `_PASSWORD` field and a password embedded in `CONNECTION_URI`, plus
-  any URI-shaped substring the driver echoes);
-  field-based config validates `_PORT` as a port number (1-65535),
-  accepts an empty `_PASSWORD` for password-less authentication, and
-  resolves the legacy `_NAME`/`_USER` spellings (as shipped by the
-  dagster module's environment block) as aliases for
-  `_DATABASE`/`_USERNAME`; field-assembled postgres URLs pin the
-  psycopg2 driver (`postgresql+psycopg2://`) so engine creation stays
-  independent of SQLAlchemy's default-driver changes;
-  `insert_rows` is one atomic transaction and
-  quotes identifiers through the active dialect (backticks on MySQL,
-  double quotes elsewhere); the
-  dagster adapter rejects non-PostgreSQL URLs up front; the wheel ships
-  `py.typed` and the Apache-2.0 license text; secrets flow exclusively
-  through the configured secret provider's runtime placeholders, and
-  platform metadata connections stay separate from workload contracts by
-  name. A Dagster adapter (`postgres_url`) bridges named connections into
-  Dagster's PostgreSQL storage configuration. Documented in
-  `docs/runtime-api.md`, including migration from the legacy
-  `shared/python/db/connection.py` helper.
-
-- Added an automated restore verification for the built-in backup
-  capability (issue #210): the Docker-gated runtime proof
-  `tests/test_postgres_backup_restore_runtime.py` renders the shipped
-  production overlay, writes marker data, seeds a clean Compose project
-  with only the encrypted backup repository volume, proves a restore with
-  the wrong key fails, restores the newest restore point, and verifies
-  the data survived byte-for-byte within the profile's
-  `rpoMinutes`/`rtoMinutes`. It runs in the Docker Runtime Smoke Test
-  workflow or locally with
-  `CDS_RUN_DOCKER_SMOKE=1 python -m unittest
-  tests.test_postgres_backup_restore_runtime -v`; see
-  `docs/backup-restore.md` section 5.
 ## [0.14.0] - 2026-10-26
 
 ### Added

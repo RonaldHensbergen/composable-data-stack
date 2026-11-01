@@ -92,8 +92,8 @@ These work but may have breaking changes in upcoming releases:
 
 - 📋 **Stabilize Vault-backed profile** — validate and harden `local-dagster-postgres-superset-vault` for regular use
 - 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
-- 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77)
-- 🚧 **Haven parity — GitOps rendering/module support** — in progress: `gitops-target` contract + FluxCD reference module rendering Flux bootstrap manifests over the Helm chart output (#767); the remaining previously untracked workstream is the Kubernetes-native database operator pattern (#768); the initial Basic/Automated profile maturity report landed in #769
+- 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77); see the [Zero Trust mapping](zero-trust-architecture.md) for the security boundaries and remaining gaps
+- 🚧 **Haven parity — Kubernetes database operators** — GitOps rendering is delivered: `gitops-target` contract + FluxCD reference module render Flux bootstrap manifests over the Helm chart output (#767); the Kubernetes-native database operator pattern remains open (#768); the Basic/Automated/Observed/Secured/Resilient profile maturity report is implemented across #769 and #1059
 - 📋 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink`/`metrics-sink` contracts + OpenTelemetry Collector reference module (#777 — contracts and the experimental `otel-collector` module in progress)
 
 ---

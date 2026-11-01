@@ -381,7 +381,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["reason", "checks"],
-      "description": "Waives individual CDS-SEC-090 runtime-policy checks (production profiles only) for every service, e.g. when images set a non-root USER that CDS cannot see.",
+      "description": "Waives individual CDS-SEC-090 runtime-policy checks (production profiles only), for every service by default or only services belonging to the listed module instances.",
       "properties": {
         "reason": {
           "type": "string",
@@ -395,6 +395,16 @@
           "items": {
             "enum": ["capDrop", "noNewPrivileges", "nonRootUser", "readOnlyRootFilesystem"]
           }
+        },
+        "modules": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "description": "Optional module instance IDs to scope the waiver to; when omitted, it applies to every service."
         }
       }
     },

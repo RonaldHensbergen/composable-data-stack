@@ -74,6 +74,62 @@ class RuntimePolicyTest(unittest.TestCase):
         self.assertNotIn("non-root", message)
         self.assertIn("cap_drop", message)
 
+    def test_scoped_waiver_only_suppresses_services_in_listed_modules(self):
+        waiver = {"waivers": {"runtimePolicy": {
+            "reason": "image sets USER", "checks": ["nonRootUser"],
+            "modules": ["fake-literal"],
+        }}}
+        path = self._profile(security=waiver)
+        profile = yaml.safe_load(path.read_text())
+        second_module = dict(profile["spec"]["modules"][0])
+        second_module["id"] = "other"
+        profile["spec"]["modules"].append(second_module)
+        path.write_text(yaml.safe_dump(profile))
+
+        findings = self._findings(path)
+        self.assertEqual(len(findings), 2)
+        by_module = {finding["module"]: finding["message"] for finding in findings}
+        self.assertNotIn("non-root", by_module["fake-literal"])
+        self.assertIn("cap_drop", by_module["fake-literal"])
+        self.assertIn("non-root", by_module["other"])
+        warnings = [
+            d.message for d in run_security_validation(
+                path, env_file=str(path.parent / ".env")
+            )[1] if d.code == "W103"
+        ]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("modules: fake-literal", warnings[0])
+
+    def test_unscoped_waiver_keeps_profile_wide_behavior(self):
+        waiver = {"waivers": {"runtimePolicy": {
+            "reason": "image sets USER", "checks": ["nonRootUser"],
+        }}}
+        path = self._profile(security=waiver)
+        findings = self._findings(path)
+        self.assertEqual(len(findings), 1)
+        self.assertNotIn("non-root", findings[0]["message"])
+        warnings = [
+            d.message for d in run_security_validation(
+                path, env_file=str(path.parent / ".env")
+            )[1] if d.code == "W103"
+        ]
+        self.assertEqual(len(warnings), 1)
+        self.assertNotIn("modules:", warnings[0])
+
+    def test_scoped_waiver_rejects_unknown_module_ids(self):
+        waiver = {"waivers": {"runtimePolicy": {
+            "reason": "image sets USER", "checks": ["nonRootUser"],
+            "modules": ["missing-module"],
+        }}}
+        path = self._profile(security=waiver)
+        diagnostics = [d for d in validate_profile(str(path)) if d.level == "error"]
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual(diagnostics[0].code, "E012")
+        self.assertEqual(
+            diagnostics[0].path,
+            "spec.security.waivers.runtimePolicy.modules[0]",
+        )
+
     def _codes(self, path):
         _, diags = run_security_validation(path, env_file=str(path.parent / ".env"))
         return [d.code for d in diags]
