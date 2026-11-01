@@ -24,14 +24,15 @@ enforces the policy below and fails the build on violations.
    this). Today the only allowlisted file is `issue-consistency-audit.prompt.yml`,
    whose `{{issues}}` / `{{recent_commits}}` are substituted by
    `biweekly-issue-audit.yml` from `file_input` files.
-3. **Deterministic pre-inference redaction for `file_input`.** Data passed
-   via `file_input` is user-controlled (issue titles/bodies). Workflows must
-   scrub it before inference — `biweekly-issue-audit.yml` runs
-   `scripts/redact_secrets.py` over the issues JSON (secret-pattern
-   replacement with `[REDACTED]`, control-char stripping) so only redacted
-   content crosses the trust boundary. External inference is acceptable only
-   with this sanitization/minimization step; the question of moving to a
-   local/self-hosted model entirely is tracked in issue #1082.
+3. **Data minimization plus deterministic redaction for `file_input`.**
+   `file_input` data is user-controlled, so workflows must (a) collect only
+   the fields the task needs — `biweekly-issue-audit.yml` gathers
+   number/title/labels/milestone/timestamps/url and never collects issue
+   bodies — and (b) scrub what remains: it runs `scripts/redact_secrets.py`
+   over the JSON (secret-pattern replacement with `[REDACTED]`, control-char
+   stripping) before inference. External inference is acceptable only with
+   both steps; the question of moving to a local/self-hosted model entirely
+   is tracked in issue #1082.
 
 ## Adding a new prompt
 
