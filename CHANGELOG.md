@@ -262,6 +262,9 @@ The format is based on Keep a Changelog.
 - Switched learning Superset services to the pinned upstream development
   image, which includes the PostgreSQL and Redis drivers required to boot
   without a local build (#959, #1071).
+- Fetched build assets (`cds get`/`cds update`) now also include builds
+  nested in a service's `production:` mapping, so fetched profiles can
+  still build the hardened production images (#959, #1071).
 
 - Fixed the Windows CI test job (`test (windows-latest, 3.14)`) failing on
   PR #1057: `tests/test_maturity.py` asserted the literal POSIX string

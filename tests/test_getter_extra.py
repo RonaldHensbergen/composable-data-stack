@@ -483,6 +483,40 @@ class ModuleAssetsTest(unittest.TestCase):
 
         self.assertEqual(observed_variants, {"base", "hardened"})
 
+    def test_production_mapping_build_assets_are_collected(self) -> None:
+        module_doc = {
+            "spec": {
+                "implementation": {
+                    "compose": {
+                        "services": {
+                            "web": {
+                                "image": "example/stock:1.0",
+                                "production": {
+                                    "image": "local/web:custom",
+                                    "build": {
+                                        "context": ".",
+                                        "dockerfile": "images/web/Dockerfile",
+                                    },
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            dockerfile = root / "images" / "web" / "Dockerfile"
+            dockerfile.parent.mkdir(parents=True)
+            dockerfile.write_text("FROM scratch\n", encoding="utf-8")
+            with patch.object(getter, "load_yaml_file", return_value=(module_doc, [])):
+                for environment in (None, "local", "production"):
+                    with self.subTest(environment=environment):
+                        assets = _collect_module_runtime_assets(
+                            root, root, {}, environment=environment
+                        )
+                        self.assertIn(dockerfile, assets)
+
 
 class BuildAssetsTest(unittest.TestCase):
     def _build(self, build, files=None, ctx=None):

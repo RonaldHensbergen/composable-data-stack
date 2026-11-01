@@ -896,15 +896,23 @@ def _collect_module_runtime_assets(
     for service in services.values():
         if not isinstance(service, dict):
             continue
+        build_specs = [service.get("build")]
+        # A production mapping can carry its own build block (the hardened
+        # local image); collect it too so fetched profiles can still build
+        # the production variant.
+        marker = service.get("production")
+        if isinstance(marker, dict):
+            build_specs.append(marker.get("build"))
         for context in contexts:
-            assets.update(
-                _collect_build_assets(
-                    source_repo,
-                    module_dir,
-                    service.get("build"),
-                    interpolation_context=context,
+            for build in build_specs:
+                assets.update(
+                    _collect_build_assets(
+                        source_repo,
+                        module_dir,
+                        build,
+                        interpolation_context=context,
+                    )
                 )
-            )
 
     return assets
 
