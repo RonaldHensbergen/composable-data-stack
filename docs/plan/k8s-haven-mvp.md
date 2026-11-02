@@ -159,10 +159,26 @@ command per gate and the signoff table are in
   `kubectl get nodes`. Exit: one Ready node, kubeconfig written by k3d.
 - [ ] **G0.5 Decide the image supply path** (~1 h). With #690 merged (G0.0),
   `cds up --target helm` builds and imports local images itself on Path B.
-  Path A pins the published, signed, scanned images via `image.source:
-  registry` + `image.tag` in the fetched profile/module config (see
-  [docs/image-signing.md](../image-signing.md)). Exit: the profile's images are
-  resolvable by the cluster (`imagePullPolicy` correct for the path chosen).
+  Path A (no clone) instead pulls the published, signed, scanned images — one
+  command, persisted for the fresh directory:
+
+  ```bash
+  cd ~/cds-mvp
+  cds config set image.source registry   # project default for render/up/test/report
+  cds config set target helm             # optional: make helm the default target
+  ```
+
+  or per command: `cds up ... --target helm --image-source registry`. Pin a
+  digest via the profile's module config where available (`config.image.tag` /
+  `config.image.registry`; `dockerhub` default rewrites to
+  `docker.io/ronaldsoeverein/<module>:<tag>`, `ghcr` to
+  `ghcr.io/ronaldhensbergen/cds-<module>:sha-<sha>` — GHCR has no
+  version-derived tags; see [docs/image-signing.md](../image-signing.md)). Add
+  `--hardened` for the hardened variant. Note: only the dagster and superset
+  modules support `registry` source today; postgres and keydb use public
+  upstream images that the cluster pulls directly. Exit: the profile's images
+  are resolvable by the cluster — registry pulls need no import step, unlike
+  locally built images (`imagePullPolicy: Never` + `k3d image import`).
 - [ ] **G0.6 Compose smoke run first** (~1 h). `cds init` the simplest fetched
   profile, fill `.env` (mode 0600), `cds up` (Compose default), `cds state`,
   `cds down`. This proves the CLI + secrets flow before Kubernetes is
