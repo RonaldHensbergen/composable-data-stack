@@ -8,6 +8,14 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Added `docs/plan/k8s-haven-mvp.md` (#1104): an execution runbook for an MVP
+  cycle that starts from a fresh directory with only Docker installed and walks
+  six gates — bootstrap, Kubernetes MVP on a local k3d cluster (`--target
+  helm`), production-ready posture under the `prod` overlay, Haven-parity
+  measurement via `cds maturity`, evidence/issue triage, and the v1.0.0
+  release — each split into tasks of at most 2 hours. Section 2 lists the open
+  prerequisite issues per gate and the already-landed work not to re-file.
+
 - The `cds` CLI now honors the `NO_COLOR` environment variable (#1094): when
   present and non-empty (<https://no-color.org/>), colors and the ANSI
   in-place redraw of the live state view are disabled for every command, as
