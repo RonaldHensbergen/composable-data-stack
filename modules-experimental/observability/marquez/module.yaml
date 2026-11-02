@@ -132,8 +132,11 @@ spec:
             - /tmp:rw,noexec,nosuid,nodev,mode=1777
           hostname: "${service.host}"
           ports:
-            - "127.0.0.1:${config.apiPort}:5000"
-            - "127.0.0.1:${config.apiAdminPort}:5001"
+            # Host and container ports must match: the process listens on
+            # MARQUEZ_PORT/MARQUEZ_ADMIN_PORT (= config.apiPort/apiAdminPort),
+            # not fixed 5000/5001 (#1049).
+            - "127.0.0.1:${config.apiPort}:${config.apiPort}"
+            - "127.0.0.1:${config.apiAdminPort}:${config.apiAdminPort}"
           volumes:
             - type: bind
               source: ../../../images/marquez/marquez.yml
