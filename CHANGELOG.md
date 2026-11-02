@@ -382,6 +382,14 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the `publish-dockerhub` "Determine version" step for the restic image:
+  it read the version with `cut -d= -f3`, but `ARG RESTIC_VERSION=0.19.1` has a
+  single `=`, so the field was empty and every publish run failed with "Failed
+  to determine base version for 'restic'" — skipping `update-fixture` and
+  leaving stale digests in `tests/fixtures/signed-images.json`, which the daily
+  scan kept re-flagging as vuln-scan issues (#1100, #1101). The field is now
+  `-f2-`, with a regression test that executes the version step for every
+  image (`tests/test_publish_images_workflow.py`).
 - Production profiles no longer host-publish the Dagster webserver and
   Superset UI on all interfaces: both modules' compose services now carry a
   `production: { ports: [] }` mapping, so the TLS reverse proxy is the sole

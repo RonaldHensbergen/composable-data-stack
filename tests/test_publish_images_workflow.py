@@ -1,5 +1,7 @@
 import json
+import os
 import re
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -422,6 +424,44 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         self.assertIn('if [ "$variant" = "hardened" ]; then', run)
         self.assertIn('alpine_tag="alpine-${base_version}"', run)
         self.assertIn('alpine_latest_tag="alpine-latest"', run)
+
+    def test_dockerhub_version_step_resolves_a_base_version_for_every_image(self) -> None:
+        # Regression test for the stalled publish behind #1100/#1101: the
+        # restic case read `cut -d= -f3`, but `ARG RESTIC_VERSION=0.19.1` has
+        # a single '=', so field 3 was empty and every publish-dockerhub run
+        # for restic died with "Failed to determine base version", which
+        # skipped update-fixture and left stale (vulnerable) digests in
+        # tests/fixtures/signed-images.json for the daily scan to re-flag.
+        # Execute the real "Determine version" script per image and require a
+        # non-empty tag.
+        job = self.jobs["publish-dockerhub"]
+        version_step = next(s for s in job["steps"] if s.get("id") == "version")
+        run = version_step["run"]
+        repo_root = Path(__file__).resolve().parent.parent
+        for name in ("dagster", "superset", "dbt", "dlt", "postgres", "restic"):
+            with self.subTest(image=name):
+                script = run.replace("${{ matrix.image.name }}", name).replace(
+                    "${{ matrix.image.variant }}", ""
+                )
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    github_output = Path(tmpdir) / "github_output"
+                    env = {**os.environ, "GITHUB_OUTPUT": str(github_output)}
+                    result = subprocess.run(
+                        ["bash", "-c", script],
+                        cwd=repo_root,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    outputs = dict(
+                        line.split("=", 1) for line in github_output.read_text().splitlines()
+                    )
+                self.assertTrue(
+                    outputs.get("tag"),
+                    f"image '{name}' produced an empty tag (stderr: {result.stderr})",
+                )
+                self.assertTrue(outputs.get("latest_tag"))
 
     def test_dockerhub_build_and_push_gate_alpine_extras_on_version_output(self) -> None:
         # Both the build and push steps must only add the alpine-aliased
