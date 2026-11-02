@@ -25,7 +25,6 @@ allowlists before they reach a command line (CWE-88 argument injection).
 
 from __future__ import annotations
 
-import os
 import re
 import subprocess  # nosec B404
 from copy import deepcopy
@@ -59,8 +58,9 @@ _BUILD_ARG_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _DOCKERFILE_RE = re.compile(r"[A-Za-z0-9_./@][A-Za-z0-9_./@-]*")
 
 # A `${CDS_*}` placeholder left by renderer substitution for a secret
-# reference. Compose expands these from the environment at build time; the
-# direct `docker build` path has to do the same (see build_local_images).
+# reference. The direct `docker build` path refuses these in build fields
+# (see _reject_secret_placeholders): a resolved build arg would expose the
+# secret in the process argv.
 _CDS_PLACEHOLDER_RE = re.compile(r"\$\{(CDS_[A-Z0-9_]+)\}")
 
 _HEALTHZ_TIMEOUT_SECONDS = 15
@@ -215,25 +215,31 @@ def _resolve_build_context(
     return str(chosen)
 
 
-def _resolve_cds_placeholders(value: str, missing: list[str]) -> tuple[str, str]:
+def _reject_secret_placeholders(build: LocalImageBuild) -> None:
     """
-    Resolve `${CDS_*}` placeholders in a build field from the process
-    environment, the way `docker compose build` expands them. Returns
-    (resolved_value, display_value): the display keeps the placeholder so the
-    resolved secret never lands in the printed command or the log file. A
-    placeholder without a matching environment variable is collected in
-    `missing` and fails the whole build closed, mirroring
-    `k8s_runner._secret_values()`.
+    Fail closed when a build field still contains a `${CDS_*}` placeholder.
+
+    On the Compose target, `docker compose build` expands secret placeholders
+    server-side through the Docker API. The Helm path calls `docker build`
+    directly, and a resolved `--build-arg KEY=VALUE` (or `-t`) would put the
+    secret value in the process argv, where it is readable via `ps` by any
+    local user while the build runs. No module uses secrets in build fields
+    today; if one ever needs a build-time secret, that must go through
+    BuildKit `--secret` mounts, not build args. Refusing here keeps the
+    secret out of argv and fails with a legible message instead.
     """
-    match = _CDS_PLACEHOLDER_RE.fullmatch(value)
-    if match is None:
-        return value, value
-    name = match.group(1)
-    resolved = os.environ.get(name)
-    if resolved is None:
-        missing.append(name)
-        return value, value
-    return resolved, f"${{{name}}}"
+    fields = [("image", build.image), ("build.dockerfile", build.dockerfile or "")]
+    fields.extend(
+        (f"build.args.{key}", value) for key, value in (build.args or {}).items()
+    )
+    for field_name, value in fields:
+        if isinstance(value, str) and _CDS_PLACEHOLDER_RE.search(value):
+            raise RuntimeError(
+                f"{field_name} of image {build.image!r} contains a ${{CDS_*}} secret placeholder. "
+                "The Helm target builds with a direct `docker build` call, where a resolved "
+                "build arg would expose the secret in the process argv; use BuildKit "
+                "--secret mounts or --image-source registry instead."
+            )
 
 
 def build_local_images(
@@ -245,44 +251,23 @@ def build_local_images(
     """
     Build each collected image with `docker build`, streaming output to
     `log_file` (and the terminal) exactly like the compose target's build
-    step. `${CDS_*}` placeholders in image names, Dockerfile paths, and build
-    args are expanded from the environment at build time (compose semantics),
-    and are never printed resolved. Returns the first non-zero exit code, or
-    0 when every build succeeded.
+    step. `${CDS_*}` secret placeholders in build fields are refused up front
+    (see _reject_secret_placeholders). Returns the first non-zero exit code,
+    or 0 when every build succeeded.
     """
-    # Resolve every placeholder before running anything, so a missing secret
-    # fails the whole step up front instead of after some images built.
-    missing: list[str] = []
-    resolved_builds: list[tuple[list[str], list[str]]] = []
+    commands: list[list[str]] = []
     for build in builds:
-        image, image_display = _resolve_cds_placeholders(build.image, missing)
-        dockerfile, dockerfile_display = (None, None)
+        _reject_secret_placeholders(build)
+        command = ["docker", "build", "-t", build.image]
         if build.dockerfile:
-            dockerfile, dockerfile_display = _resolve_cds_placeholders(
-                build.dockerfile, missing
-            )
-        arg_pairs = [
-            (key, *_resolve_cds_placeholders(value, missing))
-            for key, value in sorted((build.args or {}).items())
-        ]
-        command = ["docker", "build", "-t", image]
-        display = ["docker", "build", "-t", image_display]
-        if dockerfile:
-            command.extend(["-f", dockerfile])
-            display.extend(["-f", dockerfile_display])
-        for key, value, value_display in arg_pairs:
+            command.extend(["-f", build.dockerfile])
+        for key, value in sorted((build.args or {}).items()):
             command.extend(["--build-arg", f"{key}={value}"])
-            display.extend(["--build-arg", f"{key}={value_display}"])
         command.append(build.context)
-        display.append(build.context)
-        resolved_builds.append((command, display))
-    if missing:
-        raise RuntimeError(
-            "missing required environment variables: " + ", ".join(sorted(set(missing)))
-        )
+        commands.append(command)
 
-    for command, display in resolved_builds:
-        print(f"Running: {' '.join(display)}")
+    for command in commands:
+        print(f"Running: {' '.join(command)}")
         result = run_streamed(command, log_file, use_color=use_color)
         if result != 0:
             return result

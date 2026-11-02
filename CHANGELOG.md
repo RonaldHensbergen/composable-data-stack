@@ -16,7 +16,10 @@ The format is based on Keep a Changelog.
   `imagePullPolicy: Never` (the compose services' `build:` blocks), and imports
   them into a k3d cluster with `k3d image import`. On a non-k3d cluster with
   local images the command fails closed and points at `--image-source registry`.
-  `--no-build` skips the build and import steps. New `cli/k8s_provision.py`;
+  `${CDS_*}` secret placeholders in build fields are refused on this path
+  (a resolved `docker build --build-arg` would expose the value in the process
+  argv) instead of being expanded. `--no-build` skips the build and import
+  steps. New `cli/k8s_provision.py`;
   `docs/kubernetes.md` updated; tests in `tests/test_k8s_provision.py`.
 
 - The `cds` CLI now honors the `NO_COLOR` environment variable (#1094): when

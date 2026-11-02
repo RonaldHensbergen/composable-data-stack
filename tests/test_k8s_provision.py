@@ -313,42 +313,36 @@ class BuildLocalImagesTest(unittest.TestCase):
             self.assertEqual(build_local_images([], io.StringIO()), 0)
             mock_run.assert_not_called()
 
-    def test_secret_placeholder_expanded_from_env_but_never_printed(self) -> None:
-        import contextlib
-
+    def test_secret_placeholder_in_build_arg_is_refused_before_any_build(self) -> None:
+        # Code-scanning finding: a resolved ${CDS_*} in a --build-arg KEY=VALUE
+        # argv entry is readable via `ps` while the build runs (compose expands
+        # via the Docker API instead). Fail closed instead of expanding.
         builds = [
             LocalImageBuild(
-                image="local/a:1",
-                context="/repo",
-                args={"TOKEN": "${CDS_API_TOKEN}"},
-            )
-        ]
-        with patch.dict(os.environ, {"CDS_API_TOKEN": "sentinel-value"}, clear=False):
-            with patch("cli.k8s_provision.run_streamed", return_value=0) as mock_run:
-                out = io.StringIO()
-                with contextlib.redirect_stdout(out):
-                    result = build_local_images(builds, io.StringIO())
-        self.assertEqual(result, 0)
-        command = mock_run.call_args.args[0]
-        self.assertIn("TOKEN=sentinel-value", command)
-        # The printed command keeps the placeholder; the resolved value must
-        # not leak to stdout or the log.
-        self.assertIn("TOKEN=${CDS_API_TOKEN}", out.getvalue())
-        self.assertNotIn("sentinel-value", out.getvalue())
-
-    def test_missing_secret_placeholder_fails_closed_before_any_build(self) -> None:
-        builds = [
-            LocalImageBuild(
-                image="local/a:1", context="/repo", args={"TOKEN": "${CDS_MISSING_X}"}
+                image="local/a:1", context="/repo", args={"TOKEN": "${CDS_API_TOKEN}"}
             ),
             LocalImageBuild(image="local/b:1", context="/repo"),
         ]
-        env = {k: v for k, v in os.environ.items() if k != "CDS_MISSING_X"}
-        with patch.dict(os.environ, env, clear=True):
+        with patch.dict(os.environ, {"CDS_API_TOKEN": "sentinel-value"}, clear=False):
             with patch("cli.k8s_provision.run_streamed") as mock_run:
-                with self.assertRaisesRegex(RuntimeError, "CDS_MISSING_X"):
+                with self.assertRaisesRegex(RuntimeError, "build.args.TOKEN"):
                     build_local_images(builds, io.StringIO())
-            mock_run.assert_not_called()
+        mock_run.assert_not_called()
+
+    def test_secret_placeholder_in_image_or_dockerfile_is_refused(self) -> None:
+        for build in (
+            LocalImageBuild(image="local/a:${CDS_TAG}", context="/repo"),
+            LocalImageBuild(
+                image="local/a:1",
+                context="/repo",
+                dockerfile="images/${CDS_X}/Dockerfile",
+            ),
+        ):
+            with self.subTest(build=build):
+                with patch("cli.k8s_provision.run_streamed") as mock_run:
+                    with self.assertRaisesRegex(RuntimeError, "secret placeholder"):
+                        build_local_images([build], io.StringIO())
+                mock_run.assert_not_called()
 
     def test_k3d_is_an_allowed_executable(self) -> None:
         self.assertIn("k3d", _ALLOWED_EXECUTABLES)
