@@ -435,11 +435,15 @@ class UpCommandTest(_IsolatedConfigCase):
         self.assertEqual(code, 3)
         self.assertIn("Cannot start stack because Helm rendering failed.", out)
 
-    def _helm_up(self, helm_result=None, helm_error=None, extra=None):
+    def _helm_up(self, helm_result=None, helm_error=None, extra=None, builds=None):
         with contextlib.ExitStack() as stack:
             self._base(stack)
             stack.enter_context(patch.object(cli_main, "_render_helm_chart", return_value=(0, [])))
             stack.enter_context(patch.object(cli_main, "_helm_identity", return_value=("rel", "ns")))
+            stack.enter_context(patch.object(cli_main, "ensure_k8s_cluster", return_value=0))
+            stack.enter_context(patch.object(cli_main, "collect_local_builds", return_value=builds or []))
+            stack.enter_context(patch.object(cli_main, "build_local_images", return_value=0))
+            stack.enter_context(patch.object(cli_main, "import_local_images", return_value=0))
             stack.enter_context(patch.object(
                 cli_main, "helm_up", return_value=helm_result, side_effect=helm_error
             ))
@@ -457,11 +461,29 @@ class UpCommandTest(_IsolatedConfigCase):
         self.assertEqual(code, 5)
         self.assertIn("Helm deployment failed (exit 5)", out)
 
-    def test_helm_up_detach_and_no_build_note(self):
-        code, out, _ = self._helm_up(helm_result=0, extra=["--detach", "--no-build"])
+    def test_helm_up_detach_and_no_build_skips_build_and_import(self):
+        from cli.k8s_provision import LocalImageBuild
+
+        builds = [LocalImageBuild(image="local/x:custom", context="/repo")]
+        with contextlib.ExitStack() as stack:
+            self._base(stack)
+            stack.enter_context(patch.object(cli_main, "_render_helm_chart", return_value=(0, [])))
+            stack.enter_context(patch.object(cli_main, "_helm_identity", return_value=("rel", "ns")))
+            stack.enter_context(patch.object(cli_main, "ensure_k8s_cluster", return_value=0))
+            stack.enter_context(patch.object(cli_main, "collect_local_builds", return_value=builds))
+            build_mock = stack.enter_context(patch.object(cli_main, "build_local_images", return_value=0))
+            import_mock = stack.enter_context(patch.object(cli_main, "import_local_images", return_value=0))
+            stack.enter_context(patch.object(cli_main, "helm_up", return_value=0))
+            code, out, _ = _run([
+                "up", "p", "--target", "helm", "--chart-dir", str(self.tmp / "chart"),
+                "--log-file", str(self.tmp / "logs" / "up.log"), "--detach", "--no-build",
+            ])
         self.assertEqual(code, 0)
         self.assertIn("Helm release rel submitted in ns.", out)
-        self.assertIn("NOTE --no-build has no effect", out)
+        self.assertIn("NOTE --no-build", out)
+        self.assertIn("local/x:custom", out)
+        build_mock.assert_not_called()
+        import_mock.assert_not_called()
 
     def test_helm_up_ready(self):
         code, out, _ = self._helm_up(helm_result=0)
