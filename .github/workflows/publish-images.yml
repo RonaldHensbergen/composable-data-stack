@@ -267,8 +267,10 @@ jobs:
             restic)
               # restic is compiled from source in images/restic/Dockerfile (the
               # upstream restic/restic image is no longer the base), so the base
-              # version comes from the pinned source tag ARG.
-              base_version="$(grep -m1 '^ARG RESTIC_VERSION=' images/restic/Dockerfile | cut -d= -f3)"
+              # version comes from the pinned source tag ARG. ARG uses a single
+              # '=' (unlike the '==' pip pins above, which is why those read
+              # field 3), so the version is field 2 here.
+              base_version="$(grep -m1 '^ARG RESTIC_VERSION=' images/restic/Dockerfile | cut -d= -f2-)"
               ;;
             *)
               echo "No version scheme defined for image '${{ matrix.image.name }}'" >&2

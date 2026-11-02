@@ -16,7 +16,10 @@ from typing import IO
 from .state import format_state_output, group_services_by_health, parse_compose_ps_json
 
 _BUILD_SERVICE_RE = re.compile(r"^([\w][\w.-]*?):\s+Building\b")
-_ALLOWED_EXECUTABLES = frozenset({"docker", "helm", "kubectl"})
+# k3d is allowlisted for the Helm target's cluster create / image import steps
+# (cli/k8s_provision.py, issue #690); same rule as the others: invoked without
+# a shell and only with validated arguments.
+_ALLOWED_EXECUTABLES = frozenset({"docker", "helm", "kubectl", "k3d"})
 
 DEFAULT_POLL_INTERVAL_SECONDS = 2.0
 DEFAULT_TIMEOUT_SECONDS = 180.0

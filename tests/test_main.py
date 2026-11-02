@@ -2619,13 +2619,14 @@ spec:
         self.assertIn("E072", output)
         self.assertIn("[FAIL] render", output)
 
+    @patch("cli.main.ensure_k8s_cluster", return_value=0)
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_up", return_value=0)
     @patch("cli.main._render_helm_chart", return_value=(0, []))
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile", return_value=[])
     def test_up_helm_dispatches_to_bounded_helm_runner(
-        self, _mock_validate, mock_plan, mock_render, mock_helm_up, mock_log_path
+        self, _mock_validate, mock_plan, mock_render, mock_helm_up, mock_log_path, _mock_ensure
     ):
         plan = {
             "metadata": {"name": "demo"},
@@ -2660,13 +2661,14 @@ spec:
         self.assertEqual(mock_helm_up.call_args.kwargs["release"], "demo")
         self.assertEqual(mock_helm_up.call_args.kwargs["kube_context"], "k3d-test")
 
+    @patch("cli.main.ensure_k8s_cluster", return_value=0)
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_up", return_value=0)
     @patch("cli.main._render_helm_chart", return_value=(0, []))
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile", return_value=[])
     def test_up_helm_resolves_a_relative_chart_dir(
-        self, _mock_validate, mock_plan, mock_render, mock_helm_up, mock_log_path
+        self, _mock_validate, mock_plan, mock_render, mock_helm_up, mock_log_path, _mock_ensure
     ):
         """
         `--chart-dir` is user-controlled and, before this, was passed
@@ -2711,13 +2713,14 @@ spec:
         self.assertTrue(Path(rendered_chart_dir).is_absolute())
         self.assertEqual(Path(rendered_chart_dir), Path(tmpdir).resolve() / "relative-chart")
 
+    @patch("cli.main.ensure_k8s_cluster", return_value=0)
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_up", return_value=0)
     @patch("cli.main._render_helm_chart", return_value=(0, []))
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile", return_value=[])
     def test_up_helm_wires_no_color_through_to_helm_up(
-        self, _mock_validate, mock_plan, _mock_render, mock_helm_up, mock_log_path
+        self, _mock_validate, mock_plan, _mock_render, mock_helm_up, mock_log_path, _mock_ensure
     ):
         plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
         mock_plan.return_value = (plan, [])
@@ -2742,16 +2745,32 @@ spec:
         self.assertEqual(result, 0)
         self.assertFalse(mock_helm_up.call_args.kwargs["use_color"])
 
+    @patch("cli.main.import_local_images", return_value=0)
+    @patch("cli.main.build_local_images", return_value=0)
+    @patch("cli.main.collect_local_builds")
+    @patch("cli.main.ensure_k8s_cluster", return_value=0)
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_up", return_value=0)
     @patch("cli.main._render_helm_chart", return_value=(0, []))
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile", return_value=[])
-    def test_up_helm_warns_that_no_build_has_no_effect(
-        self, _mock_validate, mock_plan, _mock_render, _mock_helm_up, mock_log_path
+    def test_up_helm_no_build_skips_build_and_import_but_still_installs(
+        self,
+        _mock_validate,
+        mock_plan,
+        _mock_render,
+        mock_helm_up,
+        mock_log_path,
+        _mock_ensure,
+        mock_collect,
+        mock_build,
+        mock_import,
     ):
+        from cli.k8s_provision import LocalImageBuild
+
         plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
         mock_plan.return_value = (plan, [])
+        mock_collect.return_value = [LocalImageBuild(image="local/x:custom", context="/repo")]
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_log_path.return_value = Path(tmpdir) / "up.log"
             with patch.dict(
@@ -2771,7 +2790,134 @@ spec:
                 result = main()
 
         self.assertEqual(result, 0)
-        self.assertIn("--no-build has no effect with --target helm", stdout.getvalue())
+        mock_build.assert_not_called()
+        mock_import.assert_not_called()
+        mock_helm_up.assert_called_once()
+        self.assertIn("NOTE --no-build", stdout.getvalue())
+        self.assertIn("local/x:custom", stdout.getvalue())
+
+    @patch("cli.main.import_local_images", return_value=0)
+    @patch("cli.main.build_local_images", return_value=0)
+    @patch("cli.main.collect_local_builds")
+    @patch("cli.main.ensure_k8s_cluster", return_value=0)
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_up", return_value=0)
+    @patch("cli.main._render_helm_chart", return_value=(0, []))
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_up_helm_builds_and_imports_local_images_before_install(
+        self,
+        _mock_validate,
+        mock_plan,
+        _mock_render,
+        mock_helm_up,
+        mock_log_path,
+        mock_ensure,
+        mock_collect,
+        mock_build,
+        mock_import,
+    ):
+        from cli.k8s_provision import LocalImageBuild
+
+        plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
+        mock_plan.return_value = (plan, [])
+        builds = [LocalImageBuild(image="local/x:custom", context="/repo")]
+        mock_collect.return_value = builds
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "up.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "up",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                    "--kube-context",
+                    "k3d-test",
+                    "--create-cluster",
+                ],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        mock_build.assert_called_once()
+        self.assertEqual(mock_build.call_args.args[0], builds)
+        mock_import.assert_called_once()
+        self.assertEqual(mock_import.call_args.args[0], ["local/x:custom"])
+        self.assertEqual(mock_import.call_args.args[1], "k3d-test")
+        mock_helm_up.assert_called_once()
+        # --create-cluster is forwarded to the cluster-ensure step
+        self.assertTrue(mock_ensure.call_args.kwargs["create"])
+        self.assertEqual(mock_ensure.call_args.args[0], "k3d-test")
+
+    @patch("cli.main.ensure_k8s_cluster", return_value=2)
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_up", return_value=0)
+    @patch("cli.main._render_helm_chart", return_value=(0, []))
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_up_helm_stops_before_install_when_cluster_prep_fails(
+        self, _mock_validate, mock_plan, _mock_render, mock_helm_up, mock_log_path, mock_ensure
+    ):
+        plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
+        mock_plan.return_value = (plan, [])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "up.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--target", "helm"],
+            ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+                result = main()
+
+        self.assertEqual(result, 2)
+        mock_helm_up.assert_not_called()
+        self.assertIn("Cluster preparation failed (exit 2)", stdout.getvalue())
+
+    @patch("cli.main.build_local_images", return_value=9)
+    @patch("cli.main.collect_local_builds")
+    @patch("cli.main.ensure_k8s_cluster", return_value=0)
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_up", return_value=0)
+    @patch("cli.main._render_helm_chart", return_value=(0, []))
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_up_helm_stops_before_install_when_image_build_fails(
+        self,
+        _mock_validate,
+        mock_plan,
+        _mock_render,
+        mock_helm_up,
+        mock_log_path,
+        _mock_ensure,
+        mock_collect,
+        mock_build,
+    ):
+        from cli.k8s_provision import LocalImageBuild
+
+        plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
+        mock_plan.return_value = (plan, [])
+        mock_collect.return_value = [LocalImageBuild(image="local/x:custom", context="/repo")]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "up.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                ["cds", "up", "local-dagster-postgres-superset", "--target", "helm"],
+            ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+                result = main()
+
+        self.assertEqual(result, 9)
+        mock_helm_up.assert_not_called()
+        self.assertIn("Image build failed (exit 9)", stdout.getvalue())
 
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_down", return_value=0)

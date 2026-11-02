@@ -26,6 +26,38 @@ The format is based on Keep a Changelog.
   `productionSuitable: false` / missing-`kubernetes:`-block deviation recorded
   against its tracking issue (#1104).
 
+### Fixed
+
+- `cds render/up --target helm` no longer fails with E085 ("bind source
+  outside the project root") on projects scaffolded by `cds get`: the
+  renderer's project-root detection now treats a `.cds/` directory as a
+  project marker (first priority, same as `cds use`/`cds config`), so
+  relative ConfigMap `fromBind` sources like `./workdirs/dagster/definitions.py`
+  resolve against the project root again. Previously such projects — which
+  have `.cds/` but no `.git`/`pyproject.toml` — made every relative bind fail
+  closed (#1113).
+
+## [0.15.0] - 2026-11-02
+
+### Added
+
+- `cds up --target helm` is now self-contained, matching the Compose target's
+  one-command lifecycle (#690). Before `helm upgrade --install` runs, it checks
+  that the `--kube-context` cluster is reachable (with `--create-cluster` and a
+  `k3d-<name>` context it creates the missing k3d cluster and waits for the
+  node), builds every local image the rendered chart references with
+  `imagePullPolicy: Never` (the compose services' `build:` blocks), and imports
+  them into a k3d cluster with `k3d image import`. On a non-k3d cluster with
+  local images the command fails closed and points at `--image-source registry`.
+  `${CDS_*}` secret placeholders in build fields are refused on this path
+  (a resolved `docker build --build-arg` would expose the value in the process
+  argv) instead of being expanded, and build-arg values are redacted
+  (`--build-arg KEY=<redacted>`) in the echoed `Running: ...` command line so
+  sensitive values are not written to stdout/CI logs while the executed
+  command is unchanged. `--no-build` skips the build and import
+  steps. New `cli/k8s_provision.py`;
+  `docs/kubernetes.md` updated; tests in `tests/test_k8s_provision.py`.
+
 - The `cds` CLI now honors the `NO_COLOR` environment variable (#1094): when
   present and non-empty (<https://no-color.org/>), colors and the ANSI
   in-place redraw of the live state view are disabled for every command, as
@@ -400,6 +432,14 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Fixed the `publish-dockerhub` "Determine version" step for the restic image:
+  it read the version with `cut -d= -f3`, but `ARG RESTIC_VERSION=0.19.1` has a
+  single `=`, so the field was empty and every publish run failed with "Failed
+  to determine base version for 'restic'" — skipping `update-fixture` and
+  leaving stale digests in `tests/fixtures/signed-images.json`, which the daily
+  scan kept re-flagging as vuln-scan issues (#1100, #1101). The field is now
+  `-f2-`, with a regression test that executes the version step for every
+  image (`tests/test_publish_images_workflow.py`).
 - Production profiles no longer host-publish the Dagster webserver and
   Superset UI on all interfaces: both modules' compose services now carry a
   `production: { ports: [] }` mapping, so the TLS reverse proxy is the sole

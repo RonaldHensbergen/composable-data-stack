@@ -42,6 +42,12 @@ from .image_verification import (
     load_policy_from_env,
     verify_images,
 )
+from .k8s_provision import (
+    build_local_images,
+    collect_local_builds,
+    ensure_k8s_cluster,
+    import_local_images,
+)
 from .k8s_renderer import render_helm
 from .k8s_runner import get_k8s_state, helm_down, helm_up
 from .k8s_security import scan_k8s_security
@@ -1635,7 +1641,15 @@ def _run() -> int:
     up_parser.add_argument(
         "--no-build",
         action="store_true",
-        help="Skip docker compose build before starting services",
+        help="Skip building local images before starting services "
+        "(with --target helm: also skips importing them into the cluster; "
+        "the images must already be present there)",
+    )
+    up_parser.add_argument(
+        "--create-cluster",
+        action="store_true",
+        help="With --target helm: when the cluster named by --kube-context "
+        "(k3d-<name>) is not reachable, create it with k3d instead of failing",
     )
     up_parser.add_argument(
         "--log-file",
@@ -2466,17 +2480,60 @@ def _run() -> int:
             )
             namespace = args.namespace or plan_namespace
             release = args.release or plan_release
-            if args.no_build:
-                print(
-                    "NOTE --no-build has no effect with --target helm: "
-                    "the Helm target does not build local images yet."
-                )
             log_path = (
                 Path(args.log_file) if args.log_file else default_log_path(Path(profile_path).parent.name)
             ).resolve()
             log_path.parent.mkdir(parents=True, exist_ok=True)
+            use_color = (not no_color) and sys.stdout.isatty()
             try:
                 with open(log_path, "a", encoding="utf-8") as log_file:
+                    # Issue #690: the Helm target owns the whole lifecycle, like
+                    # compose does — ensure the cluster is reachable (optionally
+                    # creating the k3d cluster), build the plan's local images,
+                    # and import them into the cluster before helm installs.
+                    builds = collect_local_builds(plan)
+                    cluster_code = ensure_k8s_cluster(
+                        args.kube_context,
+                        create=args.create_cluster,
+                        log_file=log_file,
+                        timeout=args.timeout,
+                        use_color=use_color,
+                    )
+                    if cluster_code != 0:
+                        print(f"Cluster preparation failed (exit {cluster_code}). See {log_path} for details.")
+                        _record_audit(
+                            "up", args.profile, "failure", environment=args.environment, plan=plan,
+                            details={"target": "helm", "namespace": namespace, "release": release},
+                        )
+                        return cluster_code
+                    built_images: list[str] = []
+                    if builds and not args.no_build:
+                        print(f"Building local images: {', '.join(build.image for build in builds)}")
+                        build_code = build_local_images(builds, log_file, use_color=use_color)
+                        if build_code != 0:
+                            print(f"Image build failed (exit {build_code}). See {log_path} for details.")
+                            _record_audit(
+                                "up", args.profile, "failure", environment=args.environment, plan=plan,
+                                details={"target": "helm", "namespace": namespace, "release": release},
+                            )
+                            return build_code
+                        built_images = [build.image for build in builds]
+                        import_code = import_local_images(
+                            built_images, args.kube_context, log_file, use_color=use_color
+                        )
+                        if import_code != 0:
+                            print(f"Image import failed (exit {import_code}). See {log_path} for details.")
+                            _record_audit(
+                                "up", args.profile, "failure", environment=args.environment, plan=plan,
+                                details={"target": "helm", "namespace": namespace, "release": release},
+                            )
+                            return import_code
+                    elif builds and args.no_build:
+                        print(
+                            "NOTE --no-build: skipping local image build and cluster import "
+                            f"for --target helm ({', '.join(build.image for build in builds)}); "
+                            "the images must already be present in the cluster."
+                        )
                     result = helm_up(
                         plan,
                         chart_dir,
@@ -2486,7 +2543,7 @@ def _run() -> int:
                         timeout=args.timeout,
                         detach=args.detach,
                         log_file=log_file,
-                        use_color=(not no_color) and sys.stdout.isatty(),
+                        use_color=use_color,
                     )
             except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
                 print(f"ERROR {exc}")
@@ -2505,7 +2562,12 @@ def _run() -> int:
                 print(f"Helm release {release} is ready in {namespace}. See {log_path} for details.")
             _record_audit(
                 "up", args.profile, "success", environment=args.environment, plan=plan,
-                details={"target": "helm", "namespace": namespace, "release": release},
+                details={
+                    "target": "helm",
+                    "namespace": namespace,
+                    "release": release,
+                    "images": built_images,
+                },
             )
             return 0
 
