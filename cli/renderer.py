@@ -25,12 +25,12 @@ from .constants import MAX_NESTING_DEPTH, MaxNestingDepthExceeded
 from .diagnostics import Diagnostic
 from .loader import resolve_module_dir
 from .resolver import parse_contract_ref
-from .security_common import find_project_root_dir
 from .secret_leak import (
     check_generated_text,
     declared_secret_env_names,
     resolved_secret_values,
 )
+from .security_common import find_project_root_dir
 from .utils import (
     _atomic_write,
     _compose_service_name,
