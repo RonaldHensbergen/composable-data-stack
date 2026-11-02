@@ -15,6 +15,11 @@ The format is based on Keep a Changelog.
   measurement via `cds maturity`, evidence/issue triage, and the v1.0.0
   release — each split into tasks of at most 2 hours. Section 2 lists the open
   prerequisite issues per gate and the already-landed work not to re-file.
+  Section 13 now spells out the full production suite as a copy-paste command
+  block — `cds init` / `cds test` / `cds up` / `state` / `down` on
+  `production-kubernetes-example --environment prod`, with and without
+  `--target helm`, plus the surrounding `preflight` / `security` / `maturity`
+  / `report` gates (#1104).
 
 - The `cds` CLI now honors the `NO_COLOR` environment variable (#1094): when
   present and non-empty (<https://no-color.org/>), colors and the ANSI

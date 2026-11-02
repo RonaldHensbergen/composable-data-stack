@@ -443,6 +443,47 @@ validate → security → plan → render in sequence, so on a given target it i
 the single command that exercises the whole static pipeline; the live checks
 (`up`/`state`/boundary/E2E) run on top of it.
 
+### Full production suite in one block (Gate 2)
+
+The full production suite is the `production-kubernetes-example` profile —
+which via `extends` pulls in the complete
+`local-dagster-postgres-superset` stack (Postgres, Dagster, Superset, dbt,
+KeyDB) — with the `prod` environment overlay
+(`profiles/production-kubernetes-example/environments/prod.yaml`) merged on
+top via `--environment prod`. One `--environment` overlay applies per
+invocation; use `cds diff <profile> --from dev --to prod` on a profile that
+has both to see exactly what an overlay changes. Copy-paste block:
+
+```bash
+# 1. Generate .env with every required secret — the overlay adds
+#    CDS_BACKUP_ENCRYPTION_KEY and the profile requires CDS_CACHE_PASSWORD —
+#    then replace every change-me with a real, unique value:
+cds init production-kubernetes-example --environment prod
+
+# 2. Full static production suite in one command: validate -> security ->
+#    plan -> render, prod overlay applied, Helm target. Drop `--target helm`
+#    for the Compose/Docker target:
+cds test production-kubernetes-example --environment prod --target helm
+
+# 3. Live full run on the cluster (G2.7), then tear down:
+cds up production-kubernetes-example --environment prod --target helm
+cds state production-kubernetes-example --environment prod --target helm
+cds down production-kubernetes-example --environment prod --target helm
+
+# 4. The surrounding fail-closed gates, all with the same overlay:
+cds preflight production-kubernetes-example --environment prod
+cds security production-kubernetes-example --environment prod --target helm
+cds maturity production-kubernetes-example --environment prod --format json
+cds report production-kubernetes-example --environment prod --hardened --output <evidence-file>
+```
+
+Expected: step 2 exits 0 with all four stages `[PASS]` once real secrets are
+set (weak or reused placeholder values fail the security stage closed via
+CDS-SEC-012/013); the remaining findings are the documented snapshot
+(CDS-SEC-080/081 et al., see
+[docs/production-hardening-checklist.md](../production-hardening-checklist.md)).
+Step 3 needs the cluster from Gate 1 (Path A) or `make k3d-up` (Path B).
+
 | Gate | Primary testing command | Expected result |
 | --- | --- | --- |
 | 0 — Bootstrap | `cds test local-kubernetes-example` (Compose default) after `cds init` | exit 0: validate, security, plan, render all green on Compose |
