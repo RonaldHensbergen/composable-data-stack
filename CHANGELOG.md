@@ -18,7 +18,10 @@ The format is based on Keep a Changelog.
   local images the command fails closed and points at `--image-source registry`.
   `${CDS_*}` secret placeholders in build fields are refused on this path
   (a resolved `docker build --build-arg` would expose the value in the process
-  argv) instead of being expanded. `--no-build` skips the build and import
+  argv) instead of being expanded, and build-arg values are redacted
+  (`--build-arg KEY=<redacted>`) in the echoed `Running: ...` command line so
+  sensitive values are not written to stdout/CI logs while the executed
+  command is unchanged. `--no-build` skips the build and import
   steps. New `cli/k8s_provision.py`;
   `docs/kubernetes.md` updated; tests in `tests/test_k8s_provision.py`.
 

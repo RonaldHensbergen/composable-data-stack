@@ -1,3 +1,4 @@
+import contextlib
 import io
 import os
 import subprocess
@@ -9,6 +10,7 @@ from unittest.mock import patch
 
 from cli.k8s_provision import (
     LocalImageBuild,
+    _format_command_for_log,
     _validate_build_args,
     _validate_image_ref,
     build_local_images,
@@ -347,6 +349,58 @@ class BuildLocalImagesTest(unittest.TestCase):
     def test_k3d_is_an_allowed_executable(self) -> None:
         self.assertIn("k3d", _ALLOWED_EXECUTABLES)
 
+    @patch("cli.k8s_provision.run_streamed", return_value=0)
+    def test_logged_command_redacts_build_arg_values(self, mock_run) -> None:
+        # Code-scanning finding: the echoed "Running:" line must not contain
+        # --build-arg values (a value may be sensitive even when it is not a
+        # ${CDS_*} placeholder); the executed command keeps the real value.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            result = build_local_images(self._builds(), io.StringIO())
+        self.assertEqual(result, 0)
+        logged = out.getvalue()
+        self.assertIn(
+            "Running: docker build -t local/a:custom -f images/a/Dockerfile "
+            "--build-arg DB_BACKEND=<redacted> /repo",
+            logged,
+        )
+        self.assertNotIn("DB_BACKEND=postgres", logged)
+        executed = mock_run.call_args_list[0].args[0]
+        self.assertIn("DB_BACKEND=postgres", executed)
+
+
+class FormatCommandForLogTest(unittest.TestCase):
+    def test_redacts_two_token_build_arg_and_keeps_key(self) -> None:
+        self.assertEqual(
+            _format_command_for_log(
+                ["docker", "build", "--build-arg", "A=secret", "."]
+            ),
+            "docker build --build-arg A=<redacted> .",
+        )
+
+    def test_redacts_equals_form(self) -> None:
+        self.assertEqual(
+            _format_command_for_log(["docker", "build", "--build-arg=A=secret", "."]),
+            "docker build --build-arg=A=<redacted> .",
+        )
+
+    def test_value_containing_equals_sign(self) -> None:
+        self.assertEqual(
+            _format_command_for_log(["--build-arg", "A=b=c"]),
+            "--build-arg A=<redacted>",
+        )
+
+    def test_dangling_build_arg_flag(self) -> None:
+        self.assertEqual(
+            _format_command_for_log(["--build-arg"]), "--build-arg <redacted>"
+        )
+
+    def test_other_tokens_untouched(self) -> None:
+        cmd = ["k3d", "image", "import", "local/a:1", "--cluster", "cds-x"]
+        self.assertEqual(
+            _format_command_for_log(cmd), "k3d image import local/a:1 --cluster cds-x"
+        )
+
 
 class K3dClusterNameTest(unittest.TestCase):
     def test_derives_cluster_from_context(self) -> None:
@@ -521,14 +575,20 @@ class ImportLocalImagesTest(unittest.TestCase):
 
     @patch("cli.k8s_provision.run_streamed", return_value=0)
     def test_imports_all_images_into_named_cluster(self, mock_run) -> None:
-        result = import_local_images(
-            ["local/a:1", "local/b:1"], "k3d-cds-x", io.StringIO()
-        )
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            result = import_local_images(
+                ["local/a:1", "local/b:1"], "k3d-cds-x", io.StringIO()
+            )
         self.assertEqual(result, 0)
         cmd = mock_run.call_args.args[0]
         self.assertEqual(
             cmd,
             ["k3d", "image", "import", "local/a:1", "local/b:1", "--cluster", "cds-x"],
+        )
+        self.assertIn(
+            "Running: k3d image import local/a:1 local/b:1 --cluster cds-x",
+            out.getvalue(),
         )
 
     @patch("cli.k8s_provision.run_streamed", return_value=4)

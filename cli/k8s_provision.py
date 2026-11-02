@@ -242,6 +242,40 @@ def _reject_secret_placeholders(build: LocalImageBuild) -> None:
             )
 
 
+def _format_command_for_log(command: list[str]) -> str:
+    """
+    Render `command` for logging with `--build-arg` values redacted.
+
+    The executed command is unchanged; only the echoed line is sanitized.
+    `docker build` is invoked with `--build-arg KEY=VALUE` argv entries, and a
+    value may be sensitive even when it is not a `${CDS_*}` placeholder, so
+    printing the raw argv would write it to stdout/CI logs and retained log
+    artifacts. The key is kept (`--build-arg KEY=<redacted>`) so the log
+    still shows which args were passed.
+    """
+    parts: list[str] = []
+    redact_next = False
+    for arg in command:
+        if redact_next:
+            if "=" in arg:
+                key = arg.split("=", 1)[0]
+                parts.append(f"{key}=<redacted>")
+            else:
+                parts.append("<redacted>")
+            redact_next = False
+        elif arg == "--build-arg":
+            parts.append(arg)
+            redact_next = True
+        elif arg.startswith("--build-arg="):
+            key = arg[len("--build-arg=") :].split("=", 1)[0]
+            parts.append(f"--build-arg={key}=<redacted>")
+        else:
+            parts.append(arg)
+    if redact_next:
+        parts.append("<redacted>")
+    return " ".join(parts)
+
+
 def build_local_images(
     builds: list[LocalImageBuild],
     log_file: IO[str],
@@ -252,8 +286,9 @@ def build_local_images(
     Build each collected image with `docker build`, streaming output to
     `log_file` (and the terminal) exactly like the compose target's build
     step. `${CDS_*}` secret placeholders in build fields are refused up front
-    (see _reject_secret_placeholders). Returns the first non-zero exit code,
-    or 0 when every build succeeded.
+    (see _reject_secret_placeholders), and build-arg values are redacted from
+    the echoed command line (see _format_command_for_log). Returns the first
+    non-zero exit code, or 0 when every build succeeded.
     """
     commands: list[list[str]] = []
     for build in builds:
@@ -267,7 +302,7 @@ def build_local_images(
         commands.append(command)
 
     for command in commands:
-        print(f"Running: {' '.join(command)}")
+        print(f"Running: {_format_command_for_log(command)}")
         result = run_streamed(command, log_file, use_color=use_color)
         if result != 0:
             return result
@@ -453,7 +488,7 @@ def import_local_images(
     if log_file is None:
         raise RuntimeError("import_local_images requires a log_file")
     command = ["k3d", "image", "import", *validated, "--cluster", cluster_name]
-    print(f"Running: {' '.join(command)}")
+    print(f"Running: {_format_command_for_log(command)}")
     return run_streamed(command, log_file, use_color=use_color)
 
 
