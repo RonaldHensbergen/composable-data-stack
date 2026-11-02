@@ -97,6 +97,26 @@ The timeout bounds both Helm's wait and every explicit workload rollout check.
 Output is written to `.cds/logs/`. `--detach` submits the release without
 waiting for rollouts.
 
+`cds up --target helm` is self-contained, like the Compose target (#690). Before
+`helm upgrade --install` runs, it:
+
+1. checks that the cluster named by `--kube-context` is reachable. If it is
+   not, the command fails with a legible error — unless `--create-cluster` is
+   given and the context is a k3d one (`k3d-<name>`), in which case `cds`
+   creates that cluster with `k3d cluster create <name> --wait` and waits for
+   the node to be Ready;
+2. builds every local image the rendered chart references (the compose
+   services with a `build:` block, exactly the set that gets
+   `imagePullPolicy: Never`), streaming `docker build` output to the log file;
+3. imports those images into the cluster with `k3d image import` when the
+   context is a k3d one. On a non-k3d cluster there is no supported way to
+   load local images, so the command fails closed and tells you to switch the
+   profile to `--image-source registry` instead.
+
+`--no-build` skips steps 2 and 3; the images must then already be present in
+the cluster. Registry-sourced images (`--image-source registry`) are pulled by
+the cluster itself and need no build or import step.
+
 Use the provider-neutral health view:
 
 ```bash
@@ -135,6 +155,15 @@ make k3d-install
 CDS_E2E_KEEP_CLUSTER=1 make k3d-e2e
 ```
 
+Since #690, `cds up --target helm` itself builds the local images, ensures the
+cluster, and imports the images, so `make k3d-build`/`make k3d-up` are no longer
+strict prerequisites of `make k3d-install` — the wrapper scripts remain as thin,
+worktree-scoped conveniences (branch-derived cluster name, kubeconfig, and port
+block) that call `cds up --target helm` with the right `--kube-context`/
+`--namespace`/`--release`. A cluster created by `--create-cluster` uses k3d's
+default ports; use the harness when you want the deterministic per-branch host
+port mappings.
+
 Run `make k3d-down` when finished. The E2E suite uses a dedicated namespace and
 release. It removes only resources it created and deletes the cluster only when
 the suite created that cluster. Setting `CDS_E2E_KEEP_CLUSTER=1` leaves its
@@ -148,7 +177,8 @@ cannot drift apart. On failure it uploads pod descriptions, events, and logs as
 the `k8s-e2e-logs` artifact.
 
 Local Dagster, Superset, and PostgreSQL images use `imagePullPolicy: Never` and are imported
-into k3d. This deliberately avoids the common combination of
+into k3d by `cds up --target helm` itself (step 3 above; `make k3d-up` does the same for the
+harness flow). This deliberately avoids the common combination of
 `imagePullPolicy: Always`, a nonexistent `localhost:5000` registry, and macOS
 AirPlay's host-port conflict. If a future module requires a registry, expose it
 on a host port other than 5000 and configure a k3s registry mirror before the
@@ -315,6 +345,10 @@ added later as a second provider of the same `gitops-target` contract.
   freeing Docker VM space, then restarting only this worktree's k3d server node.
 - If a context is missing, export the `KUBECONFIG` printed by `make k3d-up`.
 - If an imported image cannot start, confirm its workload uses
-  `imagePullPolicy: Never` and rerun `make k3d-up` after the image build.
+  `imagePullPolicy: Never` and rerun `cds up --target helm` (or `make k3d-up`)
+  after the image build.
+- If the cluster is not reachable, create it (`k3d cluster create <name>`) or
+  pass `--create-cluster` with a `k3d-<name>` `--kube-context`; `cds up --target
+  helm` checks reachability before installing and fails with this guidance.
 - If Helm reports missing secret data, rerun `cds init`, fill every required
   `CDS_*` value, and keep `.env` untracked.

@@ -10,6 +10,23 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- `cds up --target helm` is now self-contained, matching the Compose target's
+  one-command lifecycle (#690). Before `helm upgrade --install` runs, it checks
+  that the `--kube-context` cluster is reachable (with `--create-cluster` and a
+  `k3d-<name>` context it creates the missing k3d cluster and waits for the
+  node), builds every local image the rendered chart references with
+  `imagePullPolicy: Never` (the compose services' `build:` blocks), and imports
+  them into a k3d cluster with `k3d image import`. On a non-k3d cluster with
+  local images the command fails closed and points at `--image-source registry`.
+  `${CDS_*}` secret placeholders in build fields are refused on this path
+  (a resolved `docker build --build-arg` would expose the value in the process
+  argv) instead of being expanded, and build-arg values are redacted
+  (`--build-arg KEY=<redacted>`) in the echoed `Running: ...` command line so
+  sensitive values are not written to stdout/CI logs while the executed
+  command is unchanged. `--no-build` skips the build and import
+  steps. New `cli/k8s_provision.py`;
+  `docs/kubernetes.md` updated; tests in `tests/test_k8s_provision.py`.
+
 - The `cds` CLI now honors the `NO_COLOR` environment variable (#1094): when
   present and non-empty (<https://no-color.org/>), colors and the ANSI
   in-place redraw of the live state view are disabled for every command, as
