@@ -54,7 +54,7 @@ instead of stalling the cycle.
 
 | Issue | Blocks | What "resolved" means for this MVP |
 | --- | --- | --- |
-| [#690](https://github.com/RonaldHensbergen/composable-data-stack/issues/690) | Gate 0/1 (no-clone path) | `cds up --target helm` self-contained: builds or pulls images and imports them into the cluster. Until then, the fresh-directory path needs `image.source: registry` + `image.tag` (published signed images), or a repo clone with `make k3d-build`. |
+| [#690](https://github.com/RonaldHensbergen/composable-data-stack/issues/690) | Gate 0/1 (no-clone path) | `cds up --target helm` self-contained: builds or pulls images and imports them into the cluster. Implemented in PR [#1105](https://github.com/RonaldHensbergen/composable-data-stack/pull/1105) (`feat/690-helm-up-self-contained`); the maintainer merges it when the MVP cycle needs it. Until merged, the fresh-directory path uses `image.source: registry` + `image.tag` (published signed images), or a repo clone with `make k3d-build`. |
 | [#1075](https://github.com/RonaldHensbergen/composable-data-stack/issues/1075) (+ Keycloak/Traefik have no `kubernetes:` block in their `module.yaml`) | Gate 3 | A k8s-capable `oidc-provider` and reverse proxy: `modules/identity/keycloak` and `modules/integration/traefik` render Compose-only today, so `local-haven-reference` cannot run on Helm yet. MVP scope: measure and file, run the Haven shape on Compose. |
 | [#1033](https://github.com/RonaldHensbergen/composable-data-stack/issues/1033) | Gates 2/3 | Reverse-proxy route targets derived as NetworkPolicy edges; until then an ingress fronting a ClusterIP service needs hand-declared `networkPolicy.ingress` rules. |
 | [#1023](https://github.com/RonaldHensbergen/composable-data-stack/issues/1023) | Gates 1/2 | External egress for Helm workloads under the default-deny baseline. |
@@ -140,7 +140,7 @@ gate and the signoff table are in [section 13](#13-testing-commands-and-signoff)
   [docs/image-signing.md](../image-signing.md)); set that in the fetched
   profile/module config. Path B: clone the repo at the fetched commit SHA and
   run `make k3d-build`, then import images into the cluster
-  (`k3d image import ...`). #690 tracks making this step self-contained.
+  (`k3d image import ...`). #690 (PR #1105) makes this step self-contained.
   Exit: the profile's images are resolvable by the cluster (`imagePullPolicy`
   correct for the path chosen).
 - [ ] **G0.6 Compose smoke run first** (~1 h). `cds init` the simplest fetched
