@@ -296,7 +296,7 @@ class ResolveProvidedContractsHostTest(unittest.TestCase):
 
 
 class ProvidedContractHostValidationTest(unittest.TestCase):
-    def test_advertised_host_without_rendered_service_reports_e147(self):
+    def test_advertised_host_without_rendered_service_reports_e150(self):
         plan = {
             "modules": [
                 {
