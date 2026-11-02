@@ -303,6 +303,13 @@ working on Helm, backup + restore verified on Helm, #1033 closed, maturity tier
 
 ## 8. Gate 3 — Haven parity
 
+The "Haven-shaped profile" of G3.3–G3.6 is the full Haven profile defined in
+[section 13](#full-haven-profile-gate-3--the-v20-suite): the v1.0.0 stack
+(Postgres, Dagster, Superset, KeyDB) plus dbt and the Haven+ platform baseline
+(Keycloak, Traefik, restic, garage, vault, FluxCD, Loki/otel-collector), with
+the operator-managed database on Helm. It is the ~v2.0 suite; v1.0.0 ships
+with the Gate-2 profile only.
+
 - [ ] **G3.1 Run the Haven reference shape on Compose** (~2 h). From the fresh
   directory, `cds get local-haven-reference`, `cds init`, `cds up` (Compose),
   verify Keycloak behind Traefik TLS (`https://.../realms/cds`), `cds state`,
@@ -443,12 +450,12 @@ validate → security → plan → render in sequence, so on a given target it i
 the single command that exercises the whole static pipeline; the live checks
 (`up`/`state`/boundary/E2E) run on top of it.
 
-### Full production suite in one block (Gate 2)
+### Full production suite in one block (Gate 2 — the v1.0.0 suite)
 
-The full production suite is the `production-kubernetes-example` profile —
+The v1.0.0 production suite is the `production-kubernetes-example` profile —
 which via `extends` pulls in the complete
-`local-dagster-postgres-superset` stack (Postgres, Dagster, Superset, dbt,
-KeyDB) — with the `prod` environment overlay
+`local-dagster-postgres-superset` stack (Postgres, Dagster, Superset, KeyDB)
+— with the `prod` environment overlay
 (`profiles/production-kubernetes-example/environments/prod.yaml`) merged on
 top via `--environment prod`. One `--environment` overlay applies per
 invocation; use `cds diff <profile> --from dev --to prod` on a profile that
@@ -483,6 +490,54 @@ CDS-SEC-012/013); the remaining findings are the documented snapshot
 (CDS-SEC-080/081 et al., see
 [docs/production-hardening-checklist.md](../production-hardening-checklist.md)).
 Step 3 needs the cluster from Gate 1 (Path A) or `make k3d-up` (Path B).
+
+### Full Haven profile (Gate 3 — the ~v2.0 suite)
+
+`production-kubernetes-example` is the v1.0.0 suite. The full Haven profile —
+working name `production-haven`, created by G3.3–G3.6 — is the ~v2.0 target:
+the v1.0.0 stack plus the Haven+ platform baseline, so the profile provides
+every platform contract, not just the workload. The absolutely necessary
+module set, mapped to the Haven+ baseline of
+[docs/haven-parity-plan.md](../haven-parity-plan.md) sections 2 and 7:
+
+| Module | Contract(s) | Haven+ capability it covers | Status / tracked gap |
+| --- | --- | --- | --- |
+| `warehouse/postgres` | `sql-database` (+ per-app databases), built-in `backup-target` | warehouse; database operator on Helm via CloudNativePG-shaped module | stable; operator = #768 (G3.5) |
+| `orchestration/dagster` | `http-service`, `backup-source` | orchestration workload | stable; has `kubernetes:` block |
+| `bi/superset` | `http-service`, consumes `oidc-provider` | BI workload | stable; has `kubernetes:` block |
+| `cache/keydb` | `cache-service` | cache | stable; has `kubernetes:` block |
+| `transformation/dbt` | consumes `sql-database`, `docs-service` | transformation | stable; no `kubernetes:` block yet |
+| `identity/keycloak` | `oidc-provider` | identity/SSO (Haven+: Keycloak) | `productionSuitable: false`, no `kubernetes:` block — #1075, #682/#974 (G3.3) |
+| `integration/traefik` | `reverse-proxy` with TLS | TLS ingress edge (stands in for cert-manager+ingress at MVP scope) | no `kubernetes:` block — #1075, #883, #1033 (G3.3/G3.4) |
+| `backup/restic` | provides `backup-target`, consumes `backup-source` | backup (Haven+: Velero); Postgres sidecar is #665 | production-only piece (E143); no `kubernetes:` block — G2.9 |
+| `storage/garage` | `object-storage` (S3) | restic's S3 repository target / landing zone (#669) | `productionSuitable: false` (single-node) — deviation for the local MVP cluster only |
+| `secrets/vault` | `secrets-provider` | secrets sync (Haven+: Sealed/External Secrets) | `productionSuitable: false` currently |
+| `gitops/fluxcd` (experimental) | `gitops-target` | GitOps (Haven+: FluxCD) | has `kubernetes:` block; experimental — #767 |
+| `observability/loki` + `observability/otel-collector` (experimental) | `log-sink`, `metrics-sink`, `trace-sink` | observability: logs + OTLP pipeline (Haven+: Loki/Alloy; Grafana metrics backend = #369) | experimental; no `kubernetes:` blocks — G3.6 (#369, #1066, #1076) |
+
+Deliberately **not** in the full profile (post-MVP, per section 2): service
+mesh/Istio (#776), workload identity (#1068), a standalone cert-manager
+(#205/#577/#580 — Traefik TLS covers the edge), and Marquez lineage (#976).
+
+Once the profile exists, the same command shape runs the whole ~v2.0 suite:
+
+```bash
+cds init production-haven --environment prod
+cds test production-haven --environment prod --target helm   # drop --target helm for Compose
+cds up production-haven --environment prod --target helm
+cds state production-haven --environment prod --target helm
+cds down production-haven --environment prod --target helm
+cds maturity production-haven --environment prod --format json
+```
+
+Deviations are recorded here as issues, not silently waived: under the `prod`
+overlay, every `productionSuitable: false` module above raises a **high**
+CDS-SEC-073 finding (each is filed against its own module issue); backup
+pieces are production-only, so the suite fails closed with E143 unless
+`--environment prod` is passed; Keycloak must not run `webServer.mode:
+development` under prod (E140, #974); and modules without a `kubernetes:`
+block fail the `--target helm` render closed with E072 until their Gate-3
+issues land — on the Compose target the suite renders and runs today.
 
 | Gate | Primary testing command | Expected result |
 | --- | --- | --- |

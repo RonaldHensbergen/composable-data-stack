@@ -19,7 +19,12 @@ The format is based on Keep a Changelog.
   block — `cds init` / `cds test` / `cds up` / `state` / `down` on
   `production-kubernetes-example --environment prod`, with and without
   `--target helm`, plus the surrounding `preflight` / `security` / `maturity`
-  / `report` gates (#1104).
+  / `report` gates (#1104). That profile is labeled the v1.0.0 suite; a second
+  block defines the full Haven profile (working name `production-haven`, the
+  ~v2.0 Gate-3 target): the v1.0.0 stack plus dbt, Keycloak, Traefik, restic,
+  garage, vault, FluxCD and Loki/otel-collector, with each module's
+  `productionSuitable: false` / missing-`kubernetes:`-block deviation recorded
+  against its tracking issue (#1104).
 
 - The `cds` CLI now honors the `NO_COLOR` environment variable (#1094): when
   present and non-empty (<https://no-color.org/>), colors and the ANSI
