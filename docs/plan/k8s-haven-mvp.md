@@ -27,8 +27,9 @@ installed, proves four claims and ends in a release:
    profile's Basic/Automated/Observed/Secured/Resilient tier, the Haven+ platform
    capabilities (GitOps, observability, security, database operator, backup,
    networking) are checked one by one against
-   [docs/haven-parity-plan.md](../haven-parity-plan.md), and every gap becomes a
-   tracked issue.
+   [docs/haven-parity-plan.md](../haven-parity-plan.md). Every blocking gap is
+   mandatory in-cycle work (section 2): the cycle pauses at the owning gate
+   until the issue is closed, rather than shipping a reduced scope.
 4. **The cycle ends in a v1.0.0 release**, cut per
    [RELEASE.md](../../RELEASE.md) and the release gates in
    [docs/release-strategy.md](../release-strategy.md).
@@ -46,26 +47,28 @@ installed, proves four claims and ends in a release:
 - The Docker Compose path is not modified; Kubernetes remains a second render
   target.
 
-## 2. Prerequisites: open issues that gate parts of the MVP
+## 2. Blocking issues — mandatory work in this cycle
 
-These issues are open as of 2026-11-02. A prerequisite blocks only the gate
-listed; where it does, run the reduced scope and record the gap in Gate 4
-instead of stalling the cycle.
+These issues are open as of 2026-11-02. Each one is **required work, not a
+choice**: it is assigned to the gate that resolves it, split into ≤2 h subtasks
+under its tracking issue, and that gate does not sign off until the issue is
+closed. The target is the most production-worthy outcome, so the cycle pauses
+at a blocking gate instead of shipping a reduced scope. Only the explicitly
+post-MVP items at the end of this section may still be open after Gate 5.
 
-| Issue | Blocks | What "resolved" means for this MVP |
+| Issue | Resolved in | What "done" means (gate exit requires closure) |
 | --- | --- | --- |
-| [#690](https://github.com/RonaldHensbergen/composable-data-stack/issues/690) | Gate 0/1 (no-clone path) | `cds up --target helm` self-contained: builds or pulls images and imports them into the cluster. Implemented in PR [#1105](https://github.com/RonaldHensbergen/composable-data-stack/pull/1105) (`feat/690-helm-up-self-contained`); the maintainer merges it when the MVP cycle needs it. Until merged, the fresh-directory path uses `image.source: registry` + `image.tag` (published signed images), or a repo clone with `make k3d-build`. |
-| [#1075](https://github.com/RonaldHensbergen/composable-data-stack/issues/1075) (+ Keycloak/Traefik have no `kubernetes:` block in their `module.yaml`) | Gate 3 | A k8s-capable `oidc-provider` and reverse proxy: `modules/identity/keycloak` and `modules/integration/traefik` render Compose-only today, so `local-haven-reference` cannot run on Helm yet. MVP scope: measure and file, run the Haven shape on Compose. |
-| [#1033](https://github.com/RonaldHensbergen/composable-data-stack/issues/1033) | Gates 2/3 | Reverse-proxy route targets derived as NetworkPolicy edges; until then an ingress fronting a ClusterIP service needs hand-declared `networkPolicy.ingress` rules. |
-| [#1023](https://github.com/RonaldHensbergen/composable-data-stack/issues/1023) | Gates 1/2 | External egress for Helm workloads under the default-deny baseline. |
-| [#1031](https://github.com/RonaldHensbergen/composable-data-stack/issues/1031) | Gate 1 | `waitFor` init-gates validated against the default-deny NetworkPolicy baseline. |
-| [#812](https://github.com/RonaldHensbergen/composable-data-stack/issues/812) | Gate 1 (quality of life) | Persisted `--kube-context`/`--namespace`/`--release` defaults, so the MVP doesn't repeat flags. |
-| [#974](https://github.com/RonaldHensbergen/composable-data-stack/issues/974), [#682](https://github.com/RonaldHensbergen/composable-data-stack/issues/682) | Gates 2/3 | Keycloak production mode default (`E140` absent-mode gap) and the hardcoded `KC_DB: postgres` binding; both gate a production-suitable identity module. |
-| [#883](https://github.com/RonaldHensbergen/composable-data-stack/issues/883) | Gate 3 | Provider-neutral HTTP routing contract, so reverse-proxy wiring is resolved from the contract graph instead of hand-authored. |
-| [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) | Gate 3 (stretch) | CloudNativePG-shaped database operator; MVP can proceed with StatefulSet+PVC Postgres and file the gap. |
-| [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776), [#1068](https://github.com/RonaldHensbergen/composable-data-stack/issues/1068) | Post-MVP Haven parity | Service mesh (mTLS) and workload identity; out of MVP scope, tracked. |
-| [#369](https://github.com/RonaldHensbergen/composable-data-stack/issues/369), [#976](https://github.com/RonaldHensbergen/composable-data-stack/issues/976), [#1065](https://github.com/RonaldHensbergen/composable-data-stack/issues/1065), [#1066](https://github.com/RonaldHensbergen/composable-data-stack/issues/1066), [#1076](https://github.com/RonaldHensbergen/composable-data-stack/issues/1076) | Gate 3 (observability row) | Grafana metrics module, Marquez promotion, and the experimental Loki/otel-collector gaps; the MVP can wire `loki`/`otel-collector` experimentally and file the rest. |
-| Backup providers [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665)/[#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668)/[#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669); `E142` (pgBackRest sidecar not rendered for Helm) | Gate 2 (backup row) | The `backup-target` contract exists (#210, closed) but no provider module is implemented; the prod overlay declares policies without an enabled sidecar. MVP verifies the policy validation, not a real backup run. |
+| [#690](https://github.com/RonaldHensbergen/composable-data-stack/issues/690) | Gate 0, task G0.0 | PR [#1105](https://github.com/RonaldHensbergen/composable-data-stack/pull/1105) (`feat/690-helm-up-self-contained`) merged to main: `cds up --target helm` builds/imports images and ensures a reachable cluster by itself. The maintainer merges it before Gate 1 starts; the MVP does not run on a workaround. |
+| [#1031](https://github.com/RonaldHensbergen/composable-data-stack/issues/1031) | Gate 1, task G1.8 | `waitFor` init-gates are validated against the default-deny NetworkPolicy baseline; a conflicting gate fails the render closed. |
+| [#1023](https://github.com/RonaldHensbergen/composable-data-stack/issues/1023) | Gate 1, task G1.9 | External egress for Helm workloads is declarable and rendered under the default-deny baseline, surfaced as `CDS-K8S-008` findings. |
+| [#1033](https://github.com/RonaldHensbergen/composable-data-stack/issues/1033) | Gates 2/3, tasks G2.8 and G3.4 | Reverse-proxy route targets are derived as NetworkPolicy edges, so an ingress fronting a ClusterIP service needs no hand-declared `networkPolicy.ingress` rules. |
+| [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665)/[#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668)/[#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669); `E142` | Gate 2, task G2.9 | A `backup-target` provider renders and runs on Helm (pgBackRest sidecar or a restic-shaped module), and a backup **plus a restore verification** run against the prod profile. Policy-only declaration is not accepted. |
+| [#1075](https://github.com/RonaldHensbergen/composable-data-stack/issues/1075) (+ Keycloak/Traefik have no `kubernetes:` block in their `module.yaml`) | Gate 3, task G3.3 | `modules/identity/keycloak` and `modules/integration/traefik` have `kubernetes:` implementations, and `local-haven-reference` renders and runs on `--target helm`. |
+| [#682](https://github.com/RonaldHensbergen/composable-data-stack/issues/682), [#974](https://github.com/RonaldHensbergen/composable-data-stack/issues/974) | Gate 3, task G3.3 | Keycloak consumes a generic `sql-database` binding (no hardcoded `KC_DB: postgres`) and defaults to production web serving under the prod overlay (`E140` enforced). |
+| [#883](https://github.com/RonaldHensbergen/composable-data-stack/issues/883) | Gate 3, task G3.4 | A provider-neutral HTTP routing contract exists and Traefik wiring is resolved from the contract graph, not hand-authored. |
+| [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) | Gate 3, task G3.5 | A CloudNativePG-shaped operator module provides `sql-database` on Helm as the production warehouse; StatefulSet+PVC Postgres stays the dev path. |
+| [#369](https://github.com/RonaldHensbergen/composable-data-stack/issues/369), [#1066](https://github.com/RonaldHensbergen/composable-data-stack/issues/1066), [#1076](https://github.com/RonaldHensbergen/composable-data-stack/issues/1076) | Gate 3, task G3.6 | Observability providers run live on Helm: the Grafana metrics module is delivered (#369), Loki/otel-collector are wired into the profile, and the no-new-privileges exec failure (#1066) and the OTLP log-sink gap (#1076) are fixed — the **Observed** tier is reached with providers running, not merely declared. |
+| [#1065](https://github.com/RonaldHensbergen/composable-data-stack/issues/1065) | Gate 4, task G4.2 | Docker smoke-test CI covers the experimental modules this MVP runs (loki, otel-collector). |
 
 Already landed — do not re-file: the Helm render target with NetworkPolicy
 generation (#608, #75), kind-based CI validation (#76), Kubernetes docs and
@@ -75,6 +78,17 @@ log-sink provider (#662), the `trace-sink`/`metrics-sink` contracts and
 otel-collector module (#777), the Keycloak module with the shared
 `oidc-provider` contract and Superset consumer (#370, #1064), and the
 `cds maturity` tier report (#769, #1059).
+
+Post-MVP, tracked but **not** blocking this cycle (each keeps its issue and
+milestone): [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776)
+service mesh and
+[#1068](https://github.com/RonaldHensbergen/composable-data-stack/issues/1068)
+workload identity — the **Secured** tier is reachable via TLS + identity broker
+without a mesh;
+[#812](https://github.com/RonaldHensbergen/composable-data-stack/issues/812)
+persisted Helm context — quality of life, not a correctness gap;
+[#976](https://github.com/RonaldHensbergen/composable-data-stack/issues/976)
+Marquez promotion — lineage UI, not a Haven+ baseline capability.
 
 There is currently no tracking issue for "1.0.0 release criteria"; Gate 5
 section 10.1 defines them. File an issue for that when this runbook is first
@@ -98,25 +112,34 @@ Two execution paths; the MVP uses Path A and falls back to Path B where noted:
   which builds local images and imports them into k3d.
 
 Record exact versions of everything (`docker version`, `cds --version`,
-`k3d version`, `kubectl version --client`, `helm version`) in the results log —
-reproducibility from the version set is part of the evidence.
+`k3d version`, `kubectl version --client`, `helm version`) in the environment
+record (section 13) — reproducibility from the version set is part of the
+evidence.
 
 ## 4. Gate overview
 
 | Gate | Goal | Exit criteria | Estimated effort |
 | --- | --- | --- | --- |
-| [0 — Bootstrap](#5-gate-0--bootstrap-from-a-fresh-directory-docker-only) | Fresh dir + Docker → CLI, tooling, profiles, cluster | `cds --version`, `kubectl get nodes` green, profiles fetched, Compose smoke run passes | 4–6 h |
-| [1 — Kubernetes MVP](#6-gate-1--kubernetes-mvp-on-a-local-cluster) | Full Helm lifecycle on the local cluster | `cds up/state/down --target helm` green, all workloads healthy, boundary checks pass, evidence recorded | 6–8 h |
-| [2 — Production-ready](#7-gate-2--production-ready-posture-on-kubernetes) | Prod overlay passes fail-closed gates on Helm | `validate`/`security`/`preflight` diff-clean, checklist mapped, maturity tier recorded | 6–8 h |
-| [3 — Haven parity](#8-gate-3--haven-parity) | Measure Haven+ capabilities, run what exists | Maturity report + gap matrix, Haven shape run on Compose, gaps filed as issues | 4–6 h |
-| [4 — Evidence and issues](#9-gate-4--evidence-and-issue-triage) | Everything reproducible, every gap tracked | Results log complete, one issue per gap, docs/changelog updated | 3–4 h |
-| [5 — v1.0.0 release](#10-gate-5--v100-release) | Cut and publish v1.0.0 | Tag pushed, release published with evidence assets, announcement done | 4–6 h |
+| [0 — Bootstrap](#5-gate-0--bootstrap-from-a-fresh-directory-docker-only) | Fresh dir + Docker → CLI, tooling, profiles, cluster, #690 merged | `cds --version`, `kubectl get nodes` green, profiles fetched on a main SHA including PR #1105, Compose smoke run passes | 4–6 h |
+| [1 — Kubernetes MVP](#6-gate-1--kubernetes-mvp-on-a-local-cluster) | Full Helm lifecycle on the local cluster | `cds up/state/down --target helm` green, all workloads healthy, boundary checks pass, #1031 and #1023 closed, evidence recorded | 8–10 h |
+| [2 — Production-ready](#7-gate-2--production-ready-posture-on-kubernetes) | Prod overlay passes fail-closed gates on Helm, with real backup | `validate`/`security`/`preflight` diff-clean, checklist mapped with every control working on Helm, backup + restore verified (#665/#668/#669, E142), #1033 closed, maturity tier **Secured** recorded | 10–12 h |
+| [3 — Haven parity](#8-gate-3--haven-parity) | Haven-shaped profile runs on Helm | Identity + TLS ingress + operator-managed DB + backup + live observability + GitOps on `--target helm` (#1075, #682, #974, #883, #768, #369, #1066, #1076 closed), maturity tier **Secured**, gap matrix recorded | 5–8 working days |
+| [4 — Evidence and issues](#9-gate-4--evidence-and-issue-triage) | Everything reproducible, every remaining gap tracked | Signoff table complete, one issue per non-blocking gap (#1065 included), docs/changelog updated | 3–4 h |
+| [5 — v1.0.0 release](#10-gate-5--v100-release) | Cut and publish v1.0.0 | All section-2 blocking issues closed, tag pushed, release published with evidence assets, announcement done | 4–6 h |
 
-Total: roughly 4–5 working days of ≤2 h tasks. The primary testing command per
-gate and the signoff table are in [section 13](#13-testing-commands-and-signoff).
+Total: roughly 3–4 weeks of ≤2 h tasks — Gate 3 is the heavy gate, because the
+Keycloak/Traefik Helm implementations and the database operator are feature
+work, split into ≤2 h subtasks under their tracking issues. The primary testing
+command per gate and the signoff table are in
+[section 13](#13-testing-commands-and-signoff).
 
 ## 5. Gate 0 — Bootstrap from a fresh directory (Docker only)
 
+- [ ] **G0.0 Merge #690 (PR #1105)** (maintainer action, ~0.5 h to verify).
+  Before Gate 1 starts, `feat/690-helm-up-self-contained` is merged to main so
+  `cds up --target helm` is self-contained (builds/imports images, ensures the
+  cluster). Then re-fetch the profiles so `.cds/get-manifest.json` records a
+  main commit SHA that includes the merge. Exit: fetched SHA contains #1105.
 - [ ] **G0.1 Install the CDS CLI** (~0.5 h). `pipx install composable-data-stack`
   (or `pip install --user`); verify `cds --version` and `cds --help` work outside
   any source checkout. Exit: CLI runs from the fresh directory.
@@ -134,21 +157,19 @@ gate and the signoff table are in [section 13](#13-testing-commands-and-signoff)
   free host port block; avoid 5000, see
   [docs/kubernetes.md](../kubernetes.md#use-the-isolated-k3d-harness));
   `kubectl get nodes`. Exit: one Ready node, kubeconfig written by k3d.
-- [ ] **G0.5 Decide the image supply path** (~1–2 h). Path A requires every
-  module in the profile to use `image.source: registry` with a pinned
-  `image.tag` (published, signed, scanned images — see
-  [docs/image-signing.md](../image-signing.md)); set that in the fetched
-  profile/module config. Path B: clone the repo at the fetched commit SHA and
-  run `make k3d-build`, then import images into the cluster
-  (`k3d image import ...`). #690 (PR #1105) makes this step self-contained.
-  Exit: the profile's images are resolvable by the cluster (`imagePullPolicy`
-  correct for the path chosen).
+- [ ] **G0.5 Decide the image supply path** (~1 h). With #690 merged (G0.0),
+  `cds up --target helm` builds and imports local images itself on Path B.
+  Path A pins the published, signed, scanned images via `image.source:
+  registry` + `image.tag` in the fetched profile/module config (see
+  [docs/image-signing.md](../image-signing.md)). Exit: the profile's images are
+  resolvable by the cluster (`imagePullPolicy` correct for the path chosen).
 - [ ] **G0.6 Compose smoke run first** (~1 h). `cds init` the simplest fetched
   profile, fill `.env` (mode 0600), `cds up` (Compose default), `cds state`,
   `cds down`. This proves the CLI + secrets flow before Kubernetes is
   introduced. Exit: all services healthy, clean down.
 
-Gate 0 exit: G0.1–G0.6 checked, versions recorded in the results log.
+Gate 0 exit: G0.0–G0.6 checked, #1105 merged and reflected in the fetched
+commit SHA, versions recorded in the signoff table.
 
 ## 6. Gate 1 — Kubernetes MVP on a local cluster
 
@@ -180,18 +201,27 @@ stack on Helm) in namespace `cds-mvp`, release `cds`, context `k3d-cds-mvp`.
   Dagster pod only through the contract-derived NetworkPolicy edge, Dagster
   webserver gRPC path (ADR 0002), Superset login page. From a fresh directory
   run these as explicit `kubectl exec` checks; from a clone use
-  `CDS_E2E_KEEP_CLUSTER=1 make k3d-e2e`. Exit: pass = all, fail = 0, or each
-  failure filed as an issue.
+  `CDS_E2E_KEEP_CLUSTER=1 make k3d-e2e`. Exit: pass = all, fail = 0; every
+  failure is blocking work resolved before signoff (section 2), not a filed
+  note.
 - [ ] **G1.6 Teardown** (~0.5 h). `cds down ... --target helm` (PVC retention is
   the default; verify with `kubectl get pvc`), confirm the namespace is clean
   of release resources, `k3d cluster delete cds-mvp` when the gate is done.
   Exit: no leftover workloads; PVCs retained unless `--delete-pvcs`.
 - [ ] **G1.7 Record evidence** (~0.5 h). Save command outputs, `cds state`
   output, pod descriptions (`kubectl describe pod`), events, and timings into
-  the results log / evidence directory.
+  the evidence directory linked from the signoff table.
+- [ ] **G1.8 Resolve #1031** (≤2 h subtasks under the issue). Validate
+  `waitFor` init-gates against the default-deny NetworkPolicy baseline; a
+  conflicting gate fails the render closed. Tests included. Exit: issue
+  closed, `cds render local-kubernetes-example --target helm` clean.
+- [ ] **G1.9 Resolve #1023** (≤2 h subtasks under the issue). Make external
+  egress declarable and rendered under the default-deny baseline, surfaced as
+  `CDS-K8S-008` findings. Exit: issue closed; every external egress rule in
+  the example chart is explicit.
 
 Gate 1 exit: the full Helm lifecycle green on a cluster created from a fresh
-directory, with boundary checks passing and evidence saved.
+directory, boundary checks passing, #1031 and #1023 closed, evidence saved.
 
 ## 7. Gate 2 — Production-ready posture on Kubernetes
 
@@ -202,9 +232,9 @@ overlay that promotes the profile to the production security policy).
   `cds validate production-kubernetes-example --environment prod --target helm`
   and `cds render ... --environment prod --target helm`. Confirm the
   production markers: `E139` (no trust auth), `E140` (no development web
-  serving), SCRAM host auth, declared `spec.backup` policies — noting the
-  documented `E142` caveat that the pgBackRest sidecar is not rendered for
-  Helm yet. Exit: validation passes with the expected diagnostics.
+  serving), SCRAM host auth, declared `spec.backup` policies — the Helm backup
+  provider itself is made real in G2.9, not just declared. Exit: validation
+  passes with the expected diagnostics.
 - [ ] **G2.2 Preflight and host baseline** (~1 h).
   `cds preflight production-kubernetes-example --environment prod`; triage the
   `HOST-001..006` advisories against
@@ -227,22 +257,33 @@ overlay that promotes the profile to the production security policy).
   [docs/production-hardening-checklist.md](../production-hardening-checklist.md#2-the-checklist)
   and state the Kubernetes equivalent of each (pod security context and
   `cli/k8s_security.py` rules for control 6, NetworkPolicy for network
-  isolation, ServiceAccount/RBAC opt-in, PVC retention, etc.). File issues for
-  controls with no Helm equivalent (backup provider row, see section 2).
-  Exit: a filled-in mapping table in the results log.
+  isolation, ServiceAccount/RBAC opt-in, PVC retention, etc.). Every control
+  must have a working Helm equivalent — the backup row is closed by G2.9, not
+  filed. Exit: a filled-in mapping table in the evidence bundle.
 - [ ] **G2.6 Maturity tier** (~0.5 h).
   `cds maturity production-kubernetes-example --environment prod --format json`.
-  MVP target: at least **Automated** (identity, TLS/reverse proxy, backup
-  provider declared); **Secured** is the stretch, blocked on the issues in
-  section 2. Exit: tier recorded with the contracts that justify it.
+  MVP target: **Secured** — reachable via identity + TLS/reverse proxy + a
+  working backup provider now that section 2's issues are mandatory in-cycle.
+  Exit: tier recorded with the contracts that justify it.
 - [ ] **G2.7 Live production run** (~2 h). `cds up production-kubernetes-example
   --environment prod --target helm ...`, `cds state ... --target helm` until
   healthy, verify the exposure surface (only the intended ingress/NodePort
-  answers; backends ClusterIP-only), then `cds down`. Exit: healthy run,
-  exposure as expected, clean down.
+  answers; backends ClusterIP-only — enabled by G2.8), then `cds down`. Exit:
+  healthy run, exposure as expected, clean down.
+- [ ] **G2.8 Resolve #1033** (≤2 h subtasks under the issue). Derive
+  reverse-proxy route targets as NetworkPolicy edges, so an ingress fronting a
+  ClusterIP service renders correct policies without hand-declared rules.
+  Exit: issue closed; exposure check in G2.7 passes on contract-derived
+  rules alone.
+- [ ] **G2.9 Backup on Helm — #665/#668/#669 and E142** (≤2 h subtasks under
+  the issues). Render the pgBackRest sidecar (or a restic-shaped
+  `backup-target` provider) for the Helm target; run a backup of the prod
+  profile's Postgres and a **restore verification** into a scratch namespace.
+  Exit: issues closed, `E142` gone, restore evidence in the bundle.
 
-Gate 2 exit: fail-closed gates diff-clean, checklist mapped, maturity tier and
-evidence recorded, live prod-profile run green.
+Gate 2 exit: fail-closed gates diff-clean, checklist mapped with every control
+working on Helm, backup + restore verified on Helm, #1033 closed, maturity tier
+**Secured** and evidence recorded, live prod-profile run green.
 
 ## 8. Gate 3 — Haven parity
 
@@ -257,20 +298,40 @@ evidence recorded, live prod-profile run green.
   policy) mark present / experimental / missing with the tracking issue.
   Source of truth: [docs/haven-parity-plan.md](../haven-parity-plan.md) sections
   2 and 4. Exit: the matrix is written down.
-- [ ] **G3.3 Compose a Haven-shaped Helm profile from what exists** (~2 h). Add
-  the experimental modules that do render to Helm — `fluxcd` (GitOps, #767),
-  `loki`/`otel-collector` (observability, #662/#777) — to a copy of the
-  Kubernetes example profile; render with `--target helm` and record what
-  fails. Confirm and cross-link the known Helm gaps: Keycloak and Traefik have
-  no `kubernetes:` implementation (#1075, #1033, #883). Exit: a rendered (or
-  fail-closed with a filed issue) Haven-shaped chart plus the module
-  capability list.
-- [ ] **G3.4 Sync the parity plan** (~1 h). Update section 4 of
-  [docs/haven-parity-plan.md](../haven-parity-plan.md) if the measured status
-  drifted from the documented status. Exit: plan matches reality.
+- [ ] **G3.3 Make the Haven modules Helm-capable — #1075, #682, #974**
+  (feature work; ≤2 h subtasks under the issues). Add `kubernetes:`
+  implementations to `modules/identity/keycloak` and
+  `modules/integration/traefik`; replace Keycloak's hardcoded `KC_DB: postgres`
+  with the consumed `sql-database` binding; make Keycloak default to production
+  web serving under the prod overlay (`E140`). Then render
+  `local-haven-reference --target helm` and run it on the k3d cluster, with
+  Keycloak reachable behind TLS ingress. Exit: issues closed; the Haven
+  reference profile runs on Helm.
+- [ ] **G3.4 Routing contract + ingress edges — #883, #1033** (≤2 h subtasks
+  under the issues). Introduce the provider-neutral HTTP routing contract and
+  resolve Traefik's dynamic configuration from the contract graph instead of
+  hand-authored files; emit route targets as NetworkPolicy edges. Exit: issues
+  closed; no hand-authored routing anywhere in the profile.
+- [ ] **G3.5 Database operator on Helm — #768** (feature work; ≤2 h subtasks
+  under the issue). Deliver the CloudNativePG-shaped module providing
+  `sql-database` on Helm as the production warehouse option, alongside the
+  StatefulSet+PVC Postgres dev path. Exit: issue closed; the prod profile's
+  warehouse runs operator-managed on the k3d cluster.
+- [ ] **G3.6 Observability live on Helm — #369, #1066, #1076** (≤2 h subtasks
+  under the issues). Deliver the Grafana metrics module (#369), wire
+  `loki`/`otel-collector` (#662/#777) into the Haven-shaped profile on Helm,
+  and fix the pinned-image exec failure under no-new-privileges (#1066) and the
+  OTLP log-sink gap (#1076). Add the `fluxcd` module (#767) so the rendered
+  chart syncs via GitOps. Exit: issues closed; `cds maturity` reports at least
+  **Observed** with providers actually running on the cluster.
+- [ ] **G3.7 Sync the parity plan** (~1 h). Update section 4 of
+  [docs/haven-parity-plan.md](../haven-parity-plan.md) to match the measured
+  status. Exit: plan matches reality.
 
-Gate 3 exit: maturity tier + gap matrix recorded, Haven shape demonstrated on
-Compose, Helm-capable subset rendered or gaps filed.
+Gate 3 exit: the Haven-shaped profile — identity, TLS ingress, operator-managed
+database, backup, live observability, GitOps — runs on `--target helm` on the
+k3d cluster; maturity tier **Secured** recorded with the gap matrix; all
+section-2 Gate-3 issues closed.
 
 ## 9. Gate 4 — Evidence and issue triage
 
@@ -279,28 +340,30 @@ Compose, Helm-capable subset rendered or gaps filed.
   `cds security` and `cds preflight` reports, `cds maturity --format json`,
   `cds report --hardened` file, k3d/kubectl/helm/cds/docker versions, timings
   per task. Commit it under `docs/evidence/` only if it contains no secrets
-  (it must not); otherwise keep it local and link from the results log.
-- [ ] **G4.2 File one issue per gap** (~1–2 h). Every failure, unexpected
-  diagnostic, missing Helm implementation, or checklist row without a
-  Kubernetes equivalent becomes an issue with labels and an effort estimate;
-  issues arising from a milestone-tracked effort inherit that milestone. Do
-  not leave gaps as notes only.
+  (it must not); otherwise keep it local and link from the signoff table.
+- [ ] **G4.2 File one issue per remaining gap, close #1065** (~1–2 h). Any
+  failure or gap that is *not* in section 2's blocking list becomes an issue
+  with labels and an effort estimate; issues arising from a milestone-tracked
+  effort inherit that milestone. Extend Docker smoke-test CI to the
+  experimental modules this MVP runs (#1065). Blocking issues from section 2
+  must already be closed by their owning gate — if one is still open, Gate 4
+  does not sign off. Do not leave gaps as notes only.
 - [ ] **G4.3 Update docs and changelog** (~1 h). Anything that surprised during
   the gates goes into [docs/kubernetes.md](../kubernetes.md) troubleshooting
   or the relevant profile README; user-facing fixes get `CHANGELOG.md`
   `[Unreleased]` entries per repo convention.
 
-Gate 4 exit: results log complete, issue list filed, docs/changelog in sync.
+Gate 4 exit: signoff table complete, remaining non-blocking gaps filed as
+issues, docs/changelog in sync.
 
 ## 10. Gate 5 — v1.0.0 release
 
-- [ ] **G5.1 Confirm the 1.0.0 criteria** (~1 h). Proposed definition for this
-  project: main green in CI including the `k8s-e2e` workflow; Gates 1–3 of this
-  runbook passed with evidence; no open high-severity blockers; changelog
-  complete. Decision to make explicitly: does `--target helm` ship as stable in
-  1.0.0 (recommended if Gates 1–2 passed) or stay experimental (then 1.0.0
-  announces the Compose target as stable and Helm as the flagship experimental
-  target)? Record the decision; file the tracking issue for 1.0.0 criteria.
+- [ ] **G5.1 Confirm the 1.0.0 criteria** (~1 h). Definition for this project:
+  main green in CI including the `k8s-e2e` workflow; Gates 1–3 of this runbook
+  signed off with evidence (which requires the section-2 blocking issues to be
+  closed); no open high-severity blockers; changelog complete. With those met,
+  `--target helm` ships as **stable** in 1.0.0 — record the decision and update
+  the roadmap component lists; file the tracking issue for 1.0.0 criteria.
 - [ ] **G5.2 Bump the version** (~1 h). Normally the weekly
   `version-bump.yml` workflow opens the `chore(release): bump version` PR; for
   1.0.0 set `version = "1.0.0"` in `pyproject.toml` and date a
@@ -328,13 +391,16 @@ assets, announcement done.
 ## 11. Working rules for the whole cycle
 
 - Every task is sized to finish within 2 hours. If a task runs over, split it
-  or file an issue and mark the gate partial — do not silently grow a task.
+  into ≤2 h subtasks under its tracking issue — do not silently grow a task.
+  A gate never signs off over an open blocking issue (section 2): the cycle
+  pauses at that gate until the issue is closed.
 - A command that fails for a reason outside the runbook: stop, record the exact
-  output in the results log, file an issue in Gate 4, and continue with the
-  next task. Never "fix" the environment ad hoc in a way that can't be
-  reproduced from the log.
+  output in the evidence bundle, and treat the cause as blocking work in the
+  owning gate (section 2) — no gate signs off over an unresolved failure.
+  Never "fix" the environment ad hoc in a way that can't be reproduced from
+  the evidence.
 - Secrets only through `cds init` / `.env` (mode 0600, untracked); nothing
-  secret-shaped goes into the evidence bundle, the results log, or issues.
+  secret-shaped goes into the evidence bundle, the signoff table, or issues.
 - Run every command from the fresh directory (Path A) unless a task explicitly
   says to use a clone (Path B); record which path each task used.
 - Keep `main` releasable: any repo change made during the cycle goes through a
@@ -343,10 +409,11 @@ assets, announcement done.
 
 ## 12. Definition of done for the MVP cycle
 
-- [ ] Gate 0–4 exit criteria all met, results log filled in.
-- [ ] Every gap found during the cycle is a tracked issue (section 2 table plus
-  Gate 4 additions), each with an owner decision: fix before 1.0.0, or
-  explicitly deferred with a milestone.
+- [ ] Gate 0–4 exit criteria all met, signoff table filled in.
+- [ ] Every blocking issue in section 2 is closed before Gate 5 starts; only
+  the explicitly post-MVP list (service mesh #776, workload identity #1068,
+  persisted Helm context #812, Marquez promotion #976) may remain open, each
+  with its milestone.
 - [ ] `v1.0.0` tagged and published with evidence assets (Gate 5).
 - [ ] The 1.0.0 stability decision (Helm stable vs experimental) is recorded
   in the roadmap and, if Helm ships stable, reflected in
@@ -365,13 +432,14 @@ the single command that exercises the whole static pipeline; the live checks
 | 0 — Bootstrap | `cds test local-kubernetes-example` (Compose default) after `cds init` | exit 0: validate, security, plan, render all green on Compose |
 | 1 — Kubernetes MVP | `cds test local-kubernetes-example --target helm`, then `cds up/state/down ... --target helm` plus the boundary checks of [scripts/k8s/e2e.sh](../../scripts/k8s/e2e.sh) (`make k3d-e2e` from a clone) | exit 0; chart passes `helm lint`/`template`; all workloads healthy; E2E pass = all, fail = 0 |
 | 2 — Production-ready | `cds test production-kubernetes-example --environment prod --target helm`, plus `cds preflight ... --environment prod` and `cds security ... --environment prod --target helm` | exit 0, or findings exactly matching the documented snapshot; no preflight `[FAIL]` |
-| 3 — Haven parity | `cds maturity local-haven-reference --format json`, plus a `--target helm` render of the Haven-shaped profile from G3.3 | tier reported with justifying contracts; gap matrix complete; render succeeds or fails closed with a filed issue |
+| 3 — Haven parity | `cds maturity local-haven-reference --format json --target helm`, plus a live `--target helm` run of the Haven-shaped profile from G3.3–G3.6 | Haven-shaped profile running on Helm; tier **Secured** reported with justifying contracts; gap matrix complete |
 | 4 — Evidence and issues | (process gate — no command) | results recorded, one issue per gap, docs/changelog updated |
 | 5 — v1.0.0 release | `python -m unittest discover -s tests -p "*.py"` + `CDS_RUN_DOCKER_SMOKE=1 python3 -m unittest tests.test_compose_runtime_smoke -v` + `make k3d-build && make k3d-e2e` (from a clone) | all green, per [docs/release-strategy.md](../release-strategy.md#release-gates) |
 
 Signoff table — one row per gate, filled in while running. A gate is signed off
-only when its exit criteria (sections 5–10) are met and every failure is either
-fixed or filed as an issue (last column).
+only when its exit criteria (sections 5–10) are met, every blocking issue
+(section 2) assigned to it is closed, and every remaining non-blocking gap is
+filed as an issue (last column).
 
 | Gate | Testing command run | Path (A/B) | Result (pass/fail/blocked) | Tested by | Date | Signed off by (name, date) | Evidence link | Issues filed |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -382,7 +450,7 @@ fixed or filed as an issue (last column).
 | 4 — Evidence and issues | | | | | | | | |
 | 5 — v1.0.0 release | | | | | | | | |
 
-Per-task detail (which of G0.1–G5.5 ran, timings, exact outputs) goes in the
+Per-task detail (which of G0.0–G5.5 ran, timings, exact outputs) goes in the
 evidence bundle linked from the gate's row, not in this table.
 
 Environment record (fill in once, reference everywhere):
