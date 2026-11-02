@@ -6,6 +6,17 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- `cds render/up --target helm` no longer fails with E085 ("bind source
+  outside the project root") on projects scaffolded by `cds get`: the
+  renderer's project-root detection now treats a `.cds/` directory as a
+  project marker (first priority, same as `cds use`/`cds config`), so
+  relative ConfigMap `fromBind` sources like `./workdirs/dagster/definitions.py`
+  resolve against the project root again. Previously such projects — which
+  have `.cds/` but no `.git`/`pyproject.toml` — made every relative bind fail
+  closed (#1113).
+
 ## [0.15.0] - 2026-11-02
 
 ### Added

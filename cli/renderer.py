@@ -30,6 +30,7 @@ from .secret_leak import (
     declared_secret_env_names,
     resolved_secret_values,
 )
+from .security_common import find_project_root_dir
 from .utils import (
     _atomic_write,
     _compose_service_name,
@@ -1609,14 +1610,16 @@ def _resolve_profile_dir(plan: dict[str, Any]) -> Path | None:
 
 
 def _resolve_project_root(profile_dir: Path | None) -> Path | None:
+    # Delegate to the shared marker walk in cli/security_common.py so the
+    # renderer and the CLI agree on what a project root is. In particular
+    # `.cds` (created by `cds get`/`cds use`) counts: without it, a fetched
+    # project (which has `.cds` but no `.git`/`pyproject.toml`) yielded None
+    # here and every relative ConfigMap bind failed closed with E085 even
+    # though the file exists under the project root. None is preserved (fail
+    # closed) when no marker exists at all.
     if profile_dir is None:
         return None
-
-    for directory in [profile_dir, *profile_dir.parents]:
-        if (directory / "pyproject.toml").exists() or (directory / ".git").exists():
-            return directory
-
-    return None
+    return find_project_root_dir(profile_dir)
 
 
 def _resolve_module_dir(module: dict[str, Any], profile_dir: Path | None) -> Path | None:
