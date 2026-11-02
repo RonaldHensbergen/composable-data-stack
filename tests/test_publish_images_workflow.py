@@ -1,7 +1,9 @@
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -425,6 +427,12 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         self.assertIn('alpine_tag="alpine-${base_version}"', run)
         self.assertIn('alpine_latest_tag="alpine-latest"', run)
 
+    @unittest.skipIf(
+        sys.platform == "win32" or shutil.which("bash") is None,
+        "the Determine version step is a bash script that only ever runs on the "
+        "ubuntu-latest publish-dockerhub job; Windows runners have no usable "
+        "bash (System32 bash.exe is the WSL stub)",
+    )
     def test_dockerhub_version_step_resolves_a_base_version_for_every_image(self) -> None:
         # Regression test for the stalled publish behind #1100/#1101: the
         # restic case read `cut -d= -f3`, but `ARG RESTIC_VERSION=0.19.1` has
