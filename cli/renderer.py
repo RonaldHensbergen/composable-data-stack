@@ -1612,7 +1612,15 @@ def _resolve_project_root(profile_dir: Path | None) -> Path | None:
     if profile_dir is None:
         return None
 
+    # Mirror find_project_root() in cli/main.py: `.cds` (created by
+    # `cds get`/`cds use`) is checked first at each level so a CDS working
+    # directory takes priority over an unrelated ancestor repository. Without
+    # it, a fetched project (which has `.cds` but no `.git`/`pyproject.toml`)
+    # yields None here and every relative ConfigMap bind fails closed with
+    # E085 even though the file exists under the project root.
     for directory in [profile_dir, *profile_dir.parents]:
+        if (directory / ".cds").exists():
+            return directory
         if (directory / "pyproject.toml").exists() or (directory / ".git").exists():
             return directory
 

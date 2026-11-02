@@ -442,6 +442,38 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
             self.assertIn("E085", {diag.code for diag in diagnostics})
             self.assertNotIn("do not render", "\n".join(files.values()))
 
+    def test_configmap_bind_resolves_with_cds_dir_as_only_project_marker(self) -> None:
+        # A `cds get`-scaffolded project has a `.cds/` state directory but no
+        # `.git`/`pyproject.toml`; `_resolve_project_root` must still pick that
+        # directory as the project root, otherwise every relative fromBind
+        # fails closed with E085 (regression: bare fetched projects could not
+        # render the local-kubernetes-example profile at all).
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir)
+            project = workspace / "project"
+            profile = project / "profiles" / "demo" / "profile.yaml"
+            profile.parent.mkdir(parents=True)
+            (project / ".cds").mkdir()
+            bind = project / "workdirs" / "demo" / "init.sh"
+            bind.parent.mkdir(parents=True)
+            bind.write_text("echo hello\n", encoding="utf-8")
+
+            plan = self.minimal_plan()
+            plan["sourceProfile"] = str(profile)
+            plan["modules"][0]["implementation"]["kubernetes"]["configMaps"] = {
+                "init": {
+                    "key": "init.sh",
+                    "fromBind": "./workdirs/demo/init.sh",
+                    "mountPath": "/etc/init.sh",
+                }
+            }
+
+            files, diagnostics = render_helm(plan)
+
+            self.assertNotIn("E085", {diag.code for diag in diagnostics})
+            self.assertNotIn("E076", {diag.code for diag in diagnostics})
+            self.assertIn("echo hello", "\n".join(files.values()))
+
     def test_module_local_service_aliases_do_not_collide(self) -> None:
         plan = self.minimal_plan(storage_enabled=False)
         template = plan["modules"][0]
