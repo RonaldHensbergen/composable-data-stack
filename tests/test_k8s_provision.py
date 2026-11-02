@@ -97,7 +97,14 @@ class CollectLocalBuildsRealProfileTest(unittest.TestCase):
             {"local/dagster:custom", "local/postgres:custom", "local/superset:custom"},
         )
         for build in builds.values():
-            self.assertEqual(build.context, str(REPO_ROOT))
+            # The resolved context must actually contain the Dockerfile —
+            # asserted via existence rather than equality with REPO_ROOT,
+            # because the mutation kill-matrix runs pytest from a copied
+            # mutants/ tree whose project-root resolution lands elsewhere.
+            self.assertTrue(
+                (Path(build.context) / build.dockerfile).is_file(),
+                f"{build.dockerfile} not found under resolved context {build.context}",
+            )
         self.assertEqual(
             builds["local/dagster:custom"].dockerfile, "images/dagster/base/Dockerfile"
         )
@@ -126,8 +133,12 @@ class CollectLocalBuildsUnitTest(unittest.TestCase):
         self.assertEqual(collect_local_builds(plan), [])
 
     def test_string_build_form_uses_context_only(self) -> None:
+        # An absolute context passes through unchanged on every platform
+        # (`Path("/abs").is_absolute()` is False on Windows, so build the
+        # path from the cwd anchor instead of hardcoding "/abs/context").
+        abs_context = str(Path(Path.cwd().anchor) / "abs" / "context")
         plan = _synthetic_plan(
-            {"web": {"image": "local/web:custom", "build": "/abs/context"}}
+            {"web": {"image": "local/web:custom", "build": abs_context}}
         )
         builds = collect_local_builds(plan)
         self.assertEqual(
@@ -135,7 +146,7 @@ class CollectLocalBuildsUnitTest(unittest.TestCase):
             [
                 LocalImageBuild(
                     image="local/web:custom",
-                    context="/abs/context",
+                    context=abs_context,
                     dockerfile=None,
                     args={},
                 )
@@ -300,6 +311,43 @@ class BuildLocalImagesTest(unittest.TestCase):
     def test_empty_build_list_is_noop(self) -> None:
         with patch("cli.k8s_provision.run_streamed") as mock_run:
             self.assertEqual(build_local_images([], io.StringIO()), 0)
+            mock_run.assert_not_called()
+
+    def test_secret_placeholder_expanded_from_env_but_never_printed(self) -> None:
+        import contextlib
+
+        builds = [
+            LocalImageBuild(
+                image="local/a:1",
+                context="/repo",
+                args={"TOKEN": "${CDS_API_TOKEN}"},
+            )
+        ]
+        with patch.dict(os.environ, {"CDS_API_TOKEN": "sentinel-value"}, clear=False):
+            with patch("cli.k8s_provision.run_streamed", return_value=0) as mock_run:
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    result = build_local_images(builds, io.StringIO())
+        self.assertEqual(result, 0)
+        command = mock_run.call_args.args[0]
+        self.assertIn("TOKEN=sentinel-value", command)
+        # The printed command keeps the placeholder; the resolved value must
+        # not leak to stdout or the log.
+        self.assertIn("TOKEN=${CDS_API_TOKEN}", out.getvalue())
+        self.assertNotIn("sentinel-value", out.getvalue())
+
+    def test_missing_secret_placeholder_fails_closed_before_any_build(self) -> None:
+        builds = [
+            LocalImageBuild(
+                image="local/a:1", context="/repo", args={"TOKEN": "${CDS_MISSING_X}"}
+            ),
+            LocalImageBuild(image="local/b:1", context="/repo"),
+        ]
+        env = {k: v for k, v in os.environ.items() if k != "CDS_MISSING_X"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch("cli.k8s_provision.run_streamed") as mock_run:
+                with self.assertRaisesRegex(RuntimeError, "CDS_MISSING_X"):
+                    build_local_images(builds, io.StringIO())
             mock_run.assert_not_called()
 
     def test_k3d_is_an_allowed_executable(self) -> None:

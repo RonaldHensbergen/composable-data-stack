@@ -25,6 +25,7 @@ allowlists before they reach a command line (CWE-88 argument injection).
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess  # nosec B404
 from copy import deepcopy
@@ -56,6 +57,11 @@ _BUILD_ARG_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # A Dockerfile path passed to `docker build -f` must not look like a flag.
 _DOCKERFILE_RE = re.compile(r"[A-Za-z0-9_./@][A-Za-z0-9_./@-]*")
+
+# A `${CDS_*}` placeholder left by renderer substitution for a secret
+# reference. Compose expands these from the environment at build time; the
+# direct `docker build` path has to do the same (see build_local_images).
+_CDS_PLACEHOLDER_RE = re.compile(r"\$\{(CDS_[A-Z0-9_]+)\}")
 
 _HEALTHZ_TIMEOUT_SECONDS = 15
 
@@ -209,6 +215,27 @@ def _resolve_build_context(
     return str(chosen)
 
 
+def _resolve_cds_placeholders(value: str, missing: list[str]) -> tuple[str, str]:
+    """
+    Resolve `${CDS_*}` placeholders in a build field from the process
+    environment, the way `docker compose build` expands them. Returns
+    (resolved_value, display_value): the display keeps the placeholder so the
+    resolved secret never lands in the printed command or the log file. A
+    placeholder without a matching environment variable is collected in
+    `missing` and fails the whole build closed, mirroring
+    `k8s_runner._secret_values()`.
+    """
+    match = _CDS_PLACEHOLDER_RE.fullmatch(value)
+    if match is None:
+        return value, value
+    name = match.group(1)
+    resolved = os.environ.get(name)
+    if resolved is None:
+        missing.append(name)
+        return value, value
+    return resolved, f"${{{name}}}"
+
+
 def build_local_images(
     builds: list[LocalImageBuild],
     log_file: IO[str],
@@ -218,17 +245,44 @@ def build_local_images(
     """
     Build each collected image with `docker build`, streaming output to
     `log_file` (and the terminal) exactly like the compose target's build
-    step. Returns the first non-zero exit code, or 0 when every build
-    succeeded.
+    step. `${CDS_*}` placeholders in image names, Dockerfile paths, and build
+    args are expanded from the environment at build time (compose semantics),
+    and are never printed resolved. Returns the first non-zero exit code, or
+    0 when every build succeeded.
     """
+    # Resolve every placeholder before running anything, so a missing secret
+    # fails the whole step up front instead of after some images built.
+    missing: list[str] = []
+    resolved_builds: list[tuple[list[str], list[str]]] = []
     for build in builds:
-        command = ["docker", "build", "-t", build.image]
+        image, image_display = _resolve_cds_placeholders(build.image, missing)
+        dockerfile, dockerfile_display = (None, None)
         if build.dockerfile:
-            command.extend(["-f", build.dockerfile])
-        for key, value in sorted(build.args.items()):
+            dockerfile, dockerfile_display = _resolve_cds_placeholders(
+                build.dockerfile, missing
+            )
+        arg_pairs = [
+            (key, *_resolve_cds_placeholders(value, missing))
+            for key, value in sorted((build.args or {}).items())
+        ]
+        command = ["docker", "build", "-t", image]
+        display = ["docker", "build", "-t", image_display]
+        if dockerfile:
+            command.extend(["-f", dockerfile])
+            display.extend(["-f", dockerfile_display])
+        for key, value, value_display in arg_pairs:
             command.extend(["--build-arg", f"{key}={value}"])
+            display.extend(["--build-arg", f"{key}={value_display}"])
         command.append(build.context)
-        print(f"Running: {' '.join(command)}")
+        display.append(build.context)
+        resolved_builds.append((command, display))
+    if missing:
+        raise RuntimeError(
+            "missing required environment variables: " + ", ".join(sorted(set(missing)))
+        )
+
+    for command, display in resolved_builds:
+        print(f"Running: {' '.join(display)}")
         result = run_streamed(command, log_file, use_color=use_color)
         if result != 0:
             return result
@@ -411,7 +465,6 @@ def import_local_images(
     return run_streamed(command, log_file, use_color=use_color)
 
 
-# Re-exported for tests and callers that need the same DNS-1123 rule.
 __all__ = [
     "LocalImageBuild",
     "build_local_images",
