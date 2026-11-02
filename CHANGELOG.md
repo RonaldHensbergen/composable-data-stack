@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-02
+
 ### Added
 
 - The `cds` CLI now honors the `NO_COLOR` environment variable (#1094): when
