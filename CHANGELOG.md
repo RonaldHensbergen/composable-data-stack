@@ -6,6 +6,26 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added `docs/plan/k8s-haven-mvp.md` (#1104): an execution runbook for an MVP
+  cycle that starts from a fresh directory with only Docker installed and walks
+  six gates — bootstrap, Kubernetes MVP on a local k3d cluster (`--target
+  helm`), production-ready posture under the `prod` overlay, Haven-parity
+  measurement via `cds maturity`, evidence/issue triage, and the v1.0.0
+  release — each split into tasks of at most 2 hours. Section 2 lists the open
+  prerequisite issues per gate and the already-landed work not to re-file.
+  Section 13 now spells out the full production suite as a copy-paste command
+  block — `cds init` / `cds test` / `cds up` / `state` / `down` on
+  `production-kubernetes-example --environment prod`, with and without
+  `--target helm`, plus the surrounding `preflight` / `security` / `maturity`
+  / `report` gates (#1104). That profile is labeled the v1.0.0 suite; a second
+  block defines the full Haven profile (working name `production-haven`, the
+  ~v2.0 Gate-3 target): the v1.0.0 stack plus dbt, Keycloak, Traefik, restic,
+  garage, vault, FluxCD and Loki/otel-collector, with each module's
+  `productionSuitable: false` / missing-`kubernetes:`-block deviation recorded
+  against its tracking issue (#1104).
+
 ### Fixed
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source
