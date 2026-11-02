@@ -1,9 +1,9 @@
 # Kubernetes MVP Runbook: From a Fresh Directory to v1.0.0, with Haven Parity
 
 Version: 0.1
-Status: Draft — execution runbook, drafted 2026-11-02. Fill in the results log
-(section 13) while running it; promote to a committed plan once a cycle has
-completed.
+Status: Draft — execution runbook, drafted 2026-11-02. Fill in the signoff
+table (section 13) while running it; promote to a committed plan once a cycle
+has completed.
 Related: [docs/kubernetes.md](../kubernetes.md),
 [docs/haven-parity-plan.md](../haven-parity-plan.md),
 [docs/production-hardening-checklist.md](../production-hardening-checklist.md),
@@ -112,7 +112,8 @@ reproducibility from the version set is part of the evidence.
 | [4 — Evidence and issues](#9-gate-4--evidence-and-issue-triage) | Everything reproducible, every gap tracked | Results log complete, one issue per gap, docs/changelog updated | 3–4 h |
 | [5 — v1.0.0 release](#10-gate-5--v100-release) | Cut and publish v1.0.0 | Tag pushed, release published with evidence assets, announcement done | 4–6 h |
 
-Total: roughly 4–5 working days of ≤2 h tasks.
+Total: roughly 4–5 working days of ≤2 h tasks. The primary testing command per
+gate and the signoff table are in [section 13](#13-testing-commands-and-signoff).
 
 ## 5. Gate 0 — Bootstrap from a fresh directory (Docker only)
 
@@ -351,13 +352,38 @@ assets, announcement done.
   in the roadmap and, if Helm ships stable, reflected in
   [docs/roadmap.md](../roadmap.md) component lists.
 
-## 13. Results log (fill in while running)
+## 13. Testing commands and signoff
 
-| Task | Date | Path (A/B) | Result (pass/fail/blocked) | Evidence | Issue filed |
-| --- | --- | --- | --- | --- | --- |
-| G0.1 | | | | | |
-| G0.2 | | | | | |
-| ... | | | | | |
+Each gate has one primary testing command, run from the fresh directory
+(Path A) unless the row says clone (Path B). `cds test` runs
+validate → security → plan → render in sequence, so on a given target it is
+the single command that exercises the whole static pipeline; the live checks
+(`up`/`state`/boundary/E2E) run on top of it.
+
+| Gate | Primary testing command | Expected result |
+| --- | --- | --- |
+| 0 — Bootstrap | `cds test local-kubernetes-example` (Compose default) after `cds init` | exit 0: validate, security, plan, render all green on Compose |
+| 1 — Kubernetes MVP | `cds test local-kubernetes-example --target helm`, then `cds up/state/down ... --target helm` plus the boundary checks of [scripts/k8s/e2e.sh](../../scripts/k8s/e2e.sh) (`make k3d-e2e` from a clone) | exit 0; chart passes `helm lint`/`template`; all workloads healthy; E2E pass = all, fail = 0 |
+| 2 — Production-ready | `cds test production-kubernetes-example --environment prod --target helm`, plus `cds preflight ... --environment prod` and `cds security ... --environment prod --target helm` | exit 0, or findings exactly matching the documented snapshot; no preflight `[FAIL]` |
+| 3 — Haven parity | `cds maturity local-haven-reference --format json`, plus a `--target helm` render of the Haven-shaped profile from G3.3 | tier reported with justifying contracts; gap matrix complete; render succeeds or fails closed with a filed issue |
+| 4 — Evidence and issues | (process gate — no command) | results recorded, one issue per gap, docs/changelog updated |
+| 5 — v1.0.0 release | `python -m unittest discover -s tests -p "*.py"` + `CDS_RUN_DOCKER_SMOKE=1 python3 -m unittest tests.test_compose_runtime_smoke -v` + `make k3d-build && make k3d-e2e` (from a clone) | all green, per [docs/release-strategy.md](../release-strategy.md#release-gates) |
+
+Signoff table — one row per gate, filled in while running. A gate is signed off
+only when its exit criteria (sections 5–10) are met and every failure is either
+fixed or filed as an issue (last column).
+
+| Gate | Testing command run | Path (A/B) | Result (pass/fail/blocked) | Tested by | Date | Signed off by (name, date) | Evidence link | Issues filed |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 — Bootstrap | | | | | | | | |
+| 1 — Kubernetes MVP | | | | | | | | |
+| 2 — Production-ready | | | | | | | | |
+| 3 — Haven parity | | | | | | | | |
+| 4 — Evidence and issues | | | | | | | | |
+| 5 — v1.0.0 release | | | | | | | | |
+
+Per-task detail (which of G0.1–G5.5 ran, timings, exact outputs) goes in the
+evidence bundle linked from the gate's row, not in this table.
 
 Environment record (fill in once, reference everywhere):
 
