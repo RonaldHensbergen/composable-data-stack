@@ -463,6 +463,37 @@ class EnsureK8sClusterTest(unittest.TestCase):
         )
 
     @patch("cli.k8s_provision.cluster_is_reachable", return_value=False)
+    def test_non_finite_timeout_rejected_before_create(self, _mock_reachable) -> None:
+        # args.timeout is user input flowing into a kubectl argument; route it
+        # through _validate_timeout (same as helm_up/helm_down) so a NaN/inf
+        # value can never reach the command line (CWE-88, S8705).
+        with patch("cli.k8s_provision.run_streamed") as mock_run:
+            for bad in (float("nan"), float("inf")):
+                with self.subTest(timeout=bad):
+                    with self.assertRaisesRegex(ValueError, "invalid timeout"):
+                        ensure_k8s_cluster(
+                            "k3d-cds-x",
+                            create=True,
+                            log_file=io.StringIO(),
+                            timeout=bad,
+                        )
+        mock_run.assert_not_called()
+
+    @patch("cli.k8s_provision.cluster_is_reachable", side_effect=[False, True])
+    @patch("cli.k8s_provision.run_streamed", return_value=0)
+    def test_negative_timeout_is_clamped_to_one_second(
+        self, mock_run, _mock_reachable
+    ) -> None:
+        # _validate_timeout clamps negatives to 1 rather than raising; the
+        # clamped fresh int is what lands in the --timeout=<n>s argument.
+        result = ensure_k8s_cluster(
+            "k3d-cds-x", create=True, log_file=io.StringIO(), timeout=-5.0
+        )
+        self.assertEqual(result, 0)
+        wait_cmd = mock_run.call_args_list[1].args[0]
+        self.assertEqual(wait_cmd[-1], "--timeout=1s")
+
+    @patch("cli.k8s_provision.cluster_is_reachable", return_value=False)
     @patch("cli.k8s_provision.run_streamed", return_value=3)
     def test_create_failure_propagates(self, mock_run, _mock_reachable) -> None:
         result = ensure_k8s_cluster("k3d-cds-x", create=True, log_file=io.StringIO())

@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any
 
-from .k8s_runner import _validate_k8s_name, _validate_kube_context
+from .k8s_runner import _validate_k8s_name, _validate_kube_context, _validate_timeout
 from .renderer import (
     _build_context,
     _choose_best_context_candidate,
@@ -352,6 +352,13 @@ def ensure_k8s_cluster(
     when the cluster answers afterwards, non-zero otherwise.
     """
     kube_context = _validate_kube_context(kube_context)
+    # Validate up front, before any subprocess runs: the timeout is user input
+    # (--timeout) that flows into a `--timeout=<n>s` kubectl argument, so it
+    # goes through the same _validate_timeout sanitizer helm_up/helm_down use
+    # (freshly constructed int, rejecting non-finite/non-numeric values) to
+    # keep a non-numeric value off the command line (CWE-88; also keeps
+    # SonarCloud's S8705 taint flow from args.timeout to the sink closed).
+    timeout = _validate_timeout(timeout)
     label = kube_context or "current context"
     if cluster_is_reachable(kube_context):
         if log_file is not None:
@@ -394,7 +401,7 @@ def ensure_k8s_cluster(
     if result != 0:
         return result
 
-    wait_seconds = max(1, int(timeout))
+    wait_seconds = timeout  # already validated to a fresh int above
     wait_command = [
         "kubectl",
         "--context",
