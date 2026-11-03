@@ -11,7 +11,7 @@ metadata:
     a Haven-aligned shape: an identity provider (Keycloak), a TLS-terminating
     reverse proxy (Traefik), and a sql-database provider (Postgres). See
     docs/common-ground-alignment.md for the concept mapping. Experimental
-    while the Keycloak module remains unsuitable for production use.
+    pending the Keycloak/Traefik `--target helm` implementations (#1075).
 
 spec:
   runtime:
