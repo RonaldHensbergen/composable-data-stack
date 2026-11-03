@@ -30,8 +30,9 @@ control. The policy enforced here (see .github/prompts/README.md):
    `actions/ai-inference`, (a) every write (shell redirect incl. the >| / &>|
    noclobber forms, `tee`, python `open(...)/write_text`, output-path flags
    like `curl -o`/`wget -O`/`--output=`/`of=`, `cp`/`mv`/`install`)
-   to a file later used as `file_input` must be produced by a rule-4-compliant
-   literal-metadata `gh` collection command or by an explicit
+   to a file later used as `file_input` must come from a SINGLE simple
+   command (no `;`/`&&`/`||`/backticks/`$(...)`, pipes only into `tee`) that
+   is a rule-4-compliant literal-metadata `gh` collection command or an explicit
    FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer pattern and validator
    must accept the writing line; python writes with non-literal target paths
    fail closed because they cannot be verified, and (b) any non-gh
@@ -636,15 +637,38 @@ def _unverifiable_py_writes(line: str) -> list[str]:
     return hits
 
 
+# Shell chaining/control constructs that make a producer line unverifiable:
+# ;, &&, ||, backticks, $(...), and a bare & (backgrounding). &> / &>> /
+# N>&M redirections are NOT chaining.
+SHELL_CHAIN_RE = re.compile(r";|\|\||&&|`|\$\(|(?:^|[\s;|])&(?![0-9>])")
+
+
+def _producer_line_is_simple(line: str) -> bool:
+    """A producer line must be a single simple command — optionally piped
+    into `tee` only (tee copies without transforming). Chained commands
+    (`;`, `&&`, `||`, backticks, `$(...)`, background `&`, pipes into other
+    commands) on the same line are unverified writers of the target
+    (github-advanced-security on #1118)."""
+    if SHELL_CHAIN_RE.search(line):
+        return False
+    # Split on real pipes only: the | in >| / &>| / 2>| noclobber redirects
+    # is part of the redirection operator, not a pipe.
+    for segment in re.split(r"(?<![>&])\|(?!\|)", line)[1:]:
+        if not re.match(r"\s*tee\b", segment):
+            return False
+    return True
+
+
 def _lint_file_input_producers(
     path: Path, job_name: str, run_scripts: list[str], file_input_targets: set[str]
 ) -> list[str]:
     """Rule 5a (issue #1090): in a job that feeds file_input to
     actions/ai-inference, every write to a file later used as file_input must
-    come from a rule-4-compliant literal-metadata gh collection command or
-    from an explicit FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer
-    pattern AND validator accept the writing line. Anything else —
-    curl/wget/python output, echo/printf/heredoc, cp/mv — fails closed:
+    come from a single simple command that is a rule-4-compliant
+    literal-metadata gh collection command or an explicit
+    FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer pattern AND validator
+    accept the writing line. Anything else — chained commands, curl/wget/
+    python output, echo/printf/heredoc, cp/mv — fails closed:
     redact_secrets.py strips secret/injection patterns, not titles/bodies."""
     errors: list[str] = []
     allowlist = FILE_INPUT_PRODUCERS_ALLOWLIST.get(path.name, {})
@@ -664,6 +688,16 @@ def _lint_file_input_producers(
             if "redact_secrets.py" in line:
                 # Transformation, not a content source; rule 3 already
                 # requires redaction of every file_input file.
+                continue
+            if not _producer_line_is_simple(line):
+                for target in sorted(targets):
+                    errors.append(
+                        f"{path.name} (job {job_name}): ai-inference file_input "
+                        f"'{target}' is written on a line with chained/piped "
+                        f"commands beyond a single producer (+ optional tee) — "
+                        f"every command on the line must be verified, so this "
+                        f"fails closed (#1090, .github/prompts/README.md)"
+                    )
                 continue
             if _is_gh_collection_cmd(line):
                 # Rule 4 reports non-compliant gh lines itself; a compliant

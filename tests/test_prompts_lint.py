@@ -601,7 +601,8 @@ class PromptsLintTest(unittest.TestCase):
             path = self._workflow(Path(tmp), "wf.yml", wf)
             errors = check_prompts.lint_workflow(path)
             self.assertTrue(any("non-gh HTTP fetcher" in e for e in errors))
-            self.assertTrue(any("allowlisted" in e for e in errors))
+            # producer rejection (the line also chains, so either message)
+            self.assertTrue(any("allowlisted" in e or "chained" in e for e in errors))
 
     def test_workflow_tee_multiple_files_all_checked(self):
         # Self-review finding on #1118: tee writes EVERY file argument, not
@@ -633,7 +634,7 @@ class PromptsLintTest(unittest.TestCase):
                 path = self._workflow(Path(tmp), "wf.yml", wf)
                 errors = check_prompts.lint_workflow(path)
                 self.assertTrue(
-                    any("allowlisted" in e for e in errors),
+                    any("allowlisted" in e or "chained" in e for e in errors),
                     f"expected producer rejection for redirect op {op}",
                 )
 
@@ -743,6 +744,41 @@ class PromptsLintTest(unittest.TestCase):
             )
             path = self._workflow(Path(tmp), "wf.yml", wf)
             self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_chained_commands_on_producer_line_fail(self):
+        # github-advanced-security on #1118: an allowlisted/gh producer line
+        # must be a single simple command — chaining more commands onto the
+        # same line would write unverified content into the target.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._biweekly_shaped_workflow(
+                'git log --format="%h %ad" > "$RUNNER_TEMP/recent-commits.txt"; '
+                'echo "INJECT" >> "$RUNNER_TEMP/recent-commits.txt"\n'
+                'python3 scripts/redact_secrets.py --strict \\\n'
+                '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
+            )
+            path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("chained" in e for e in errors))
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json number,labels,url '
+                '> "$RUNNER_TEMP/open-issues.json"; echo x >> "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("chained" in e for e in errors))
+
+    def test_workflow_pipe_into_non_tee_command_fails(self):
+        # A pipe into anything but tee transforms the stream unverifiably —
+        # fail closed even when the head is a compliant gh collection.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json number,labels,url '
+                '| jq . > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("chained" in e for e in errors))
 
 
 if __name__ == "__main__":

@@ -55,8 +55,11 @@ The format is based on Keep a Changelog.
   fields fail closed, as does a bare `git log`; python writes with
   non-literal target paths (`open(var, 'w')`) fail closed as unverifiable,
   redirect detection covers the noclobber-override forms (`>|`, `&>|`,
-  `2>|`), and output-path flags are treated as writes (`curl -o`,
-  `wget -O`, `--output=`, `-oFILE`, `dd of=`, `--dest`), and (b) any non-gh
+  `2>|`), output-path flags are treated as writes (`curl -o`, `wget -O`,
+  `--output=`, `-oFILE`, `dd of=`, `--dest`), and a producer line must be a
+  single simple command (no `;`/`&&`/`||`/backticks/`$(...)`, pipes only
+  into `tee`) so chained writers cannot hide on an allowlisted line, and
+  (b) any non-gh
   HTTP fetcher targeting a
   GitHub free-text endpoint (issue/PR/comment/review/discussion resources
   or the `graphql` endpoint) fails closed even when captured via `$(...)`,

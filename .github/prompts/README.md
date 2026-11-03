@@ -58,8 +58,9 @@ enforces the policy below and fails the build on violations.
      `2>|`), `tee` (all file arguments), python `open(...,'w'/'a')` /
      `Path(...).write_text(...)`, output-path flags (`curl -o`, `wget -O`,
      `--output=`, `-oFILE`, `dd of=`, `--dest`), or `cp`/`mv`/`install` — must
-     be produced
-     by a rule-4-compliant literal-metadata `gh` collection command, or by a
+     come from a single simple command (no `;`/`&&`/`||`/backticks/`$(...)`;
+     pipes only into `tee`) that is a rule-4-compliant literal-metadata `gh`
+     collection command, or by a
      producer listed in `FILE_INPUT_PRODUCERS_ALLOWLIST` in
      `scripts/check_prompts.py` (keyed by workflow file and canonical input
      path, with a required producer pattern, a producer validator, and a
