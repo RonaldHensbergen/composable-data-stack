@@ -494,6 +494,8 @@ This runs `validate` → `plan` → `render` → `docker compose build` → `doc
 
 `docker compose build` output is streamed to the terminal (grouped by image) and also persisted to a log file (default: `.cds/logs/up-<profile>-<timestamp>.log`; override with `--log-file`). `docker compose up` always runs detached: in the default mode its output goes only to the log file while the terminal shows the live state view; with `--detach` it is streamed to the terminal like the build output. Once the stack starts, `cds up` polls `docker compose ps` and redraws the same grouped/colored view as `cds state` until every service is healthy/running/exited or a timeout is hit (default 180s; override with `--timeout`; disable colored labels with `--no-color`). Container logs from that point on go only to the log file, not the terminal, since the terminal is showing the live state view. `cds up` exits `0` once the stack settles, or `1` on timeout or an unhealthy service.
 
+The rendered `docker-compose.yml` is a standard Compose file, so the stack also runs without `cds` — `docker compose -f docker-compose.yml up -d` works on its own from the project root. See [docs/underlying-commands.md](docs/underlying-commands.md) for the full mapping of every `cds` lifecycle command (`render` / `up` / `state` / `down`, Compose and Helm) to its underlying `docker compose` / `helm` / `kubectl` commands.
+
 Add `--detach` (or `-d`) to skip the live state view and return as soon as the stack starts, e.g. for scripting or CI:
 
 ```bash

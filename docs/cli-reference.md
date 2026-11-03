@@ -4,6 +4,11 @@ Full reference for every `cds` subcommand. For a 5-minute walkthrough of the
 common ones (`validate`, `plan`, `render`, `up`), see the
 [Quickstart](../README.md#-quickstart) instead.
 
+Every lifecycle command (`render`, `up`, `state`, `down`) is a thin wrapper
+over standard `docker compose` / `helm` / `kubectl` / `k3d` invocations — see
+[Underlying commands](underlying-commands.md) for the exact mapping if you
+want to run the stack without the `cds` CLI.
+
 |Command|Description|
 |---|---|
 |cds get \<profile\> [--remote \<owner/repo\>] [--ref \<ref\>] [--commit \<sha\>] [--local \<dir\>] [--into \<dir\>]|Fetch a profile plus its dependent module/runtime assets from GitHub into a local CDS layout|

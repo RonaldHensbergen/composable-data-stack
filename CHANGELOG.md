@@ -26,6 +26,16 @@ The format is based on Keep a Changelog.
   `productionSuitable: false` / missing-`kubernetes:`-block deviation recorded
   against its tracking issue (#1104).
 
+- Added `docs/underlying-commands.md` (#1119): maps every lifecycle-relevant
+  `cds` command (`render`, `up`, `state`, `down` — Compose and Helm targets)
+  to the exact underlying `docker compose` / `helm` / `kubectl` / `k3d`
+  commands, with code references verified against the CLI source, so teams can
+  run the stack without the `cds` CLI. States explicitly that the rendered
+  `docker-compose.yml` and `chart/` are standard artifacts (`docker compose -f
+  docker-compose.yml up -d` and `helm upgrade --install <release> chart/ ...`
+  work standalone) and that the project-root `.env` is a standard Compose env
+  file. Linked from `docs/cli-reference.md` and the README quick-start.
+
 ### Fixed
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source
