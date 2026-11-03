@@ -2818,7 +2818,9 @@ def _run() -> int:
         project_root = resolve_project_root(profile_path)
         profile_release, profile_namespace = _k8s_runtime_defaults(profile_path, args.environment)
         log_path = (
-            Path(args.log_file) if args.log_file else default_log_path(f"down-{Path(profile_path).parent.name}")
+            Path(args.log_file)
+            if args.log_file
+            else default_log_path(Path(profile_path).parent.name, prefix="down")
         ).resolve()
         log_path.parent.mkdir(parents=True, exist_ok=True)
         try:

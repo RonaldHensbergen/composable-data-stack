@@ -280,8 +280,9 @@ Underneath (`cli/main.py:2812`):
   kubectl [--context X] --namespace <ns> delete pvc <name...> --ignore-not-found
   ```
   (`cli/k8s_runner.py:258-263`). PVCs are retained by default.
-- Lifecycle output goes to `.cds/logs/up-down-<profile>-<ts>.log`
-  (`cli/main.py:2821` + `default_log_path()`, `cli/up_runner.py:50`).
+- Lifecycle output goes to `.cds/logs/down-<profile>-<ts>.log`
+  (`cli/main.py:2821` + `default_log_path(..., prefix="down")`,
+  `cli/up_runner.py:50`).
 
 ## What `cds` adds on top
 

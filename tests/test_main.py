@@ -2946,6 +2946,25 @@ spec:
 
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_down", return_value=0)
+    def test_down_uses_down_prefixed_default_log_path(self, mock_helm_down, mock_log_path):
+        # Regression test for #1123: the `down` lifecycle log must be named
+        # `down-<profile>-<ts>.log`, not `up-down-<profile>-<ts>.log`.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_log_path.return_value = Path(tmpdir) / "down.log"
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ), patch.object(
+                sys,
+                "argv",
+                ["cds", "down", "local-dagster-postgres-superset", "--target", "helm"],
+            ):
+                result = main()
+
+        self.assertEqual(result, 0)
+        mock_log_path.assert_called_once_with("local-dagster-postgres-superset", prefix="down")
+
+    @patch("cli.main.default_log_path")
+    @patch("cli.main.helm_down", return_value=0)
     def test_down_helm_accepts_environment_and_derives_matching_release(
         self, mock_helm_down, mock_log_path
     ):
