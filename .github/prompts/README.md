@@ -50,6 +50,29 @@ enforces the policy below and fails the build on violations.
    (`--json "number,title"`), `--flag=value`, and `$(gh ...)` forms cannot
    bypass the check; dynamic or missing arguments (`--json "$FIELDS"`,
    `--json "$(cat fields.txt)"`, bare `--json`) fail closed too.
+5. **Rule 4 covers only the `gh` CLI — non-gh fetchers fail closed too
+   (issue #1090).** In any job that feeds `file_input` to
+   `actions/ai-inference`:
+   - (a) every write to a file later used as `file_input` — shell redirect
+     (`>`, `>>`, `2>`, `&>`), `tee`, python `open(...,'w'/'a')` /
+     `Path(...).write_text(...)`, or `cp`/`mv`/`install` — must be produced
+     by a rule-4-compliant literal-metadata `gh` collection command, or by a
+     producer listed in `FILE_INPUT_PRODUCERS_ALLOWLIST` in
+     `scripts/check_prompts.py` (keyed by workflow file and canonical input
+     path, with a required producer pattern and a justification; today the
+     only entry is `biweekly-issue-audit.yml`'s `recent-commits.txt`, produced
+     by `git log --format='%h %ad'` — hashes and dates only, no subjects).
+     Any other writer fails closed.
+   - (b) any non-gh HTTP fetcher — `curl`, `wget`, `httpie`, python
+     `urllib`/`requests`/`httpx`/`aiohttp`/`http.client`, node `fetch()`,
+     pwsh `Invoke-RestMethod`/`Invoke-WebRequest` — whose arguments target a
+     GitHub free-text endpoint (issue/PR/comment/review/discussion resources
+     under `api.github.com` or `github.com`, or the `graphql` endpoint)
+     fails closed, even when its output is captured via `$(...)` rather than
+     redirected straight into the input file. The reason: rule 3's
+     `scripts/redact_secrets.py` strips secret and injection patterns, not
+     issue titles/bodies, so only verified metadata-only producers may feed
+     `file_input`.
 
 ## Adding a new prompt
 
@@ -59,8 +82,10 @@ enforces the policy below and fails the build on violations.
 2. If your workflow must pass data, use `file_input` (as
    `biweekly-issue-audit.yml` does), add the file to `ALLOWLIST` with a
    justification, wrap the placeholders in `BEGIN/END_UNTRUSTED_DATA`
-   fences, keep the protocol in the system message, and redact the input
-   with `scripts/redact_secrets.py` before inference.
+   fences, keep the protocol in the system message, produce each input file
+   only via a rule-4-compliant metadata-only `gh` command or an entry in
+   `FILE_INPUT_PRODUCERS_ALLOWLIST` (rule 5 — no curl/wget/python fetchers),
+   and redact the input with `scripts/redact_secrets.py` before inference.
 3. Run `make lint-prompts` and the unit tests in `tests/test_prompts_lint.py`.
 
 ## Decisions (resolved in #1082)

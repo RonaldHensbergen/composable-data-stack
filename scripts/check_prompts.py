@@ -25,6 +25,19 @@ control. The policy enforced here (see .github/prompts/README.md):
    and not via `--jq` (computed access cannot be verified statically, so any
    `--jq` fails closed). Dynamic or missing arguments fail closed too.
    Collect literal metadata only (number, labels, milestone, timestamps, url).
+5. Rule 4 covers only the `gh` CLI — non-gh fetchers are fail-closed too
+   (issue #1090): in any job that feeds `file_input` to
+   `actions/ai-inference`, (a) every write (shell redirect, `tee`, python
+   `open(...)/write_text`, `cp`/`mv`/`install`) to a file later used as
+   `file_input` must be produced by a rule-4-compliant literal-metadata `gh`
+   collection command or by an explicit FILE_INPUT_PRODUCERS_ALLOWLIST entry
+   whose producer pattern the writing line must match, and (b) any non-gh
+   HTTP fetcher (`curl`, `wget`, `httpie`, python `urllib`/`requests`/
+   `httpx`/..., node `fetch`, pwsh `Invoke-RestMethod`/`Invoke-WebRequest`)
+   targeting a GitHub free-text endpoint (issue/PR/comment/review/discussion
+   resources, or the graphql endpoint) fails closed, because
+   `scripts/redact_secrets.py` strips secret/injection patterns, not issue
+   titles/bodies.
 
 Runs in CI (lint job), pre-commit, and `make lint-prompts`. Exit 1 on any
 violation; the script never modifies files.
@@ -87,6 +100,50 @@ GH_JQ_DYNAMIC_RE = re.compile(r"--jq[=\s]+[\"']?\S*[$*?`]\S*|--jq[=\s]*$")
 # computed key access (e.g. .["tit"+"le"]) cannot be verified statically, so
 # any jq expression — literal or dynamic — fails closed
 # (github-advanced-security review on PR #1087).
+
+# Explicit allowlist for non-gh producers of ai-inference file_input files
+# (rule 5, issue #1090): workflow file name -> canon file_input path ->
+# (required producer regex, justification). Any other write to a file later
+# used as file_input in a feeding job fails closed. Keep this list minimal
+# and review every entry.
+FILE_INPUT_PRODUCERS_ALLOWLIST: dict[str, dict[str, tuple[re.Pattern[str], str]]] = {
+    "biweekly-issue-audit.yml": {
+        "__TEMP__/recent-commits.txt": (
+            # git log with a --format that yields only %h (hash) + %ad (date):
+            # commit subjects are user-authored free text and stay excluded.
+            re.compile(r"\bgit\s+log\b[^\n]*%h\b"),
+            "git log --format='%h %ad' --date=short emits commit hashes and "
+            "dates only; subjects (free text) are excluded by the --format, "
+            "and the file is still redacted by scripts/redact_secrets.py "
+            "before inference (issue #1090).",
+        ),
+    },
+}
+# Non-gh HTTP fetchers that can pull user-authored free text into a
+# file_input-feeding job with no rule-4 coverage (issue #1090): curl/wget/
+# httpie, python HTTP stacks, node fetch(), pwsh cmdlets.
+NON_GH_FETCHER_RE = re.compile(
+    r"\b(?:curl|wget|httpie|urlopen|urllib|requests|httpx|aiohttp|"
+    r"http\.client|Invoke-RestMethod|Invoke-WebRequest)\b|\bfetch\s*\(",
+    re.IGNORECASE,
+)
+# GitHub URLs whose responses contain user-authored free text: issue/PR/
+# comment/review/discussion resources under api.github.com or github.com,
+# plus the graphql endpoint (can select arbitrary fields, incl. free text).
+GITHUB_FREE_TEXT_URL_RE = re.compile(
+    r"(?:api\.github\.com|github\.com)/(?:[^\s\"'<>]*?/)?"
+    r"(?:issues|pulls|comments|reviews|discussions|graphql)(?=[/?#\"'\s<>]|$)",
+    re.IGNORECASE,
+)
+# Shell write redirections to a file: >, >>, 2>, 2>>, &>, &>>.
+REDIRECT_RE = re.compile(r"(?:\d|&)?>{1,2}\s*[\"']?([^\s\"'&|;<>]+)")
+# tee [flags] FILE — the first non-flag argument is a written file.
+TEE_RE = re.compile(r"\btee\b(?:\s+-{1,2}[\w-]+)*\s+[\"']?([^\s\"'|;]+)")
+# python open("path", "w"/"a"/...) and Path("path").write_text(...).
+PY_OPEN_WRITE_RE = re.compile(r"\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"'][wa+]")
+PY_PATH_WRITE_RE = re.compile(r"\bPath\s*\(\s*[\"']([^\"']+)[\"']\s*\)\s*\.\s*write_text")
+# cp/mv/install write their last argument as the destination file.
+COPY_MOVE_CMDS = frozenset({"cp", "mv", "install"})
 
 
 def _is_gh_collection_cmd(line: str) -> bool:
@@ -319,6 +376,7 @@ def lint_workflow(path: Path) -> list[str]:
             continue
         redacted_outputs: set[str] = set()
         run_scripts: list[str] = []
+        file_input_targets: set[str] = set()
         feeds_inference = False
         for step in job.get("steps") or []:
             if not isinstance(step, dict):
@@ -337,6 +395,7 @@ def lint_workflow(path: Path) -> list[str]:
             feeds_inference = True
             for raw in FILE_INPUT_RE.findall(file_input):
                 target = _canon_path(raw)
+                file_input_targets.add(target)
                 if target not in redacted_outputs:
                     errors.append(
                         f"{path.name} (job {job_name}): ai-inference file_input "
@@ -347,7 +406,53 @@ def lint_workflow(path: Path) -> list[str]:
                     )
         if feeds_inference:
             errors.extend(_lint_minimization(path, job_name, run_scripts))
+            errors.extend(
+                _lint_file_input_producers(path, job_name, run_scripts, file_input_targets)
+            )
+            errors.extend(_lint_non_gh_fetchers(path, job_name, run_scripts))
     return errors
+
+
+def _gh_line_problems(line: str) -> list[str]:
+    """Why a matched gh collection line is not a verifiable metadata-only
+    collection (rule 4). Empty list means the line is an acceptable producer
+    of a file_input file."""
+    fields = _gh_json_fields(line)
+    free_text = sorted(fields & FREE_TEXT_FIELDS)
+    dynamic_json = DYNAMIC_ARG in fields
+    jq_exprs = _gh_jq_expressions(line)
+    dynamic_jq = DYNAMIC_ARG in jq_exprs
+    api_hits = _gh_api_free_text_hits(line)
+    flag_hits = [] if api_hits else _gh_flag_hits(line)
+    problems: list[str] = []
+    if dynamic_json or dynamic_jq:
+        problems.append(
+            "a dynamic or missing --json/--jq argument (shell expansion like "
+            "$VAR, $(...), backticks, or a glob) that cannot be verified statically"
+        )
+    if free_text:
+        problems.append(f"free-text field(s) {free_text} via --json")
+    if jq_exprs and not dynamic_jq:
+        # Any jq expression fails closed: computed key access such as
+        # .["tit"+"le"] cannot be verified statically (#1087 review).
+        problems.append(
+            "a --jq expression (computed access cannot be verified statically, "
+            "so it can re-extract free-text fields)"
+        )
+    if api_hits:
+        problems.append(f"gh api free-text exposure: {', '.join(api_hits)}")
+    if not api_hits:
+        # A matched gh collection command without any --json flag prints
+        # the default table, which includes titles — fail closed unless
+        # an explicit literal metadata field list is given.
+        if not re.search(r"--json\b", line):
+            problems.append(
+                "no explicit --json metadata field list (default output "
+                "includes titles)"
+            )
+        if flag_hits:
+            problems.append(", ".join(flag_hits))
+    return problems
 
 
 def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> list[str]:
@@ -360,41 +465,7 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
         for line in script.splitlines():
             if not _is_gh_collection_cmd(line):
                 continue
-            fields = _gh_json_fields(line)
-            free_text = sorted(fields & FREE_TEXT_FIELDS)
-            dynamic_json = DYNAMIC_ARG in fields
-            jq_exprs = _gh_jq_expressions(line)
-            dynamic_jq = DYNAMIC_ARG in jq_exprs
-            api_hits = _gh_api_free_text_hits(line)
-            flag_hits = [] if api_hits else _gh_flag_hits(line)
-            problems: list[str] = []
-            if dynamic_json or dynamic_jq:
-                problems.append(
-                    "a dynamic or missing --json/--jq argument (shell expansion like "
-                    "$VAR, $(...), backticks, or a glob) that cannot be verified statically"
-                )
-            if free_text:
-                problems.append(f"free-text field(s) {free_text} via --json")
-            if jq_exprs and not dynamic_jq:
-                # Any jq expression fails closed: computed key access such as
-                # .["tit"+"le"] cannot be verified statically (#1087 review).
-                problems.append(
-                    "a --jq expression (computed access cannot be verified statically, "
-                    "so it can re-extract free-text fields)"
-                )
-            if api_hits:
-                problems.append(f"gh api free-text exposure: {', '.join(api_hits)}")
-            if not api_hits:
-                # A matched gh collection command without any --json flag prints
-                # the default table, which includes titles — fail closed unless
-                # an explicit literal metadata field list is given.
-                if not re.search(r"--json\b", line):
-                    problems.append(
-                        "no explicit --json metadata field list (default output "
-                        "includes titles)"
-                    )
-                if flag_hits:
-                    problems.append(", ".join(flag_hits))
+            problems = _gh_line_problems(line)
             if problems:
                 errors.append(
                     f"{path.name} (job {job_name}): gh command rejected for ai-inference "
@@ -402,6 +473,87 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
                     f"be collected; use a literal metadata-only field list (number, labels, "
                     f"milestone, timestamps, url) (.github/prompts/README.md, decided in #1082)"
                 )
+    return errors
+
+
+def _write_targets(line: str) -> set[str]:
+    """Canon paths this shell/python line writes to: redirects (>, >>, 2>,
+    &>), tee targets, python open(...,'w'/'a') and Path(...).write_text(...),
+    and the destination (last token) of cp/mv/install."""
+    targets = {m.group(1) for m in REDIRECT_RE.finditer(line)}
+    targets.update(m.group(1) for m in TEE_RE.finditer(line))
+    targets.update(m.group(1) for m in PY_OPEN_WRITE_RE.finditer(line))
+    targets.update(m.group(1) for m in PY_PATH_WRITE_RE.finditer(line))
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        tokens = []
+    if tokens and tokens[0] in COPY_MOVE_CMDS and len(tokens) > 1:
+        targets.add(tokens[-1])
+    return {_canon_path(t) for t in targets if t and t != "/dev/null"}
+
+
+def _lint_file_input_producers(
+    path: Path, job_name: str, run_scripts: list[str], file_input_targets: set[str]
+) -> list[str]:
+    """Rule 5a (issue #1090): in a job that feeds file_input to
+    actions/ai-inference, every write to a file later used as file_input must
+    come from a rule-4-compliant literal-metadata gh collection command or
+    from an explicit FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer
+    pattern the writing line matches. Anything else — curl/wget/python
+    output, echo/printf/heredoc, cp/mv — fails closed: redact_secrets.py
+    strips secret/injection patterns, not issue titles/bodies."""
+    errors: list[str] = []
+    allowlist = FILE_INPUT_PRODUCERS_ALLOWLIST.get(path.name, {})
+    for script in run_scripts:
+        for line in script.splitlines():
+            targets = _write_targets(line) & file_input_targets
+            if not targets:
+                continue
+            if "redact_secrets.py" in line:
+                # Transformation, not a content source; rule 3 already
+                # requires redaction of every file_input file.
+                continue
+            if _is_gh_collection_cmd(line):
+                # Rule 4 reports non-compliant gh lines itself; a compliant
+                # one is an acceptable producer of all its targets.
+                continue
+            for target in sorted(targets):
+                entry = allowlist.get(target)
+                if entry is not None and entry[0].search(line):
+                    continue
+                errors.append(
+                    f"{path.name} (job {job_name}): ai-inference file_input "
+                    f"'{target}' is written by a step that is neither a literal "
+                    f"metadata-only gh collection command nor an allowlisted "
+                    f"producer (FILE_INPUT_PRODUCERS_ALLOWLIST) — non-gh fetchers "
+                    f"and arbitrary writers fail closed here because "
+                    f"scripts/redact_secrets.py strips secrets/injection patterns, "
+                    f"not user-authored free text (#1090, .github/prompts/README.md)"
+                )
+    return errors
+
+
+def _lint_non_gh_fetchers(path: Path, job_name: str, run_scripts: list[str]) -> list[str]:
+    """Rule 5b (issue #1090): in a job that feeds file_input to
+    actions/ai-inference, any non-gh HTTP fetcher (curl/wget/httpie, python
+    urllib/requests/httpx/..., node fetch, pwsh Invoke-*) whose arguments
+    target a GitHub free-text endpoint fails closed — even when its output
+    is not redirected straight into a file_input file, because it can be
+    captured via $() and written indirectly."""
+    errors: list[str] = []
+    for script in run_scripts:
+        if not NON_GH_FETCHER_RE.search(script):
+            continue
+        urls = sorted(set(GITHUB_FREE_TEXT_URL_RE.findall(script)))
+        if urls:
+            errors.append(
+                f"{path.name} (job {job_name}): non-gh HTTP fetcher (curl/wget/"
+                f"python/node/pwsh) targets GitHub free-text endpoint(s) "
+                f"{urls} in an ai-inference file_input job — collect literal "
+                f"metadata via a gh command instead; this fails closed (#1090, "
+                f".github/prompts/README.md)"
+            )
     return errors
 
 

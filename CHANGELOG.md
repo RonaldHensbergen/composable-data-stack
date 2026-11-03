@@ -37,6 +37,25 @@ The format is based on Keep a Changelog.
   have `.cds/` but no `.git`/`pyproject.toml` — made every relative bind fail
   closed (#1113).
 
+- The prompt trust-boundary lint (`scripts/check_prompts.py`, `make
+  lint-prompts`/CI/pre-commit) no longer has a non-gh hole in
+  `actions/ai-inference` `file_input` jobs: previously only `gh` collection
+  commands were fail-closed (rule 4), while `curl`/`wget`/python HTTP calls
+  could still write issue/PR/comment free text into an input file — and
+  `scripts/redact_secrets.py` strips secret/injection patterns, not titles
+  or bodies. New rule 5 fail-closes both directions: (a) every write
+  (shell redirect, `tee`, python `open`/`write_text`, `cp`/`mv`/`install`)
+  to a file later used as `file_input` must come from a rule-4-compliant
+  literal-metadata `gh` command or from the new
+  `FILE_INPUT_PRODUCERS_ALLOWLIST` (keyed by workflow + canonical path with
+  a required producer pattern and justification; the only entry is
+  `biweekly-issue-audit.yml`'s `recent-commits.txt` from
+  `git log --format='%h %ad'`), and (b) any non-gh HTTP fetcher targeting a
+  GitHub free-text endpoint (issue/PR/comment/review/discussion resources
+  or the `graphql` endpoint) fails closed even when captured via `$(...)`.
+  Tests in `tests/test_prompts_lint.py`; policy documented in
+  `.github/prompts/README.md` (#1090).
+
 ## [0.15.0] - 2026-11-02
 
 ### Added

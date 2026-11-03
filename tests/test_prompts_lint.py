@@ -402,6 +402,161 @@ class PromptsLintTest(unittest.TestCase):
             errors = check_prompts.lint_workflow(path)
             self.assertTrue(any("free-text" in e for e in errors))
 
+    def test_workflow_curl_to_github_issues_endpoint_fails(self):
+        # Issue #1090: rule 4 covers only gh; curl/wget/python fetching
+        # issue/PR/comment endpoints in a file_input-feeding job must fail
+        # closed (the redactor strips secrets, not titles/bodies).
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'curl -s https://api.github.com/repos/O/R/issues > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("non-gh HTTP fetcher" in e for e in errors))
+            self.assertTrue(any("issues" in e for e in errors))
+
+    def test_workflow_wget_and_python_fetchers_fail(self):
+        for collect in (
+            'wget -qO "$RUNNER_TEMP/open-issues.json" https://api.github.com/repos/O/R/pulls/3/comments',
+            'python3 -c "import urllib.request; urllib.request.urlretrieve(\'https://github.com/O/R/issues\', \'$RUNNER_TEMP/open-issues.json\')"',
+            'python3 -c "import requests; open(\'$RUNNER_TEMP/open-issues.json\',\'w\').write(requests.get(\'https://api.github.com/graphql\').text)"',
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(collect)
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("non-gh HTTP fetcher" in e for e in errors),
+                    f"expected non-gh fetcher failure for: {collect}",
+                )
+
+    def test_workflow_fetcher_captured_via_command_substitution_fails(self):
+        # The fetch does not redirect straight into the file_input file, but
+        # is captured via $() and written later — still fail closed in a
+        # feeding job.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'DATA="$(curl -s https://api.github.com/repos/O/R/issues/1/comments)"; '
+                'printf "%s" "$DATA" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("non-gh HTTP fetcher" in e for e in errors))
+
+    def test_workflow_non_gh_fetcher_outside_inference_job_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # No ai-inference file_input in this job: rules 4/5 are scoped to
+            # jobs that feed the model.
+            wf = """jobs:
+  report:
+    steps:
+      - run: |
+          curl -s https://api.github.com/repos/O/R/issues > issues.json
+"""
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_curl_to_non_github_url_writing_file_input_fails(self):
+        # Even a non-GitHub URL writing into a file_input file fails: the
+        # write is not a metadata-only gh command nor an allowlisted
+        # producer (rule 5a).
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'curl -s https://example.com/data.json > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("allowlisted" in e for e in errors))
+
+    def test_workflow_echo_or_heredoc_write_to_file_input_fails(self):
+        for collect in (
+            'echo "$DATA" > "$RUNNER_TEMP/open-issues.json"',
+            'cat > "$RUNNER_TEMP/open-issues.json" <<EOF\nhello\nEOF',
+            'cp seed.json "$RUNNER_TEMP/open-issues.json"',
+            'python3 -c "open(\'$RUNNER_TEMP/open-issues.json\',\'w\').write(\'x\')"',
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(collect)
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("allowlisted" in e for e in errors),
+                    f"expected producer rejection for: {collect}",
+                )
+
+    def test_workflow_tee_forms(self):
+        # gh metadata-only collection piped through tee is an acceptable
+        # producer; a non-gh fetcher piped through tee is not.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json number,labels,url '
+                '| tee "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'curl -s https://example.com/x.json | tee "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("allowlisted" in e for e in errors))
+
+    def _biweekly_shaped_workflow(self, collect_block: str) -> str:
+        indented = "          " + collect_block.replace("\n", "\n          ")
+        return f"""jobs:
+  audit:
+    steps:
+      - run: |
+{indented}
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            recent_commits: ${{{{ runner.temp }}}}/recent-commits.txt
+"""
+
+    def test_workflow_allowlisted_git_log_producer_passes(self):
+        # The checked-in biweekly-issue-audit.yml pattern: git log with a
+        # hash+date-only --format, allowlisted per workflow+path in
+        # FILE_INPUT_PRODUCERS_ALLOWLIST, still redacted before inference.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._biweekly_shaped_workflow(
+                'git log --since="90 days ago" --max-count=100 \\\n'
+                '  --format="%h %ad" --date=short \\\n'
+                '  > "$RUNNER_TEMP/recent-commits.txt"\n'
+                'python3 scripts/redact_secrets.py --strict \\\n'
+                '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
+            )
+            path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_wrong_producer_for_allowlisted_path_fails(self):
+        # Same workflow and path, but the writer is not the allowlisted
+        # producer pattern — fail closed.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._biweekly_shaped_workflow(
+                'echo "user text" > "$RUNNER_TEMP/recent-commits.txt"\n'
+                'python3 scripts/redact_secrets.py --strict \\\n'
+                '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
+            )
+            path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("allowlisted" in e for e in errors))
+
+    def test_workflow_git_log_with_subject_format_fails(self):
+        # git log default/subejct format includes commit subjects (free
+        # text) — the allowlist producer pattern requires %h, so this fails.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._biweekly_shaped_workflow(
+                'git log --max-count=100 > "$RUNNER_TEMP/recent-commits.txt"\n'
+                'python3 scripts/redact_secrets.py --strict \\\n'
+                '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
+            )
+            path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("allowlisted" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()
