@@ -8,6 +8,21 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- New `sampleData` config block on the dagster module (issue #1117):
+  `sampleData.enabled` (default `false`) ships the bundled
+  `offers-1000.csv` sample fixture into the dagster containers at the same
+  container path (`sampleData.containerPath`, default
+  `/app/data/cds/incoming/offers-1000.csv`) on both render targets — on
+  Compose through the existing `sharedData` bind plus a read-only file bind,
+  on Helm through a new `sample-data` ConfigMap projected from
+  `sampleData.hostPath` — and schedules the `load_offers_1000` job
+  automatically via `CDS_SAMPLE_DATA_ENABLED` (the job is idempotent and
+  leaves exactly 1,000 rows in `offers_1000`). The helm renderer now honors
+  `enabledFrom` on `implementation.kubernetes.configMaps` entries and on
+  individual compose volume-mount entries, so the ConfigMap and its mounts
+  disappear when the parameter is off; rendering stays fail-closed
+  (`cds test` green on both targets with the parameter on and off).
+
 - Added `docs/plan/k8s-haven-mvp.md` (#1104): an execution runbook for an MVP
   cycle that starts from a fresh directory with only Docker installed and walks
   six gates — bootstrap, Kubernetes MVP on a local k3d cluster (`--target

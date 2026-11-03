@@ -711,6 +711,11 @@
             "string"
           ],
           "description": "Octal file mode, e.g. 0555 for an executable script."
+        },
+        "enabledFrom": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional config path expression gating the ConfigMap (e.g. \"config.sampleData.enabled\"); when it resolves to False the ConfigMap is not rendered and its matching compose bind mounts are skipped on the Kubernetes target. Stripped from the rendered output."
         }
       }
     },

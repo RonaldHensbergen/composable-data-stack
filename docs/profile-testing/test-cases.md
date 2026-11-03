@@ -36,6 +36,7 @@ execution results outside this document so it remains reusable.
 | T4.3 | Row count | The table contains exactly 1,000 fixture rows. |
 | T4.4 | Rerun | Rerunning replaces fixture rows without duplicates. |
 | T4.5 | Logs | Dagster run logs are available and actionable. |
+| T4.6 | Sample-data parameter (`sampleData.enabled: true`, both `--target compose` and `--target helm`) | `/app/data/cds/incoming/offers-1000.csv` is present in the dagster user-code container (bind on Compose, `sample-data` ConfigMap mount on Helm), the `load_offers_1000_sample_data` schedule runs the job automatically, and `offers_1000` holds exactly 1,000 rows after repeated runs (issue #1117). With the parameter absent, neither target ships the ConfigMap/mount and no schedule is registered. |
 
 ## T5 Persistence
 

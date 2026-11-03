@@ -351,6 +351,10 @@ def _render_module(
         enabled_from = volume_spec.get("enabledFrom")
         if isinstance(enabled_from, str):
             volume_spec["enabledFrom"] = _resolve_expr(enabled_from, context)
+    for cm_spec in configmap_specs.values():
+        enabled_from = cm_spec.get("enabledFrom")
+        if isinstance(enabled_from, str):
+            cm_spec["enabledFrom"] = _resolve_expr(enabled_from, context)
 
     # ConfigMaps are module-scoped: one manifest, mounted by whichever
     # containers name it.
@@ -971,6 +975,15 @@ def _translate_volumes(
         if isinstance(entry, dict) and isinstance(entry.get("production"), bool):
             if entry["production"] != is_production:
                 continue
+        if isinstance(entry, dict) and "enabledFrom" in entry:
+            gate = entry["enabledFrom"]
+            disabled = gate is False or (
+                isinstance(gate, str)
+                and context is not None
+                and _resolve_expr(gate, context) is False
+            )
+            if disabled:
+                continue
         source, target, read_only, kind = _parse_volume_entry(entry)
         if target is None or target.rstrip("/") in dropped:
             continue
@@ -1101,6 +1114,11 @@ def _render_configmaps(
     diagnostics: list[Diagnostic] = []
 
     for name, spec in specs.items():
+        # An enabledFrom gate that resolved to False (resolved by the caller
+        # against the render context) drops the whole ConfigMap: neither the
+        # manifest nor any matching compose bind mount survives (issue #1117).
+        if spec.get("enabledFrom") is False:
+            continue
         key = spec["key"]
         content = spec.get("content")
         from_bind = spec.get("fromBind")
