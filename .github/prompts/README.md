@@ -58,8 +58,9 @@ enforces the policy below and fails the build on violations.
      `2>|`), `tee` (all file arguments), python `open(...,'w'/'a')` /
      `Path(...).write_text(...)`, output-path flags (`curl -o`, `wget -O`,
      `--output=`, `-oFILE`, `dd of=`, `--dest`), or `cp`/`mv`/`install` — must
-     come from a single simple command (no `;`/`&&`/`||`/backticks/`$(...)`;
-     pipes only into `tee`) that is a rule-4-compliant literal-metadata `gh`
+     come from a single simple command (no `;`/`&&`/`||`/backticks/`$(...)`,
+     no process substitution `>(...)`/`<(...)`, pipes only into `tee`) that
+     is a rule-4-compliant literal-metadata `gh`
      collection command, or by a
      producer listed in `FILE_INPUT_PRODUCERS_ALLOWLIST` in
      `scripts/check_prompts.py` (keyed by workflow file and canonical input
@@ -74,8 +75,11 @@ enforces the policy below and fails the build on violations.
      invocations (`python3 script.py`, `python3 - <<'PY'`, `bash x.sh`,
      `node x.js`, `perl`, `ruby`, `pwsh`, ...) fail closed in feeding jobs
      because their writes are invisible to line-level analysis — the only
-     exempt script is `scripts/redact_secrets.py` (the rule-3
-     transformation). Any other writer fails closed.
+     exempt script is `scripts/redact_secrets.py` — and that exemption
+     applies only to a single simple command, so a redaction line with a
+     chained write (`... redact_secrets.py ...; echo INJECT >> target`)
+     fails closed like any other chained writer. Any other writer fails
+     closed.
    - (b) any non-gh HTTP fetcher — `curl`, `wget`, `httpie`, python
      `urllib`/`requests`/`httpx`/`aiohttp`/`http.client`, node `fetch()`,
      pwsh `Invoke-RestMethod`/`Invoke-WebRequest` — whose arguments target a

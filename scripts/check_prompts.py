@@ -644,9 +644,10 @@ def _unverifiable_py_writes(line: str) -> list[str]:
 
 
 # Shell chaining/control constructs that make a producer line unverifiable:
-# ;, &&, ||, backticks, $(...), and a bare & (backgrounding). &> / &>> /
-# N>&M redirections are NOT chaining.
-SHELL_CHAIN_RE = re.compile(r";|\|\||&&|`|\$\(|(?:^|[\s;|])&(?![0-9>])")
+# ;, &&, ||, backticks, $(...), process substitution >(...) / <(...), and a
+# bare & (backgrounding). &> / &>> / N>&M redirections are NOT chaining
+# (github-advanced-security on #1118).
+SHELL_CHAIN_RE = re.compile(r";|\|\||&&|`|\$\(|>\(|<\(|(?:^|[\s;|])&(?![0-9>])")
 
 
 def _producer_line_is_simple(line: str) -> bool:
@@ -719,9 +720,25 @@ def _lint_file_input_producers(
                     f"closed in file_input-feeding jobs (#1090/#1120, "
                     f".github/prompts/README.md)"
                 )
+            targets = _write_targets(line) & file_input_targets
+            if targets and not _producer_line_is_simple(line):
+                # Chained/piped/process-substituted commands on a writer line
+                # are unverified writers of the target — fail closed BEFORE
+                # any exemption, so e.g. a redaction line with an appended
+                # write cannot bypass (github-advanced-security on #1118).
+                for target in sorted(targets):
+                    errors.append(
+                        f"{path.name} (job {job_name}): ai-inference file_input "
+                        f"'{target}' is written on a line with chained/piped "
+                        f"commands beyond a single producer (+ optional tee) — "
+                        f"every command on the line must be verified, so this "
+                        f"fails closed (#1090, .github/prompts/README.md)"
+                    )
+                continue
             if "redact_secrets.py" in line:
-                # Transformation, not a content source; rule 3 already
-                # requires redaction of every file_input file.
+                # Single simple redaction transformation, not a content
+                # source; rule 3 already requires redaction of every
+                # file_input file. (Chained redact lines were rejected above.)
                 continue
             runner = _opaque_runner_invocation(line)
             if runner is not None:
@@ -734,18 +751,7 @@ def _lint_file_input_producers(
                     f"are allowed (#1090/#1120, .github/prompts/README.md)"
                 )
                 continue
-            targets = _write_targets(line) & file_input_targets
             if not targets:
-                continue
-            if not _producer_line_is_simple(line):
-                for target in sorted(targets):
-                    errors.append(
-                        f"{path.name} (job {job_name}): ai-inference file_input "
-                        f"'{target}' is written on a line with chained/piped "
-                        f"commands beyond a single producer (+ optional tee) — "
-                        f"every command on the line must be verified, so this "
-                        f"fails closed (#1090, .github/prompts/README.md)"
-                    )
                 continue
             if _is_gh_collection_cmd(line):
                 # Rule 4 reports non-compliant gh lines itself; a compliant
