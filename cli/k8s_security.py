@@ -219,7 +219,13 @@ def _scan_declared_external_egress(
         ports = entry.get("ports")
         if ports is None and entry.get("port") is not None:
             ports = [entry["port"]]
-        port_scoped = isinstance(ports, list) and bool(ports)
+        # The scan sees the plan before ${config.*} substitution, so a ports
+        # value supplied through a config expression arrives as a string:
+        # ports are declared (breadth unknown until render), so it must not
+        # be misread as a missing port list.
+        port_scoped = (isinstance(ports, list) and bool(ports)) or (
+            isinstance(ports, str) and bool(ports.strip())
+        )
         if all_destinations and not port_scoped:
             severity = "high"
             message = (

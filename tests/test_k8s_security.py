@@ -383,6 +383,24 @@ class KubernetesSecurityTest(unittest.TestCase):
             "module:demo.implementation.kubernetes.workloads.app.egress.0",
         )
 
+    def test_egress_ports_from_config_expression_are_not_misread_as_portless(
+        self,
+    ) -> None:
+        # The scan runs on the plan before ${config.*} substitution, so a
+        # ports list supplied through config arrives as a string: it declares
+        # ports, so the finding stays low instead of escalating to medium.
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["egress"] = [
+            {"cidr": "10.20.0.0/16", "ports": "${config.externalPorts}"},
+        ]
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-009"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "low")
+
     def test_malformed_egress_declarations_do_not_crash_the_scan(self) -> None:
         # Shape errors are the renderer's to fail closed on (E153); the scan
         # must neither crash nor invent findings for them.
