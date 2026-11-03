@@ -616,7 +616,11 @@ def _script_vars(script: str) -> dict[str, str]:
                 continue
             value = m.group(2).replace("${{ runner.temp }}", "__TEMP__")
             value = value.replace("$RUNNER_TEMP", "__TEMP__")
-            if not re.search(r"[$`]", value):
+            # Only truly literal values: any shell control/expansion syntax
+            # (e.g. a trailing ';' from a chained line) makes the assignment
+            # untrustworthy — don't record it, so later uses of $NAME fail
+            # closed as unresolvable (github-advanced-security on #1118).
+            if not re.search(r"[;|&<>$`]", value):
                 vars_[m.group(1)] = value.strip("\"'")
     return vars_
 
@@ -663,8 +667,35 @@ def _raw_write_targets(line: str) -> set[str]:
         tokens = shlex.split(line)
     except ValueError:
         tokens = []
-    if tokens and tokens[0] in COPY_MOVE_CMDS and len(tokens) > 1:
-        targets.add(tokens[-1])
+    if tokens and tokens[0] in COPY_MOVE_CMDS:
+        # cp/mv/install: parse flags; last positional is the destination,
+        # but a directory destination (-t DIR / --target-directory=DIR /
+        # trailing '/') writes DIR/basename(src) for each source
+        # (github-advanced-security on #1118).
+        positional: list[str] = []
+        target_dir: str | None = None
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok in ("-t", "--target-directory") and i + 1 < len(tokens):
+                target_dir = tokens[i + 1]
+                i += 2
+                continue
+            if tok.startswith("--target-directory="):
+                target_dir = tok.split("=", 1)[1]
+            elif not tok.startswith("-"):
+                positional.append(tok)
+            i += 1
+        if positional:
+            dest = positional[-1]
+            targets.add(dest)
+            # Directory destinations (bare dir, trailing '/', or -t DIR)
+            # write base/basename(src) — always derive those paths too;
+            # over-capture is harmless because only file_input matches error.
+            base = target_dir if target_dir is not None else dest
+            sources = positional if target_dir is not None else positional[:-1]
+            for src in sources:
+                targets.add(base.rstrip("/") + "/" + Path(src).name)
     for i, tok in enumerate(tokens):
         if tok in OUTPUT_FLAG_TOKENS:
             # split form: -o FILE / --output FILE (skip option-like values)

@@ -882,6 +882,48 @@ class PromptsLintTest(unittest.TestCase):
             path = self._workflow(Path(tmp), "wf.yml", wf)
             self.assertEqual([], check_prompts.lint_workflow(path))
 
+    def test_workflow_poisoned_assignment_value_fails_closed(self):
+        # github-advanced-security on #1118: an assignment token carrying a
+        # shell separator (OUT="..."; on a chained line) must NOT be recorded
+        # as a literal var — later > "$OUT" then stays unresolvable and fails
+        # closed instead of resolving to a non-matching poisoned path.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'OUT="$RUNNER_TEMP/open-issues.json"; curl -s https://example.com/x > "$OUT"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("unresolvable shell expansion" in e for e in errors))
+
+    def test_workflow_cp_mv_install_directory_destinations_fail(self):
+        # github-advanced-security on #1118: cp/mv/install into a DIRECTORY
+        # write DIR/basename(src) — that derived path must be checked too.
+        base = """jobs:
+  audit:
+    steps:
+      - run: |
+          @@COLLECT@@
+          python3 scripts/redact_secrets.py --strict "$RUNNER_TEMP/payload.json" "$RUNNER_TEMP/payload.json"
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{ runner.temp }}/payload.json
+"""
+        for collect in (
+            'cp payload.json "$RUNNER_TEMP/"',
+            'mv payload.json "$RUNNER_TEMP"',
+            'install -t "$RUNNER_TEMP" payload.json',
+            'cp --target-directory="$RUNNER_TEMP" payload.json',
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = self._workflow(Path(tmp), "wf.yml", base.replace("@@COLLECT@@", collect))
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("allowlisted" in e or "chained" in e for e in errors),
+                    f"expected producer rejection for: {collect}",
+                )
+
     def test_workflow_chained_write_on_redact_line_fails(self):
         # github-advanced-security on #1118: the redact_secrets.py exemption
         # applies only to a single simple command — chaining an unverified
