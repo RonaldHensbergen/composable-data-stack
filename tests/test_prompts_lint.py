@@ -924,6 +924,24 @@ class PromptsLintTest(unittest.TestCase):
                     f"expected producer rejection for: {collect}",
                 )
 
+    def test_workflow_in_place_and_positional_writers_fail(self):
+        # github-advanced-security on #1118: sed -i, truncate, rsync write
+        # file_input targets without redirects — they must be recognized.
+        for collect in (
+            'sed -i "s/x/y/" "$RUNNER_TEMP/open-issues.json"',
+            'sed --in-place=.bak "s/x/y/" "$RUNNER_TEMP/open-issues.json"',
+            'truncate -s 0 "$RUNNER_TEMP/open-issues.json"',
+            'rsync payload.json "$RUNNER_TEMP/open-issues.json"',
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(collect)
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("allowlisted" in e or "chained" in e for e in errors),
+                    f"expected producer rejection for: {collect}",
+                )
+
     def test_workflow_chained_write_on_redact_line_fails(self):
         # github-advanced-security on #1118: the redact_secrets.py exemption
         # applies only to a single simple command — chaining an unverified

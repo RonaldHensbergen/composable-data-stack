@@ -206,8 +206,12 @@ PY_OPEN_ANY_ARG_RE = re.compile(r"\bopen\s*\([^)]*,", re.IGNORECASE)
 PY_OPEN_LITERAL_RE = re.compile(r"\bopen\s*\(\s*[\"'][^\"']+[\"']\s*,", re.IGNORECASE)
 PY_PATH_ANY_WRITE_RE = re.compile(r"\bPath\s*\([^)]*\)\s*\.\s*write_text", re.IGNORECASE)
 PY_PATH_LITERAL_RE = re.compile(r"\bPath\s*\(\s*[\"'][^\"']+[\"']\s*\)", re.IGNORECASE)
-# cp/mv/install write their last argument as the destination file.
-COPY_MOVE_CMDS = frozenset({"cp", "mv", "install"})
+# Positional-destination tools: the last non-option argument is the written
+# file (cp/mv/install/rsync/truncate) — with directory-destination
+# derivation for all but truncate (github-advanced-security on #1118).
+COPY_MOVE_CMDS = frozenset({"cp", "mv", "install", "rsync", "truncate"})
+# sed edits files in place when -i/--in-place is present.
+SED_IN_PLACE_RE = re.compile(r"^(-i.*|--in-place.*)$")
 # In a job that feeds ai-inference file_input, ONLY these uses: actions are
 # allowed — known non-writers (VCS checkout, tool setup, cache, artifact
 # transfer) plus the inference action itself. Every other uses: step fails
@@ -653,7 +657,8 @@ def _raw_write_targets(line: str) -> set[str]:
     open(...,'w'/'a') and Path(...).write_text(...) with literal paths,
     output-path flags (-o, -O, --output, --out, --output-file,
     --output-document, --dest, of=, and attached/combined -ofile forms),
-    and the destination (last token) of cp/mv/install."""
+    in-place editors (sed -i file operands), and the destination of
+    cp/mv/install/rsync/truncate (with directory-destination derivation)."""
     targets = {m.group(1) for m in REDIRECT_RE.finditer(line)}
     for m in TEE_RE.finditer(line):
         try:
@@ -696,6 +701,10 @@ def _raw_write_targets(line: str) -> set[str]:
             sources = positional if target_dir is not None else positional[:-1]
             for src in sources:
                 targets.add(base.rstrip("/") + "/" + Path(src).name)
+    if tokens and tokens[0] == "sed" and any(SED_IN_PLACE_RE.match(t) for t in tokens[1:]):
+        # sed -i edits its file operands in place — every non-option token is
+        # a potential write target (over-capture is harmless).
+        targets.update(t for t in tokens[1:] if not t.startswith("-"))
     for i, tok in enumerate(tokens):
         if tok in OUTPUT_FLAG_TOKENS:
             # split form: -o FILE / --output FILE (skip option-like values)
