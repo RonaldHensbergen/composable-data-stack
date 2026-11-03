@@ -2027,11 +2027,19 @@ def _passthrough_rule_covers(rule: dict[str, Any], host: str, port: int | None) 
             continue
         if address not in network:
             continue
-        excepted = any(
-            isinstance(item, str)
-            and address in ipaddress.ip_network(item, strict=False)
-            for item in ip_block.get("except") or []
-        )
+        # A malformed `except` entry (E149 only shape-checks the rule as a
+        # mapping, and a plan loaded from a file bypasses the schema) must
+        # not crash the render: skip entries that do not parse as CIDRs.
+        excepted = False
+        for item in ip_block.get("except") or []:
+            if not isinstance(item, str):
+                continue
+            try:
+                if address in ipaddress.ip_network(item, strict=False):
+                    excepted = True
+                    break
+            except ValueError:
+                continue
         if not excepted:
             covered = True
             break

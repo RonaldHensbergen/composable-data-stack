@@ -1480,3 +1480,49 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
                 e152 = [d for d in diagnostics if d.code == "E152"]
                 self.assertEqual(len(e152), 1)
                 self.assertIn(f'"{host}"', e152[0].message)
+
+    def test_wait_gate_with_excepted_passthrough_address_fails_closed(self) -> None:
+        # An `except` CIDR inside the ipBlock stays denied, so a gate on an
+        # excepted address is not lifted by the passthrough rule.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16", "except": ["10.8.1.0/24"]}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("10.8.1.5", e152[0].message)
+
+    def test_wait_gate_with_malformed_passthrough_except_does_not_crash(self) -> None:
+        # E149 shape-checks a passthrough rule only as a mapping, and a plan
+        # loaded from a file bypasses the module schema: a garbage `except`
+        # entry must not crash the renderer with a ValueError from the
+        # ipaddress parser -- the entry is skipped, the gate stays covered.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16", "except": ["not-a-cidr"]}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z 10.8.1.5 443",
+            files["templates/consumer-app-deployment.yaml"],
+        )
