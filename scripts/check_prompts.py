@@ -421,6 +421,7 @@ def lint_workflow(path: Path) -> list[str]:
         redacted_outputs: set[str] = set()
         run_scripts: list[str] = []
         file_input_targets: set[str] = set()
+        non_ai_uses_steps: list[str] = []
         feeds_inference = False
         for step in job.get("steps") or []:
             if not isinstance(step, dict):
@@ -431,6 +432,8 @@ def lint_workflow(path: Path) -> list[str]:
             for match in redact_call_re.finditer(run_script):
                 redacted_outputs.add(_canon_path(match.group(2)))
             uses = str(step.get("uses", ""))
+            if uses and AI_INFERENCE_ACTION not in uses:
+                non_ai_uses_steps.append(uses)
             if AI_INFERENCE_ACTION not in uses:
                 continue
             file_input = str((step.get("with") or {}).get("file_input") or "")
@@ -449,6 +452,15 @@ def lint_workflow(path: Path) -> list[str]:
                         f"(.github/prompts/README.md)"
                     )
         if feeds_inference:
+            if non_ai_uses_steps:
+                for uses in non_ai_uses_steps:
+                    errors.append(
+                        f"{path.name} (job {job_name}): step uses '{uses}' in a job "
+                        f"that feeds actions/ai-inference file_input; rule-5 producer "
+                        f"analysis is fail-closed for `uses:` steps because only `run` "
+                        f"scripts are statically validated for metadata-only/allowlisted "
+                        f"file production (.github/prompts/README.md)"
+                    )
             errors.extend(_lint_minimization(path, job_name, run_scripts))
             errors.extend(
                 _lint_file_input_producers(path, job_name, run_scripts, file_input_targets)
