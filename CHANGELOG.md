@@ -37,6 +37,52 @@ The format is based on Keep a Changelog.
   have `.cds/` but no `.git`/`pyproject.toml` — made every relative bind fail
   closed (#1113).
 
+- The prompt trust-boundary lint (`scripts/check_prompts.py`, `make
+  lint-prompts`/CI/pre-commit) no longer has a non-gh hole in
+  `actions/ai-inference` `file_input` jobs: previously only `gh` collection
+  commands were fail-closed (rule 4), while `curl`/`wget`/python HTTP calls
+  could still write issue/PR/comment free text into an input file — and
+  `scripts/redact_secrets.py` strips secret/injection patterns, not titles
+  or bodies. New rule 5 fail-closes both directions: (a) every write
+  (shell redirect, `tee`, python `open`/`write_text`, `cp`/`mv`/`install`)
+  to a file later used as `file_input` must come from a rule-4-compliant
+  literal-metadata `gh` command or from the new
+  `FILE_INPUT_PRODUCERS_ALLOWLIST` (keyed by workflow + canonical path with
+  a required producer pattern, a producer validator, and justification; the
+  only entry is `biweekly-issue-audit.yml`'s `recent-commits.txt` from
+  `git log`, where the validator accepts only metadata-only `--format`
+  specifiers — hashes/dates/timestamps — so `--format='%h %s'`, author
+  fields, and `%(...)` pretty-format atoms (`%(trailers:...)`, `%w(...)`,
+  `%C(...)`) fail closed, as does a bare `git log`; python writes with
+  non-literal target paths (`open(var, 'w')`) fail closed as unverifiable,
+  redirect detection covers the noclobber-override forms (`>|`, `&>|`,
+  `2>|`), output-path flags are treated as writes (`curl -o`, `wget -O`,
+  `--output=`, attached `-oFILE`, combined clusters like `curl -soFILE` /
+  `wget -qOFILE`, `dd of=`, `--dest`), and a producer line must be a
+  single simple command (no `;`/`&&`/`||`/backticks/`$(...)`, no process
+  substitution `>(...)`/`<(...)`, pipes only into `tee`) so chained or hidden
+  writers cannot ride on an allowlisted/gh/redact line — the
+  `scripts/redact_secrets.py` exemption applies only to a single simple
+  command; opaque runner invocations (`python3 script.py`, heredoc python,
+  `bash`/`node`/etc.) fail closed in feeding jobs except
+  `scripts/redact_secrets.py`; write targets via script-local literal
+  variables are resolved and checked (assignments carrying shell separators
+  are not trusted), directory destinations of `cp`/`mv`/`install`
+  (`-t DIR`, trailing `/`) are derived as `DIR/basename(src)`, while
+  unresolved shell expansion in a write target fails closed (runner vars
+  like `$GITHUB_OUTPUT` exempt), and
+  (b) any non-gh
+  HTTP fetcher targeting a
+  GitHub free-text endpoint (issue/PR/comment/review/discussion resources
+  or the `graphql` endpoint) fails closed even when captured via `$(...)`,
+  and (c) deny by default for `uses:` steps in feeding jobs: only
+  `FEEDING_JOB_USES_ALLOWLIST` actions (checkout, setup-*, cache,
+  upload/download-artifact, ai-inference) are allowed; every other action
+  (third-party, composite, local, docker://, github-script) fails closed.
+  Tests in `tests/test_prompts_lint.py`; policy documented in
+  `.github/prompts/README.md` (#1090; residual opaque-`run:`-script vectors
+  tracked in #1120).
+
 ## [0.15.0] - 2026-11-02
 
 ### Added
