@@ -768,22 +768,42 @@ def _producer_line_is_simple(line: str) -> bool:
 OPAQUE_RUNNER_CMDS = frozenset(
     {"python", "python3", "bash", "sh", "zsh", "node", "perl", "ruby", "pwsh", "powershell", "cmd"}
 )
+# Wrapper commands that only prefix the real executable (e.g.
+# 'env python3 fetch.py', 'command node x.js') — skipped when locating the
+# opaque runner (github-advanced-security on #1118).
+RUNNER_WRAPPER_CMDS = frozenset(
+    {"sudo", "env", "command", "builtin", "nohup", "nice", "time", "stdbuf"}
+)
 OPAQUE_RUNNER_FALLBACK_RE = re.compile(
-    r"(?:^|[\s;|&])(python3?|bash|sh|zsh|node|perl|ruby|pwsh|powershell|cmd)\b"
+    r"(?:^|[\s;|&])(?:(?:sudo|env|command|builtin|nohup|nice|time|stdbuf)\s+)*"
+    r"(python3?|bash|sh|zsh|node|perl|ruby|pwsh|powershell|cmd)\b"
 )
 
 
 def _opaque_runner_invocation(line: str) -> str | None:
-    """The runner command name when the line invokes an opaque interpreter
-    (after skipping env assignments / sudo), else None."""
+    """The runner command name when the line invokes an opaque interpreter,
+    skipping wrapper commands (sudo/env/command/nohup/...), VAR=...
+    assignments, and env's dash flags; else None."""
     try:
         tokens = shlex.split(line)
     except ValueError:
         match = OPAQUE_RUNNER_FALLBACK_RE.search(line)
         return match.group(1) if match else None
     i = 0
-    while i < len(tokens) and (tokens[i] == "sudo" or re.fullmatch(r"\w+=.*", tokens[i])):
-        i += 1
+    wrapped = False
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in RUNNER_WRAPPER_CMDS:
+            wrapped = True
+            i += 1
+            continue
+        if re.fullmatch(r"\w+=.*", tok):
+            i += 1
+            continue
+        if wrapped and tok.startswith("-") and not tok.startswith("--"):
+            i += 1
+            continue
+        break
     if i < len(tokens) and tokens[i] in OPAQUE_RUNNER_CMDS:
         return tokens[i]
     return None

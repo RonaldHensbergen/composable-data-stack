@@ -674,6 +674,13 @@ class PromptsLintTest(unittest.TestCase):
             'bash build.sh',
             'node script.js',
             'python3 -c "open(\'/tmp/notes.txt\',\'w\').write(\'x\')"',
+            # github-advanced-security on #1118: wrapper commands must not
+            # hide the opaque runner (env/command/nohup/... + env dash flags)
+            'env python3 fetch.py',
+            'env -i GH_TOKEN=x python3 fetch.py',
+            'command node script.js',
+            'nohup bash build.sh',
+            'sudo -n python3 fetch.py',
         ):
             with tempfile.TemporaryDirectory() as tmp:
                 wf = self._inference_workflow(collect)
