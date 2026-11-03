@@ -8,6 +8,30 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Declared external egress for helm-target workloads under the generated
+  default-deny NetworkPolicies (issue #1023): modules can now declare
+  egress to destinations outside the plan via
+  `implementation.kubernetes.egress` -- a list of entries with `host` (IP
+  literal, rendered as a /32 or /128 ipBlock) or `cidr`, optional `except`
+  CIDRs, `port`/`ports`, and `protocol` (default TCP) -- or scoped to one
+  workload via `implementation.kubernetes.workloads.<name>.egress`, which
+  renders an additional workload-scoped NetworkPolicy selecting that
+  workload's `app.kubernetes.io/name`. Entries render as ipBlock rules on
+  the module's release-scoped NetworkPolicy allowing exactly the declared
+  destination/ports; undeclared external egress remains denied (the
+  security baseline, now stated explicitly in `docs/kubernetes.md`).
+  Values support `${config.*}` substitution so a profile can supply the
+  destination through module config. Malformed entries (DNS-name host,
+  CIDR with host bits, `except` outside the CIDR, bad port/protocol,
+  unresolved expression) fail closed with the new E153 diagnostic, and the
+  k8s security scan records every declared entry as a CDS-K8S-009 finding
+  whose severity scales with breadth (0.0.0.0/0 on all ports = high).
+  The E152 wait-gate check now also accepts a gate whose host:port a
+  declared entry (or a raw `networkPolicy.egress` ipBlock rule) covers,
+  and its message points at `implementation.kubernetes.egress`. Module
+  schema (`cli/resources/module.schema.json`), renderer, scan, README
+  troubleshooting table, and tests included.
+
 - New `sampleData` config block on the dagster module (issue #1117):
   `sampleData.enabled` (default `false`) ships the bundled
   `offers-1000.csv` sample fixture into the dagster containers at the same
