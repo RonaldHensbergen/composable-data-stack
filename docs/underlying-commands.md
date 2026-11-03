@@ -61,7 +61,7 @@ this doc was written — the function names are the stable anchor.
 ## `cds init` and the `.env` file
 
 `cds init <profile>` generates `<project-root>/.env` from the profile's secret
-definitions (`cli/main.py:3122`, `:3136`; helpers at `cli/main.py:925`,
+definitions (`cli/main.py:3122`, `:3135`; helpers at `cli/main.py:925`,
 `:995`). Fill in the values, then the file is a standard Compose env file:
 
 ```bash

@@ -34,7 +34,8 @@ The format is based on Keep a Changelog.
   `docker-compose.yml` and `chart/` are standard artifacts (`docker compose -f
   docker-compose.yml up -d` and `helm upgrade --install <release> chart/ ...`
   work standalone) and that the project-root `.env` is a standard Compose env
-  file. Linked from `docs/cli-reference.md` and the README quick-start.
+  file. Linked from `docs/cli-reference.md`, the README (quick-start and
+  documentation index), and `docs/kubernetes.md`.
 
 ### Fixed
 
