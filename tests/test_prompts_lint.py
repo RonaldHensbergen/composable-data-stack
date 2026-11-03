@@ -480,7 +480,7 @@ class PromptsLintTest(unittest.TestCase):
                 path = self._workflow(Path(tmp), "wf.yml", wf)
                 errors = check_prompts.lint_workflow(path)
                 self.assertTrue(
-                    any("allowlisted" in e for e in errors),
+                    any("allowlisted" in e or "opaque runner" in e for e in errors),
                     f"expected producer rejection for: {collect}",
                 )
 
@@ -650,13 +650,44 @@ class PromptsLintTest(unittest.TestCase):
             errors = check_prompts.lint_workflow(path)
             self.assertTrue(any("non-literal target path" in e for e in errors))
 
-    def test_workflow_literal_python_write_to_other_file_passes(self):
-        # A literal-path python write that does NOT target a file_input file
-        # in a feeding job is verifiable and stays allowed.
+    def test_workflow_opaque_runner_invocations_fail_closed(self):
+        # github-advanced-security on #1118: opaque interpreters can write
+        # file_input targets invisibly (no shell-level write indicator), so
+        # ANY invocation in a feeding job fails closed — except
+        # scripts/redact_secrets.py (covered by the redact rule).
+        for collect in (
+            'python3 fetch_issues.py',
+            'python3 - <<\'PY\'\nimport urllib.request\nPY',
+            'GH_TOKEN=x python3 fetch.py',
+            'bash build.sh',
+            'node script.js',
+            'python3 -c "open(\'/tmp/notes.txt\',\'w\').write(\'x\')"',
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(collect)
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("opaque runner" in e for e in errors),
+                    f"expected opaque-runner rejection for: {collect}",
+                )
+
+    def test_workflow_redact_secrets_invocation_stays_allowed(self):
+        # The only python invocation allowed in a feeding job is the
+        # redaction transformation itself (rule 3 requires it).
         with tempfile.TemporaryDirectory() as tmp:
-            wf = self._inference_workflow(
-                'python3 -c "open(\'/tmp/notes.txt\',\'w\').write(\'x\')"'
-            )
+            wf = """jobs:
+  audit:
+    steps:
+      - run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" --json number,labels,url > "$RUNNER_TEMP/open-issues.json"
+          python3 scripts/redact_secrets.py --strict "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.json"
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{ runner.temp }}/open-issues.json
+"""
             path = self._workflow(Path(tmp), "wf.yml", wf)
             self.assertEqual([], check_prompts.lint_workflow(path))
 

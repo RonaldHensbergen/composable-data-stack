@@ -70,8 +70,12 @@ enforces the policy below and fails the build on violations.
      (hashes/dates), so `--format='%h %s'` (subject = free text) or author
      fields (`%an`/`%ae`) fail closed, as does a bare `git log`).
      Python writes with non-literal target paths (`open(var, 'w')`) cannot be
-     verified against the input paths and fail closed too.
-     Any other writer fails closed.
+     verified against the input paths and fail closed too. Opaque runner
+     invocations (`python3 script.py`, `python3 - <<'PY'`, `bash x.sh`,
+     `node x.js`, `perl`, `ruby`, `pwsh`, ...) fail closed in feeding jobs
+     because their writes are invisible to line-level analysis — the only
+     exempt script is `scripts/redact_secrets.py` (the rule-3
+     transformation). Any other writer fails closed.
    - (b) any non-gh HTTP fetcher — `curl`, `wget`, `httpie`, python
      `urllib`/`requests`/`httpx`/`aiohttp`/`http.client`, node `fetch()`,
      pwsh `Invoke-RestMethod`/`Invoke-WebRequest` — whose arguments target a

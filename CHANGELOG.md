@@ -58,8 +58,10 @@ The format is based on Keep a Changelog.
   `2>|`), output-path flags are treated as writes (`curl -o`, `wget -O`,
   `--output=`, `-oFILE`, `dd of=`, `--dest`), and a producer line must be a
   single simple command (no `;`/`&&`/`||`/backticks/`$(...)`, pipes only
-  into `tee`) so chained writers cannot hide on an allowlisted line, and
-  (b) any non-gh
+  into `tee`) so chained writers cannot hide on an allowlisted line;
+  opaque runner invocations (`python3 script.py`, heredoc python, `bash`/
+  `node`/etc.) fail closed in feeding jobs except `scripts/redact_secrets.py`,
+  and (b) any non-gh
   HTTP fetcher targeting a
   GitHub free-text endpoint (issue/PR/comment/review/discussion resources
   or the `graphql` endpoint) fails closed even when captured via `$(...)`,

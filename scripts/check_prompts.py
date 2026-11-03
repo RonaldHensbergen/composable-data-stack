@@ -35,7 +35,10 @@ control. The policy enforced here (see .github/prompts/README.md):
    is a rule-4-compliant literal-metadata `gh` collection command or an explicit
    FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer pattern and validator
    must accept the writing line; python writes with non-literal target paths
-   fail closed because they cannot be verified, and (b) any non-gh
+   and opaque runner invocations (`python3 script.py`, `python3 - <<'PY'`,
+   `bash x.sh`, `node x.js`, ...) fail closed because their writes are
+   invisible to line-level analysis (only scripts/redact_secrets.py is
+   exempt), and (b) any non-gh
    HTTP fetcher (`curl`, `wget`, `httpie`, python `urllib`/`requests`/
    `httpx`/..., node `fetch`, pwsh `Invoke-RestMethod`/`Invoke-WebRequest`)
    targeting a GitHub free-text endpoint (issue/PR/comment/review/discussion
@@ -659,6 +662,35 @@ def _producer_line_is_simple(line: str) -> bool:
     return True
 
 
+# Opaque interpreters/runners: invoked in a feeding job they can write
+# file_input targets invisibly (python3 fetch.py, python3 - <<'PY', bash
+# x.sh, node x.js, ...), with no shell-level write indicator — so any
+# invocation fails closed except the scripts/redact_secrets.py
+# transformation (github-advanced-security on #1118; residuals in #1120).
+OPAQUE_RUNNER_CMDS = frozenset(
+    {"python", "python3", "bash", "sh", "zsh", "node", "perl", "ruby", "pwsh", "powershell", "cmd"}
+)
+OPAQUE_RUNNER_FALLBACK_RE = re.compile(
+    r"(?:^|[\s;|&])(python3?|bash|sh|zsh|node|perl|ruby|pwsh|powershell|cmd)\b"
+)
+
+
+def _opaque_runner_invocation(line: str) -> str | None:
+    """The runner command name when the line invokes an opaque interpreter
+    (after skipping env assignments / sudo), else None."""
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        match = OPAQUE_RUNNER_FALLBACK_RE.search(line)
+        return match.group(1) if match else None
+    i = 0
+    while i < len(tokens) and (tokens[i] == "sudo" or re.fullmatch(r"\w+=.*", tokens[i])):
+        i += 1
+    if i < len(tokens) and tokens[i] in OPAQUE_RUNNER_CMDS:
+        return tokens[i]
+    return None
+
+
 def _lint_file_input_producers(
     path: Path, job_name: str, run_scripts: list[str], file_input_targets: set[str]
 ) -> list[str]:
@@ -667,9 +699,11 @@ def _lint_file_input_producers(
     come from a single simple command that is a rule-4-compliant
     literal-metadata gh collection command or an explicit
     FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer pattern AND validator
-    accept the writing line. Anything else — chained commands, curl/wget/
-    python output, echo/printf/heredoc, cp/mv — fails closed:
-    redact_secrets.py strips secret/injection patterns, not titles/bodies."""
+    accept the writing line; opaque runner invocations fail closed because
+    their writes are invisible to line-level analysis. Anything else —
+    chained commands, curl/wget/python output, echo/printf/heredoc, cp/mv —
+    fails closed: redact_secrets.py strips secret/injection patterns, not
+    titles/bodies."""
     errors: list[str] = []
     allowlist = FILE_INPUT_PRODUCERS_ALLOWLIST.get(path.name, {})
     for script in run_scripts:
@@ -682,12 +716,23 @@ def _lint_file_input_producers(
                     f"closed in file_input-feeding jobs (#1090/#1120, "
                     f".github/prompts/README.md)"
                 )
-            targets = _write_targets(line) & file_input_targets
-            if not targets:
-                continue
             if "redact_secrets.py" in line:
                 # Transformation, not a content source; rule 3 already
                 # requires redaction of every file_input file.
+                continue
+            runner = _opaque_runner_invocation(line)
+            if runner is not None:
+                errors.append(
+                    f"{path.name} (job {job_name}): opaque runner '{runner}' in a job "
+                    f"feeding ai-inference file_input {sorted(file_input_targets)} — "
+                    f"its file writes are not statically verifiable, so it fails "
+                    f"closed; only visible producers (rule-4 gh metadata-only or "
+                    f"FILE_INPUT_PRODUCERS_ALLOWLIST) and scripts/redact_secrets.py "
+                    f"are allowed (#1090/#1120, .github/prompts/README.md)"
+                )
+                continue
+            targets = _write_targets(line) & file_input_targets
+            if not targets:
                 continue
             if not _producer_line_is_simple(line):
                 for target in sorted(targets):
