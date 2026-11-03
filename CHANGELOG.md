@@ -57,7 +57,8 @@ The format is based on Keep a Changelog.
   non-literal target paths (`open(var, 'w')`) fail closed as unverifiable,
   redirect detection covers the noclobber-override forms (`>|`, `&>|`,
   `2>|`), output-path flags are treated as writes (`curl -o`, `wget -O`,
-  `--output=`, `-oFILE`, `dd of=`, `--dest`), and a producer line must be a
+  `--output=`, attached `-oFILE`, combined clusters like `curl -soFILE` /
+  `wget -qOFILE`, `dd of=`, `--dest`), and a producer line must be a
   single simple command (no `;`/`&&`/`||`/backticks/`$(...)`, no process
   substitution `>(...)`/`<(...)`, pipes only into `tee`) so chained or hidden
   writers cannot ride on an allowlisted/gh/redact line — the

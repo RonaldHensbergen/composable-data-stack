@@ -768,6 +768,12 @@ class PromptsLintTest(unittest.TestCase):
             'curl -s --output="$RUNNER_TEMP/open-issues.json" https://example.com/x.json',
             'curl -s -o"$RUNNER_TEMP/open-issues.json" https://example.com/x.json',
             'dd if=/dev/zero of="$RUNNER_TEMP/open-issues.json" bs=1 count=1',
+            # github-advanced-security on #1118: combined short-option
+            # clusters — the first o/O takes the rest of the token as the
+            # attached output path.
+            'curl -so"$RUNNER_TEMP/open-issues.json" https://example.com/x.json',
+            'wget -qO"$RUNNER_TEMP/open-issues.json" https://example.com/x.json',
+            'curl -sS -O "$RUNNER_TEMP/open-issues.json" https://example.com/x.json',
         ):
             with tempfile.TemporaryDirectory() as tmp:
                 wf = self._inference_workflow(collect)

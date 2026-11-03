@@ -237,7 +237,7 @@ OUTPUT_FLAG_PREFIXES = (
     "--dest=",
     "of=",
 )
-OUTPUT_FLAG_ATTACHED_RE = re.compile(r"-[oO].+")
+
 
 
 def _is_gh_collection_cmd(line: str) -> bool:
@@ -616,9 +616,20 @@ def _write_targets(line: str) -> set[str]:
         elif tok.startswith(OUTPUT_FLAG_PREFIXES):
             # = form: --output=FILE, of=FILE
             targets.add(tok.split("=", 1)[1])
-        elif len(tok) > 2 and OUTPUT_FLAG_ATTACHED_RE.fullmatch(tok):
-            # attached form: -oFILE, -OFILE
-            targets.add(tok[2:])
+        elif tok.startswith("-") and not tok.startswith("--") and len(tok) > 1:
+            # short-option cluster (incl. attached value, possibly quoted so
+            # shlex merged it into this token): the first o/O takes the rest
+            # of the token as attached value, else the next token — covers
+            # -oFILE, -OFILE, curl -soFILE, wget -qOFILE, curl -sS -O FILE
+            # (github-advanced-security on #1118).
+            cluster = tok[1:]
+            idx = next((j for j, ch in enumerate(cluster) if ch in "oO"), None)
+            if idx is not None:
+                attached = cluster[idx + 1:]
+                if attached:
+                    targets.add(attached)
+                elif i + 1 < len(tokens) and tokens[i + 1] and not tokens[i + 1].startswith("-"):
+                    targets.add(tokens[i + 1])
     return {_canon_path(t) for t in targets if t and t != "/dev/null"}
 
 
