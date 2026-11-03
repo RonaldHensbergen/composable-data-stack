@@ -2015,17 +2015,6 @@ def _check_wait_gate_hosts(
     and `${k8s.service.*}` gates are checked by their resolved value.
     """
     module_ids = {module["id"] for module in modules}
-    module_services: dict[str, set[str]] = {}
-    for module in modules:
-        module_id = module["id"]
-        workloads = module["implementation"]["kubernetes"].get("workloads") or {}
-        module_services[module_id] = {
-            _release_scoped_service_name(service_names[full])
-            for workload_name in workloads
-            if (full := _compose_service_name(module_id, str(workload_name)))
-            in service_names
-        }
-
     diagnostics: list[Diagnostic] = []
     for module in modules:
         module_id = module["id"]
@@ -2045,16 +2034,30 @@ def _check_wait_gate_hosts(
             if isinstance(binding, dict) and binding.get("host"):
                 bound_hosts.add(str(binding["host"]))
 
-        allowed = module_services.get(module_id, set()) | bound_hosts
-        compose_services = apply_production_gates(
-            deepcopy(module["implementation"].get("compose", {}).get("services", {})),
-            True,
-        )
+        # Substitute each workload once: the resolved values drive both the
+        # same-module Service allowlist and the gate check below. A workload
+        # whose enabledFrom resolves to False renders no Service, so a gate
+        # on it would hang at runtime exactly like a non-bound host.
+        enabled_workloads: dict[str, dict[str, Any]] = {}
+        same_module_services: set[str] = set()
         for workload_name, workload_raw in (k8s.get("workloads") or {}).items():
             workload = _substitute_values(deepcopy(workload_raw), context)
             enabled_from = workload.get("enabledFrom")
             if enabled_from and _resolve_expr(enabled_from, context) is False:
                 continue
+            enabled_workloads[str(workload_name)] = workload
+            full = _compose_service_name(module_id, str(workload_name))
+            if full in service_names:
+                same_module_services.add(
+                    _release_scoped_service_name(service_names[full])
+                )
+
+        allowed = same_module_services | bound_hosts
+        compose_services = apply_production_gates(
+            deepcopy(module["implementation"].get("compose", {}).get("services", {})),
+            True,
+        )
+        for workload_name, workload in enabled_workloads.items():
             if not any(
                 name in compose_services
                 for name in (workload.get("containers") or [])
@@ -2075,8 +2078,9 @@ def _check_wait_gate_hosts(
                             f'waitFor gate of workload "{module_id}/{workload_name}" '
                             f'names host "{host}", which the module\'s default-deny '
                             "NetworkPolicy does not allow egress to: it is neither a "
-                            f'Service of module "{module_id}" nor the endpoint of a '
-                            "provider this module consumes, so the init container "
+                            f'Service rendered for module "{module_id}" nor the '
+                            "endpoint of a provider this module consumes, so the "
+                            "init container "
                             "would only hang until its timeout. Bind the host's "
                             "module through a contract (consumes), gate on a "
                             "same-module ${k8s.service.*} Service, or add a custom "

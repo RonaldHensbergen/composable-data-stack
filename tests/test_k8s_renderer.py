@@ -1397,3 +1397,37 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         e152 = [d for d in diagnostics if d.code == "E152"]
         self.assertEqual(len(e152), 1)
         self.assertIn("{{ .Release.Name }}-demo-app", e152[0].message)
+
+    def test_wait_gate_on_disabled_same_module_service_fails_closed(self) -> None:
+        # A same-module Service whose workload is disabled (enabledFrom
+        # resolves to False) renders no Service, so a gate on it would hang
+        # at runtime exactly like a non-bound host: fail closed with E152
+        # (#1031). When the workload is enabled, the same gate renders.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["config"] = {"optional": {"enabled": False}}
+        workloads = consumer["implementation"]["kubernetes"]["workloads"]
+        workloads["sidecar"] = {
+            "kind": "Deployment",
+            "containers": ["app"],
+            "enabledFrom": "config.optional.enabled",
+            "service": {
+                "type": "ClusterIP",
+                "ports": [{"name": "http", "port": 9090}],
+            },
+        }
+        workloads["app"]["waitFor"] = [
+            {"host": "${k8s.service.sidecar}", "port": 9090}
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("{{ .Release.Name }}-consumer-sidecar", e152[0].message)
+
+        consumer["config"] = {"optional": {"enabled": True}}
+        files, diagnostics = render_helm(plan)
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
