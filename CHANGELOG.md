@@ -51,8 +51,9 @@ The format is based on Keep a Changelog.
   a required producer pattern, a producer validator, and justification; the
   only entry is `biweekly-issue-audit.yml`'s `recent-commits.txt` from
   `git log`, where the validator accepts only metadata-only `--format`
-  specifiers — hashes/dates/timestamps — so `--format='%h %s'` or author
-  fields fail closed, as does a bare `git log`; python writes with
+  specifiers — hashes/dates/timestamps — so `--format='%h %s'`, author
+  fields, and `%(...)` pretty-format atoms (`%(trailers:...)`, `%w(...)`,
+  `%C(...)`) fail closed, as does a bare `git log`; python writes with
   non-literal target paths (`open(var, 'w')`) fail closed as unverifiable,
   redirect detection covers the noclobber-override forms (`>|`, `&>|`,
   `2>|`), output-path flags are treated as writes (`curl -o`, `wget -O`,

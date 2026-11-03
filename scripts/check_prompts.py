@@ -114,9 +114,12 @@ GH_JQ_DYNAMIC_RE = re.compile(r"--jq[=\s]+[\"']?\S*[$*?`]\S*|--jq[=\s]*$")
 # git log --format specifiers that are pure metadata: hashes, dates,
 # timestamps, and the literal %%. Anything else — %s/%b/%B (subject/body,
 # user-authored free text), %an/%ae/%aN/%aE (author identity, personal
-# data), %N (notes) — fails closed. No --format at all means the default
-# format (full commit message incl. subject) — also fails closed.
-GIT_LOG_FORMAT_SPEC_RE = re.compile(r"%([a-zA-Z]{1,2}|%)")
+# data), %N (notes), and %(...) pretty-format atoms such as
+# %(trailers:...), %w(...), %C(...) — fails closed (github-advanced-
+# security on #1118: %(...) atoms must be visible to the safe-set check).
+# No --format at all means the default format (full commit message incl.
+# subject) — also fails closed.
+GIT_LOG_FORMAT_SPEC_RE = re.compile(r"%(\([^)]*\)|[a-zA-Z]{1,2}|%)")
 GIT_LOG_SAFE_SPECS = frozenset(
     {"h", "H", "ad", "aD", "ai", "aI", "cd", "cD", "ci", "cI", "at", "ct", "%"}
 )

@@ -562,7 +562,19 @@ class PromptsLintTest(unittest.TestCase):
         # --format="%h %s" also matches but emits the subject (free text),
         # and %an/%ae emit author identity (personal data). The allowlist
         # validator must accept only metadata specifiers (hashes/dates).
-        for fmt in ("%h %s", "%h %b", "%h %an %ae", "%H %ad %s", "%h %N"):
+        for fmt in (
+            "%h %s",
+            "%h %b",
+            "%h %an %ae",
+            "%H %ad %s",
+            "%h %N",
+            # github-advanced-security on #1118: %(...) pretty-format atoms
+            # (trailers, wrapping, color) must be visible to the safe-set
+            # check and rejected — not silently ignored.
+            "%h %(trailers:key=Signed-off-by,valueonly)",
+            "%h %w(80,1,2)%ad",
+            "%h %C(red)%ad",
+        ):
             with tempfile.TemporaryDirectory() as tmp:
                 wf = self._biweekly_shaped_workflow(
                     f'git log --format="{fmt}" > "$RUNNER_TEMP/recent-commits.txt"\n'
