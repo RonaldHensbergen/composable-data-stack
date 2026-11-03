@@ -48,9 +48,12 @@ The format is based on Keep a Changelog.
   to a file later used as `file_input` must come from a rule-4-compliant
   literal-metadata `gh` command or from the new
   `FILE_INPUT_PRODUCERS_ALLOWLIST` (keyed by workflow + canonical path with
-  a required producer pattern and justification; the only entry is
-  `biweekly-issue-audit.yml`'s `recent-commits.txt` from
-  `git log --format='%h %ad'`), and (b) any non-gh HTTP fetcher targeting a
+  a required producer pattern, a producer validator, and justification; the
+  only entry is `biweekly-issue-audit.yml`'s `recent-commits.txt` from
+  `git log`, where the validator accepts only metadata-only `--format`
+  specifiers — hashes/dates/timestamps — so `--format='%h %s'` or author
+  fields fail closed, as does a bare `git log`), and (b) any non-gh HTTP
+  fetcher targeting a
   GitHub free-text endpoint (issue/PR/comment/review/discussion resources
   or the `graphql` endpoint) fails closed even when captured via `$(...)`.
   Tests in `tests/test_prompts_lint.py`; policy documented in

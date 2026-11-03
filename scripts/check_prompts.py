@@ -31,7 +31,7 @@ control. The policy enforced here (see .github/prompts/README.md):
    `open(...)/write_text`, `cp`/`mv`/`install`) to a file later used as
    `file_input` must be produced by a rule-4-compliant literal-metadata `gh`
    collection command or by an explicit FILE_INPUT_PRODUCERS_ALLOWLIST entry
-   whose producer pattern the writing line must match, and (b) any non-gh
+   whose producer pattern and validator must accept the writing line, and (b) any non-gh
    HTTP fetcher (`curl`, `wget`, `httpie`, python `urllib`/`requests`/
    `httpx`/..., node `fetch`, pwsh `Invoke-RestMethod`/`Invoke-WebRequest`)
    targeting a GitHub free-text endpoint (issue/PR/comment/review/discussion
@@ -47,6 +47,7 @@ from __future__ import annotations
 import re
 import shlex
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import yaml
@@ -101,21 +102,61 @@ GH_JQ_DYNAMIC_RE = re.compile(r"--jq[=\s]+[\"']?\S*[$*?`]\S*|--jq[=\s]*$")
 # any jq expression — literal or dynamic — fails closed
 # (github-advanced-security review on PR #1087).
 
+# git log --format specifiers that are pure metadata: hashes, dates,
+# timestamps, and the literal %%. Anything else — %s/%b/%B (subject/body,
+# user-authored free text), %an/%ae/%aN/%aE (author identity, personal
+# data), %N (notes) — fails closed. No --format at all means the default
+# format (full commit message incl. subject) — also fails closed.
+GIT_LOG_FORMAT_SPEC_RE = re.compile(r"%([a-zA-Z]{1,2}|%)")
+GIT_LOG_SAFE_SPECS = frozenset(
+    {"h", "H", "ad", "aD", "ai", "aI", "cd", "cD", "ci", "cI", "at", "ct", "%"}
+)
+
+
+def _git_log_format_value(line: str) -> str | None:
+    """The --format=<fmt> / --format <fmt> value of a git log line, or None
+    when absent (shlex first, quote-aware regex fallback)."""
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        tokens = []
+    for i, tok in enumerate(tokens):
+        if tok == "--format" and i + 1 < len(tokens):
+            return tokens[i + 1]
+        if tok.startswith("--format="):
+            return tok[len("--format="):]
+    match = re.search(r"--format[=\s]+[\"']([^\"']+)[\"']|--format[=\s]+(\S+)", line)
+    if match:
+        return match.group(1) or match.group(2)
+    return None
+
+
+def _git_log_metadata_only(line: str) -> bool:
+    """True when a git log line's --format contains only metadata specifiers
+    (hashes/dates/timestamps) — no subjects, bodies, or author identity."""
+    fmt = _git_log_format_value(line)
+    if fmt is None:
+        return False
+    specs = GIT_LOG_FORMAT_SPEC_RE.findall(fmt)
+    return bool(specs) and all(spec in GIT_LOG_SAFE_SPECS for spec in specs)
+
+
 # Explicit allowlist for non-gh producers of ai-inference file_input files
 # (rule 5, issue #1090): workflow file name -> canon file_input path ->
-# (required producer regex, justification). Any other write to a file later
-# used as file_input in a feeding job fails closed. Keep this list minimal
-# and review every entry.
-FILE_INPUT_PRODUCERS_ALLOWLIST: dict[str, dict[str, tuple[re.Pattern[str], str]]] = {
+# (required producer regex, producer validator, justification). A writing
+# line is allowed only when BOTH the regex matches and the validator accepts
+# the line — fail closed otherwise. Keep this list minimal, review entries.
+FILE_INPUT_PRODUCERS_ALLOWLIST: dict[
+    str, dict[str, tuple[re.Pattern[str], Callable[[str], bool], str]]
+] = {
     "biweekly-issue-audit.yml": {
         "__TEMP__/recent-commits.txt": (
-            # git log with a --format that yields only %h (hash) + %ad (date):
-            # commit subjects are user-authored free text and stay excluded.
-            re.compile(r"\bgit\s+log\b[^\n]*%h\b"),
-            "git log --format='%h %ad' --date=short emits commit hashes and "
-            "dates only; subjects (free text) are excluded by the --format, "
-            "and the file is still redacted by scripts/redact_secrets.py "
-            "before inference (issue #1090).",
+            re.compile(r"\bgit\s+log\b"),
+            _git_log_metadata_only,
+            "git log with a metadata-only --format (e.g. '%h %ad' --date=short: "
+            "commit hashes and dates; subjects/bodies/author identity are "
+            "excluded), still redacted by scripts/redact_secrets.py before "
+            "inference (issue #1090).",
         ),
     },
 }
@@ -137,8 +178,8 @@ GITHUB_FREE_TEXT_URL_RE = re.compile(
 )
 # Shell write redirections to a file: >, >>, 2>, 2>>, &>, &>>.
 REDIRECT_RE = re.compile(r"(?:\d|&)?>{1,2}\s*[\"']?([^\s\"'&|;<>]+)")
-# tee [flags] FILE — the first non-flag argument is a written file.
-TEE_RE = re.compile(r"\btee\b(?:\s+-{1,2}[\w-]+)*\s+[\"']?([^\s\"'|;]+)")
+# tee [flags] FILE... — every non-flag argument is a written file.
+TEE_RE = re.compile(r"\btee\b((?:\s+-{1,2}[\w-]+)*)\s+(.+)$")
 # python open("path", "w"/"a"/...) and Path("path").write_text(...).
 PY_OPEN_WRITE_RE = re.compile(r"\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"'][wa+]")
 PY_PATH_WRITE_RE = re.compile(r"\bPath\s*\(\s*[\"']([^\"']+)[\"']\s*\)\s*\.\s*write_text")
@@ -481,7 +522,12 @@ def _write_targets(line: str) -> set[str]:
     &>), tee targets, python open(...,'w'/'a') and Path(...).write_text(...),
     and the destination (last token) of cp/mv/install."""
     targets = {m.group(1) for m in REDIRECT_RE.finditer(line)}
-    targets.update(m.group(1) for m in TEE_RE.finditer(line))
+    for m in TEE_RE.finditer(line):
+        try:
+            tee_tokens = shlex.split(m.group(2))
+        except ValueError:
+            tee_tokens = m.group(2).split()
+        targets.update(t for t in tee_tokens if t and not t.startswith("-"))
     targets.update(m.group(1) for m in PY_OPEN_WRITE_RE.finditer(line))
     targets.update(m.group(1) for m in PY_PATH_WRITE_RE.finditer(line))
     try:
@@ -500,9 +546,9 @@ def _lint_file_input_producers(
     actions/ai-inference, every write to a file later used as file_input must
     come from a rule-4-compliant literal-metadata gh collection command or
     from an explicit FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer
-    pattern the writing line matches. Anything else — curl/wget/python
-    output, echo/printf/heredoc, cp/mv — fails closed: redact_secrets.py
-    strips secret/injection patterns, not issue titles/bodies."""
+    pattern AND validator accept the writing line. Anything else —
+    curl/wget/python output, echo/printf/heredoc, cp/mv — fails closed:
+    redact_secrets.py strips secret/injection patterns, not titles/bodies."""
     errors: list[str] = []
     allowlist = FILE_INPUT_PRODUCERS_ALLOWLIST.get(path.name, {})
     for script in run_scripts:
@@ -520,7 +566,11 @@ def _lint_file_input_producers(
                 continue
             for target in sorted(targets):
                 entry = allowlist.get(target)
-                if entry is not None and entry[0].search(line):
+                if (
+                    entry is not None
+                    and entry[0].search(line)
+                    and entry[1](line)
+                ):
                     continue
                 errors.append(
                     f"{path.name} (job {job_name}): ai-inference file_input "

@@ -59,9 +59,12 @@ enforces the policy below and fails the build on violations.
      by a rule-4-compliant literal-metadata `gh` collection command, or by a
      producer listed in `FILE_INPUT_PRODUCERS_ALLOWLIST` in
      `scripts/check_prompts.py` (keyed by workflow file and canonical input
-     path, with a required producer pattern and a justification; today the
-     only entry is `biweekly-issue-audit.yml`'s `recent-commits.txt`, produced
-     by `git log --format='%h %ad'` — hashes and dates only, no subjects).
+     path, with a required producer pattern, a producer validator, and a
+     justification; today the only entry is `biweekly-issue-audit.yml`'s
+     `recent-commits.txt`, produced by `git log` — the validator accepts only
+     a `--format` with metadata specifiers such as `--format='%h %ad'`
+     (hashes/dates), so `--format='%h %s'` (subject = free text) or author
+     fields (`%an`/`%ae`) fail closed, as does a bare `git log`).
      Any other writer fails closed.
    - (b) any non-gh HTTP fetcher — `curl`, `wget`, `httpie`, python
      `urllib`/`requests`/`httpx`/`aiohttp`/`http.client`, node `fetch()`,

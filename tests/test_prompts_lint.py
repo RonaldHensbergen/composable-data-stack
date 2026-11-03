@@ -557,6 +557,70 @@ class PromptsLintTest(unittest.TestCase):
             errors = check_prompts.lint_workflow(path)
             self.assertTrue(any("allowlisted" in e for e in errors))
 
+    def test_workflow_git_log_format_with_free_text_specifiers_fails(self):
+        # Self-review finding on #1118: requiring %h alone is not enough —
+        # --format="%h %s" also matches but emits the subject (free text),
+        # and %an/%ae emit author identity (personal data). The allowlist
+        # validator must accept only metadata specifiers (hashes/dates).
+        for fmt in ("%h %s", "%h %b", "%h %an %ae", "%H %ad %s", "%h %N"):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._biweekly_shaped_workflow(
+                    f'git log --format="{fmt}" > "$RUNNER_TEMP/recent-commits.txt"\n'
+                    'python3 scripts/redact_secrets.py --strict \\\n'
+                    '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
+                )
+                path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("allowlisted" in e for e in errors),
+                    f"expected rejection for --format={fmt}",
+                )
+
+    def test_workflow_git_log_metadata_specifiers_pass(self):
+        for fmt in ("%h %ad", "%H", "%h %aI %cI", "%h %at"):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._biweekly_shaped_workflow(
+                    f'git log --format="{fmt}" > "$RUNNER_TEMP/recent-commits.txt"\n'
+                    'python3 scripts/redact_secrets.py --strict \\\n'
+                    '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
+                )
+                path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
+                self.assertEqual(
+                    [], check_prompts.lint_workflow(path), f"--format={fmt} should pass"
+                )
+
+    def test_workflow_curl_url_in_variable_fails(self):
+        # The free-text URL and the fetcher are on different lines of the
+        # same run script; rule 5b scans the whole script, so the split
+        # cannot bypass it (and rule 5a catches the redirect write).
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'URL="https://api.github.com/repos/O/R/issues"; '
+                'curl -s "$URL" > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("non-gh HTTP fetcher" in e for e in errors))
+            self.assertTrue(any("allowlisted" in e for e in errors))
+
+    def test_workflow_tee_multiple_files_all_checked(self):
+        # Self-review finding on #1118: tee writes EVERY file argument, not
+        # just the first — the target may be the second one.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'echo x | tee /tmp/other.txt "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("allowlisted" in e for e in errors))
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json number,labels,url '
+                '| tee "$RUNNER_TEMP/open-issues.json" /tmp/other.txt'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
 
 if __name__ == "__main__":
     unittest.main()
