@@ -306,6 +306,112 @@ class KubernetesSecurityTest(unittest.TestCase):
 
         self.assertEqual(scan_k8s_security(plan), [])
 
+    def test_narrow_declared_egress_is_recorded_as_low(self) -> None:
+        # A destination+port-scoped declaration (issue #1023) is the intended
+        # way to open external egress; it is still recorded as a low
+        # CDS-K8S-009 finding so intentional openings stay visible in the scan.
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["egress"] = [{"host": "203.0.113.10", "port": 5432}]
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-009"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "low")
+        self.assertEqual(matching[0]["category"], "configuration-management")
+        self.assertIn("203.0.113.10/32", matching[0]["message"])
+        self.assertEqual(
+            matching[0]["path"],
+            "module:demo.implementation.kubernetes.egress.0",
+        )
+
+    def test_declared_egress_to_every_address_on_all_ports_is_high(self) -> None:
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["egress"] = [{"cidr": "0.0.0.0/0"}]
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-009"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "high")
+        self.assertIn("every address", matching[0]["message"])
+        self.assertIn("all ports", matching[0]["message"])
+
+    def test_declared_egress_to_every_address_with_ports_is_medium(self) -> None:
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["egress"] = [{"cidr": "0.0.0.0/0", "ports": [443]}]
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-009"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "medium")
+        self.assertIn("unscoped", matching[0]["message"])
+
+    def test_declared_egress_without_port_list_is_medium(self) -> None:
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["egress"] = [{"cidr": "10.20.0.0/16"}]
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-009"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "medium")
+        self.assertIn("all ports", matching[0]["message"])
+        self.assertIn("10.20.0.0/16", matching[0]["message"])
+
+    def test_workload_scoped_declared_egress_is_flagged_with_workload_path(
+        self,
+    ) -> None:
+        plan = self.secure_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["egress"] = [{"cidr": "10.20.0.0/16", "ports": [443]}]
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-009"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "low")
+        self.assertEqual(
+            matching[0]["path"],
+            "module:demo.implementation.kubernetes.workloads.app.egress.0",
+        )
+
+    def test_egress_ports_from_config_expression_are_not_misread_as_portless(
+        self,
+    ) -> None:
+        # The scan runs on the plan before ${config.*} substitution, so a
+        # ports list supplied through config arrives as a string: it declares
+        # ports, so the finding stays low instead of escalating to medium.
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["egress"] = [
+            {"cidr": "10.20.0.0/16", "ports": "${config.externalPorts}"},
+        ]
+
+        findings = scan_k8s_security(plan)
+
+        matching = [f for f in findings if f["rule_id"] == "CDS-K8S-009"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0]["severity"], "low")
+
+    def test_malformed_egress_declarations_do_not_crash_the_scan(self) -> None:
+        # Shape errors are the renderer's to fail closed on (E153); the scan
+        # must neither crash nor invent findings for them.
+        plan = self.secure_plan()
+        kubernetes = plan["modules"][0]["implementation"]["kubernetes"]
+        kubernetes["egress"] = "allow-all"
+        workload = kubernetes["workloads"]["app"]
+        workload["egress"] = ["not-a-mapping", {"host": "api.example.com"}]
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
 
 if __name__ == "__main__":
     unittest.main()
