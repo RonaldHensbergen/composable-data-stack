@@ -1481,6 +1481,7 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
                 self.assertEqual(len(e152), 1)
                 self.assertIn(f'"{host}"', e152[0].message)
 
+
     def test_wait_gate_with_excepted_passthrough_address_fails_closed(self) -> None:
         # An `except` CIDR inside the ipBlock stays denied, so a gate on an
         # excepted address is not lifted by the passthrough rule.
@@ -1525,4 +1526,233 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertIn(
             "until nc -z 10.8.1.5 443",
             files["templates/consumer-app-deployment.yaml"],
+        )
+
+    def proxy_plan(self) -> dict:
+        """A reverse-proxy module with routes, two route targets, and an unrouted module."""
+        proxy = self.module("proxy")
+        proxy["provides"] = {
+            "reverse-proxy": {
+                "kind": "reverse-proxy",
+                "spec": {"host": "proxy-app", "port": 443},
+            }
+        }
+        proxy["config"] = {
+            "routes": [
+                {"host": "app.example.local", "target": "demo"},
+                {"host": "alt.example.local", "target": "other.http"},
+            ]
+        }
+        demo = self.module("demo")
+        demo["provides"] = {
+            "http": {"kind": "http-service", "spec": {"host": "demo-app", "port": 8080}}
+        }
+        other = self.module("other")
+        other["implementation"]["kubernetes"]["workloads"]["app"]["service"] = {
+            "type": "ClusterIP",
+            "ports": [{"name": "http", "port": 9090}],
+        }
+        other["provides"] = {
+            "http": {"kind": "http-service", "spec": {"host": "other-app", "port": 9090}}
+        }
+        isolated = self.module("isolated")
+        return {
+            "metadata": {"name": "test-chart", "version": "1.2.3"},
+            "runtime": {"namespace": "test"},
+            "secrets": {},
+            "modules": [proxy, demo, other, isolated],
+        }
+
+    def proxy_egress_edges(self, files: dict, module_id: str) -> dict:
+        """Map peer module -> egress rule for the binding/route-derived rules."""
+        policy = self.policy(files, module_id)
+        edges = {}
+        for rule in policy["spec"]["egress"]:
+            to = rule.get("to")
+            if not to:
+                continue
+            peer = to[0].get("podSelector", {}).get("matchLabels", {}).get(
+                "cds.dev/module"
+            )
+            if peer and peer != module_id:
+                edges[peer] = rule
+        return edges
+
+    def proxy_ingress_edges(self, files: dict, module_id: str) -> dict:
+        """Map peer module -> ingress rule for the binding/route-derived rules."""
+        policy = self.policy(files, module_id)
+        edges = {}
+        for rule in policy["spec"]["ingress"]:
+            frm = rule.get("from")
+            if not frm:
+                continue
+            peer = frm[0].get("podSelector", {}).get("matchLabels", {}).get(
+                "cds.dev/module"
+            )
+            if peer and peer != module_id:
+                edges[peer] = rule
+        return edges
+
+    def test_reverse_proxy_routes_render_port_scoped_edges_without_passthrough(
+        self,
+    ) -> None:
+        # Issue #1033: a route's target module becomes an egress edge on the
+        # proxy and a matching ingress edge on the target, scoped to the
+        # route's backend port -- no passthrough rules involved.
+        files, _ = self.render(self.proxy_plan())
+
+        proxy_edges = self.proxy_egress_edges(files, "proxy")
+        self.assertEqual(set(proxy_edges), {"demo", "other"})
+        self.assertEqual(
+            proxy_edges["demo"],
+            {
+                "to": [{
+                    "podSelector": {
+                        "matchLabels": {
+                            "cds.dev/module": "demo",
+                            "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                        }
+                    }
+                }],
+                "ports": [{"protocol": "TCP", "port": 8080}],
+            },
+        )
+        self.assertEqual(
+            proxy_edges["other"]["ports"],
+            [{"protocol": "TCP", "port": 9090}],
+        )
+        # The proxy's egress is exactly same-module + DNS + the two routes.
+        self.assertEqual(len(self.policy(files, "proxy")["spec"]["egress"]), 4)
+
+        demo_ingress = self.proxy_ingress_edges(files, "demo")
+        self.assertEqual(set(demo_ingress), {"proxy"})
+        self.assertEqual(
+            demo_ingress["proxy"]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+        other_ingress = self.proxy_ingress_edges(files, "other")
+        self.assertEqual(set(other_ingress), {"proxy"})
+        self.assertEqual(
+            other_ingress["proxy"]["ports"],
+            [{"protocol": "TCP", "port": 9090}],
+        )
+
+    def test_route_targets_not_named_by_any_route_stay_unreachable(self) -> None:
+        # The inverse direction of #1033: "isolated" provides an http-service
+        # but no route names it, so the proxy gets no egress edge to it and
+        # it gets no ingress edge from the proxy.
+        files, _ = self.render(self.proxy_plan())
+
+        self.assertNotIn("isolated", yaml.safe_dump(self.proxy_egress_edges(files, "proxy")))
+        isolated = self.policy(files, "isolated")
+        self.assertNotIn("proxy", yaml.safe_dump(isolated["spec"]))
+        self.assertEqual(len(isolated["spec"]["ingress"]), 1)
+        self.assertEqual(len(isolated["spec"]["egress"]), 2)
+
+    def test_route_backend_port_maps_through_target_service_target_port(self) -> None:
+        # The route's backend port is the contract's Service-facing port:
+        # a `port: 80, targetPort: 8080` remap on the target's Service must
+        # generate the rule for the pod port 8080, like a binding's port.
+        plan = self.proxy_plan()
+        demo = plan["modules"][1]
+        demo["implementation"]["kubernetes"]["workloads"]["app"]["service"] = {
+            "type": "ClusterIP",
+            "ports": [{"name": "http", "port": 80, "targetPort": 8080}],
+        }
+        demo["provides"]["http"]["spec"]["port"] = 80
+
+        files, _ = self.render(plan)
+
+        self.assertEqual(
+            self.proxy_egress_edges(files, "proxy")["demo"]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+        self.assertEqual(
+            self.proxy_ingress_edges(files, "demo")["proxy"]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+
+    def test_route_to_unknown_target_warns_and_adds_no_edge(self) -> None:
+        # A route naming a module the plan does not contain cannot become an
+        # edge: W129 says so and the default-deny baseline keeps holding.
+        plan = self.proxy_plan()
+        plan["modules"][0]["config"]["routes"].append(
+            {"host": "ghost.example.local", "target": "ghost"}
+        )
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        w129 = [d for d in diagnostics if d.code == "W129"]
+        self.assertEqual(len(w129), 1)
+        self.assertEqual(w129[0].path, "module:proxy.config.routes[2]")
+        self.assertIn("unknown module", w129[0].message)
+        self.assertNotIn("ghost", yaml.safe_dump(self.policy(files, "proxy")["spec"]))
+        # The valid routes still produced their edges.
+        self.assertEqual(set(self.proxy_egress_edges(files, "proxy")), {"demo", "other"})
+
+    def test_route_target_without_port_evidence_warns_and_stays_denied(self) -> None:
+        # No numeric port on the target's http-service and no advertised
+        # service ports: no port-scoped edge can be derived, so the target
+        # stays unreachable and W129 points at the route.
+        plan = self.proxy_plan()
+        demo = plan["modules"][1]
+        demo["implementation"]["kubernetes"]["workloads"]["app"].pop("service")
+        demo["provides"]["http"]["spec"] = {"host": "demo-app"}
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        w129 = [d for d in diagnostics if d.code == "W129"]
+        self.assertEqual(len(w129), 1)
+        self.assertEqual(w129[0].path, "module:proxy.config.routes[0]")
+        self.assertIn("no numeric port", w129[0].message)
+        self.assertEqual(set(self.proxy_egress_edges(files, "proxy")), {"other"})
+        self.assertEqual(self.proxy_ingress_edges(files, "demo"), {})
+
+    def test_wait_gate_on_route_target_service_renders(self) -> None:
+        # The route-derived egress edge covers a waitFor gate on the route
+        # target's Service, so E152 must not fire for it (#1033); a gate on
+        # a Service no route names still fails closed.
+        plan = self.proxy_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [
+            {"host": "${k8s.service.demo-app}", "port": 8080},
+            {"host": "${k8s.service.isolated-app}", "port": 8080},
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("{{ .Release.Name }}-isolated-app", e152[0].message)
+
+        workload["waitFor"] = [{"host": "${k8s.service.demo-app}", "port": 8080}]
+        files, diagnostics = render_helm(plan)
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        deployment = files["templates/proxy-app-deployment.yaml"]
+        self.assertIn("until nc -z {{ .Release.Name }}-demo-app 8080", deployment)
+
+    def test_route_with_out_of_range_backend_port_falls_back_to_advertised(self) -> None:
+        # The compose route check (E136) rejects backend ports outside
+        # 1-65535, but a plan loaded from a file can bypass it; such a port
+        # must not render into the NetworkPolicy. The rule falls back to the
+        # target's advertised service ports instead.
+        plan = self.proxy_plan()
+        demo = plan["modules"][1]
+        demo["provides"]["http"]["spec"]["port"] = 70000
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("W129", {d.code for d in diagnostics})
+        self.assertEqual(
+            self.proxy_egress_edges(files, "proxy")["demo"]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+        self.assertEqual(
+            self.proxy_ingress_edges(files, "demo")["proxy"]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
         )

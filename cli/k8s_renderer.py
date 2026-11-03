@@ -21,7 +21,9 @@ contract bindings (issue #75). Cross-module connectivity therefore stays
 explicit on Kubernetes, mirroring the contract-first design used everywhere
 else in CDS. `waitFor` gate hosts are validated against that baseline at
 render time and fail closed with E152 when no allow rule can cover them
-(issue #1031).
+(issue #1031). Reverse-proxy `config.routes` entries are derived into the
+same policies: each route's target module opens a port-scoped egress edge
+on the proxy and a matching ingress edge on the target (issue #1033).
 """
 
 from __future__ import annotations
@@ -42,6 +44,7 @@ from .confinement import plan_declares_confinement
 from .diagnostics import Diagnostic
 from .renderer import (
     _build_context,
+    _is_valid_backend_port,
     _merge_init_db_env,
     _resolve_expr,
     _resolve_profile_dir,
@@ -50,6 +53,7 @@ from .renderer import (
     _validate_provided_contract_hosts_against,
     apply_production_gates,
 )
+from .resolver import parse_contract_ref
 from .secret_leak import (
     check_generated_text,
     declared_secret_env_names,
@@ -284,6 +288,10 @@ def render_helm(
         release,
         diagnostics,
         network_policy_passthrough,
+        # Route targets are resolved against the whole plan, not just the
+        # workload modules: a route naming a pod-less module must be told
+        # apart from a route naming a module the plan does not contain.
+        {module["id"]: module for module in renderable},
     ))
 
     if secret_keys:
@@ -1690,22 +1698,27 @@ def _network_policy_manifests(
     release: str,
     diagnostics: list[Diagnostic],
     passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]],
+    plan_modules_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
     """
     One NetworkPolicy per module: default-deny ingress and egress, then allow
     rules derived from the plan's contract bindings. A binding from module C
     to provider P yields an egress rule on C's pods and an ingress rule on
-    P's pods, both restricted to the binding's port. Within a module, pods
-    may talk freely (a module is the unit of composition and declares its own
-    internal wiring); DNS egress is the only other unconditional rule.
+    P's pods, both restricted to the binding's port. A reverse-proxy module's
+    `config.routes` entries derive the same pair of edges (issue #1033): a
+    proxy consumes no contracts, so each route's target module is what
+    justifies its egress, scoped to the route's backend port. Within a
+    module, pods may talk freely (a module is the unit of composition and
+    declares its own internal wiring); DNS egress is the only other
+    unconditional rule.
 
     Custom `networkPolicy.ingress`/`networkPolicy.egress` rules are appended
-    after the derived rules: bindings cannot name external endpoints or
-    cross-namespace clients (an external API a job reads from, an ingress
-    controller fronting a ClusterIP service), which would otherwise be
-    silently denied. A binding whose provider is absent from the chart
-    cannot occur silently: E072 already fails the whole render for any plan
-    module that lacks a Kubernetes implementation.
+    after the derived rules: bindings and routes cannot name external
+    endpoints or cross-namespace clients (an external API a job reads from,
+    an ingress controller fronting a ClusterIP service), which would
+    otherwise be silently denied. A binding whose provider is absent from the
+    chart cannot occur silently: E072 already fails the whole render for any
+    plan module that lacks a Kubernetes implementation.
     """
     module_ids = {module["id"] for module in modules}
     egress_edges: dict[str, set[tuple[str, tuple[int, ...] | None]]] = {}
@@ -1724,6 +1737,16 @@ def _network_policy_manifests(
             )
             egress_edges.setdefault(consumer_id, set()).add((provider_id, ports))
             ingress_edges.setdefault(provider_id, set()).add((consumer_id, ports))
+
+    # Reverse-proxy routes (issue #1033) derive the same edge pair: egress
+    # on the proxy, matching ingress on the route's target module.
+    modules_by_id = plan_modules_by_id or {module["id"]: module for module in modules}
+    for module in modules:
+        for target_id, ports in _reverse_proxy_route_edges(
+            module, modules_by_id, module_ids, surfaces, diagnostics
+        ):
+            egress_edges.setdefault(module["id"], set()).add((target_id, ports))
+            ingress_edges.setdefault(target_id, set()).add((module["id"], ports))
 
     manifests: list[tuple[str, dict[str, Any]]] = []
     for module in modules:
@@ -1792,18 +1815,43 @@ def _binding_ports(
     diagnostics: list[Diagnostic],
 ) -> tuple[int, ...] | None:
     """
-    The ports a binding justifies: the contract's port when it is numeric,
-    otherwise the provider's advertised container ports. When neither is
-    available the rule cannot be port-scoped; that broader rule is allowed
-    but reported as W128 so the contract can be tightened.
+    The ports a binding justifies, resolved by `_port_scope`. When no port
+    evidence exists at all the rule cannot be port-scoped; that broader rule
+    is allowed but reported as W128 so the contract can be tightened.
+    """
+    spec = (consume.get("contract") or {}).get("spec") or {}
+    ports = _port_scope(spec, provider_id, surfaces)
+    if ports is None:
+        diagnostics.append(Diagnostic(
+            level="warning",
+            code="W128",
+            message=(
+                f'Contract "{consumer_id}.{consume_name}" carries no numeric port and '
+                f'provider module "{provider_id}" advertises no service ports, so the '
+                "generated NetworkPolicy allows egress to it on all ports. Declare the "
+                "port in the contract to keep the rule port-scoped."
+            ),
+            path=f"module:{consumer_id}.consumes.{consume_name}",
+        ))
+    return ports
+
+
+def _port_scope(
+    spec: dict[str, Any],
+    provider_id: str,
+    surfaces: dict[str, list[dict[str, Any]]],
+) -> tuple[int, ...] | None:
+    """
+    The destination ports a contract spec justifies for provider
+    `provider_id`: the contract's port when it is numeric, otherwise the
+    provider's advertised container ports; None when there is no port
+    evidence at all.
 
     The contract's port is Service-facing, while NetworkPolicy ports match
     the destination POD port: when the provider's Services declare that
-    port with a different targetPort, the rule is generated for the
-    targetPort(s), so a `port: X, targetPort: Y` remap cannot silently
-    break the rule.
+    port with a different targetPort, the result is the targetPort(s), so a
+    `port: X, targetPort: Y` remap cannot silently break the rule.
     """
-    spec = (consume.get("contract") or {}).get("spec") or {}
     port = _int_or_none(spec.get("port"))
     if port is not None:
         mapped: set[int] = set()
@@ -1819,18 +1867,160 @@ def _binding_ports(
     }))
     if advertised:
         return advertised
-    diagnostics.append(Diagnostic(
-        level="warning",
-        code="W128",
-        message=(
-            f'Contract "{consumer_id}.{consume_name}" carries no numeric port and '
-            f'provider module "{provider_id}" advertises no service ports, so the '
-            "generated NetworkPolicy allows egress to it on all ports. Declare the "
-            "port in the contract to keep the rule port-scoped."
-        ),
-        path=f"module:{consumer_id}.consumes.{consume_name}",
-    ))
     return None
+
+
+def _reverse_proxy_route_edges(
+    proxy: dict[str, Any],
+    modules_by_id: dict[str, dict[str, Any]],
+    module_ids: set[str],
+    surfaces: dict[str, list[dict[str, Any]]],
+    diagnostics: list[Diagnostic],
+) -> list[tuple[str, tuple[int, ...]]]:
+    """
+    Derive NetworkPolicy edges from a reverse-proxy module's `config.routes`
+    (issue #1033): each route's target module becomes an egress edge for the
+    proxy, scoped to the route's backend port (the target's http-service
+    contract port, mapped through the target's Service targetPort exactly
+    like a binding's port).
+
+    A proxy consumes no contracts, so without these edges its default-deny
+    policy would block both directions of every proxied connection. A route
+    that cannot yield a port-scoped edge -- unknown target module, no
+    matching http-service provide, no port evidence or an out-of-range port --
+    leaves the target unreachable (default-deny holds) and is reported as
+    W129; the `networkPolicy.egress` passthrough remains the escape hatch for
+    anything routes cannot express. A route to the proxy's own module, or to
+    a module that renders no workload pods, needs no edge: same-module
+    traffic is already allowed and pod-less modules get no policy at all.
+    """
+    proxy_id = proxy["id"]
+    edges: list[tuple[str, tuple[int, ...]]] = []
+    for route_index, target_id, http_entry, problem in _resolve_proxy_routes(
+        proxy, modules_by_id
+    ):
+        path = f"module:{proxy_id}.config.routes[{route_index}]"
+        if target_id == proxy_id or (problem is None and target_id not in module_ids):
+            continue
+        if problem is not None:
+            diagnostics.append(Diagnostic(
+                level="warning",
+                code="W129",
+                message=(
+                    f'Reverse-proxy route "{path}" cannot be derived as a '
+                    f"NetworkPolicy edge ({problem}), so the default-deny policy "
+                    f'of proxy "{proxy_id}" keeps the target unreachable. Fix the '
+                    "route's target and its http-service contract port, or add a "
+                    "custom networkPolicy.egress rule."
+                ),
+                path=path,
+            ))
+            continue
+        spec = dict((http_entry or {}).get("spec") or {})
+        # The compose route check (E136) rejects backend ports outside
+        # 1-65535, but a plan loaded from a file bypasses that check -- and
+        # a port Kubernetes would reject at install time must not render.
+        # Treat an invalid port as no port evidence: the rule falls back to
+        # the provider's advertised ports, or to W129 below.
+        if "port" in spec and not _is_valid_backend_port(spec.get("port")):
+            spec.pop("port")
+        ports = _port_scope(spec, target_id, surfaces)
+        if ports is None:
+            diagnostics.append(Diagnostic(
+                level="warning",
+                code="W129",
+                message=(
+                    f'Reverse-proxy route "{path}" targets module "{target_id}", whose '
+                    "http-service contract carries no numeric port and which advertises "
+                    "no service ports, so no port-scoped NetworkPolicy edge can be "
+                    f'derived and the default-deny policy of proxy "{proxy_id}" keeps '
+                    "the target unreachable. Declare the port in the contract, or add "
+                    "a custom networkPolicy.egress rule."
+                ),
+                path=path,
+            ))
+            continue
+        edges.append((target_id, ports))
+    return edges
+
+
+def _resolve_proxy_routes(
+    proxy: dict[str, Any],
+    modules_by_id: dict[str, dict[str, Any]],
+) -> list[tuple[int, str, dict[str, Any] | None, str | None]]:
+    """
+    Resolve a module's `config.routes` entries to their target modules and
+    http-service provide entries, mirroring the compose route generation
+    (issue #581): only modules providing a `reverse-proxy` contract have
+    routes, a bare module id targets that module's first http-service
+    provide, and `<module-id>.<contract-name>` picks a named one.
+
+    Each entry yields `(route_index, target_module_id, http_entry, problem)`;
+    `problem` is None when the route resolves and otherwise says why it
+    cannot become a NetworkPolicy edge. Non-dict route entries are skipped.
+    """
+    provides = proxy.get("provides") or {}
+    if not isinstance(provides, dict):
+        # A plan loaded from a file can bypass the resolver's dict shape;
+        # treat it as "no provides" rather than crashing on .values().
+        return []
+    if not any(
+        isinstance(entry, dict) and entry.get("kind") == "reverse-proxy"
+        for entry in provides.values()
+    ):
+        return []
+    routes = (proxy.get("config") or {}).get("routes") or []
+    if not isinstance(routes, list):
+        return []
+    resolved: list[tuple[int, str, dict[str, Any] | None, str | None]] = []
+    for route_index, route in enumerate(routes):
+        if not isinstance(route, dict):
+            continue
+        target = route.get("target")
+        parsed = parse_contract_ref(target) if isinstance(target, str) else None
+        target_module_id = parsed[0] if parsed else target
+        provide_name = parsed[1] if parsed else None
+        if not isinstance(target_module_id, str) or not target_module_id:
+            resolved.append((route_index, "", None, "names no target module"))
+            continue
+        target_module = modules_by_id.get(target_module_id)
+        if target_module is None:
+            resolved.append(
+                (route_index, target_module_id, None, "targets an unknown module")
+            )
+            continue
+        http_entry = _http_service_entry(target_module, provide_name)
+        if http_entry is None:
+            resolved.append((
+                route_index,
+                target_module_id,
+                None,
+                "provides no matching http-service contract",
+            ))
+        else:
+            resolved.append((route_index, target_module_id, http_entry, None))
+    return resolved
+
+
+def _http_service_entry(
+    target_module: dict[str, Any], provide_name: str | None
+) -> dict[str, Any] | None:
+    provides = target_module.get("provides") or {}
+    if not isinstance(provides, dict):
+        return None
+    if provide_name is not None:
+        entry = provides.get(provide_name)
+        if isinstance(entry, dict) and entry.get("kind") == "http-service":
+            return entry
+        return None
+    return next(
+        (
+            entry
+            for entry in provides.values()
+            if isinstance(entry, dict) and entry.get("kind") == "http-service"
+        ),
+        None,
+    )
 
 
 def _sorted_edges(
@@ -2070,17 +2260,20 @@ def _check_wait_gate_hosts(
     workload starts. Under the per-module default-deny policy (issue #75)
     that connection is allowed only when the host is a Service of the same
     module (pods of one module may talk freely), an endpoint of a provider
-    the module consumes (the binding-derived egress edge), or an external IP
-    address a custom `networkPolicy.egress` ipBlock rule covers on the
-    gate's port. Any other host -- another module's Service that no binding
-    names, an external address nobody declared, a DNS name (a NetworkPolicy
-    cannot express one) -- can only hang until the gate's timeout with no
-    diagnostic, so the render fails closed with E152 instead of shipping the
-    gate. Hosts are compared after the same substitution the renderer
-    applies, so `${bindings.*.host}` and `${k8s.service.*}` gates are
-    checked by their resolved value.
+    the module consumes (the binding-derived egress edge), the target of one
+    of the module's reverse-proxy routes (the route-derived egress edge,
+    issue #1033), or an external IP address a custom `networkPolicy.egress`
+    ipBlock rule covers on the gate's port. Any other host -- another
+    module's Service that no binding or route names, an external address
+    nobody declared, a DNS name (a NetworkPolicy cannot express one) -- can
+    only hang until the gate's timeout with no diagnostic, so the render
+    fails closed with E152 instead of shipping the gate. Hosts are compared
+    after the same substitution the renderer applies, so
+    `${bindings.*.host}` and `${k8s.service.*}` gates are checked by their
+    resolved value.
     """
     module_ids = {module["id"] for module in modules}
+    modules_by_id = {module["id"]: module for module in modules}
     diagnostics: list[Diagnostic] = []
     for module in modules:
         module_id = module["id"]
@@ -2118,7 +2311,27 @@ def _check_wait_gate_hosts(
                     _release_scoped_service_name(service_names[full])
                 )
 
-        allowed = same_module_services | bound_hosts
+        # Route targets (issue #1033) get a derived egress edge too, so a
+        # gate on a route target's Service is covered by the baseline: map
+        # the target's advertised http-service endpoint through the same
+        # service-naming rule and release-scope it like a binding host.
+        route_hosts: set[str] = set()
+        for _index, target_id, http_entry, problem in _resolve_proxy_routes(
+            module, modules_by_id
+        ):
+            if problem is not None or target_id == module_id:
+                continue
+            spec = (http_entry or {}).get("spec") or {}
+            advertised = spec.get("serviceName")
+            host = (
+                _compose_service_name(target_id, str(advertised))
+                if isinstance(advertised, str) and advertised
+                else spec.get("host")
+            )
+            if isinstance(host, str) and host in service_names:
+                route_hosts.add(_release_scoped_service_name(service_names[host]))
+
+        allowed = same_module_services | bound_hosts | route_hosts
         compose_services = apply_production_gates(
             deepcopy(module["implementation"].get("compose", {}).get("services", {})),
             True,
@@ -2151,12 +2364,14 @@ def _check_wait_gate_hosts(
                             f'waitFor gate of workload "{module_id}/{workload_name}" '
                             f'names host "{host}", which the module\'s default-deny '
                             "NetworkPolicy does not allow egress to: it is neither a "
-                            f'Service rendered for module "{module_id}" nor the '
-                            "endpoint of a provider this module consumes nor a "
-                            "destination a custom networkPolicy.egress ipBlock rule "
-                            "covers on the gate's port, so the init container would "
-                            "only hang until its timeout. Bind the host's module "
-                            "through a contract (consumes), gate on a same-module "
+                            f'Service rendered for module "{module_id}", the '
+                            "endpoint of a provider this module consumes, the "
+                            "target of one of this module's reverse-proxy routes, "
+                            "nor a destination a custom networkPolicy.egress "
+                            "ipBlock rule covers on the gate's port, so the init "
+                            "container would only hang until its timeout. Bind "
+                            "the host's module through a contract (consumes), "
+                            "route to it via config.routes, gate on a same-module "
                             "${k8s.service.*} Service, or declare the destination "
                             "in a custom networkPolicy.egress ipBlock rule covering "
                             "the host and port (a DNS-name host cannot be expressed "
