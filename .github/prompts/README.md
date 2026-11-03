@@ -50,6 +50,57 @@ enforces the policy below and fails the build on violations.
    (`--json "number,title"`), `--flag=value`, and `$(gh ...)` forms cannot
    bypass the check; dynamic or missing arguments (`--json "$FIELDS"`,
    `--json "$(cat fields.txt)"`, bare `--json`) fail closed too.
+5. **Rule 4 covers only the `gh` CLI — non-gh fetchers fail closed too
+   (issue #1090).** In any job that feeds `file_input` to
+   `actions/ai-inference`:
+   - (a) every write to a file later used as `file_input` — shell redirect
+     (`>`, `>>`, `2>`, `&>`, and the noclobber-override forms `>|`, `&>|`,
+     `2>|`), `tee` (all file arguments), python `open(...,'w'/'a')` /
+     `Path(...).write_text(...)`, output-path flags (`curl -o`, `wget -O`,
+     `--output=`, `-oFILE`, `dd of=`, `--dest`), or `cp`/`mv`/`install` — must
+     come from a single simple command (no `;`/`&&`/`||`/backticks/`$(...)`,
+     no process substitution `>(...)`/`<(...)`, pipes only into `tee`) that
+     is a rule-4-compliant literal-metadata `gh`
+     collection command, or by a
+     producer listed in `FILE_INPUT_PRODUCERS_ALLOWLIST` in
+     `scripts/check_prompts.py` (keyed by workflow file and canonical input
+     path, with a required producer pattern, a producer validator, and a
+     justification; today the only entry is `biweekly-issue-audit.yml`'s
+     `recent-commits.txt`, produced by `git log` — the validator accepts only
+     a `--format` with metadata specifiers such as `--format='%h %ad'`
+     (hashes/dates), so `--format='%h %s'` (subject = free text) or author
+     fields (`%an`/`%ae`) fail closed, as does a bare `git log`).
+     Python writes with non-literal target paths (`open(var, 'w')`) cannot be
+     verified against the input paths and fail closed too. Opaque runner
+     invocations (`python3 script.py`, `python3 - <<'PY'`, `bash x.sh`,
+     `node x.js`, `perl`, `ruby`, `pwsh`, ...) fail closed in feeding jobs
+     because their writes are invisible to line-level analysis — the only
+     exempt script is `scripts/redact_secrets.py` — and that exemption
+     applies only to a single simple command, so a redaction line with a
+     chained write (`... redact_secrets.py ...; echo INJECT >> target`)
+     fails closed like any other chained writer. Write targets through
+     script-local literal variables (`OUT=...; cmd > "$OUT"`) are resolved
+     and checked normally; any other unresolved shell expansion in a write
+     target (`> "$UNKNOWN"`) fails closed (runner vars like `$GITHUB_OUTPUT`
+     are exempt). Any other writer fails closed.
+   - (b) any non-gh HTTP fetcher — `curl`, `wget`, `httpie`, python
+     `urllib`/`requests`/`httpx`/`aiohttp`/`http.client`, node `fetch()`,
+     pwsh `Invoke-RestMethod`/`Invoke-WebRequest` — whose arguments target a
+     GitHub free-text endpoint (issue/PR/comment/review/discussion resources
+     under `api.github.com` or `github.com`, or the `graphql` endpoint)
+     fails closed, even when its output is captured via `$(...)` rather than
+     redirected straight into the input file. The reason: rule 3's
+     `scripts/redact_secrets.py` strips secret and injection patterns, not
+     issue titles/bodies, so only verified metadata-only producers may feed
+     `file_input`.
+   - (c) deny by default: in feeding jobs, only `uses:` actions in
+     `FEEDING_JOB_USES_ALLOWLIST` are allowed (`actions/checkout`,
+     `actions/setup-*`, `actions/cache`, upload/download-artifact, and the
+     ai-inference action itself). Every other `uses:` step — third-party,
+     composite, local, `docker://`, `actions/github-script` — fails closed
+     because it can execute arbitrary code and write file_input files
+     unverifiably. The residual for opaque `run:` script files is tracked in
+     issue #1120.
 
 ## Adding a new prompt
 
@@ -59,8 +110,10 @@ enforces the policy below and fails the build on violations.
 2. If your workflow must pass data, use `file_input` (as
    `biweekly-issue-audit.yml` does), add the file to `ALLOWLIST` with a
    justification, wrap the placeholders in `BEGIN/END_UNTRUSTED_DATA`
-   fences, keep the protocol in the system message, and redact the input
-   with `scripts/redact_secrets.py` before inference.
+   fences, keep the protocol in the system message, produce each input file
+   only via a rule-4-compliant metadata-only `gh` command or an entry in
+   `FILE_INPUT_PRODUCERS_ALLOWLIST` (rule 5 — no curl/wget/python fetchers),
+   and redact the input with `scripts/redact_secrets.py` before inference.
 3. Run `make lint-prompts` and the unit tests in `tests/test_prompts_lint.py`.
 
 ## Decisions (resolved in #1082)

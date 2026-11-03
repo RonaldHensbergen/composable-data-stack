@@ -25,6 +25,28 @@ control. The policy enforced here (see .github/prompts/README.md):
    and not via `--jq` (computed access cannot be verified statically, so any
    `--jq` fails closed). Dynamic or missing arguments fail closed too.
    Collect literal metadata only (number, labels, milestone, timestamps, url).
+5. Rule 4 covers only the `gh` CLI — non-gh fetchers are fail-closed too
+   (issue #1090): in any job that feeds `file_input` to
+   `actions/ai-inference`, (a) every write (shell redirect incl. the >| / &>|
+   noclobber forms, `tee`, python `open(...)/write_text`, output-path flags
+   like `curl -o`/`wget -O`/`--output=`/`of=`, `cp`/`mv`/`install`)
+   to a file later used as `file_input` must come from a SINGLE simple
+   command (no `;`/`&&`/`||`/backticks/`$(...)`, pipes only into `tee`) that
+   is a rule-4-compliant literal-metadata `gh` collection command or an explicit
+   FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer pattern and validator
+   must accept the writing line; python writes with non-literal target paths
+   and opaque runner invocations (`python3 script.py`, `python3 - <<'PY'`,
+   `bash x.sh`, `node x.js`, ...) fail closed because their writes are
+   invisible to line-level analysis (only scripts/redact_secrets.py is
+   exempt), and (b) any non-gh
+   HTTP fetcher (`curl`, `wget`, `httpie`, python `urllib`/`requests`/
+   `httpx`/..., node `fetch`, pwsh `Invoke-RestMethod`/`Invoke-WebRequest`)
+   targeting a GitHub free-text endpoint (issue/PR/comment/review/discussion
+   resources, or the graphql endpoint) fails closed, and (c) any `uses:` step
+   outside FEEDING_JOB_USES_ALLOWLIST fails closed because non-allowlisted
+   actions can execute arbitrary code and write file_input files
+   unverifiably. All of it because `scripts/redact_secrets.py` strips
+   secret/injection patterns, not issue titles/bodies.
 
 Runs in CI (lint job), pre-commit, and `make lint-prompts`. Exit 1 on any
 violation; the script never modifies files.
@@ -34,6 +56,7 @@ from __future__ import annotations
 import re
 import shlex
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import yaml
@@ -87,6 +110,138 @@ GH_JQ_DYNAMIC_RE = re.compile(r"--jq[=\s]+[\"']?\S*[$*?`]\S*|--jq[=\s]*$")
 # computed key access (e.g. .["tit"+"le"]) cannot be verified statically, so
 # any jq expression — literal or dynamic — fails closed
 # (github-advanced-security review on PR #1087).
+
+# git log --format specifiers that are pure metadata: hashes, dates,
+# timestamps, and the literal %%. Anything else — %s/%b/%B (subject/body,
+# user-authored free text), %an/%ae/%aN/%aE (author identity, personal
+# data), %N (notes), and %(...) pretty-format atoms such as
+# %(trailers:...), %w(...), %C(...) — fails closed (github-advanced-
+# security on #1118: %(...) atoms must be visible to the safe-set check).
+# No --format at all means the default format (full commit message incl.
+# subject) — also fails closed.
+GIT_LOG_FORMAT_SPEC_RE = re.compile(r"%(\([^)]*\)|[a-zA-Z]{1,2}|%)")
+GIT_LOG_SAFE_SPECS = frozenset(
+    {"h", "H", "ad", "aD", "ai", "aI", "cd", "cD", "ci", "cI", "at", "ct", "%"}
+)
+
+
+def _git_log_format_value(line: str) -> str | None:
+    """The --format=<fmt> / --format <fmt> value of a git log line, or None
+    when absent (shlex first, quote-aware regex fallback)."""
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        tokens = []
+    for i, tok in enumerate(tokens):
+        if tok == "--format" and i + 1 < len(tokens):
+            return tokens[i + 1]
+        if tok.startswith("--format="):
+            return tok[len("--format="):]
+    match = re.search(r"--format[=\s]+[\"']([^\"']+)[\"']|--format[=\s]+(\S+)", line)
+    if match:
+        return match.group(1) or match.group(2)
+    return None
+
+
+def _git_log_metadata_only(line: str) -> bool:
+    """True when a git log line's --format contains only metadata specifiers
+    (hashes/dates/timestamps) — no subjects, bodies, or author identity."""
+    fmt = _git_log_format_value(line)
+    if fmt is None:
+        return False
+    specs = GIT_LOG_FORMAT_SPEC_RE.findall(fmt)
+    return bool(specs) and all(spec in GIT_LOG_SAFE_SPECS for spec in specs)
+
+
+# Explicit allowlist for non-gh producers of ai-inference file_input files
+# (rule 5, issue #1090): workflow file name -> canon file_input path ->
+# (required producer regex, producer validator, justification). A writing
+# line is allowed only when BOTH the regex matches and the validator accepts
+# the line — fail closed otherwise. Keep this list minimal, review entries.
+FILE_INPUT_PRODUCERS_ALLOWLIST: dict[
+    str, dict[str, tuple[re.Pattern[str], Callable[[str], bool], str]]
+] = {
+    "biweekly-issue-audit.yml": {
+        "__TEMP__/recent-commits.txt": (
+            re.compile(r"\bgit\s+log\b"),
+            _git_log_metadata_only,
+            "git log with a metadata-only --format (e.g. '%h %ad' --date=short: "
+            "commit hashes and dates; subjects/bodies/author identity are "
+            "excluded), still redacted by scripts/redact_secrets.py before "
+            "inference (issue #1090).",
+        ),
+    },
+}
+# Non-gh HTTP fetchers that can pull user-authored free text into a
+# file_input-feeding job with no rule-4 coverage (issue #1090): curl/wget/
+# httpie, python HTTP stacks, node fetch(), pwsh cmdlets.
+NON_GH_FETCHER_RE = re.compile(
+    r"\b(?:curl|wget|httpie|urlopen|urllib|requests|httpx|aiohttp|"
+    r"http\.client|Invoke-RestMethod|Invoke-WebRequest)\b|\bfetch\s*\(",
+    re.IGNORECASE,
+)
+# GitHub URLs whose responses contain user-authored free text: issue/PR/
+# comment/review/discussion resources under api.github.com or github.com,
+# plus the graphql endpoint (can select arbitrary fields, incl. free text).
+GITHUB_FREE_TEXT_URL_RE = re.compile(
+    r"(?:api\.github\.com|github\.com)/(?:[^\s\"'<>]*?/)?"
+    r"(?:issues|pulls|comments|reviews|discussions|graphql)(?=[/?#\"'\s<>]|$)",
+    re.IGNORECASE,
+)
+# Shell write redirections to a file: >, >>, 2>, 2>>, &>, &>>, plus the
+# noclobber-override forms >|, >>|, 2>|, &>|, &>>| (github-advanced-security
+# on #1118: the bare forms must not be the only ones matched).
+REDIRECT_RE = re.compile(r"(?:\d|&)?>{1,2}\|?\s*[\"']?([^\s\"'&|;<>]+)")
+# tee [flags] FILE... — every non-flag argument is a written file.
+TEE_RE = re.compile(r"\btee\b((?:\s+-{1,2}[\w-]+)*)\s+(.+)$")
+# python open("path", "w"/"a"/...) and Path("path").write_text(...) — literal
+# paths, used as verifiable write targets.
+PY_OPEN_WRITE_RE = re.compile(r"\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"'][wa+]")
+PY_PATH_WRITE_RE = re.compile(r"\bPath\s*\(\s*[\"']([^\"']+)[\"']\s*\)\s*\.\s*write_text")
+# Fail-closed matchers for python write calls whose target path is NOT a
+# literal string (open(<expr>, ...) with any mode, Path(<expr>).write_text):
+# the target cannot be compared against file_input paths, so such writes
+# fail closed in feeding jobs (github-advanced-security on #1118).
+PY_OPEN_ANY_ARG_RE = re.compile(r"\bopen\s*\([^)]*,", re.IGNORECASE)
+PY_OPEN_LITERAL_RE = re.compile(r"\bopen\s*\(\s*[\"'][^\"']+[\"']\s*,", re.IGNORECASE)
+PY_PATH_ANY_WRITE_RE = re.compile(r"\bPath\s*\([^)]*\)\s*\.\s*write_text", re.IGNORECASE)
+PY_PATH_LITERAL_RE = re.compile(r"\bPath\s*\(\s*[\"'][^\"']+[\"']\s*\)", re.IGNORECASE)
+# Positional-destination tools: the last non-option argument is the written
+# file (cp/mv/install/rsync/truncate) — with directory-destination
+# derivation for all but truncate (github-advanced-security on #1118).
+COPY_MOVE_CMDS = frozenset({"cp", "mv", "install", "rsync", "truncate"})
+# sed edits files in place when -i/--in-place is present.
+SED_IN_PLACE_RE = re.compile(r"^(-i.*|--in-place.*)$")
+# In a job that feeds ai-inference file_input, ONLY these uses: actions are
+# allowed — known non-writers (VCS checkout, tool setup, cache, artifact
+# transfer) plus the inference action itself. Every other uses: step fails
+# closed (rule 5c): third-party/composite/JS actions (github-script,
+# docker://, anything else) can execute arbitrary code and write file_input
+# files, which is not statically analyzable (github-advanced-security on
+# #1118). Deny by default, same doctrine as ALLOWLIST above.
+FEEDING_JOB_USES_ALLOWLIST: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^actions/checkout@", re.IGNORECASE),
+    re.compile(r"^actions/setup-[\w-]+@", re.IGNORECASE),
+    re.compile(r"^actions/cache(?:/restore)?@", re.IGNORECASE),
+    re.compile(r"^actions/upload-artifact@", re.IGNORECASE),
+    re.compile(r"^actions/download-artifact@", re.IGNORECASE),
+    re.compile(r"^actions/ai-inference@", re.IGNORECASE),
+)
+# Command-line output-path flags whose argument is a written file:
+# curl -o/--output, wget -O/--output-document, dd of=, sort -o, and generic
+# --out/--output-file/--dest forms (github-advanced-security on #1118).
+OUTPUT_FLAG_TOKENS = frozenset(
+    {"-o", "-O", "--output", "--out", "--output-file", "--output-document", "--dest"}
+)
+OUTPUT_FLAG_PREFIXES = (
+    "--output=",
+    "--out=",
+    "--output-file=",
+    "--output-document=",
+    "--dest=",
+    "of=",
+)
+
 
 
 def _is_gh_collection_cmd(line: str) -> bool:
@@ -319,6 +474,8 @@ def lint_workflow(path: Path) -> list[str]:
             continue
         redacted_outputs: set[str] = set()
         run_scripts: list[str] = []
+        file_input_targets: set[str] = set()
+        disallowed_uses: list[str] = []
         feeds_inference = False
         for step in job.get("steps") or []:
             if not isinstance(step, dict):
@@ -329,6 +486,12 @@ def lint_workflow(path: Path) -> list[str]:
             for match in redact_call_re.finditer(run_script):
                 redacted_outputs.add(_canon_path(match.group(2)))
             uses = str(step.get("uses", ""))
+            if (
+                uses
+                and AI_INFERENCE_ACTION not in uses
+                and not any(p.match(uses) for p in FEEDING_JOB_USES_ALLOWLIST)
+            ):
+                disallowed_uses.append(uses)
             if AI_INFERENCE_ACTION not in uses:
                 continue
             file_input = str((step.get("with") or {}).get("file_input") or "")
@@ -337,6 +500,7 @@ def lint_workflow(path: Path) -> list[str]:
             feeds_inference = True
             for raw in FILE_INPUT_RE.findall(file_input):
                 target = _canon_path(raw)
+                file_input_targets.add(target)
                 if target not in redacted_outputs:
                     errors.append(
                         f"{path.name} (job {job_name}): ai-inference file_input "
@@ -346,8 +510,63 @@ def lint_workflow(path: Path) -> list[str]:
                         f"(.github/prompts/README.md)"
                     )
         if feeds_inference:
+            for uses in disallowed_uses:
+                errors.append(
+                    f"{path.name} (job {job_name}): step uses '{uses}' in a job "
+                    f"that feeds actions/ai-inference file_input; only allowlisted "
+                    f"non-writer actions (FEEDING_JOB_USES_ALLOWLIST: checkout, "
+                    f"setup-*, cache, upload/download-artifact) are permitted — any "
+                    f"other action can execute code and write file_input files "
+                    f"unverifiably, so it fails closed (#1090, .github/prompts/README.md)"
+                )
             errors.extend(_lint_minimization(path, job_name, run_scripts))
+            errors.extend(
+                _lint_file_input_producers(path, job_name, run_scripts, file_input_targets)
+            )
+            errors.extend(_lint_non_gh_fetchers(path, job_name, run_scripts))
     return errors
+
+
+def _gh_line_problems(line: str) -> list[str]:
+    """Why a matched gh collection line is not a verifiable metadata-only
+    collection (rule 4). Empty list means the line is an acceptable producer
+    of a file_input file."""
+    fields = _gh_json_fields(line)
+    free_text = sorted(fields & FREE_TEXT_FIELDS)
+    dynamic_json = DYNAMIC_ARG in fields
+    jq_exprs = _gh_jq_expressions(line)
+    dynamic_jq = DYNAMIC_ARG in jq_exprs
+    api_hits = _gh_api_free_text_hits(line)
+    flag_hits = [] if api_hits else _gh_flag_hits(line)
+    problems: list[str] = []
+    if dynamic_json or dynamic_jq:
+        problems.append(
+            "a dynamic or missing --json/--jq argument (shell expansion like "
+            "$VAR, $(...), backticks, or a glob) that cannot be verified statically"
+        )
+    if free_text:
+        problems.append(f"free-text field(s) {free_text} via --json")
+    if jq_exprs and not dynamic_jq:
+        # Any jq expression fails closed: computed key access such as
+        # .["tit"+"le"] cannot be verified statically (#1087 review).
+        problems.append(
+            "a --jq expression (computed access cannot be verified statically, "
+            "so it can re-extract free-text fields)"
+        )
+    if api_hits:
+        problems.append(f"gh api free-text exposure: {', '.join(api_hits)}")
+    if not api_hits:
+        # A matched gh collection command without any --json flag prints
+        # the default table, which includes titles — fail closed unless
+        # an explicit literal metadata field list is given.
+        if not re.search(r"--json\b", line):
+            problems.append(
+                "no explicit --json metadata field list (default output "
+                "includes titles)"
+            )
+        if flag_hits:
+            problems.append(", ".join(flag_hits))
+    return problems
 
 
 def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> list[str]:
@@ -360,41 +579,7 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
         for line in script.splitlines():
             if not _is_gh_collection_cmd(line):
                 continue
-            fields = _gh_json_fields(line)
-            free_text = sorted(fields & FREE_TEXT_FIELDS)
-            dynamic_json = DYNAMIC_ARG in fields
-            jq_exprs = _gh_jq_expressions(line)
-            dynamic_jq = DYNAMIC_ARG in jq_exprs
-            api_hits = _gh_api_free_text_hits(line)
-            flag_hits = [] if api_hits else _gh_flag_hits(line)
-            problems: list[str] = []
-            if dynamic_json or dynamic_jq:
-                problems.append(
-                    "a dynamic or missing --json/--jq argument (shell expansion like "
-                    "$VAR, $(...), backticks, or a glob) that cannot be verified statically"
-                )
-            if free_text:
-                problems.append(f"free-text field(s) {free_text} via --json")
-            if jq_exprs and not dynamic_jq:
-                # Any jq expression fails closed: computed key access such as
-                # .["tit"+"le"] cannot be verified statically (#1087 review).
-                problems.append(
-                    "a --jq expression (computed access cannot be verified statically, "
-                    "so it can re-extract free-text fields)"
-                )
-            if api_hits:
-                problems.append(f"gh api free-text exposure: {', '.join(api_hits)}")
-            if not api_hits:
-                # A matched gh collection command without any --json flag prints
-                # the default table, which includes titles — fail closed unless
-                # an explicit literal metadata field list is given.
-                if not re.search(r"--json\b", line):
-                    problems.append(
-                        "no explicit --json metadata field list (default output "
-                        "includes titles)"
-                    )
-                if flag_hits:
-                    problems.append(", ".join(flag_hits))
+            problems = _gh_line_problems(line)
             if problems:
                 errors.append(
                     f"{path.name} (job {job_name}): gh command rejected for ai-inference "
@@ -402,6 +587,379 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
                     f"be collected; use a literal metadata-only field list (number, labels, "
                     f"milestone, timestamps, url) (.github/prompts/README.md, decided in #1082)"
                 )
+    return errors
+
+
+# Runner-provided variables that are never file_input paths: a write target
+# containing only these is safe; any other unresolved shell expansion in a
+# write target is non-literal and fails closed in feeding jobs
+# (github-advanced-security on #1118).
+KNOWN_RUNNER_VARS = frozenset({
+    "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_STEP_SUMMARY", "GITHUB_PATH",
+    "GITHUB_ACTIONS", "GITHUB_REPOSITORY", "GITHUB_WORKFLOW", "GITHUB_RUN_ID",
+    "GITHUB_SERVER_URL", "CI", "RUNNER_OS", "RUNNER_ARCH", "RUNNER_DEBUG",
+    "RUNNER_TOOL_CACHE",
+})
+VAR_USE_RE = re.compile(r"\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)|\$\(|`")
+DYNAMIC_MARKER = "\x00dynamic\x00"
+ASSIGN_RE = re.compile(r"^([A-Za-z_]\w*)=(.*)$")
+
+
+def _script_vars(script: str) -> dict[str, str]:
+    """Literal per-script variable assignments (NAME=literal, no shell
+    expansion in the value), used to resolve write targets like "$OUT"."""
+    vars_: dict[str, str] = {}
+    for line in script.splitlines():
+        try:
+            tokens = shlex.split(line)
+        except ValueError:
+            continue
+        for tok in tokens:
+            m = ASSIGN_RE.match(tok)
+            if not m:
+                continue
+            value = m.group(2).replace("${{ runner.temp }}", "__TEMP__")
+            value = value.replace("$RUNNER_TEMP", "__TEMP__")
+            # Only truly literal values: any shell control/expansion syntax
+            # (e.g. a trailing ';' from a chained line) makes the assignment
+            # untrustworthy — don't record it, so later uses of $NAME fail
+            # closed as unresolvable (github-advanced-security on #1118).
+            if not re.search(r"[;|&<>$`]", value):
+                vars_[m.group(1)] = value.strip("\"'")
+    return vars_
+
+
+def _resolve_target(raw: str, script_vars: dict[str, str]) -> tuple[str, bool]:
+    """(canon_path, is_dynamic_unsafe) for a raw write-target token: runner
+    temp spellings and script-local literal vars are resolved; anything still
+    containing shell expansion is non-literal and unsafe (fail closed)."""
+    tok = raw.replace("${{ runner.temp }}", "__TEMP__").replace("$RUNNER_TEMP", "__TEMP__")
+
+    def repl(m: re.Match[str]) -> str:
+        name = m.group(1) or m.group(2)
+        if name is None:  # $(...) or backtick
+            return DYNAMIC_MARKER
+        if name in script_vars:
+            return script_vars[name]
+        if name in KNOWN_RUNNER_VARS:
+            return "__RUNNER_VAR__"
+        return DYNAMIC_MARKER
+
+    tok = VAR_USE_RE.sub(repl, tok)
+    if DYNAMIC_MARKER in tok:
+        return _canon_path(raw), True
+    return _canon_path(tok), False
+
+
+def _raw_write_targets(line: str) -> set[str]:
+    """Raw (unresolved) tokens this line writes to: redirects (>, >>, 2>,
+    &>, and the >| / &>| noclobber-override forms), tee targets, python
+    open(...,'w'/'a') and Path(...).write_text(...) with literal paths,
+    output-path flags (-o, -O, --output, --out, --output-file,
+    --output-document, --dest, of=, and attached/combined -ofile forms),
+    in-place editors (sed -i file operands), and the destination of
+    cp/mv/install/rsync/truncate (with directory-destination derivation)."""
+    targets = {m.group(1) for m in REDIRECT_RE.finditer(line)}
+    for m in TEE_RE.finditer(line):
+        try:
+            tee_tokens = shlex.split(m.group(2))
+        except ValueError:
+            tee_tokens = m.group(2).split()
+        targets.update(t for t in tee_tokens if t and not t.startswith("-"))
+    targets.update(m.group(1) for m in PY_OPEN_WRITE_RE.finditer(line))
+    targets.update(m.group(1) for m in PY_PATH_WRITE_RE.finditer(line))
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        tokens = []
+    if tokens and tokens[0] in COPY_MOVE_CMDS:
+        # cp/mv/install: parse flags; last positional is the destination,
+        # but a directory destination (-t DIR / --target-directory=DIR /
+        # trailing '/') writes DIR/basename(src) for each source
+        # (github-advanced-security on #1118).
+        positional: list[str] = []
+        target_dir: str | None = None
+        i = 1
+        while i < len(tokens):
+            tok = tokens[i]
+            if tok in ("-t", "--target-directory") and i + 1 < len(tokens):
+                target_dir = tokens[i + 1]
+                i += 2
+                continue
+            if tok.startswith("--target-directory="):
+                target_dir = tok.split("=", 1)[1]
+            elif not tok.startswith("-"):
+                positional.append(tok)
+            i += 1
+        if positional:
+            dest = positional[-1]
+            targets.add(dest)
+            # Directory destinations (bare dir, trailing '/', or -t DIR)
+            # write base/basename(src) — always derive those paths too;
+            # over-capture is harmless because only file_input matches error.
+            base = target_dir if target_dir is not None else dest
+            sources = positional if target_dir is not None else positional[:-1]
+            for src in sources:
+                targets.add(base.rstrip("/") + "/" + Path(src).name)
+    if tokens and tokens[0] == "sed" and any(SED_IN_PLACE_RE.match(t) for t in tokens[1:]):
+        # sed -i edits its file operands in place — every non-option token is
+        # a potential write target (over-capture is harmless).
+        targets.update(t for t in tokens[1:] if not t.startswith("-"))
+    for i, tok in enumerate(tokens):
+        if tok in OUTPUT_FLAG_TOKENS:
+            # split form: -o FILE / --output FILE (skip option-like values)
+            if i + 1 < len(tokens) and tokens[i + 1] and not tokens[i + 1].startswith("-"):
+                targets.add(tokens[i + 1])
+        elif tok.startswith(OUTPUT_FLAG_PREFIXES):
+            # = form: --output=FILE, of=FILE
+            targets.add(tok.split("=", 1)[1])
+        elif tok.startswith("-") and not tok.startswith("--") and len(tok) > 1:
+            # short-option cluster (incl. attached value, possibly quoted so
+            # shlex merged it into this token): the first o/O takes the rest
+            # of the token as attached value, else the next token — covers
+            # -oFILE, -OFILE, curl -soFILE, wget -qOFILE, curl -sS -O FILE
+            # (github-advanced-security on #1118).
+            cluster = tok[1:]
+            idx = next((j for j, ch in enumerate(cluster) if ch in "oO"), None)
+            if idx is not None:
+                attached = cluster[idx + 1:]
+                if attached:
+                    targets.add(attached)
+                elif i + 1 < len(tokens) and tokens[i + 1] and not tokens[i + 1].startswith("-"):
+                    targets.add(tokens[i + 1])
+    return {t for t in targets if t and t != "/dev/null"}
+
+
+def _write_targets(line: str, script_vars: dict[str, str] | None = None) -> set[str]:
+    """Canon literal paths this line writes to (see _raw_write_targets), with
+    script-local variable assignments resolved; dynamic-unsafe targets are
+    excluded here and reported by _dynamic_write_targets instead."""
+    script_vars = script_vars or {}
+    out: set[str] = set()
+    for raw in _raw_write_targets(line):
+        canon, dynamic = _resolve_target(raw, script_vars)
+        if not dynamic:
+            out.add(canon)
+    return out
+
+
+def _dynamic_write_targets(line: str, script_vars: dict[str, str]) -> list[str]:
+    """Raw write targets that still contain shell expansion after resolving
+    runner vars and script-local literal assignments — they cannot be
+    verified against the file_input paths, so they fail closed in feeding
+    jobs (github-advanced-security on #1118)."""
+    out: list[str] = []
+    for raw in _raw_write_targets(line):
+        _, dynamic = _resolve_target(raw, script_vars)
+        if dynamic:
+            out.append(raw)
+    return out
+
+
+def _unverifiable_py_writes(line: str) -> list[str]:
+    """Python write calls in the line whose target path is not a literal
+    string (open(<expr>, ...) with any mode, Path(<expr>).write_text(...)):
+    the target cannot be compared against the file_input paths, so the write
+    is fail-closed in feeding jobs (github-advanced-security on #1118)."""
+    literal_spans = [m.span() for m in PY_OPEN_LITERAL_RE.finditer(line)]
+    literal_spans += [m.span() for m in PY_PATH_LITERAL_RE.finditer(line)]
+
+    def covered(match: re.Match[str]) -> bool:
+        return any(s <= match.start() and match.end() <= e for s, e in literal_spans)
+
+    hits: list[str] = []
+    for match in PY_OPEN_ANY_ARG_RE.finditer(line):
+        if not covered(match):
+            hits.append(match.group(0).strip()[:60])
+    for match in PY_PATH_ANY_WRITE_RE.finditer(line):
+        if not covered(match):
+            hits.append(match.group(0).strip()[:60])
+    return hits
+
+
+# Shell chaining/control constructs that make a producer line unverifiable:
+# ;, &&, ||, backticks, $(...), process substitution >(...) / <(...), and a
+# bare & (backgrounding). &> / &>> / N>&M redirections are NOT chaining
+# (github-advanced-security on #1118).
+SHELL_CHAIN_RE = re.compile(r";|\|\||&&|`|\$\(|>\(|<\(|(?:^|[\s;|])&(?![0-9>])")
+
+
+def _producer_line_is_simple(line: str) -> bool:
+    """A producer line must be a single simple command — optionally piped
+    into `tee` only (tee copies without transforming). Chained commands
+    (`;`, `&&`, `||`, backticks, `$(...)`, background `&`, pipes into other
+    commands) on the same line are unverified writers of the target
+    (github-advanced-security on #1118)."""
+    if SHELL_CHAIN_RE.search(line):
+        return False
+    # Split on real pipes only: the | in >| / &>| / 2>| noclobber redirects
+    # is part of the redirection operator, not a pipe.
+    for segment in re.split(r"(?<![>&])\|(?!\|)", line)[1:]:
+        if not re.match(r"\s*tee\b", segment):
+            return False
+    return True
+
+
+# Opaque interpreters/runners: invoked in a feeding job they can write
+# file_input targets invisibly (python3 fetch.py, python3 - <<'PY', bash
+# x.sh, node x.js, ...), with no shell-level write indicator — so any
+# invocation fails closed except the scripts/redact_secrets.py
+# transformation (github-advanced-security on #1118; residuals in #1120).
+OPAQUE_RUNNER_CMDS = frozenset(
+    {"python", "python3", "bash", "sh", "zsh", "node", "perl", "ruby", "pwsh", "powershell", "cmd"}
+)
+# Wrapper commands that only prefix the real executable (e.g.
+# 'env python3 fetch.py', 'command node x.js') — skipped when locating the
+# opaque runner (github-advanced-security on #1118).
+RUNNER_WRAPPER_CMDS = frozenset(
+    {"sudo", "env", "command", "builtin", "nohup", "nice", "time", "stdbuf"}
+)
+OPAQUE_RUNNER_FALLBACK_RE = re.compile(
+    r"(?:^|[\s;|&])(?:(?:sudo|env|command|builtin|nohup|nice|time|stdbuf)\s+)*"
+    r"(python3?|bash|sh|zsh|node|perl|ruby|pwsh|powershell|cmd)\b"
+)
+
+
+def _opaque_runner_invocation(line: str) -> str | None:
+    """The runner command name when the line invokes an opaque interpreter,
+    skipping wrapper commands (sudo/env/command/nohup/...), VAR=...
+    assignments, and env's dash flags; else None."""
+    try:
+        tokens = shlex.split(line)
+    except ValueError:
+        match = OPAQUE_RUNNER_FALLBACK_RE.search(line)
+        return match.group(1) if match else None
+    i = 0
+    wrapped = False
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in RUNNER_WRAPPER_CMDS:
+            wrapped = True
+            i += 1
+            continue
+        if re.fullmatch(r"\w+=.*", tok):
+            i += 1
+            continue
+        if wrapped and tok.startswith("-") and not tok.startswith("--"):
+            i += 1
+            continue
+        break
+    if i < len(tokens) and tokens[i] in OPAQUE_RUNNER_CMDS:
+        return tokens[i]
+    return None
+
+
+def _lint_file_input_producers(
+    path: Path, job_name: str, run_scripts: list[str], file_input_targets: set[str]
+) -> list[str]:
+    """Rule 5a (issue #1090): in a job that feeds file_input to
+    actions/ai-inference, every write to a file later used as file_input must
+    come from a single simple command that is a rule-4-compliant
+    literal-metadata gh collection command or an explicit
+    FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer pattern AND validator
+    accept the writing line; opaque runner invocations fail closed because
+    their writes are invisible to line-level analysis. Anything else —
+    chained commands, curl/wget/python output, echo/printf/heredoc, cp/mv —
+    fails closed: redact_secrets.py strips secret/injection patterns, not
+    titles/bodies."""
+    errors: list[str] = []
+    allowlist = FILE_INPUT_PRODUCERS_ALLOWLIST.get(path.name, {})
+    for script in run_scripts:
+        script_vars = _script_vars(script)
+        for line in script.splitlines():
+            for raw in _dynamic_write_targets(line, script_vars):
+                errors.append(
+                    f"{path.name} (job {job_name}): write target '{raw}' contains "
+                    f"unresolvable shell expansion, so it cannot be verified against "
+                    f"the ai-inference file_input paths — non-literal write targets "
+                    f"fail closed in file_input-feeding jobs (#1090, "
+                    f".github/prompts/README.md)"
+                )
+            for hit in _unverifiable_py_writes(line):
+                errors.append(
+                    f"{path.name} (job {job_name}): python write call '{hit}...' has "
+                    f"a non-literal target path, so it cannot be verified against the "
+                    f"ai-inference file_input paths — dynamic write targets fail "
+                    f"closed in file_input-feeding jobs (#1090/#1120, "
+                    f".github/prompts/README.md)"
+                )
+            targets = _write_targets(line, script_vars) & file_input_targets
+            if targets and not _producer_line_is_simple(line):
+                # Chained/piped/process-substituted commands on a writer line
+                # are unverified writers of the target — fail closed BEFORE
+                # any exemption, so e.g. a redaction line with an appended
+                # write cannot bypass (github-advanced-security on #1118).
+                for target in sorted(targets):
+                    errors.append(
+                        f"{path.name} (job {job_name}): ai-inference file_input "
+                        f"'{target}' is written on a line with chained/piped "
+                        f"commands beyond a single producer (+ optional tee) — "
+                        f"every command on the line must be verified, so this "
+                        f"fails closed (#1090, .github/prompts/README.md)"
+                    )
+                continue
+            if "redact_secrets.py" in line:
+                # Single simple redaction transformation, not a content
+                # source; rule 3 already requires redaction of every
+                # file_input file. (Chained redact lines were rejected above.)
+                continue
+            runner = _opaque_runner_invocation(line)
+            if runner is not None:
+                errors.append(
+                    f"{path.name} (job {job_name}): opaque runner '{runner}' in a job "
+                    f"feeding ai-inference file_input {sorted(file_input_targets)} — "
+                    f"its file writes are not statically verifiable, so it fails "
+                    f"closed; only visible producers (rule-4 gh metadata-only or "
+                    f"FILE_INPUT_PRODUCERS_ALLOWLIST) and scripts/redact_secrets.py "
+                    f"are allowed (#1090/#1120, .github/prompts/README.md)"
+                )
+                continue
+            if not targets:
+                continue
+            if _is_gh_collection_cmd(line):
+                # Rule 4 reports non-compliant gh lines itself; a compliant
+                # one is an acceptable producer of all its targets.
+                continue
+            for target in sorted(targets):
+                entry = allowlist.get(target)
+                if (
+                    entry is not None
+                    and entry[0].search(line)
+                    and entry[1](line)
+                ):
+                    continue
+                errors.append(
+                    f"{path.name} (job {job_name}): ai-inference file_input "
+                    f"'{target}' is written by a step that is neither a literal "
+                    f"metadata-only gh collection command nor an allowlisted "
+                    f"producer (FILE_INPUT_PRODUCERS_ALLOWLIST) — non-gh fetchers "
+                    f"and arbitrary writers fail closed here because "
+                    f"scripts/redact_secrets.py strips secrets/injection patterns, "
+                    f"not user-authored free text (#1090, .github/prompts/README.md)"
+                )
+    return errors
+
+
+def _lint_non_gh_fetchers(path: Path, job_name: str, run_scripts: list[str]) -> list[str]:
+    """Rule 5b (issue #1090): in a job that feeds file_input to
+    actions/ai-inference, any non-gh HTTP fetcher (curl/wget/httpie, python
+    urllib/requests/httpx/..., node fetch, pwsh Invoke-*) whose arguments
+    target a GitHub free-text endpoint fails closed — even when its output
+    is not redirected straight into a file_input file, because it can be
+    captured via $() and written indirectly."""
+    errors: list[str] = []
+    for script in run_scripts:
+        if not NON_GH_FETCHER_RE.search(script):
+            continue
+        urls = sorted(set(GITHUB_FREE_TEXT_URL_RE.findall(script)))
+        if urls:
+            errors.append(
+                f"{path.name} (job {job_name}): non-gh HTTP fetcher (curl/wget/"
+                f"python/node/pwsh) targets GitHub free-text endpoint(s) "
+                f"{urls} in an ai-inference file_input job — collect literal "
+                f"metadata via a gh command instead; this fails closed (#1090, "
+                f".github/prompts/README.md)"
+            )
     return errors
 
 
