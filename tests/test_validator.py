@@ -1158,7 +1158,8 @@ class EngineFromRequirementTest(unittest.TestCase):
         self.assertIn('"postgres"', errors[0].message)
         self.assertIn('"mysql"', errors[0].message)
         self.assertIn("provider.sql-database", errors[0].message)
-        self.assertIn(self.ENGINE_FROM, errors[0].message)
+        # Messages show the profile-facing "config.<path>" spelling.
+        self.assertIn("config.metadataDatabase.driver", errors[0].message)
 
     def test_explicit_driver_matching_engine_passes(self):
         instances = self._instances(
@@ -1228,7 +1229,7 @@ class EngineFromRequirementTest(unittest.TestCase):
             self._instances(provider_spec_engine="postgres", driver_schema_default=...)
         )
         self.assertEqual([d.code for d in errors], ["E041"])
-        self.assertIn(self.ENGINE_FROM, errors[0].message)
+        self.assertIn("config.metadataDatabase.driver", errors[0].message)
 
     def test_kind_mismatch_reports_e042_without_engine_check(self):
         # The engine check only runs after the kind match: a kind mismatch is

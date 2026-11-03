@@ -779,6 +779,14 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
 
             engine_from = consume.get("engineFrom")
             if isinstance(engine_from, str) and engine_from:
+                # Messages use the profile-facing "config.<path>" vocabulary
+                # (same as requiredIf), not the internal "spec.config.<path>"
+                # engineFrom spelling.
+                engine_from_config = (
+                    "config." + engine_from[len("spec.config."):]
+                    if engine_from.startswith("spec.config.")
+                    else engine_from
+                )
                 has_expected, expected = _consumer_expected_engine(inst, engine_from)
                 if not has_expected or not isinstance(expected, str) or not expected.strip():
                     diagnostics.append(
@@ -787,7 +795,7 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                             code="E041",
                             message=(
                                 f'Consume entry "{name}" in module "{inst["id"]}" declares '
-                                f'engineFrom "{engine_from}", but that path resolves to no '
+                                f'engineFrom "{engine_from_config}", but that path resolves to no '
                                 'value in the module instance config and declares no '
                                 'configSchema default.'
                             ),
@@ -803,7 +811,7 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                             code="E154",
                             message=(
                                 f'Consume entry "{name}" in module "{inst["id"]}" expects database '
-                                f'engine "{expected}" (engineFrom "{engine_from}"), but contract '
+                                f'engine "{expected}" (engineFrom "{engine_from_config}"), but contract '
                                 f'ref "{contract_ref}" resolves to "{producer_id}", whose '
                                 f'"{provide_name}" contract advertises no "engine" in its spec. '
                                 'Providers opt in by setting "engine" (a literal string, or a '
@@ -822,11 +830,11 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                             code="E154",
                             message=(
                                 f'Consume entry "{name}" in module "{inst["id"]}" expects database '
-                                f'engine "{expected}" (engineFrom "{engine_from}"), but contract '
+                                f'engine "{expected}" (engineFrom "{engine_from_config}"), but contract '
                                 f'ref "{contract_ref}" resolves to "{producer_id}", whose '
                                 f'"{provide_name}" contract advertises engine "{advertised}". The '
                                 'consumer would speak the wrong wire protocol to the bound '
-                                f'provider; set "{engine_from}" to "{advertised}", or bind a '
+                                f'provider; set "{engine_from_config}" to "{advertised}", or bind a '
                                 f'provider advertising "{expected}".'
                             ),
                             path=f"spec.modules[{inst['index']}].config",
