@@ -19,7 +19,9 @@ least-privilege RBAC) and are isolated by a generated NetworkPolicy:
 default-deny for ingress and egress, with allow rules derived from the plan's
 contract bindings (issue #75). Cross-module connectivity therefore stays
 explicit on Kubernetes, mirroring the contract-first design used everywhere
-else in CDS.
+else in CDS. `waitFor` gate hosts are validated against that baseline at
+render time and fail closed with E152 when no allow rule can cover them
+(issue #1031).
 """
 
 from __future__ import annotations
@@ -151,6 +153,7 @@ def render_helm(
     service_names = _collect_service_names(renderable)
     diagnostics.extend(_check_binding_services(renderable, service_names))
     diagnostics.extend(_check_provided_contract_services(renderable, service_names))
+    diagnostics.extend(_check_wait_gate_hosts(renderable, service_names, secrets))
 
     # The built-in backup capability (config.backup.enabled, issue #665) is
     # only implemented for the compose target: there is no Kubernetes
@@ -213,11 +216,7 @@ def render_helm(
     for module in renderable:
         module_id = module["id"]
         k8s = module["implementation"]["kubernetes"]
-        context = deepcopy(_build_context(module, secrets))
-        context["k8s"] = {
-            "service": _service_context(module, service_names)
-        }
-        _release_scope_binding_hosts(context, service_names)
+        context = _module_context(module, secrets, service_names)
         # The helm target is treated as production-only for now: Kubernetes
         # deploys always render the production variants, regardless of the
         # profile's metadata.environment. The learning (easy-install)
@@ -1975,6 +1974,121 @@ def _release_scope_binding_hosts(
                 connection_uri,
                 count=1,
             )
+
+
+def _module_context(
+    module: dict[str, Any],
+    secrets: dict[str, str],
+    service_names: dict[str, str],
+) -> dict[str, Any]:
+    """
+    The substitution context every module value is rendered against:
+    contract bindings (with hosts release-scoped when they name a rendered
+    Service) plus the `${k8s.service.*}` DNS names.
+    """
+    context = deepcopy(_build_context(module, secrets))
+    context["k8s"] = {
+        "service": _service_context(module, service_names)
+    }
+    _release_scope_binding_hosts(context, service_names)
+    return context
+
+
+def _check_wait_gate_hosts(
+    modules: list[dict[str, Any]],
+    service_names: dict[str, str],
+    secrets: dict[str, str],
+) -> list[Diagnostic]:
+    """
+    Validate every `waitFor` gate host against the default-deny NetworkPolicy
+    baseline (issue #1031).
+
+    A wait gate is an init container that connects to host:port before the
+    workload starts. Under the per-module default-deny policy (issue #75)
+    that connection is allowed only when the host is a Service of the same
+    module (pods of one module may talk freely) or an endpoint of a provider
+    the module consumes (the binding-derived egress edge). Any other host --
+    another module's Service that no binding names, an external address --
+    can only hang until the gate's timeout with no diagnostic, so the render
+    fails closed with E152 instead of shipping the gate. Hosts are compared
+    after the same substitution the renderer applies, so `${bindings.*.host}`
+    and `${k8s.service.*}` gates are checked by their resolved value.
+    """
+    module_ids = {module["id"] for module in modules}
+    module_services: dict[str, set[str]] = {}
+    for module in modules:
+        module_id = module["id"]
+        workloads = module["implementation"]["kubernetes"].get("workloads") or {}
+        module_services[module_id] = {
+            _release_scoped_service_name(service_names[full])
+            for workload_name in workloads
+            if (full := _compose_service_name(module_id, str(workload_name)))
+            in service_names
+        }
+
+    diagnostics: list[Diagnostic] = []
+    for module in modules:
+        module_id = module["id"]
+        k8s = module["implementation"]["kubernetes"]
+        context = _module_context(module, secrets, service_names)
+
+        # The hosts a binding-derived egress edge exists for: the
+        # release-scoped endpoint of every consumed provider in this render.
+        bound_hosts: set[str] = set()
+        for consume_name, consume in (module.get("consumes") or {}).items():
+            if not isinstance(consume, dict):
+                continue
+            provider_id = str(consume.get("contractRef", "")).split(".", 1)[0]
+            if provider_id not in module_ids or provider_id == module_id:
+                continue
+            binding = context.get("bindings", {}).get(consume_name)
+            if isinstance(binding, dict) and binding.get("host"):
+                bound_hosts.add(str(binding["host"]))
+
+        allowed = module_services.get(module_id, set()) | bound_hosts
+        compose_services = apply_production_gates(
+            deepcopy(module["implementation"].get("compose", {}).get("services", {})),
+            True,
+        )
+        for workload_name, workload_raw in (k8s.get("workloads") or {}).items():
+            workload = _substitute_values(deepcopy(workload_raw), context)
+            enabled_from = workload.get("enabledFrom")
+            if enabled_from and _resolve_expr(enabled_from, context) is False:
+                continue
+            if not any(
+                name in compose_services
+                for name in (workload.get("containers") or [])
+            ):
+                # The workload renders no container, so its gates never run.
+                continue
+            for gate in workload.get("waitFor") or []:
+                if not isinstance(gate, dict) or not gate.get("host"):
+                    continue
+                host = str(gate["host"])
+                if host in allowed:
+                    continue
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E152",
+                        message=(
+                            f'waitFor gate of workload "{module_id}/{workload_name}" '
+                            f'names host "{host}", which the module\'s default-deny '
+                            "NetworkPolicy does not allow egress to: it is neither a "
+                            f'Service of module "{module_id}" nor the endpoint of a '
+                            "provider this module consumes, so the init container "
+                            "would only hang until its timeout. Bind the host's "
+                            "module through a contract (consumes), gate on a "
+                            "same-module ${k8s.service.*} Service, or add a custom "
+                            "networkPolicy.egress rule."
+                        ),
+                        path=(
+                            f"module:{module_id}.implementation.kubernetes."
+                            f"workloads.{workload_name}.waitFor"
+                        ),
+                    )
+                )
+    return diagnostics
 
 
 def _check_binding_services(

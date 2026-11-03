@@ -52,6 +52,18 @@ The format is based on Keep a Changelog.
   file. Linked from `docs/cli-reference.md`, the README (quick-start and
   documentation index), and `docs/kubernetes.md`.
 
+- `cds render --target helm` now validates every `waitFor` gate host against
+  the default-deny NetworkPolicy baseline (issue #1031): a gate whose resolved
+  host is neither a same-module Service nor the endpoint of a provider the
+  module consumes (no binding-derived egress edge exists for it) would only
+  hang until its timeout, so the render fails closed with the new E152
+  diagnostic naming the gate workload and the unreachable host. Gates
+  resolving to `${bindings.*.host}` of a consumed provider or to a
+  same-module `${k8s.service.*}` Service render unchanged; tests cover both
+  plus the fail-closed cases (cross-module Service without a binding, external
+  literal host). Documented in `docs/kubernetes.md` and the README
+  troubleshooting table.
+
 ### Fixed
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source

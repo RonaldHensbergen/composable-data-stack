@@ -304,6 +304,10 @@ NetworkPolicy (issue #75):
   Superset init job and the webserver share one policy).
 - Egress to the cluster DNS service (kube-system `kube-dns`, UDP+TCP 53) is
   the only other unconditional rule.
+- `waitFor` gates are validated against this baseline at render time: a gate
+  whose resolved host is neither a same-module Service nor the endpoint of a
+  consumed provider would only hang until its timeout, so the render fails
+  closed with E152 naming the gate and the unreachable host (#1031).
 - NodePort and LoadBalancer services are intended entry points: ingress is
   opened to all sources on exactly their exposed ports, and CDS-K8S-007
   flags that exposure.
