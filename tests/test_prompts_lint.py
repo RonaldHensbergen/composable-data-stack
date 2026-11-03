@@ -660,9 +660,16 @@ class PromptsLintTest(unittest.TestCase):
             self.assertEqual([], check_prompts.lint_workflow(path))
 
     def test_workflow_code_exec_uses_step_in_feeding_job_fails(self):
-        # rule 5c: a uses: step that executes arbitrary code (github-script,
-        # docker://) cannot have its file writes verified — fail closed.
-        for uses in ("actions/github-script@v7", "docker://alpine:3.20"):
+        # rule 5c (deny by default): any uses: step outside
+        # FEEDING_JOB_USES_ALLOWLIST — github-script, docker://, third-party
+        # actions — can execute code and write file_input files unverifiably,
+        # so it fails closed in a feeding job.
+        for uses in (
+            "actions/github-script@v7",
+            "docker://alpine:3.20",
+            "some-org/some-action@v1",
+            "./local/composite/action",
+        ):
             with tempfile.TemporaryDirectory() as tmp:
                 wf = f"""jobs:
   audit:
@@ -680,8 +687,8 @@ class PromptsLintTest(unittest.TestCase):
                 path = self._workflow(Path(tmp), "wf.yml", wf)
                 errors = check_prompts.lint_workflow(path)
                 self.assertTrue(
-                    any("executes arbitrary code" in e for e in errors),
-                    f"expected code-exec uses: rejection for {uses}",
+                    any("FEEDING_JOB_USES_ALLOWLIST" in e for e in errors),
+                    f"expected uses: rejection for {uses}",
                 )
 
     def test_workflow_benign_uses_steps_in_feeding_job_pass(self):
@@ -703,6 +710,37 @@ class PromptsLintTest(unittest.TestCase):
             issues: ${{ runner.temp }}/open-issues.json
       - uses: actions/upload-artifact@v7
 """
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_output_flag_writers_fail(self):
+        # github-advanced-security on #1118: writers that take an output-path
+        # flag/arg (curl -o, wget -O, --output=, -oFILE, dd of=) must not
+        # bypass rule 5a.
+        for collect in (
+            'curl -s -o "$RUNNER_TEMP/open-issues.json" https://example.com/x.json',
+            'curl -s --output "$RUNNER_TEMP/open-issues.json" https://example.com/x.json',
+            'wget -q -O "$RUNNER_TEMP/open-issues.json" https://example.com/x.json',
+            'curl -s --output="$RUNNER_TEMP/open-issues.json" https://example.com/x.json',
+            'curl -s -o"$RUNNER_TEMP/open-issues.json" https://example.com/x.json',
+            'dd if=/dev/zero of="$RUNNER_TEMP/open-issues.json" bs=1 count=1',
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(collect)
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("allowlisted" in e for e in errors),
+                    f"expected producer rejection for: {collect}",
+                )
+
+    def test_workflow_output_flag_to_other_file_passes(self):
+        # An output flag writing a NON-file_input file in a feeding job is
+        # verifiable and stays allowed.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'curl -s -o /tmp/cache.json https://example.com/x.json'
+            )
             path = self._workflow(Path(tmp), "wf.yml", wf)
             self.assertEqual([], check_prompts.lint_workflow(path))
 

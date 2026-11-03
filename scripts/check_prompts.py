@@ -28,7 +28,8 @@ control. The policy enforced here (see .github/prompts/README.md):
 5. Rule 4 covers only the `gh` CLI — non-gh fetchers are fail-closed too
    (issue #1090): in any job that feeds `file_input` to
    `actions/ai-inference`, (a) every write (shell redirect incl. the >| / &>|
-   noclobber forms, `tee`, python `open(...)/write_text`, `cp`/`mv`/`install`)
+   noclobber forms, `tee`, python `open(...)/write_text`, output-path flags
+   like `curl -o`/`wget -O`/`--output=`/`of=`, `cp`/`mv`/`install`)
    to a file later used as `file_input` must be produced by a rule-4-compliant
    literal-metadata `gh` collection command or by an explicit
    FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer pattern and validator
@@ -37,11 +38,11 @@ control. The policy enforced here (see .github/prompts/README.md):
    HTTP fetcher (`curl`, `wget`, `httpie`, python `urllib`/`requests`/
    `httpx`/..., node `fetch`, pwsh `Invoke-RestMethod`/`Invoke-WebRequest`)
    targeting a GitHub free-text endpoint (issue/PR/comment/review/discussion
-   resources, or the graphql endpoint) fails closed, and (c) `uses:` steps
-   that execute arbitrary code (`actions/github-script`, `docker://`) fail
-   closed because their file writes are not statically analyzable. All of it
-   because `scripts/redact_secrets.py` strips secret/injection patterns, not
-   issue titles/bodies.
+   resources, or the graphql endpoint) fails closed, and (c) any `uses:` step
+   outside FEEDING_JOB_USES_ALLOWLIST fails closed because non-allowlisted
+   actions can execute arbitrary code and write file_input files
+   unverifiably. All of it because `scripts/redact_secrets.py` strips
+   secret/injection patterns, not issue titles/bodies.
 
 Runs in CI (lint job), pre-commit, and `make lint-prompts`. Exit 1 on any
 violation; the script never modifies files.
@@ -200,12 +201,36 @@ PY_PATH_ANY_WRITE_RE = re.compile(r"\bPath\s*\([^)]*\)\s*\.\s*write_text", re.IG
 PY_PATH_LITERAL_RE = re.compile(r"\bPath\s*\(\s*[\"'][^\"']+[\"']\s*\)", re.IGNORECASE)
 # cp/mv/install write their last argument as the destination file.
 COPY_MOVE_CMDS = frozenset({"cp", "mv", "install"})
-# `uses:` actions that execute arbitrary code: in a job feeding
-# ai-inference file_input their file writes are not statically analyzable,
-# so they fail closed (rule 5c). Benign setup actions (checkout, setup-*,
-# upload/download-artifact) do not produce file_input content and stay
-# allowed; the broader residual is tracked in issue #1120.
-CODE_EXEC_USES_RE = re.compile(r"(?:^|/)github-script\b|^docker://", re.IGNORECASE)
+# In a job that feeds ai-inference file_input, ONLY these uses: actions are
+# allowed — known non-writers (VCS checkout, tool setup, cache, artifact
+# transfer) plus the inference action itself. Every other uses: step fails
+# closed (rule 5c): third-party/composite/JS actions (github-script,
+# docker://, anything else) can execute arbitrary code and write file_input
+# files, which is not statically analyzable (github-advanced-security on
+# #1118). Deny by default, same doctrine as ALLOWLIST above.
+FEEDING_JOB_USES_ALLOWLIST: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^actions/checkout@", re.IGNORECASE),
+    re.compile(r"^actions/setup-[\w-]+@", re.IGNORECASE),
+    re.compile(r"^actions/cache(?:/restore)?@", re.IGNORECASE),
+    re.compile(r"^actions/upload-artifact@", re.IGNORECASE),
+    re.compile(r"^actions/download-artifact@", re.IGNORECASE),
+    re.compile(r"^actions/ai-inference@", re.IGNORECASE),
+)
+# Command-line output-path flags whose argument is a written file:
+# curl -o/--output, wget -O/--output-document, dd of=, sort -o, and generic
+# --out/--output-file/--dest forms (github-advanced-security on #1118).
+OUTPUT_FLAG_TOKENS = frozenset(
+    {"-o", "-O", "--output", "--out", "--output-file", "--output-document", "--dest"}
+)
+OUTPUT_FLAG_PREFIXES = (
+    "--output=",
+    "--out=",
+    "--output-file=",
+    "--output-document=",
+    "--dest=",
+    "of=",
+)
+OUTPUT_FLAG_ATTACHED_RE = re.compile(r"-[oO].+")
 
 
 def _is_gh_collection_cmd(line: str) -> bool:
@@ -439,7 +464,7 @@ def lint_workflow(path: Path) -> list[str]:
         redacted_outputs: set[str] = set()
         run_scripts: list[str] = []
         file_input_targets: set[str] = set()
-        code_exec_uses: list[str] = []
+        disallowed_uses: list[str] = []
         feeds_inference = False
         for step in job.get("steps") or []:
             if not isinstance(step, dict):
@@ -450,8 +475,12 @@ def lint_workflow(path: Path) -> list[str]:
             for match in redact_call_re.finditer(run_script):
                 redacted_outputs.add(_canon_path(match.group(2)))
             uses = str(step.get("uses", ""))
-            if uses and CODE_EXEC_USES_RE.search(uses):
-                code_exec_uses.append(uses)
+            if (
+                uses
+                and AI_INFERENCE_ACTION not in uses
+                and not any(p.match(uses) for p in FEEDING_JOB_USES_ALLOWLIST)
+            ):
+                disallowed_uses.append(uses)
             if AI_INFERENCE_ACTION not in uses:
                 continue
             file_input = str((step.get("with") or {}).get("file_input") or "")
@@ -470,14 +499,14 @@ def lint_workflow(path: Path) -> list[str]:
                         f"(.github/prompts/README.md)"
                     )
         if feeds_inference:
-            for uses in code_exec_uses:
+            for uses in disallowed_uses:
                 errors.append(
-                    f"{path.name} (job {job_name}): step uses '{uses}' executes "
-                    f"arbitrary code in a job that feeds actions/ai-inference "
-                    f"file_input; its file writes cannot be verified statically, so "
-                    f"it fails closed — produce file_input files only via `run:` "
-                    f"steps (rule-4 gh metadata-only or allowlisted producers) "
-                    f"(#1090/#1120, .github/prompts/README.md)"
+                    f"{path.name} (job {job_name}): step uses '{uses}' in a job "
+                    f"that feeds actions/ai-inference file_input; only allowlisted "
+                    f"non-writer actions (FEEDING_JOB_USES_ALLOWLIST: checkout, "
+                    f"setup-*, cache, upload/download-artifact) are permitted — any "
+                    f"other action can execute code and write file_input files "
+                    f"unverifiably, so it fails closed (#1090, .github/prompts/README.md)"
                 )
             errors.extend(_lint_minimization(path, job_name, run_scripts))
             errors.extend(
@@ -553,8 +582,10 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
 def _write_targets(line: str) -> set[str]:
     """Canon paths this shell/python line writes to: redirects (>, >>, 2>,
     &>, and the >| / &>| noclobber-override forms), tee targets, python
-    open(...,'w'/'a') and Path(...).write_text(...) with literal paths, and
-    the destination (last token) of cp/mv/install."""
+    open(...,'w'/'a') and Path(...).write_text(...) with literal paths,
+    output-path flags (-o, -O, --output, --out, --output-file,
+    --output-document, --dest, of=, and attached -ofile forms), and the
+    destination (last token) of cp/mv/install."""
     targets = {m.group(1) for m in REDIRECT_RE.finditer(line)}
     for m in TEE_RE.finditer(line):
         try:
@@ -570,6 +601,17 @@ def _write_targets(line: str) -> set[str]:
         tokens = []
     if tokens and tokens[0] in COPY_MOVE_CMDS and len(tokens) > 1:
         targets.add(tokens[-1])
+    for i, tok in enumerate(tokens):
+        if tok in OUTPUT_FLAG_TOKENS:
+            # split form: -o FILE / --output FILE (skip option-like values)
+            if i + 1 < len(tokens) and tokens[i + 1] and not tokens[i + 1].startswith("-"):
+                targets.add(tokens[i + 1])
+        elif tok.startswith(OUTPUT_FLAG_PREFIXES):
+            # = form: --output=FILE, of=FILE
+            targets.add(tok.split("=", 1)[1])
+        elif len(tok) > 2 and OUTPUT_FLAG_ATTACHED_RE.fullmatch(tok):
+            # attached form: -oFILE, -OFILE
+            targets.add(tok[2:])
     return {_canon_path(t) for t in targets if t and t != "/dev/null"}
 
 

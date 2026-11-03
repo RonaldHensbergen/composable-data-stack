@@ -56,7 +56,9 @@ enforces the policy below and fails the build on violations.
    - (a) every write to a file later used as `file_input` — shell redirect
      (`>`, `>>`, `2>`, `&>`, and the noclobber-override forms `>|`, `&>|`,
      `2>|`), `tee` (all file arguments), python `open(...,'w'/'a')` /
-     `Path(...).write_text(...)`, or `cp`/`mv`/`install` — must be produced
+     `Path(...).write_text(...)`, output-path flags (`curl -o`, `wget -O`,
+     `--output=`, `-oFILE`, `dd of=`, `--dest`), or `cp`/`mv`/`install` — must
+     be produced
      by a rule-4-compliant literal-metadata `gh` collection command, or by a
      producer listed in `FILE_INPUT_PRODUCERS_ALLOWLIST` in
      `scripts/check_prompts.py` (keyed by workflow file and canonical input
@@ -79,11 +81,14 @@ enforces the policy below and fails the build on violations.
      `scripts/redact_secrets.py` strips secret and injection patterns, not
      issue titles/bodies, so only verified metadata-only producers may feed
      `file_input`.
-   - (c) `uses:` steps that execute arbitrary code (`actions/github-script`,
-     `docker://`) fail closed in feeding jobs because their file writes are
-     not statically analyzable. Benign setup actions (`actions/checkout`,
-     `setup-*`, upload/download-artifact) stay allowed. The broader residual
-     (other `uses:` actions, opaque script files) is tracked in issue #1120.
+   - (c) deny by default: in feeding jobs, only `uses:` actions in
+     `FEEDING_JOB_USES_ALLOWLIST` are allowed (`actions/checkout`,
+     `actions/setup-*`, `actions/cache`, upload/download-artifact, and the
+     ai-inference action itself). Every other `uses:` step — third-party,
+     composite, local, `docker://`, `actions/github-script` — fails closed
+     because it can execute arbitrary code and write file_input files
+     unverifiably. The residual for opaque `run:` script files is tracked in
+     issue #1120.
 
 ## Adding a new prompt
 
