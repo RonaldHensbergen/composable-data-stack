@@ -586,13 +586,70 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
     return errors
 
 
-def _write_targets(line: str) -> set[str]:
-    """Canon paths this shell/python line writes to: redirects (>, >>, 2>,
+# Runner-provided variables that are never file_input paths: a write target
+# containing only these is safe; any other unresolved shell expansion in a
+# write target is non-literal and fails closed in feeding jobs
+# (github-advanced-security on #1118).
+KNOWN_RUNNER_VARS = frozenset({
+    "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_STEP_SUMMARY", "GITHUB_PATH",
+    "GITHUB_ACTIONS", "GITHUB_REPOSITORY", "GITHUB_WORKFLOW", "GITHUB_RUN_ID",
+    "GITHUB_SERVER_URL", "CI", "RUNNER_OS", "RUNNER_ARCH", "RUNNER_DEBUG",
+    "RUNNER_TOOL_CACHE",
+})
+VAR_USE_RE = re.compile(r"\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)|\$\(|`")
+DYNAMIC_MARKER = "\x00dynamic\x00"
+ASSIGN_RE = re.compile(r"^([A-Za-z_]\w*)=(.*)$")
+
+
+def _script_vars(script: str) -> dict[str, str]:
+    """Literal per-script variable assignments (NAME=literal, no shell
+    expansion in the value), used to resolve write targets like "$OUT"."""
+    vars_: dict[str, str] = {}
+    for line in script.splitlines():
+        try:
+            tokens = shlex.split(line)
+        except ValueError:
+            continue
+        for tok in tokens:
+            m = ASSIGN_RE.match(tok)
+            if not m:
+                continue
+            value = m.group(2).replace("${{ runner.temp }}", "__TEMP__")
+            value = value.replace("$RUNNER_TEMP", "__TEMP__")
+            if not re.search(r"[$`]", value):
+                vars_[m.group(1)] = value.strip("\"'")
+    return vars_
+
+
+def _resolve_target(raw: str, script_vars: dict[str, str]) -> tuple[str, bool]:
+    """(canon_path, is_dynamic_unsafe) for a raw write-target token: runner
+    temp spellings and script-local literal vars are resolved; anything still
+    containing shell expansion is non-literal and unsafe (fail closed)."""
+    tok = raw.replace("${{ runner.temp }}", "__TEMP__").replace("$RUNNER_TEMP", "__TEMP__")
+
+    def repl(m: re.Match[str]) -> str:
+        name = m.group(1) or m.group(2)
+        if name is None:  # $(...) or backtick
+            return DYNAMIC_MARKER
+        if name in script_vars:
+            return script_vars[name]
+        if name in KNOWN_RUNNER_VARS:
+            return "__RUNNER_VAR__"
+        return DYNAMIC_MARKER
+
+    tok = VAR_USE_RE.sub(repl, tok)
+    if DYNAMIC_MARKER in tok:
+        return _canon_path(raw), True
+    return _canon_path(tok), False
+
+
+def _raw_write_targets(line: str) -> set[str]:
+    """Raw (unresolved) tokens this line writes to: redirects (>, >>, 2>,
     &>, and the >| / &>| noclobber-override forms), tee targets, python
     open(...,'w'/'a') and Path(...).write_text(...) with literal paths,
     output-path flags (-o, -O, --output, --out, --output-file,
-    --output-document, --dest, of=, and attached -ofile forms), and the
-    destination (last token) of cp/mv/install."""
+    --output-document, --dest, of=, and attached/combined -ofile forms),
+    and the destination (last token) of cp/mv/install."""
     targets = {m.group(1) for m in REDIRECT_RE.finditer(line)}
     for m in TEE_RE.finditer(line):
         try:
@@ -630,7 +687,33 @@ def _write_targets(line: str) -> set[str]:
                     targets.add(attached)
                 elif i + 1 < len(tokens) and tokens[i + 1] and not tokens[i + 1].startswith("-"):
                     targets.add(tokens[i + 1])
-    return {_canon_path(t) for t in targets if t and t != "/dev/null"}
+    return {t for t in targets if t and t != "/dev/null"}
+
+
+def _write_targets(line: str, script_vars: dict[str, str] | None = None) -> set[str]:
+    """Canon literal paths this line writes to (see _raw_write_targets), with
+    script-local variable assignments resolved; dynamic-unsafe targets are
+    excluded here and reported by _dynamic_write_targets instead."""
+    script_vars = script_vars or {}
+    out: set[str] = set()
+    for raw in _raw_write_targets(line):
+        canon, dynamic = _resolve_target(raw, script_vars)
+        if not dynamic:
+            out.add(canon)
+    return out
+
+
+def _dynamic_write_targets(line: str, script_vars: dict[str, str]) -> list[str]:
+    """Raw write targets that still contain shell expansion after resolving
+    runner vars and script-local literal assignments — they cannot be
+    verified against the file_input paths, so they fail closed in feeding
+    jobs (github-advanced-security on #1118)."""
+    out: list[str] = []
+    for raw in _raw_write_targets(line):
+        _, dynamic = _resolve_target(raw, script_vars)
+        if dynamic:
+            out.append(raw)
+    return out
 
 
 def _unverifiable_py_writes(line: str) -> list[str]:
@@ -722,7 +805,16 @@ def _lint_file_input_producers(
     errors: list[str] = []
     allowlist = FILE_INPUT_PRODUCERS_ALLOWLIST.get(path.name, {})
     for script in run_scripts:
+        script_vars = _script_vars(script)
         for line in script.splitlines():
+            for raw in _dynamic_write_targets(line, script_vars):
+                errors.append(
+                    f"{path.name} (job {job_name}): write target '{raw}' contains "
+                    f"unresolvable shell expansion, so it cannot be verified against "
+                    f"the ai-inference file_input paths — non-literal write targets "
+                    f"fail closed in file_input-feeding jobs (#1090, "
+                    f".github/prompts/README.md)"
+                )
             for hit in _unverifiable_py_writes(line):
                 errors.append(
                     f"{path.name} (job {job_name}): python write call '{hit}...' has "
@@ -731,7 +823,7 @@ def _lint_file_input_producers(
                     f"closed in file_input-feeding jobs (#1090/#1120, "
                     f".github/prompts/README.md)"
                 )
-            targets = _write_targets(line) & file_input_targets
+            targets = _write_targets(line, script_vars) & file_input_targets
             if targets and not _producer_line_is_simple(line):
                 # Chained/piped/process-substituted commands on a writer line
                 # are unverified writers of the target — fail closed BEFORE

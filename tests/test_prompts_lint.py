@@ -847,6 +847,34 @@ class PromptsLintTest(unittest.TestCase):
                     f"expected chained/process-substitution rejection for: {collect}",
                 )
 
+    def test_workflow_variable_indirect_write_target(self):
+        # github-advanced-security on #1118: OUT="$RUNNER_TEMP/open-issues.json"
+        # then curl ... > "$OUT" must resolve through the literal assignment
+        # and hit the producer check; an unresolvable $VAR target fails
+        # closed outright; $GITHUB_OUTPUT stays allowed (runner var).
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'OUT="$RUNNER_TEMP/open-issues.json"\n'
+                'curl -s https://example.com/x.json > "$OUT"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("allowlisted" in e for e in errors))
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'curl -s https://example.com/x.json > "$SOMEWHERE"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("unresolvable shell expansion" in e for e in errors))
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'echo "run=true" >> "$GITHUB_OUTPUT"\n'
+                'gh issue list --repo "$GITHUB_REPOSITORY" --json number,labels,url > "$RUNNER_TEMP/open-issues.json"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
     def test_workflow_chained_write_on_redact_line_fails(self):
         # github-advanced-security on #1118: the redact_secrets.py exemption
         # applies only to a single simple command — chaining an unverified

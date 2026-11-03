@@ -78,8 +78,11 @@ enforces the policy below and fails the build on violations.
      exempt script is `scripts/redact_secrets.py` — and that exemption
      applies only to a single simple command, so a redaction line with a
      chained write (`... redact_secrets.py ...; echo INJECT >> target`)
-     fails closed like any other chained writer. Any other writer fails
-     closed.
+     fails closed like any other chained writer. Write targets through
+     script-local literal variables (`OUT=...; cmd > "$OUT"`) are resolved
+     and checked normally; any other unresolved shell expansion in a write
+     target (`> "$UNKNOWN"`) fails closed (runner vars like `$GITHUB_OUTPUT`
+     are exempt). Any other writer fails closed.
    - (b) any non-gh HTTP fetcher — `curl`, `wget`, `httpie`, python
      `urllib`/`requests`/`httpx`/`aiohttp`/`http.client`, node `fetch()`,
      pwsh `Invoke-RestMethod`/`Invoke-WebRequest` — whose arguments target a

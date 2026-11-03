@@ -65,7 +65,10 @@ The format is based on Keep a Changelog.
   `scripts/redact_secrets.py` exemption applies only to a single simple
   command; opaque runner invocations (`python3 script.py`, heredoc python,
   `bash`/`node`/etc.) fail closed in feeding jobs except
-  `scripts/redact_secrets.py`, and (b) any non-gh
+  `scripts/redact_secrets.py`; write targets via script-local literal
+  variables are resolved and checked, while unresolved shell expansion in a
+  write target fails closed (runner vars like `$GITHUB_OUTPUT` exempt), and
+  (b) any non-gh
   HTTP fetcher targeting a
   GitHub free-text endpoint (issue/PR/comment/review/discussion resources
   or the `graphql` endpoint) fails closed even when captured via `$(...)`,
