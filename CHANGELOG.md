@@ -68,6 +68,24 @@ The format is based on Keep a Changelog.
   passthrough CIDR). Documented in `docs/kubernetes.md` and the README
   troubleshooting table.
 
+- `cds render --target helm` now derives NetworkPolicy edges from
+  reverse-proxy `config.routes` (issue #1033): each route's target module
+  opens a port-scoped egress rule on the proxy's pods and a matching ingress
+  rule on the target's pods, scoped to the route's backend port (the
+  target's http-service contract port, mapped through the target's Service
+  `targetPort` like a binding's port), so a proxy needs no hand-written
+  `networkPolicy` passthrough rules for its routed targets. Targets no route
+  names stay unreachable from the proxy. A route that cannot yield a
+  port-scoped edge (unknown target module, no matching http-service provide,
+  no usable port evidence -- absent or outside 1-65535 with no advertised
+  service ports to fall back to) adds no edge -- default-deny holds -- and is
+  reported with the new W129 warning; the passthrough remains the escape
+  hatch.
+  `waitFor` gates on a route target's Service are accepted by the E152
+  baseline check. Tests cover both acceptance criteria plus the port remap,
+  the W129 cases, and the gate check. Documented in `docs/kubernetes.md` and
+  the README troubleshooting table.
+
 ### Fixed
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source

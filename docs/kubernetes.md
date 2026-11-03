@@ -299,6 +299,16 @@ NetworkPolicy (issue #75):
   binding without a numeric port falls back to the provider's advertised
   service ports; with no port evidence at all the rule stays module-scoped
   and the render reports `W128` asking for the port to be declared.
+- Reverse-proxy `config.routes` entries derive the same pair of edges
+  (#1033): a proxy consumes no contracts, so each route's target module
+  opens egress on the proxy's pods and matching ingress on the target's
+  pods, scoped to the route's backend port (the target's http-service
+  contract port, mapped through the target's Service `targetPort` like a
+  binding's port). Targets no route names stay unreachable from the proxy.
+  A route that cannot yield a port-scoped edge (unknown target module, no
+  matching http-service provide, no port evidence) adds no edge and is
+  reported as `W129`; the `networkPolicy.egress` passthrough remains the
+  escape hatch for anything routes cannot express.
 - Within a module, pods may talk freely on any port: a module is the unit
   of composition and declares its own internal wiring (which is why the
   Superset init job and the webserver share one policy).
@@ -306,11 +316,12 @@ NetworkPolicy (issue #75):
   the only other unconditional rule.
 - `waitFor` gates are validated against this baseline at render time: a gate
   whose resolved host is neither a same-module Service emitted by this render
-  (a workload disabled via `enabledFrom` gets no Service) nor the endpoint of
-  a consumed provider, and whose host:port no custom `networkPolicy.egress`
-  ipBlock rule covers, would only hang until its timeout, so the render fails
-  closed with E152 naming the gate and the unreachable host (#1031). A
-  DNS-name gate host stays denied: a NetworkPolicy cannot express one.
+  (a workload disabled via `enabledFrom` gets no Service), the endpoint of
+  a consumed provider, nor a reverse-proxy route target, and whose host:port
+  no custom `networkPolicy.egress` ipBlock rule covers, would only hang until
+  its timeout, so the render fails closed with E152 naming the gate and the
+  unreachable host (#1031, #1033). A DNS-name gate host stays denied: a
+  NetworkPolicy cannot express one.
 - NodePort and LoadBalancer services are intended entry points: ingress is
   opened to all sources on exactly their exposed ports, and CDS-K8S-007
   flags that exposure.
@@ -320,11 +331,12 @@ NetworkPolicy (issue #75):
 
 ### When the baseline denies something you need
 
-Bindings cannot name external endpoints or cross-namespace clients: a job
-reading an external API or database, or an ingress controller fronting a
-ClusterIP service, would be silently denied by the default-deny baseline.
-Declare those rules via `implementation.kubernetes.networkPolicy.ingress`/
-`egress` -- they are rendered verbatim after the binding-derived rules, and
+Bindings and routes cannot name external endpoints or cross-namespace
+clients: a job reading an external API or database, or an ingress
+controller fronting a ClusterIP service, would be silently denied by the
+default-deny baseline. Declare those rules via
+`implementation.kubernetes.networkPolicy.ingress`/`egress` -- they are
+rendered verbatim after the binding- and route-derived rules, and
 malformed shapes fail closed with E149. The security scan records every
 external-egress rule as a low CDS-K8S-008 finding, so intentional openings
 stay visible in `cds security --target helm`.
