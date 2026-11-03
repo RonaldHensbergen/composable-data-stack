@@ -219,6 +219,9 @@ cds render my-profile --target helm --output chart/
 cds up my-profile --target helm        # or install chart/ with helm directly
 ```
 
+Installing `chart/` with plain `helm` — without the `cds` CLI — is covered in
+[Underlying commands](underlying-commands.md).
+
 Ready-made example profiles (issue #77), both render successfully with
 `--target helm`:
 
