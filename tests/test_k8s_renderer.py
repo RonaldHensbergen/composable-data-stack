@@ -1319,3 +1319,210 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             demo["spec"]["ingress"][1]["ports"],
             [{"protocol": "TCP", "port": 8080}],
         )
+
+    def test_wait_gates_on_bound_provider_and_same_module_service_render(
+        self,
+    ) -> None:
+        # Gates resolving to a bound provider's endpoint or a same-module
+        # Service are allowed by the default-deny NetworkPolicy baseline, so
+        # they render unchanged (issue #1031).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [
+            {"host": "${bindings.backend.host}", "port": "${bindings.backend.port}"},
+            {"host": "${k8s.service.app}", "port": 8080},
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        deployment = files["templates/consumer-app-deployment.yaml"]
+        self.assertIn("until nc -z {{ .Release.Name }}-demo-app 8080", deployment)
+        self.assertIn("until nc -z {{ .Release.Name }}-consumer-app 8080", deployment)
+
+    def test_wait_gate_on_non_bound_cross_module_host_fails_closed(self) -> None:
+        # A gate naming another module's Service without a binding for it can
+        # only hang until its timeout under the default-deny policy: fail
+        # closed with E152 naming the gate and the unreachable host (#1031).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${k8s.service.isolated-app}", "port": 8080}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertEqual(
+            e152[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.waitFor",
+        )
+        self.assertIn("consumer/app", e152[0].message)
+        self.assertIn("{{ .Release.Name }}-isolated-app", e152[0].message)
+
+    def test_wait_gate_on_external_host_fails_closed(self) -> None:
+        # Same silent-failure class for a literal external host: no binding
+        # and no same-module Service, so no egress rule can cover it.
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "api.example.com", "port": 443}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("api.example.com", e152[0].message)
+
+    def test_wait_gate_on_unconsumed_provider_service_fails_closed(self) -> None:
+        # The demo module's Service is in the chart, but the consumer binds
+        # nothing from it in this variant: even a resolvable cross-module
+        # Service DNS name is unreachable without the egress edge.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["consumes"] = {}
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "${k8s.service.demo-app}", "port": 8080}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("{{ .Release.Name }}-demo-app", e152[0].message)
+
+    def test_wait_gate_on_disabled_same_module_service_fails_closed(self) -> None:
+        # A same-module Service whose workload is disabled (enabledFrom
+        # resolves to False) renders no Service, so a gate on it would hang
+        # at runtime exactly like a non-bound host: fail closed with E152
+        # (#1031). When the workload is enabled, the same gate renders.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["config"] = {"optional": {"enabled": False}}
+        workloads = consumer["implementation"]["kubernetes"]["workloads"]
+        workloads["sidecar"] = {
+            "kind": "Deployment",
+            "containers": ["app"],
+            "enabledFrom": "config.optional.enabled",
+            "service": {
+                "type": "ClusterIP",
+                "ports": [{"name": "http", "port": 9090}],
+            },
+        }
+        workloads["app"]["waitFor"] = [
+            {"host": "${k8s.service.sidecar}", "port": 9090}
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("{{ .Release.Name }}-consumer-sidecar", e152[0].message)
+
+        consumer["config"] = {"optional": {"enabled": True}}
+        files, diagnostics = render_helm(plan)
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+
+    def test_wait_gate_covered_by_passthrough_ip_block_renders(self) -> None:
+        # The custom networkPolicy.egress passthrough is the escape hatch
+        # for destinations no binding can name; a gate whose host:port an
+        # ipBlock rule covers is allowed, so E152 must not fire (#1031).
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z 10.8.1.5 443",
+            files["templates/consumer-app-deployment.yaml"],
+        )
+
+    def test_wait_gate_outside_passthrough_ip_block_fails_closed(self) -> None:
+        # Same passthrough rule, but the gate names an address outside the
+        # CIDR or a port the rule does not open: still unreachable, still
+        # E152.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+
+        for host, port in (("10.9.0.1", 443), ("10.8.1.5", 5432)):
+            with self.subTest(host=host, port=port):
+                workload["waitFor"] = [{"host": host, "port": port}]
+
+                files, diagnostics = render_helm(plan)
+
+                self.assertEqual(files, {})
+                e152 = [d for d in diagnostics if d.code == "E152"]
+                self.assertEqual(len(e152), 1)
+                self.assertIn(f'"{host}"', e152[0].message)
+
+    def test_wait_gate_with_excepted_passthrough_address_fails_closed(self) -> None:
+        # An `except` CIDR inside the ipBlock stays denied, so a gate on an
+        # excepted address is not lifted by the passthrough rule.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16", "except": ["10.8.1.0/24"]}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("10.8.1.5", e152[0].message)
+
+    def test_wait_gate_with_malformed_passthrough_except_does_not_crash(self) -> None:
+        # E149 shape-checks a passthrough rule only as a mapping, and a plan
+        # loaded from a file bypasses the module schema: a garbage `except`
+        # entry must not crash the renderer with a ValueError from the
+        # ipaddress parser -- the entry is skipped, the gate stays covered.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16", "except": ["not-a-cidr"]}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z 10.8.1.5 443",
+            files["templates/consumer-app-deployment.yaml"],
+        )

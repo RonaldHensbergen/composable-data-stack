@@ -19,12 +19,15 @@ least-privilege RBAC) and are isolated by a generated NetworkPolicy:
 default-deny for ingress and egress, with allow rules derived from the plan's
 contract bindings (issue #75). Cross-module connectivity therefore stays
 explicit on Kubernetes, mirroring the contract-first design used everywhere
-else in CDS.
+else in CDS. `waitFor` gate hosts are validated against that baseline at
+render time and fail closed with E152 when no allow rule can cover them
+(issue #1031).
 """
 
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import os
 import re
 import shutil
@@ -149,8 +152,35 @@ def render_helm(
     # Service names must be known before any workload renders, because
     # ${k8s.service.*} can point forward to a workload declared later.
     service_names = _collect_service_names(renderable)
+
+    # RBAC rule shapes are re-checked before anything renders (E148): a plan
+    # loaded from a file bypasses the module schema, and shipping a Role
+    # that grants something other than what was declared must not happen.
+    # Custom NetworkPolicy allow rules (E149) are validated for the same
+    # reason: they are merged verbatim into the module's policy. Both are
+    # parsed here rather than later because the wait-gate check needs the
+    # passthrough rules too: a gate whose host:port a custom egress ipBlock
+    # rule covers is allowed.
+    rbac_rules_by_module: dict[str, list[dict[str, Any]]] = {}
+    network_policy_passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] = {}
+    for module in renderable:
+        rbac_rules, rbac_diags = _rbac_rules(
+            module["id"], module["implementation"]["kubernetes"]
+        )
+        rbac_rules_by_module[module["id"]] = rbac_rules
+        diagnostics.extend(rbac_diags)
+
+        passthrough, passthrough_diags = _network_policy_passthrough(
+            module["id"], module["implementation"]["kubernetes"]
+        )
+        network_policy_passthrough[module["id"]] = passthrough
+        diagnostics.extend(passthrough_diags)
+
     diagnostics.extend(_check_binding_services(renderable, service_names))
     diagnostics.extend(_check_provided_contract_services(renderable, service_names))
+    diagnostics.extend(_check_wait_gate_hosts(
+        renderable, service_names, secrets, network_policy_passthrough
+    ))
 
     # The built-in backup capability (config.backup.enabled, issue #665) is
     # only implemented for the compose target: there is no Kubernetes
@@ -173,26 +203,6 @@ def render_helm(
                 )
             )
 
-    # RBAC rule shapes are re-checked before anything renders (E148): a plan
-    # loaded from a file bypasses the module schema, and shipping a Role
-    # that grants something other than what was declared must not happen.
-    rbac_rules_by_module: dict[str, list[dict[str, Any]]] = {}
-    # Custom NetworkPolicy allow rules (E149) are validated for the same
-    # reason: they are merged verbatim into the module's policy.
-    network_policy_passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] = {}
-    for module in renderable:
-        rbac_rules, rbac_diags = _rbac_rules(
-            module["id"], module["implementation"]["kubernetes"]
-        )
-        rbac_rules_by_module[module["id"]] = rbac_rules
-        diagnostics.extend(rbac_diags)
-
-        passthrough, passthrough_diags = _network_policy_passthrough(
-            module["id"], module["implementation"]["kubernetes"]
-        )
-        network_policy_passthrough[module["id"]] = passthrough
-        diagnostics.extend(passthrough_diags)
-
     if any(diagnostic.level == "error" for diagnostic in diagnostics):
         return {}, diagnostics
 
@@ -213,11 +223,7 @@ def render_helm(
     for module in renderable:
         module_id = module["id"]
         k8s = module["implementation"]["kubernetes"]
-        context = deepcopy(_build_context(module, secrets))
-        context["k8s"] = {
-            "service": _service_context(module, service_names)
-        }
-        _release_scope_binding_hosts(context, service_names)
+        context = _module_context(module, secrets, service_names)
         # The helm target is treated as production-only for now: Kubernetes
         # deploys always render the production variants, regardless of the
         # profile's metadata.environment. The learning (easy-install)
@@ -1975,6 +1981,194 @@ def _release_scope_binding_hosts(
                 connection_uri,
                 count=1,
             )
+
+
+def _module_context(
+    module: dict[str, Any],
+    secrets: dict[str, str],
+    service_names: dict[str, str],
+) -> dict[str, Any]:
+    """
+    The substitution context every module value is rendered against:
+    contract bindings (with hosts release-scoped when they name a rendered
+    Service) plus the `${k8s.service.*}` DNS names.
+    """
+    context = deepcopy(_build_context(module, secrets))
+    context["k8s"] = {
+        "service": _service_context(module, service_names)
+    }
+    _release_scope_binding_hosts(context, service_names)
+    return context
+
+
+def _passthrough_rule_covers(rule: dict[str, Any], host: str, port: int | None) -> bool:
+    """
+    Whether a raw `networkPolicy.egress` rule with an ipBlock peer covers
+    TCP traffic to host:port (used by the E152 wait-gate check, so the
+    escape hatch the E152 message names actually lifts the gate).
+    """
+    try:
+        address = ipaddress.ip_address(str(host).strip())
+    except ValueError:
+        return False
+    destinations = rule.get("to")
+    if not isinstance(destinations, list):
+        return False
+    covered = False
+    for peer in destinations:
+        if not isinstance(peer, dict):
+            continue
+        ip_block = peer.get("ipBlock")
+        if not isinstance(ip_block, dict):
+            continue
+        try:
+            network = ipaddress.ip_network(str(ip_block.get("cidr", "")), strict=False)
+        except ValueError:
+            continue
+        if address not in network:
+            continue
+        # A malformed `except` entry (E149 only shape-checks the rule as a
+        # mapping, and a plan loaded from a file bypasses the schema) must
+        # not crash the render: skip entries that do not parse as CIDRs.
+        excepted = False
+        for item in ip_block.get("except") or []:
+            if not isinstance(item, str):
+                continue
+            try:
+                if address in ipaddress.ip_network(item, strict=False):
+                    excepted = True
+                    break
+            except ValueError:
+                continue
+        if not excepted:
+            covered = True
+            break
+    if not covered:
+        return False
+    ports = rule.get("ports")
+    if not ports:
+        return True
+    return any(
+        isinstance(port_entry, dict)
+        and str(port_entry.get("protocol") or "TCP").upper() == "TCP"
+        and _int_or_none(port_entry.get("port")) == port
+        for port_entry in ports
+    )
+
+
+def _check_wait_gate_hosts(
+    modules: list[dict[str, Any]],
+    service_names: dict[str, str],
+    secrets: dict[str, str],
+    passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] | None = None,
+) -> list[Diagnostic]:
+    """
+    Validate every `waitFor` gate host against the default-deny NetworkPolicy
+    baseline (issue #1031).
+
+    A wait gate is an init container that connects to host:port before the
+    workload starts. Under the per-module default-deny policy (issue #75)
+    that connection is allowed only when the host is a Service of the same
+    module (pods of one module may talk freely), an endpoint of a provider
+    the module consumes (the binding-derived egress edge), or an external IP
+    address a custom `networkPolicy.egress` ipBlock rule covers on the
+    gate's port. Any other host -- another module's Service that no binding
+    names, an external address nobody declared, a DNS name (a NetworkPolicy
+    cannot express one) -- can only hang until the gate's timeout with no
+    diagnostic, so the render fails closed with E152 instead of shipping the
+    gate. Hosts are compared after the same substitution the renderer
+    applies, so `${bindings.*.host}` and `${k8s.service.*}` gates are
+    checked by their resolved value.
+    """
+    module_ids = {module["id"] for module in modules}
+    diagnostics: list[Diagnostic] = []
+    for module in modules:
+        module_id = module["id"]
+        k8s = module["implementation"]["kubernetes"]
+        context = _module_context(module, secrets, service_names)
+
+        # The hosts a binding-derived egress edge exists for: the
+        # release-scoped endpoint of every consumed provider in this render.
+        bound_hosts: set[str] = set()
+        for consume_name, consume in (module.get("consumes") or {}).items():
+            if not isinstance(consume, dict):
+                continue
+            provider_id = str(consume.get("contractRef", "")).split(".", 1)[0]
+            if provider_id not in module_ids or provider_id == module_id:
+                continue
+            binding = context.get("bindings", {}).get(consume_name)
+            if isinstance(binding, dict) and binding.get("host"):
+                bound_hosts.add(str(binding["host"]))
+
+        # Substitute each workload once: the resolved values drive both the
+        # same-module Service allowlist and the gate check below. A workload
+        # whose enabledFrom resolves to False renders no Service, so a gate
+        # on it would hang at runtime exactly like a non-bound host.
+        enabled_workloads: dict[str, dict[str, Any]] = {}
+        same_module_services: set[str] = set()
+        for workload_name, workload_raw in (k8s.get("workloads") or {}).items():
+            workload = _substitute_values(deepcopy(workload_raw), context)
+            enabled_from = workload.get("enabledFrom")
+            if enabled_from and _resolve_expr(enabled_from, context) is False:
+                continue
+            enabled_workloads[str(workload_name)] = workload
+            full = _compose_service_name(module_id, str(workload_name))
+            if full in service_names:
+                same_module_services.add(
+                    _release_scoped_service_name(service_names[full])
+                )
+
+        allowed = same_module_services | bound_hosts
+        compose_services = apply_production_gates(
+            deepcopy(module["implementation"].get("compose", {}).get("services", {})),
+            True,
+        )
+        for workload_name, workload in enabled_workloads.items():
+            if not any(
+                name in compose_services
+                for name in (workload.get("containers") or [])
+            ):
+                # The workload renders no container, so its gates never run.
+                continue
+            for gate in workload.get("waitFor") or []:
+                if not isinstance(gate, dict) or not gate.get("host"):
+                    continue
+                host = str(gate["host"])
+                if host in allowed:
+                    continue
+                gate_port = _int_or_none(gate.get("port"))
+                custom_egress = (passthrough or {}).get(module_id, ([], []))[1]
+                if any(
+                    _passthrough_rule_covers(rule, host, gate_port)
+                    for rule in custom_egress
+                ):
+                    continue
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E152",
+                        message=(
+                            f'waitFor gate of workload "{module_id}/{workload_name}" '
+                            f'names host "{host}", which the module\'s default-deny '
+                            "NetworkPolicy does not allow egress to: it is neither a "
+                            f'Service rendered for module "{module_id}" nor the '
+                            "endpoint of a provider this module consumes nor a "
+                            "destination a custom networkPolicy.egress ipBlock rule "
+                            "covers on the gate's port, so the init container would "
+                            "only hang until its timeout. Bind the host's module "
+                            "through a contract (consumes), gate on a same-module "
+                            "${k8s.service.*} Service, or declare the destination "
+                            "in a custom networkPolicy.egress ipBlock rule covering "
+                            "the host and port (a DNS-name host cannot be expressed "
+                            "in a NetworkPolicy and stays denied)."
+                        ),
+                        path=(
+                            f"module:{module_id}.implementation.kubernetes."
+                            f"workloads.{workload_name}.waitFor"
+                        ),
+                    )
+                )
+    return diagnostics
 
 
 def _check_binding_services(
