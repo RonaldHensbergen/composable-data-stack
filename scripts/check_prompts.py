@@ -182,6 +182,9 @@ REDIRECT_RE = re.compile(r"(?:\d|&)?>{1,2}\s*[\"']?([^\s\"'&|;<>]+)")
 TEE_RE = re.compile(r"\btee\b((?:\s+-{1,2}[\w-]+)*)\s+(.+)$")
 # python open("path", "w"/"a"/...) and Path("path").write_text(...).
 PY_OPEN_WRITE_RE = re.compile(r"\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"'][wa+]")
+# Fail-closed matcher for open(<any path expr>, "w"/"a"/"+..."): used to
+# detect dynamic/unresolved python write targets that must not bypass rule 5a.
+PY_OPEN_ANY_WRITE_RE = re.compile(r"\bopen\s*\(\s*.+?\s*,\s*[\"'][wa+]", re.IGNORECASE)
 PY_PATH_WRITE_RE = re.compile(r"\bPath\s*\(\s*[\"']([^\"']+)[\"']\s*\)\s*\.\s*write_text")
 # cp/mv/install write their last argument as the destination file.
 COPY_MOVE_CMDS = frozenset({"cp", "mv", "install"})
