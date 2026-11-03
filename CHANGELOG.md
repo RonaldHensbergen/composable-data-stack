@@ -56,14 +56,17 @@ The format is based on Keep a Changelog.
   the default-deny NetworkPolicy baseline (issue #1031): a gate whose resolved
   host is neither a same-module Service emitted by this render (a workload
   disabled via `enabledFrom` gets no Service) nor the endpoint of a provider
-  the module consumes (no binding-derived egress edge exists for it) would
+  the module consumes (no binding-derived egress edge exists for it), and
+  whose host:port no custom `networkPolicy.egress` ipBlock rule covers, would
   only hang until its timeout, so the render fails closed with the new E152
   diagnostic naming the gate workload and the unreachable host. Gates
-  resolving to `${bindings.*.host}` of a consumed provider or to a
-  same-module `${k8s.service.*}` Service render unchanged; tests cover both
-  plus the fail-closed cases (cross-module Service without a binding,
-  external literal host, disabled same-module Service target). Documented in
-  `docs/kubernetes.md` and the README troubleshooting table.
+  resolving to `${bindings.*.host}` of a consumed provider, to a same-module
+  `${k8s.service.*}` Service, or to an ipBlock-passthrough-covered external
+  address render unchanged; tests cover the allowed cases plus the
+  fail-closed ones (cross-module Service without a binding, external literal
+  host, disabled same-module Service target, address/port outside the
+  passthrough CIDR). Documented in `docs/kubernetes.md` and the README
+  troubleshooting table.
 
 ### Fixed
 

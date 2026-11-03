@@ -307,8 +307,10 @@ NetworkPolicy (issue #75):
 - `waitFor` gates are validated against this baseline at render time: a gate
   whose resolved host is neither a same-module Service emitted by this render
   (a workload disabled via `enabledFrom` gets no Service) nor the endpoint of
-  a consumed provider would only hang until its timeout, so the render fails
-  closed with E152 naming the gate and the unreachable host (#1031).
+  a consumed provider, and whose host:port no custom `networkPolicy.egress`
+  ipBlock rule covers, would only hang until its timeout, so the render fails
+  closed with E152 naming the gate and the unreachable host (#1031). A
+  DNS-name gate host stays denied: a NetworkPolicy cannot express one.
 - NodePort and LoadBalancer services are intended entry points: ingress is
   opened to all sources on exactly their exposed ports, and CDS-K8S-007
   flags that exposure.
