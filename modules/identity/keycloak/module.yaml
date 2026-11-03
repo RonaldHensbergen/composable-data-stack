@@ -97,8 +97,11 @@ spec:
             description: >
               Keycloak KC_DB vendor value matching the wire protocol spoken
               by the bound sql-database provider. Defaults to postgres, the
-              only sql-database provider in this repository today; must be
-              set explicitly if a non-Postgres provider is ever bound here.
+              only sql-database provider in this repository today. Because
+              the metadata-database consume entry declares engineFrom for
+              this field, the bound provider's contract must advertise a
+              matching "engine" (issue #682); a mismatch or a provider with
+              no engine advertisement fails validation with E154.
       adminUser:
         type: object
         additionalProperties: false
@@ -126,6 +129,12 @@ spec:
         kind: sql-database
       required: true
       mappedFrom: spec.config.metadataDatabase
+      # Enforces that the bound provider actually speaks the engine named by
+      # spec.config.metadataDatabase.driver (issue #682): the provider's
+      # sql-database contract must advertise a matching "engine" in its spec,
+      # otherwise validation fails with E154 instead of letting Keycloak
+      # speak the wrong wire protocol to the bound database.
+      engineFrom: spec.config.metadataDatabase.driver
   provides:
     - name: http-service
       contract:

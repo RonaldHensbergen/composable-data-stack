@@ -552,6 +552,69 @@ def _provider_advertises_tls(provider_contract: dict[str, Any], producer_inst: d
     return False
 
 
+def _provider_advertised_engine(
+    provider_contract: dict[str, Any], producer_inst: dict[str, Any]
+) -> str | None:
+    """
+    Resolve the provider's contract-spec `engine` advertisement for the
+    engineFrom consume check (issue #682), mirroring how the TLS
+    advertisement is evaluated: a literal string is used as-is, and a pure
+    "${config.<path>}" reference is resolved against the producer instance's
+    profile config. Anything else (an absent field, a non-string value, or an
+    unresolvable config reference) means "no engine advertised", so the
+    requirement fails closed.
+    """
+    value = (provider_contract.get("spec") or {}).get("engine")
+    if not isinstance(value, str):
+        return None
+    if value.startswith("${config.") and value.endswith("}"):
+        try:
+            resolved = resolve_path({"config": producer_inst.get("config")}, value[2:-1])
+        except KeyError:
+            return None
+        return resolved if isinstance(resolved, str) else None
+    return value
+
+
+def _schema_default_at_config_path(module_def: dict[str, Any], config_path: str) -> tuple[bool, Any]:
+    """
+    Walk the module's configSchema along a dotted config path (e.g.
+    "metadataDatabase.driver") and return (True, default) when the leaf schema
+    node declares a plain `default`. Used to resolve an engineFrom reference
+    when the profile does not set the field explicitly: validation runs
+    before the planner applies configSchema defaults, so without this fallback
+    a defaulted driver (e.g. keycloak's metadataDatabase.driver defaulting to
+    postgres) could not be enforced at validate time.
+    """
+    node: Any = (module_def.get("spec") or {}).get("configSchema") or {}
+    for part in config_path.split("."):
+        props = node.get("properties") if isinstance(node, dict) else None
+        if not isinstance(props, dict) or part not in props:
+            return False, None
+        node = props[part]
+    if isinstance(node, dict) and "default" in node:
+        return True, node["default"]
+    return False, None
+
+
+def _consumer_expected_engine(inst: dict[str, Any], engine_from: str) -> tuple[bool, Any]:
+    """
+    Resolve a consume entry's engineFrom path against the consumer instance's
+    own config, falling back to the configSchema default at that path when the
+    profile leaves the field unset (see _schema_default_at_config_path).
+    Returns (False, None) when neither yields a value.
+    """
+    try:
+        value = resolve_path({"spec": {"config": inst.get("config")}}, engine_from)
+        if value is not None:
+            return True, value
+    except KeyError:
+        pass
+    prefix = "spec.config."
+    config_path = engine_from[len(prefix):] if engine_from.startswith(prefix) else engine_from
+    return _schema_default_at_config_path(inst["module"], config_path)
+
+
 def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
@@ -713,6 +776,62 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                         path=f"spec.modules[{inst['index']}].config",
                     )
                 )
+
+            engine_from = consume.get("engineFrom")
+            if isinstance(engine_from, str) and engine_from:
+                has_expected, expected = _consumer_expected_engine(inst, engine_from)
+                if not has_expected or not isinstance(expected, str) or not expected.strip():
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E041",
+                            message=(
+                                f'Consume entry "{name}" in module "{inst["id"]}" declares '
+                                f'engineFrom "{engine_from}", but that path resolves to no '
+                                'value in the module instance config and declares no '
+                                'configSchema default.'
+                            ),
+                            path=f"spec.modules[{inst['index']}].config",
+                        )
+                    )
+                    continue
+                advertised = _provider_advertised_engine(matched.get("contract", {}), producer)
+                if advertised is None:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E154",
+                            message=(
+                                f'Consume entry "{name}" in module "{inst["id"]}" expects database '
+                                f'engine "{expected}" (engineFrom "{engine_from}"), but contract '
+                                f'ref "{contract_ref}" resolves to "{producer_id}", whose '
+                                f'"{provide_name}" contract advertises no "engine" in its spec. '
+                                'Providers opt in by setting "engine" (a literal string, or a '
+                                '"${config.<path>}" reference resolving against the producer '
+                                'instance\'s profile config); without an advertisement the '
+                                'engine requirement fails closed so a wrong-vendor binding '
+                                'cannot silently misconfigure the consumer.'
+                            ),
+                            path=f"spec.modules[{inst['index']}].config",
+                        )
+                    )
+                elif advertised.strip().lower() != expected.strip().lower():
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E154",
+                            message=(
+                                f'Consume entry "{name}" in module "{inst["id"]}" expects database '
+                                f'engine "{expected}" (engineFrom "{engine_from}"), but contract '
+                                f'ref "{contract_ref}" resolves to "{producer_id}", whose '
+                                f'"{provide_name}" contract advertises engine "{advertised}". The '
+                                'consumer would speak the wrong wire protocol to the bound '
+                                f'provider; set "{engine_from}" to "{advertised}", or bind a '
+                                f'provider advertising "{expected}".'
+                            ),
+                            path=f"spec.modules[{inst['index']}].config",
+                        )
+                    )
 
             provider_key = _module_key(producer["module"])
             consumer_key = _module_key(inst["module"])

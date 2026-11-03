@@ -183,6 +183,11 @@
           "type": "string",
           "enum": ["required"],
           "description": "TLS requirement for the bound provider (issue #577). 'required': the provider's contract spec must advertise a TLS-protected endpoint (a boolean 'tls: true' in its provides entry's contract spec, or a pure ${config.<path>} reference resolving to true against the producer instance's profile config); anything else -- an absent field, tls: false, or an unresolvable config reference -- fails validation with E128. An omitted tls key places no TLS requirement (backward compatible: existing profiles and module.yaml documents stay valid unless they explicitly opt into stricter TLS). Values other than 'required' are rejected at module schema validation (E021) so a typo cannot silently disable the check."
+        },
+        "engineFrom": {
+          "type": "string",
+          "pattern": "^spec\\.config(\\.[A-Za-z0-9_]+)+$",
+          "description": "Engine requirement for the bound sql-database provider (issue #682). Dotted 'spec.config.<path>' reference to a string field in this module's own config holding the database engine/wire-protocol vendor the consumer expects the provider to speak (e.g. spec.config.metadataDatabase.driver in identity/keycloak, feeding KC_DB). At validate time the referenced value -- taken from the profile config when set, otherwise from the module configSchema default at that path -- is compared case-insensitively with the provider contract spec's advertised 'engine' (a literal string, or a pure ${config.<path>} reference resolving against the producer instance's profile config); a mismatch, or a provider that advertises no engine at all, fails validation with E154 so a wrong-vendor binding fails loudly instead of silently misconfiguring the consumer. An omitted engineFrom key places no engine requirement (backward compatible). Must match spec.config.<path> (dotted path under spec.config) so a typo fails at schema validation (E021) instead of silently disabling enforcement."
         }
       }
     },

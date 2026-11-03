@@ -1060,5 +1060,184 @@ class TlsRequirementTest(unittest.TestCase):
         self.assertEqual([d.code for d in errors], ["E042"])
 
 
+class EngineFromRequirementTest(unittest.TestCase):
+    """
+    Direct unit tests for validate_contract_bindings's engine requirement
+    check (issue #682): a consume entry declaring "engineFrom" may only bind
+    to a provider whose contract spec advertises a matching "engine" (a
+    string literal, or a pure ${config.<path>} reference resolving against
+    the producer instance's profile config). The expected engine is read from
+    the consumer's config at the engineFrom path, falling back to the
+    configSchema default at that path when the profile leaves it unset (the
+    defaulted-driver case is exactly the silent misconfiguration #682 wants
+    caught). A mismatch, or a provider that advertises no engine at all,
+    fails closed with E154; a consume entry without engineFrom keeps placing
+    no requirement, so existing modules and profiles stay valid.
+    """
+
+    ENGINE_FROM = "spec.config.metadataDatabase.driver"
+
+    def _instances(
+        self,
+        *,
+        provider_spec_engine: object = ...,
+        producer_config: dict | None = None,
+        consumer_driver: object = ...,
+        driver_schema_default: object = "postgres",
+        engine_from: str | None = ...,
+    ) -> list[dict]:
+        provider_spec: dict = {"host": "provider", "port": 5432}
+        if provider_spec_engine is not ...:
+            provider_spec["engine"] = provider_spec_engine
+        provider = {
+            "index": 0,
+            "id": "provider",
+            "config": producer_config or {},
+            "module": {
+                "metadata": {"category": "warehouse", "name": "postgres"},
+                "spec": {
+                    "provides": [
+                        {
+                            "name": "sql-database",
+                            "contract": {
+                                "kind": "sql-database",
+                                "spec": provider_spec,
+                            },
+                        }
+                    ]
+                },
+            },
+        }
+        metadata_database: dict = {"contractRef": "provider.sql-database"}
+        if consumer_driver is not ...:
+            metadata_database["driver"] = consumer_driver
+        driver_schema: dict = {"type": "string"}
+        if driver_schema_default is not ...:
+            driver_schema["default"] = driver_schema_default
+        consume: dict = {
+            "name": "metadata-database",
+            "contract": {"kind": "sql-database"},
+            "required": True,
+            "mappedFrom": "spec.config.metadataDatabase",
+        }
+        if engine_from is ...:
+            consume["engineFrom"] = self.ENGINE_FROM
+        elif engine_from is not None:
+            consume["engineFrom"] = engine_from
+        consumer = {
+            "index": 1,
+            "id": "consumer",
+            "config": {"metadataDatabase": metadata_database},
+            "module": {
+                "metadata": {"category": "identity", "name": "keycloak"},
+                "spec": {
+                    "configSchema": {
+                        "type": "object",
+                        "properties": {
+                            "metadataDatabase": {
+                                "type": "object",
+                                "properties": {"driver": driver_schema},
+                            }
+                        },
+                    },
+                    "consumes": [consume],
+                },
+            },
+        }
+        return [provider, consumer]
+
+    def _errors(self, instances: list[dict]) -> list:
+        return [d for d in validate_contract_bindings(instances) if d.level == "error"]
+
+    def test_matching_engine_passes(self):
+        self.assertEqual(self._errors(self._instances(provider_spec_engine="postgres")), [])
+
+    def test_mismatch_reports_e154(self):
+        errors = self._errors(self._instances(provider_spec_engine="mysql"))
+        self.assertEqual([d.code for d in errors], ["E154"])
+        self.assertIn('"postgres"', errors[0].message)
+        self.assertIn('"mysql"', errors[0].message)
+        self.assertIn("provider.sql-database", errors[0].message)
+        self.assertIn(self.ENGINE_FROM, errors[0].message)
+
+    def test_explicit_driver_matching_engine_passes(self):
+        instances = self._instances(
+            provider_spec_engine="mysql", consumer_driver="mysql"
+        )
+        self.assertEqual(self._errors(instances), [])
+
+    def test_explicit_driver_mismatching_engine_reports_e154(self):
+        errors = self._errors(
+            self._instances(provider_spec_engine="postgres", consumer_driver="mysql")
+        )
+        self.assertEqual([d.code for d in errors], ["E154"])
+
+    def test_schema_default_driver_is_enforced_against_provider_engine(self):
+        # The profile leaves metadataDatabase.driver unset; validation runs
+        # before the planner applies configSchema defaults, so the check
+        # must fall back to the schema default (postgres) -- otherwise the
+        # exact silent-misconfiguration scenario of #682 would not be caught.
+        errors = self._errors(self._instances(provider_spec_engine="mysql"))
+        self.assertEqual([d.code for d in errors], ["E154"])
+        self.assertIn('"postgres"', errors[0].message)
+
+    def test_provider_without_engine_advertisement_fails_closed_e154(self):
+        errors = self._errors(self._instances())
+        self.assertEqual([d.code for d in errors], ["E154"])
+        self.assertIn("advertises no", errors[0].message)
+
+    def test_provider_engine_config_reference_matching_passes(self):
+        instances = self._instances(
+            provider_spec_engine="${config.engine}",
+            producer_config={"engine": "postgres"},
+        )
+        self.assertEqual(self._errors(instances), [])
+
+    def test_provider_engine_config_reference_mismatch_reports_e154(self):
+        errors = self._errors(
+            self._instances(
+                provider_spec_engine="${config.engine}",
+                producer_config={"engine": "mysql"},
+            )
+        )
+        self.assertEqual([d.code for d in errors], ["E154"])
+
+    def test_provider_engine_config_reference_unset_fails_closed_e154(self):
+        # A config-driven advertisement only counts when the profile sets the
+        # referenced value explicitly (same rule as the TLS advertisement).
+        errors = self._errors(self._instances(provider_spec_engine="${config.engine}"))
+        self.assertEqual([d.code for d in errors], ["E154"])
+
+    def test_engine_comparison_is_case_insensitive(self):
+        instances = self._instances(provider_spec_engine="Postgres")
+        self.assertEqual(self._errors(instances), [])
+
+    def test_non_string_engine_advertisement_fails_closed_e154(self):
+        errors = self._errors(self._instances(provider_spec_engine=123))
+        self.assertEqual([d.code for d in errors], ["E154"])
+
+    def test_consumer_without_engine_from_is_backward_compatible(self):
+        instances = self._instances(provider_spec_engine=..., engine_from=None)
+        self.assertNotIn(
+            "engineFrom", instances[1]["module"]["spec"]["consumes"][0]
+        )
+        self.assertEqual(self._errors(instances), [])
+
+    def test_engine_from_unresolvable_without_schema_default_reports_e041(self):
+        errors = self._errors(
+            self._instances(provider_spec_engine="postgres", driver_schema_default=...)
+        )
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertIn(self.ENGINE_FROM, errors[0].message)
+
+    def test_kind_mismatch_reports_e042_without_engine_check(self):
+        # The engine check only runs after the kind match: a kind mismatch is
+        # reported on its own (E042), not compounded with E154.
+        instances = self._instances(provider_spec_engine="mysql")
+        instances[1]["module"]["spec"]["consumes"][0]["contract"]["kind"] = "cache-service"
+        errors = self._errors(instances)
+        self.assertEqual([d.code for d in errors], ["E042"])
+
+
 if __name__ == "__main__":
     unittest.main()
