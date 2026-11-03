@@ -54,7 +54,8 @@ enforces the policy below and fails the build on violations.
    (issue #1090).** In any job that feeds `file_input` to
    `actions/ai-inference`:
    - (a) every write to a file later used as `file_input` — shell redirect
-     (`>`, `>>`, `2>`, `&>`), `tee`, python `open(...,'w'/'a')` /
+     (`>`, `>>`, `2>`, `&>`, and the noclobber-override forms `>|`, `&>|`,
+     `2>|`), `tee` (all file arguments), python `open(...,'w'/'a')` /
      `Path(...).write_text(...)`, or `cp`/`mv`/`install` — must be produced
      by a rule-4-compliant literal-metadata `gh` collection command, or by a
      producer listed in `FILE_INPUT_PRODUCERS_ALLOWLIST` in
@@ -65,6 +66,8 @@ enforces the policy below and fails the build on violations.
      a `--format` with metadata specifiers such as `--format='%h %ad'`
      (hashes/dates), so `--format='%h %s'` (subject = free text) or author
      fields (`%an`/`%ae`) fail closed, as does a bare `git log`).
+     Python writes with non-literal target paths (`open(var, 'w')`) cannot be
+     verified against the input paths and fail closed too.
      Any other writer fails closed.
    - (b) any non-gh HTTP fetcher — `curl`, `wget`, `httpie`, python
      `urllib`/`requests`/`httpx`/`aiohttp`/`http.client`, node `fetch()`,
@@ -76,6 +79,11 @@ enforces the policy below and fails the build on violations.
      `scripts/redact_secrets.py` strips secret and injection patterns, not
      issue titles/bodies, so only verified metadata-only producers may feed
      `file_input`.
+   - (c) `uses:` steps that execute arbitrary code (`actions/github-script`,
+     `docker://`) fail closed in feeding jobs because their file writes are
+     not statically analyzable. Benign setup actions (`actions/checkout`,
+     `setup-*`, upload/download-artifact) stay allowed. The broader residual
+     (other `uses:` actions, opaque script files) is tracked in issue #1120.
 
 ## Adding a new prompt
 

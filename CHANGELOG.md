@@ -52,12 +52,16 @@ The format is based on Keep a Changelog.
   only entry is `biweekly-issue-audit.yml`'s `recent-commits.txt` from
   `git log`, where the validator accepts only metadata-only `--format`
   specifiers — hashes/dates/timestamps — so `--format='%h %s'` or author
-  fields fail closed, as does a bare `git log`), and (b) any non-gh HTTP
-  fetcher targeting a
+  fields fail closed, as does a bare `git log`; python writes with
+  non-literal target paths (`open(var, 'w')`) fail closed as unverifiable),
+  redirect detection covers the noclobber-override forms (`>|`, `&>|`,
+  `2>|`), and (b) any non-gh HTTP fetcher targeting a
   GitHub free-text endpoint (issue/PR/comment/review/discussion resources
-  or the `graphql` endpoint) fails closed even when captured via `$(...)`.
-  Tests in `tests/test_prompts_lint.py`; policy documented in
-  `.github/prompts/README.md` (#1090).
+  or the `graphql` endpoint) fails closed even when captured via `$(...)`,
+  and (c) `uses:` steps that execute arbitrary code (`actions/github-script`,
+  `docker://`) fail closed in feeding jobs. Tests in
+  `tests/test_prompts_lint.py`; policy documented in `.github/prompts/README.md`
+  (#1090; residual `uses:`/opaque-script vectors tracked in #1120).
 
 ## [0.15.0] - 2026-11-02
 

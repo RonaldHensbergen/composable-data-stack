@@ -27,17 +27,21 @@ control. The policy enforced here (see .github/prompts/README.md):
    Collect literal metadata only (number, labels, milestone, timestamps, url).
 5. Rule 4 covers only the `gh` CLI — non-gh fetchers are fail-closed too
    (issue #1090): in any job that feeds `file_input` to
-   `actions/ai-inference`, (a) every write (shell redirect, `tee`, python
-   `open(...)/write_text`, `cp`/`mv`/`install`) to a file later used as
-   `file_input` must be produced by a rule-4-compliant literal-metadata `gh`
-   collection command or by an explicit FILE_INPUT_PRODUCERS_ALLOWLIST entry
-   whose producer pattern and validator must accept the writing line, and (b) any non-gh
+   `actions/ai-inference`, (a) every write (shell redirect incl. the >| / &>|
+   noclobber forms, `tee`, python `open(...)/write_text`, `cp`/`mv`/`install`)
+   to a file later used as `file_input` must be produced by a rule-4-compliant
+   literal-metadata `gh` collection command or by an explicit
+   FILE_INPUT_PRODUCERS_ALLOWLIST entry whose producer pattern and validator
+   must accept the writing line; python writes with non-literal target paths
+   fail closed because they cannot be verified, and (b) any non-gh
    HTTP fetcher (`curl`, `wget`, `httpie`, python `urllib`/`requests`/
    `httpx`/..., node `fetch`, pwsh `Invoke-RestMethod`/`Invoke-WebRequest`)
    targeting a GitHub free-text endpoint (issue/PR/comment/review/discussion
-   resources, or the graphql endpoint) fails closed, because
-   `scripts/redact_secrets.py` strips secret/injection patterns, not issue
-   titles/bodies.
+   resources, or the graphql endpoint) fails closed, and (c) `uses:` steps
+   that execute arbitrary code (`actions/github-script`, `docker://`) fail
+   closed because their file writes are not statically analyzable. All of it
+   because `scripts/redact_secrets.py` strips secret/injection patterns, not
+   issue titles/bodies.
 
 Runs in CI (lint job), pre-commit, and `make lint-prompts`. Exit 1 on any
 violation; the script never modifies files.
@@ -176,18 +180,32 @@ GITHUB_FREE_TEXT_URL_RE = re.compile(
     r"(?:issues|pulls|comments|reviews|discussions|graphql)(?=[/?#\"'\s<>]|$)",
     re.IGNORECASE,
 )
-# Shell write redirections to a file: >, >>, 2>, 2>>, &>, &>>.
-REDIRECT_RE = re.compile(r"(?:\d|&)?>{1,2}\s*[\"']?([^\s\"'&|;<>]+)")
+# Shell write redirections to a file: >, >>, 2>, 2>>, &>, &>>, plus the
+# noclobber-override forms >|, >>|, 2>|, &>|, &>>| (github-advanced-security
+# on #1118: the bare forms must not be the only ones matched).
+REDIRECT_RE = re.compile(r"(?:\d|&)?>{1,2}\|?\s*[\"']?([^\s\"'&|;<>]+)")
 # tee [flags] FILE... — every non-flag argument is a written file.
 TEE_RE = re.compile(r"\btee\b((?:\s+-{1,2}[\w-]+)*)\s+(.+)$")
-# python open("path", "w"/"a"/...) and Path("path").write_text(...).
+# python open("path", "w"/"a"/...) and Path("path").write_text(...) — literal
+# paths, used as verifiable write targets.
 PY_OPEN_WRITE_RE = re.compile(r"\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"'][wa+]")
-# Fail-closed matcher for open(<any path expr>, "w"/"a"/"+..."): used to
-# detect dynamic/unresolved python write targets that must not bypass rule 5a.
-PY_OPEN_ANY_WRITE_RE = re.compile(r"\bopen\s*\(\s*.+?\s*,\s*[\"'][wa+]", re.IGNORECASE)
 PY_PATH_WRITE_RE = re.compile(r"\bPath\s*\(\s*[\"']([^\"']+)[\"']\s*\)\s*\.\s*write_text")
+# Fail-closed matchers for python write calls whose target path is NOT a
+# literal string (open(<expr>, ...) with any mode, Path(<expr>).write_text):
+# the target cannot be compared against file_input paths, so such writes
+# fail closed in feeding jobs (github-advanced-security on #1118).
+PY_OPEN_ANY_ARG_RE = re.compile(r"\bopen\s*\([^)]*,", re.IGNORECASE)
+PY_OPEN_LITERAL_RE = re.compile(r"\bopen\s*\(\s*[\"'][^\"']+[\"']\s*,", re.IGNORECASE)
+PY_PATH_ANY_WRITE_RE = re.compile(r"\bPath\s*\([^)]*\)\s*\.\s*write_text", re.IGNORECASE)
+PY_PATH_LITERAL_RE = re.compile(r"\bPath\s*\(\s*[\"'][^\"']+[\"']\s*\)", re.IGNORECASE)
 # cp/mv/install write their last argument as the destination file.
 COPY_MOVE_CMDS = frozenset({"cp", "mv", "install"})
+# `uses:` actions that execute arbitrary code: in a job feeding
+# ai-inference file_input their file writes are not statically analyzable,
+# so they fail closed (rule 5c). Benign setup actions (checkout, setup-*,
+# upload/download-artifact) do not produce file_input content and stay
+# allowed; the broader residual is tracked in issue #1120.
+CODE_EXEC_USES_RE = re.compile(r"(?:^|/)github-script\b|^docker://", re.IGNORECASE)
 
 
 def _is_gh_collection_cmd(line: str) -> bool:
@@ -421,7 +439,7 @@ def lint_workflow(path: Path) -> list[str]:
         redacted_outputs: set[str] = set()
         run_scripts: list[str] = []
         file_input_targets: set[str] = set()
-        non_ai_uses_steps: list[str] = []
+        code_exec_uses: list[str] = []
         feeds_inference = False
         for step in job.get("steps") or []:
             if not isinstance(step, dict):
@@ -432,8 +450,8 @@ def lint_workflow(path: Path) -> list[str]:
             for match in redact_call_re.finditer(run_script):
                 redacted_outputs.add(_canon_path(match.group(2)))
             uses = str(step.get("uses", ""))
-            if uses and AI_INFERENCE_ACTION not in uses:
-                non_ai_uses_steps.append(uses)
+            if uses and CODE_EXEC_USES_RE.search(uses):
+                code_exec_uses.append(uses)
             if AI_INFERENCE_ACTION not in uses:
                 continue
             file_input = str((step.get("with") or {}).get("file_input") or "")
@@ -452,15 +470,15 @@ def lint_workflow(path: Path) -> list[str]:
                         f"(.github/prompts/README.md)"
                     )
         if feeds_inference:
-            if non_ai_uses_steps:
-                for uses in non_ai_uses_steps:
-                    errors.append(
-                        f"{path.name} (job {job_name}): step uses '{uses}' in a job "
-                        f"that feeds actions/ai-inference file_input; rule-5 producer "
-                        f"analysis is fail-closed for `uses:` steps because only `run` "
-                        f"scripts are statically validated for metadata-only/allowlisted "
-                        f"file production (.github/prompts/README.md)"
-                    )
+            for uses in code_exec_uses:
+                errors.append(
+                    f"{path.name} (job {job_name}): step uses '{uses}' executes "
+                    f"arbitrary code in a job that feeds actions/ai-inference "
+                    f"file_input; its file writes cannot be verified statically, so "
+                    f"it fails closed — produce file_input files only via `run:` "
+                    f"steps (rule-4 gh metadata-only or allowlisted producers) "
+                    f"(#1090/#1120, .github/prompts/README.md)"
+                )
             errors.extend(_lint_minimization(path, job_name, run_scripts))
             errors.extend(
                 _lint_file_input_producers(path, job_name, run_scripts, file_input_targets)
@@ -534,8 +552,9 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
 
 def _write_targets(line: str) -> set[str]:
     """Canon paths this shell/python line writes to: redirects (>, >>, 2>,
-    &>), tee targets, python open(...,'w'/'a') and Path(...).write_text(...),
-    and the destination (last token) of cp/mv/install."""
+    &>, and the >| / &>| noclobber-override forms), tee targets, python
+    open(...,'w'/'a') and Path(...).write_text(...) with literal paths, and
+    the destination (last token) of cp/mv/install."""
     targets = {m.group(1) for m in REDIRECT_RE.finditer(line)}
     for m in TEE_RE.finditer(line):
         try:
@@ -554,6 +573,27 @@ def _write_targets(line: str) -> set[str]:
     return {_canon_path(t) for t in targets if t and t != "/dev/null"}
 
 
+def _unverifiable_py_writes(line: str) -> list[str]:
+    """Python write calls in the line whose target path is not a literal
+    string (open(<expr>, ...) with any mode, Path(<expr>).write_text(...)):
+    the target cannot be compared against the file_input paths, so the write
+    is fail-closed in feeding jobs (github-advanced-security on #1118)."""
+    literal_spans = [m.span() for m in PY_OPEN_LITERAL_RE.finditer(line)]
+    literal_spans += [m.span() for m in PY_PATH_LITERAL_RE.finditer(line)]
+
+    def covered(match: re.Match[str]) -> bool:
+        return any(s <= match.start() and match.end() <= e for s, e in literal_spans)
+
+    hits: list[str] = []
+    for match in PY_OPEN_ANY_ARG_RE.finditer(line):
+        if not covered(match):
+            hits.append(match.group(0).strip()[:60])
+    for match in PY_PATH_ANY_WRITE_RE.finditer(line):
+        if not covered(match):
+            hits.append(match.group(0).strip()[:60])
+    return hits
+
+
 def _lint_file_input_producers(
     path: Path, job_name: str, run_scripts: list[str], file_input_targets: set[str]
 ) -> list[str]:
@@ -568,6 +608,14 @@ def _lint_file_input_producers(
     allowlist = FILE_INPUT_PRODUCERS_ALLOWLIST.get(path.name, {})
     for script in run_scripts:
         for line in script.splitlines():
+            for hit in _unverifiable_py_writes(line):
+                errors.append(
+                    f"{path.name} (job {job_name}): python write call '{hit}...' has "
+                    f"a non-literal target path, so it cannot be verified against the "
+                    f"ai-inference file_input paths — dynamic write targets fail "
+                    f"closed in file_input-feeding jobs (#1090/#1120, "
+                    f".github/prompts/README.md)"
+                )
             targets = _write_targets(line) & file_input_targets
             if not targets:
                 continue

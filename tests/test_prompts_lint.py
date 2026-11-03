@@ -621,6 +621,91 @@ class PromptsLintTest(unittest.TestCase):
             path = self._workflow(Path(tmp), "wf.yml", wf)
             self.assertEqual([], check_prompts.lint_workflow(path))
 
+    def test_workflow_noclobber_redirect_forms_fail(self):
+        # github-advanced-security on #1118: >| and &>| (noclobber
+        # override) are valid write redirections too — a non-allowlisted
+        # producer must not bypass rule 5a through them.
+        for op in ("&>|", ">|", "2>|"):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = self._inference_workflow(
+                    f'curl -s https://example.com/x.json {op} "$RUNNER_TEMP/open-issues.json"'
+                )
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("allowlisted" in e for e in errors),
+                    f"expected producer rejection for redirect op {op}",
+                )
+
+    def test_workflow_dynamic_python_write_target_fails(self):
+        # github-advanced-security on #1118: open(<non-literal>, 'w') cannot
+        # be compared against the file_input paths, so it fails closed in a
+        # feeding job instead of silently bypassing rule 5a.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                "python3 -c \"import os; open(os.environ['RUNNER_TEMP']+'/open-issues.json','w').write('x')\""
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            errors = check_prompts.lint_workflow(path)
+            self.assertTrue(any("non-literal target path" in e for e in errors))
+
+    def test_workflow_literal_python_write_to_other_file_passes(self):
+        # A literal-path python write that does NOT target a file_input file
+        # in a feeding job is verifiable and stays allowed.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = self._inference_workflow(
+                'python3 -c "open(\'/tmp/notes.txt\',\'w\').write(\'x\')"'
+            )
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
+    def test_workflow_code_exec_uses_step_in_feeding_job_fails(self):
+        # rule 5c: a uses: step that executes arbitrary code (github-script,
+        # docker://) cannot have its file writes verified — fail closed.
+        for uses in ("actions/github-script@v7", "docker://alpine:3.20"):
+            with tempfile.TemporaryDirectory() as tmp:
+                wf = f"""jobs:
+  audit:
+    steps:
+      - run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" --json number,labels,url > "$RUNNER_TEMP/open-issues.json"
+          python3 scripts/redact_secrets.py --strict "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.json"
+      - uses: {uses}
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{{{ runner.temp }}}}/open-issues.json
+"""
+                path = self._workflow(Path(tmp), "wf.yml", wf)
+                errors = check_prompts.lint_workflow(path)
+                self.assertTrue(
+                    any("executes arbitrary code" in e for e in errors),
+                    f"expected code-exec uses: rejection for {uses}",
+                )
+
+    def test_workflow_benign_uses_steps_in_feeding_job_pass(self):
+        # checkout / setup-node / upload-artifact do not produce file_input
+        # content — the checked-in biweekly-issue-audit.yml relies on this.
+        with tempfile.TemporaryDirectory() as tmp:
+            wf = """jobs:
+  audit:
+    steps:
+      - uses: actions/checkout@v6
+      - run: |
+          gh issue list --repo "$GITHUB_REPOSITORY" --json number,labels,url > "$RUNNER_TEMP/open-issues.json"
+          python3 scripts/redact_secrets.py --strict "$RUNNER_TEMP/open-issues.json" "$RUNNER_TEMP/open-issues.json"
+      - uses: actions/setup-node@v6
+      - uses: actions/ai-inference@v3
+        with:
+          prompt-file: .github/prompts/x.prompt.yml
+          file_input: |
+            issues: ${{ runner.temp }}/open-issues.json
+      - uses: actions/upload-artifact@v7
+"""
+            path = self._workflow(Path(tmp), "wf.yml", wf)
+            self.assertEqual([], check_prompts.lint_workflow(path))
+
 
 if __name__ == "__main__":
     unittest.main()
