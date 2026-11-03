@@ -1512,9 +1512,9 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
 
     The helm renderer applies `production` gates to the kubernetes volume
     and configMap specs (apply_production_gates), and resolves
-    `enabledFrom` on volume specs (guarded, so a bad shape silently
-    misbehaves) and on workloads (unguarded, so a bad shape crashes).
-    Marker shapes fail closed here instead.
+    `enabledFrom` on volume specs and configMap specs (guarded, so a bad
+    shape silently misbehaves) and on workloads (unguarded, so a bad shape
+    crashes). Marker shapes fail closed here instead.
     """
     diagnostics: list[Diagnostic] = []
     if not isinstance(kubernetes, dict):
@@ -1561,7 +1561,9 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
                 spec.get("enabledFrom"), f"{base_path}.volumes.{name}.enabledFrom"
             ))
 
-    # ConfigMap specs: production gates are implemented, enabledFrom is not.
+    # ConfigMap specs: both marker classes are implemented here (the helm
+    # renderer resolves enabledFrom and drops the ConfigMap when it is False,
+    # issue #1117).
     configmaps = kubernetes.get("configMaps", {})
     if isinstance(configmaps, dict):
         for name, spec in configmaps.items():
@@ -1570,17 +1572,9 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
             diagnostics.extend(_production_shape(
                 spec.get("production"), f"{base_path}.configMaps.{name}.production"
             ))
-            if "enabledFrom" in spec:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E145",
-                    message=(
-                        "The `enabledFrom` marker is not implemented on kubernetes "
-                        "configMap entries (only on volume specs and workloads); the "
-                        "helm renderer would silently ignore it."
-                    ),
-                    path=f"{base_path}.configMaps.{name}.enabledFrom",
-                ))
+            diagnostics.extend(_condition_shape(
+                spec.get("enabledFrom"), f"{base_path}.configMaps.{name}.enabledFrom"
+            ))
 
     # Workloads: enabledFrom is implemented (unguarded, so a bad shape
     # crashes), production gates are not.

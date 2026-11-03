@@ -41,3 +41,15 @@ via `containerOverrides`, independent of the compose host publish.
 
 - `storage.backend` selects the database driver for the local image build and must match the database behind the storage bindings
 - The webserver and daemon wait for the user-code healthcheck over a Unix socket, start period is 60 seconds
+- `sampleData.enabled` (default `false`) ships the bundled `offers-1000.csv`
+  sample fixture into the dagster containers at `sampleData.containerPath`
+  (default `/app/data/cds/incoming/offers-1000.csv`) on both render targets
+  and schedules the `load_offers_1000` job automatically (issue #1117). On
+  Compose the file is reachable through the `sharedData` directory bind and
+  pinned by an explicit read-only file bind; on Kubernetes the same host file
+  (`sampleData.hostPath`, default
+  `./workdirs/shared-data/incoming/offers-1000.csv`) is projected as the
+  `sample-data` ConfigMap, so both targets see the identical file at the
+  identical path. The user-code container gets `CDS_SAMPLE_DATA_ENABLED` and
+  `CDS_OFFERS_FIXTURE_PATH` from the same config; the load job is idempotent
+  and always leaves exactly 1,000 rows in `offers_1000`

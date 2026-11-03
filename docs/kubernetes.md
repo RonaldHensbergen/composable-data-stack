@@ -262,10 +262,28 @@ guess at semantics that differ between runtimes.
 | Network policy | Emitted per module: default-deny ingress/egress with contract-derived allow rules (see [Network isolation](#network-isolation-and-least-privilege)) |
 | `pids_limit` | Not translated by the current schema |
 | Local `build:` | Build first, then import into k3d |
+| Single-file host bind (`fromBind`) | ConfigMap projected at the bind target via `subPath`, read-only |
+| Directory host bind | `emptyDir` (host content is not carried over) |
 
 Dagster's Compose-only Unix socket does not cross Pod boundaries. The
 Kubernetes implementation uses Dagster gRPC over a ClusterIP Service, as
 recorded in ADR 0002.
+
+### Sample data on the Helm target
+
+The dagster module's `sampleData.enabled` (default `false`) ships the bundled
+`offers-1000.csv` fixture into the dagster pods on the Helm target as the
+`sample-data` ConfigMap, projected at `sampleData.containerPath` (default
+`/app/data/cds/incoming/offers-1000.csv`) — the same path the Compose target
+serves through its `sharedData` host bind, so both targets see the identical
+file (issue #1117). The ConfigMap is rendered from `sampleData.hostPath`
+(default `./workdirs/shared-data/incoming/offers-1000.csv`) at render time and
+must stay under the 1 MiB ConfigMap limit (E075). When enabled, the user-code
+container also gets `CDS_SAMPLE_DATA_ENABLED=true` and
+`CDS_OFFERS_FIXTURE_PATH`, and the `load_offers_1000` job runs on a schedule
+(idempotent: exactly 1,000 rows in `offers_1000` after every run). When the
+parameter is absent or `false`, neither the ConfigMap nor its mounts are
+rendered and behavior is unchanged.
 
 ## Network isolation and least privilege
 
