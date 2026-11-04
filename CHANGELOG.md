@@ -8,6 +8,16 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Two new Gate 3 tasks in the Kubernetes/Haven MVP runbook
+  (`docs/plan/k8s-haven-mvp.md`): G3.8 proves the GitOps handoff end to end —
+  render the Haven-shaped profile, commit the rendered chart to a
+  `gitops-target` repository, and verify Flux reconciles and corrects drift
+  (issue #1136) — and G3.9 proves workload SQL/py code runs from a Git
+  checkout via the bind mounts (`config.project.hostPath` for dbt,
+  `definitionsFile.hostPath`/`sharedData.hostPath` for Dagster, issue #1137).
+  The executable companion `docs/plan/k8s-haven-gate-checklist.md` is now
+  committed alongside, with both tasks as rows; Gate 3 exit criteria updated.
+
 - Declared external egress for helm-target workloads under the generated
   default-deny NetworkPolicies (issue #1023): modules can now declare
   egress to destinations outside the plan via
