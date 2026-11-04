@@ -796,50 +796,53 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                             message=(
                                 f'Consume entry "{name}" in module "{inst["id"]}" declares '
                                 f'engineFrom "{engine_from_config}", but that path resolves to no '
-                                'value in the module instance config and declares no '
-                                'configSchema default.'
+                                'usable string value (absent, non-string, or blank) in the '
+                                'module instance config and declares no configSchema default.'
                             ),
                             path=f"spec.modules[{inst['index']}].config",
                         )
                     )
-                    continue
-                advertised = _provider_advertised_engine(matched.get("contract", {}), producer)
-                if advertised is None:
-                    diagnostics.append(
-                        Diagnostic(
-                            level="error",
-                            code="E154",
-                            message=(
-                                f'Consume entry "{name}" in module "{inst["id"]}" expects database '
-                                f'engine "{expected}" (engineFrom "{engine_from_config}"), but contract '
-                                f'ref "{contract_ref}" resolves to "{producer_id}", whose '
-                                f'"{provide_name}" contract advertises no "engine" in its spec. '
-                                'Providers opt in by setting "engine" (a literal string, or a '
-                                '"${config.<path>}" reference resolving against the producer '
-                                'instance\'s profile config); without an advertisement the '
-                                'engine requirement fails closed so a wrong-vendor binding '
-                                'cannot silently misconfigure the consumer.'
-                            ),
-                            path=f"spec.modules[{inst['index']}].config",
+                else:
+                    # Not a `continue`: the compatibility-registry check (E043)
+                    # below must still run for this binding, like it does on the
+                    # E128 and E154 paths.
+                    advertised = _provider_advertised_engine(matched.get("contract", {}), producer)
+                    if advertised is None:
+                        diagnostics.append(
+                            Diagnostic(
+                                level="error",
+                                code="E154",
+                                message=(
+                                    f'Consume entry "{name}" in module "{inst["id"]}" expects database '
+                                    f'engine "{expected}" (engineFrom "{engine_from_config}"), but contract '
+                                    f'ref "{contract_ref}" resolves to "{producer_id}", whose '
+                                    f'"{provide_name}" contract advertises no "engine" in its spec. '
+                                    'Providers opt in by setting "engine" (a literal string, or a '
+                                    '"${config.<path>}" reference resolving against the producer '
+                                    'instance\'s profile config); without an advertisement the '
+                                    'engine requirement fails closed so a wrong-vendor binding '
+                                    'cannot silently misconfigure the consumer.'
+                                ),
+                                path=f"spec.modules[{inst['index']}].config",
+                            )
                         )
-                    )
-                elif advertised.strip().lower() != expected.strip().lower():
-                    diagnostics.append(
-                        Diagnostic(
-                            level="error",
-                            code="E154",
-                            message=(
-                                f'Consume entry "{name}" in module "{inst["id"]}" expects database '
-                                f'engine "{expected}" (engineFrom "{engine_from_config}"), but contract '
-                                f'ref "{contract_ref}" resolves to "{producer_id}", whose '
-                                f'"{provide_name}" contract advertises engine "{advertised}". The '
-                                'consumer would speak the wrong wire protocol to the bound '
-                                f'provider; set "{engine_from_config}" to "{advertised}", or bind a '
-                                f'provider advertising "{expected}".'
-                            ),
-                            path=f"spec.modules[{inst['index']}].config",
+                    elif advertised.strip().lower() != expected.strip().lower():
+                        diagnostics.append(
+                            Diagnostic(
+                                level="error",
+                                code="E154",
+                                message=(
+                                    f'Consume entry "{name}" in module "{inst["id"]}" expects database '
+                                    f'engine "{expected}" (engineFrom "{engine_from_config}"), but contract '
+                                    f'ref "{contract_ref}" resolves to "{producer_id}", whose '
+                                    f'"{provide_name}" contract advertises engine "{advertised}". The '
+                                    'consumer would speak the wrong wire protocol to the bound '
+                                    f'provider; set "{engine_from_config}" to "{advertised}", or bind a '
+                                    f'provider advertising "{expected}".'
+                                ),
+                                path=f"spec.modules[{inst['index']}].config",
+                            )
                         )
-                    )
 
             provider_key = _module_key(producer["module"])
             consumer_key = _module_key(inst["module"])

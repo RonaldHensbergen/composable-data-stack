@@ -1235,7 +1235,30 @@ class EngineFromRequirementTest(unittest.TestCase):
         )
         self.assertEqual([d.code for d in errors], ["E041"])
         self.assertIn('engineFrom "config.metadataDatabase.driver"', errors[0].message)
+        self.assertIn("no usable string value", errors[0].message)
         self.assertNotIn("spec.config.", errors[0].message)
+
+    def test_engine_from_resolving_to_non_string_reports_e041(self):
+        # The E041 branch also covers a path that *does* resolve but to a
+        # non-string schema default; the message must say "no usable string
+        # value", not just "no value".
+        errors = self._errors(
+            self._instances(provider_spec_engine="postgres", driver_schema_default=5432)
+        )
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertIn("no usable string value", errors[0].message)
+
+    def test_unresolvable_engine_from_still_reports_e043_for_unsupported_pairing(self):
+        # Regression pin: the E041 path must not skip the compatibility
+        # registry check -- with an unresolvable engineFrom AND an
+        # unsupported pairing, both E041 and E043 are reported.
+        instances = self._instances(
+            provider_spec_engine="postgres", driver_schema_default=...
+        )
+        registry = {("sql-database", "warehouse/postgres", "identity/keycloak"): "unsupported"}
+        with patch("cli.validator._load_compatibility_registry", return_value=registry):
+            errors = self._errors(instances)
+        self.assertEqual(sorted(d.code for d in errors), ["E041", "E043"])
 
     def test_kind_mismatch_reports_e042_without_engine_check(self):
         # The engine check only runs after the kind match: a kind mismatch is
