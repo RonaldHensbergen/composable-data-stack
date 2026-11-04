@@ -143,6 +143,19 @@ The format is based on Keep a Changelog.
   the W129 cases, and the gate check. Documented in `docs/kubernetes.md` and
   the README troubleshooting table.
 
+- Helm-target test coverage for Superset's `identityProvider` binding (issue
+  #1075): the only `oidc-provider` provider in the repo (keycloak) is
+  compose-only, so the new fixture module
+  `tests/fixtures/helm-oidc/modules/identity/oidc-stub` provides a minimal
+  kubernetes-capable `oidc-provider` and `tests/test_superset_oidc_helm.py`
+  renders a profile binding it on `--target helm` end to end — issuer URL
+  env present as a literal value, client secret only as a `$(CDS_*)`
+  expansion backed by a `secretKeyRef` entry and a `required` key in
+  `templates/secret.yaml`, E078/E079 secret-plumbing checks green, no secret
+  values in any chart file. The rendered chart is pinned by golden hashes in
+  `tests/golden/k8s-chart-oidc.sha256`. A guard test also pins that binding
+  the compose-only keycloak on the helm target still fails closed with E072.
+
 ### Fixed
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source
