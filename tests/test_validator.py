@@ -1157,9 +1157,14 @@ class EngineFromRequirementTest(unittest.TestCase):
         self.assertEqual([d.code for d in errors], ["E154"])
         self.assertIn('"postgres"', errors[0].message)
         self.assertIn('"mysql"', errors[0].message)
+        self.assertIn('set "config.metadataDatabase.driver" to "mysql"', errors[0].message)
         self.assertIn("provider.sql-database", errors[0].message)
-        # Messages show the profile-facing "config.<path>" spelling.
-        self.assertIn("config.metadataDatabase.driver", errors[0].message)
+        # Messages show the profile-facing "config.<path>" spelling. The
+        # leading quote anchors the assertion so the internal
+        # "spec.config.<path>" spelling does not satisfy it as a substring
+        # (mutation-test pin for the engine_from_config prefix strip).
+        self.assertIn('engineFrom "config.metadataDatabase.driver"', errors[0].message)
+        self.assertNotIn("spec.config.", errors[0].message)
 
     def test_explicit_driver_matching_engine_passes(self):
         instances = self._instances(
@@ -1229,7 +1234,8 @@ class EngineFromRequirementTest(unittest.TestCase):
             self._instances(provider_spec_engine="postgres", driver_schema_default=...)
         )
         self.assertEqual([d.code for d in errors], ["E041"])
-        self.assertIn("config.metadataDatabase.driver", errors[0].message)
+        self.assertIn('engineFrom "config.metadataDatabase.driver"', errors[0].message)
+        self.assertNotIn("spec.config.", errors[0].message)
 
     def test_kind_mismatch_reports_e042_without_engine_check(self):
         # The engine check only runs after the kind match: a kind mismatch is
