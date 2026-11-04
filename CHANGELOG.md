@@ -96,9 +96,14 @@ The format is based on Keep a Changelog.
   version is unknown, is a dev/local build, or the tag does not exist
   upstream (e.g. a fork without tags), the default falls back to `main` with
   a note on stderr. An explicit `--ref <branch|tag|sha>` is unchanged and
-  still fails closed on 404. The resolved revision is recorded in
-  `.cds/get-manifest.json`, so `cds update` keeps the layout on that tag;
-  re-run `cds get --ref main` to move to `main`.
+  still fails closed on 404, but a version tag newer than the installed cds
+  version (e.g. `--ref v0.16.0` on cds 0.15.0) now prints a warning on
+  `cds get` and `cds update`, since assets at a newer release may use schema
+  features the running CLI does not understand. A bare version
+  (`--ref 0.15.0`) is accepted as shorthand for its `v`-prefixed release tag
+  (`v0.15.0`), retrying on HTTP 404. The resolved revision is
+  recorded in `.cds/get-manifest.json`, so `cds update` keeps the layout on
+  that tag; re-run `cds get --ref main` to move to `main`.
 
 ### Fixed
 

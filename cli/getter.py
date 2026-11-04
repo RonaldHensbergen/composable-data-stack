@@ -30,6 +30,34 @@ DEFAULT_REMOTE = "RonaldHensbergen/composable-data-stack"
 DEFAULT_REF = "main"
 
 _RELEASE_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+_VERSION_TAG_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$")
+_BARE_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+].*)?$")
+
+
+def _warn_if_ref_newer_than_cli(owner: str, repo: str, ref: str, cli_version: str | None) -> None:
+    """Warn when `ref` is a release tag newer than the installed CLI.
+
+    Assets fetched at a newer tag may use module.schema.json features the
+    running cds does not know, which otherwise surfaces only later as an
+    opaque E021 schema error at validate time. Non-version refs (branches,
+    SHAs) cannot be compared and are not warned about.
+    """
+    if not cli_version:
+        return
+    ref_match = _VERSION_TAG_PATTERN.match(ref.strip())
+    cli_match = _VERSION_TAG_PATTERN.match(cli_version.strip())
+    if not ref_match or not cli_match:
+        return
+    ref_version = tuple(int(part) for part in ref_match.groups()[:3])
+    cli_version_tuple = tuple(int(part) for part in cli_match.groups()[:3])
+    if ref_version > cli_version_tuple:
+        print(
+            f"Warning: {owner}/{repo}@{ref} is a release newer than the installed "
+            f"cds {cli_version}; fetched assets may use schema features this CLI "
+            f"does not understand and fail validation (e.g. E021). Upgrade cds "
+            f"(cds check-update) or use --ref v{cli_version}.",
+            file=sys.stderr,
+        )
 
 
 def cli_version_ref(cli_version: str | None) -> str | None:
@@ -195,6 +223,7 @@ def update_tracked_assets(
     categories: Sequence[str] | None = None,
     dry_run: bool = False,
     allowed_sources: Sequence[str] | None = None,
+    cli_version: str | None = None,
 ) -> UpdateResult:
     """Refresh previously fetched assets without overwriting local edits."""
     target_root = (destination_root or Path.cwd()).expanduser().resolve()
@@ -240,6 +269,7 @@ def update_tracked_assets(
                 categories=selected_categories,
                 dry_run=dry_run,
                 allowed_sources=allowed_sources,
+                cli_version=cli_version,
                 result=result,
             )
         except GetError as exc:
@@ -275,6 +305,7 @@ def _update_tracked_profile(
     categories: set[str] | None,
     dry_run: bool,
     allowed_sources: Sequence[str] | None,
+    cli_version: str | None,
     result: UpdateResult,
 ) -> None:
     requested_profile = entry.get("requestedProfile", profile_name)
@@ -313,6 +344,7 @@ def _update_tracked_profile(
         local_source,
         allowed_sources=allowed_sources,
         commit=pinned_commit,
+        cli_version=cli_version,
     ) as (source_repo, resolved_commit, _resolved_ref):
         source_profile = entry.get("sourceProfile")
         if not isinstance(source_profile, str) or not source_profile:
@@ -612,14 +644,18 @@ def _prepare_source(
     installed CLI version (`cli_version`, e.g. v0.15.0) so fetched assets are
     schema-compatible with the running `cds`, falling back to DEFAULT_REF
     when the version is unknown or the tag does not exist upstream (e.g. a
-    dev build whose version has no tag yet). Pass `local` to explicitly use
+    dev build whose version has no tag yet). A bare version ref ("0.15.0") is
+    accepted as shorthand for its "v"-prefixed release tag. Pass `local` to
+    explicitly use
     an existing local directory instead (e.g. an offline/dev checkout) --
     `remote`, a non-default `ref` and `commit` are rejected in that case.
 
     `allowed_sources` optionally restricts which `owner`/`owner/repo` may be
     fetched, and `commit` pins the fetched archive to a commit SHA (full or
     abbreviated, at least 12 characters); both fail closed before anything is
-    copied.
+    copied. A `ref` that is a release tag newer than `cli_version` prints a
+    warning, because such assets may use schema features the running cds does
+    not understand.
     """
     pin = _validate_commit_pin(commit) if commit is not None else None
     if local is not None:
@@ -645,16 +681,30 @@ def _prepare_source(
     auto_ref = ref is None
     if ref is None:
         ref = cli_version_ref(cli_version) or DEFAULT_REF
+    # A bare version ("0.15.0") is accepted as shorthand for its release tag
+    # ("v0.15.0"): on a 404, retry once with the "v" prefix.
+    candidates = [ref]
+    if _BARE_VERSION_PATTERN.match(ref):
+        candidates.append(f"v{ref}")
     with tempfile.TemporaryDirectory(prefix="cds-get-") as tmp_dir:
-        try:
-            extracted, resolved_commit = _download_github_repository(
-                owner, repo, ref, Path(tmp_dir)
-            )
-        except GetError as exc:
+        download_error: GetError | None = None
+        for candidate in candidates:
+            try:
+                extracted, resolved_commit = _download_github_repository(
+                    owner, repo, candidate, Path(tmp_dir)
+                )
+                ref = candidate
+                download_error = None
+                break
+            except GetError as exc:
+                if "HTTP 404" not in str(exc):
+                    raise
+                download_error = exc
+        if download_error is not None:
             # A defaulted version tag may not exist upstream (dev builds,
             # forks without the tags); fall back to DEFAULT_REF once. An
             # explicit --ref still fails closed.
-            if auto_ref and ref != DEFAULT_REF and "HTTP 404" in str(exc):
+            if auto_ref and ref != DEFAULT_REF:
                 print(
                     f"Note: {owner}/{repo} has no release tag {ref}; "
                     f"falling back to {DEFAULT_REF!r}.",
@@ -665,7 +715,8 @@ def _prepare_source(
                     owner, repo, ref, Path(tmp_dir)
                 )
             else:
-                raise
+                raise download_error
+        _warn_if_ref_newer_than_cli(owner, repo, ref, cli_version)
         if pin is not None:
             if resolved_commit is None:
                 raise GetError(

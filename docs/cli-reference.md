@@ -85,7 +85,13 @@ revision defaults to the release tag matching the installed `cds` version
 validated by the same schema that ships inside the running CLI; when the
 version is unknown or the tag does not exist upstream (e.g. a dev build, or a
 fork without the tags), it falls back to the `main` branch. Pass
-`--ref <branch|tag|sha>` to select a specific revision explicitly. Pass
+`--ref <branch|tag|sha>` to select a specific revision explicitly; a bare
+version like `--ref 0.15.0` is accepted as shorthand for the `v0.15.0` release
+tag. A version tag newer than the installed `cds` version (e.g.
+`--ref v0.16.0` on cds 0.15.0) prints a warning, because such assets may use
+schema features the running CLI does not understand and fail validation with
+an opaque E021 (the same warning fires on `cds update` when the tracked ref
+is a newer tag). Pass
 `--local <dir>` to use an existing local directory instead of downloading
 (mutually exclusive with `--remote`/`--ref`) for offline/dev workflows. Use `--into` to choose a
 destination root, `--dry-run` to inspect the copy plan first, and `--force` to

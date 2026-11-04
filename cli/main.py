@@ -2796,6 +2796,7 @@ def _run() -> int:
                 categories=categories,
                 dry_run=args.dry_run,
                 allowed_sources=load_allowed_get_sources(),
+                cli_version=_cds_version(),
             )
         except GetError as exc:
             print(f"ERROR {exc}", file=sys.stderr)
