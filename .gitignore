@@ -211,6 +211,9 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Obsidian per-user vault/workspace state, at any depth (e.g. docs/plan/.obsidian/)
+.obsidian/
+
 # Generated compose output from `cds render`
 docker-compose.yml
 docker-compose.yaml
