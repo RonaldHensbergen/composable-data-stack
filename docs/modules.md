@@ -229,6 +229,67 @@ The field is optional (`required: false`) in the shared contract documents
 `cache-service.yaml`, `reverse-proxy.yaml`); `file-database` carries no TLS
 field because it describes a bind-mounted file, not a network endpoint.
 
+### Database engine requirements (`engineFrom`)
+
+A consumer whose own config selects the database wire protocol (e.g.
+Keycloak's `KC_DB`, fed from `metadataDatabase.driver`) can declare an engine
+requirement on a `consumes` entry, provider-neutral and opt-in (issue #682):
+
+```yaml
+spec:
+  consumes:
+    - name: metadata-database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.metadataDatabase
+      engineFrom: spec.config.metadataDatabase.driver
+```
+
+`engineFrom` is a dotted `spec.config.<path>` reference to a string field in
+the consumer's own config; the referenced value is the engine the consumer
+expects the bound provider to speak. The provider opts in from its provide
+entry's `contract.spec`:
+
+```yaml
+spec:
+  provides:
+    - name: sql-database
+      contract:
+        kind: sql-database
+        spec:
+          host: ${service.host}
+          port: ${config.port}
+          engine: postgres
+```
+
+Semantics and validation paths:
+
+- The expected engine is read from the consumer's profile config at the
+  `engineFrom` path; when the profile leaves the field unset, the consumer's
+  `configSchema` default at that path is used, so a defaulted driver is
+  enforced too (this is exactly the silent-misconfiguration case #682 wants
+  caught: default `postgres` bound to a non-Postgres provider).
+- The provider's advertisement is a string literal or a pure
+  `${config.<path>}` reference that resolves against the producer instance's
+  profile config; comparison is case-insensitive and uses the common short
+  vendor name (`postgres`, `mysql`, `mariadb`, `mssql`, `oracle`).
+- A mismatch, or a provider that advertises no `engine` at all, fails closed
+  with `E154` at `cds validate` (see
+  [Troubleshooting](../README.md#️-troubleshooting)); an unresolvable
+  `engineFrom` path (no config value and no schema default) fails with
+  `E041`.
+- Omitting `engineFrom` places no engine requirement, so existing modules and
+  profiles stay valid unless they explicitly opt in.
+- Like every other contract-spec field, `engine` flows into the consumer's
+  resolved binding (`${bindings.<name>.engine}`) during `cds plan`.
+
+The field is optional (`required: false`) in
+`shared/contracts/sql-database.yaml`; today `modules/warehouse/postgres` is
+the only `sql-database` provider and advertises `engine: postgres` on all of
+its database provides, and `modules/identity/keycloak` is the only consumer
+declaring `engineFrom`.
+
 ### Reverse-proxy dynamic routes
 
 A module providing the `reverse-proxy` contract (e.g. Traefik) exposes public

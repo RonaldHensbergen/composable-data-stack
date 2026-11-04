@@ -8,6 +8,39 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Two new Gate 3 tasks in the Kubernetes/Haven MVP runbook
+  (`docs/plan/k8s-haven-mvp.md`): G3.8 proves the GitOps handoff end to end —
+  render the Haven-shaped profile, commit the rendered chart to a
+  `gitops-target` repository, and verify Flux reconciles and corrects drift
+  (issue #1136) — and G3.9 proves workload SQL/py code runs from a Git
+  checkout via the bind mounts (`config.project.hostPath` for dbt,
+  `definitionsFile.hostPath`/`sharedData.hostPath` for Dagster, issue #1137).
+  The executable companion `docs/plan/k8s-haven-gate-checklist.md` is now
+  committed alongside, with both tasks as rows; Gate 3 exit criteria updated.
+- Enforced database-engine match for `sql-database` bindings (issue #682): a
+  `consumes` entry can now declare `engineFrom: spec.config.<path>` naming a
+  string field in the consumer's own config whose value is the engine it
+  expects the bound provider to speak (e.g. keycloak's
+  `metadataDatabase.driver`, which feeds `KC_DB`). At `cds validate` the
+  referenced value — from the profile config when set, otherwise from the
+  `configSchema` default at that path, so a defaulted driver is enforced too —
+  is compared case-insensitively with the provider contract spec's advertised
+  `engine` (a literal, or a pure `${config.<path>}` reference against the
+  producer's config). A mismatch, or a provider advertising no `engine` at
+  all, fails closed with the new `E154`; an unresolvable `engineFrom` path
+  fails with `E041`. `modules/warehouse/postgres` now advertises
+  `engine: postgres` on all four `sql-database` provides, and
+  `modules/identity/keycloak` declares
+  `engineFrom: spec.config.metadataDatabase.driver` on its `metadata-database`
+  consume entry, so binding Keycloak to a non-Postgres `sql-database` provider
+  now fails validation instead of silently misconfiguring `KC_DB`. The
+  `engine` field is added to `shared/contracts/sql-database.yaml`, the
+  `engineFrom` field to `cli/resources/module.schema.json`, and the README
+  troubleshooting table, `docs/modules.md`, and `docs/architecture.md` are
+  updated; unit tests in `tests/test_validator.py` and end-to-end guard tests
+  in `tests/test_keycloak_postgres_wiring.py` cover match, mismatch, missing
+  advertisement, config-reference, schema-default, and backward-compat cases.
+
 - Declared external egress for helm-target workloads under the generated
   default-deny NetworkPolicies (issue #1023): modules can now declare
   egress to destinations outside the plan via

@@ -12,7 +12,15 @@ an unresolved `${CDS_*}` placeholder for Docker Compose to fill in at
 runtime, per repo convention: secrets never resolve into plans or rendered
 Compose. Same bar as the dlt<->postgres wiring test
 (test_dlt_postgres_wiring.py).
+
+Also proves the issue #682 engine guard end to end: keycloak's
+metadata-database consume entry declares engineFrom, so binding it to a
+sql-database provider that advertises a non-Postgres engine fails
+`cds validate` with E154 (both when the profile leaves
+metadataDatabase.driver at its postgres default and when it sets one
+explicitly), while matching the advertised engine passes.
 """
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -397,6 +405,160 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                     compose["services"]["keycloak"]["ports"],
                     ["127.0.0.1:8180:8080"],
                 )
+
+
+class KeycloakEngineGuardTest(unittest.TestCase):
+    """
+    Issue #682 end-to-end guard: keycloak's metadata-database consume entry
+    declares `engineFrom: spec.config.metadataDatabase.driver`, so a bound
+    sql-database provider must advertise a matching `engine` in its contract
+    spec. A non-Postgres provider must fail `cds validate` with E154 -- with
+    the default driver (postgres) as well as with an explicitly configured
+    one -- and a matching engine must pass.
+    """
+
+    _FAKE_MYSQL_MODULE = {
+        "apiVersion": "cds/v1alpha1",
+        "kind": "Module",
+        "metadata": {"name": "fake-mysql", "category": "warehouse", "version": "0.1.0"},
+        "spec": {
+            "runtime": {
+                "type": "container",
+                "service": {
+                    "name": "fake-mysql",
+                    "ports": [
+                        {"name": "mysql", "containerPort": 3306, "protocol": "TCP"}
+                    ],
+                },
+            },
+            "configSchema": {"type": "object", "additionalProperties": False},
+            "provides": [
+                {
+                    "name": "sql-database",
+                    "contract": {
+                        "kind": "sql-database",
+                        "spec": {
+                            "host": "fake-mysql",
+                            "port": 3306,
+                            "database": "identity",
+                            "username": "identity",
+                            "password": "secrets.identity_db_password",
+                            "engine": "mysql",
+                        },
+                    },
+                }
+            ],
+            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+        },
+    }
+
+    def _write_fake_provider_profile(
+        self, root: Path, driver: str | None
+    ) -> tuple[Path, Path]:
+        # A scratch modules root holding a copy of the real keycloak module
+        # plus a fake sql-database provider advertising engine "mysql"; the
+        # profile binds keycloak to the fake provider.
+        modules_root = root / "modules"
+        shutil.copytree(
+            _REPO_ROOT / "modules" / "identity" / "keycloak",
+            modules_root / "identity" / "keycloak",
+        )
+        fake_dir = modules_root / "warehouse" / "fake-mysql"
+        fake_dir.mkdir(parents=True)
+        (fake_dir / "module.yaml").write_text(
+            yaml.safe_dump(self._FAKE_MYSQL_MODULE), encoding="utf-8"
+        )
+
+        metadata_database: dict = {"contractRef": "fake-mysql.sql-database"}
+        if driver is not None:
+            metadata_database["driver"] = driver
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "keycloak-engine-guard", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "fake-mysql",
+                        "source": "modules/warehouse/fake-mysql",
+                        "version": "0.1.0",
+                        "enabled": True,
+                        "config": {},
+                    },
+                    {
+                        "id": "keycloak",
+                        "source": "modules/identity/keycloak",
+                        "version": "0.1.0",
+                        "dependsOn": ["fake-mysql"],
+                        "enabled": True,
+                        "config": {
+                            "metadataDatabase": metadata_database,
+                            "adminUser": {
+                                "username": "admin",
+                                "passwordFrom": "secrets.keycloak_admin_password",
+                            },
+                        },
+                    },
+                ],
+                "secrets": {
+                    "provider": {"type": "env"},
+                    "values": {
+                        "identity_db_password": {
+                            "env": "CDS_IDENTITY_DB_PASSWORD",
+                            "required": True,
+                        },
+                        "keycloak_admin_password": {
+                            "env": "CDS_KEYCLOAK_ADMIN_PASSWORD",
+                            "required": True,
+                        },
+                    },
+                },
+            },
+        }
+        profile_dir = root / "profiles" / "local"
+        profile_dir.mkdir(parents=True)
+        profile_file = profile_dir / "profile.yaml"
+        profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
+        return profile_file, modules_root
+
+    def _validate(self, driver: str | None) -> list:
+        with tempfile.TemporaryDirectory() as root:
+            profile_file, modules_root = self._write_fake_provider_profile(
+                Path(root), driver
+            )
+            # CDS_MODULE_PATH is the root that contains the "modules/" tree,
+            # mirroring how the repo-root test wires "modules/..." sources.
+            with mock.patch.dict(
+                "os.environ", {"CDS_MODULE_PATH": str(modules_root.parent)}, clear=False
+            ):
+                return validate_profile(str(profile_file))
+
+    def test_non_postgres_provider_with_default_driver_fails_e154(self):
+        # The profile does not set metadataDatabase.driver, so the schema
+        # default "postgres" applies -- the guard must still catch the
+        # mismatch against the provider's advertised "mysql" engine.
+        diagnostics = self._validate(driver=None)
+        errors = [d for d in diagnostics if d.level == "error"]
+        e154 = [d for d in errors if d.code == "E154"]
+        self.assertEqual(len(e154), 1, msg=f"diagnostics: {diagnostics}")
+        self.assertIn('"postgres"', e154[0].message)
+        self.assertIn('"mysql"', e154[0].message)
+        self.assertIn("fake-mysql.sql-database", e154[0].message)
+
+    def test_non_postgres_provider_with_explicit_driver_fails_e154(self):
+        diagnostics = self._validate(driver="mariadb")
+        e154 = [d for d in diagnostics if d.level == "error" and d.code == "E154"]
+        self.assertEqual(len(e154), 1, msg=f"diagnostics: {diagnostics}")
+        self.assertIn('"mariadb"', e154[0].message)
+        self.assertIn('"mysql"', e154[0].message)
+
+    def test_matching_explicit_driver_passes_validation(self):
+        diagnostics = self._validate(driver="mysql")
+        self.assertEqual(
+            [d for d in diagnostics if d.level == "error"], [],
+            msg=f"unexpected validation errors: {diagnostics}",
+        )
 
 
 if __name__ == "__main__":
