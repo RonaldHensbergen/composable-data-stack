@@ -8,7 +8,6 @@ The format is based on Keep a Changelog.
 
 ### Added
 
-
 - Two new Gate 3 tasks in the Kubernetes/Haven MVP runbook
   (`docs/plan/k8s-haven-mvp.md`): G3.8 proves the GitOps handoff end to end —
   render the Haven-shaped profile, commit the rendered chart to a
@@ -41,7 +40,6 @@ The format is based on Keep a Changelog.
   updated; unit tests in `tests/test_validator.py` and end-to-end guard tests
   in `tests/test_keycloak_postgres_wiring.py` cover match, mismatch, missing
   advertisement, config-reference, schema-default, and backward-compat cases.
-
 
 - Declared external egress for helm-target workloads under the generated
   default-deny NetworkPolicies (issue #1023): modules can now declare
