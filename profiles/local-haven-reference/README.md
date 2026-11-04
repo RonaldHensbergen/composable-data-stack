@@ -23,12 +23,13 @@ CDS already has.
   application-data database another profile might add).
 - `keycloak` consumes that `sql-database` contract and runs in development
   mode (`start-dev`), providing `http-service` and `oidc-provider` contracts.
-- `traefik` fronts the stack with TLS 1.2+ enforcement and a file-provider
-  dynamic configuration ([`traefik/dynamic/keycloak.yml`](../../traefik/dynamic/keycloak.yml))
-  routing its `websecure` entrypoint to the Keycloak container over the
-  profile's Docker network. CDS has no automated contract-based wiring
-  between `reverse-proxy` and `http-service` contracts yet, so this routing
-  is hand-authored rather than resolved from the profile's contract graph.
+- `traefik` fronts the stack with TLS 1.2+ enforcement and routes its
+  `websecure` entrypoint to the Keycloak container over the profile's
+  Docker network. The route is resolved from the profile's contract graph
+  (issue #883): `config.routes` binds `keycloak.http-service` via
+  `contractRef`, and `cds render` generates the file-provider document
+  `traefik/dynamic/cds-routes-traefik.yml` from that binding -- no
+  hand-authored routing file is involved.
 
 ## Prerequisites
 
@@ -38,8 +39,9 @@ CDS already has.
   postgres and executed on first boot
 - `traefik/dynamic/` and `certs/traefik/` at the project root, bind-mounted
   into the `traefik` container (see [modules/integration/traefik](../../modules/integration/traefik));
-  `certs/traefik/` may stay empty, Traefik falls back to its own
-  auto-generated self-signed certificate
+  `cds render` writes the generated `cds-routes-<module>.yml` route
+  documents into `traefik/dynamic/`; `certs/traefik/` may stay empty,
+  Traefik falls back to its own auto-generated self-signed certificate
 
 ## Required secrets
 

@@ -33,11 +33,26 @@ spec:
         maximum: 65535
         default: 8080
         description: >
-          Host port published for keycloak's container port 8080. Bound to
+          Host port published for keycloak's container port. Bound to
           127.0.0.1 (localhost-only), matching modules/warehouse/postgres;
           the admin console is reachable from the local machine only. Use
           an SSH tunnel, port-forward, or a reverse-proxy/ingress module
-          for access beyond localhost.
+          for access beyond localhost. This is only the host-side publish:
+          in-network consumers (e.g. a reverse proxy generating routes from
+          the http-service contract, issue #883) dial containerPort.
+      containerPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 8080
+        description: >
+          TCP port the Keycloak container listens on inside the Compose
+          network (mirrors runtime.service.ports[].containerPort). The
+          http-service contract advertises this port as the backend port,
+          because a reverse proxy reaches the container on the shared
+          network, where the localhost-only httpPort publish does not
+          apply; the two may differ (the reference profile publishes
+          8081 on the host while the container stays on 8080).
       webServer:
         type: object
         additionalProperties: false
@@ -140,9 +155,13 @@ spec:
       contract:
         kind: http-service
         spec:
-          portFrom: spec.config.httpPort
+          portFrom: spec.config.containerPort
           host: ${service.dns}
-          port: ${config.httpPort}
+          # The backend port is the in-network container port, not the
+          # localhost host publish (httpPort): a reverse proxy generating
+          # routes from this contract (issue #883) dials the container on
+          # the shared Compose network, where httpPort does not apply.
+          port: ${config.containerPort}
           protocol: http
     - name: oidc-provider
       contract:
@@ -199,7 +218,7 @@ spec:
               # (#579/#581), so hostname-strict stays relaxed here.
               exec /opt/keycloak/bin/kc.sh start --http-enabled=true --hostname-strict=false $$IMPORT_REALM
           ports:
-            - "127.0.0.1:${config.httpPort}:8080"
+            - "127.0.0.1:${config.httpPort}:${config.containerPort}"
           environment:
             KC_DB: "${config.metadataDatabase.driver}"
             KC_DB_URL_HOST: "${bindings.metadata-database.host}"

@@ -8,6 +8,36 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Provider-neutral HTTP routing contract wiring for reverse proxies (issue
+  #883): a reverse-proxy module (e.g. `modules/integration/traefik`) now
+  declares a list-valued `consumes` entry (`mappedFrom: spec.config.routes`)
+  of kind `http-service`, and each `config.routes` entry binds the routed
+  service with `contractRef: <module-id>.<contract-name>` instead of a
+  `target` module id. The planner resolves every route's binding into the
+  plan's `consumes` map, `cds validate` checks each ref like any other
+  binding (E041/E042 at a per-route path), and the compose renderer
+  generates the Traefik file-provider document
+  (`traefik/dynamic/cds-routes-<module>.yml`) from those resolved bindings
+  -- the backend host/port/serviceName come from the bound contract, so no
+  service name is hardcoded and no hand-written routing file is needed.
+  Route entries compose a public rule from an optional `host` and an
+  optional `pathPrefix` (at least one required; the bound `http-service`
+  contract may advertise a default `pathPrefix`), rendered as `Host(...)`,
+  `PathPrefix(...)`, or both joined with `&&`; invalid rules, duplicate
+  rules, unknown entrypoints, and undeclared certificate aliases still fail
+  closed with E136, and the helm target derives the same route targets as
+  NetworkPolicy edges from the `contractRef` (W129).
+  `shared/contracts/http-service.yaml` documents the consume-side routing
+  flow and the new optional `pathPrefix` field;
+  `shared/contracts/reverse-proxy.yaml` documents that providers route
+  bound `http-service` contracts. `profiles/local-haven-reference` now
+  routes its TLS entrypoint to Keycloak via
+  `contractRef: keycloak.http-service` and the static
+  `traefik/dynamic/keycloak.yml` is deleted; `modules/identity/keycloak`
+  advertises the in-network container port (`config.containerPort`, default
+  8080) as the http-service backend port instead of the localhost host
+  publish, so a generated route dials the port the container actually
+  listens on. Validator/planner/renderer/k8s tests and docs updated.
 - Two new Gate 3 tasks in the Kubernetes/Haven MVP runbook
   (`docs/plan/k8s-haven-mvp.md`): G3.8 proves the GitOps handoff end to end —
   render the Haven-shaped profile, commit the rendered chart to a

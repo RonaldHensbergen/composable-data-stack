@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from typing import Any
 
 # Same dotted "config.<path>==<value>" vocabulary enforced by module.schema.json's
@@ -21,6 +22,26 @@ def parse_contract_ref(value: str) -> tuple[str, str] | None:
     if len(parts) != 2 or not parts[0] or not parts[1]:
         return None
     return parts[0], parts[1]
+
+
+def iter_consume_bindings(consumes: Any) -> Iterator[tuple[str, int | None, dict[str, Any]]]:
+    """
+    Yield (consume_name, item_index, binding) triples from a plan module's
+    resolved `consumes` map. List-valued entries (issue #883: a reverse
+    proxy's config.routes resolves to a list of contractRef bindings) yield
+    one triple per entry with its index; single-object entries yield index
+    None. Non-dict values are skipped so plans loaded from files cannot
+    crash the iteration.
+    """
+    if not isinstance(consumes, dict):
+        return
+    for name, value in consumes.items():
+        if isinstance(value, list):
+            for item_index, item in enumerate(value):
+                if isinstance(item, dict):
+                    yield name, item_index, item
+        elif isinstance(value, dict):
+            yield name, None, value
 
 
 def resolve_path(obj: dict[str, Any], path: str) -> Any:

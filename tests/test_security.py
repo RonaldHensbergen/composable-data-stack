@@ -1234,6 +1234,35 @@ class PlaintextExposureHelpersTest(unittest.TestCase):
         }
         self.assertEqual(_plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), {"api"})
 
+    def test_fronted_by_tls_reverse_proxy_counts_list_valued_route_bindings(self):
+        # issue #883: a reverse proxy's config.routes resolves to a LIST of
+        # bindings; each route-bound plaintext http-service must count as
+        # fronted, exactly like a single-object consume entry.
+        plan = {
+            "modules": [
+                {
+                    "id": "proxy",
+                    "provides": {"rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}},
+                    "consumes": {
+                        "routes": [
+                            {
+                                "contractRef": "api.http-service",
+                                "contract": {"kind": "http-service", "spec": {"protocol": "http"}},
+                            },
+                            "not-a-dict",
+                            {
+                                "contractRef": "other.http-service",
+                                "contract": {"kind": "http-service", "spec": {"protocol": "http"}},
+                            },
+                        ],
+                    },
+                },
+            ]
+        }
+        self.assertEqual(
+            _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), {"api", "other"}
+        )
+
     def test_port_is_non_local_host_exposure_by_type(self):
         self.assertTrue(_port_is_non_local_host_exposure(8080))
         self.assertFalse(_port_is_non_local_host_exposure("127.0.0.1:8080"))

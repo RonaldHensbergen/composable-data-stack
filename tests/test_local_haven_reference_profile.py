@@ -78,6 +78,42 @@ class LocalHavenReferenceProfileTest(unittest.TestCase):
         # scalar type the renderer happens to emit.
         self.assertEqual(str(keycloak_env["KC_DB_URL_PORT"]), "5432")
 
+    def test_traefik_route_is_generated_from_the_keycloak_binding(self) -> None:
+        # issue #883: the profile binds keycloak.http-service through the
+        # traefik module's routes consume entry; the planner resolves it and
+        # the renderer generates the file-provider document from the bound
+        # contract -- the profile ships no hand-written routing file.
+        plan, plan_diags = build_plan(str(PROFILE_PATH), env_file=str(self.env_file))
+        self.assertIsNotNone(plan)
+        self.assertEqual([d for d in plan_diags if d.level == "error"], [])
+
+        traefik = next(m for m in plan["modules"] if m["id"] == "traefik")
+        bound = traefik["consumes"]["routes"]
+        self.assertEqual([b["contractRef"] for b in bound], ["keycloak.http-service"])
+        self.assertEqual(bound[0]["contract"]["spec"]["host"], "keycloak")
+        # The backend port is keycloak's in-network container port, not the
+        # localhost host publish (config.httpPort: 8081 in this profile).
+        self.assertEqual(str(bound[0]["contract"]["spec"]["port"]), "8080")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output = Path(tmpdir) / "docker-compose.yml"
+            _, render_diags = render_compose(plan, output_path=str(output), env_file=str(self.env_file))
+            self.assertEqual([d for d in render_diags if d.level == "error"], [])
+            routes_file = Path(tmpdir) / "traefik" / "dynamic" / "cds-routes-traefik.yml"
+            self.assertTrue(routes_file.is_file(), f"missing generated routes file {routes_file}")
+            document = yaml.safe_load(routes_file.read_text(encoding="utf-8"))
+            router = document["http"]["routers"]["cds-route-0-default"]
+            self.assertEqual(router["rule"], "PathPrefix(`/`)")
+            self.assertEqual(router["entryPoints"], ["websecure"])
+            self.assertEqual(router["tls"], {})
+            self.assertEqual(
+                document["http"]["services"]["cds-service-keycloak"]["loadBalancer"]["servers"],
+                [{"url": "http://keycloak:8080"}],
+            )
+
+        # No hand-written routing file remains in the repository.
+        self.assertFalse((REPO_ROOT / "traefik" / "dynamic" / "keycloak.yml").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

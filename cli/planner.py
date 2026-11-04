@@ -838,6 +838,91 @@ def resolve_consumed_contracts(
             )
             continue
 
+        def _resolve_one_ref(ref_value: Any, ref_path: str) -> dict[str, Any] | None:
+            """Resolve one contractRef string to its {contractRef, contract} binding."""
+            parsed = parse_contract_ref(ref_value) if isinstance(ref_value, str) else None
+            if parsed is None:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E041",
+                        message=f'Invalid contract ref "{ref_value}".',
+                        path=ref_path,
+                    )
+                )
+                return None
+
+            producer_id, provide_name = parsed
+            producer = modules_by_id.get(producer_id)
+            if producer is None:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E041",
+                        message=f'Unknown producer module "{producer_id}".',
+                        path=ref_path,
+                    )
+                )
+                return None
+
+            provider_contracts = resolved_contracts_by_module.get(producer_id, {})
+            matched = provider_contracts.get(provide_name)
+            if matched is None:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E041",
+                        message=f'Module "{producer_id}" does not provide "{provide_name}".',
+                        path=ref_path,
+                    )
+                )
+                return None
+
+            return {
+                "contractRef": ref_value,
+                "contract": deepcopy(matched),
+            }
+
+        consume_path = f'module:{inst["id"]}.consumes.{consume_name}'
+
+        if isinstance(binding, list):
+            # List-valued binding (issue #883): the mappedFrom path resolves
+            # to a list of route-style entries, each carrying its own
+            # contractRef (e.g. a reverse proxy's config.routes bound to
+            # several http-service providers). Each entry resolves exactly
+            # like a single binding; the resolved consume value is the list
+            # of bindings in config order.
+            entries: list[dict[str, Any]] = []
+            for item_index, item in enumerate(binding):
+                item_path = f"{consume_path}[{item_index}]"
+                if not isinstance(item, dict) or "contractRef" not in item:
+                    if not effective_required and not item:
+                        continue
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E041",
+                            message=f'Binding for "{consume_name}" entry {item_index} must contain "contractRef".',
+                            path=item_path,
+                        )
+                    )
+                    continue
+                resolved_item = _resolve_one_ref(item["contractRef"], item_path)
+                if resolved_item is not None:
+                    entries.append(resolved_item)
+            if entries:
+                resolved[consume_name] = entries
+            elif effective_required:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E041",
+                        message=f'Binding for "{consume_name}" must contain at least one "contractRef".',
+                        path=consume_path,
+                    )
+                )
+            continue
+
         if not isinstance(binding, dict) or "contractRef" not in binding:
             if not effective_required and not binding:
                 continue
@@ -846,53 +931,14 @@ def resolve_consumed_contracts(
                     level="error",
                     code="E041",
                     message=f'Binding for "{consume_name}" must contain "contractRef".',
-                    path=f'module:{inst["id"]}.consumes.{consume_name}',
+                    path=consume_path,
                 )
             )
             continue
 
-        parsed = parse_contract_ref(binding["contractRef"])
-        if parsed is None:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E041",
-                    message=f'Invalid contract ref "{binding["contractRef"]}".',
-                    path=f'module:{inst["id"]}.consumes.{consume_name}',
-                )
-            )
-            continue
-
-        producer_id, provide_name = parsed
-        producer = modules_by_id.get(producer_id)
-        if producer is None:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E041",
-                    message=f'Unknown producer module "{producer_id}".',
-                    path=f'module:{inst["id"]}.consumes.{consume_name}',
-                )
-            )
-            continue
-
-        provider_contracts = resolved_contracts_by_module.get(producer_id, {})
-        matched = provider_contracts.get(provide_name)
-        if matched is None:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E041",
-                    message=f'Module "{producer_id}" does not provide "{provide_name}".',
-                    path=f'module:{inst["id"]}.consumes.{consume_name}',
-                )
-            )
-            continue
-
-        resolved[consume_name] = {
-            "contractRef": binding["contractRef"],
-            "contract": deepcopy(matched),
-        }
+        resolved_ref = _resolve_one_ref(binding["contractRef"], consume_path)
+        if resolved_ref is not None:
+            resolved[consume_name] = resolved_ref
 
     return resolved
 
