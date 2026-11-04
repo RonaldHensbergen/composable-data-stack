@@ -803,7 +803,9 @@ def list_modules(module_root: Path | None = None) -> list[str]:
 
 
 @contextmanager
-def _resolve_list_source_roots(remote: str | None, ref: str, local: str | None):
+def _resolve_list_source_roots(
+    remote: str | None, ref: str | None, local: str | None, cli_version: str | None = None
+):
     """Yield the (profiles_root, modules_root) pair `cds list` should scan.
 
     With no --remote/--local, this is just the local project's roots. With
@@ -816,7 +818,7 @@ def _resolve_list_source_roots(remote: str | None, ref: str, local: str | None):
         yield get_profiles_root(), get_modules_root()
         return
     with _prepare_source_repository(
-        remote, ref, local, allowed_sources=load_allowed_get_sources()
+        remote, ref, local, allowed_sources=load_allowed_get_sources(), cli_version=cli_version
     ) as source_repo:
         yield source_repo / "profiles", source_repo / "modules"
 
@@ -852,8 +854,12 @@ def _add_remote_source_args(subparser: argparse.ArgumentParser) -> None:
     )
     subparser.add_argument(
         "--ref",
-        default="main",
-        help="Branch, tag, or commit to fetch from --remote (default: main)",
+        default=None,
+        help=(
+            "Branch, tag, or commit to inspect --remote at (default: the release "
+            "tag matching the installed cds version, e.g. v0.15.0, falling back "
+            "to main when that tag does not exist)"
+        ),
     )
     subparser.add_argument(
         "--local",
@@ -1808,8 +1814,13 @@ def _run() -> int:
     )
     get_parser.add_argument(
         "--ref",
-        default="main",
-        help="Branch, tag, or commit to fetch from --remote (default: main)",
+        default=None,
+        help=(
+            "Branch, tag, or commit to fetch from --remote (default: the release "
+            "tag matching the installed cds version, e.g. v0.15.0, so fetched "
+            "assets match the running CLI's schema; falls back to main when that "
+            "tag does not exist)"
+        ),
     )
     get_parser.add_argument(
         "--commit",
@@ -2754,6 +2765,7 @@ def _run() -> int:
                 dry_run=args.dry_run,
                 allowed_sources=load_allowed_get_sources(),
                 commit=args.commit,
+                cli_version=_cds_version(),
             )
         except GetError as exc:
             print(f"ERROR {exc}", file=sys.stderr)
@@ -3149,7 +3161,9 @@ def _run() -> int:
 
     if args.command == "list":
         try:
-            with _resolve_list_source_roots(args.remote, args.ref, args.local) as (profile_root, module_root):
+            with _resolve_list_source_roots(
+                args.remote, args.ref, args.local, cli_version=_cds_version()
+            ) as (profile_root, module_root):
                 if args.list_command == "profiles":
                     for profile_name in list_profiles(profile_root):
                         print(profile_name)

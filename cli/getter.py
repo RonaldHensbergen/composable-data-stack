@@ -29,6 +29,23 @@ from .utils import _atomic_write
 DEFAULT_REMOTE = "RonaldHensbergen/composable-data-stack"
 DEFAULT_REF = "main"
 
+_RELEASE_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+def cli_version_ref(cli_version: str | None) -> str | None:
+    """Map an installed CLI version to its release tag (e.g. 0.15.0 -> v0.15.0).
+
+    Returns None for unknown or non-release versions: dev/local builds such
+    as 0.16.0.dev3 or 0.16.0+build have no published tag, so callers fall
+    back to DEFAULT_REF for them.
+    """
+    if not cli_version:
+        return None
+    version = cli_version.strip().lstrip("v")
+    if not _RELEASE_VERSION_PATTERN.match(version):
+        return None
+    return f"v{version}"
+
 _GITHUB_URL_PATTERN = re.compile(
     r"^(?:https?://|git@)?(?:www\.)?github\.com[/:](?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
 )
@@ -118,19 +135,20 @@ def fetch_profile(
     profile: str,
     *,
     remote: str | None = None,
-    ref: str = DEFAULT_REF,
+    ref: str | None = None,
     local: str | None = None,
     destination_root: Path | None = None,
     force: bool = False,
     dry_run: bool = False,
     allowed_sources: Sequence[str] | None = None,
     commit: str | None = None,
+    cli_version: str | None = None,
 ) -> tuple[list[CopyAction], Path, list[str]]:
     target_root = (destination_root or Path.cwd()).expanduser().resolve()
 
     with _prepare_source(
-        remote, ref, local, allowed_sources=allowed_sources, commit=commit
-    ) as (source_repo, resolved_commit):
+        remote, ref, local, allowed_sources=allowed_sources, commit=commit, cli_version=cli_version
+    ) as (source_repo, resolved_commit, resolved_ref):
         profile_path = _resolve_source_profile_path(source_repo, profile)
         asset_roots = _collect_asset_roots(source_repo, profile_path)
 
@@ -160,7 +178,7 @@ def fetch_profile(
             source_repo=source_repo,
             profile_path=profile_path,
             remote=remote,
-            ref=ref,
+            ref=resolved_ref,
             local=local,
             actions=actions,
             asset_roots=asset_roots,
@@ -295,7 +313,7 @@ def _update_tracked_profile(
         local_source,
         allowed_sources=allowed_sources,
         commit=pinned_commit,
-    ) as (source_repo, resolved_commit):
+    ) as (source_repo, resolved_commit, _resolved_ref):
         source_profile = entry.get("sourceProfile")
         if not isinstance(source_profile, str) or not source_profile:
             source_profile = requested_profile
@@ -557,11 +575,12 @@ def format_get_plan(
 @contextmanager
 def _prepare_source_repository(
     remote: str | None,
-    ref: str,
+    ref: str | None,
     local: str | None,
     *,
     allowed_sources: Sequence[str] | None = None,
     commit: str | None = None,
+    cli_version: str | None = None,
 ) -> Iterator[Path]:
     """Resolve the source repository containing a `profiles/` tree.
 
@@ -569,28 +588,33 @@ def _prepare_source_repository(
     yields only the repository path.
     """
     with _prepare_source(
-        remote, ref, local, allowed_sources=allowed_sources, commit=commit
-    ) as (source_repo, _resolved_commit):
+        remote, ref, local, allowed_sources=allowed_sources, commit=commit, cli_version=cli_version
+    ) as (source_repo, _resolved_commit, _resolved_ref):
         yield source_repo
 
 
 @contextmanager
 def _prepare_source(
     remote: str | None,
-    ref: str,
+    ref: str | None,
     local: str | None,
     *,
     allowed_sources: Sequence[str] | None = None,
     commit: str | None = None,
-) -> Iterator[tuple[Path, str | None]]:
-    """Resolve the source repository and the commit it was fetched at.
+    cli_version: str | None = None,
+) -> Iterator[tuple[Path, str | None, str | None]]:
+    """Resolve the source repository, the commit it was fetched at, and the ref used.
 
     By design, `cds get` downloads its source from GitHub: a bare `remote`
     defaults to this project's upstream repository, and any `owner/repo` or
-    `github.com/...` value is fetched as a tarball for `ref`. Pass `local` to
-    explicitly use an existing local directory instead (e.g. an offline/dev
-    checkout) -- `remote`, a non-default `ref` and `commit` are rejected in
-    that case.
+    `github.com/...` value is fetched as a tarball for `ref`. A `ref` of None
+    means "not specified": it defaults to the release tag matching the
+    installed CLI version (`cli_version`, e.g. v0.15.0) so fetched assets are
+    schema-compatible with the running `cds`, falling back to DEFAULT_REF
+    when the version is unknown or the tag does not exist upstream (e.g. a
+    dev build whose version has no tag yet). Pass `local` to explicitly use
+    an existing local directory instead (e.g. an offline/dev checkout) --
+    `remote`, a non-default `ref` and `commit` are rejected in that case.
 
     `allowed_sources` optionally restricts which `owner`/`owner/repo` may be
     fetched, and `commit` pins the fetched archive to a commit SHA (full or
@@ -601,11 +625,11 @@ def _prepare_source(
     if local is not None:
         if remote is not None:
             raise GetError("Specify only one of --remote and --local")
-        if ref != DEFAULT_REF:
+        if ref is not None and ref != DEFAULT_REF:
             raise GetError(f"--ref {ref!r} is ignored with --local: specify only one of --local and --ref")
         if pin is not None:
             raise GetError("--commit applies only to GitHub sources: specify only one of --local and --commit")
-        yield _validate_source_repository(Path(local).expanduser()), None
+        yield _validate_source_repository(Path(local).expanduser()), None, None
         return
 
     candidate = remote or DEFAULT_REMOTE
@@ -618,10 +642,30 @@ def _prepare_source(
         )
     owner, repo = parsed
     _check_source_allowed(owner, repo, allowed_sources)
+    auto_ref = ref is None
+    if ref is None:
+        ref = cli_version_ref(cli_version) or DEFAULT_REF
     with tempfile.TemporaryDirectory(prefix="cds-get-") as tmp_dir:
-        extracted, resolved_commit = _download_github_repository(
-            owner, repo, ref, Path(tmp_dir)
-        )
+        try:
+            extracted, resolved_commit = _download_github_repository(
+                owner, repo, ref, Path(tmp_dir)
+            )
+        except GetError as exc:
+            # A defaulted version tag may not exist upstream (dev builds,
+            # forks without the tags); fall back to DEFAULT_REF once. An
+            # explicit --ref still fails closed.
+            if auto_ref and ref != DEFAULT_REF and "HTTP 404" in str(exc):
+                print(
+                    f"Note: {owner}/{repo} has no release tag {ref}; "
+                    f"falling back to {DEFAULT_REF!r}.",
+                    file=sys.stderr,
+                )
+                ref = DEFAULT_REF
+                extracted, resolved_commit = _download_github_repository(
+                    owner, repo, ref, Path(tmp_dir)
+                )
+            else:
+                raise
         if pin is not None:
             if resolved_commit is None:
                 raise GetError(
@@ -635,7 +679,7 @@ def _prepare_source(
                     f"{owner}/{repo}@{ref} resolved to commit {resolved_commit}, "
                     f"which does not match the pinned --commit {pin}"
                 )
-        yield _validate_source_repository(extracted), resolved_commit
+        yield _validate_source_repository(extracted), resolved_commit, ref
 
 
 def _parse_github_remote(remote: str) -> tuple[str, str] | None:
@@ -1303,7 +1347,7 @@ def _write_tracking_manifest(
     source_repo: Path,
     profile_path: Path,
     remote: str | None,
-    ref: str,
+    ref: str | None,
     local: str | None,
     actions: list[CopyAction],
     asset_roots: list[Path],

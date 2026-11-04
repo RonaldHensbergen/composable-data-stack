@@ -86,6 +86,20 @@ The format is based on Keep a Changelog.
   the W129 cases, and the gate check. Documented in `docs/kubernetes.md` and
   the README troubleshooting table.
 
+### Changed
+
+- `cds get` (and `cds list --remote`) now default `--ref` to the release tag
+  matching the installed CLI version (e.g. `v0.15.0` for cds 0.15.0) instead
+  of `main`, so a fetched profile and its modules are validated by the same
+  bundled schema as the running `cds` and version-skew failures like
+  `E021 ... 'enabledFrom' was unexpected` cannot occur by default. When the
+  version is unknown, is a dev/local build, or the tag does not exist
+  upstream (e.g. a fork without tags), the default falls back to `main` with
+  a note on stderr. An explicit `--ref <branch|tag|sha>` is unchanged and
+  still fails closed on 404. The resolved revision is recorded in
+  `.cds/get-manifest.json`, so `cds update` keeps the layout on that tag;
+  re-run `cds get --ref main` to move to `main`.
+
 ### Fixed
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source

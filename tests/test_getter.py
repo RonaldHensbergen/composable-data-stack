@@ -13,10 +13,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from cli.getter import (
+    DEFAULT_REF,
     DEFAULT_REMOTE,
     GetError,
     _extract_dockerfile_instruction_sources,
     _parse_github_remote,
+    cli_version_ref,
     fetch_profile,
     format_get_plan,
     parse_allowed_sources,
@@ -1669,6 +1671,150 @@ class GitHubRemoteTest(unittest.TestCase):
                 )
             self.assertIn("--ref", str(ctx.exception))
             self.assertIn("--local", str(ctx.exception))
+
+
+class CliVersionDefaultRefTest(unittest.TestCase):
+    """`cds get` defaults --ref to the release tag matching the installed cds
+    version, so fetched assets match the running CLI's bundled schema."""
+
+    def _make_tarball(self, root: Path) -> bytes:
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            archive.add(root, arcname="owner-demo-repo-abcdef1")
+        return buffer.getvalue()
+
+    def _fake_response(self, payload: bytes):
+        class _FakeResponse:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, *exc_info):
+                return False
+
+            def read(self_inner):
+                return payload
+
+        return _FakeResponse()
+
+    def test_cli_version_ref_maps_release_versions_only(self) -> None:
+        self.assertEqual(cli_version_ref("0.15.0"), "v0.15.0")
+        self.assertEqual(cli_version_ref("v0.15.0"), "v0.15.0")
+        self.assertEqual(cli_version_ref(" 0.15.0 "), "v0.15.0")
+        self.assertIsNone(cli_version_ref(None))
+        self.assertIsNone(cli_version_ref(""))
+        self.assertIsNone(cli_version_ref("unknown"))
+        self.assertIsNone(cli_version_ref("0.16.0.dev3"))
+        self.assertIsNone(cli_version_ref("0.16.0+local"))
+
+    def test_fetch_defaults_to_cli_version_tag(self) -> None:
+        from urllib.request import Request
+
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            archive_bytes = self._make_tarball(source_root)
+
+            captured_urls: list[str] = []
+
+            def _fake_urlopen(request, timeout=30):
+                assert isinstance(request, Request)
+                captured_urls.append(request.full_url)
+                return self._fake_response(archive_bytes)
+
+            with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
+                _actions, manifest_path, _ = fetch_profile(
+                    "demo",
+                    destination_root=destination_root,
+                    cli_version="0.15.0",
+                )
+
+            self.assertEqual(
+                captured_urls,
+                [f"https://api.github.com/repos/{DEFAULT_REMOTE}/tarball/v0.15.0"],
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = manifest["profiles"]["demo"]
+            self.assertEqual(entry["ref"], "v0.15.0")
+
+    def test_fetch_falls_back_to_main_when_version_tag_missing(self) -> None:
+        from urllib.error import HTTPError
+
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            archive_bytes = self._make_tarball(source_root)
+
+            captured_urls: list[str] = []
+            calls = {"n": 0}
+
+            def _fake_urlopen(request, timeout=30):
+                captured_urls.append(request.full_url)
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise HTTPError(request.full_url, 404, "Not Found", {}, None)
+                return self._fake_response(archive_bytes)
+
+            with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
+                _actions, manifest_path, _ = fetch_profile(
+                    "demo",
+                    destination_root=destination_root,
+                    cli_version="0.16.0",
+                )
+
+            self.assertEqual(
+                captured_urls,
+                [
+                    f"https://api.github.com/repos/{DEFAULT_REMOTE}/tarball/v0.16.0",
+                    f"https://api.github.com/repos/{DEFAULT_REMOTE}/tarball/{DEFAULT_REF}",
+                ],
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            entry = manifest["profiles"]["demo"]
+            self.assertEqual(entry["ref"], DEFAULT_REF)
+
+    def test_fetch_without_cli_version_uses_main(self) -> None:
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+            archive_bytes = self._make_tarball(source_root)
+
+            captured_urls: list[str] = []
+
+            def _fake_urlopen(request, timeout=30):
+                captured_urls.append(request.full_url)
+                return self._fake_response(archive_bytes)
+
+            with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
+                fetch_profile("demo", destination_root=destination_root, cli_version="unknown")
+
+            self.assertEqual(
+                captured_urls,
+                [f"https://api.github.com/repos/{DEFAULT_REMOTE}/tarball/{DEFAULT_REF}"],
+            )
+
+    def test_explicit_ref_wins_over_cli_version_and_fails_closed_on_404(self) -> None:
+        from urllib.error import HTTPError
+
+        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+            source_root = Path(source_dir)
+            destination_root = Path(dest_dir)
+            _make_source_repo(source_root)
+
+            def _fake_urlopen(request, timeout=30):
+                raise HTTPError(request.full_url, 404, "Not Found", {}, None)
+
+            with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
+                with self.assertRaises(GetError) as ctx:
+                    fetch_profile(
+                        "demo",
+                        ref="v9.9.9",
+                        destination_root=destination_root,
+                        cli_version="0.15.0",
+                    )
+            self.assertIn("HTTP 404", str(ctx.exception))
 
 
 class GetSourceTrustTest(unittest.TestCase):
