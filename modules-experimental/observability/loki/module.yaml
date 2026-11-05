@@ -85,9 +85,8 @@ spec:
           read_only: true
           cap_drop:
             - ALL
-          # Both pinned images fail to exec with no-new-privileges in this
-          # Docker runtime; capability dropping and read-only filesystems
-          # remain enabled.
+          security_opt:
+            - no-new-privileges:true
           pids_limit: 128
           tmpfs:
             - /tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700
@@ -114,6 +113,8 @@ spec:
           read_only: true
           cap_drop:
             - ALL
+          security_opt:
+            - no-new-privileges:true
           pids_limit: 256
           tmpfs:
             - /tmp:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700
