@@ -59,7 +59,7 @@ from .renderer import (
     _validate_provided_contract_hosts_against,
     apply_production_gates,
 )
-from .resolver import parse_contract_ref
+from .resolver import iter_consume_bindings, parse_contract_ref
 from .secret_leak import (
     check_generated_text,
     declared_secret_env_names,
@@ -2228,7 +2228,7 @@ def _reverse_proxy_route_edges(
                     f'Reverse-proxy route "{path}" cannot be derived as a '
                     f"NetworkPolicy edge ({problem}), so the default-deny policy "
                     f'of proxy "{proxy_id}" keeps the target unreachable. Fix the '
-                    "route's target and its http-service contract port, or add a "
+                    "route's contractRef and its http-service contract port, or add a "
                     "custom networkPolicy.egress rule."
                 ),
                 path=path,
@@ -2269,9 +2269,9 @@ def _resolve_proxy_routes(
     """
     Resolve a module's `config.routes` entries to their target modules and
     http-service provide entries, mirroring the compose route generation
-    (issue #581): only modules providing a `reverse-proxy` contract have
-    routes, a bare module id targets that module's first http-service
-    provide, and `<module-id>.<contract-name>` picks a named one.
+    (issues #581, #883): only modules providing a `reverse-proxy` contract
+    have routes, and each entry binds one `http-service` provide through
+    its `contractRef` (`<module-id>.<contract-name>`).
 
     Each entry yields `(route_index, target_module_id, http_entry, problem)`;
     `problem` is None when the route resolves and otherwise says why it
@@ -2294,13 +2294,12 @@ def _resolve_proxy_routes(
     for route_index, route in enumerate(routes):
         if not isinstance(route, dict):
             continue
-        target = route.get("target")
-        parsed = parse_contract_ref(target) if isinstance(target, str) else None
-        target_module_id = parsed[0] if parsed else target
-        provide_name = parsed[1] if parsed else None
-        if not isinstance(target_module_id, str) or not target_module_id:
-            resolved.append((route_index, "", None, "names no target module"))
+        contract_ref = route.get("contractRef")
+        parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+        if parsed is None:
+            resolved.append((route_index, "", None, "names no valid contractRef"))
             continue
+        target_module_id, provide_name = parsed
         target_module = modules_by_id.get(target_module_id)
         if target_module is None:
             resolved.append(
@@ -2724,23 +2723,26 @@ def _check_binding_services(
     available_services = set(service_names.values())
     diagnostics: list[Diagnostic] = []
     for module in modules:
-        for consume_name, consume in (module.get("consumes") or {}).items():
+        # List-valued consume entries (issue #883: reverse-proxy routes) are
+        # flattened; each route binding is checked like a single binding.
+        for consume_name, item_index, consume in iter_consume_bindings(module.get("consumes")):
             contract_ref = str(consume.get("contractRef", ""))
             provider_id = contract_ref.split(".", 1)[0]
             if provider_id not in module_ids:
                 continue
             host = ((consume.get("contract") or {}).get("spec") or {}).get("host")
             if host not in available_services:
+                entry = f"{consume_name}[{item_index}]" if item_index is not None else consume_name
                 diagnostics.append(
                     Diagnostic(
                         level="error",
                         code="E084",
                         message=(
-                            f'Contract "{module["id"]}.{consume_name}" binds to module '
+                            f'Contract "{module["id"]}.{entry}" binds to module '
                             f'"{provider_id}", but host "{host}" is not exposed by a '
                             "renderable Kubernetes Service."
                         ),
-                        path=f"module:{module['id']}.consumes.{consume_name}",
+                        path=f"module:{module['id']}.consumes.{entry}",
                     )
                 )
     return diagnostics

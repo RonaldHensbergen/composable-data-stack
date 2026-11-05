@@ -132,10 +132,14 @@ spec:
         type: array
         default: []
         description: >-
-          Dynamic reverse-proxy routes rendered by CDS from the profile's
-          bindings (issue #581): each entry exposes one http-service
-          provider through this proxy's file provider, without Docker
-          label-based autodiscovery. CDS generates
+          Dynamic reverse-proxy routes rendered by CDS from the plan's
+          contract bindings (issue #883): each entry binds one http-service
+          provide through `contractRef` -- resolved like every other consume
+          binding via the `routes` consume entry below, so a bad ref fails
+          at `cds validate` with E041/E042 -- and exposes it through this
+          proxy's file provider, without Docker label-based autodiscovery
+          and without hardcoding the backend's service name (the backend
+          host/port come from the bound contract). CDS generates
           traefik/dynamic/cds-routes-<instance-id>.yml next to the rendered
           compose file, and removes it again when the routes are removed.
           Routes are generated for the Docker Compose render target only;
@@ -144,8 +148,21 @@ spec:
         items:
           type: object
           additionalProperties: false
-          required: [host, target]
+          required: [contractRef]
+          anyOf:
+            - required: [host]
+            - required: [pathPrefix]
           properties:
+            contractRef:
+              type: string
+              minLength: 1
+              pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+              description: >-
+                Binding to the http-service contract this route exposes:
+                <module-id>.<contract-name> of a profile instance, in the
+                same vocabulary as every other contractRef. The proxy
+                routes to that service's host/port from the resolved
+                contract, so no service name is hardcoded here.
             host:
               type: string
               minLength: 1
@@ -153,19 +170,17 @@ spec:
               description: >-
                 Public hostname the route matches (Traefik Host rule).
                 Restricted to DNS-safe characters so a typo cannot inject
-                rule syntax.
-            target:
+                rule syntax. At least one of host/pathPrefix is required.
+            pathPrefix:
               type: string
-              minLength: 1
-              pattern: "^[a-z0-9-]+(\\.[a-z0-9-]+)?$"
+              pattern: "^/[A-Za-z0-9._~/-]*$"
               description: >-
-                Module id of a profile instance that provides an
-                http-service contract; the proxy routes to that service's
-                host/port from the resolved contract. When the target
-                exposes several http-service contracts, name the one to
-                route to as <module-id>.<contract-name> (same vocabulary
-                as contractRef); a bare module id routes to its first
-                http-service contract.
+                Optional public path prefix the route matches (Traefik
+                PathPrefix rule), combined with host as
+                Host(`<host>`) && PathPrefix(`<pathPrefix>`). Defaults to
+                the bound contract's advertised pathPrefix when the
+                provider sets one. At least one of host/pathPrefix is
+                required.
             entryPoints:
               type: array
               items:
@@ -199,6 +214,19 @@ spec:
           watch:
             type: boolean
             default: true
+
+  consumes:
+    # Each config.routes entry is one binding to an http-service provide
+    # (issue #883): the profile names the routed service with
+    # routes[].contractRef, and the renderer generates the file-provider
+    # route document from these resolved bindings -- no hardcoded service
+    # names, no hand-written routing file. Optional: a proxy with no routes
+    # binds nothing.
+    - name: routes
+      contract:
+        kind: http-service
+      required: false
+      mappedFrom: spec.config.routes
 
   provides:
     - name: reverse-proxy

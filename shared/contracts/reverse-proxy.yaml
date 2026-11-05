@@ -16,6 +16,12 @@ metadata:
     field to true, which satisfies a consumer's "tls: required" consume
     entry (see issue #577).
 
+    A provider of this contract also *consumes* http-service contracts to
+    build its routing table (issue #883): its route configuration binds each
+    routed service with a `contractRef` (`<module-id>.<contract-name>`), and
+    the proxy's dynamic routing configuration is generated from those bound
+    contracts -- never from a static file with hardcoded service names.
+
 spec:
   fields:
     host:

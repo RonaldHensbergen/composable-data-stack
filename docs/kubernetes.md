@@ -300,15 +300,16 @@ NetworkPolicy (issue #75):
   service ports; with no port evidence at all the rule stays module-scoped
   and the render reports `W128` asking for the port to be declared.
 - Reverse-proxy `config.routes` entries derive the same pair of edges
-  (#1033): a proxy consumes no contracts, so each route's target module
+  (#1033, #883): each route binds an `http-service` provide through its
+  `contractRef` (`<module-id>.<contract-name>`), and that target module
   opens egress on the proxy's pods and matching ingress on the target's
   pods, scoped to the route's backend port (the target's http-service
   contract port, mapped through the target's Service `targetPort` like a
   binding's port). Targets no route names stay unreachable from the proxy.
-  A route that cannot yield a port-scoped edge (unknown target module, no
-  matching http-service provide, no port evidence) adds no edge and is
-  reported as `W129`; the `networkPolicy.egress` passthrough remains the
-  escape hatch for anything routes cannot express.
+  A route that cannot yield a port-scoped edge (malformed or unknown
+  contractRef, no matching http-service provide, no port evidence) adds no
+  edge and is reported as `W129`; the `networkPolicy.egress` passthrough
+  remains the escape hatch for anything routes cannot express.
 - Within a module, pods may talk freely on any port: a module is the unit
   of composition and declares its own internal wiring (which is why the
   Superset init job and the webserver share one policy).

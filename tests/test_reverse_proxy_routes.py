@@ -1,4 +1,4 @@
-"""Tests for reverse-proxy dynamic route generation from contract bindings (#581)."""
+"""Tests for reverse-proxy dynamic route generation from contract bindings (#581, #883)."""
 import os
 import tempfile
 import unittest
@@ -78,8 +78,8 @@ class RouteGenerationUnitTest(unittest.TestCase):
         proxy = _proxy_module()
         proxy["config"] = {
             "routes": [
-                {"host": "app.example.local", "target": "superset"},
-                {"host": "alt.example.local", "target": "superset", "entryPoints": ["web"], "tls": False},
+                {"host": "app.example.local", "contractRef": "superset.http-service"},
+                {"host": "alt.example.local", "contractRef": "superset.http-service", "entryPoints": ["web"], "tls": False},
             ]
         }
         target = _http_target()
@@ -109,7 +109,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
         # Multi-service target shaped like dagster: the instance id does not
         # resolve, the serving compose service does once prefixed.
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "orch.example.local", "target": "dagster"}]}
+        proxy["config"] = {"routes": [{"host": "orch.example.local", "contractRef": "dagster.http-service"}]}
         target = _http_target(
             target_id="dagster", host="dagster", port=3000, service_name="dagster-webserver"
         )
@@ -127,7 +127,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
         # An instance id that is not a prefix of the service name gets the
         # renderer's `<instance-id>-<service>` mapping.
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "api.example.local", "target": "api"}]}
+        proxy["config"] = {"routes": [{"host": "api.example.local", "contractRef": "api.http-service"}]}
         target = _http_target(target_id="api", host="api", port=3000, service_name="gateway")
         documents, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, target), _rendered_services("api", ["api-gateway"])
@@ -140,7 +140,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
 
     def test_backend_address_without_rendered_service_reports_e136(self):
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "superset"}]}
+        proxy["config"] = {"routes": [{"host": "x.example.local", "contractRef": "superset.http-service"}]}
         # The advertised host matches no rendered service (e.g. the module
         # has several compose services and none is named after the id).
         _, diagnostics = _generate_reverse_proxy_routes(
@@ -150,29 +150,29 @@ class RouteGenerationUnitTest(unittest.TestCase):
         self.assertIn("not a rendered compose service", diagnostics[0].message)
         self.assertIn("superset-init", diagnostics[0].message)
 
-    def test_unknown_target_reports_e136(self):
+    def test_unknown_contract_ref_reports_e136(self):
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "ghost"}]}
+        proxy["config"] = {"routes": [{"host": "x.example.local", "contractRef": "ghost.http-service"}]}
         documents, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, _http_target()), _rendered_services()
         )
         self.assertEqual([d.code for d in diagnostics], ["E136"])
         self.assertIn("unknown module", diagnostics[0].message)
-        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].target")
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].contractRef")
         self.assertEqual(documents, {})
 
-    def test_target_without_port_reports_e136(self):
+    def test_contract_ref_without_port_reports_e136(self):
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "superset"}]}
+        proxy["config"] = {"routes": [{"host": "x.example.local", "contractRef": "superset.http-service"}]}
         broken = _http_target()
         broken["provides"]["http-service"]["spec"] = {"host": "superset"}
         _, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, broken), _rendered_services())
         self.assertEqual([d.code for d in diagnostics], ["E136"])
         self.assertIn("resolvable http-service endpoint", diagnostics[0].message)
 
-    def test_target_without_resolvable_endpoint_reports_e136(self):
+    def test_contract_ref_without_resolvable_endpoint_reports_e136(self):
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "superset"}]}
+        proxy["config"] = {"routes": [{"host": "x.example.local", "contractRef": "superset.http-service"}]}
         broken = _http_target()
         broken["provides"]["http-service"]["spec"] = {"protocol": "http", "portFrom": "spec.config.webPort"}
         _, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, broken), _rendered_services())
@@ -181,7 +181,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
 
     def test_backend_port_outside_valid_range_reports_e136(self):
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "superset"}]}
+        proxy["config"] = {"routes": [{"host": "x.example.local", "contractRef": "superset.http-service"}]}
         for bad_port in (0, -1, 99999):
             broken = _http_target()
             broken["provides"]["http-service"]["spec"] = {"host": "superset", "port": bad_port}
@@ -191,7 +191,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
 
     def test_string_backend_port_still_resolves(self):
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "superset"}]}
+        proxy["config"] = {"routes": [{"host": "x.example.local", "contractRef": "superset.http-service"}]}
         target = _http_target()
         target["provides"]["http-service"]["spec"] = {"host": "superset", "port": "8088"}
         documents, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, target), _rendered_services())
@@ -214,7 +214,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
         # route entrypoints must match the proxy's declared set.
         proxy = self._proxy_with_entry_points()
         proxy["config"]["routes"] = [
-            {"host": "x.example.local", "target": "superset", "entryPoints": ["websecre"]}
+            {"host": "x.example.local", "contractRef": "superset.http-service", "entryPoints": ["websecre"]}
         ]
         documents, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, _http_target()), _rendered_services()
@@ -228,8 +228,8 @@ class RouteGenerationUnitTest(unittest.TestCase):
     def test_declared_entrypoints_pass(self):
         proxy = self._proxy_with_entry_points()
         proxy["config"]["routes"] = [
-            {"host": "x.example.local", "target": "superset", "entryPoints": ["web"]},
-            {"host": "y.example.local", "target": "superset"},
+            {"host": "x.example.local", "contractRef": "superset.http-service", "entryPoints": ["web"]},
+            {"host": "y.example.local", "contractRef": "superset.http-service"},
         ]
         documents, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, _http_target()), _rendered_services()
@@ -247,7 +247,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
         # their routes are not entrypoint-checked.
         proxy = _proxy_module()
         proxy["config"] = {"routes": [
-            {"host": "x.example.local", "target": "superset", "entryPoints": ["custom"]}
+            {"host": "x.example.local", "contractRef": "superset.http-service", "entryPoints": ["custom"]}
         ]}
         documents, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, _http_target()), _rendered_services()
@@ -264,20 +264,20 @@ class RouteGenerationUnitTest(unittest.TestCase):
         # from the profile index of the failing route.
         proxy["config"] = {
             "routes": [
-                {"host": "zzz.example.local", "target": "superset"},
-                {"host": "aaa.example.local", "target": "ghost"},
+                {"host": "zzz.example.local", "contractRef": "superset.http-service"},
+                {"host": "aaa.example.local", "contractRef": "ghost.http-service"},
             ]
         }
         _, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, _http_target()), _rendered_services())
         self.assertEqual([d.code for d in diagnostics], ["E136"])
         # The failing route is routes[1] in the profile, no matter where the
         # deterministic output ordering places it.
-        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[1].target")
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[1].contractRef")
 
     def test_unknown_certificate_alias_reports_e136(self):
         proxy = _proxy_module()
         proxy["config"] = {"routes": [
-            {"host": "x.example.local", "target": "superset", "certificate": "missing"}
+            {"host": "x.example.local", "contractRef": "superset.http-service", "certificate": "missing"}
         ]}
         _, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, _http_target()), _rendered_services()
@@ -289,7 +289,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
     def test_valid_certificate_alias_wires_certificate_files(self):
         proxy = _proxy_module()
         proxy["config"] = {"routes": [
-            {"host": "x.example.local", "target": "superset", "certificate": "tls"}
+            {"host": "x.example.local", "contractRef": "superset.http-service", "certificate": "tls"}
         ]}
         documents, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, _http_target(), certificates={"tls": {"cert": "CDS_TLS_CERT", "key": "CDS_TLS_KEY"}}),
@@ -307,7 +307,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
         # alias itself is still validated like any other.
         proxy = _proxy_module()
         proxy["config"] = {"routes": [
-            {"host": "x.example.local", "target": "superset", "tls": False, "certificate": "tls"}
+            {"host": "x.example.local", "contractRef": "superset.http-service", "tls": False, "certificate": "tls"}
         ]}
         documents, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, _http_target(), certificates={"tls": {"cert": "CDS_TLS_CERT", "key": "CDS_TLS_KEY"}}),
@@ -319,7 +319,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
     def test_unknown_certificate_alias_on_plaintext_router_still_reports_e136(self):
         proxy = _proxy_module()
         proxy["config"] = {"routes": [
-            {"host": "x.example.local", "target": "superset", "tls": False, "certificate": "missing"}
+            {"host": "x.example.local", "contractRef": "superset.http-service", "tls": False, "certificate": "missing"}
         ]}
         _, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, _http_target()), _rendered_services()
@@ -338,7 +338,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
         self.assertEqual(diagnostics, [])
 
     def _multi_http_target(self):
-        """A module exposing two http-service contracts (dotted-target case)."""
+        """A module exposing two http-service contracts (named contractRef case)."""
         target = _http_target(target_id="app", host="app", port=3000, service_name="gateway")
         target["provides"]["admin"] = {
             "kind": "http-service",
@@ -346,11 +346,11 @@ class RouteGenerationUnitTest(unittest.TestCase):
         }
         return target
 
-    def test_dotted_target_selects_named_contract(self):
+    def test_named_contract_ref_selects_named_contract(self):
         proxy = _proxy_module()
         proxy["config"] = {"routes": [
-            {"host": "api.example.local", "target": "app.http-service"},
-            {"host": "admin.example.local", "target": "app.admin"},
+            {"host": "api.example.local", "contractRef": "app.http-service"},
+            {"host": "admin.example.local", "contractRef": "app.admin"},
         ]}
         documents, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, self._multi_http_target()),
@@ -359,27 +359,27 @@ class RouteGenerationUnitTest(unittest.TestCase):
         self.assertEqual(diagnostics, [])
         services = documents["proxy"]["http"]["services"]
         self.assertEqual(
-            services["cds-service-app.http-service"]["loadBalancer"]["servers"],
+            services["cds-service-app"]["loadBalancer"]["servers"],
             [{"url": "http://app-gateway:3000"}],
         )
         self.assertEqual(
-            services["cds-service-app.admin"]["loadBalancer"]["servers"],
+            services["cds-service-app-admin"]["loadBalancer"]["servers"],
             [{"url": "http://app-admin:9090"}],
         )
 
-    def test_dotted_target_with_unknown_contract_reports_e136(self):
+    def test_contract_ref_with_unknown_contract_reports_e136(self):
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "app.ghost"}]}
+        proxy["config"] = {"routes": [{"host": "x.example.local", "contractRef": "app.ghost"}]}
         _, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, self._multi_http_target()), _rendered_services("app", ["app-gateway"])
         )
         self.assertEqual([d.code for d in diagnostics], ["E136"])
         self.assertIn('does not provide an http-service contract named "ghost"', diagnostics[0].message)
-        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].target")
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].contractRef")
 
-    def test_dotted_target_with_non_http_contract_reports_e136(self):
+    def test_contract_ref_with_non_http_contract_reports_e136(self):
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "app.db"}]}
+        proxy["config"] = {"routes": [{"host": "x.example.local", "contractRef": "app.db"}]}
         target = self._multi_http_target()
         target["provides"]["db"] = {"kind": "sql-database", "spec": {}}
         _, diagnostics = _generate_reverse_proxy_routes(
@@ -388,23 +388,161 @@ class RouteGenerationUnitTest(unittest.TestCase):
         self.assertEqual([d.code for d in diagnostics], ["E136"])
         self.assertIn('does not provide an http-service contract named "db"', diagnostics[0].message)
 
-    def test_bare_target_still_routes_to_first_http_service(self):
+    def test_bare_module_id_ref_is_rejected(self):
+        # issue #883: contractRef must be the full <module-id>.<contract-name>
+        # binding; a bare module id no longer guesses the first http-service.
         proxy = _proxy_module()
-        proxy["config"] = {"routes": [{"host": "x.example.local", "target": "app"}]}
+        proxy["config"] = {"routes": [{"host": "x.example.local", "contractRef": "app"}]}
         documents, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, self._multi_http_target()), _rendered_services("app", ["app-gateway", "app-admin"])
         )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn("not a valid", diagnostics[0].message)
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].contractRef")
+        self.assertEqual(documents, {})
+
+    def test_route_is_generated_from_the_resolved_consume_binding(self):
+        # issue #883: the planner-resolved binding (module.consumes) is the
+        # primary backend source -- the contract graph, not a config lookup.
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "x.example.local", "contractRef": "superset.http-service"}]}
+        proxy["consumes"] = {
+            "routes": [
+                {
+                    "contractRef": "superset.http-service",
+                    "contract": {
+                        "kind": "http-service",
+                        "spec": {"host": "superset", "port": 8088},
+                    },
+                }
+            ]
+        }
+        target = _http_target()
+        documents, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, target), _rendered_services())
         self.assertEqual(diagnostics, [])
         self.assertEqual(
-            documents["proxy"]["http"]["services"]["cds-service-app"]["loadBalancer"]["servers"],
-            [{"url": "http://app-gateway:3000"}],
+            documents["proxy"]["http"]["services"]["cds-service-superset"]["loadBalancer"]["servers"],
+            [{"url": "http://superset:8088"}],
         )
+
+    def test_path_prefix_only_route_composes_pathprefix_rule(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"pathPrefix": "/", "contractRef": "superset.http-service"}]}
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual(diagnostics, [])
+        router = documents["proxy"]["http"]["routers"]["cds-route-0-default"]
+        self.assertEqual(router["rule"], "PathPrefix(`/`)")
+        self.assertEqual(router["entryPoints"], ["websecure"])
+        self.assertEqual(router["tls"], {})
+
+    def test_host_and_path_prefix_compose_combined_rule(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"host": "app.example.local", "pathPrefix": "/api", "contractRef": "superset.http-service"}
+        ]}
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual(diagnostics, [])
+        router = documents["proxy"]["http"]["routers"]["cds-route-0-app.example.local"]
+        self.assertEqual(router["rule"], "Host(`app.example.local`) && PathPrefix(`/api`)")
+
+    def test_provider_advertised_path_prefix_is_the_default(self):
+        # The bound http-service contract may advertise a pathPrefix; a
+        # route with only a host uses it as the rule's path part.
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"host": "auth.example.local", "contractRef": "superset.http-service"}]}
+        target = _http_target()
+        target["provides"]["http-service"]["spec"]["pathPrefix"] = "/auth"
+        documents, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, target), _rendered_services())
+        self.assertEqual(diagnostics, [])
+        router = documents["proxy"]["http"]["routers"]["cds-route-0-auth.example.local"]
+        self.assertEqual(router["rule"], "Host(`auth.example.local`) && PathPrefix(`/auth`)")
+
+    def test_route_path_prefix_overrides_provider_advertisement(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"host": "auth.example.local", "pathPrefix": "/sso", "contractRef": "superset.http-service"}
+        ]}
+        target = _http_target()
+        target["provides"]["http-service"]["spec"]["pathPrefix"] = "/auth"
+        documents, diagnostics = _generate_reverse_proxy_routes(_plan(proxy, target), _rendered_services())
+        self.assertEqual(diagnostics, [])
+        router = documents["proxy"]["http"]["routers"]["cds-route-0-auth.example.local"]
+        self.assertEqual(router["rule"], "Host(`auth.example.local`) && PathPrefix(`/sso`)")
+
+    def test_route_without_host_or_path_prefix_reports_e136(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [{"contractRef": "superset.http-service"}]}
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn("neither a host nor a pathPrefix", diagnostics[0].message)
+        self.assertEqual(documents, {})
+
+    def test_invalid_path_prefix_reports_e136(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"pathPrefix": "no-leading-slash", "contractRef": "superset.http-service"}
+        ]}
+        _, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn("must start with", diagnostics[0].message)
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].pathPrefix")
+
+    def test_invalid_host_reports_e136(self):
+        # Defense in depth for plans loaded from files that bypass the
+        # module configSchema's host pattern: a rule-injecting host must
+        # fail closed here too.
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"host": "evil`) || Host(`x", "contractRef": "superset.http-service"}
+        ]}
+        _, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn("not a DNS-safe hostname", diagnostics[0].message)
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[0].host")
+
+    def test_duplicate_rule_with_different_path_prefixes_is_allowed(self):
+        # Same host, different path prefixes: Traefik disambiguates by
+        # rule length/priority, so this is not a duplicate.
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"host": "app.example.local", "pathPrefix": "/a", "contractRef": "superset.http-service"},
+            {"host": "app.example.local", "pathPrefix": "/b", "contractRef": "superset.http-service"},
+        ]}
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(len(documents["proxy"]["http"]["routers"]), 2)
+
+    def test_duplicate_path_prefix_only_rule_reports_e136(self):
+        proxy = _proxy_module()
+        proxy["config"] = {"routes": [
+            {"pathPrefix": "/", "contractRef": "superset.http-service"},
+            {"pathPrefix": "/", "contractRef": "superset.http-service"},
+        ]}
+        documents, diagnostics = _generate_reverse_proxy_routes(
+            _plan(proxy, _http_target()), _rendered_services()
+        )
+        self.assertEqual([d.code for d in diagnostics], ["E136"])
+        self.assertIn("duplicates an earlier route", diagnostics[0].message)
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[1]")
+        self.assertEqual(sorted(documents["proxy"]["http"]["routers"]), ["cds-route-0-default"])
 
     def test_duplicate_host_per_proxy_reports_e136(self):
         proxy = _proxy_module()
         proxy["config"] = {"routes": [
-            {"host": "dup.example.local", "target": "superset"},
-            {"host": "dup.example.local", "target": "superset"},
+            {"host": "dup.example.local", "contractRef": "superset.http-service"},
+            {"host": "dup.example.local", "contractRef": "superset.http-service"},
         ]}
         documents, diagnostics = _generate_reverse_proxy_routes(
             _plan(proxy, _http_target()), _rendered_services()
@@ -412,7 +550,7 @@ class RouteGenerationUnitTest(unittest.TestCase):
         self.assertEqual([d.code for d in diagnostics], ["E136"])
         self.assertIn("duplicates an earlier route", diagnostics[0].message)
         # The later profile occurrence is flagged; the first route stays valid.
-        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[1].host")
+        self.assertEqual(diagnostics[0].path, "module:proxy.config.routes[1]")
         self.assertEqual(
             sorted(documents["proxy"]["http"]["routers"]),
             ["cds-route-0-dup.example.local"],
@@ -420,9 +558,9 @@ class RouteGenerationUnitTest(unittest.TestCase):
 
     def test_same_host_on_different_proxies_is_allowed(self):
         proxy_a = _proxy_module("proxy-a")
-        proxy_a["config"] = {"routes": [{"host": "dup.example.local", "target": "superset"}]}
+        proxy_a["config"] = {"routes": [{"host": "dup.example.local", "contractRef": "superset.http-service"}]}
         proxy_b = _proxy_module("proxy-b")
-        proxy_b["config"] = {"routes": [{"host": "dup.example.local", "target": "superset"}]}
+        proxy_b["config"] = {"routes": [{"host": "dup.example.local", "contractRef": "superset.http-service"}]}
         target = _http_target()
         plan = {"modules": [proxy_a, proxy_b, target], "certificates": {}}
         documents, diagnostics = _generate_reverse_proxy_routes(plan, _rendered_services())
@@ -431,7 +569,59 @@ class RouteGenerationUnitTest(unittest.TestCase):
 
 
 class TraefikRoutesSchemaTest(unittest.TestCase):
-    """The real traefik module's routes schema (review follow-ups on #581)."""
+    """The real traefik module's routes schema (review follow-ups on #581/#883)."""
+
+    def _traefik_module(self):
+        return yaml.safe_load(
+            (_REPO_ROOT / "modules" / "integration" / "traefik" / "module.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+
+    def test_route_without_host_or_path_prefix_is_rejected_by_the_schema(self):
+        # issue #883: a route must compose at least one matcher; an entry
+        # with only contractRef would render an empty-rule router.
+        inst = {
+            "index": 0,
+            "id": "proxy",
+            "config": {"routes": [{"contractRef": "web.http-service"}]},
+            "module": self._traefik_module(),
+        }
+        diagnostics = validate_module_configs([inst])
+        self.assertTrue(
+            any(d.code == "E030" and "routes" in str(d.path) for d in diagnostics),
+            diagnostics,
+        )
+
+    def test_bare_module_id_contract_ref_is_rejected_by_the_schema(self):
+        # contractRef must be the full <module-id>.<contract-name> binding
+        # (issue #883), so a bare module id fails the pattern with E030.
+        inst = {
+            "index": 0,
+            "id": "proxy",
+            "config": {"routes": [{"host": "x.example.local", "contractRef": "web"}]},
+            "module": self._traefik_module(),
+        }
+        diagnostics = validate_module_configs([inst])
+        self.assertTrue(
+            any(d.code == "E030" and str(d.path).endswith("contractRef") for d in diagnostics),
+            diagnostics,
+        )
+
+    def test_path_prefix_must_be_url_path_shaped(self):
+        inst = {
+            "index": 0,
+            "id": "proxy",
+            "config": {"routes": [
+                {"pathPrefix": "no-slash", "contractRef": "web.http-service"}
+            ]},
+            "module": self._traefik_module(),
+        }
+        diagnostics = validate_module_configs([inst])
+        self.assertTrue(
+            any(d.code == "E030" and str(d.path).endswith("pathPrefix") for d in diagnostics),
+            diagnostics,
+        )
 
     def test_empty_entrypoints_is_rejected_by_the_schema(self):
         # `entryPoints: []` must fail validation (E030) instead of being
@@ -445,7 +635,7 @@ class TraefikRoutesSchemaTest(unittest.TestCase):
             "index": 0,
             "id": "proxy",
             "config": {"routes": [
-                {"host": "x.example.local", "target": "web", "entryPoints": []}
+                {"host": "x.example.local", "contractRef": "web.http-service", "entryPoints": []}
             ]},
             "module": module,
         }
@@ -473,7 +663,7 @@ class TraefikRoutesSchemaTest(unittest.TestCase):
             "index": 0,
             "id": "proxy",
             "config": {"routes": [
-                {"host": "x.example.local", "target": "web", "certificate": "../evil"}
+                {"host": "x.example.local", "contractRef": "web.http-service", "certificate": "../evil"}
             ]},
             "module": module,
         }
@@ -512,6 +702,10 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
                 "runtime": {"type": "container", "service": {
                     "name": "proxy", "ports": [{"name": "https", "containerPort": 443, "protocol": "TCP"}]}},
                 "configSchema": {"type": "object", "additionalProperties": True},
+                # Routes bind http-service contracts through this consume
+                # entry (issue #883), exactly like the real traefik module.
+                "consumes": [{"name": "routes", "contract": {"kind": "http-service"},
+                              "required": False, "mappedFrom": "spec.config.routes"}],
                 "provides": [{"name": "reverse-proxy", "contract": {
                     "kind": "reverse-proxy",
                     "spec": {"host": "${service.host}", "port": 443, "protocol": "https", "tls": True},
@@ -547,7 +741,7 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
         # Multi-service module shaped like dagster/dbt: the compose service
         # is NOT named after the instance id, so routing only works through
         # the advertised serviceName. It exposes two http-service contracts
-        # so dotted targeting (<module>.<contract>) can be exercised end to
+        # so named contractRef bindings (<module>.<contract>) can be exercised end to
         # end.
         (modules_dir / "api" / "module.yaml").write_text(yaml.safe_dump({
             "apiVersion": "cds/v1alpha1",
@@ -608,7 +802,7 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
             },
         ]
         if any(
-            route.get("target") == "api" or str(route.get("target", "")).startswith("api.")
+            str(route.get("contractRef", "")).startswith("api.")
             for route in routes
             if isinstance(route, dict)
         ):
@@ -638,7 +832,7 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
         return plan
 
     def test_render_writes_deterministic_routes_file_next_to_compose(self):
-        self._render([{"host": "web.example.local", "target": "web"}])
+        self._render([{"host": "web.example.local", "contractRef": "web.http-service"}])
         routes_file = self.output.parent / "traefik" / "dynamic" / "cds-routes-proxy.yml"
         self.assertTrue(routes_file.is_file(), f"missing {routes_file}")
         document = yaml.safe_load(routes_file.read_text(encoding="utf-8"))
@@ -651,8 +845,8 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
 
     def test_render_routes_multi_service_target_via_service_name(self):
         self._render([
-            {"host": "web.example.local", "target": "web"},
-            {"host": "api.example.local", "target": "api"},
+            {"host": "web.example.local", "contractRef": "web.http-service"},
+            {"host": "api.example.local", "contractRef": "api.http-service"},
         ])
         routes_file = self.output.parent / "traefik" / "dynamic" / "cds-routes-proxy.yml"
         self.assertTrue(routes_file.is_file(), f"missing {routes_file}")
@@ -666,21 +860,21 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
 
     def test_render_routes_named_contract_of_multi_endpoint_target(self):
         self._render([
-            {"host": "web.example.local", "target": "web"},
-            {"host": "admin.example.local", "target": "api.admin-service"},
+            {"host": "web.example.local", "contractRef": "web.http-service"},
+            {"host": "admin.example.local", "contractRef": "api.admin-service"},
         ])
         routes_file = self.output.parent / "traefik" / "dynamic" / "cds-routes-proxy.yml"
         self.assertTrue(routes_file.is_file(), f"missing {routes_file}")
         document = yaml.safe_load(routes_file.read_text(encoding="utf-8"))
-        # The dotted target picks the api module's second http-service
+        # The named contractRef picks the api module's second http-service
         # contract, whose "admin" compose service renders as "api-admin".
         self.assertEqual(
-            document["http"]["services"]["cds-service-api.admin-service"]["loadBalancer"]["servers"],
+            document["http"]["services"]["cds-service-api-admin-service"]["loadBalancer"]["servers"],
             [{"url": "http://api-admin:9090"}],
         )
 
     def test_render_removes_stale_routes_file_when_routes_are_removed(self):
-        self._render([{"host": "web.example.local", "target": "web"}])
+        self._render([{"host": "web.example.local", "contractRef": "web.http-service"}])
         routes_file = self.output.parent / "traefik" / "dynamic" / "cds-routes-proxy.yml"
         self.assertTrue(routes_file.is_file(), f"missing {routes_file}")
 
@@ -689,8 +883,8 @@ class RouteGenerationEndToEndTest(unittest.TestCase):
         self._render([])
         self.assertFalse(routes_file.is_file(), f"stale routes file survived: {routes_file}")
 
-    def test_invalid_target_surfaces_e136_at_render(self):
-        profile = self._profile([{"host": "web.example.local", "target": "ghost"}])
+    def test_invalid_contract_ref_surfaces_e136_at_render(self):
+        profile = self._profile([{"host": "web.example.local", "contractRef": "ghost.http-service"}])
         plan, _ = planner.build_plan_from_profile(profile, self.profile_dir)
         compose_yaml, render_diags = render_compose(plan, output_path=str(self.output))
         errors = [d for d in render_diags if d.level == "error"]
@@ -753,7 +947,7 @@ class RealTraefikModuleRoutesTest(unittest.TestCase):
 
     def test_real_traefik_defaults_validate_route_entrypoints(self):
         plan = self._plan([
-            {"host": "k.example.local", "target": "keycloak", "entryPoints": ["websecre"]}
+            {"host": "k.example.local", "contractRef": "keycloak.http-service", "entryPoints": ["websecre"]}
         ])
         documents, diagnostics = _generate_reverse_proxy_routes(
             plan, {"keycloak": ["keycloak"]}
@@ -764,7 +958,7 @@ class RealTraefikModuleRoutesTest(unittest.TestCase):
         self.assertEqual(documents, {})
 
     def test_real_traefik_renders_route_to_keycloak(self):
-        plan = self._plan([{"host": "k.example.local", "target": "keycloak"}])
+        plan = self._plan([{"host": "k.example.local", "contractRef": "keycloak.http-service"}])
         documents, diagnostics = _generate_reverse_proxy_routes(
             plan, {"keycloak": ["keycloak"]}
         )

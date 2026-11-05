@@ -294,13 +294,21 @@ declaring `engineFrom`.
 
 A module providing the `reverse-proxy` contract (e.g. Traefik) exposes public
 routes through its `config.routes` entries instead of Docker label
-autodiscovery: each entry declares a public `host` and a `target` module
-id (or `<module-id>.<contract-name>` when the target provides several
-`http-service` contracts). CDS resolves the target's `http-service`
-contract, cross-checks the backend address against the compose services the
-render actually produced, and writes deterministic file-provider
-configuration next to the rendered compose file; invalid routing inputs
-fail with `E136` instead of silently generating broken config.
+autodiscovery or a hand-written routing file (issue #883): each entry binds
+one `http-service` provide through its `contractRef`
+(`<module-id>.<contract-name>`), declared on the module as a list-valued
+`consumes` entry (`mappedFrom: spec.config.routes`), so the profile binds the
+routed service with the same `contractRef` vocabulary as every other
+contract and a wrong ref fails at `cds validate` with `E041`/`E042`. Each
+entry composes a public rule from an optional `host` and an optional
+`pathPrefix` (at least one is required; a provider may advertise a default
+`pathPrefix` on its `http-service` contract). CDS generates the route
+document from the resolved binding -- the backend host/port come from the
+bound contract, so no service name is hardcoded -- cross-checks the backend
+address against the compose services the render actually produced, and
+writes deterministic file-provider configuration next to the rendered
+compose file; invalid routing inputs fail with `E136` instead of silently
+generating broken config.
 
 The same fail-closed cross-check applies to plain provided contracts
 (issues #1010, #1029): every `http-service`, `sql-database`,

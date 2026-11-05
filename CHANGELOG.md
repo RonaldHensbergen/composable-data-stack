@@ -8,6 +8,36 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Provider-neutral HTTP routing contract wiring for reverse proxies (issue
+  #883): a reverse-proxy module (e.g. `modules/integration/traefik`) now
+  declares a list-valued `consumes` entry (`mappedFrom: spec.config.routes`)
+  of kind `http-service`, and each `config.routes` entry binds the routed
+  service with `contractRef: <module-id>.<contract-name>` instead of a
+  `target` module id. The planner resolves every route's binding into the
+  plan's `consumes` map, `cds validate` checks each ref like any other
+  binding (E041/E042 at a per-route path), and the compose renderer
+  generates the Traefik file-provider document
+  (`traefik/dynamic/cds-routes-<module>.yml`) from those resolved bindings
+  -- the backend host/port/serviceName come from the bound contract, so no
+  service name is hardcoded and no hand-written routing file is needed.
+  Route entries compose a public rule from an optional `host` and an
+  optional `pathPrefix` (at least one required; the bound `http-service`
+  contract may advertise a default `pathPrefix`), rendered as `Host(...)`,
+  `PathPrefix(...)`, or both joined with `&&`; invalid rules, duplicate
+  rules, unknown entrypoints, and undeclared certificate aliases still fail
+  closed with E136, and the helm target derives the same route targets as
+  NetworkPolicy edges from the `contractRef` (W129).
+  `shared/contracts/http-service.yaml` documents the consume-side routing
+  flow and the new optional `pathPrefix` field;
+  `shared/contracts/reverse-proxy.yaml` documents that providers route
+  bound `http-service` contracts. `profiles/local-haven-reference` now
+  routes its TLS entrypoint to Keycloak via
+  `contractRef: keycloak.http-service` and the static
+  `traefik/dynamic/keycloak.yml` is deleted; `modules/identity/keycloak`
+  advertises the in-network container port (`config.containerPort`, default
+  8080) as the http-service backend port instead of the localhost host
+  publish, so a generated route dials the port the container actually
+  listens on. Validator/planner/renderer/k8s tests and docs updated.
 - New experimental `grafana` observability module
   (`modules-experimental/observability/grafana/`, issue #369): a Grafana
   dashboarding UI providing the `http-service` contract (health path
@@ -173,6 +203,23 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- `cds get` (and `cds list --remote`) now default `--ref` to the release tag
+  matching the installed CLI version (e.g. `v0.15.0` for cds 0.15.0) instead
+  of `main`, so a fetched profile and its modules are validated by the same
+  bundled schema as the running `cds` and version-skew failures like
+  `E021 ... 'enabledFrom' was unexpected` cannot occur by default. When the
+  version is unknown, is a dev/local build, or the tag does not exist
+  upstream (e.g. a fork without tags), the default falls back to `main` with
+  a note on stderr. An explicit `--ref <branch|tag|sha>` is unchanged and
+  still fails closed on 404, but a version tag newer than the installed cds
+  version (e.g. `--ref v0.16.0` on cds 0.15.0) now prints a warning on
+  `cds get` and `cds update`, since assets at a newer release may use schema
+  features the running CLI does not understand. A bare version
+  (`--ref 0.15.0`) is accepted as shorthand for its `v`-prefixed release tag
+  (`v0.15.0`), retrying on HTTP 404. The resolved revision is
+  recorded in `.cds/get-manifest.json`, so `cds update` keeps the layout on
+  that tag; re-run `cds get --ref main` to move to `main`.
+
 - The keycloak module (`modules/identity/keycloak`) is now production-suitable
   and defaults `config.webServer.mode` to `production` in the same change
   (issue #974): the `productionSuitable: false` marker is dropped and the
@@ -189,6 +236,14 @@ The format is based on Keep a Changelog.
   rejection case.
 
 ### Fixed
+
+- The `Mutation Tests (Kill Matrix)` workflow no longer fails on PRs when a
+  hosted runner receives a shutdown signal ~4 minutes into the job (observed
+  on PR #1143 and on the weekly `main` run, both killed before the previous
+  240s cap could fire): the PR time cap is lowered to 180s so `timeout` fires
+  first and the step exits 124, which the workflow already accepts as a
+  partial matrix. Weekly schedule runs stay uncapped and produce the full
+  matrix.
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source
   outside the project root") on projects scaffolded by `cds get`: the
@@ -244,6 +299,20 @@ The format is based on Keep a Changelog.
   Tests in `tests/test_prompts_lint.py`; policy documented in
   `.github/prompts/README.md` (#1090; residual opaque-`run:`-script vectors
   tracked in #1120).
+- Bumped the digest-pinned base images of the five published runtime images
+  to remediate CVE-2026-109518 (HIGH, on-path attack in apt/libapt-pkg on
+  Debian) reported by the daily Trivy scan (#1144-#1148): `python:3.14-slim`
+  to `sha256:ac25e5af...` (Debian trixie base now baking apt 3.0.4) in the
+  dlt, dbt, and dagster base Dockerfiles; `postgres:18` to
+  `sha256:e923a22a...` (apt 3.0.4) in `images/postgres/Dockerfile` plus the
+  matching pin in `modules/warehouse/postgres/module.yaml` and the
+  `tests/test_image_digest_check.py` example; and
+  `apache/superset:6.1.0-py311` to `sha256:3f63de20...` in
+  `images/superset/base/Dockerfile` (that base still ships apt 2.6.1, but
+  the image's build-time `apt-get upgrade` now pulls the fixed apt 2.6.2
+  from bookworm-security). Merging this PR triggers `publish-images.yml`,
+  whose pre-push Trivy HIGH/CRITICAL gate re-verifies all five rebuilt
+  images before they are signed and republished.
 
 ## [0.15.0] - 2026-11-02
 
