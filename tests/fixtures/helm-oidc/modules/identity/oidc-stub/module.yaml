@@ -1,0 +1,95 @@
+# Test fixture for issue #1075: a minimal oidc-provider that renders on BOTH
+# targets, unlike modules/identity/keycloak which is compose-only. It exists so
+# tests can exercise the Superset identityProvider wiring on --target helm
+# end to end. It is not a real identity provider and must never be wired into
+# a shipped profile.
+# yaml-language-server: $schema=../../../../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: oidc-stub
+  category: identity
+  version: "0.1.0"
+  displayName: OIDC stub (test fixture)
+  description: >
+    Minimal kubernetes-capable oidc-provider fixture used only by tests
+    (issue #1075) to cover the helm render path of consumers such as
+    bi/superset's identityProvider binding.
+spec:
+  runtime:
+    type: container
+    service:
+      name: oidc-stub
+      ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - issuerUrl
+      - realm
+    properties:
+      issuerUrl:
+        type: string
+        description: Issuer URL advertised through the oidc-provider contract.
+      realm:
+        type: string
+        description: Realm advertised through the oidc-provider contract.
+  provides:
+    - name: http-service
+      contract:
+        kind: http-service
+        spec:
+          port: 8080
+          host: ${service.dns}
+          protocol: http
+    - name: oidc-provider
+      contract:
+        kind: oidc-provider
+        spec:
+          issuerUrl: ${config.issuerUrl}
+          realm: ${config.realm}
+          # A host/port pair so the Kubernetes consume-side binding check
+          # (E084) can match the provider against a renderable Service.
+          host: ${service.dns}
+          port: 8080
+  implementation:
+    kind: docker-compose
+    targets:
+      - docker-compose
+      - kubernetes
+    compose:
+      services:
+        oidc-stub:
+          image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev
+          command: ["sh", "-c", "sleep infinity"]
+          ports:
+            - "8080:8080"
+    kubernetes:
+      workloads:
+        oidc-stub:
+          kind: Deployment
+          containers:
+            - oidc-stub
+          service:
+            type: ClusterIP
+            ports:
+              - name: http
+                port: 8080
+                targetPort: 8080
+          resources:
+            oidc-stub:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 64Mi
