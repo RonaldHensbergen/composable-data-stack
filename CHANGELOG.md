@@ -156,6 +156,23 @@ The format is based on Keep a Changelog.
   `tests/golden/k8s-chart-oidc.sha256`. A guard test also pins that binding
   the compose-only keycloak on the helm target still fails closed with E072.
 
+### Changed
+
+- The keycloak module (`modules/identity/keycloak`) is now production-suitable
+  and defaults `config.webServer.mode` to `production` in the same change
+  (issue #974): the `productionSuitable: false` marker is dropped and the
+  configSchema default flips from `development` to `production`, so a
+  production profile using keycloak without an explicit mode passes `cds
+  validate` (E140 only rejects an *explicit* `development`) and plans/renders
+  `CDS_WEBSERVER_MODE=production` instead of silently running `start-dev` at
+  runtime. `development` remains an explicit opt-in for local profiles and is
+  still rejected in production profiles by E140. `docs/serving-modes.md`
+  (keycloak row default column), the module README, and the haven/roadmap docs
+  are updated to match; `tests/test_keycloak_postgres_wiring.py` gains an E140
+  regression test covering a production profile with keycloak and no explicit
+  mode (validates clean, renders production mode) plus the explicit-`development`
+  rejection case.
+
 ### Fixed
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source
