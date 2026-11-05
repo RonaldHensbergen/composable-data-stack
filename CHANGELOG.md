@@ -222,6 +222,19 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- `modules-experimental/observability/loki` re-enables
+  `security_opt: no-new-privileges:true` on both the `loki` (Vector) and
+  `loki-storage` (Loki) services (#1066). The omission was based on an
+  `exec ...: operation not permitted` failure under no_new_privs, but that
+  failure is an artifact of the snap-confined Docker runtime used in the
+  sandbox (it rejects every binary under `--security-opt
+  no-new-privileges:true`, including a plain Alpine `/bin/sh`), not of the
+  images: registry layer inspection shows no `security.capability` xattr on
+  either pinned binary, and both `timberio/vector:0.51.0-alpine` and
+  `grafana/loki:3.6.1` exec cleanly under `PR_SET_NO_NEW_PRIVS` on a
+  standard runc host. `tests/test_loki_module.py` now asserts the flag on
+  the module definition and on the rendered Compose output.
+
 - The `Mutation Tests (Kill Matrix)` workflow no longer fails on PRs when a
   hosted runner receives a shutdown signal ~4 minutes into the job (observed
   on PR #1143 and on the weekly `main` run, both killed before the previous
