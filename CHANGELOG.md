@@ -8,6 +8,63 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Two new Gate 3 tasks in the Kubernetes/Haven MVP runbook
+  (`docs/plan/k8s-haven-mvp.md`): G3.8 proves the GitOps handoff end to end —
+  render the Haven-shaped profile, commit the rendered chart to a
+  `gitops-target` repository, and verify Flux reconciles and corrects drift
+  (issue #1136) — and G3.9 proves workload SQL/py code runs from a Git
+  checkout via the bind mounts (`config.project.hostPath` for dbt,
+  `definitionsFile.hostPath`/`sharedData.hostPath` for Dagster, issue #1137).
+  The executable companion `docs/plan/k8s-haven-gate-checklist.md` is now
+  committed alongside, with both tasks as rows; Gate 3 exit criteria updated.
+- Enforced database-engine match for `sql-database` bindings (issue #682): a
+  `consumes` entry can now declare `engineFrom: spec.config.<path>` naming a
+  string field in the consumer's own config whose value is the engine it
+  expects the bound provider to speak (e.g. keycloak's
+  `metadataDatabase.driver`, which feeds `KC_DB`). At `cds validate` the
+  referenced value — from the profile config when set, otherwise from the
+  `configSchema` default at that path, so a defaulted driver is enforced too —
+  is compared case-insensitively with the provider contract spec's advertised
+  `engine` (a literal, or a pure `${config.<path>}` reference against the
+  producer's config). A mismatch, or a provider advertising no `engine` at
+  all, fails closed with the new `E154`; an unresolvable `engineFrom` path
+  fails with `E041`. `modules/warehouse/postgres` now advertises
+  `engine: postgres` on all four `sql-database` provides, and
+  `modules/identity/keycloak` declares
+  `engineFrom: spec.config.metadataDatabase.driver` on its `metadata-database`
+  consume entry, so binding Keycloak to a non-Postgres `sql-database` provider
+  now fails validation instead of silently misconfiguring `KC_DB`. The
+  `engine` field is added to `shared/contracts/sql-database.yaml`, the
+  `engineFrom` field to `cli/resources/module.schema.json`, and the README
+  troubleshooting table, `docs/modules.md`, and `docs/architecture.md` are
+  updated; unit tests in `tests/test_validator.py` and end-to-end guard tests
+  in `tests/test_keycloak_postgres_wiring.py` cover match, mismatch, missing
+  advertisement, config-reference, schema-default, and backward-compat cases.
+
+- Declared external egress for helm-target workloads under the generated
+  default-deny NetworkPolicies (issue #1023): modules can now declare
+  egress to destinations outside the plan via
+  `implementation.kubernetes.egress` -- a list of entries with `host` (IP
+  literal, rendered as a /32 or /128 ipBlock) or `cidr`, optional `except`
+  CIDRs, `port`/`ports`, and `protocol` (default TCP) -- or scoped to one
+  workload via `implementation.kubernetes.workloads.<name>.egress`, which
+  renders an additional workload-scoped NetworkPolicy selecting that
+  workload's `app.kubernetes.io/name`. Entries render as ipBlock rules on
+  the module's release-scoped NetworkPolicy allowing exactly the declared
+  destination/ports; undeclared external egress remains denied (the
+  security baseline, now stated explicitly in `docs/kubernetes.md`).
+  Values support `${config.*}` substitution so a profile can supply the
+  destination through module config. Malformed entries (DNS-name host,
+  CIDR with host bits, `except` outside the CIDR, bad port/protocol,
+  unresolved expression) fail closed with the new E153 diagnostic, and the
+  k8s security scan records every declared entry as a CDS-K8S-009 finding
+  whose severity scales with breadth (0.0.0.0/0 on all ports = high).
+  The E152 wait-gate check now also accepts a gate whose host:port a
+  declared entry (or a raw `networkPolicy.egress` ipBlock rule) covers,
+  and its message points at `implementation.kubernetes.egress`. Module
+  schema (`cli/resources/module.schema.json`), renderer, scan, README
+  troubleshooting table, and tests included.
+
 - New `sampleData` config block on the dagster module (issue #1117):
   `sampleData.enabled` (default `false`) ships the bundled
   `offers-1000.csv` sample fixture into the dagster containers at the same
@@ -86,6 +143,19 @@ The format is based on Keep a Changelog.
   the W129 cases, and the gate check. Documented in `docs/kubernetes.md` and
   the README troubleshooting table.
 
+- Helm-target test coverage for Superset's `identityProvider` binding (issue
+  #1075): the only `oidc-provider` provider in the repo (keycloak) is
+  compose-only, so the new fixture module
+  `tests/fixtures/helm-oidc/modules/identity/oidc-stub` provides a minimal
+  kubernetes-capable `oidc-provider` and `tests/test_superset_oidc_helm.py`
+  renders a profile binding it on `--target helm` end to end — issuer URL
+  env present as a literal value, client secret only as a `$(CDS_*)`
+  expansion backed by a `secretKeyRef` entry and a `required` key in
+  `templates/secret.yaml`, E078/E079 secret-plumbing checks green, no secret
+  values in any chart file. The rendered chart is pinned by golden hashes in
+  `tests/golden/k8s-chart-oidc.sha256`. A guard test also pins that binding
+  the compose-only keycloak on the helm target still fails closed with E072.
+
 ### Changed
 
 - `cds get` (and `cds list --remote`) now default `--ref` to the release tag
@@ -104,6 +174,21 @@ The format is based on Keep a Changelog.
   (`v0.15.0`), retrying on HTTP 404. The resolved revision is
   recorded in `.cds/get-manifest.json`, so `cds update` keeps the layout on
   that tag; re-run `cds get --ref main` to move to `main`.
+
+- The keycloak module (`modules/identity/keycloak`) is now production-suitable
+  and defaults `config.webServer.mode` to `production` in the same change
+  (issue #974): the `productionSuitable: false` marker is dropped and the
+  configSchema default flips from `development` to `production`, so a
+  production profile using keycloak without an explicit mode passes `cds
+  validate` (E140 only rejects an *explicit* `development`) and plans/renders
+  `CDS_WEBSERVER_MODE=production` instead of silently running `start-dev` at
+  runtime. `development` remains an explicit opt-in for local profiles and is
+  still rejected in production profiles by E140. `docs/serving-modes.md`
+  (keycloak row default column), the module README, and the haven/roadmap docs
+  are updated to match; `tests/test_keycloak_postgres_wiring.py` gains an E140
+  regression test covering a production profile with keycloak and no explicit
+  mode (validates clean, renders production mode) plus the explicit-`development`
+  rejection case.
 
 ### Fixed
 

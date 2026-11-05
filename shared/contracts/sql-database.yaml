@@ -53,6 +53,20 @@ spec:
         consumer that declares "tls: required" on its consume entry fails
         validation with E128 unless the provider's contract spec sets this to
         true (see issue #577).
+    engine:
+      type: string
+      required: false
+      description: >-
+        Database engine / wire-protocol vendor the provider actually speaks,
+        using the common short vendor name (e.g. postgres, mysql, mariadb,
+        mssql, oracle), compared case-insensitively. Optional for backward
+        compatibility: an absent field means no engine is advertised, and a
+        consumer that declares "engineFrom" on its consume entry (issue #682,
+        e.g. identity/keycloak feeding KC_DB from metadataDatabase.driver)
+        fails validation with E154 unless the provider's contract spec
+        advertises a matching engine here (a literal string, or a pure
+        ${config.<path>} reference resolving against the producer instance's
+        profile config).
   examples:
     - host: postgres
       port: 5432
