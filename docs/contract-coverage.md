@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 43 of 43 (100%)** — modules 19/19 (100%), profiles 9/9 (100%), shared contracts 15/15 (100%)
+**Overall contract coverage: 45 of 45 (100%)** — modules 20/20 (100%), profiles 10/10 (100%), shared contracts 15/15 (100%)
 
 ## Modules
 
@@ -34,6 +34,7 @@ everyone how much of the system is still unwritten.
 | `modules-experimental/backup/object-storage` | object-storage-backup | yes |
 | `modules-experimental/gitops/fluxcd` | fluxcd | yes |
 | `modules-experimental/ingestion/dlt` | dlt | yes |
+| `modules-experimental/observability/grafana` | grafana | yes |
 | `modules-experimental/observability/loki` | loki | yes |
 | `modules-experimental/observability/marquez` | marquez | yes |
 | `modules-experimental/observability/otel-collector` | otel-collector | yes |
@@ -52,6 +53,7 @@ everyone how much of the system is still unwritten.
 | `profiles/local-haven-reference` | local-haven-reference | yes |
 | `profiles/local-kubernetes-example` | local-kubernetes-example | yes |
 | `profiles/local-kubernetes-postgres-operator` | local-kubernetes-postgres-operator | yes |
+| `profiles/local-postgres-grafana` | local-postgres-grafana | yes |
 | `profiles/production-kubernetes-example` | production-kubernetes-example | yes |
 | `profiles/team-dagster-postgres-superset` | team-dagster-postgres-superset | yes |
 

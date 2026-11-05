@@ -1,0 +1,23 @@
+# Grafana datasource provisioning for the bound sql-database (warehouse).
+# Mounted read-only into /etc/grafana/provisioning/datasources/ by the grafana
+# compose service, and only when the warehouse-database binding advertises
+# engine "postgres" (enabledFrom gate in module.yaml). Grafana expands
+# ${ENV_VAR} references in provisioning files from the container environment,
+# which CDS fills from the binding via ifNonempty (see module.yaml).
+apiVersion: 1
+datasources:
+  - name: Warehouse
+    type: postgres
+    access: proxy
+    url: ${CDS_GF_DS_WAREHOUSE_HOST}:${CDS_GF_DS_WAREHOUSE_PORT}
+    database: ${CDS_GF_DS_WAREHOUSE_DATABASE}
+    user: ${CDS_GF_DS_WAREHOUSE_USERNAME}
+    secureJsonData:
+      password: ${CDS_GF_DS_WAREHOUSE_PASSWORD}
+    jsonData:
+      # Plaintext on the Compose network only; TLS terminates at the reverse
+      # proxy / database provider where one is configured.
+      sslmode: disable
+      maxOpenConns: 10
+      maxIdleConns: 10
+    editable: true
