@@ -53,10 +53,12 @@ jobs:
           set +e
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             # PR runs are time-capped: hosted runners have been observed to
-            # cancel long jobs mid-run, so keep the matrix bounded and accept
-            # a partial result (exit 124 from timeout). Weekly schedule runs
-            # are uncapped and produce the full matrix.
-            timeout 240 python -m mutmut run
+            # receive a shutdown signal mid-run (~4 min into the job, killing
+            # the step before a longer cap could fire and exit 124), so keep
+            # the matrix bounded well below that window and accept a partial
+            # result (exit 124 from timeout). Weekly schedule runs are
+            # uncapped and produce the full matrix.
+            timeout 180 python -m mutmut run
           else
             python -m mutmut run
           fi

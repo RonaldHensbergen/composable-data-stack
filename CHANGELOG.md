@@ -188,6 +188,23 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- `cds get` (and `cds list --remote`) now default `--ref` to the release tag
+  matching the installed CLI version (e.g. `v0.15.0` for cds 0.15.0) instead
+  of `main`, so a fetched profile and its modules are validated by the same
+  bundled schema as the running `cds` and version-skew failures like
+  `E021 ... 'enabledFrom' was unexpected` cannot occur by default. When the
+  version is unknown, is a dev/local build, or the tag does not exist
+  upstream (e.g. a fork without tags), the default falls back to `main` with
+  a note on stderr. An explicit `--ref <branch|tag|sha>` is unchanged and
+  still fails closed on 404, but a version tag newer than the installed cds
+  version (e.g. `--ref v0.16.0` on cds 0.15.0) now prints a warning on
+  `cds get` and `cds update`, since assets at a newer release may use schema
+  features the running CLI does not understand. A bare version
+  (`--ref 0.15.0`) is accepted as shorthand for its `v`-prefixed release tag
+  (`v0.15.0`), retrying on HTTP 404. The resolved revision is
+  recorded in `.cds/get-manifest.json`, so `cds update` keeps the layout on
+  that tag; re-run `cds get --ref main` to move to `main`.
+
 - The keycloak module (`modules/identity/keycloak`) is now production-suitable
   and defaults `config.webServer.mode` to `production` in the same change
   (issue #974): the `productionSuitable: false` marker is dropped and the
@@ -204,6 +221,14 @@ The format is based on Keep a Changelog.
   rejection case.
 
 ### Fixed
+
+- The `Mutation Tests (Kill Matrix)` workflow no longer fails on PRs when a
+  hosted runner receives a shutdown signal ~4 minutes into the job (observed
+  on PR #1143 and on the weekly `main` run, both killed before the previous
+  240s cap could fire): the PR time cap is lowered to 180s so `timeout` fires
+  first and the step exits 124, which the workflow already accepts as a
+  partial matrix. Weekly schedule runs stay uncapped and produce the full
+  matrix.
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source
   outside the project root") on projects scaffolded by `cds get`: the
