@@ -1,4 +1,4 @@
-FROM apache/superset:6.1.0-py311@sha256:95b060f3450f3314019700642c20d2149dc0e0b41d65c0ef8a1bd8018fbf385c
+FROM apache/superset:6.1.0-py311@sha256:3f63de207e59f93632cc5300b0c04898679c5f84ed49d6bda80de048c50ba05f
 
 USER root
 
