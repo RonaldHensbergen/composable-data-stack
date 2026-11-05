@@ -375,3 +375,40 @@ renders empty when the binding is absent, so optional telemetry is purely
 additive. The provided-contract host check (E150) now also covers
 `metrics-sink` and `trace-sink` providers, so a mis-advertised collector
 endpoint fails closed at render time.
+
+## 13. Dashboarding: the `grafana` module
+
+[`modules-experimental/observability/grafana`](../modules-experimental/observability/grafana/module.yaml)
+(issue #369) is the experimental dashboarding/query UI for the contracts above:
+it **provides** `http-service` (health path `/api/health`) so a reverse proxy
+or another module can route to it, and **consumes** two optional contracts to
+provision datasources declaratively:
+
+- `sql-database` via `spec.config.warehouseDatabase.contractRef` — provisions
+  a Postgres "Warehouse" datasource from the binding's
+  host/port/database/username/password. The consume entry declares
+  `engineFrom: spec.config.warehouseEngine` (default `postgres`), so a bound
+  provider advertising a different engine fails validation with E154 instead
+  of provisioning a broken datasource (issue #682).
+- `metrics-sink` via `spec.config.metricsSink.contractRef` — provisions a
+  Prometheus "Metrics" datasource from the contract's `connectionUri`, but
+  only when the provider advertises `protocol: prometheus`; push-style OTLP
+  endpoints (`otlp-grpc`/`otlp-http`, e.g. the `otel-collector` module) cannot
+  be queried by Grafana directly, so no datasource is mounted for them.
+
+Provisioning uses Grafana's own declarative provisioning: the module
+bind-mounts files from `provisioning/datasources/` into
+`/etc/grafana/provisioning/datasources/`, gated per binding with `enabledFrom`
+equality checks (`bindings.warehouse-database.engine==postgres`,
+`bindings.metrics-sink.protocol==prometheus`), and the files expand
+`${CDS_GF_DS_*}` environment variables that the compose service fills from the
+bindings via `${ifNonempty:...}`. Admin credentials come from
+`spec.config.adminUser` (`secrets.<alias>`, never inline). Analytics reporting
+and update checks are disabled in the container because the module declares no
+external egress.
+
+The [`local-postgres-grafana` profile](../profiles/local-postgres-grafana)
+demos the warehouse datasource wiring end to end. The module is experimental
+(`productionSuitable: false`): single-node, loopback-only host publish, no OIDC
+wiring yet, docker-compose target only — the same posture as the other
+`modules-experimental/observability/` modules.

@@ -1,0 +1,226 @@
+# modules-experimental/observability/grafana/module.yaml
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: grafana
+  category: observability
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: Grafana dashboards (experimental)
+  description: >
+    Grafana dashboarding/observability UI (https://grafana.com/), providing an
+    `http-service` contract for the web UI and optionally provisioning
+    datasources from a bound `sql-database` (warehouse charts) and a
+    Prometheus-protocol `metrics-sink`. Closes #369. Experimental because it
+    is a single-node, unauthenticated-beyond-admin-login UI with host-published
+    loopback access only; production deployments should front it with the
+    reverse-proxy module and an identity provider.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: grafana
+      ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - adminUser
+    properties:
+      webPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 3000
+        description: >-
+          Host loopback port publishing the Grafana web UI
+          (127.0.0.1:<webPort>:3000). In-network consumers and the reverse
+          proxy use the provided http-service contract instead of this port.
+
+      adminUser:
+        type: object
+        additionalProperties: false
+        required:
+          - passwordFrom
+        properties:
+          username:
+            type: string
+            minLength: 1
+            default: admin
+            description: Initial Grafana admin username (GF_SECURITY_ADMIN_USER).
+          passwordFrom:
+            type: string
+            pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+            description: >-
+              Secret alias for the initial admin password
+              (GF_SECURITY_ADMIN_PASSWORD), never an inline value.
+
+      warehouseDatabase:
+        type: object
+        additionalProperties: false
+        description: >-
+          Optional sql-database binding charted straight out of the warehouse:
+          when bound, a Postgres datasource is provisioned from the binding's
+          host/port/database/username/password fields. Unbound means Grafana
+          starts with no warehouse datasource. No `default` on this object on
+          purpose: a defaulted object would resolve to a non-empty binding
+          without a contractRef and fail planning with E041 even when unbound.
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
+      warehouseEngine:
+        type: string
+        enum:
+          - postgres
+        default: postgres
+        description: >-
+          Engine the bound sql-database provider must advertise, enforced via
+          engineFrom on the warehouse-database consume entry (issue #682): only
+          the Postgres wire protocol maps to a provisioned Grafana datasource
+          today, so a non-Postgres binding fails validation with E154 instead
+          of provisioning a broken datasource. Kept as a sibling of
+          warehouseDatabase (not nested inside it) so an absent binding stays
+          an empty object at plan time instead of a defaulted non-empty one
+          that would fail with E041.
+
+      metricsSink:
+        type: object
+        additionalProperties: false
+        description: >-
+          Optional metrics-sink binding provisioning a Prometheus datasource
+          from the contract's connectionUri. Only providers advertising
+          protocol "prometheus" get a datasource: push-style OTLP endpoints
+          (protocol otlp-grpc/otlp-http) cannot be queried by Grafana
+          directly, so the provisioning file is not mounted for them.
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
+      healthcheck:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+  consumes:
+    - name: warehouse-database
+      contract:
+        kind: sql-database
+      required: false
+      mappedFrom: spec.config.warehouseDatabase
+      # The provisioned datasource speaks the Postgres wire protocol; a bound
+      # provider advertising a different engine fails validation with E154
+      # (issue #682) instead of misconfiguring the datasource.
+      engineFrom: spec.config.warehouseEngine
+
+    - name: metrics-sink
+      contract:
+        kind: metrics-sink
+      required: false
+      mappedFrom: spec.config.metricsSink
+
+  provides:
+    - name: http-service
+      contract:
+        kind: http-service
+        spec:
+          portFrom: spec.config.webPort
+          # ${service.dns}: the Compose service DNS name, so any instance
+          # id works (issue #1010).
+          host: ${service.dns}
+          port: ${config.webPort}
+          healthPath: /api/health
+          protocol: http
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        grafana:
+          # Multi-arch manifest (amd64/arm64/arm); grafana runs as uid/gid 472.
+          image: grafana/grafana:12.4.14@sha256:ae509d9ae8c1021ca32ec370a9ca975d40165eda9fccd1e1102d317ff8787cd7
+          user: "472:472"
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 256
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=472,gid=472,mode=0700
+          ports:
+            # Loopback-only host publish: the admin UI must not be reachable
+            # from other hosts (CDS-SEC-020); the reverse proxy is the entry
+            # point in profiles that front it.
+            - "127.0.0.1:${config.webPort}:3000"
+          volumes:
+            - grafana-data:/var/lib/grafana
+            # Datasource provisioning files. Grafana expands ${ENV_VAR} in
+            # provisioning files from the container environment, which CDS
+            # fills from the bindings below via ifNonempty. Each mount is
+            # gated so an unbound (or wrong-protocol) contract never leaves a
+            # half-configured datasource behind.
+            - type: bind
+              source: provisioning/datasources/warehouse.yaml
+              target: /etc/grafana/provisioning/datasources/warehouse.yaml
+              read_only: true
+              enabledFrom: bindings.warehouse-database.engine==postgres
+            - type: bind
+              source: provisioning/datasources/metrics.yaml
+              target: /etc/grafana/provisioning/datasources/metrics.yaml
+              read_only: true
+              enabledFrom: bindings.metrics-sink.protocol==prometheus
+          environment:
+            GF_SECURITY_ADMIN_USER: "${config.adminUser.username}"
+            GF_SECURITY_ADMIN_PASSWORD: "${config.adminUser.passwordFrom}"
+            # Plain HTTP on the Compose network only; TLS terminates at the
+            # reverse proxy in fronting profiles (CDS-SEC-074 pattern).
+            GF_SERVER_PROTOCOL: http
+            # No debug logging (CDS-SEC-072).
+            GF_LOG_LEVEL: info
+            # No phone-home: reporting and update checks need external egress
+            # the module does not declare.
+            GF_ANALYTICS_REPORTING_ENABLED: "false"
+            GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+            GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+            # Datasource inputs for the mounted provisioning files; render
+            # empty when the corresponding binding is absent.
+            CDS_GF_DS_WAREHOUSE_HOST: "${ifNonempty:bindings.warehouse-database.host,,}"
+            CDS_GF_DS_WAREHOUSE_PORT: "${ifNonempty:bindings.warehouse-database.port,,}"
+            CDS_GF_DS_WAREHOUSE_DATABASE: "${ifNonempty:bindings.warehouse-database.database,,}"
+            CDS_GF_DS_WAREHOUSE_USERNAME: "${ifNonempty:bindings.warehouse-database.username,,}"
+            CDS_GF_DS_WAREHOUSE_PASSWORD: "${ifNonempty:bindings.warehouse-database.password,,}"
+            CDS_GF_DS_METRICS_URL: "${ifNonempty:bindings.metrics-sink.connectionUri,,}"
+          healthcheck:
+            conditionallyEnabledFrom: config.healthcheck.enabled
+            test:
+              - CMD-SHELL
+              # The image ships bash (its entrypoint is a shell script), so
+              # probe /api/health over /dev/tcp like the marquez-api service
+              # instead of relying on curl/wget being present.
+              - >-
+                bash -c 'exec 3<>/dev/tcp/127.0.0.1/3000;
+                printf "GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3;
+                cat <&3 | grep -q "200 OK"'
+            interval: 10s
+            timeout: 5s
+            retries: 12
+            start_period: 30s
+
+      volumes:
+        grafana-data: {}
