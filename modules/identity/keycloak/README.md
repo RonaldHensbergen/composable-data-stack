@@ -1,7 +1,7 @@
 # Keycloak
 
-Keycloak identity/SSO provider running in development mode, backed by a
-consumed sql-database contract for its own metadata store.
+Keycloak identity/SSO provider with production web serving by default,
+backed by a consumed sql-database contract for its own metadata store.
 
 ## Purpose
 
@@ -12,13 +12,13 @@ its own metadata storage, instead of hardcoding a database service name.
 
 ## Known limitations
 
-- Runs in development mode (`start-dev`) by default, which relaxes
-  hostname/TLS requirements not suitable for production;
-  `config.webServer.mode: production` switches to Keycloak production
-  mode (`kc.sh start --http-enabled=true`) — the default stays
-  `development` until the module is production-suitable
-  (see [`docs/serving-modes.md`](../../docs/serving-modes.md), issue #216)
-- Declares `productionSuitable: false`, do not use in production
+- `config.webServer.mode: development` runs Keycloak in development mode
+  (`start-dev`), which relaxes hostname/TLS requirements; the default is
+  `production` (`kc.sh start --http-enabled=true`), and production profiles
+  reject an explicit `development` mode (E140), so a production profile can
+  never silently run `start-dev` when the mode is left unset
+  (see [`docs/serving-modes.md`](../../docs/serving-modes.md), issues #216,
+  #974)
 - The default realm is Keycloak's built-in `master`; set `realm` to a
   dedicated application realm to have Keycloak import it on startup.
   Existing realms are not overwritten. Configure clients and users through

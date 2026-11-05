@@ -59,7 +59,8 @@ also states this limitation in its text report.
   its first consumer (Superset) landed in PR [#1064](https://github.com/RonaldHensbergen/composable-data-stack/pull/1064)
   ([#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681),
   [#1055](https://github.com/RonaldHensbergen/composable-data-stack/issues/1055));
-  Keycloak remains experimental pending production hardening. Provider
+  Keycloak is production-suitable with production web serving by default
+  (#974). Provider
   binding alone will not represent every per-resource authorization policy.
 - **Service-mesh enforcement:** mTLS and traffic-policy support remain open
   under [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776).

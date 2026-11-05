@@ -530,7 +530,7 @@ module set, mapped to the Haven+ baseline of
 | `bi/superset` | `http-service`, consumes `oidc-provider` | BI workload | stable; has `kubernetes:` block |
 | `cache/keydb` | `cache-service` | cache | stable; has `kubernetes:` block |
 | `transformation/dbt` | consumes `sql-database`, `docs-service` | transformation | stable; no `kubernetes:` block yet |
-| `identity/keycloak` | `oidc-provider` | identity/SSO (Haven+: Keycloak) | `productionSuitable: false`, no `kubernetes:` block — #1075, #682/#974 (G3.3) |
+| `identity/keycloak` | `oidc-provider` | identity/SSO (Haven+: Keycloak) | production-suitable with production web serving by default (#974 landed); no `kubernetes:` block — #1075, #682 (G3.3) |
 | `integration/traefik` | `reverse-proxy` with TLS | TLS ingress edge (stands in for cert-manager+ingress at MVP scope) | no `kubernetes:` block — #1075, #883, #1033 (G3.3/G3.4) |
 | `backup/restic` | provides `backup-target`, consumes `backup-source` | backup (Haven+: Velero); Postgres sidecar is #665 | production-only piece (E143); no `kubernetes:` block — G2.9 |
 | `storage/garage` | `object-storage` (S3) | restic's S3 repository target / landing zone (#669) | `productionSuitable: false` (single-node) — deviation for the local MVP cluster only |

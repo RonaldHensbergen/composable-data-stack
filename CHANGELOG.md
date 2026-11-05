@@ -173,6 +173,36 @@ The format is based on Keep a Changelog.
   the W129 cases, and the gate check. Documented in `docs/kubernetes.md` and
   the README troubleshooting table.
 
+- Helm-target test coverage for Superset's `identityProvider` binding (issue
+  #1075): the only `oidc-provider` provider in the repo (keycloak) is
+  compose-only, so the new fixture module
+  `tests/fixtures/helm-oidc/modules/identity/oidc-stub` provides a minimal
+  kubernetes-capable `oidc-provider` and `tests/test_superset_oidc_helm.py`
+  renders a profile binding it on `--target helm` end to end — issuer URL
+  env present as a literal value, client secret only as a `$(CDS_*)`
+  expansion backed by a `secretKeyRef` entry and a `required` key in
+  `templates/secret.yaml`, E078/E079 secret-plumbing checks green, no secret
+  values in any chart file. The rendered chart is pinned by golden hashes in
+  `tests/golden/k8s-chart-oidc.sha256`. A guard test also pins that binding
+  the compose-only keycloak on the helm target still fails closed with E072.
+
+### Changed
+
+- The keycloak module (`modules/identity/keycloak`) is now production-suitable
+  and defaults `config.webServer.mode` to `production` in the same change
+  (issue #974): the `productionSuitable: false` marker is dropped and the
+  configSchema default flips from `development` to `production`, so a
+  production profile using keycloak without an explicit mode passes `cds
+  validate` (E140 only rejects an *explicit* `development`) and plans/renders
+  `CDS_WEBSERVER_MODE=production` instead of silently running `start-dev` at
+  runtime. `development` remains an explicit opt-in for local profiles and is
+  still rejected in production profiles by E140. `docs/serving-modes.md`
+  (keycloak row default column), the module README, and the haven/roadmap docs
+  are updated to match; `tests/test_keycloak_postgres_wiring.py` gains an E140
+  regression test covering a production profile with keycloak and no explicit
+  mode (validates clean, renders production mode) plus the explicit-`development`
+  rejection case.
+
 ### Fixed
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source

@@ -66,8 +66,9 @@ of scope for this profile.
 - Keycloak realm import and the shared `oidc-provider` contract are
   implemented; consumers must still provision their own clients and
   configure an issuer URL reachable from both browsers and service
-  containers. Keycloak remains experimental because its default development
-  mode is not production-suitable.
+  containers. Keycloak is production-suitable and serves HTTP in production
+  mode by default (#974); `start-dev` remains an explicit local-only opt-in
+  (`config.webServer.mode: development`).
 - The experimental Loki `log-sink` provider (#662) is not wired into the
   reference profile by default; add it when centralized logging is needed.
 
