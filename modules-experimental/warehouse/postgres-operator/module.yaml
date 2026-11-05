@@ -1,0 +1,205 @@
+# modules-experimental/warehouse/postgres-operator/module.yaml
+# yaml-language-server: $schema=../../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: postgres-operator
+  category: warehouse
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: PostgreSQL via CloudNativePG (experimental)
+  description: >
+    Kubernetes-native, operator-managed PostgreSQL for the Helm render
+    target, providing the same `sql-database` contract as
+    `modules/warehouse/postgres` (issue #768). Renders a CloudNativePG
+    `Cluster` CR (plus the app-credentials Secret it bootstraps from); the
+    CloudNativePG operator itself is installed on the cluster out of band
+    and is not part of the rendered chart. Kubernetes render target only:
+    there is no compose implementation. The plain `postgres` module stays
+    the Compose/local-dev path. See README.md in this directory and
+    docs/haven-parity-plan.md workstream 3.6.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: postgres-operator
+      ports: []
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - database
+      - username
+      - passwordFrom
+    properties:
+      database:
+        type: string
+        minLength: 1
+        description: Application database the Cluster bootstraps via initdb.
+
+      username:
+        type: string
+        minLength: 1
+        description: Application user (database owner) the Cluster bootstraps.
+
+      passwordFrom:
+        type: string
+        pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+        description: >-
+          Secret alias for the application user's password. The alias maps
+          to a CDS_* env var (the profile's secrets values block); at Helm install time the
+          value is supplied via .Values.secrets and lands in the chart's
+          secrets Secret — it is never stored in the committed chart. The
+          same reference is advertised on the sql-database contract, so
+          consumers receive it through their own secretKeyRef plumbing.
+
+      port:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 5432
+        description: TCP port the database listens on (advertised on the contract).
+
+      instances:
+        type: integer
+        minimum: 1
+        default: 1
+        description: >-
+          Number of PostgreSQL instances the CloudNativePG Cluster runs.
+          Set to 3 (or more) for high availability with automatic failover;
+          the default 1 keeps local k3d clusters cheap.
+
+      image:
+        type: string
+        default: "ghcr.io/cloudnative-pg/postgresql:18.1@sha256:cc78f0c280978dd93fa6f49ce6cef60015cf4b56fd0e6a47c8ca49020b875f74"
+        description: >-
+          CloudNativePG PostgreSQL image (pinned by digest), rendered as the
+          Cluster's imageName.
+
+      storage:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          size:
+            type: string
+            pattern: "^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi|Ti|Pi|Ei)$"
+            default: 5Gi
+            description: PVC size per instance (Cluster spec.storage.size).
+
+      authentication:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Client authentication policy for the cluster (mirrors
+          modules/warehouse/postgres, issue #206): hostAuth selects the
+          pg_hba method applied to host (TCP) connections and is rendered
+          into the Cluster's postgresql.pg_hba. Defaults to scram-sha-256;
+          production validation rejects trust and warns on md5 (E139).
+        properties:
+          hostAuth:
+            type: string
+            enum:
+              - scram-sha-256
+              - md5
+              - trust
+            default: scram-sha-256
+
+  provides:
+    - name: sql-database
+      contract:
+        kind: sql-database
+        spec:
+          # CloudNativePG creates a <cluster>-rw Service (read-write primary
+          # endpoint) for the Cluster rendered below; the Cluster name is
+          # {{ .Release.Name }}-<instance id>, so the release-scoped host is
+          # {{ .Release.Name }}-<instance id>-rw. Declared under
+          # implementation.kubernetes.services so contract-host validation
+          # (E084/E150) and binding release-scoping accept it (issue #768).
+          host: ${service.host}-rw
+          port: ${config.port}
+          database: ${config.database}
+          username: ${config.username}
+          password: ${config.passwordFrom}
+          authentication: ${config.authentication.hostAuth}
+          # Advertised for consumers that declare engineFrom on their consume
+          # entry (issue #682): this module always speaks the Postgres wire
+          # protocol.
+          engine: postgres
+          connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.host}-rw:${config.port}/${config.database}
+
+  implementation:
+    kind: kubernetes
+    targets:
+      - kubernetes
+    kubernetes:
+      # CDS renders the Cluster CR but never installs the CloudNativePG
+      # operator: render/test warn with W130 and `cds up --target helm`
+      # fails closed with E155 while the CRD below is absent from the
+      # cluster, both naming the install command (issue #768).
+      operators:
+        - name: CloudNativePG
+          crd: clusters.postgresql.cnpg.io
+          install: "helm repo add cnpg https://cloudnative-pg.github.io/charts && helm upgrade --install cnpg --namespace cnpg-system --create-namespace cnpg/cloudnative-pg"
+          docs: https://cloudnative-pg.io/documentation/current/installation/
+      services:
+        rw:
+          description: >-
+            Read-write primary endpoint Service that the CloudNativePG
+            operator creates for the Cluster manifest below as
+            <cluster>-rw, i.e. {{ .Release.Name }}-<instance id>-rw.
+            Declared (not rendered) so contract hosts and consumer bindings
+            resolve to it on the Helm target.
+      manifests:
+        # The operator-managed cluster. CloudNativePG creates the
+        # <cluster>-rw / <cluster>-ro / <cluster>-r Services and the
+        # per-instance Pods itself once its controller is installed on the
+        # cluster.
+        cluster:
+          apiVersion: postgresql.cnpg.io/v1
+          kind: Cluster
+          metadata:
+            name: "{{ .Release.Name }}-${service.host}"
+          spec:
+            instances: ${config.instances}
+            imageName: ${config.image}
+            storage:
+              size: ${config.storage.size}
+            bootstrap:
+              initdb:
+                database: ${config.database}
+                owner: ${config.username}
+                secret:
+                  name: "{{ .Release.Name }}-${service.host}-app"
+            postgresql:
+              pg_hba:
+                - "host all all all ${config.authentication.hostAuth}"
+            # Propagate the CDS module labels onto the operator-created
+            # pods, so the binding-derived NetworkPolicy edges of consuming
+            # modules (podSelector cds.dev/module + app.kubernetes.io/instance)
+            # actually select the database pods.
+            inheritedMetadata:
+              labels:
+                cds.dev/module: ${service.host}
+                app.kubernetes.io/instance: "{{ .Release.Name }}"
+
+        # Credentials Secret the Cluster's initdb bootstrap reads
+        # (username/password keys, as CloudNativePG expects). The password
+        # value is a secret alias reference: the renderer rewrites it to a
+        # Helm `required` lookup of .Values.secrets, so the value is supplied
+        # at install time and never committed to the chart.
+        app-credentials:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "{{ .Release.Name }}-${service.host}-app"
+          type: Opaque
+          stringData:
+            username: ${config.username}
+            password: ${config.passwordFrom}

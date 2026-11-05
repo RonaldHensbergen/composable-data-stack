@@ -217,6 +217,9 @@ each inventing their own.
   a Kubernetes-only alternative to `modules/warehouse/postgres`'s plain
   container, once 3.1 exists. Keep the existing Compose-based Postgres module
   as-is for local/dev use — this is additive, not a replacement.
+  **Landed experimentally** as `modules-experimental/warehouse/postgres-operator`
+  (#768): renders a CloudNativePG `Cluster` CR providing `sql-database` under
+  `--target helm` only.
 
 ### 3.7 Maturity model
 
@@ -254,7 +257,7 @@ gap is narrower than section 2 suggested when this document was drafted:
 | 3.3 Observability platform module | Log-sink provider delivered; metrics/trace contracts + reference module landing | Design closed via [#174](https://github.com/RonaldHensbergen/composable-data-stack/issues/174); Loki log provider delivered experimentally via [#662](https://github.com/RonaldHensbergen/composable-data-stack/issues/662), Grafana dashboarding module delivered experimentally via [#369](https://github.com/RonaldHensbergen/composable-data-stack/issues/369) (`modules-experimental/observability/grafana`, demoed by `local-postgres-grafana`); OpenTelemetry `trace-sink`/`metrics-sink` contracts + experimental `otel-collector` module landing via [#777](https://github.com/RonaldHensbergen/composable-data-stack/issues/777); OpenLineage `lineage-sink` contract and Dagster wiring delivered by [#779](https://github.com/RonaldHensbergen/composable-data-stack/issues/779) (PR #831), with an experimental Marquez reference backend (`modules-experimental/observability/marquez`) |
 | 3.4 Security platform modules | Kubernetes pod/container hardening and default-deny NetworkPolicy done; TLS policy exists; OIDC contract and first consumer done; service mesh remains open | Hardening and NetworkPolicy in PR [#608](https://github.com/RonaldHensbergen/composable-data-stack/pull/608) / [#75](https://github.com/RonaldHensbergen/composable-data-stack/issues/75); TLS tracked by [#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580); identity module delivered via [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370), with the shared OIDC contract and first consumer delivered in PR [#1064](https://github.com/RonaldHensbergen/composable-data-stack/pull/1064) ([#681](https://github.com/RonaldHensbergen/composable-data-stack/issues/681), [#1055](https://github.com/RonaldHensbergen/composable-data-stack/issues/1055)); service mesh (mTLS) tracked by [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776); workload identity by [#1068](https://github.com/RonaldHensbergen/composable-data-stack/issues/1068); consolidated Zero-Trust framing by [#778](https://github.com/RonaldHensbergen/composable-data-stack/issues/778) |
 | 3.5 Backup and restore | Not started, but scoped into 4 issues already | [#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210) (contracts), [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665) (Postgres), [#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668) (generic file/volume), [#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669) (object storage) |
-| 3.6 Database operators | Filed, not started | [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) |
+| 3.6 Database operators | **Implemented (experimental)** — `modules-experimental/warehouse/postgres-operator` renders a CloudNativePG `Cluster` CR providing the same `sql-database` contract as `modules/warehouse/postgres` on the Helm target only; demoed by `profiles/local-kubernetes-postgres-operator` | [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) |
 | 3.7 Maturity model | **Implemented** — Basic/Automated/Observed/Secured/Resilient tiers are reported by `cds maturity` (#769, #1059) | [#769](https://github.com/RonaldHensbergen/composable-data-stack/issues/769), [#1059](https://github.com/RonaldHensbergen/composable-data-stack/issues/1059) |
 
 Notable duplicates closed in favor of the issues above:
@@ -264,9 +267,9 @@ Notable duplicates closed in favor of the issues above:
 (Keycloak identity/RBAC module → closed in favor of #370).
 
 Practical implication: PR #608 has completed the Kubernetes rendering
-baseline, including NetworkPolicy generation. GitOps (3.2) and the maturity
-model (3.7) are now implemented; the database-operator pattern (3.6) and
-CI-based cluster validation (#76) remain open.
+baseline, including NetworkPolicy generation. GitOps (3.2), the maturity
+model (3.7), and the database-operator pattern (3.6, experimental) are now
+implemented; CI-based cluster validation (#76) remains open.
 
 ## 5. Sequencing
 

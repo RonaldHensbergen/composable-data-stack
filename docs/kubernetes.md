@@ -17,6 +17,7 @@ including k3s through k3d.
 - [Translation boundaries](#translation-boundaries)
 - [Network isolation and least privilege](#network-isolation-and-least-privilege)
 - [GitOps handoff](#gitops-handoff)
+- [Operator-managed modules](#operator-managed-modules)
 - [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
@@ -422,6 +423,65 @@ the cluster needs a FluxCD (or ArgoCD) installation with its CRDs present
 before the rendered chart is applied — and CDS does not commit to the GitOps
 repository; rendering produces local files the operator commits. ArgoCD can be
 added later as a second provider of the same `gitops-target` contract.
+
+## Operator-managed modules
+
+A module whose endpoint is created by an operator (not by CDS-rendered pods)
+declares that endpoint instead of a workload, e.g. the experimental
+[`modules-experimental/warehouse/postgres-operator`](../modules-experimental/warehouse/postgres-operator/)
+(issue #768), which renders a CloudNativePG `Cluster` CR. Two schema blocks
+support this pattern:
+
+- `implementation.kubernetes.services` declares Services the module's
+  manifests cause to exist in the release namespace — CloudNativePG creates
+  `<cluster>-rw`/`-ro`/`-r` for every Cluster. The names are *declared, not
+  rendered*: they join the renderer's service registry, so contract-host
+  validation (E084/E150), release-scoping of consumer binding hosts, and
+  `waitFor` gates treat them exactly like rendered workload Services. Key
+  `rw` on module instance `warehouse` is `warehouse-rw`, release-scoped to
+  `{{ .Release.Name }}-warehouse-rw` — matching the operator-created Service
+  for a Cluster named `{{ .Release.Name }}-warehouse`.
+- `implementation.kubernetes.manifests` carries the CR itself (see
+  [GitOps handoff](#gitops-handoff)). A manifest value that is exactly one
+  secret reference (`secrets.*`, resolving to `${CDS_*}`) is rewritten to a
+  Helm `required` lookup of `.Values.secrets`, so CRs like a `Cluster`'s
+  `bootstrap.initdb.secret` can consume the app password without the chart
+  ever storing it; any other leftover `${CDS_*}` still fails closed with
+  E078.
+
+Like the GitOps module, an operator-managed module runs no pods of its own, so
+it gets no ServiceAccount or NetworkPolicy, and `--target compose` fails
+closed with E070. CDS renders the CR but does not install the operator
+itself — the module declares it under `implementation.kubernetes.operators`
+(`name`, `crd`, `install`, optional `docs`), and CDS surfaces the
+prerequisite at every step (issue #768):
+
+- `cds render` / `cds test` / `cds up --target helm` print a **W130** warning
+  naming the operator, its CRD, and the install command; the chart's
+  `templates/NOTES.txt` repeats it after `helm install`.
+- `cds up --target helm` checks the cluster first (`kubectl get crd <crd>`)
+  and fails closed with **E155** while the CRD is absent, rather than letting
+  `helm` fail with "no matches for kind". If the check itself cannot run
+  (RBAC/connectivity), it warns and continues.
+
+Installing CloudNativePG on the cluster (official chart; installs controller,
+webhooks, RBAC, and CRDs):
+
+```bash
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm repo update
+helm upgrade --install cnpg \
+  --namespace cnpg-system \
+  --create-namespace \
+  cnpg/cloudnative-pg
+kubectl get crd clusters.postgresql.cnpg.io                          # CRD registered
+kubectl -n cnpg-system rollout status deployment/cnpg-cloudnative-pg  # ready
+```
+
+cert-manager is not required for a basic install (the operator manages its
+own webhook/cluster CA by default). See the module README for the full flow
+and the demo profile
+[`profiles/local-kubernetes-postgres-operator`](../profiles/local-kubernetes-postgres-operator/).
 
 ## Troubleshooting
 

@@ -1,0 +1,95 @@
+# profiles/local-kubernetes-postgres-operator/profile.yaml
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: local-kubernetes-postgres-operator
+  environment: local
+  displayName: Local Kubernetes PostgreSQL-operator Example (Helm)
+  description: >
+    Warehouse on the experimental CloudNativePG operator module
+    (modules-experimental/warehouse/postgres-operator, issue #768) instead of
+    the Compose StatefulSet+PVC postgres module: same sql-database contract,
+    rendered to a Helm chart with --target helm. Superset and KeyDB bind to
+    it with no consumer-side changes. Experimental — not a stable profile.
+
+spec:
+  runtime:
+    type: docker-compose
+    namespace: cds-local
+    networks:
+      - name: cds-local
+        driver: bridge
+
+  modules:
+    - id: postgres
+      source: ../../modules-experimental/warehouse/postgres-operator
+      version: "0.1.0"
+      enabled: true
+      config:
+        database: "${CDS_ANALYTICS_DB_NAME}"
+        username: "${CDS_ANALYTICS_DB_USER}"
+        passwordFrom: secrets.analytics_db_password
+        port: 5432
+        instances: 1
+        storage:
+          size: 5Gi
+        authentication:
+          hostAuth: scram-sha-256
+
+    - id: keydb
+      source: ../../modules/cache/keydb
+      version: "0.1.0"
+      enabled: true
+      config:
+        port: 6379
+        healthcheck:
+          enabled: true
+
+    - id: superset
+      source: ../../modules/bi/superset
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+        - keydb
+      config:
+        webPort: 8088
+        kubernetesService:
+          type: NodePort
+          nodePort: 30808
+        secretKeyFrom: secrets.superset_secret_key
+        adminUser:
+          username: admin
+          passwordFrom: secrets.superset_admin_password
+          email: admin@example.local
+        metadataDatabase:
+          contractRef: postgres.sql-database
+        analyticsDatabase:
+          contractRef: postgres.sql-database
+        cacheService:
+          contractRef: keydb.cache-service
+        healthcheck:
+          enabled: true
+
+  secrets:
+    provider:
+      type: env
+    values:
+      analytics_db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
+        required: true
+      superset_secret_key:
+        env: CDS_SUPERSET_SECRET_KEY
+        required: true
+      superset_admin_password:
+        env: CDS_SUPERSET_ADMIN_PASSWORD
+        required: true
+
+  outputs:
+    contracts:
+      warehouse:
+        from: postgres.sql-database
+      biApi:
+        from: superset.http-service

@@ -711,3 +711,26 @@ A module is considered complete when:
 - its services start successfully in that profile
 
 `README.md` is encouraged for anything not obvious from `module.yaml`, but is not required for a module to be considered complete.
+
+## Choosing a warehouse module
+
+Two modules provide the `sql-database` contract, and they are complements, not
+competitors (issue #768):
+
+| Module | Render target | Best for |
+| --- | --- | --- |
+| `modules/warehouse/postgres` (stable) | `compose` (and `helm` via its StatefulSet+PVC block) | Local/dev Compose stacks; single-node Postgres; the built-in pgBackRest `backup-target` sidecar |
+| `modules-experimental/warehouse/postgres-operator` (experimental) | `helm` only | Kubernetes-only deployments that want operator-managed HA/failover (`config.instances: 3`) instead of a single StatefulSet+PVC |
+
+Choose the operator-backed variant when the profile only ever renders to
+Kubernetes and you need high availability; choose the plain Compose module
+otherwise. Both advertise the same contract fields, so consumers (Dagster,
+Superset, Keycloak, dbt, ...) bind through `contractRef: <id>.sql-database`
+with no consumer-side changes — only the profile's warehouse `source` and
+config differ. The operator variant renders a CloudNativePG `Cluster` CR
+plus the app-credentials Secret, and declares the operator-created
+`<cluster>-rw` Service via `implementation.kubernetes.services` so the
+advertised `host` (`<id>-rw`, release-scoped to `{{ .Release.Name }}-<id>-rw`)
+passes the contract-host checks; see the module README and
+[docs/kubernetes.md](kubernetes.md#operator-managed-modules). The
+CloudNativePG operator itself is installed on the cluster out of band.

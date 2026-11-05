@@ -49,7 +49,7 @@ from .k8s_provision import (
     import_local_images,
 )
 from .k8s_renderer import render_helm
-from .k8s_runner import get_k8s_state, helm_down, helm_up
+from .k8s_runner import check_operator_crds, get_k8s_state, helm_down, helm_up
 from .k8s_security import scan_k8s_security
 from .loader import load_yaml_file, save_generated_profile
 from .maturity import build_maturity_report, format_maturity_report
@@ -2342,6 +2342,9 @@ def _run() -> int:
                     print("Render failed.")
                     _record_audit("render", str(source_profile), "failure", plan=plan)
                     return 1
+                render_warnings = [d for d in all_diags if d.level != "error"]
+                if render_warnings:
+                    print_diagnostics(render_warnings)
                 print(f"Rendered Helm chart written to {output_path}")
                 _record_audit(
                     "render", str(source_profile), "success", plan=plan, details={"target": "helm", "output": output_path}
@@ -2406,6 +2409,9 @@ def _run() -> int:
                     print("Render failed.")
                     _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
                     return 1
+                render_warnings = [d for d in all_diags if d.level != "error"]
+                if render_warnings:
+                    print_diagnostics(render_warnings)
                 print(f"Rendered Helm chart written to {output_path}")
                 _record_audit(
                     "render",
@@ -2485,6 +2491,9 @@ def _run() -> int:
                 print("Cannot start stack because Helm rendering failed.")
                 _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
                 return code or 1
+            render_warnings = [d for d in render_diags if d.level != "error"]
+            if render_warnings:
+                print_diagnostics(render_warnings)
 
             plan_release, plan_namespace = _helm_identity(
                 plan.get("metadata"), plan.get("runtime"), profile_path
@@ -2517,6 +2526,40 @@ def _run() -> int:
                             details={"target": "helm", "namespace": namespace, "release": release},
                         )
                         return cluster_code
+                    # Modules can declare out-of-band operators their manifests
+                    # need (implementation.kubernetes.operators, issue #768). If
+                    # such an operator's CRD is confirmed absent from the
+                    # cluster, helm would fail with "no matches for kind" — fail
+                    # early instead, naming the install command (E155).
+                    missing_operators, crd_check_ok = check_operator_crds(plan, args.kube_context)
+                    if missing_operators:
+                        for module_id, operator in missing_operators:
+                            docs = f" (docs: {operator['docs']})" if operator.get("docs") else ""
+                            print(Diagnostic(
+                                level="error",
+                                code="E155",
+                                message=(
+                                    f'Module "{module_id}" needs operator "{operator["name"]}", '
+                                    f'but its CRD "{operator["crd"]}" is not present on the '
+                                    "cluster, so the rendered chart cannot be applied. "
+                                    f'Install the operator first: {operator["install"]}{docs}'
+                                ),
+                                path=f"module:{module_id}.implementation.kubernetes.operators",
+                            ).format())
+                        print("Cannot start stack because a required out-of-band operator is missing.")
+                        _record_audit(
+                            "up", args.profile, "failure", environment=args.environment, plan=plan,
+                            details={"target": "helm", "namespace": namespace, "release": release,
+                                     "missingOperators": [op["name"] for _, op in missing_operators]},
+                        )
+                        return 1
+                    if not crd_check_ok:
+                        print(
+                            "WARNING could not verify the CRDs of declared out-of-band "
+                            "operators on the cluster (kubectl error); if an operator is "
+                            "missing, helm install will fail with \"no matches for kind\". "
+                            "See the W130 warnings from rendering for install commands."
+                        )
                     built_images: list[str] = []
                     if builds and not args.no_build:
                         print(f"Building local images: {', '.join(build.image for build in builds)}")
@@ -2983,6 +3026,8 @@ def _run() -> int:
         if validate_ok and plan_ok:
             if not render_ok:
                 print_diagnostics(render_diags)
+            elif render_diags:
+                print_diagnostics([d for d in render_diags if d.level != "error"])
             stages.append(("render", "PASS" if render_ok else "FAIL"))
         else:
             stages.append(("render", "SKIP"))
