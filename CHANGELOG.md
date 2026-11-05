@@ -284,6 +284,20 @@ The format is based on Keep a Changelog.
   Tests in `tests/test_prompts_lint.py`; policy documented in
   `.github/prompts/README.md` (#1090; residual opaque-`run:`-script vectors
   tracked in #1120).
+- Bumped the digest-pinned base images of the five published runtime images
+  to remediate CVE-2026-109518 (HIGH, on-path attack in apt/libapt-pkg on
+  Debian) reported by the daily Trivy scan (#1144-#1148): `python:3.14-slim`
+  to `sha256:ac25e5af...` (Debian trixie base now baking apt 3.0.4) in the
+  dlt, dbt, and dagster base Dockerfiles; `postgres:18` to
+  `sha256:e923a22a...` (apt 3.0.4) in `images/postgres/Dockerfile` plus the
+  matching pin in `modules/warehouse/postgres/module.yaml` and the
+  `tests/test_image_digest_check.py` example; and
+  `apache/superset:6.1.0-py311` to `sha256:3f63de20...` in
+  `images/superset/base/Dockerfile` (that base still ships apt 2.6.1, but
+  the image's build-time `apt-get upgrade` now pulls the fixed apt 2.6.2
+  from bookworm-security). Merging this PR triggers `publish-images.yml`,
+  whose pre-push Trivy HIGH/CRITICAL gate re-verifies all five rebuilt
+  images before they are signed and republished.
 
 ## [0.15.0] - 2026-11-02
 
