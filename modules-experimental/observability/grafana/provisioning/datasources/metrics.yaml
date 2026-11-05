@@ -1,0 +1,17 @@
+# Grafana datasource provisioning for a bound metrics-sink that advertises
+# protocol "prometheus" (enabledFrom gate in module.yaml). Push-style OTLP
+# endpoints (otlp-grpc/otlp-http) cannot be queried by Grafana directly, so
+# no datasource is provisioned for them; query them through a Prometheus-
+# compatible backend that exposes a scrape endpoint instead.
+# ${ENV_VAR} references are expanded by Grafana from the container environment
+# (filled by CDS from the metrics-sink binding's connectionUri).
+apiVersion: 1
+datasources:
+  - name: Metrics
+    type: prometheus
+    access: proxy
+    url: ${CDS_GF_DS_METRICS_URL}
+    isDefault: false
+    editable: true
+    jsonData:
+      timeInterval: 15s

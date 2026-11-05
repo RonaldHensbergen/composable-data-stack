@@ -38,6 +38,21 @@ The format is based on Keep a Changelog.
   8080) as the http-service backend port instead of the localhost host
   publish, so a generated route dials the port the container actually
   listens on. Validator/planner/renderer/k8s tests and docs updated.
+- New experimental `grafana` observability module
+  (`modules-experimental/observability/grafana/`, issue #369): a Grafana
+  dashboarding UI providing the `http-service` contract (health path
+  `/api/health`), with optional `sql-database` and `metrics-sink` bindings
+  provisioned as datasources via Grafana declarative provisioning
+  (`provisioning/datasources/*.yaml`, gated per binding with `enabledFrom`
+  equality checks and fed from `${ifNonempty:bindings....,,}` env vars). The
+  warehouse binding is engine-guarded (`engineFrom`, E154 for non-Postgres
+  providers, issue #682); the metrics datasource is only provisioned for
+  `protocol: prometheus` providers. Admin credentials come from
+  `secrets.<alias>` only, the UI is published on the host loopback only, and
+  analytics/update checks are disabled (no external egress declared). Comes
+  with the `local-postgres-grafana` demo profile, a module README, and
+  `tests/test_grafana_module.py` covering schema, contract wiring, render
+  gating, the E154 guard, and the container-hardening baseline.
 - Two new Gate 3 tasks in the Kubernetes/Haven MVP runbook
   (`docs/plan/k8s-haven-mvp.md`): G3.8 proves the GitOps handoff end to end —
   render the Haven-shaped profile, commit the rendered chart to a
