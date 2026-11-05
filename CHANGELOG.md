@@ -244,6 +244,17 @@ The format is based on Keep a Changelog.
   `tests/golden/k8s-chart-oidc.sha256`. A guard test also pins that binding
   the compose-only keycloak on the helm target still fails closed with E072.
 
+- Documented the snap-confined Docker runtime artifact (issue #1155, loose end
+  of #1066/PR #1154): on the snap-confined Docker runtime every container
+  fails to start under `--security-opt no-new-privileges:true` with
+  `exec ...: operation not permitted` for any image, which is a runtime
+  artifact rather than image file capabilities — `docs/runtime-confinement.md`
+  gains a "Scope And Caveats" note advising to verify on a non-snap Docker
+  host before changing module hardening, the smoke-test guide
+  (`docs/profile-testing/failure-path-and-ci.md`) classifies the failure as a
+  test-infrastructure artifact, and the loki module README's known-limitations
+  links to the note.
+
 ### Changed
 
 - `cds get` (and `cds list --remote`) now default `--ref` to the release tag

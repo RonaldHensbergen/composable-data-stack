@@ -202,6 +202,14 @@ repository secrets for local test passwords.
    - Dagster code-location availability.
 6. Fail on unexpected exited or restarting containers.
 
+> Known runner artifact: on the snap-confined Docker runtime used in some
+> agent sandboxes, every container fails to start under
+> `--security-opt no-new-privileges:true` with `exec ...: operation not
+> permitted`, regardless of the image (even a plain `alpine` `/bin/sh`).
+> Treat this as a test-infrastructure failure, not a product or image defect
+> — re-run on a non-snap Docker host before changing module hardening (see
+> [Runtime Confinement](../runtime-confinement.md#scope-and-caveats), #1155).
+
 ### 9.4 Happy-path end-to-end stage
 
 1. Execute `load_offers_1000` through the Dagster CLI or GraphQL API.
