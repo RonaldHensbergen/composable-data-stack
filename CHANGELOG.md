@@ -107,6 +107,14 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- The `Mutation Tests (Kill Matrix)` workflow no longer fails on PRs when a
+  hosted runner receives a shutdown signal ~4 minutes into the job (observed
+  on PR #1143 and on the weekly `main` run, both killed before the previous
+  240s cap could fire): the PR time cap is lowered to 180s so `timeout` fires
+  first and the step exits 124, which the workflow already accepts as a
+  partial matrix. Weekly schedule runs stay uncapped and produce the full
+  matrix.
+
 - `cds render/up --target helm` no longer fails with E085 ("bind source
   outside the project root") on projects scaffolded by `cds get`: the
   renderer's project-root detection now treats a `.cds/` directory as a
