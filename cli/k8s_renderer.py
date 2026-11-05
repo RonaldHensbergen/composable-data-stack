@@ -148,6 +148,27 @@ def render_helm(
             )
         )
 
+    # Modules can declare out-of-band operators their manifests depend on
+    # (implementation.kubernetes.operators, issue #768): CDS renders the CRs
+    # but never installs the operator, so every render/test of such a plan
+    # warns with the operator's install command, and the chart's NOTES.txt
+    # repeats it after install.
+    for module_id, operator in _declared_operators(renderable):
+        docs = f" (docs: {operator['docs']})" if operator.get("docs") else ""
+        diagnostics.append(
+            Diagnostic(
+                level="warning",
+                code="W130",
+                message=(
+                    f'Module "{module_id}" renders resources for operator '
+                    f'"{operator["name"]}" (CRD {operator["crd"]}), which CDS does not '
+                    "install itself. Install it on the cluster out of band before "
+                    f'applying this chart: {operator["install"]}{docs}'
+                ),
+                path=f"module:{module_id}.implementation.kubernetes.operators",
+            )
+        )
+
     # Plans can be loaded from files, so re-check what validate already
     # checked: marker shapes the renderer cannot honor would leak into
     # the compose target and diverge silently on this one.
@@ -2440,6 +2461,20 @@ def _notes(
         lines.append(
             f"  {scoped}: kubectl -n {{{{ .Release.Namespace }}}} get svc {scoped}"
         )
+    operators = _declared_operators(modules)
+    if operators:
+        lines.append("")
+        lines.append(
+            "Operator prerequisites (installed out of band by CDS; required for the"
+        )
+        lines.append("manifests above to be reconciled):")
+        for module_id, operator in operators:
+            lines.append(
+                f"  {operator['name']} (module {module_id}, CRD {operator['crd']}):"
+            )
+            lines.append(f"    {operator['install']}")
+            if operator.get("docs"):
+                lines.append(f"    docs: {operator['docs']}")
     lines.append("")
     lines.append(
         "Secret values are supplied at install time and are not stored in this chart."
@@ -2450,6 +2485,45 @@ def _notes(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def declared_operators(plan: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """The (module_id, operator) pairs a plan declares under
+    `implementation.kubernetes.operators` (issue #768)."""
+    modules = plan.get("modules")
+    return _declared_operators(modules if isinstance(modules, list) else [])
+
+
+def _declared_operators(
+    modules: list[dict[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
+    """
+    The (module_id, operator) pairs declared under
+    `implementation.kubernetes.operators` (issue #768). Malformed entries in a
+    plan loaded from a file (bypassing module.schema.json) are skipped here;
+    the module schema catches them in module.yaml files.
+    """
+    declared: list[tuple[str, dict[str, Any]]] = []
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        module_id = str(module.get("id"))
+        k8s = (module.get("implementation") or {}).get("kubernetes") or {}
+        operators = k8s.get("operators")
+        if not isinstance(operators, list):
+            continue
+        for operator in operators:
+            if (
+                isinstance(operator, dict)
+                and isinstance(operator.get("name"), str)
+                and operator.get("name")
+                and isinstance(operator.get("crd"), str)
+                and operator.get("crd")
+                and isinstance(operator.get("install"), str)
+                and operator.get("install")
+            ):
+                declared.append((module_id, operator))
+    return declared
 
 
 def _partition_modules(

@@ -451,10 +451,37 @@ support this pattern:
 
 Like the GitOps module, an operator-managed module runs no pods of its own, so
 it gets no ServiceAccount or NetworkPolicy, and `--target compose` fails
-closed with E070. CDS renders the CR but does not install the operator: the
-cluster needs CloudNativePG (with its CRDs) installed out of band before the
-chart is applied. See the module README for the full flow and the demo
-profile [`profiles/local-kubernetes-postgres-operator`](../profiles/local-kubernetes-postgres-operator/).
+closed with E070. CDS renders the CR but does not install the operator
+itself — the module declares it under `implementation.kubernetes.operators`
+(`name`, `crd`, `install`, optional `docs`), and CDS surfaces the
+prerequisite at every step (issue #768):
+
+- `cds render` / `cds test` / `cds up --target helm` print a **W130** warning
+  naming the operator, its CRD, and the install command; the chart's
+  `templates/NOTES.txt` repeats it after `helm install`.
+- `cds up --target helm` checks the cluster first (`kubectl get crd <crd>`)
+  and fails closed with **E155** while the CRD is absent, rather than letting
+  `helm` fail with "no matches for kind". If the check itself cannot run
+  (RBAC/connectivity), it warns and continues.
+
+Installing CloudNativePG on the cluster (official chart; installs controller,
+webhooks, RBAC, and CRDs):
+
+```bash
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm repo update
+helm upgrade --install cnpg \
+  --namespace cnpg-system \
+  --create-namespace \
+  cnpg/cloudnative-pg
+kubectl get crd clusters.postgresql.cnpg.io                          # CRD registered
+kubectl -n cnpg-system rollout status deployment/cnpg-cloudnative-pg  # ready
+```
+
+cert-manager is not required for a basic install (the operator manages its
+own webhook/cluster CA by default). See the module README for the full flow
+and the demo profile
+[`profiles/local-kubernetes-postgres-operator`](../profiles/local-kubernetes-postgres-operator/).
 
 ## Troubleshooting
 

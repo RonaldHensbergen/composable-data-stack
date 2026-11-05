@@ -330,8 +330,47 @@
         },
         "egress": {
           "$ref": "#/$defs/kubernetesEgress"
+        },
+        "operators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/kubernetesOperator"
+          },
+          "description": "Out-of-band operators the module's manifests depend on (issue #768). CDS renders the CRs but never installs the operator: `cds render`/`cds test` warn with W130 naming the operator and its install command, the chart's NOTES.txt lists it, and `cds up --target helm` fails closed with E155 when the operator's CRD is absent from the cluster. Each entry names the CRD the operator provides (`crd`, checked with `kubectl get crd`), a one-line `install` command, and an optional `docs` URL."
         }
       }
+    },
+    "kubernetesOperator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "crd",
+        "install"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable operator name, e.g. \"CloudNativePG\"."
+        },
+        "crd": {
+          "type": "string",
+          "pattern": "^[a-z0-9.-]+\\.[a-z0-9.-]+$",
+          "description": "A CRD the operator installs (e.g. \"clusters.postgresql.cnpg.io\"); `cds up --target helm` checks for it with `kubectl get crd` before installing the chart."
+        },
+        "install": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One-line command that installs the operator on the cluster, e.g. \"helm repo add cnpg https://cloudnative-pg.github.io/charts && helm upgrade --install cnpg --namespace cnpg-system --create-namespace cnpg/cloudnative-pg\"."
+        },
+        "docs": {
+          "type": "string",
+          "pattern": "^https://[^\\s]+$",
+          "description": "Optional documentation URL for the operator installation."
+        }
+      },
+      "description": "An operator that must be installed on the cluster out of band before the module's manifests can be applied."
     },
     "kubernetesDeclaredService": {
       "type": "object",

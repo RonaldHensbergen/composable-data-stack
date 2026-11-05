@@ -139,6 +139,15 @@ spec:
     targets:
       - kubernetes
     kubernetes:
+      # CDS renders the Cluster CR but never installs the CloudNativePG
+      # operator: render/test warn with W130 and `cds up --target helm`
+      # fails closed with E155 while the CRD below is absent from the
+      # cluster, both naming the install command (issue #768).
+      operators:
+        - name: CloudNativePG
+          crd: clusters.postgresql.cnpg.io
+          install: "helm repo add cnpg https://cloudnative-pg.github.io/charts && helm upgrade --install cnpg --namespace cnpg-system --create-namespace cnpg/cloudnative-pg"
+          docs: https://cloudnative-pg.io/documentation/current/installation/
       services:
         rw:
           description: >-

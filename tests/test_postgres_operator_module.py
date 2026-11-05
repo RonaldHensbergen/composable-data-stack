@@ -31,7 +31,8 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator
 
-from cli.k8s_renderer import render_helm
+from cli.k8s_renderer import declared_operators, render_helm
+from cli.k8s_runner import check_operator_crds
 from cli.planner import build_plan
 from cli.renderer import render_compose
 from cli.validator import validate_profile
@@ -157,6 +158,16 @@ class PostgresOperatorModuleShapeTest(unittest.TestCase):
         self.assertEqual(sorted(k8s["services"]), ["rw"])
         self.assertFalse(self.module["metadata"]["productionSuitable"])
 
+    def test_module_declares_the_cloudnativepg_operator_prerequisite(self) -> None:
+        operators = self.module["spec"]["implementation"]["kubernetes"]["operators"]
+        self.assertEqual(len(operators), 1)
+        operator = operators[0]
+        self.assertEqual(operator["name"], "CloudNativePG")
+        self.assertEqual(operator["crd"], "clusters.postgresql.cnpg.io")
+        self.assertIn("helm upgrade --install cnpg", operator["install"])
+        self.assertIn("cnpg/cloudnative-pg", operator["install"])
+        self.assertTrue(operator["docs"].startswith("https://"))
+
     def test_contract_host_points_at_the_declared_rw_service(self) -> None:
         spec = self.module["spec"]
         contract_spec = spec["provides"][0]["contract"]["spec"]
@@ -243,6 +254,26 @@ class PostgresOperatorPlanRenderTest(_EnvFileMixin, unittest.TestCase):
         _, diagnostics = render_compose(plan, env_file=str(self.env_file))
         codes = [d.code for d in diagnostics if d.level == "error"]
         self.assertIn("E070", codes)
+
+    def test_render_warns_w130_with_install_command_and_notes_repeat_it(self) -> None:
+        plan = _build_plan(_profile(dict(OPERATOR_CONFIG)), env_file=self.env_file)
+        self.assertEqual(
+            [(mid, op["name"]) for mid, op in declared_operators(plan)],
+            [("warehouse", "CloudNativePG")],
+        )
+        files, diagnostics = render_helm(plan, env_file=str(self.env_file))
+        warnings = [d for d in diagnostics if d.level == "warning" and d.code == "W130"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn('operator "CloudNativePG"', warnings[0].message)
+        self.assertIn("clusters.postgresql.cnpg.io", warnings[0].message)
+        self.assertIn("helm upgrade --install cnpg", warnings[0].message)
+        self.assertEqual(warnings[0].path, "module:warehouse.implementation.kubernetes.operators")
+        # No errors: the warning is informational.
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        notes = files["templates/NOTES.txt"]
+        self.assertIn("Operator prerequisites", notes)
+        self.assertIn("helm upgrade --install cnpg", notes)
+        self.assertIn("CloudNativePG", notes)
 
 
 class ShippedDemoProfileTest(_EnvFileMixin, unittest.TestCase):
@@ -500,6 +531,51 @@ class ManifestSecretReferenceTest(unittest.TestCase):
         )
         codes = [d.code for d in diagnostics if d.level == "error"]
         self.assertIn("E078", codes)
+
+
+class OperatorCrdPreflightTest(_EnvFileMixin, unittest.TestCase):
+    """`cds up --target helm` fails closed with E155 when a declared operator's
+    CRD is confirmed absent; uncheckable clusters warn and continue."""
+
+    def _plan(self) -> dict:
+        return _build_plan(_profile(dict(OPERATOR_CONFIG)), env_file=self.env_file)
+
+    def _run(self, plan: dict, returncode: int, stdout: str = "", stderr: str = ""):
+        completed = unittest.mock.Mock(returncode=returncode, stdout=stdout, stderr=stderr)
+        with unittest.mock.patch("cli.k8s_runner.subprocess.run", return_value=completed) as run:
+            result = check_operator_crds(plan, "k3d-cds")
+        return result, run
+
+    def test_crd_present_means_no_missing_operators(self) -> None:
+        (missing, ok), run = self._run(self._plan(), 0, stdout="customresourcedefinitions.../clusters.postgresql.cnpg.io\n")
+        self.assertEqual(missing, [])
+        self.assertTrue(ok)
+        # CRDs are cluster-scoped: the kubectl call must not be namespace-scoped.
+        argv = run.call_args[0][0]
+        self.assertEqual(argv[:3], ["kubectl", "--context", "k3d-cds"])
+        self.assertIn("clusters.postgresql.cnpg.io", argv)
+        self.assertNotIn("--namespace", argv)
+
+    def test_crd_not_found_is_reported_missing(self) -> None:
+        (missing, ok), _ = self._run(
+            self._plan(), 1,
+            stderr='Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "clusters.postgresql.cnpg.io" not found\n',
+        )
+        self.assertTrue(ok)
+        self.assertEqual([(mid, op["name"]) for mid, op in missing], [("warehouse", "CloudNativePG")])
+
+    def test_kubectl_rbac_error_means_uncheckable_not_missing(self) -> None:
+        (missing, ok), _ = self._run(self._plan(), 1, stderr="Error from server (Forbidden): ...\n")
+        self.assertEqual(missing, [])
+        self.assertFalse(ok)
+
+    def test_kubectl_unavailable_means_uncheckable(self) -> None:
+        with unittest.mock.patch(
+            "cli.k8s_runner.subprocess.run", side_effect=OSError("no kubectl")
+        ):
+            missing, ok = check_operator_crds(self._plan(), None)
+        self.assertEqual(missing, [])
+        self.assertFalse(ok)
 
 
 if __name__ == "__main__":

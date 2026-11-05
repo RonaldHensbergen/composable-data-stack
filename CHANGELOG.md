@@ -41,6 +41,17 @@ The format is based on Keep a Changelog.
   chart's secrets Secret), so CRs can consume secrets without the committed
   chart ever carrying them — any other leftover `${CDS_*}` still fails
   closed with E078.
+
+- Out-of-band operator prerequisites are now surfaced in-product (issue
+  #768): a module can declare `implementation.kubernetes.operators` entries
+  (`name`, `crd`, `install`, optional `docs`) — used by the postgres-operator
+  module for CloudNativePG. `cds render`/`cds test`/`cds up --target helm`
+  warn with **W130** naming the install command, the chart's `NOTES.txt`
+  repeats it, and `cds up --target helm` fails closed with **E155** when
+  `kubectl get crd <crd>` confirms the operator's CRD is absent from the
+  cluster (instead of a bare helm "no matches for kind" failure); when the
+  check itself cannot run it warns and continues. New codes W130/E155 are in
+  the README troubleshooting table.
 - Provider-neutral HTTP routing contract wiring for reverse proxies (issue
   #883): a reverse-proxy module (e.g. `modules/integration/traefik`) now
   declares a list-valued `consumes` entry (`mappedFrom: spec.config.routes`)

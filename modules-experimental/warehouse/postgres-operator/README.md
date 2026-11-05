@@ -47,15 +47,40 @@ and `waitFor` gates all treat it like a rendered workload Service.
 ## Prerequisites at runtime
 
 CDS renders the `Cluster` CR but does not install the CloudNativePG
-operator. Install it on the target cluster out of band first, e.g.:
+operator — the module declares it under `implementation.kubernetes.operators`,
+and CDS surfaces that prerequisite at every step:
+
+- `cds render` / `cds test` / `cds up --target helm` warn with **W130** naming
+  the operator, its CRD, and the install command; the rendered chart's
+  `templates/NOTES.txt` repeats the same note after `helm install`.
+- `cds up --target helm` additionally checks the cluster before installing
+  (`kubectl get crd clusters.postgresql.cnpg.io`) and fails closed with
+  **E155** while the CRD is absent, instead of letting `helm` fail with
+  "no matches for kind \"Cluster\"".
+
+Install the operator on the target cluster out of band (official chart,
+installs controller + webhooks + RBAC + CRDs):
 
 ```bash
 helm repo add cnpg https://cloudnative-pg.github.io/charts
-helm upgrade --install cnpg cnpg/cloudnative-pg -n cnpg-system --create-namespace
+helm repo update
+helm upgrade --install cnpg \
+  --namespace cnpg-system \
+  --create-namespace \
+  cnpg/cloudnative-pg
 ```
 
-Then `cds up --target helm` (or `helm upgrade --install` of the rendered
-chart) creates the cluster and its Services.
+Verify, then deploy the CDS chart (`cds up --target helm`, or
+`helm upgrade --install` of the rendered chart):
+
+```bash
+kubectl get crd clusters.postgresql.cnpg.io                       # CRD registered
+kubectl -n cnpg-system rollout status deployment/cnpg-cloudnative-pg  # operator ready
+```
+
+cert-manager is not required for a basic install — the operator manages its
+own webhook and cluster CA by default; install cert-manager only if you want
+your database serving certificates issued by cert-manager instead.
 
 ## Choosing this module vs. the Compose `postgres` module
 
