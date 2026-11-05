@@ -420,34 +420,66 @@ def _validate_provided_contract_hosts(
     )
 
 
+_ROUTE_HOST_RE = re.compile(r"^[A-Za-z0-9.-]+$")
+_ROUTE_PATH_PREFIX_RE = re.compile(r"^/[A-Za-z0-9._~/-]*$")
+
+
+def _bound_route_contracts(module: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """
+    Map contractRef -> resolved contract for every binding the planner
+    resolved under this module's `consumes` entries (issue #883).
+    List-valued consume entries (a reverse proxy's `config.routes`)
+    contribute one entry per route; single-object consumes contribute
+    their one binding.
+    """
+    bound: dict[str, dict[str, Any]] = {}
+    consumes = module.get("consumes") or {}
+    if not isinstance(consumes, dict):
+        return bound
+    for consume_value in consumes.values():
+        items = consume_value if isinstance(consume_value, list) else [consume_value]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            ref = item.get("contractRef")
+            contract = item.get("contract")
+            if isinstance(ref, str) and ref and isinstance(contract, dict):
+                bound[ref] = contract
+    return bound
+
+
 def _generate_reverse_proxy_routes(
     plan: dict[str, Any], module_service_names: dict[str, list[str]]
 ) -> tuple[dict[str, dict[str, Any]], list[Diagnostic]]:
     """
-    Generate Traefik file-provider dynamic route documents from profile
-    bindings instead of Docker label autodiscovery (issue #581).
+    Generate Traefik file-provider dynamic route documents from the plan's
+    contract bindings instead of Docker label autodiscovery or hand-written
+    files (issues #581, #883).
 
     For every module providing a `reverse-proxy` contract, each
-    `config.routes` entry targets a profile instance that provides an
-    `http-service` contract -- a bare module id routes to that module's
-    first http-service provide, while `<module-id>.<contract-name>` picks a
-    specific provide entry when the module exposes several; the backend
-    address comes from the resolved contract's `host`/`port` fields, mapped through the renderer's
-    compose service-naming rule when the provider advertises a
+    `config.routes` entry binds one `http-service` provide through its
+    `contractRef` (`<module-id>.<contract-name>`, resolved by the planner
+    via the proxy's `routes` consume entry, so a bad ref already fails at
+    `cds validate` with E041/E042). The route rule is composed from the
+    entry's optional `host` and `pathPrefix` (the provider may advertise a
+    default `pathPrefix` on its contract); the backend address comes from
+    the bound contract's `host`/`port` fields, mapped through the
+    renderer's compose service-naming rule when the provider advertises a
     `serviceName` (multi-service modules such as dagster name the serving
     service, since the instance id alone does not resolve on the Compose
     network), and is cross-checked against the services the render
     actually produced -- an address nothing answers fails closed instead
     of 502ing at runtime. The optional `certificate` alias is validated
     against the plan's certificate mapping (issue #578) and, for TLS-enabled
-    routers, wired as the router's certificate files. Invalid inputs -- an unknown target, an
-    unresolvable endpoint (host missing, or a port outside 1-65535), a backend
+    routers, wired as the router's certificate files. Invalid inputs -- a
+    malformed or unknown contractRef, an unresolvable endpoint (host
+    missing, or a port outside 1-65535), a backend
     address that matches no rendered
     service, an entrypoint the proxy does not declare, an undeclared
-    certificate alias, or a host duplicated by an
-    earlier route of the same proxy -- produce E136 diagnostics
-    instead of silently generating broken config; routes are emitted in
-    sorted order so repeated renders are byte-identical.
+    certificate alias, a rule with neither host nor pathPrefix, or a rule
+    duplicated by an earlier route of the same proxy -- produce E136
+    diagnostics instead of silently generating broken config; routes are
+    emitted in sorted order so repeated renders are byte-identical.
     """
     diagnostics: list[Diagnostic] = []
     modules = plan.get("modules", [])
@@ -467,6 +499,12 @@ def _generate_reverse_proxy_routes(
         if not routes:
             continue
 
+        # The planner-resolved bindings are the primary source for route
+        # backends (the contract graph, issue #883); plans loaded from
+        # files bypass the planner, so unresolved refs fall back to the
+        # plan's provides below and still fail closed with E136.
+        bound_contracts = _bound_route_contracts(module)
+
         routers: dict[str, dict[str, Any]] = {}
         services: dict[str, dict[str, Any]] = {}
         tls_certificates: dict[str, dict[str, str]] = {}
@@ -484,23 +522,24 @@ def _generate_reverse_proxy_routes(
             else None
         )
 
-        # Duplicate hosts per proxy are rejected up front, in profile order:
-        # two routers with the same Host() rule would make Traefik pick one
-        # by priority, silently. Only the later occurrence is flagged so
-        # the diagnostic points at the entry to fix; the first stays valid.
+        # Duplicate (host, pathPrefix) rules per proxy are rejected up
+        # front, in profile order: two routers with the same rule would
+        # make Traefik pick one by priority, silently. Only the later
+        # occurrence is flagged so the diagnostic points at the entry to
+        # fix; the first stays valid.
         duplicate_route_indexes: set[int] = set()
-        hosts_seen: dict[str, int] = {}
+        rules_seen: dict[tuple[str, str], int] = {}
         for route_index, route in enumerate(routes):
             if not isinstance(route, dict):
                 continue
-            route_host = str(route.get("host"))
-            if route_host in hosts_seen:
+            rule_key = (str(route.get("host") or ""), str(route.get("pathPrefix") or ""))
+            if rule_key in rules_seen:
                 duplicate_route_indexes.add(route_index)
             else:
-                hosts_seen[route_host] = route_index
+                rules_seen[rule_key] = route_index
 
-        # Sort by (host, target) so the generated document is
-        # deterministic; diagnostics keep the route's ORIGINAL profile
+        # Sort by (host, pathPrefix, contractRef) so the generated document
+        # is deterministic; diagnostics keep the route's ORIGINAL profile
         # index so the path points at the entry the user wrote.
         ordered_routes = sorted(
             (
@@ -508,73 +547,99 @@ def _generate_reverse_proxy_routes(
                 for original_index, route in enumerate(routes)
                 if isinstance(route, dict)
             ),
-            key=lambda item: (str(item[1].get("host", "")), str(item[1].get("target", ""))),
+            key=lambda item: (
+                str(item[1].get("host") or ""),
+                str(item[1].get("pathPrefix") or ""),
+                str(item[1].get("contractRef") or ""),
+            ),
         )
 
         for sorted_index, (original_index, route) in enumerate(ordered_routes):
             path_prefix = f"module:{proxy_id}.config.routes[{original_index}]"
-            target_id = route.get("target")
+            contract_ref = route.get("contractRef")
             host = route.get("host")
+            route_path_prefix = route.get("pathPrefix")
 
             if original_index in duplicate_route_indexes:
                 diagnostics.append(Diagnostic(
                     level="error",
                     code="E136",
                     message=(
-                        f'Reverse-proxy route host "{host}" duplicates an earlier route of '
-                        f'proxy "{proxy_id}"; every route must expose a unique host (two '
-                        "routers with the same Host rule would make the proxy pick one "
+                        f'Reverse-proxy route rule (host "{host or ""}" pathPrefix '
+                        f'"{route_path_prefix or ""}") duplicates an earlier route of '
+                        f'proxy "{proxy_id}"; every route must expose a unique rule (two '
+                        "routers with the same rule would make the proxy pick one "
                         "by priority, silently)."
                     ),
-                    path=f"{path_prefix}.host",
+                    path=path_prefix,
                 ))
                 continue
 
-            # `target` accepts either a bare module id (its first
-            # http-service provide wins, mirroring the contractRef
-            # vocabulary's module half) or `<module-id>.<contract-name>` to
-            # pick a specific endpoint when the target provides several.
-            parsed_target = parse_contract_ref(target_id) if isinstance(target_id, str) else None
-            target_module_id = parsed_target[0] if parsed_target else target_id
-            provide_name = parsed_target[1] if parsed_target else None
-
-            target = modules_by_id.get(target_module_id)
-            if target is None:
+            # `contractRef` names the bound http-service provide in the
+            # same <module-id>.<contract-name> vocabulary as every other
+            # contract binding; a bare module id is rejected here (and by
+            # the module's configSchema) instead of guessing which provide
+            # to route to.
+            parsed_ref = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+            if parsed_ref is None:
                 diagnostics.append(Diagnostic(
                     level="error",
                     code="E136",
-                    message=f'Reverse-proxy route host "{host}" targets unknown module "{target_module_id}".',
-                    path=f"{path_prefix}.target",
+                    message=(
+                        f'Reverse-proxy route names contractRef "{contract_ref}", which is '
+                        'not a valid "<module-id>.<contract-name>" reference (issue #883).'
+                    ),
+                    path=f"{path_prefix}.contractRef",
                 ))
                 continue
+            target_module_id, provide_name = parsed_ref
 
-            target_provides = (target.get("provides") or {})
-            if provide_name is not None:
+            http_entry = bound_contracts.get(str(contract_ref))
+            if http_entry is None:
+                target = modules_by_id.get(target_module_id)
+                if target is None:
+                    diagnostics.append(Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route contractRef "{contract_ref}" targets '
+                            f'unknown module "{target_module_id}".'
+                        ),
+                        path=f"{path_prefix}.contractRef",
+                    ))
+                    continue
+                target_provides = target.get("provides") or {}
                 http_entry = target_provides.get(provide_name)
                 if http_entry is None or http_entry.get("kind") != "http-service":
                     diagnostics.append(Diagnostic(
                         level="error",
                         code="E136",
                         message=(
-                            f'Reverse-proxy route host "{host}" targets module "{target_module_id}", '
-                            f'which does not provide an http-service contract named "{provide_name}" '
-                            '(a "<module-id>.<contract-name>" target must name an existing '
-                            "http-service provide entry)."
+                            f'Reverse-proxy route contractRef "{contract_ref}" targets module '
+                            f'"{target_module_id}", which does not provide an http-service '
+                            f'contract named "{provide_name}" (a "<module-id>.<contract-name>" '
+                            "ref must name an existing http-service provide entry)."
                         ),
-                        path=f"{path_prefix}.target",
+                        path=f"{path_prefix}.contractRef",
                     ))
                     continue
-            else:
-                http_entry = next(
-                    (p for p in target_provides.values() if p.get("kind") == "http-service"),
-                    None,
-                )
+            elif http_entry.get("kind") != "http-service":
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route contractRef "{contract_ref}" resolves to a '
+                        f'"{http_entry.get("kind")}" contract, not "http-service".'
+                    ),
+                    path=f"{path_prefix}.contractRef",
+                ))
+                continue
+
             spec = (http_entry or {}).get("spec") or {}
             advertised_host = spec.get("host")
             backend_port = spec.get("port")
             if (
-                http_entry is None
-                or not isinstance(advertised_host, str)
+                not isinstance(advertised_host, str)
                 or not advertised_host
                 or not _is_valid_backend_port(backend_port)
             ):
@@ -582,11 +647,12 @@ def _generate_reverse_proxy_routes(
                     level="error",
                     code="E136",
                     message=(
-                        f'Reverse-proxy route host "{host}" targets module "{target_id}", which does not '
-                        "expose a resolvable http-service endpoint (its contract spec lacks host/port); "
+                        f'Reverse-proxy route contractRef "{contract_ref}" targets module '
+                        f'"{target_module_id}", which does not expose a resolvable '
+                        "http-service endpoint (its contract spec lacks host/port); "
                         "route generation refuses to guess a backend address."
                     ),
-                    path=f"{path_prefix}.target",
+                    path=f"{path_prefix}.contractRef",
                 ))
                 continue
 
@@ -608,17 +674,63 @@ def _generate_reverse_proxy_routes(
                     level="error",
                     code="E136",
                     message=(
-                        f'Reverse-proxy route host "{host}" resolves to backend address '
-                        f'"{backend_host}", which is not a rendered compose service of module '
-                        f'"{target_module_id}" (rendered services: '
+                        f'Reverse-proxy route contractRef "{contract_ref}" resolves to backend '
+                        f'address "{backend_host}", which is not a rendered compose service of '
+                        f'module "{target_module_id}" (rendered services: '
                         f'{", ".join(rendered_services) or "none"}); route generation refuses to '
                         "emit an address nothing answers. Multi-service providers must advertise "
                         "the serving service via a serviceName field in their http-service "
                         "provide entry."
                     ),
-                    path=f"{path_prefix}.target",
+                    path=f"{path_prefix}.contractRef",
                 ))
                 continue
+
+            # The public rule is a Host() and/or PathPrefix() matcher; at
+            # least one must be present. A provider may advertise a default
+            # pathPrefix on its contract, which the route entry overrides.
+            if route_path_prefix is None:
+                route_path_prefix = spec.get("pathPrefix")
+            if host is not None and not _ROUTE_HOST_RE.match(str(host)):
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route host "{host}" is not a DNS-safe hostname; '
+                        "the rule would not match (or could inject rule syntax)."
+                    ),
+                    path=f"{path_prefix}.host",
+                ))
+                continue
+            if route_path_prefix is not None and not _ROUTE_PATH_PREFIX_RE.match(str(route_path_prefix)):
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route pathPrefix "{route_path_prefix}" must start with '
+                        '"/" and contain only URL-path characters.'
+                    ),
+                    path=f"{path_prefix}.pathPrefix",
+                ))
+                continue
+            if not host and not route_path_prefix:
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E136",
+                    message=(
+                        f'Reverse-proxy route contractRef "{contract_ref}" names neither a '
+                        "host nor a pathPrefix; a router with an empty rule matches nothing "
+                        "deterministically."
+                    ),
+                    path=path_prefix,
+                ))
+                continue
+            rule_parts = []
+            if host:
+                rule_parts.append(f"Host(`{host}`)")
+            if route_path_prefix:
+                rule_parts.append(f"PathPrefix(`{route_path_prefix}`)")
+            rule = " && ".join(rule_parts)
 
             tls_enabled = route.get("tls", True)
             certificate = route.get("certificate")
@@ -627,8 +739,8 @@ def _generate_reverse_proxy_routes(
                     level="error",
                     code="E136",
                     message=(
-                        f'Reverse-proxy route host "{host}" references certificate alias "{certificate}", '
-                        "which is not declared in spec.certificates.values."
+                        f'Reverse-proxy route contractRef "{contract_ref}" references certificate '
+                        f'alias "{certificate}", which is not declared in spec.certificates.values.'
                     ),
                     path=f"{path_prefix}.certificate",
                 ))
@@ -643,8 +755,22 @@ def _generate_reverse_proxy_routes(
                     "keyFile": f"/etc/traefik/certs/{certificate}.key",
                 }
 
-            router_name = f"cds-route-{sorted_index}-{host or 'default'}"
-            service_name = f"cds-service-{target_id}"
+            name_part = (
+                str(host)
+                if host
+                else (re.sub(r"[^A-Za-z0-9.-]+", "-", str(route_path_prefix)).strip("-") or "default")
+            )
+            router_name = f"cds-route-{sorted_index}-{name_part}"
+            # One load-balancer service per bound contract (not per module):
+            # two routes to different http-service contracts of the same
+            # module must not overwrite each other's backend URL. The
+            # conventional "http-service" provide name is elided so the
+            # common single-endpoint case keeps the short name.
+            service_name = (
+                f"cds-service-{target_module_id}"
+                if provide_name == "http-service"
+                else f"cds-service-{target_module_id}-{provide_name.replace('.', '-')}"
+            )
             route_entry_points = route.get("entryPoints") or ["websecure"]
             if known_entry_points is not None and any(
                 ep not in known_entry_points for ep in route_entry_points
@@ -653,7 +779,7 @@ def _generate_reverse_proxy_routes(
                     level="error",
                     code="E136",
                     message=(
-                        f'Reverse-proxy route host "{host}" names entrypoint(s) '
+                        f'Reverse-proxy route rule "{rule}" names entrypoint(s) '
                         f'"{", ".join(ep for ep in route_entry_points if ep not in known_entry_points)}" '
                         f'not declared by proxy "{proxy_id}" (declared: '
                         f'{", ".join(sorted(known_entry_points))}); a router no '
@@ -664,7 +790,7 @@ def _generate_reverse_proxy_routes(
                 continue
             router: dict[str, Any] = {
                 "entryPoints": route_entry_points,
-                "rule": f"Host(`{host}`)",
+                "rule": rule,
                 "service": service_name,
             }
             if tls_enabled:
@@ -966,6 +1092,20 @@ def _build_context(
     bindings: dict[str, Any] = {}
 
     for consume_name, consume_value in module.get("consumes", {}).items():
+        if isinstance(consume_value, list):
+            # List-valued consume (issue #883, e.g. a reverse proxy's
+            # config.routes): expose each binding under its config index so
+            # templates can reference ${bindings.<name>.<index>.<field>}.
+            indexed: dict[str, Any] = {}
+            for item_index, item in enumerate(consume_value):
+                if not isinstance(item, dict):
+                    continue
+                contract = item.get("contract", {})
+                if isinstance(contract, dict):
+                    spec = contract.get("spec", {})
+                    indexed[str(item_index)] = spec if isinstance(spec, dict) else {}
+            bindings[consume_name] = indexed
+            continue
         contract = consume_value.get("contract", {})
         if isinstance(contract, dict):
             spec = contract.get("spec", {})

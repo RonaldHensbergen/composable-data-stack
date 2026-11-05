@@ -1269,5 +1269,93 @@ class EngineFromRequirementTest(unittest.TestCase):
         self.assertEqual([d.code for d in errors], ["E042"])
 
 
+class ListValuedConsumeBindingValidatorTest(unittest.TestCase):
+    """
+    validate_contract_bindings with a list-valued mappedFrom target (issue
+    #883): each entry of a reverse proxy's config.routes is validated like a
+    single binding, at a per-entry profile path.
+    """
+
+    def _instances(self, routes, required=False):
+        provider = {
+            "index": 0,
+            "id": "web",
+            "config": {},
+            "module": {
+                "metadata": {"category": "apps", "name": "web"},
+                "spec": {"provides": [{"name": "http-service", "contract": {"kind": "http-service"}}]},
+            },
+        }
+        consumer = {
+            "index": 1,
+            "id": "proxy",
+            "config": {"routes": routes},
+            "module": {
+                "metadata": {"category": "integration", "name": "proxy"},
+                "spec": {
+                    "consumes": [
+                        {
+                            "name": "routes",
+                            "contract": {"kind": "http-service"},
+                            "required": required,
+                            "mappedFrom": "spec.config.routes",
+                        }
+                    ]
+                },
+            },
+        }
+        return [provider, consumer]
+
+    def _errors(self, instances):
+        return [d for d in validate_contract_bindings(instances) if d.level == "error"]
+
+    def test_valid_route_bindings_pass(self):
+        instances = self._instances([
+            {"host": "a.example.local", "contractRef": "web.http-service"},
+            {"pathPrefix": "/", "contractRef": "web.http-service"},
+        ])
+        with patch("cli.validator._load_compatibility_registry", return_value={}):
+            self.assertEqual(self._errors(instances), [])
+
+    def test_unknown_producer_in_route_reports_e041_at_route_path(self):
+        instances = self._instances([{"host": "x.example.local", "contractRef": "ghost.http-service"}])
+        with patch("cli.validator._load_compatibility_registry", return_value={}):
+            errors = self._errors(instances)
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertIn('unknown module "ghost"', errors[0].message)
+        self.assertEqual(errors[0].path, "spec.modules[1].config.routes[0]")
+
+    def test_kind_mismatch_in_route_reports_e042(self):
+        provider, consumer = self._instances([{"host": "x.example.local", "contractRef": "web.db"}])
+        provider["module"]["spec"]["provides"].append(
+            {"name": "db", "contract": {"kind": "sql-database"}}
+        )
+        with patch("cli.validator._load_compatibility_registry", return_value={}):
+            errors = self._errors([provider, consumer])
+        self.assertEqual([d.code for d in errors], ["E042"])
+        self.assertEqual(errors[0].path, "spec.modules[1].config.routes[0]")
+
+    def test_route_entry_without_contract_ref_reports_e041(self):
+        instances = self._instances([{"host": "x.example.local"}])
+        with patch("cli.validator._load_compatibility_registry", return_value={}):
+            errors = self._errors(instances)
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertIn("entry 0 must resolve to an object", errors[0].message)
+        self.assertEqual(errors[0].path, "spec.modules[1].config.routes[0]")
+
+    def test_empty_optional_routes_list_passes(self):
+        instances = self._instances([], required=False)
+        with patch("cli.validator._load_compatibility_registry", return_value={}):
+            self.assertEqual(self._errors(instances), [])
+
+    def test_empty_required_routes_list_reports_e041(self):
+        instances = self._instances([], required=True)
+        with patch("cli.validator._load_compatibility_registry", return_value={}):
+            errors = self._errors(instances)
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertIn("empty list", errors[0].message)
+
+
+
 if __name__ == "__main__":
     unittest.main()

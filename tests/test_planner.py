@@ -1495,6 +1495,126 @@ class RequiredIfMalformedGatePlannerTest(unittest.TestCase):
         self.assertIn("malformed requiredIf", errors[0].message)
 
 
+
+
+class ListValuedConsumeBindingPlannerTest(unittest.TestCase):
+    """
+    resolve_consumed_contracts with a list-valued mappedFrom target (issue
+    #883): a reverse proxy's config.routes is a list of contractRef bindings,
+    each resolved exactly like a single binding into an ordered list on the
+    consume entry.
+    """
+
+    def _inst(self, routes, required=False):
+        return {
+            "id": "proxy",
+            "config": {"routes": routes},
+            "module": {
+                "spec": {
+                    "consumes": [
+                        {
+                            "name": "routes",
+                            "contract": {"kind": "http-service"},
+                            "required": required,
+                            "mappedFrom": "spec.config.routes",
+                        }
+                    ]
+                }
+            },
+        }
+
+    def _modules(self):
+        web = {
+            "id": "web",
+            "config": {},
+            "module": {"spec": {"provides": [{"name": "http-service", "contract": {"kind": "http-service"}}]}},
+        }
+        resolved = {
+            "web": {
+                "http-service": {
+                    "kind": "http-service",
+                    "spec": {"host": "web", "port": 3000},
+                }
+            }
+        }
+        return {"web": web}, resolved
+
+    def test_list_binding_resolves_each_entry_in_order(self):
+        modules_by_id, resolved = self._modules()
+        inst = self._inst([{"contractRef": "web.http-service", "host": "a.example.local"}])
+        diagnostics: list = []
+        result = planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        self.assertEqual(
+            result["routes"],
+            [{
+                "contractRef": "web.http-service",
+                "contract": {"kind": "http-service", "spec": {"host": "web", "port": 3000}},
+            }],
+        )
+
+    def test_empty_optional_list_binding_is_skipped(self):
+        modules_by_id, resolved = self._modules()
+        inst = self._inst([], required=False)
+        diagnostics: list = []
+        result = planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        self.assertEqual(diagnostics, [])
+        self.assertNotIn("routes", result)
+
+    def test_empty_required_list_binding_reports_e041(self):
+        modules_by_id, resolved = self._modules()
+        inst = self._inst([], required=True)
+        diagnostics: list = []
+        result = planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertIn("at least one", errors[0].message)
+        self.assertNotIn("routes", result)
+
+    def test_entry_with_unknown_producer_reports_e041_at_entry_path(self):
+        modules_by_id, resolved = self._modules()
+        inst = self._inst([{"contractRef": "ghost.http-service", "host": "x.example.local"}])
+        diagnostics: list = []
+        result = planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertIn('Unknown producer module "ghost"', errors[0].message)
+        self.assertEqual(errors[0].path, "module:proxy.consumes.routes[0]")
+        self.assertNotIn("routes", result)
+
+    def test_entry_without_contract_ref_reports_e041(self):
+        modules_by_id, resolved = self._modules()
+        inst = self._inst([{"host": "x.example.local"}])
+        diagnostics: list = []
+        planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertIn("entry 0 must contain", errors[0].message)
+        self.assertEqual(errors[0].path, "module:proxy.consumes.routes[0]")
+
+    def test_malformed_ref_in_entry_reports_e041(self):
+        modules_by_id, resolved = self._modules()
+        inst = self._inst([{"contractRef": "bare-module-id"}])
+        diagnostics: list = []
+        planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertIn("Invalid contract ref", errors[0].message)
+
+    def test_mixed_valid_and_invalid_entries_resolve_the_valid_ones(self):
+        modules_by_id, resolved = self._modules()
+        inst = self._inst([
+            {"contractRef": "web.http-service"},
+            {"contractRef": "ghost.http-service"},
+        ])
+        diagnostics: list = []
+        result = planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertEqual(errors[0].path, "module:proxy.consumes.routes[1]")
+        self.assertEqual([b["contractRef"] for b in result["routes"]], ["web.http-service"])
+
+
 class InMemoryProfilePlanningTest(unittest.TestCase):
     """
     build_plan_from_profile()/plan_generated_profile() (issue #349): planning

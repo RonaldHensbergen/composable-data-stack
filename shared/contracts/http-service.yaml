@@ -15,6 +15,16 @@ metadata:
     advertisement consumers can require via a "tls: required" consume entry
     (see issue #577).
 
+    A reverse-proxy module (one providing the reverse-proxy contract, e.g.
+    Traefik) consumes this contract to build its routing table (issue #883):
+    each of the proxy's route entries binds one http-service provide via
+    `contractRef` (declared as a list-valued `consumes` entry with
+    `mappedFrom: spec.config.routes`), and the proxy's routing configuration
+    is generated from those resolved bindings -- host/port/serviceName here
+    become the route's backend address -- instead of a hand-written static
+    file. The optional pathPrefix field lets the provider advertise a
+    default public path prefix for that route.
+
 spec:
   fields:
     portFrom:
@@ -60,6 +70,14 @@ spec:
       type: string
       required: false
       description: HTTP path serving a health-check endpoint (e.g. /health).
+    pathPrefix:
+      type: string
+      required: false
+      description: >-
+        Optional default public path prefix a reverse-proxy route for this
+        service matches (e.g. /auth), used when the proxy's route entry does
+        not set its own pathPrefix (issue #883). Combined with a route host
+        as Host(`<host>`) && PathPrefix(`/auth`).
     protocol:
       type: string
       required: false

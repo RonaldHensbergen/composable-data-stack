@@ -1539,8 +1539,8 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         }
         proxy["config"] = {
             "routes": [
-                {"host": "app.example.local", "target": "demo"},
-                {"host": "alt.example.local", "target": "other.http"},
+                {"host": "app.example.local", "contractRef": "demo.http"},
+                {"host": "alt.example.local", "contractRef": "other.http"},
             ]
         }
         demo = self.module("demo")
@@ -1677,7 +1677,7 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         # edge: W129 says so and the default-deny baseline keeps holding.
         plan = self.proxy_plan()
         plan["modules"][0]["config"]["routes"].append(
-            {"host": "ghost.example.local", "target": "ghost"}
+            {"host": "ghost.example.local", "contractRef": "ghost.http"}
         )
 
         files, diagnostics = render_helm(plan)
