@@ -1363,6 +1363,16 @@ def _try_render_compose_for_scan(
             render_errors = [d for d in render_diags if d.level == "error"]
             if render_errors:
                 first_code = render_errors[0].code
+                # E070 means a module has no compose implementation (e.g. a
+                # Helm-only module such as the CloudNativePG operator,
+                # issue #768): the compose render is expected to fail, the
+                # failure is already surfaced with full diagnostics by the
+                # caller's own render stage, and compose-scoped rules are
+                # simply inapplicable to that target -- so skipping them is
+                # not the silent gap W096 guards against. Any other render
+                # error still warns.
+                if all(d.code == "E070" for d in render_errors):
+                    return None, plan, {}, diagnostics
                 diagnostics.append(Diagnostic(
                     level="warning",
                     code="W096",

@@ -535,10 +535,46 @@ def _render_module(
         }
 
     manifests.extend(
-        _render_manifests(module_id, k8s, context, release, diagnostics)
+        _render_manifests(module_id, k8s, context, release, diagnostics, secret_keys)
     )
 
     return module_values, manifests, files, secret_keys, diagnostics
+
+
+# A manifest value that is exactly one ${CDS_*} reference (the shape a
+# ${secrets.*} reference resolves to) is rewritten to a Helm lookup of
+# .Values.secrets, so the value is supplied at install time and never
+# stored in the committed chart (issue #768).
+_MANIFEST_SECRET_REF = re.compile(r"^\$\{(CDS_[A-Z0-9_]+)\}$")
+
+
+def _translate_manifest_secret_refs(obj: Any, secret_keys: set[str]) -> Any:
+    """
+    Rewrite whole-value ${CDS_*} references in a raw manifest into Helm
+    `required` lookups of .Values.secrets, and record the key so the chart's
+    secrets Secret carries it.
+
+    Only an exact single reference is translated: a ${CDS_*} embedded in a
+    longer string cannot be expressed safely inside a dumped YAML scalar, so
+    it is left in place and caught by _check_secret_references (E078). The
+    replacement deliberately omits `| quote`: the YAML dumper quotes the
+    template scalar itself, and an expansion that adds its own quotes would
+    produce invalid YAML.
+    """
+    if isinstance(obj, dict):
+        return {k: _translate_manifest_secret_refs(v, secret_keys) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_translate_manifest_secret_refs(v, secret_keys) for v in obj]
+    if isinstance(obj, str):
+        match = _MANIFEST_SECRET_REF.match(obj)
+        if match:
+            name = match.group(1)
+            secret_keys.add(name)
+            return (
+                f'{{{{ required "secrets.{name} is required" '
+                f'(index .Values.secrets "{name}") }}}}'
+            )
+    return obj
 
 
 def _render_manifests(
@@ -547,6 +583,7 @@ def _render_manifests(
     context: dict[str, Any],
     release: str,
     diagnostics: list[Diagnostic],
+    secret_keys: set[str],
 ) -> list[tuple[str, dict[str, Any]]]:
     """
     Render the raw `kubernetes.manifests` entries as extra chart templates.
@@ -561,8 +598,10 @@ def _render_manifests(
     gates) is stripped from the rendered output.
 
     Plans can be loaded from files, bypassing module.schema.json, so the
-    manifest shape is re-checked here and fails closed with E151. Secret
-    references are not translated on purpose: a leftover ${CDS_*} is caught
+    manifest shape is re-checked here and fails closed with E151. A value
+    that is exactly one secret reference (${secrets.*} -> ${CDS_*}) becomes
+    a Helm `required` lookup of .Values.secrets via
+    _translate_manifest_secret_refs; any other leftover ${CDS_*} is caught
     by _check_secret_references (E078), keeping secret material out of the
     committed chart.
     """
@@ -626,7 +665,9 @@ def _render_manifests(
             )
             continue
 
-        manifest = _substitute_values(entry, context)
+        manifest = _translate_manifest_secret_refs(
+            _substitute_values(entry, context), secret_keys
+        )
         md = manifest.setdefault("metadata", {})
         name = md.get("name")
         if isinstance(name, str) and "{{ .Release.Name }}" not in name:
@@ -2114,6 +2155,11 @@ def _collect_service_names(modules: list[dict[str, Any]]) -> dict[str, str]:
 
     Only globally unambiguous module-prefixed keys are stored here. A local
     workload alias is added separately for the module currently being rendered.
+
+    `implementation.kubernetes.services` entries join the same registry:
+    they name Services the module's manifests (or the operator they drive)
+    cause to exist without CDS rendering them (issue #768), so contract-host
+    checks and binding release-scoping treat them like rendered Services.
     """
     names: dict[str, str] = {}
     for module in modules:
@@ -2125,6 +2171,11 @@ def _collect_service_names(modules: list[dict[str, Any]]) -> dict[str, str]:
             full = _compose_service_name(module_id, workload_name)
             service = workload.get("serviceName") or full
             names[full] = service
+        for service_key, declared in (k8s.get("services") or {}).items():
+            if not isinstance(declared, dict):
+                continue
+            full = _compose_service_name(module_id, str(service_key))
+            names[full] = declared.get("serviceName") or full
     return names
 
 
@@ -2443,6 +2494,14 @@ def _check_provided_contract_services(
             for workload_name in workloads
             if (full := _compose_service_name(module_id, workload_name)) in service_names
         }
+        # Declared services (implementation.kubernetes.services) are not
+        # rendered by CDS but exist once the module's manifests are applied,
+        # so they count as exposed endpoints here too (issue #768).
+        rendered.update(
+            service_names[full]
+            for service_key in (k8s.get("services") or {})
+            if (full := _compose_service_name(module_id, str(service_key))) in service_names
+        )
         if rendered:
             rendered_by_module[module_id] = sorted(rendered)
     return _validate_provided_contract_hosts_against(

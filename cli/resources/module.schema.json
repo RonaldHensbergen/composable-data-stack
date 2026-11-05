@@ -315,8 +315,31 @@
         },
         "networkPolicy": {
           "$ref": "#/$defs/kubernetesNetworkPolicy"
+        },
+        "services": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/kubernetesDeclaredService"
+          },
+          "description": "Services the module's own manifests (or the operator they drive) cause to exist in the release namespace, e.g. the <cluster>-rw Service a CloudNativePG Cluster creates (issue #768). Declared but NOT rendered by CDS: the names join the renderer's service registry, so contract-host validation (E084/E150), release-scoped binding hosts, ${k8s.service.*}, and waitFor gates treat them exactly like rendered workload Services. Key naming follows the workload rule: key \"rw\" on module instance \"warehouse\" is \"warehouse-rw\" (release-scoped \"{{ .Release.Name }}-warehouse-rw\")."
         }
       }
+    },
+    "kubernetesDeclaredService": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Override the generated DNS name. Defaults to the module-prefixed key (same rule as workloads)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Why this Service exists and who creates it (e.g. an operator-created Service from a Cluster CR)."
+        }
+      },
+      "description": "A Service the module does not render itself but expects to exist in the release namespace once its manifests are applied."
     },
     "kubernetesManifest": {
       "type": "object",
@@ -353,7 +376,7 @@
           "description": "Optional config path expression gating the manifest (e.g. \"config.mode==chart\"); the manifest is skipped when the expression resolves to False. Stripped from the rendered output."
         }
       },
-      "description": "A raw Kubernetes manifest (any CRD) emitted as an extra chart template. Values support the same ${config.*}/${bindings.*}/${service.*}/${k8s.service.*} substitution as workloads; ${secrets.*} references are rejected by the renderer (E078) because chart files must never carry secret material."
+      "description": "A raw Kubernetes manifest (any CRD) emitted as an extra chart template. Values support the same ${config.*}/${bindings.*}/${service.*}/${k8s.service.*} substitution as workloads. A value that is exactly one ${secrets.*} reference (resolving to ${CDS_*}) is rewritten to a Helm `required` lookup of .Values.secrets, so the secret value is supplied at install time and never stored in the chart; any other leftover ${CDS_*} is rejected by the renderer (E078) because chart files must never carry secret material."
     },
     "kubernetesNetworkPolicy": {
       "type": "object",

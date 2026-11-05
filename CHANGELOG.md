@@ -8,6 +8,40 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- New experimental module `modules-experimental/warehouse/postgres-operator`
+  (issue #768): a Kubernetes-native, operator-managed PostgreSQL for the
+  `--target helm` render target, backed by CloudNativePG. It provides the
+  same `sql-database` contract as `modules/warehouse/postgres` (which stays
+  untouched as the Compose/local-dev path), so consumers bind with no
+  consumer-side changes. The module renders a CloudNativePG `Cluster` CR
+  (instances, digest-pinned `imageName`, PVC size, `initdb` bootstrap,
+  `pg_hba` from `config.authentication.hostAuth`, and `inheritedMetadata`
+  labels so binding-derived NetworkPolicy edges select the operator pods)
+  plus the app-credentials `Secret` the bootstrap reads. The advertised
+  endpoint is the operator-created `<cluster>-rw` Service, declared via the
+  new `implementation.kubernetes.services` block. Demoed by the new
+  `profiles/local-kubernetes-postgres-operator` profile (Superset + KeyDB
+  binding via the unchanged `sql-database` contract);
+  `cds test local-kubernetes-postgres-operator --target helm` passes and
+  `--target compose` fails closed with E070. Documented in
+  `docs/modules.md` ("Choosing a warehouse module"), `docs/kubernetes.md`
+  ("Operator-managed modules"), `docs/roadmap.md`, and
+  `docs/haven-parity-plan.md` section 4 (workstream 3.6 now implemented,
+  experimental).
+
+- The Helm renderer learned two module-schema blocks for operator-managed
+  modules (issue #768): `implementation.kubernetes.services` declares
+  Services that a module's manifests (or the operator they drive) create
+  without CDS rendering them — the names join the renderer's service
+  registry, so E084/E150 contract-host checks, release-scoping of consumer
+  binding hosts, `${k8s.service.*}`, and `waitFor` gates treat them like
+  rendered workload Services; and a raw `kubernetes.manifests` value that is
+  exactly one secret reference (`secrets.*` → `${CDS_*}`) is rewritten to a
+  Helm `required` lookup of `.Values.secrets` (the key is registered in the
+  chart's secrets Secret), so CRs can consume secrets without the committed
+  chart ever carrying them — any other leftover `${CDS_*}` still fails
+  closed with E078.
+
 - New `sampleData` config block on the dagster module (issue #1117):
   `sampleData.enabled` (default `false`) ships the bundled
   `offers-1000.csv` sample fixture into the dagster containers at the same
@@ -87,6 +121,14 @@ The format is based on Keep a Changelog.
   the README troubleshooting table.
 
 ### Fixed
+
+- `cds test --target helm` (and `cds security`) no longer fail the security
+  stage with W096 when the profile's Compose render fails *only* because a
+  module has no compose implementation (E070 — e.g. a Helm-only module such
+  as the CloudNativePG operator module, issue #768). That skip is expected
+  and already surfaced by the render stage itself; any other render error
+  still raises W096 and fails the stage, so the silent-skip guard
+  (GHSA-mx5p-cv63-6829) is unchanged for real breakage.
 
 - `cds render/up --target helm` no longer fails with E085 ("bind source
   outside the project root") on projects scaffolded by `cds get`: the
