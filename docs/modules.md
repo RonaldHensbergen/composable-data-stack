@@ -229,17 +229,86 @@ The field is optional (`required: false`) in the shared contract documents
 `cache-service.yaml`, `reverse-proxy.yaml`); `file-database` carries no TLS
 field because it describes a bind-mounted file, not a network endpoint.
 
+### Database engine requirements (`engineFrom`)
+
+A consumer whose own config selects the database wire protocol (e.g.
+Keycloak's `KC_DB`, fed from `metadataDatabase.driver`) can declare an engine
+requirement on a `consumes` entry, provider-neutral and opt-in (issue #682):
+
+```yaml
+spec:
+  consumes:
+    - name: metadata-database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.metadataDatabase
+      engineFrom: spec.config.metadataDatabase.driver
+```
+
+`engineFrom` is a dotted `spec.config.<path>` reference to a string field in
+the consumer's own config; the referenced value is the engine the consumer
+expects the bound provider to speak. The provider opts in from its provide
+entry's `contract.spec`:
+
+```yaml
+spec:
+  provides:
+    - name: sql-database
+      contract:
+        kind: sql-database
+        spec:
+          host: ${service.host}
+          port: ${config.port}
+          engine: postgres
+```
+
+Semantics and validation paths:
+
+- The expected engine is read from the consumer's profile config at the
+  `engineFrom` path; when the profile leaves the field unset, the consumer's
+  `configSchema` default at that path is used, so a defaulted driver is
+  enforced too (this is exactly the silent-misconfiguration case #682 wants
+  caught: default `postgres` bound to a non-Postgres provider).
+- The provider's advertisement is a string literal or a pure
+  `${config.<path>}` reference that resolves against the producer instance's
+  profile config; comparison is case-insensitive and uses the common short
+  vendor name (`postgres`, `mysql`, `mariadb`, `mssql`, `oracle`).
+- A mismatch, or a provider that advertises no `engine` at all, fails closed
+  with `E154` at `cds validate` (see
+  [Troubleshooting](../README.md#️-troubleshooting)); an unresolvable
+  `engineFrom` path (no config value and no schema default) fails with
+  `E041`.
+- Omitting `engineFrom` places no engine requirement, so existing modules and
+  profiles stay valid unless they explicitly opt in.
+- Like every other contract-spec field, `engine` flows into the consumer's
+  resolved binding (`${bindings.<name>.engine}`) during `cds plan`.
+
+The field is optional (`required: false`) in
+`shared/contracts/sql-database.yaml`; today `modules/warehouse/postgres` is
+the only `sql-database` provider and advertises `engine: postgres` on all of
+its database provides, and `modules/identity/keycloak` is the only consumer
+declaring `engineFrom`.
+
 ### Reverse-proxy dynamic routes
 
 A module providing the `reverse-proxy` contract (e.g. Traefik) exposes public
 routes through its `config.routes` entries instead of Docker label
-autodiscovery: each entry declares a public `host` and a `target` module
-id (or `<module-id>.<contract-name>` when the target provides several
-`http-service` contracts). CDS resolves the target's `http-service`
-contract, cross-checks the backend address against the compose services the
-render actually produced, and writes deterministic file-provider
-configuration next to the rendered compose file; invalid routing inputs
-fail with `E136` instead of silently generating broken config.
+autodiscovery or a hand-written routing file (issue #883): each entry binds
+one `http-service` provide through its `contractRef`
+(`<module-id>.<contract-name>`), declared on the module as a list-valued
+`consumes` entry (`mappedFrom: spec.config.routes`), so the profile binds the
+routed service with the same `contractRef` vocabulary as every other
+contract and a wrong ref fails at `cds validate` with `E041`/`E042`. Each
+entry composes a public rule from an optional `host` and an optional
+`pathPrefix` (at least one is required; a provider may advertise a default
+`pathPrefix` on its `http-service` contract). CDS generates the route
+document from the resolved binding -- the backend host/port come from the
+bound contract, so no service name is hardcoded -- cross-checks the backend
+address against the compose services the render actually produced, and
+writes deterministic file-provider configuration next to the rendered
+compose file; invalid routing inputs fail with `E136` instead of silently
+generating broken config.
 
 The same fail-closed cross-check applies to plain provided contracts
 (issues #1010, #1029): every `http-service`, `sql-database`,

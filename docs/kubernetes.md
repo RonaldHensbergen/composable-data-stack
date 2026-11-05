@@ -301,28 +301,36 @@ NetworkPolicy (issue #75):
   service ports; with no port evidence at all the rule stays module-scoped
   and the render reports `W128` asking for the port to be declared.
 - Reverse-proxy `config.routes` entries derive the same pair of edges
-  (#1033): a proxy consumes no contracts, so each route's target module
+  (#1033, #883): each route binds an `http-service` provide through its
+  `contractRef` (`<module-id>.<contract-name>`), and that target module
   opens egress on the proxy's pods and matching ingress on the target's
   pods, scoped to the route's backend port (the target's http-service
   contract port, mapped through the target's Service `targetPort` like a
   binding's port). Targets no route names stay unreachable from the proxy.
-  A route that cannot yield a port-scoped edge (unknown target module, no
-  matching http-service provide, no port evidence) adds no edge and is
-  reported as `W129`; the `networkPolicy.egress` passthrough remains the
-  escape hatch for anything routes cannot express.
+  A route that cannot yield a port-scoped edge (malformed or unknown
+  contractRef, no matching http-service provide, no port evidence) adds no
+  edge and is reported as `W129`; the `networkPolicy.egress` passthrough
+  remains the escape hatch for anything routes cannot express.
 - Within a module, pods may talk freely on any port: a module is the unit
   of composition and declares its own internal wiring (which is why the
   Superset init job and the webserver share one policy).
 - Egress to the cluster DNS service (kube-system `kube-dns`, UDP+TCP 53) is
   the only other unconditional rule.
+- Egress to anything outside the plan -- an external database, an HTTPS API,
+  a package index, an object store reached by address -- is denied. That is
+  the security baseline: the only way to open external egress is a declared
+  `implementation.kubernetes.egress` entry (see below, issue #1023). A DNS
+  name cannot be declared: a NetworkPolicy can only express IP ranges, so
+  resolve the name and declare the resulting IP/CIDR.
 - `waitFor` gates are validated against this baseline at render time: a gate
   whose resolved host is neither a same-module Service emitted by this render
   (a workload disabled via `enabledFrom` gets no Service), the endpoint of
   a consumed provider, nor a reverse-proxy route target, and whose host:port
   no custom `networkPolicy.egress` ipBlock rule covers, would only hang until
   its timeout, so the render fails closed with E152 naming the gate and the
-  unreachable host (#1031, #1033). A DNS-name gate host stays denied: a
-  NetworkPolicy cannot express one.
+  unreachable host (#1031, #1033), and whose host:port no declared
+  `implementation.kubernetes.egress` entry covers (#1023). A DNS-name gate
+  host stays denied: a NetworkPolicy cannot express one.
 - NodePort and LoadBalancer services are intended entry points: ingress is
   opened to all sources on exactly their exposed ports, and CDS-K8S-007
   flags that exposure.
@@ -330,15 +338,51 @@ NetworkPolicy (issue #75):
   `implementation.kubernetes.serviceAccount.rbac` (malformed rules fail
   closed with E148), and wildcard grants are flagged by CDS-K8S-006.
 
+### Declaring external egress
+
+Contract bindings and reverse-proxy routes are the only ways to open
+cross-module traffic, and they cannot name anything outside the plan. For an
+external destination, declare it under `implementation.kubernetes.egress`
+(issue #1023):
+
+```yaml
+implementation:
+  kubernetes:
+    egress:
+      - host: 203.0.113.10          # IP literal -> ipBlock 203.0.113.10/32
+        port: 5432                  # external PostgreSQL
+      - cidr: 10.20.0.0/16          # a range, with optional carve-outs
+        except: [10.20.0.13/32]     # stays denied
+        ports: [443, 8443]          # HTTPS endpoints
+        protocol: TCP               # default; UDP/SCTP also possible
+```
+
+Each entry renders as one ipBlock egress rule on the module's NetworkPolicy,
+scoped to exactly the declared destination, `except` CIDRs, and ports; the
+policy itself stays release-scoped (`{{ .Release.Name }}-...`). To open a
+destination for one workload only, put the same list under that workload
+(`implementation.kubernetes.workloads.<name>.egress`): it renders as an
+additional workload-scoped NetworkPolicy whose podSelector also matches the
+workload's `app.kubernetes.io/name` label, so the module's other pods keep
+default-deny egress. Values support `${config.*}` substitution, so a
+profile can supply the destination through module config. Malformed entries
+(a DNS-name `host`, a `cidr` with host bits set, an `except` outside the
+`cidr`, a bad port or protocol, an unresolved expression) fail closed with
+E153. Without `port`/`ports` the rule covers all ports to that destination
+only. The security scan records every declared entry as a CDS-K8S-009
+finding whose severity scales with breadth: `0.0.0.0/0` on all ports is high,
+an unscoped destination or a missing port list is medium, and a
+destination+port-scoped entry is low -- the audit trail of an intentional
+opening in `cds security --target helm`.
+
 ### When the baseline denies something you need
 
-Bindings and routes cannot name external endpoints or cross-namespace
-clients: a job reading an external API or database, or an ingress
-controller fronting a ClusterIP service, would be silently denied by the
-default-deny baseline. Declare those rules via
-`implementation.kubernetes.networkPolicy.ingress`/`egress` -- they are
-rendered verbatim after the binding- and route-derived rules, and
-malformed shapes fail closed with E149. The security scan records every
+For anything the structured `egress` block cannot express -- cross-namespace
+clients such as an ingress controller fronting a ClusterIP service, or
+selector-based peers -- declare raw rules via
+`implementation.kubernetes.networkPolicy.ingress`/`egress`: they are rendered
+verbatim after the binding-derived, route-derived, and declared-egress rules,
+and malformed shapes fail closed with E149. The security scan records every
 external-egress rule as a low CDS-K8S-008 finding, so intentional openings
 stay visible in `cds security --target helm`.
 

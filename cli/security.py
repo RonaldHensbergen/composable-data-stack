@@ -23,7 +23,7 @@ from .diagnostics import Diagnostic
 from .loader import load_yaml_file, resolve_module_file
 from .planner import build_plan
 from .renderer import render_compose
-from .resolver import parse_contract_ref
+from .resolver import iter_consume_bindings, parse_contract_ref
 from .secret_leak import (
     declared_secret_env_names,
     find_secret_leaks,
@@ -713,12 +713,9 @@ def _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan: dict[str, Any] | No
     for module in plan.get("modules", []):
         if not isinstance(module, dict) or not _module_provides_tls_reverse_proxy(module):
             continue
-        consumes = module.get("consumes", {})
-        if not isinstance(consumes, dict):
-            continue
-        for consumed in consumes.values():
-            if not isinstance(consumed, dict):
-                continue
+        # List-valued consume entries (issue #883: reverse-proxy routes) are
+        # flattened so route-bound plaintext services count as fronted too.
+        for _consume_name, _item_index, consumed in iter_consume_bindings(module.get("consumes")):
             contract_ref = consumed.get("contractRef")
             parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
             if parsed is None:

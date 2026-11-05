@@ -11,7 +11,7 @@ metadata:
     a Haven-aligned shape: an identity provider (Keycloak), a TLS-terminating
     reverse proxy (Traefik), and a sql-database provider (Postgres). See
     docs/common-ground-alignment.md for the concept mapping. Experimental
-    while the Keycloak module remains unsuitable for production use.
+    pending the Keycloak/Traefik `--target helm` implementations (#1075).
 
 spec:
   runtime:
@@ -78,6 +78,14 @@ spec:
             address: ":80"
           websecure:
             address: ":443"
+        # Route the TLS entrypoint to Keycloak through the contract graph
+        # (issue #883): the binding resolves keycloak's http-service
+        # contract, and the renderer generates the file-provider document
+        # (traefik/dynamic/cds-routes-traefik.yml) from it -- no
+        # hand-written routing file.
+        routes:
+          - pathPrefix: /
+            contractRef: keycloak.http-service
         fileProvider:
           directory: /etc/traefik/dynamic
           watch: true

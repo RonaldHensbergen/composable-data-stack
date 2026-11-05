@@ -228,7 +228,7 @@ class PrepareSourceTest(unittest.TestCase):
             self._with_download("b" * 40, "a" * 12)
 
     def test_pin_expands_abbreviated(self) -> None:
-        _path, commit = self._with_download("aaaaaaa", "a" * 12, expanded=FULL_SHA)
+        _path, commit, _ref = self._with_download("aaaaaaa", "a" * 12, expanded=FULL_SHA)
         self.assertEqual(commit, FULL_SHA)
 
 

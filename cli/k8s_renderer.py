@@ -19,11 +19,17 @@ least-privilege RBAC) and are isolated by a generated NetworkPolicy:
 default-deny for ingress and egress, with allow rules derived from the plan's
 contract bindings (issue #75). Cross-module connectivity therefore stays
 explicit on Kubernetes, mirroring the contract-first design used everywhere
-else in CDS. `waitFor` gate hosts are validated against that baseline at
-render time and fail closed with E152 when no allow rule can cover them
-(issue #1031). Reverse-proxy `config.routes` entries are derived into the
-same policies: each route's target module opens a port-scoped egress edge
-on the proxy and a matching ingress edge on the target (issue #1033).
+else in CDS. Egress to destinations outside the plan (an external database,
+HTTPS API, or object store reached by address) is denied by the same
+baseline unless the module declares it under
+`implementation.kubernetes.egress` (or workload-scoped under
+`workloads.<name>.egress`), which renders an ipBlock rule for exactly that
+destination and port (issue #1023). `waitFor` gate hosts are validated
+against that baseline at render time and fail closed with E152 when no
+allow rule can cover them (issue #1031). Reverse-proxy `config.routes`
+entries are derived into the same policies: each route's target module
+opens a port-scoped egress edge on the proxy and a matching ingress edge
+on the target (issue #1033).
 """
 
 from __future__ import annotations
@@ -53,7 +59,7 @@ from .renderer import (
     _validate_provided_contract_hosts_against,
     apply_production_gates,
 )
-from .resolver import parse_contract_ref
+from .resolver import iter_consume_bindings, parse_contract_ref
 from .secret_leak import (
     check_generated_text,
     declared_secret_env_names,
@@ -164,26 +170,55 @@ def render_helm(
     # reason: they are merged verbatim into the module's policy. Both are
     # parsed here rather than later because the wait-gate check needs the
     # passthrough rules too: a gate whose host:port a custom egress ipBlock
-    # rule covers is allowed.
+    # rule covers is allowed. Declared external egress (E153, issue #1023)
+    # is parsed here for the same reason: a gate whose host:port a declared
+    # entry covers is allowed.
     rbac_rules_by_module: dict[str, list[dict[str, Any]]] = {}
     network_policy_passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] = {}
+    external_egress: dict[str, list[dict[str, Any]]] = {}
+    workload_egress: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for module in renderable:
-        rbac_rules, rbac_diags = _rbac_rules(
-            module["id"], module["implementation"]["kubernetes"]
-        )
-        rbac_rules_by_module[module["id"]] = rbac_rules
+        module_id = module["id"]
+        k8s = module["implementation"]["kubernetes"]
+        rbac_rules, rbac_diags = _rbac_rules(module_id, k8s)
+        rbac_rules_by_module[module_id] = rbac_rules
         diagnostics.extend(rbac_diags)
 
-        passthrough, passthrough_diags = _network_policy_passthrough(
-            module["id"], module["implementation"]["kubernetes"]
-        )
-        network_policy_passthrough[module["id"]] = passthrough
+        passthrough, passthrough_diags = _network_policy_passthrough(module_id, k8s)
+        network_policy_passthrough[module_id] = passthrough
         diagnostics.extend(passthrough_diags)
+
+        context = _module_context(module, secrets, service_names)
+        entries, egress_diags = _external_egress_entries(
+            module_id,
+            k8s.get("egress"),
+            context,
+            f"module:{module_id}.implementation.kubernetes.egress",
+        )
+        external_egress[module_id] = entries
+        diagnostics.extend(egress_diags)
+        for workload_name, workload in (k8s.get("workloads") or {}).items():
+            if not isinstance(workload, dict):
+                continue
+            workload_entries, workload_diags = _external_egress_entries(
+                module_id,
+                workload.get("egress"),
+                context,
+                f"module:{module_id}.implementation.kubernetes."
+                f"workloads.{workload_name}.egress",
+            )
+            workload_egress[(module_id, str(workload_name))] = workload_entries
+            diagnostics.extend(workload_diags)
 
     diagnostics.extend(_check_binding_services(renderable, service_names))
     diagnostics.extend(_check_provided_contract_services(renderable, service_names))
     diagnostics.extend(_check_wait_gate_hosts(
-        renderable, service_names, secrets, network_policy_passthrough
+        renderable,
+        service_names,
+        secrets,
+        network_policy_passthrough,
+        external_egress,
+        workload_egress,
     ))
 
     # The built-in backup capability (config.backup.enabled, issue #665) is
@@ -292,6 +327,8 @@ def render_helm(
         # workload modules: a route naming a pod-less module must be told
         # apart from a route naming a module the plan does not contain.
         {module["id"]: module for module in renderable},
+        external_egress,
+        workload_egress,
     ))
 
     if secret_keys:
@@ -1631,6 +1668,236 @@ def _network_policy_shape_diagnostic(module_id: str, where: str) -> Diagnostic:
     )
 
 
+# ---------------------------------------------------------------------------
+# Declared external egress (issue #1023)
+# ---------------------------------------------------------------------------
+
+_EGRESS_PROTOCOLS = ("TCP", "UDP", "SCTP")
+_EGRESS_ENTRY_KEYS = frozenset({"host", "cidr", "except", "port", "ports", "protocol"})
+_UNRESOLVED_EXPR = re.compile(r"^\$\{[^}]+\}$")
+
+
+def _external_egress_entries(
+    module_id: str,
+    declared: Any,
+    context: dict[str, Any],
+    path: str,
+) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
+    """
+    Parse one `egress` declaration list -- module-level
+    `implementation.kubernetes.egress`, or workload-scoped under
+    `implementation.kubernetes.workloads.<name>.egress` -- into normalized
+    entries that render as ipBlock egress rules (issue #1023).
+
+    Each entry declares an external destination the default-deny baseline
+    would otherwise silently drop: `host` (an IP literal, rendered as a /32
+    or /128 ipBlock) or `cidr` (a CIDR block), an optional `except` list of
+    CIDRs inside it that stay denied, and `port`/`ports` with a `protocol`
+    (default TCP). Without ports the rule covers all ports to that
+    destination only; the security scan escalates broad declarations
+    (CDS-K8S-009). DNS names are rejected: a NetworkPolicy cannot express
+    them and resolving them at render time would be non-deterministic.
+    Values support the same ${config.*} substitution as the rest of the
+    kubernetes block, so a profile can supply the destination through
+    module config. A malformed entry fails closed with E153 (a plan loaded
+    from a file bypasses the module schema), mirroring E149.
+    """
+    diagnostics: list[Diagnostic] = []
+    if declared is None:
+        return [], diagnostics
+    if not isinstance(declared, list):
+        return [], [_egress_diagnostic(
+            module_id, path, "must be a list of egress entries (mappings)"
+        )]
+    entries: list[dict[str, Any]] = []
+    for index, raw in enumerate(declared):
+        entry_path = f"{path}[{index}]"
+        entry = _substitute_values(deepcopy(raw), context)
+        parsed, diagnostic = _parse_egress_entry(module_id, entry, entry_path)
+        if diagnostic is not None:
+            diagnostics.append(diagnostic)
+            continue
+        entries.append(parsed)
+    return entries, diagnostics
+
+
+def _parse_egress_entry(
+    module_id: str, entry: Any, path: str
+) -> tuple[dict[str, Any], Diagnostic | None]:
+    """Validate one substituted egress entry; return the normalized entry."""
+    if not isinstance(entry, dict):
+        return {}, _egress_diagnostic(module_id, path, "must be a mapping")
+    unknown = sorted(set(entry) - _EGRESS_ENTRY_KEYS)
+    if unknown:
+        return {}, _egress_diagnostic(
+            module_id, path,
+            f'must declare only {sorted(_EGRESS_ENTRY_KEYS)}; unknown key(s): '
+            + ", ".join(unknown),
+        )
+
+    host = entry.get("host")
+    cidr = entry.get("cidr")
+    if (host is None) == (cidr is None):
+        return {}, _egress_diagnostic(
+            module_id, path, 'must declare exactly one of "host" (IP literal) or "cidr" (CIDR block)'
+        )
+
+    if host is not None:
+        host_text = str(host).strip()
+        if _UNRESOLVED_EXPR.match(host_text):
+            return {}, _egress_diagnostic(
+                module_id, path, f'"host" expression "{host_text}" does not resolve against the plan'
+            )
+        try:
+            address = ipaddress.ip_address(host_text)
+        except ValueError:
+            return {}, _egress_diagnostic(
+                module_id, path,
+                f'"host" must be an IP literal (IPv4 or IPv6), got "{host_text}". A DNS '
+                "name cannot be expressed in a NetworkPolicy ipBlock and resolving it at "
+                "render time would be non-deterministic; declare the destination's IP "
+                "or CIDR instead.",
+            )
+        network = ipaddress.ip_network(f"{address}/{address.max_prefixlen}")
+    else:
+        cidr_text = str(cidr).strip()
+        if _UNRESOLVED_EXPR.match(cidr_text):
+            return {}, _egress_diagnostic(
+                module_id, path, f'"cidr" expression "{cidr_text}" does not resolve against the plan'
+            )
+        try:
+            network = ipaddress.ip_network(cidr_text, strict=True)
+        except ValueError:
+            return {}, _egress_diagnostic(
+                module_id, path,
+                f'"cidr" must be a CIDR block in network form (e.g. "10.20.0.0/16"; host '
+                f'bits set are rejected), got "{cidr_text}".',
+            )
+    cidr_normalized = str(network)
+
+    except_networks: list[str] = []
+    except_raw = entry.get("except")
+    if except_raw is not None:
+        if not isinstance(except_raw, list) or not all(
+            isinstance(item, str) for item in except_raw
+        ):
+            return {}, _egress_diagnostic(
+                module_id, path, '"except" must be a list of CIDR strings'
+            )
+        for item in except_raw:
+            text = item.strip()
+            if _UNRESOLVED_EXPR.match(text):
+                return {}, _egress_diagnostic(
+                    module_id, path, f'"except" expression "{text}" does not resolve against the plan'
+                )
+            try:
+                except_network = ipaddress.ip_network(text, strict=True)
+            except ValueError:
+                return {}, _egress_diagnostic(
+                    module_id, path, f'"except" entry "{text}" is not a valid CIDR block'
+                )
+            if except_network.version != network.version or not except_network.subnet_of(network):
+                return {}, _egress_diagnostic(
+                    module_id, path,
+                    f'"except" entry "{text}" must be a subnet of the declared cidr '
+                    f'"{cidr_normalized}".',
+                )
+            except_networks.append(str(except_network))
+
+    protocol = entry.get("protocol", "TCP")
+    if not isinstance(protocol, str) or protocol.upper() not in _EGRESS_PROTOCOLS:
+        return {}, _egress_diagnostic(
+            module_id, path,
+            f'"protocol" must be one of {list(_EGRESS_PROTOCOLS)}, got {protocol!r}',
+        )
+    protocol = protocol.upper()
+
+    port_numbers: set[int] = set()
+    single = entry.get("port")
+    if single is not None:
+        number = _int_or_none(single)
+        if number is None or not 1 <= number <= 65535:
+            return {}, _egress_diagnostic(
+                module_id, path,
+                f'"port" must be an integer between 1 and 65535, got {single!r}',
+            )
+        port_numbers.add(number)
+    many = entry.get("ports")
+    if many is not None:
+        if not isinstance(many, list) or not many:
+            return {}, _egress_diagnostic(
+                module_id, path,
+                '"ports" must be a non-empty list of integers between 1 and 65535',
+            )
+        for item in many:
+            number = _int_or_none(item)
+            if number is None or not 1 <= number <= 65535:
+                return {}, _egress_diagnostic(
+                    module_id, path,
+                    f'"ports" entries must be integers between 1 and 65535, got {item!r}',
+                )
+            port_numbers.add(number)
+
+    ports = (
+        [{"protocol": protocol, "port": number} for number in sorted(port_numbers)]
+        if port_numbers
+        else None
+    )
+    return {"cidr": cidr_normalized, "except": except_networks, "ports": ports}, None
+
+
+def _egress_diagnostic(module_id: str, path: str, message: str) -> Diagnostic:
+    return Diagnostic(
+        level="error",
+        code="E153",
+        message=(
+            f'External egress entry of module "{module_id}" at {path} is invalid: '
+            f"{message}. The default-deny NetworkPolicy only opens egress to "
+            "destinations declared here (or via contract bindings), so the renderer "
+            "fails closed instead of shipping a rule Kubernetes would reject or "
+            "that opens more than was declared (issue #1023)."
+        ),
+        path=path,
+    )
+
+
+def _egress_rule(entry: dict[str, Any]) -> dict[str, Any]:
+    """Render one normalized egress entry as a NetworkPolicy egress rule."""
+    ip_block: dict[str, Any] = {"cidr": entry["cidr"]}
+    if entry["except"]:
+        ip_block["except"] = list(entry["except"])
+    rule: dict[str, Any] = {"to": [{"ipBlock": ip_block}]}
+    if entry["ports"]:
+        rule["ports"] = [dict(port) for port in entry["ports"]]
+    return rule
+
+
+def _egress_entry_covers(entry: dict[str, Any], host: str, port: int | None) -> bool:
+    """Whether a normalized egress entry allows TCP traffic to host:port."""
+    try:
+        address = ipaddress.ip_address(str(host).strip())
+    except ValueError:
+        return False
+    try:
+        network = ipaddress.ip_network(entry["cidr"])
+    except ValueError:
+        return False
+    if address not in network:
+        return False
+    for except_text in entry["except"]:
+        try:
+            if address in ipaddress.ip_network(except_text):
+                return False
+        except ValueError:
+            continue
+    if entry["ports"] is None:
+        return True
+    return any(
+        port_entry["protocol"] == "TCP" and port_entry["port"] == port
+        for port_entry in entry["ports"]
+    )
+
+
 def _service_account_manifest(
     module_id: str, release: str, rbac_rules: list[dict[str, Any]]
 ) -> str:
@@ -1740,6 +2007,8 @@ def _network_policy_manifests(
     diagnostics: list[Diagnostic],
     passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]],
     plan_modules_by_id: dict[str, dict[str, Any]] | None = None,
+    external_egress: dict[str, list[dict[str, Any]]] | None = None,
+    workload_egress: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
     """
     One NetworkPolicy per module: default-deny ingress and egress, then allow
@@ -1757,9 +2026,16 @@ def _network_policy_manifests(
     after the derived rules: bindings and routes cannot name external
     endpoints or cross-namespace clients (an external API a job reads from,
     an ingress controller fronting a ClusterIP service), which would
-    otherwise be silently denied. A binding whose provider is absent from the
-    chart cannot occur silently: E072 already fails the whole render for any
-    plan module that lacks a Kubernetes implementation.
+    otherwise be silently denied. Declared external egress (issue #1023) is
+    appended after those: module-level `implementation.kubernetes.egress`
+    entries become ipBlock rules on the module's policy, and workload-scoped
+    `workloads.<name>.egress` entries become an additional release-scoped
+    NetworkPolicy whose podSelector also matches that workload's
+    `app.kubernetes.io/name`, so the opening applies to that workload's pods
+    only (NetworkPolicies are additive, so the module policy still denies
+    everything else). A binding whose provider is absent from the chart
+    cannot occur silently: E072 already fails the whole render for any plan
+    module that lacks a Kubernetes implementation.
     """
     module_ids = {module["id"] for module in modules}
     egress_edges: dict[str, set[tuple[str, tuple[int, ...] | None]]] = {}
@@ -1824,6 +2100,13 @@ def _network_policy_manifests(
         ingress.extend(deepcopy(rule) for rule in custom_ingress)
         egress.extend(deepcopy(rule) for rule in custom_egress)
 
+        # Declared external egress (issue #1023) comes last on the module
+        # policy: each entry renders as an ipBlock rule scoped to exactly
+        # the declared destination, except-CIDRs, and ports. Undeclared
+        # external egress stays denied -- that is the security baseline.
+        for entry in (external_egress or {}).get(module_id, []):
+            egress.append(_egress_rule(entry))
+
         manifests.append((
             f"{module_id}-network-policy.yaml",
             {
@@ -1841,6 +2124,41 @@ def _network_policy_manifests(
                     "policyTypes": ["Ingress", "Egress"],
                     "ingress": ingress,
                     "egress": egress,
+                },
+            },
+        ))
+
+    # Workload-scoped egress declarations get their own release-scoped
+    # NetworkPolicy selecting only that workload's pods (by the
+    # app.kubernetes.io/name label the workload manifest carries). The
+    # policy carries Egress only: the module policy above still applies to
+    # the same pods and keeps everything undeclared denied.
+    for (module_id, workload_name), entries in sorted(
+        (workload_egress or {}).items()
+    ):
+        if not entries:
+            continue
+        full_name = _compose_service_name(module_id, str(workload_name))
+        manifests.append((
+            f"{module_id}-{workload_name}-egress-network-policy.yaml",
+            {
+                "apiVersion": "networking.k8s.io/v1",
+                "kind": "NetworkPolicy",
+                "metadata": {
+                    "name": (
+                        "{{ .Release.Name }}-" + module_id + "-" + str(workload_name)
+                        + "-egress-network-policy"
+                    ),
+                    "labels": _labels(release, module_id),
+                },
+                "spec": {
+                    "podSelector": {"matchLabels": {
+                        "cds.dev/module": module_id,
+                        "app.kubernetes.io/name": full_name,
+                        "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                    }},
+                    "policyTypes": ["Egress"],
+                    "egress": [_egress_rule(entry) for entry in entries],
                 },
             },
         ))
@@ -1951,7 +2269,7 @@ def _reverse_proxy_route_edges(
                     f'Reverse-proxy route "{path}" cannot be derived as a '
                     f"NetworkPolicy edge ({problem}), so the default-deny policy "
                     f'of proxy "{proxy_id}" keeps the target unreachable. Fix the '
-                    "route's target and its http-service contract port, or add a "
+                    "route's contractRef and its http-service contract port, or add a "
                     "custom networkPolicy.egress rule."
                 ),
                 path=path,
@@ -1992,9 +2310,9 @@ def _resolve_proxy_routes(
     """
     Resolve a module's `config.routes` entries to their target modules and
     http-service provide entries, mirroring the compose route generation
-    (issue #581): only modules providing a `reverse-proxy` contract have
-    routes, a bare module id targets that module's first http-service
-    provide, and `<module-id>.<contract-name>` picks a named one.
+    (issues #581, #883): only modules providing a `reverse-proxy` contract
+    have routes, and each entry binds one `http-service` provide through
+    its `contractRef` (`<module-id>.<contract-name>`).
 
     Each entry yields `(route_index, target_module_id, http_entry, problem)`;
     `problem` is None when the route resolves and otherwise says why it
@@ -2017,13 +2335,12 @@ def _resolve_proxy_routes(
     for route_index, route in enumerate(routes):
         if not isinstance(route, dict):
             continue
-        target = route.get("target")
-        parsed = parse_contract_ref(target) if isinstance(target, str) else None
-        target_module_id = parsed[0] if parsed else target
-        provide_name = parsed[1] if parsed else None
-        if not isinstance(target_module_id, str) or not target_module_id:
-            resolved.append((route_index, "", None, "names no target module"))
+        contract_ref = route.get("contractRef")
+        parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+        if parsed is None:
+            resolved.append((route_index, "", None, "names no valid contractRef"))
             continue
+        target_module_id, provide_name = parsed
         target_module = modules_by_id.get(target_module_id)
         if target_module is None:
             resolved.append(
@@ -2302,6 +2619,8 @@ def _check_wait_gate_hosts(
     service_names: dict[str, str],
     secrets: dict[str, str],
     passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] | None = None,
+    external_egress: dict[str, list[dict[str, Any]]] | None = None,
+    workload_egress: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
 ) -> list[Diagnostic]:
     """
     Validate every `waitFor` gate host against the default-deny NetworkPolicy
@@ -2314,7 +2633,8 @@ def _check_wait_gate_hosts(
     the module consumes (the binding-derived egress edge), the target of one
     of the module's reverse-proxy routes (the route-derived egress edge,
     issue #1033), or an external IP address a custom `networkPolicy.egress`
-    ipBlock rule covers on the gate's port. Any other host -- another
+    ipBlock rule or a declared `egress` entry (issue #1023) covers on the
+    gate's port. Any other host -- another
     module's Service that no binding or route names, an external address
     nobody declared, a DNS name (a NetworkPolicy cannot express one) -- can
     only hang until the gate's timeout with no diagnostic, so the render
@@ -2401,6 +2721,13 @@ def _check_wait_gate_hosts(
                 if host in allowed:
                     continue
                 gate_port = _int_or_none(gate.get("port"))
+                declared = (external_egress or {}).get(module_id, []) + (
+                    workload_egress or {}
+                ).get((module_id, str(workload_name)), [])
+                if any(
+                    _egress_entry_covers(entry, host, gate_port) for entry in declared
+                ):
+                    continue
                 custom_egress = (passthrough or {}).get(module_id, ([], []))[1]
                 if any(
                     _passthrough_rule_covers(rule, host, gate_port)
@@ -2419,14 +2746,17 @@ def _check_wait_gate_hosts(
                             "endpoint of a provider this module consumes, the "
                             "target of one of this module's reverse-proxy routes, "
                             "nor a destination a custom networkPolicy.egress "
-                            "ipBlock rule covers on the gate's port, so the init "
+                            "ipBlock rule or a declared implementation.kubernetes."
+                            "egress entry covers on the gate's port, so the init "
                             "container would only hang until its timeout. Bind "
                             "the host's module through a contract (consumes), "
                             "route to it via config.routes, gate on a same-module "
-                            "${k8s.service.*} Service, or declare the destination "
-                            "in a custom networkPolicy.egress ipBlock rule covering "
-                            "the host and port (a DNS-name host cannot be expressed "
-                            "in a NetworkPolicy and stays denied)."
+                            "${k8s.service.*} Service, declare the destination "
+                            "under implementation.kubernetes.egress (an IP/CIDR "
+                            "with the gate's port), or add a custom "
+                            "networkPolicy.egress ipBlock rule covering the host "
+                            "and port (a DNS-name host cannot be expressed in a "
+                            "NetworkPolicy and stays denied)."
                         ),
                         path=(
                             f"module:{module_id}.implementation.kubernetes."
@@ -2444,23 +2774,26 @@ def _check_binding_services(
     available_services = set(service_names.values())
     diagnostics: list[Diagnostic] = []
     for module in modules:
-        for consume_name, consume in (module.get("consumes") or {}).items():
+        # List-valued consume entries (issue #883: reverse-proxy routes) are
+        # flattened; each route binding is checked like a single binding.
+        for consume_name, item_index, consume in iter_consume_bindings(module.get("consumes")):
             contract_ref = str(consume.get("contractRef", ""))
             provider_id = contract_ref.split(".", 1)[0]
             if provider_id not in module_ids:
                 continue
             host = ((consume.get("contract") or {}).get("spec") or {}).get("host")
             if host not in available_services:
+                entry = f"{consume_name}[{item_index}]" if item_index is not None else consume_name
                 diagnostics.append(
                     Diagnostic(
                         level="error",
                         code="E084",
                         message=(
-                            f'Contract "{module["id"]}.{consume_name}" binds to module '
+                            f'Contract "{module["id"]}.{entry}" binds to module '
                             f'"{provider_id}", but host "{host}" is not exposed by a '
                             "renderable Kubernetes Service."
                         ),
-                        path=f"module:{module['id']}.consumes.{consume_name}",
+                        path=f"module:{module['id']}.consumes.{entry}",
                     )
                 )
     return diagnostics

@@ -17,7 +17,7 @@ overlays select the mode without binding CDS to one specific server.
 | Module | `production` (what runs) | `development` (what runs) | Default |
 | --- | --- | --- | --- |
 | `bi/superset` | gunicorn with a preloaded app (loaded once in the master, then forked), `webServer.workers` workers (default 4), `webServer.timeoutSeconds` per-request timeout (default 60), gthread worker class, SIGTERM drains in-flight requests | Superset's built-in development server (`superset run`) | `production` |
-| `identity/keycloak` | `kc.sh start --http-enabled=true --hostname-strict=false` (production mode, plain HTTP kept on the localhost-only bind for the reverse proxy in front; hostname-strict stays relaxed until KC hostname/proxy-header configuration lands, #579/#581) | Keycloak development mode (`start-dev`), which relaxes hostname/TLS checks | `development` (module is `productionSuitable: false`) |
+| `identity/keycloak` | `kc.sh start --http-enabled=true --hostname-strict=false` (production mode, plain HTTP kept on the localhost-only bind for the reverse proxy in front; hostname-strict stays relaxed until KC hostname/proxy-header configuration lands, #579/#581) | Keycloak development mode (`start-dev`), which relaxes hostname/TLS checks | `production` |
 
 The defaults are deliberate:
 
@@ -25,12 +25,10 @@ The defaults are deliberate:
   production-grade web server (workers, timeouts, graceful shutdown) out of
   the box; the Flask development server is an explicit opt-in for local
   debugging.
-- `identity/keycloak` defaults to `development` while it is marked
-  `productionSuitable: false` (realm import and the `oidc-provider`
-  contract are available, but `KC_DB`/driver checks and the remaining
-  production hardening are still open — #682). Its production mode is
-  available, but profiles remain subject to the existing production
-  security gates.
+- `identity/keycloak` defaults to `production` (issue #974): an absent
+  `webServer.mode` in a production profile resolves to Keycloak production
+  mode at plan time, never `start-dev`. `development` is an explicit
+  opt-in for local debugging and is rejected in production profiles (E140).
 
 ## Health and readiness
 
@@ -49,7 +47,7 @@ modes therefore never invalidates a rendered readiness check.
   defaults apply — the module default decides, and production-suitable
   modules default to `production`.
 - **CDS-SEC-073**: `cds security` flags any staging/production profile using
-  a module marked `productionSuitable: false` (currently keycloak and vault),
+  a module marked `productionSuitable: false` (currently vault and garage),
   independently of the serving mode.
 
 ## Choosing a mode in a profile
