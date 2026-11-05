@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 41 of 41 (100%)** — modules 18/18 (100%), profiles 8/8 (100%), shared contracts 15/15 (100%)
+**Overall contract coverage: 42 of 42 (100%)** — modules 18/18 (100%), profiles 9/9 (100%), shared contracts 15/15 (100%)
 
 ## Modules
 
@@ -30,6 +30,7 @@ everyone how much of the system is still unwritten.
 | `modules/secrets/vault` | vault | yes |
 | `modules/storage/garage` | garage | yes |
 | `modules/transformation/dbt` | dbt | yes |
+| `modules/warehouse/duckdb` | duckdb | yes |
 | `modules/warehouse/postgres` | postgres | yes |
 | `modules-experimental/backup/object-storage` | object-storage-backup | yes |
 | `modules-experimental/gitops/fluxcd` | fluxcd | yes |
@@ -38,7 +39,6 @@ everyone how much of the system is still unwritten.
 | `modules-experimental/observability/marquez` | marquez | yes |
 | `modules-experimental/observability/otel-collector` | otel-collector | yes |
 | `modules-experimental/orchestration/airflow` | airflow | yes |
-| `modules-experimental/warehouse/duckdb` | duckdb | yes |
 
 ## Profiles
 
@@ -48,6 +48,7 @@ everyone how much of the system is still unwritten.
 | `profiles/local-dagster-postgres-superset` | local-dagster-postgres-superset | yes |
 | `profiles/local-dagster-postgres-superset-dbt` | local-dagster-postgres-superset-dbt | yes |
 | `profiles/local-dagster-postgres-superset-vault` | local-dagster-postgres-superset-vault | yes |
+| `profiles/local-duckdb-dlt-dbt` | local-duckdb-dlt-dbt | yes |
 | `profiles/local-haven-reference` | local-haven-reference | yes |
 | `profiles/local-kubernetes-example` | local-kubernetes-example | yes |
 | `profiles/production-kubernetes-example` | production-kubernetes-example | yes |

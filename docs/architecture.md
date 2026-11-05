@@ -41,7 +41,7 @@ The platform is divided into logical layers.
 | **Identity** | authentication, SSO, and centrally revocable identity for admin-facing modules | Keycloak |
 | **Infrastructure services** | service coordination backends and support systems | KeyDB |
 | **Ingestion** | extract-load pipelines into the warehouse | dlt (experimental) |
-| **Storage / compute** | databases, warehouses, and processing engines | Postgres, DuckDB (experimental) |
+| **Storage / compute** | databases, warehouses, and processing engines | Postgres, DuckDB |
 | **Orchestration** | workflow scheduling and task execution | Dagster |
 | **Transformation** | data modeling and transformation | dbt (targets Postgres or DuckDB) |
 | **Quality** | data validation and testing | (planned) |

@@ -9,13 +9,9 @@ class DuckdbHardeningTest(unittest.TestCase):
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parent.parent
         module = yaml.safe_load(
-            (
-                self.repo_root
-                / "modules-experimental"
-                / "warehouse"
-                / "duckdb"
-                / "module.yaml"
-            ).read_text(encoding="utf-8")
+            (self.repo_root / "modules" / "warehouse" / "duckdb" / "module.yaml").read_text(
+                encoding="utf-8"
+            )
         )
         self.module = module
         self.config_schema = module["spec"]["configSchema"]
@@ -24,13 +20,16 @@ class DuckdbHardeningTest(unittest.TestCase):
             (self.repo_root / "shared" / "contracts" / "file-database.yaml").read_text(encoding="utf-8")
         )
 
-    def test_module_is_experimental(self) -> None:
-        # DuckDB's contract shape (file-database, not sql-database) is a new
-        # design this repo hasn't validated in production yet, so the
-        # module must declare itself unproven, matching the
-        # modules-experimental/ convention used by dlt and (previously) dbt.
-        self.assertFalse(self.module["metadata"]["productionSuitable"])
-        self.assertIn("experimental", self.module["metadata"]["displayName"].lower())
+    def test_module_is_production_suitable(self) -> None:
+        # Promoted out of modules-experimental/ in #593: the file-database
+        # contract shape is now exercised by real consumers (dlt, dbt) and a
+        # demo profile, and DuckDB itself has no inherent production
+        # limitation for single-node analytics, so the metadata block must
+        # not declare the module unsuitable for production and must not
+        # carry the "(experimental)" naming convention used by
+        # modules-experimental/ (same convention as the dbt promotion, #594).
+        self.assertNotIn("productionSuitable", self.module["metadata"])
+        self.assertNotIn("experimental", self.module["metadata"]["displayName"].lower())
 
     def test_module_schema_is_valid_json_schema(self) -> None:
         Draft202012Validator.check_schema(self.config_schema)

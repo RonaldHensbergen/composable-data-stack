@@ -3,8 +3,9 @@
 Custom image for the [Composable Data Stack (CDS)](https://github.com/RonaldHensbergen/composable-data-stack)
 `modules-experimental/ingestion/dlt` module. Runs a bind-mounted Python
 pipeline script with [dlt (data load tool)](https://dlthub.com/) as a
-one-shot job, loading into a consumed `sql-database` contract (e.g. the
-`postgres` module).
+one-shot job, loading into a consumed warehouse contract — a `sql-database`
+contract (e.g. the `postgres` module) or a `file-database` contract (e.g.
+the `duckdb` module), selected via `config.destinationType`.
 
 > This image is built and wired automatically by `cds render`/`cds up` for
 > profiles that include the `dlt` module — you normally never invoke it
@@ -19,7 +20,9 @@ one-shot job, loading into a consumed `sql-database` contract (e.g. the
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DESTINATION__POSTGRES__CREDENTIALS` | yes | Full `postgresql://` connection URI, sourced from the module's consumed `sql-database` contract binding. dlt's postgres destination reads this exact variable name itself. |
+| `CDS_DLT_DESTINATION` | baked in | Which destination the pipeline loads into: `postgres` (default) or `duckdb`, mirrored from `config.destinationType`; `entrypoint.sh` and `pipeline.py` read it |
+| `DESTINATION__POSTGRES__CREDENTIALS` | postgres mode | Full `postgresql://` connection URI, sourced from the module's consumed `sql-database` contract binding. dlt's postgres destination reads this exact variable name itself. |
+| `DESTINATION__DUCKDB__CREDENTIALS` | duckdb mode | Path of the DuckDB database file inside the container (`/usr/app/duckdb_data/<filename>`), sourced from the consumed `file-database` contract binding. dlt's duckdb destination reads this exact variable name itself. |
 | `DLT_PROJECT_DIR` | baked in | Pipeline project directory (default `/usr/app/dlt`), bind-mounted read-only from the host project source |
 | `DLT_ENTRYPOINT` | yes | Filename (relative to `DLT_PROJECT_DIR`) that `entrypoint.sh` runs with `python` (default `pipeline.py`) |
 | `DLT_PIPELINES_DIR` | baked in | Where dlt persists pipeline working state (schema history, incremental load cursors) across runs (default `/usr/app/dlt_state`, a writable volume — the container filesystem is otherwise read-only) |
@@ -31,13 +34,20 @@ one-shot job, loading into a consumed `sql-database` contract (e.g. the
 | --- | --- |
 | `$DLT_PROJECT_DIR` | Pipeline source (the script named by `DLT_ENTRYPOINT`) — mounted **read-only** |
 | `$DLT_PIPELINES_DIR` | dlt's local pipeline working directory (schema, state, incremental load cursors) — must persist across runs for incremental sources to work |
+| `/usr/app/duckdb_data` | duckdb mode only: the consumed `file-database` contract's `hostDirectory`, bind-mounted read-write so the pipeline can open the shared database file |
 
-## Why no destination beyond Postgres yet?
+## Supported destinations
 
-`images/dlt/requirements.in` pins `dlt[postgres]` (compiled to the hash-locked `requirements.txt`; regenerate with `uv pip compile --generate-hashes --python-version 3.14 -o requirements.txt requirements.in`), matching the only
-warehouse module CDS currently ships (`modules/warehouse/postgres`). Add the
-relevant `dlt[<destination>]` extra and a new `DESTINATION__<NAME>__...` env
-var if/when another warehouse module is added.
+`images/dlt/requirements.in` pins `dlt[postgres]==` plus a separate
+`duckdb==` client pin (compiled to the hash-locked `requirements.txt`;
+regenerate with `uv pip compile --generate-hashes --python-version 3.14 -o
+requirements.txt requirements.in`), covering the two warehouse contract
+kinds CDS ships: `sql-database` (`modules/warehouse/postgres`) and
+`file-database` (`modules/warehouse/duckdb`). The `duckdb` pin is separate
+(rather than a `dlt[duckdb]` extra) so the publish workflow's
+`^dlt\[postgres\]==` base-version grep keeps working. Add the relevant
+`dlt[<destination>]` extra and a new `DESTINATION__<NAME>__...` env var
+if/when another warehouse module is added.
 
 ## Source
 

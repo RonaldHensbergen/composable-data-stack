@@ -31,7 +31,7 @@ scope instead.
   - #210 Add backup, restore, and disaster-recovery contracts
 
 New capability modules and contracts (S3-compatible object storage, log-sink,
-Keycloak realm/config, Grafana, DuckDB profile wiring, etc.) are tracked with
+Keycloak realm/config, Grafana, etc.) are tracked with
 `enhancement` + `area:configuration`; browse those labels for open module
 requests that don't yet have a `help wanted` tag.
 
@@ -62,9 +62,11 @@ These are considered production-ready in the current release (v0.15.0):
 - Module: KeyDB (`modules/cache/keydb/`)
 - Module: Vault (`modules/secrets/vault/`)
 - Module: dbt (`modules/transformation/dbt/`) — promoted from experimental with production-suitable hardening (#594)
+- Module: DuckDB (`modules/warehouse/duckdb/`) — promoted from experimental (#593); embedded/file-based warehouse via the `file-database` contract, consumed by dlt and dbt
 - Module: Traefik (`modules/integration/traefik/`) — TLS-enforcing reverse proxy; not yet wired into a stable profile
 - Profile: `local-dagster-postgres-superset`
 - Profile: `local-dagster-postgres-superset-dbt`
+- Profile: `local-duckdb-dlt-dbt` — local-analytics demo with DuckDB as the warehouse, loaded by dlt and transformed by dbt (#593)
 - Image supply chain: signed, SBOM- and provenance-attested image publishing to both Docker Hub and GHCR, with `--hardened` variant selection and `image.source: build|registry` per module
 
 ---
@@ -76,7 +78,6 @@ These work but may have breaking changes in upcoming releases:
 - **Kubernetes/Helm rendering target** (`--target helm` on `render`/`validate`/`security`/`up`/`down`/`state`/`test`) — `cli/k8s_renderer.py`, `cli/k8s_security.py`, and `cli/k8s_runner.py` render a Helm chart and manage its lifecycle via `helm upgrade --install`; includes a k3d-based local-dev harness and a TenderNed demo profile (#608). Still missing the platform baseline (GitOps, observability, backup, network policy) tracked in [docs/haven-parity-plan.md](haven-parity-plan.md) and issues #690/#75/#77.
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
-- Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
 - Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider with production web serving by default (`config.webServer.mode`, #216/#974; `development`/`start-dev` is an explicit local-only opt-in rejected in production profiles by E140), backed by a consumed `sql-database` contract and providing `oidc-provider`; wired into the `local-haven-reference` profile (#772), remains experimental pending its `--target helm` implementation (#1075)
 - Module: Marquez (`modules-experimental/observability/marquez/`) — OpenLineage-compatible lineage backend, reference provider for the `lineage-sink` contract; demoed by `local-dagster-postgres-marquez` (#779)
 - Module: Loki (`modules-experimental/observability/loki/`) — experimental `log-sink` provider using Vector HTTP ingestion and Loki retention tiers (#662)

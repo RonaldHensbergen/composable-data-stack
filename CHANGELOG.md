@@ -185,6 +185,17 @@ The format is based on Keep a Changelog.
   values in any chart file. The rendered chart is pinned by golden hashes in
   `tests/golden/k8s-chart-oidc.sha256`. A guard test also pins that binding
   the compose-only keycloak on the helm target still fails closed with E072.
+- The experimental `dlt` ingestion module can now load into an embedded
+  `file-database` warehouse in addition to a `sql-database` one: a new
+  `config.destinationType` (`postgres` default, or `duckdb`) selects which
+  consume entry is required (`destinationDatabase` vs the new
+  `destinationWarehouseFile`, enforced at compile time with E041), the
+  consumed contract's shared `hostDirectory` is bind-mounted at
+  `/usr/app/duckdb_data` when duckdb is selected, and the database file path
+  is passed to dlt's duckdb destination via `DESTINATION__DUCKDB__CREDENTIALS`
+  (the `images/dlt` image now also pins the `duckdb` client library). A new
+  `profiles/local-duckdb-dlt-dbt` demo profile composes duckdb + dlt + dbt
+  end to end against the shared file (#593).
 
 ### Changed
 
@@ -219,6 +230,15 @@ The format is based on Keep a Changelog.
   regression test covering a production profile with keycloak and no explicit
   mode (validates clean, renders production mode) plus the explicit-`development`
   rejection case.
+
+- The DuckDB warehouse module is promoted out of `modules-experimental/` to
+  `modules/warehouse/duckdb/` and is now production-suitable: the
+  `productionSuitable: false` marker and the `(experimental)` displayName
+  suffix are dropped once the `file-database` contract shape is exercised by
+  real consumers (dlt and dbt wiring plus the `local-duckdb-dlt-dbt` demo
+  profile, #593). `docs/architecture.md` and `docs/roadmap.md` list the module
+  under stable components; `tests/test_duckdb_hardening.py` now asserts the
+  production-suitable metadata instead of the experimental one.
 
 ### Fixed
 
