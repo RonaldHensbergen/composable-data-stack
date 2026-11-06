@@ -51,7 +51,7 @@ class K3dE2eProfileTest(unittest.TestCase):
         self.assertIn('istio/base', script)
         self.assertIn('istio/istiod', script)
         self.assertIn('ISTIO_VERSION="${ISTIO_VERSION:-1.31.3}"', script)
-        self.assertIn('templates/mesh-manifest-peer-authentication.yaml', script)
+        self.assertIn('peerauthentication "${CDS_RELEASE}-mesh-mtls"', script)
 
 
 class K3dLocalImagesTest(unittest.TestCase):

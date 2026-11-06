@@ -28,6 +28,7 @@ everyone how much of the system is still unwritten.
 | `modules/integration/traefik` | traefik | yes |
 | `modules/orchestration/dagster` | dagster | yes |
 | `modules/secrets/vault` | vault | yes |
+| `modules/security/istio` | istio | yes |
 | `modules/storage/garage` | garage | yes |
 | `modules/transformation/dbt` | dbt | yes |
 | `modules/warehouse/duckdb` | duckdb | yes |
@@ -40,7 +41,6 @@ everyone how much of the system is still unwritten.
 | `modules-experimental/observability/marquez` | marquez | yes |
 | `modules-experimental/observability/otel-collector` | otel-collector | yes |
 | `modules-experimental/orchestration/airflow` | airflow | yes |
-| `modules-experimental/security/istio` | istio | yes |
 | `modules-experimental/warehouse/postgres-operator` | postgres-operator | yes |
 
 ## Profiles

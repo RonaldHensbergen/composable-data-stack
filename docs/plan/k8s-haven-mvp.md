@@ -545,7 +545,7 @@ module set, mapped to the Haven+ baseline of
 
 Deliberately **not** in the full profile (post-MVP, per section 2): service
 mesh/Istio (#776; its production-suitable reference module is available via
-#1171), workload identity (#1068), a standalone cert-manager
+issue #1171), workload identity (#1068), a standalone cert-manager
 (#205/#577/#580 — Traefik TLS covers the edge), and Marquez lineage (#976).
 
 Once the profile exists, the same command shape runs the whole ~v2.0 suite:
