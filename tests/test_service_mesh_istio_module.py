@@ -164,6 +164,14 @@ class IstioModuleShapeTest(unittest.TestCase):
             sorted(impl["kubernetes"]["manifests"]),
             ["authorization-policy", "peer-authentication"],
         )
+        # The AuthorizationPolicy fans out per enrolled service (issue #1170).
+        authz = impl["kubernetes"]["manifests"]["authorization-policy"]
+        self.assertEqual(authz["forEach"], "config.services")
+        self.assertEqual(authz["enabledFrom"], "config.authorization.enabled")
+        self.assertEqual(
+            authz["spec"]["selector"]["matchLabels"], {"cds.dev/module": "${item.name}"}
+        )
+        self.assertEqual(authz["metadata"]["name"], "mesh-allow-${item.name}")
         operators = impl["kubernetes"]["operators"]
         self.assertEqual(operators[0]["crd"], "peerauthentications.security.istio.io")
         self.assertIn("istio", operators[0]["install"])
@@ -253,8 +261,12 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
     def test_render_emits_peer_authentication_and_warns_w130(self) -> None:
         files, diagnostics = self._render(dict(ISTIO_CONFIG))
         self.assertIn("templates/mesh-manifest-peer-authentication.yaml", files)
-        # AuthorizationPolicy is gated off by default.
+        # AuthorizationPolicy is gated off by default: no fanned-out
+        # per-service copies either.
         self.assertNotIn("templates/mesh-manifest-authorization-policy.yaml", files)
+        self.assertEqual(
+            [name for name in files if "authorization-policy" in name], []
+        )
 
         peer_auth = yaml.safe_load(
             files["templates/mesh-manifest-peer-authentication.yaml"]
@@ -272,7 +284,7 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
             next(d for d in warnings if d.code == "W130").message,
         )
 
-    def test_authorization_policy_renders_only_when_enabled(self) -> None:
+    def test_authorization_policy_renders_per_service_only_when_enabled(self) -> None:
         rules = [
             {
                 "to": [{"operation": {"ports": ["5432"]}}],
@@ -283,14 +295,31 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
         ]
         config = dict(ISTIO_CONFIG, authorization={"enabled": True, "rules": rules})
         files, _ = self._render(config)
-        self.assertIn("templates/mesh-manifest-authorization-policy.yaml", files)
-        policy = yaml.safe_load(files["templates/mesh-manifest-authorization-policy.yaml"])
-        self.assertEqual(policy["kind"], "AuthorizationPolicy")
-        self.assertEqual(policy["metadata"]["name"], "{{ .Release.Name }}-mesh-allow")
-        self.assertEqual(policy["spec"]["action"], "ALLOW")
-        self.assertEqual(policy["spec"]["rules"], rules)
-        # The enabledFrom gate is stripped from the rendered manifest.
-        self.assertNotIn("enabledFrom", policy)
+        # One AuthorizationPolicy per enrolled service (issue #1170), no
+        # namespace-wide policy file.
+        self.assertNotIn("templates/mesh-manifest-authorization-policy.yaml", files)
+        for service in ("warehouse", "cache"):
+            path = (
+                "templates/mesh-manifest-authorization-policy-"
+                f"mesh-allow-{service}.yaml"
+            )
+            self.assertIn(path, files)
+            policy = yaml.safe_load(files[path])
+            self.assertEqual(policy["apiVersion"], "security.istio.io/v1")
+            self.assertEqual(policy["kind"], "AuthorizationPolicy")
+            self.assertEqual(
+                policy["metadata"]["name"], f"{{{{ .Release.Name }}}}-mesh-allow-{service}"
+            )
+            self.assertEqual(policy["metadata"]["labels"]["cds.dev/module"], "mesh")
+            self.assertEqual(policy["spec"]["action"], "ALLOW")
+            # The policy is selected onto exactly that service's pods.
+            self.assertEqual(
+                policy["spec"]["selector"]["matchLabels"], {"cds.dev/module": service}
+            )
+            self.assertEqual(policy["spec"]["rules"], rules)
+            # The enabledFrom gate and the forEach marker are stripped.
+            self.assertNotIn("enabledFrom", policy)
+            self.assertNotIn("forEach", policy)
 
     def test_manifest_only_module_gets_no_service_account_or_network_policy(self) -> None:
         files, _ = self._render(dict(ISTIO_CONFIG))

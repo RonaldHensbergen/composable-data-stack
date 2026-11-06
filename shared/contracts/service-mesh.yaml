@@ -42,8 +42,10 @@ spec:
         Optional per-service authorization policy the provider enforces on
         top of mTLS, as an object with an `enabled` flag and a
         provider-shaped `rules` list (the reference Istio provider maps it to
-        an Istio AuthorizationPolicy). Absent or disabled means enrolled
-        services may call each other authenticated by mTLS only.
+        one Istio AuthorizationPolicy per enrolled service, each selected
+        onto that service's pods via spec.selector — issue #1170). Absent or
+        disabled means enrolled services may call each other authenticated
+        by mTLS only.
   examples:
     - mtlsMode: STRICT
       services:

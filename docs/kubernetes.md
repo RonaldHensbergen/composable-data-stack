@@ -417,6 +417,11 @@ The module declares raw Kubernetes manifests via
 `implementation.kubernetes.manifests`, a new module-schema block the Helm
 renderer emits verbatim as extra chart templates (substituted like any other
 module value, named `{{ .Release.Name }}-...`, and shape-checked with E151).
+A manifest may also declare `forEach: <config path>` (issue #1170): when the
+expression resolves to a list, the renderer emits one copy per element with
+the element bound as `item` (`${item.name}` etc.), suffixing each copy's
+template file name with its resolved `metadata.name`; duplicate names fail
+closed with E156.
 Because a GitOps module has no workloads of its own, it gets no ServiceAccount
 or NetworkPolicy, and rendering a profile that contains it with
 `--target compose` fails closed with E070.
@@ -498,8 +503,12 @@ authorization policy), and the experimental reference provider
 
 - a namespace-wide `PeerAuthentication` with `mtls.mode` from
   `config.mtlsMode` (`STRICT` by default), and
-- when `config.authorization.enabled` is true, an `AuthorizationPolicy`
-  (`action: ALLOW`) whose rules come from `config.authorization.rules`.
+- when `config.authorization.enabled` is true, one `AuthorizationPolicy`
+  (`action: ALLOW`) **per enrolled service**, fanned out over
+  `config.services` with the `forEach` manifest marker (issue #1170): each
+  policy carries `spec.selector.matchLabels: {cds.dev/module: <service>}` and
+  the rules from `config.authorization.rules`, so the allow rules apply
+  per service rather than namespace-wide.
 
 A profile enrolls an existing module simply by naming its instance id (and
 port) in the istio module's `config.services` — no consumer-side changes to

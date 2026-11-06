@@ -14,7 +14,8 @@ metadata:
     docs/haven-parity-plan.md workstream 3.4). Renders the Istio security
     resources that enforce mutual TLS between the profile's named module
     services on the Helm render target — a namespace-wide PeerAuthentication
-    plus an optional AuthorizationPolicy for per-service allow rules. The
+    plus an optional per-service AuthorizationPolicy (one per enrolled
+    service, selected by pod label; issue #1170) for allow rules. The
     Istio control plane (istiod) is installed on the cluster out of band and
     is not part of the rendered chart: the module declares it under
     implementation.kubernetes.operators, so render/test warn with W130 and
@@ -80,23 +81,25 @@ spec:
         additionalProperties: false
         default: {}
         description: >-
-          Optional per-service authorization policy, rendered as an Istio
-          AuthorizationPolicy (action ALLOW) in the release namespace. When
-          enabled is false (the default) no AuthorizationPolicy is rendered
-          and mTLS alone governs between enrolled services.
+          Optional per-service authorization policy, rendered as one Istio
+          AuthorizationPolicy (action ALLOW) per enrolled service, each
+          selected onto that service's pods via spec.selector.matchLabels
+          on the cds.dev/module label (issue #1170). When enabled is false
+          (the default) no AuthorizationPolicy is rendered and mTLS alone
+          governs between enrolled services.
         properties:
           enabled:
             type: boolean
             default: false
-            description: Render the mesh AuthorizationPolicy.
+            description: Render the per-service mesh AuthorizationPolicies.
           rules:
             type: array
             default: []
             description: >-
               Istio AuthorizationPolicy rules (from/to/operation), e.g.
               per-service allow lists scoping which enrolled services may
-              call which ports. Rendered verbatim into the policy's
-              spec.rules.
+              call which ports. Rendered verbatim into each per-service
+              policy's spec.rules.
             items:
               type: object
 
@@ -136,15 +139,24 @@ spec:
             mtls:
               mode: ${config.mtlsMode}
 
-        # Optional L7 authorization on top of mTLS. Only rendered when
+        # Optional L7 authorization on top of mTLS, fanned out per enrolled
+        # service (issue #1170): one AuthorizationPolicy per
+        # config.services entry, selected onto that service's pods via the
+        # cds.dev/module label, so the rules apply genuinely per service
+        # (e.g. only warehouse's pods may be called by orchestration's
+        # service account). Only rendered when
         # config.authorization.enabled is true: an ALLOW policy with an
         # empty rules list would deny everything it selects.
         authorization-policy:
           enabledFrom: "config.authorization.enabled"
+          forEach: "config.services"
           apiVersion: security.istio.io/v1
           kind: AuthorizationPolicy
           metadata:
-            name: mesh-allow
+            name: mesh-allow-${item.name}
           spec:
             action: ALLOW
+            selector:
+              matchLabels:
+                cds.dev/module: ${item.name}
             rules: ${config.authorization.rules}

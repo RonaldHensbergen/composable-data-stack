@@ -18,12 +18,17 @@ like everything else the chart produces:
 - a namespace-wide `PeerAuthentication` (`security.istio.io/v1`) with
   `mtls.mode` from `config.mtlsMode` (`STRICT` by default), enforcing mTLS
   for every workload in the release namespace;
-- when `config.authorization.enabled` is true, an `AuthorizationPolicy`
-  (`action: ALLOW`) whose `spec.rules` come verbatim from
-  `config.authorization.rules` — the per-service allow rules on top of mTLS.
-  When disabled (the default) no `AuthorizationPolicy` is rendered, because
-  an ALLOW policy with an empty rules list would deny everything it selects;
-  mTLS alone then governs between enrolled services.
+- when `config.authorization.enabled` is true, **one `AuthorizationPolicy`
+  per enrolled service** (`action: ALLOW`), fanned out over `config.services`
+  via the renderer's `forEach` manifest marker (issue #1170): each policy is
+  named `mesh-allow-<service>` and carries
+  `spec.selector.matchLabels: {cds.dev/module: <service>}`, so it applies
+  only to that service's pods, with `spec.rules` coming verbatim from
+  `config.authorization.rules` — the per-service allow rules on top of mTLS
+  (e.g. only `warehouse`'s pods may be called by `orchestration`'s service
+  account). When disabled (the default) no `AuthorizationPolicy` is rendered,
+  because an ALLOW policy with an empty rules list would deny everything it
+  selects; mTLS alone then governs between enrolled services.
 
 CDS does **not** install or run the Istio control plane: the cluster needs an
 Istio installation (istio-base + istiod) whose CRDs
@@ -58,8 +63,8 @@ Two boundaries worth knowing:
 | --- | --- | --- |
 | `services` | Yes | Named services enrolled in the mesh: a list of `{name, port}` where `name` is a module instance id of the profile (e.g. `warehouse`, `orchestration`) and `port` the TCP port peers call it on |
 | `mtlsMode` | No | `STRICT` (default) or `PERMISSIVE`; rendered into the namespace-wide `PeerAuthentication` |
-| `authorization.enabled` | No | Render the mesh `AuthorizationPolicy`; defaults to `false` |
-| `authorization.rules` | No | Istio `AuthorizationPolicy` rules (`from`/`to`/`operation`), rendered verbatim into `spec.rules`; defaults to `[]` |
+| `authorization.enabled` | No | Render the per-service mesh `AuthorizationPolicy` copies; defaults to `false` |
+| `authorization.rules` | No | Istio `AuthorizationPolicy` rules (`from`/`to`/`operation`), rendered verbatim into each per-service policy's `spec.rules`; defaults to `[]` |
 
 Example profile fragment — two existing modules enrolled with no changes to
 those modules:
