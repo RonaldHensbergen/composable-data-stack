@@ -442,7 +442,7 @@
           "items": {
             "type": "object"
           },
-          "description": "Additional NetworkPolicy ingress rules (networking.k8s.io/v1 rule objects), rendered verbatim after the binding-derived rules, e.g. to admit a cross-namespace ingress controller that no contract binding can name. A rule without a from restriction (or with an ipBlock peer) opens ingress from all sources on its ports; the security scan reports every such rule as a low finding (CDS-K8S-010)."
+          "description": "Additional NetworkPolicy ingress rules (networking.k8s.io/v1 rule objects), rendered verbatim after the binding-derived rules, e.g. to admit a cross-namespace ingress controller that no contract binding can name. A rule without a from restriction (or with an ipBlock peer) admits sources beyond the selector-based ones, equally or more exposed than a NodePort/LoadBalancer service; the security scan reports every such rule as a low finding (CDS-K8S-010)."
         }
       }
     },

@@ -197,8 +197,8 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
                         "low",
                         (
                             f'Custom ingress rule {index} of module "{module_id}" '
-                            "admits ingress from all sources (no from restriction "
-                            "or an ipBlock peer), which the default-deny "
+                            "opens external ingress (no from restriction or an "
+                            "ipBlock peer), which the default-deny "
                             "NetworkPolicy baseline would otherwise block."
                         ),
                         f"module:{module_id}.implementation.kubernetes.networkPolicy."
