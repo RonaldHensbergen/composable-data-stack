@@ -413,7 +413,7 @@
             "name": {
               "type": "string",
               "minLength": 1,
-              "description": "Object name. The helm renderer prefixes it with \"{{ .Release.Name }}-\" unless the name already contains a {{ .Release.Name }} template. May reference ${service.host} for the module instance id."
+              "description": "Object name. The helm renderer prefixes it with \"{{ .Release.Name }}-\" unless the name already contains a {{ .Release.Name }} template. May reference ${service.host} for the module instance id, and ${item.*} inside a `forEach` fan-out (issue #1170)."
             }
           }
         },
@@ -421,9 +421,14 @@
           "type": "string",
           "minLength": 1,
           "description": "Optional config path expression gating the manifest (e.g. \"config.mode==chart\"); the manifest is skipped when the expression resolves to False. Stripped from the rendered output."
+        },
+        "forEach": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional config path expression that must resolve to a list (e.g. \"config.services\", issue #1170). The manifest is rendered once per list element with the element bound as `item`, so the body can reference ${item.name} etc. Each copy's template file name is suffixed with the copy's resolved metadata.name, and duplicate resolved names fail closed with E156. Stripped from the rendered output."
         }
       },
-      "description": "A raw Kubernetes manifest (any CRD) emitted as an extra chart template. Values support the same ${config.*}/${bindings.*}/${service.*}/${k8s.service.*} substitution as workloads. A value that is exactly one ${secrets.*} reference (resolving to ${CDS_*}) is rewritten to a Helm `required` lookup of .Values.secrets, so the secret value is supplied at install time and never stored in the chart; any other leftover ${CDS_*} is rejected by the renderer (E078) because chart files must never carry secret material."
+      "description": "A raw Kubernetes manifest (any CRD) emitted as an extra chart template. Values support the same ${config.*}/${bindings.*}/${service.*}/${k8s.service.*} substitution as workloads (plus ${item.*} inside a `forEach` fan-out). A value that is exactly one ${secrets.*} reference (resolving to ${CDS_*}) is rewritten to a Helm `required` lookup of .Values.secrets, so the secret value is supplied at install time and never stored in the chart; any other leftover ${CDS_*} is rejected by the renderer (E078) because chart files must never carry secret material."
     },
     "kubernetesNetworkPolicy": {
       "type": "object",

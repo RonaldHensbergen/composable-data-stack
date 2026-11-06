@@ -655,6 +655,16 @@ def _render_manifests(
     The `enabledFrom` gate (config path expression, resolved like workload
     gates) is stripped from the rendered output.
 
+    A manifest may also declare `forEach: <expr>` (issue #1170): when the
+    expression resolves to a list (e.g. `config.services`), the manifest is
+    rendered once per element with that element bound as `item`, so the body
+    can reference `${item.name}` etc. Each copy gets a template file name
+    suffixed with the copy's resolved metadata.name, and duplicate resolved
+    names fail closed with E156 (they would collide in the release
+    namespace). `forEach` is stripped from the rendered output like
+    `enabledFrom`; an empty list renders nothing, and a non-list or unknown
+    resolution fails closed with E156.
+
     Plans can be loaded from files, bypassing module.schema.json, so the
     manifest shape is re-checked here and fails closed with E151. A value
     that is exactly one secret reference (${secrets.*} -> ${CDS_*}) becomes
@@ -700,6 +710,55 @@ def _render_manifests(
             if _resolve_expr(enabled_from, context) is False:
                 continue
 
+        for_each = entry.pop("forEach", None)
+        items: list[Any] | None = None
+        if for_each is not None:
+            if not isinstance(for_each, str) or not for_each.strip():
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E145",
+                        message=(
+                            f'The `forEach` marker of manifest "{manifest_name}" in '
+                            f'module "{module_id}" must be a non-empty string holding a '
+                            "config path expression that resolves to a list "
+                            "(e.g. `config.services`)."
+                        ),
+                        path=f"{entry_path}.forEach",
+                    )
+                )
+                continue
+            resolved = _resolve_expr(for_each, context)
+            if resolved is None:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E156",
+                        message=(
+                            f'The `forEach` marker of manifest "{manifest_name}" in '
+                            f'module "{module_id}" resolved "{for_each}" to nothing; it '
+                            "must name a list bound in the plan (e.g. `config.services`)."
+                        ),
+                        path=f"{entry_path}.forEach",
+                    )
+                )
+                continue
+            if not isinstance(resolved, list):
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E156",
+                        message=(
+                            f'The `forEach` marker of manifest "{manifest_name}" in '
+                            f'module "{module_id}" resolved "{for_each}" to a '
+                            f"{type(resolved).__name__}, but fan-out needs a list."
+                        ),
+                        path=f"{entry_path}.forEach",
+                    )
+                )
+                continue
+            items = resolved
+
         metadata = entry.get("metadata")
         if (
             not isinstance(entry.get("apiVersion"), str)
@@ -723,21 +782,95 @@ def _render_manifests(
             )
             continue
 
-        manifest = _translate_manifest_secret_refs(
-            _substitute_values(entry, context), secret_keys
-        )
-        md = manifest.setdefault("metadata", {})
-        name = md.get("name")
-        if isinstance(name, str) and "{{ .Release.Name }}" not in name:
-            md["name"] = "{{ .Release.Name }}-" + name
-        labels = md.get("labels")
-        if not isinstance(labels, dict):
-            labels = {}
-        labels.update(_labels(release, module_id))
-        md["labels"] = labels
+        # One substitution context per rendered copy: `item` is bound only
+        # for forEach fan-out copies.
+        if items is None:
+            copies: list[tuple[int, dict[str, Any]]] = [(0, context)]
+        else:
+            copies = []
+            for index, item in enumerate(items):
+                item_context = dict(context)
+                item_context["item"] = item
+                copies.append((index, item_context))
 
-        rendered.append((f"{module_id}-manifest-{manifest_name}.yaml", manifest))
+        seen_names: set[str] = set()
+        seen_files: set[str] = set()
+        for index, copy_context in copies:
+            manifest = _translate_manifest_secret_refs(
+                _substitute_values(deepcopy(entry), copy_context), secret_keys
+            )
+            md = manifest.setdefault("metadata", {})
+            name = md.get("name")
+            if not isinstance(name, str) or not name:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E151",
+                        message=(
+                            f'Raw manifest "{manifest_name}" of module "{module_id}" has a '
+                            "metadata.name that is not a non-empty string after "
+                            "substitution."
+                        ),
+                        path=entry_path,
+                    )
+                )
+                continue
+            if items is None:
+                filename = f"{module_id}-manifest-{manifest_name}.yaml"
+            else:
+                if name in seen_names:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E156",
+                            message=(
+                                f'The `forEach` fan-out of manifest "{manifest_name}" in '
+                                f'module "{module_id}" produced the duplicate '
+                                f'metadata.name "{name}"; reference `${{item...}}` in '
+                                "metadata.name so every copy is uniquely named."
+                            ),
+                            path=entry_path,
+                        )
+                    )
+                    continue
+                seen_names.add(name)
+                filename = (
+                    f"{module_id}-manifest-{manifest_name}-"
+                    f"{_manifest_slug(name, index)}.yaml"
+                )
+                if filename in seen_files:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E156",
+                            message=(
+                                f'The `forEach` fan-out of manifest "{manifest_name}" in '
+                                f'module "{module_id}" produced the duplicate template '
+                                f'file name "{filename}"; the resolved metadata.name '
+                                "values are not distinct enough."
+                            ),
+                            path=entry_path,
+                        )
+                    )
+                    continue
+                seen_files.add(filename)
+            if "{{ .Release.Name }}" not in name:
+                md["name"] = "{{ .Release.Name }}-" + name
+            labels = md.get("labels")
+            if not isinstance(labels, dict):
+                labels = {}
+            labels.update(_labels(release, module_id))
+            md["labels"] = labels
+
+            rendered.append((filename, manifest))
     return rendered
+
+
+def _manifest_slug(name: str, index: int) -> str:
+    """Filesystem-safe slug for a fanned-out manifest's template file name."""
+    stripped = re.sub(r"\{\{[^}]*\}\}", "", name)
+    slug = re.sub(r"[^a-z0-9-]+", "-", stripped.lower()).strip("-")
+    return slug or f"item-{index}"
 
 
 def _missing_service(module_id: str, workload: str, compose_name: str) -> Diagnostic:
@@ -3007,7 +3140,10 @@ def _remove_path(path: Path) -> None:
 
 
 def _check_unresolved(files: dict[str, str]) -> list[Diagnostic]:
-    pattern = re.compile(r"\$\{((?:config|bindings|service|secrets|k8s)\.[^}]*)\}")
+    # `item` is bound only inside a `forEach` fan-out manifest (issue #1170);
+    # a leftover ${item.*} there means the manifest referenced a key the
+    # fanned-out element does not have.
+    pattern = re.compile(r"\$\{((?:config|bindings|service|secrets|k8s|item)\.[^}]*)\}")
     found: set[str] = set()
     for content in files.values():
         found.update(pattern.findall(content))

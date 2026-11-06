@@ -96,11 +96,41 @@ another CDS module — binding this contract via a profile's `contractRef`
 would only make sense once a catalog-facing module/report exists to read
 it, which is a separate, larger scope than this gap-analysis issue.
 
-Whether the `lineage-sink` contract (#779, see
-[`docs/observability.md`](observability.md) section 11) satisfies any
-provenance expectations of these basisafspraken is tracked by #843. A
-profile-level "FDS-disclosed dataset" declaration (Organisational row) is
-tracked by #844, and a standard classification vocabulary by #845.
+## Provenance and traceability
+
+The FDS Knowledge Base describes **traceability** as a stelsel function: it
+covers tracing data through chains and accounting for its use, including
+identifying data origins and audit-proof transaction logging. It discusses
+lineage and provenance as related concepts, but the publicly available
+summary of the data-provider basisafspraken does not identify a separate
+lineage/provenance basisafspraak. The full basisafspraken text requires
+registration, so this mapping cannot establish whether a particular
+traceability capability is mandatory for a provider; operators should verify
+the applicable wording in the authoritative text.
+
+CDS's [`lineage-sink` contract](../shared/contracts/lineage-sink.yaml), used
+by the Dagster module and demonstrated with Marquez in
+[`docs/observability.md`](observability.md#11-data-lineage-the-lineage-sink-contract),
+is a **partial technical mechanism**, not FDS traceability support as a whole.
+It gives a consumer an OpenLineage-compatible event endpoint. It does not
+ensure that a pipeline emits events, identify every exchange or access, or
+provide an audit-proof transaction log or the means to reproduce an earlier
+delivery. The Dagster wiring currently supplies connection settings only;
+emitting events requires instrumented pipeline code (see the caveat in
+observability section 11). Therefore, it may contribute processing-lineage
+evidence when an operator emits events, but it does not demonstrate
+conformity with an FDS basisafspraak.
+
+No second **metadata** contract is needed for this distinction:
+[`open-data-provider`](../shared/contracts/open-data-provider.yaml) already
+captures dataset description, classification, access conditions, and licence
+metadata. It is not a catalog integration or registration mechanism. Any
+future catalog-facing runtime integration would be a separate capability.
+The profile-level FDS-disclosure marker and standard classification vocabulary
+remain tracked by #844 and #845 respectively. No additional basisafspraak
+gap is opened here because the accessible sources do not establish a separate,
+unmet traceability obligation; revisit this mapping if the authoritative
+basisafspraken specify one.
 
 ## Deliberately out of scope
 
@@ -117,5 +147,6 @@ tracked by #844, and a standard classification vocabulary by #845.
 - <https://federatief.datastelsel.nl/>
 - <https://www.digitaleoverheid.nl/overzicht-van-alle-onderwerpen/data/interbestuurlijke-datastrategie/>
 - <https://www.digitaleoverheid.nl/nieuws/obdo-stelt-afsprakenstelsel-federatief-datastelsel-vast/>
+- [FDS Knowledge Base — Traceability](https://federatief.datastelsel.nl/kennisbank/traceerbaarheid/)
 - <https://realisatieibds.nl/groups/view/0056c9ef-5c2e-44f9-a998-e735f1e9ccaa/federatief-datastelsel/wiki/view/d0d0c6b6-b1bd-41a4-962a-b1e628c1ee82/afsprakenstelsel-fds>
   (registration required for full basisafspraken text)

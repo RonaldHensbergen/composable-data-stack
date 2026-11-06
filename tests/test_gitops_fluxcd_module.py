@@ -218,7 +218,7 @@ class RawManifestDiagnosticsTest(unittest.TestCase):
     """Renderer-side shape checks for kubernetes.manifests (plans loaded from
     files bypass module.schema.json, so render_helm re-checks, like E148/E149)."""
 
-    def _plan(self, manifests: dict) -> dict:
+    def _plan(self, manifests: dict, config: dict | None = None) -> dict:
         return {
             "apiVersion": "cds/v1alpha1",
             "kind": "Plan",
@@ -233,7 +233,7 @@ class RawManifestDiagnosticsTest(unittest.TestCase):
                     "source": "modules-experimental/gitops/fluxcd",
                     "version": "0.1.0",
                     "dependsOn": [],
-                    "config": {},
+                    "config": config or {},
                     "security": {},
                     "consumes": {},
                     "provides": {},
@@ -270,6 +270,121 @@ class RawManifestDiagnosticsTest(unittest.TestCase):
             )
         )
         self.assertIn("E145", [d.code for d in diagnostics if d.level == "error"])
+
+    def _fanout_manifest(self) -> dict:
+        return {
+            "forEach": "config.services",
+            "apiVersion": "security.istio.io/v1",
+            "kind": "AuthorizationPolicy",
+            "metadata": {"name": "allow-${item.name}"},
+            "spec": {
+                "action": "ALLOW",
+                "selector": {"matchLabels": {"cds.dev/module": "${item.name}"}},
+                "rules": [{"to": [{"operation": {"ports": ["${item.port}"]}}]}],
+            },
+        }
+
+    def test_for_each_fans_out_one_manifest_per_item(self) -> None:
+        files, diagnostics = render_helm(
+            self._plan(
+                {"policy": self._fanout_manifest()},
+                config={
+                    "services": [
+                        {"name": "warehouse", "port": 5432},
+                        {"name": "cache", "port": 6379},
+                    ]
+                },
+            )
+        )
+        self.assertEqual(
+            [d.format() for d in diagnostics if d.level == "error"], []
+        )
+        self.assertNotIn("templates/gitops-manifest-policy.yaml", files)
+        for name, port in (("warehouse", 5432), ("cache", 6379)):
+            path = f"templates/gitops-manifest-policy-allow-{name}.yaml"
+            self.assertIn(path, files)
+            policy = yaml.safe_load(files[path])
+            self.assertEqual(policy["kind"], "AuthorizationPolicy")
+            self.assertEqual(
+                policy["metadata"]["name"], "{{ .Release.Name }}-allow-" + name
+            )
+            self.assertEqual(policy["metadata"]["labels"]["cds.dev/module"], "gitops")
+            self.assertEqual(
+                policy["spec"]["selector"]["matchLabels"], {"cds.dev/module": name}
+            )
+            # Pure ${item.port} substitution keeps the config value's type.
+            self.assertEqual(
+                policy["spec"]["rules"], [{"to": [{"operation": {"ports": [port]}}]}]
+            )
+            # The forEach marker is stripped from the rendered manifest.
+            self.assertNotIn("forEach", policy)
+
+    def test_for_each_empty_list_renders_nothing(self) -> None:
+        files, diagnostics = render_helm(
+            self._plan({"policy": self._fanout_manifest()}, config={"services": []})
+        )
+        self.assertEqual(
+            [d.format() for d in diagnostics if d.level == "error"], []
+        )
+        self.assertEqual(
+            [name for name in files if "manifest-policy" in name], []
+        )
+
+    def test_for_each_non_list_fails_closed_with_e156(self) -> None:
+        _, diagnostics = render_helm(
+            self._plan(
+                {"policy": self._fanout_manifest()},
+                config={"services": {"name": "warehouse"}},
+            )
+        )
+        self.assertIn("E156", [d.code for d in diagnostics if d.level == "error"])
+
+    def test_for_each_unknown_path_fails_closed_with_e156(self) -> None:
+        _, diagnostics = render_helm(
+            self._plan({"policy": self._fanout_manifest()}, config={})
+        )
+        self.assertIn("E156", [d.code for d in diagnostics if d.level == "error"])
+
+    def test_bad_for_each_shape_fails_closed_with_e145(self) -> None:
+        manifest = self._fanout_manifest()
+        manifest["forEach"] = True
+        _, diagnostics = render_helm(self._plan({"policy": manifest}))
+        self.assertIn("E145", [d.code for d in diagnostics if d.level == "error"])
+
+    def test_for_each_duplicate_names_fail_closed_with_e156(self) -> None:
+        _, diagnostics = render_helm(
+            self._plan(
+                {"policy": self._fanout_manifest()},
+                config={"services": [{"name": "a", "port": 1}, {"name": "a", "port": 2}]},
+            )
+        )
+        self.assertIn("E156", [d.code for d in diagnostics if d.level == "error"])
+
+    def test_for_each_combines_with_enabled_from(self) -> None:
+        manifest = self._fanout_manifest()
+        manifest["enabledFrom"] = "config.on"
+        files, diagnostics = render_helm(
+            self._plan(
+                {"policy": manifest},
+                config={"on": False, "services": [{"name": "a", "port": 1}]},
+            )
+        )
+        self.assertEqual(
+            [d.format() for d in diagnostics if d.level == "error"], []
+        )
+        self.assertEqual(
+            [name for name in files if "manifest-policy" in name], []
+        )
+
+    def test_unresolved_item_reference_fails_closed_with_e071(self) -> None:
+        _, diagnostics = render_helm(
+            self._plan(
+                {"policy": self._fanout_manifest()},
+                config={"services": [{"name": "warehouse"}]},
+            )
+        )
+        # ${item.port} does not resolve for an item without a port key.
+        self.assertIn("E071", [d.code for d in diagnostics if d.level == "error"])
 
     def test_release_prefix_is_applied_unless_name_is_templated(self) -> None:
         files, diagnostics = render_helm(

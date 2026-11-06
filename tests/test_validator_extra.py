@@ -1458,3 +1458,33 @@ class KubernetesMarkerShapeTest(unittest.TestCase):
             _codes(self._scan(kubernetes)),
             [("E144", "module:pg.spec.implementation.kubernetes.workloads.app.production")],
         )
+
+    def test_string_for_each_on_manifest_is_clean(self):
+        # forEach fan-out is implemented by the helm renderer (issue #1170).
+        kubernetes = {
+            "manifests": {
+                "policy": {
+                    "apiVersion": "security.istio.io/v1",
+                    "kind": "AuthorizationPolicy",
+                    "metadata": {"name": "allow-${item.name}"},
+                    "forEach": "config.services",
+                }
+            }
+        }
+        self.assertEqual(self._scan(kubernetes), [])
+
+    def test_bool_for_each_on_manifest_reports_e145(self):
+        kubernetes = {
+            "manifests": {
+                "policy": {
+                    "apiVersion": "security.istio.io/v1",
+                    "kind": "AuthorizationPolicy",
+                    "metadata": {"name": "allow"},
+                    "forEach": True,
+                }
+            }
+        }
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E145", "module:pg.spec.implementation.kubernetes.manifests.policy.forEach")],
+        )

@@ -41,6 +41,22 @@ The format is based on Keep a Changelog.
   `modules-experimental/security/istio/README.md`, `docs/kubernetes.md`
   ("Service mesh"), `docs/zero-trust-architecture.md`, `docs/roadmap.md`,
   and `docs/haven-parity-plan.md` (workstream 3.4 / section 4 status table).
+- Per-service `AuthorizationPolicy` selectors in the Istio reference module,
+  via a new `forEach` marker on raw `implementation.kubernetes.manifests`
+  entries (issue #1170): when the marker's config path expression resolves
+  to a list (e.g. `config.services`), the Helm renderer emits one manifest
+  copy per element with the element bound as `item` (`${item.name}` etc.),
+  suffixing each copy's template file name with its resolved
+  `metadata.name`. Misuse fails closed: a non-string marker is E145, an
+  expression that resolves to nothing or to a non-list, and duplicate
+  resolved names, are E156; a leftover `${item.*}` is E071. The istio module
+  now renders `config.authorization` as one `AuthorizationPolicy` per
+  enrolled service (named `mesh-allow-<service>`, selected onto that
+  service's pods via `spec.selector.matchLabels` on `cds.dev/module`)
+  instead of a single namespace-wide policy. Documented in
+  `modules-experimental/security/istio/README.md`, `docs/kubernetes.md`,
+  `docs/modules.md`, the `service-mesh` contract, and the README
+  troubleshooting table (E156).
 
 - New experimental module `modules-experimental/warehouse/postgres-operator`
   (issue #768): a Kubernetes-native, operator-managed PostgreSQL for the
@@ -394,6 +410,18 @@ The format is based on Keep a Changelog.
   job summary, and artifact still publish the partial matrix.
   `tests/test_mutation_tests_workflow.py` reproduces the crash against the
   previous workflow and pins the tolerant export.
+- The local audit log (`.cds/audit-log.jsonl`, #737/#810) is now anchored to
+  the profile's own project root — `resolve_project_root(profile_path)`,
+  the same resolution that decides where `docker-compose.yml` is rendered —
+  instead of the current working directory (issue #822). Entries for a
+  profile resolved via `CDS_PROFILE_PATH` from an unrelated directory (e.g.
+  a centrally shared profiles checkout) now consistently land in one
+  `.cds/audit-log.jsonl` next to that profile's project, rather than being
+  scattered across whatever directory `cds` was invoked from. When the cwd
+  already is the project root, the location is unchanged.
+  `docs/audit-log.md` documents the resolved location, and
+  `tests/test_main.py::AuditLogCLIIntegrationTest` gains #822 regression
+  tests (validate/render from a foreign cwd) alongside the common-case test.
 - `modules-experimental/observability/otel-collector/collector.yaml` now uses
   the canonical `otlp_http/<signal>` exporter names instead of the deprecated
   `otlphttp` alias, which logged a deprecation warning on every startup of the

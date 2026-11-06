@@ -15,11 +15,26 @@ tracks file provenance for fetched profile assets, not deployment history.
 
 ## Where it's written
 
-By default, entries are appended to `.cds/audit-log.jsonl` under the
-current working directory as
-[JSON Lines](https://jsonlines.org/) (one JSON object per line), so the
-file can be tailed, `grep`ped, or parsed line-by-line without loading the
-whole history into memory.
+Entries are appended to `.cds/audit-log.jsonl` in the **project root
+resolved from the profile's own location** — the same
+`resolve_project_root(profile_path)` convention that decides where
+`docker-compose.yml` is rendered for `cds up`: walk up from the profile's
+directory looking for a project marker (`.cds`, `pyproject.toml`, or
+`.git`; the nearest marker wins), falling back to the current working
+directory when no marker is found.
+
+This means entries for a given profile consistently land in one and the
+same file, no matter which directory you invoked `cds` from. In the common
+case — you run `cds` from the project root that contains the profile — that
+root is the current working directory, so the location is unchanged. But
+when the profile is resolved from elsewhere (e.g. `CDS_PROFILE_PATH`
+pointing at a separate, centrally shared profiles checkout), the entry
+lands next to that checkout's project root, not in whatever unrelated
+directory you happened to be in.
+
+The file is [JSON Lines](https://jsonlines.org/) (one JSON object per
+line), so it can be tailed, `grep`ped, or parsed line-by-line without
+loading the whole history into memory.
 
 ## What's recorded
 
