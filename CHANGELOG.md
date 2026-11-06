@@ -315,6 +315,31 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- The `log-sink` contract and the observability modules can now forward the
+  logs signal end-to-end over OTLP/HTTP (issue #1076, loose end from #777/#1063):
+  `shared/contracts/log-sink.yaml` gains an optional `connectionUri` field
+  (mirroring `trace-sink`/`metrics-sink`) with OTLP-shaped examples, and the
+  experimental `loki` module now provides its `log-sink` contract over Loki's
+  native OTLP/HTTP endpoint (`protocol: otlp-http`, `ingestPath: /otlp/v1/logs`,
+  `connectionUri: http://<loki-storage>:3100`, served by the `loki-storage`
+  service on port 3100) instead of the plain-JSON Vector gateway, which
+  remains as the host-loopback dev endpoint (`/logs`). Loki promotes the
+  `service.name`, `deployment.environment.name`, and `tier` resource
+  attributes to index labels so OTLP shippers can still reach the
+  `tier="structured"` retention stream. The `otel-collector` module's
+  `backends.logs` binding therefore resolves a real forwarding URL (e.g.
+  `http://logs-loki-storage:3100/otlp/v1/logs`) instead of silently staying
+  collector-local, and its unbound-signal discard now points at the
+  collector's own health_check extension (which answers the export POST with
+  200 and drops the batch silently — no retry storm) instead of
+  `http://127.0.0.1:1`. Verified at runtime against the pinned images: a log posted to
+  the collector's `/v1/logs` with `backends.logs` bound to a `loki` instance
+  lands in Loki (`service_name`/`tier` labels applied), and an unbound signal
+  produces no export-retry errors. `docs/observability.md` (sections 5 and
+  12), both module READMEs, and `tests/test_otel_collector_module.py` /
+  `tests/test_loki_module.py` (including an end-to-end
+  `backends.logs -> loki.log-sink` plan/render test) are updated.
+
 - `cds get` (and `cds list --remote`) now default `--ref` to the release tag
   matching the installed CLI version (e.g. `v0.15.0` for cds 0.15.0) instead
   of `main`, so a fetched profile and its modules are validated by the same
@@ -370,6 +395,19 @@ The format is based on Keep a Changelog.
   `docs/audit-log.md` documents the resolved location, and
   `tests/test_main.py::AuditLogCLIIntegrationTest` gains #822 regression
   tests (validate/render from a foreign cwd) alongside the common-case test.
+- `modules-experimental/observability/otel-collector/collector.yaml` now uses
+  the canonical `otlp_http/<signal>` exporter names instead of the deprecated
+  `otlphttp` alias, which logged a deprecation warning on every startup of the
+  pinned 0.164.0 image, and pins the `health_check` extension to
+  `0.0.0.0:${env:HEALTH_PORT}` with a comment explaining why: the image's
+  default is `localhost:13133`, which left the host-published
+  `127.0.0.1:<healthPort>:13133` mapping unanswerable from the host (issue
+  #1167; the container-side compose healthcheck half was already closed by
+  #1065/#1165). `tests/test_otel_collector_module.py` pins both properties of
+  the shipped collector config. Verified at runtime against the pinned
+  image: zero deprecation warnings, `otelcol-contrib validate` exits 0,
+  OTLP/HTTP ingest answers 200, and the host-published health port answers
+  `{"status":"Server available"}` with HTTP 200.
 - Bumped the digest-pinned base of the hardened dagster image to remediate
   CVE-2026-85091 (HIGH, heap buffer overflow in zlib's `gz_vacate()`) reported
   by the Trivy image scan against the alpine 3.24.2 layer:
