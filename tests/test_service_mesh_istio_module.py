@@ -1,12 +1,12 @@
 """
 Service-mesh contract + Istio reference module (issue #776).
 
-Covers the acceptance criteria of #776:
+Covers the acceptance criteria of #776 and the promotion in #1171:
 
 - shared/contracts/service-mesh.yaml is schema-valid via
   cli.validator.validate_contract_file (the repo-wide contract test also
   globs it; this test pins the specific file and its fields).
-- modules-experimental/security/istio/module.yaml is module-schema valid,
+- modules/security/istio/module.yaml is module-schema valid,
   provides the service-mesh contract, and is Kubernetes-only
   (`targets: [kubernetes]`, no compose block), so the compose target fails
   closed with E070.
@@ -34,7 +34,7 @@ from cli.validator import validate_contract_file, validate_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONTRACT_PATH = REPO_ROOT / "shared" / "contracts" / "service-mesh.yaml"
-MODULE_PATH = REPO_ROOT / "modules-experimental" / "security" / "istio" / "module.yaml"
+MODULE_PATH = REPO_ROOT / "modules" / "security" / "istio" / "module.yaml"
 MODULE_SCHEMA = json.loads(
     (REPO_ROOT / "cli" / "resources" / "module.schema.json").read_text(encoding="utf-8")
 )
@@ -101,7 +101,7 @@ def _profile(istio_config: dict) -> dict:
                 },
                 {
                     "id": "mesh",
-                    "source": "modules-experimental/security/istio",
+                    "source": "modules/security/istio",
                     "version": "0.1.0",
                     "enabled": True,
                     "config": istio_config,
@@ -175,7 +175,7 @@ class IstioModuleShapeTest(unittest.TestCase):
         operators = impl["kubernetes"]["operators"]
         self.assertEqual(operators[0]["crd"], "peerauthentications.security.istio.io")
         self.assertIn("istio", operators[0]["install"])
-        self.assertFalse(self.module["metadata"]["productionSuitable"])
+        self.assertTrue(self.module["metadata"]["productionSuitable"])
         self.assertEqual(spec["configSchema"]["required"], ["services"])
 
 
