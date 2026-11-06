@@ -154,6 +154,10 @@ class MutationTestsWorkflowTest(unittest.TestCase):
         self.assertEqual(upload["with"]["if-no-files-found"], "warn")
 
 
+@unittest.skipIf(
+    sys.platform == "win32",
+    "the export step runs under bash on ubuntu-latest only; windows-latest has no bash",
+)
 class ExportStepFunctionalTest(unittest.TestCase):
     """Run the export step's script end-to-end against an empty/partial cache.
 
