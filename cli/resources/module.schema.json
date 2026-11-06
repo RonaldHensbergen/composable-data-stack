@@ -413,7 +413,7 @@
             "name": {
               "type": "string",
               "minLength": 1,
-              "description": "Object name. The helm renderer prefixes it with \"{{ .Release.Name }}-\" unless the name already contains a {{ .Release.Name }} template. May reference ${service.host} for the module instance id."
+              "description": "Object name. The helm renderer prefixes it with \"{{ .Release.Name }}-\" unless the name already contains a {{ .Release.Name }} template. May reference ${service.host} for the module instance id, and ${item.*} inside a `forEach` fan-out (issue #1170)."
             }
           }
         },
