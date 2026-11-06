@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 46 of 46 (100%)** — modules 20/20 (100%), profiles 11/11 (100%), shared contracts 15/15 (100%)
+**Overall contract coverage: 48 of 48 (100%)** — modules 21/21 (100%), profiles 11/11 (100%), shared contracts 16/16 (100%)
 
 ## Modules
 
@@ -40,6 +40,7 @@ everyone how much of the system is still unwritten.
 | `modules-experimental/observability/marquez` | marquez | yes |
 | `modules-experimental/observability/otel-collector` | otel-collector | yes |
 | `modules-experimental/orchestration/airflow` | airflow | yes |
+| `modules-experimental/security/istio` | istio | yes |
 | `modules-experimental/warehouse/postgres-operator` | postgres-operator | yes |
 
 ## Profiles
@@ -75,6 +76,7 @@ everyone how much of the system is still unwritten.
 | `shared/contracts/oidc-provider.yaml` | oidc-provider | yes |
 | `shared/contracts/open-data-provider.yaml` | open-data-provider | yes |
 | `shared/contracts/reverse-proxy.yaml` | reverse-proxy | yes |
+| `shared/contracts/service-mesh.yaml` | service-mesh | yes |
 | `shared/contracts/sql-database.yaml` | sql-database | yes |
 | `shared/contracts/trace-sink.yaml` | trace-sink | yes |
 

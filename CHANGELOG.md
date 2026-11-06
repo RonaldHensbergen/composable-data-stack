@@ -8,6 +8,40 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Unscoped custom ingress allow rules are recorded by the Kubernetes
+  security scan (issue #1030): a `networkPolicy.ingress` passthrough rule
+  without a source restriction (no `from` key, an empty `from` list, or an
+  `ipBlock` peer) admits sources no contract binding can name -- all sources
+  when `from` is absent, equally or more exposed than the
+  NodePort/LoadBalancer service CDS-K8S-007 flags -- so `cds security` now
+  reports every such rule as a low CDS-K8S-010 finding
+  (configuration-management), mirroring the CDS-K8S-008 egress shape.
+  Selector-scoped (`namespaceSelector`/`podSelector`) ingress rules stay
+  clean. (The issue text says CDS-K8S-009, but that code had already been
+  taken on `main` by declared-external-egress breadth, so the new rule is
+  CDS-K8S-010.)
+- New `service-mesh` shared contract (`shared/contracts/service-mesh.yaml`)
+  and experimental reference provider `modules-experimental/security/istio`
+  (issue #776, Haven parity workstream 3.4): vendor-neutral contract for
+  mutual TLS and traffic policy between a profile's named module services
+  (`mtlsMode`, enrolled `services`, optional per-service
+  `authorizationPolicy`), validated by `cli/validator.py` like every shared
+  contract. The Istio module is gated to `--target helm` only
+  (`targets: [kubernetes]`; `--target compose` fails closed with E070) and
+  renders a namespace-wide `PeerAuthentication` (STRICT mTLS by default)
+  plus an optional `AuthorizationPolicy` (`config.authorization`) via
+  `implementation.kubernetes.manifests`. A profile enrolls an existing
+  module by naming its instance id in `config.services` — no consumer-side
+  changes; the module advertises the resolved mesh on the contract, which
+  `cds maturity` already counts as the service-mesh leg of the Secured tier.
+  The Istio control plane is declared under
+  `implementation.kubernetes.operators`, so render/test warn with W130 and
+  `cds up --target helm` fails closed with E155 while its CRD is absent.
+  Not wired into any stable profile. Documented in
+  `modules-experimental/security/istio/README.md`, `docs/kubernetes.md`
+  ("Service mesh"), `docs/zero-trust-architecture.md`, `docs/roadmap.md`,
+  and `docs/haven-parity-plan.md` (workstream 3.4 / section 4 status table).
+
 - New experimental module `modules-experimental/warehouse/postgres-operator`
   (issue #768): a Kubernetes-native, operator-managed PostgreSQL for the
   `--target helm` render target, backed by CloudNativePG. It provides the

@@ -1,0 +1,150 @@
+# modules-experimental/security/istio/module.yaml
+# yaml-language-server: $schema=../../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: istio
+  category: security
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: Istio service mesh (experimental)
+  description: >
+    Reference provider of the shared service-mesh contract (issue #776,
+    docs/haven-parity-plan.md workstream 3.4). Renders the Istio security
+    resources that enforce mutual TLS between the profile's named module
+    services on the Helm render target — a namespace-wide PeerAuthentication
+    plus an optional AuthorizationPolicy for per-service allow rules. The
+    Istio control plane (istiod) is installed on the cluster out of band and
+    is not part of the rendered chart: the module declares it under
+    implementation.kubernetes.operators, so render/test warn with W130 and
+    `cds up --target helm` fails closed with E155 while its CRDs are absent.
+    Kubernetes render target only — there is no compose implementation, so
+    `--target compose` fails closed with E070. Not wired into any stable
+    profile; see README.md in this directory.
+
+spec:
+  runtime:
+    type: container
+    service:
+      name: istio
+      ports: []
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    required:
+      - services
+    properties:
+      mtlsMode:
+        type: string
+        enum:
+          - STRICT
+          - PERMISSIVE
+        default: STRICT
+        description: >-
+          mTLS enforcement mode rendered into the namespace-wide
+          PeerAuthentication: STRICT requires mTLS for all traffic to the
+          workloads in the release namespace; PERMISSIVE also accepts
+          plaintext (migration only — prefer STRICT).
+      services:
+        type: array
+        minItems: 1
+        description: >-
+          Named services enrolled in the mesh: module instance ids of the
+          profile's existing modules (e.g. warehouse, orchestration), each
+          with the TCP port peers call it on. Enrolling a module needs no
+          change to that module itself — the mesh policy selects its pods by
+          the cds.dev/module label — while CDS's default-deny NetworkPolicy
+          still governs which module pairs may connect at L3/L4.
+        items:
+          type: object
+          additionalProperties: false
+          required:
+            - name
+            - port
+          properties:
+            name:
+              type: string
+              pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+              description: Module instance id of the enrolled service (matches the cds.dev/module pod label CDS renders on every workload).
+            port:
+              type: integer
+              minimum: 1
+              maximum: 65535
+              description: TCP port other enrolled services call this service on.
+      authorization:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Optional per-service authorization policy, rendered as an Istio
+          AuthorizationPolicy (action ALLOW) in the release namespace. When
+          enabled is false (the default) no AuthorizationPolicy is rendered
+          and mTLS alone governs between enrolled services.
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: Render the mesh AuthorizationPolicy.
+          rules:
+            type: array
+            default: []
+            description: >-
+              Istio AuthorizationPolicy rules (from/to/operation), e.g.
+              per-service allow lists scoping which enrolled services may
+              call which ports. Rendered verbatim into the policy's
+              spec.rules.
+            items:
+              type: object
+
+  provides:
+    - name: service-mesh
+      contract:
+        kind: service-mesh
+        spec:
+          mtlsMode: ${config.mtlsMode}
+          services: ${config.services}
+          authorizationPolicy: ${config.authorization}
+
+  implementation:
+    kind: kubernetes
+    targets:
+      - kubernetes
+    kubernetes:
+      # CDS renders the Istio security CRs but never installs the Istio
+      # control plane: render/test warn with W130 and `cds up --target
+      # helm` fails closed with E155 while the CRD below is absent from the
+      # cluster, both naming the install command (issue #768 pattern).
+      operators:
+        - name: Istio
+          crd: peerauthentications.security.istio.io
+          install: "helm repo add istio https://istio-release.storage.googleapis.com/charts && helm upgrade --install istio-base --namespace istio-system --create-namespace istio/istio-base && helm upgrade --install istiod --namespace istio-system istio/istiod"
+          docs: https://istio.io/latest/docs/setup/install/helm/
+      manifests:
+        # Namespace-wide mTLS enforcement for every workload CDS renders
+        # into the release namespace (no selector = all workloads in the
+        # namespace). STRICT by default; PERMISSIVE only for migration.
+        peer-authentication:
+          apiVersion: security.istio.io/v1
+          kind: PeerAuthentication
+          metadata:
+            name: mesh-mtls
+          spec:
+            mtls:
+              mode: ${config.mtlsMode}
+
+        # Optional L7 authorization on top of mTLS. Only rendered when
+        # config.authorization.enabled is true: an ALLOW policy with an
+        # empty rules list would deny everything it selects.
+        authorization-policy:
+          enabledFrom: "config.authorization.enabled"
+          apiVersion: security.istio.io/v1
+          kind: AuthorizationPolicy
+          metadata:
+            name: mesh-allow
+          spec:
+            action: ALLOW
+            rules: ${config.authorization.rules}
