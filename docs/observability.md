@@ -242,6 +242,10 @@ specific lineage backend; a provider could be backed by Marquez,
 OpenMetadata, DataHub, or any other service that accepts the OpenLineage
 HTTP event API.
 
+For the FDS data-provider alignment, this is a partial mechanism for
+processing lineage, not full FDS traceability or dataset-catalog metadata;
+see the [provenance and traceability assessment](fds-alignment.md#provenance-and-traceability).
+
 The `connectionUri` field exists because `${ifNonempty:...}` placeholder
 substitution (used by optional contract bindings, see below) does not
 re-template its own output — a consumer cannot compose a URL from separate
