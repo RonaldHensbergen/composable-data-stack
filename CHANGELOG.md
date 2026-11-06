@@ -41,6 +41,22 @@ The format is based on Keep a Changelog.
   `modules-experimental/security/istio/README.md`, `docs/kubernetes.md`
   ("Service mesh"), `docs/zero-trust-architecture.md`, `docs/roadmap.md`,
   and `docs/haven-parity-plan.md` (workstream 3.4 / section 4 status table).
+- Per-service `AuthorizationPolicy` selectors in the Istio reference module,
+  via a new `forEach` marker on raw `implementation.kubernetes.manifests`
+  entries (issue #1170): when the marker's config path expression resolves
+  to a list (e.g. `config.services`), the Helm renderer emits one manifest
+  copy per element with the element bound as `item` (`${item.name}` etc.),
+  suffixing each copy's template file name with its resolved
+  `metadata.name`. Misuse fails closed: a non-string marker is E145, an
+  expression that resolves to nothing or to a non-list, and duplicate
+  resolved names, are E156; a leftover `${item.*}` is E071. The istio module
+  now renders `config.authorization` as one `AuthorizationPolicy` per
+  enrolled service (named `mesh-allow-<service>`, selected onto that
+  service's pods via `spec.selector.matchLabels` on `cds.dev/module`)
+  instead of a single namespace-wide policy. Documented in
+  `modules-experimental/security/istio/README.md`, `docs/kubernetes.md`,
+  `docs/modules.md`, the `service-mesh` contract, and the README
+  troubleshooting table (E156).
 
 - New experimental module `modules-experimental/warehouse/postgres-operator`
   (issue #768): a Kubernetes-native, operator-managed PostgreSQL for the

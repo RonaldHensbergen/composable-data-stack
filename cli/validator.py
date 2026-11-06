@@ -1788,8 +1788,9 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
                     path=f"{base_path}.workloads.{name}.production",
                 ))
 
-    # Raw manifests (issue #767): enabledFrom gates are implemented by the
-    # helm renderer, production gates are not.
+    # Raw manifests (issue #767): enabledFrom gates and forEach fan-out
+    # (issue #1170) are implemented by the helm renderer, production gates
+    # are not.
     manifests = kubernetes.get("manifests", {})
     if isinstance(manifests, dict):
         for name, spec in manifests.items():
@@ -1798,6 +1799,19 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
             diagnostics.extend(_condition_shape(
                 spec.get("enabledFrom"), f"{base_path}.manifests.{name}.enabledFrom"
             ))
+            for_each = spec.get("forEach")
+            if for_each is not None and not (isinstance(for_each, str) and for_each.strip()):
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E145",
+                    message=(
+                        "`forEach` on a kubernetes manifest entry must be a non-empty "
+                        "string holding a config path expression that resolves to a "
+                        "list (e.g. `config.services`); other shapes crash the helm "
+                        "renderer or silently misbehave."
+                    ),
+                    path=f"{base_path}.manifests.{name}.forEach",
+                ))
             if "production" in spec:
                 diagnostics.append(Diagnostic(
                     level="error",
