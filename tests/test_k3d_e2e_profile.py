@@ -53,6 +53,17 @@ class K3dE2eProfileTest(unittest.TestCase):
         self.assertIn('ISTIO_VERSION="${ISTIO_VERSION:-1.30.8}"', script)
         self.assertIn('peerauthentication "${CDS_RELEASE}-mesh-mtls"', script)
 
+    def test_make_k3d_e2e_runs_the_example_profile(self) -> None:
+        # `make k3d-e2e` expands to `e2e.sh $(PROFILE)`; without a
+        # target-specific pin it would run the compose base profile and the
+        # mesh module (and its PeerAuthentication) would never be installed.
+        makefile = (self.repo_root / "Makefile").read_text(encoding="utf-8")
+        self.assertIn("scripts/k8s/e2e.sh $(PROFILE)", makefile)
+        self.assertRegex(
+            makefile,
+            r"k3d-e2e:\s+PROFILE\s*=\s*profiles/local-kubernetes-example/profile\.yaml",
+        )
+
 
 class K3dLocalImagesTest(unittest.TestCase):
     def test_build_script_builds_every_image_imported_into_the_cluster(self) -> None:

@@ -106,6 +106,10 @@ k3d-install:
 k3d-expose:
 	scripts/k8s/expose-local.sh
 
+# The E2E harness proves the Kubernetes example profile (incl. the Istio
+# mesh module); e2e.sh's default agrees, this keeps `make k3d-e2e` on it
+# even though the general PROFILE default is the compose base profile.
+k3d-e2e: PROFILE = profiles/local-kubernetes-example/profile.yaml
 k3d-e2e:
 	scripts/k8s/e2e.sh $(PROFILE)
 
