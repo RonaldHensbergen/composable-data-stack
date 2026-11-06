@@ -8,6 +8,13 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Promoted the Istio service-mesh provider to `modules/security/istio/` with
+  `productionSuitable: true`, and enrolled Postgres, Dagster, and Superset in
+  the production-style and local Kubernetes example profiles. The k3d E2E
+  harness now installs the out-of-band Istio control plane and verifies the
+  rendered `PeerAuthentication` resource; the per-service
+  `AuthorizationPolicy` selectors from #1170 remain explicitly scoped to each
+  enrolled service. (#1171)
 - Unscoped custom ingress allow rules are recorded by the Kubernetes
   security scan (issue #1030): a `networkPolicy.ingress` passthrough rule
   without a source restriction (no `from` key, an empty `from` list, or an

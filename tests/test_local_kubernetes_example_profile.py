@@ -64,8 +64,13 @@ class LocalKubernetesExampleProfileTest(unittest.TestCase):
 
         # The extends chain resolved to the base profile's modules.
         module_ids = {m["id"] for m in plan["modules"]}
-        for expected in ("postgres", "dagster", "keydb", "superset"):
+        for expected in ("postgres", "dagster", "keydb", "superset", "mesh"):
             self.assertIn(expected, module_ids)
+        mesh = next(module for module in plan["modules"] if module["id"] == "mesh")
+        self.assertEqual(
+            [service["name"] for service in mesh["config"]["services"]],
+            ["postgres", "dagster", "superset"],
+        )
 
         files, render_diags = render_helm(plan, env_file=str(self.env_file))
         errors = [d for d in render_diags if d.level == "error"]
@@ -73,6 +78,7 @@ class LocalKubernetesExampleProfileTest(unittest.TestCase):
 
         chart = yaml.safe_load(files["Chart.yaml"])
         self.assertEqual(chart["name"], "local-kubernetes-example")
+        self.assertIn("templates/mesh-manifest-peer-authentication.yaml", files)
         templates = [p for p in files if p.startswith("templates/")]
         self.assertGreater(len(templates), 0)
 

@@ -8,10 +8,37 @@ metadata:
   displayName: Local Kubernetes Example (Helm)
   description: >
     The local-dagster-postgres-superset stack as a ready-to-run Kubernetes
-    example: same modules, rendered to a Helm chart with `--target helm` and
-    deployed to the isolated k3d harness (issue #77). Composes the base
-    profile via extends; see README.md in this directory and
+    example, with the Istio service-mesh module enrolling Postgres, Dagster,
+    and Superset for STRICT mTLS. Render to a Helm chart with `--target helm`
+    and deploy to the isolated k3d harness (issue #77, #1171). Composes the
+    base profile via extends; see README.md in this directory and
     docs/kubernetes.md.
 
 extends:
   - local-dagster-postgres-superset
+
+spec:
+  modules:
+    - id: dagster
+      config:
+        kubernetesService:
+          type: NodePort
+          nodePort: 30300
+    - id: superset
+      config:
+        kubernetesService:
+          type: NodePort
+          nodePort: 30808
+    - id: mesh
+      source: ../../modules/security/istio
+      version: "0.1.0"
+      enabled: true
+      config:
+        mtlsMode: STRICT
+        services:
+          - name: postgres
+            port: 5432
+          - name: dagster
+            port: 3000
+          - name: superset
+            port: 8088

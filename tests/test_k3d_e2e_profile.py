@@ -20,7 +20,7 @@ class K3dE2eProfileTest(unittest.TestCase):
         original_path = (
             self.repo_root
             / "profiles"
-            / "local-dagster-postgres-superset"
+            / "local-kubernetes-example"
             / "profile.yaml"
         )
         original = original_path.read_text(encoding="utf-8")
@@ -47,6 +47,8 @@ class K3dE2eProfileTest(unittest.TestCase):
 
         self.assertIn('clusterip_profile.py" "$PROFILE" "$E2E_PROFILE"', script)
         self.assertIn('install.sh" "$E2E_PROFILE"', script)
+        self.assertIn('profiles/local-kubernetes-example/profile.yaml', script)
+        self.assertIn('templates/mesh-manifest-peer-authentication.yaml', script)
 
 
 class K3dLocalImagesTest(unittest.TestCase):

@@ -6,11 +6,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/k8s/k3d-env.sh
 source "${SCRIPT_DIR}/k3d-env.sh"
 
-PROFILE="${1:-profiles/local-dagster-postgres-superset/profile.yaml}"
+PROFILE="${1:-profiles/local-kubernetes-example/profile.yaml}"
 KEEP_CLUSTER="${CDS_E2E_KEEP_CLUSTER:-0}"
 WAIT_SECONDS="${CDS_E2E_TIMEOUT:-600}"
+ISTIO_VERSION="${ISTIO_VERSION:-1.31.3}"
+ISTIO_NAMESPACE="istio-system"
+ISTIO_BASE_RELEASE="${CDS_CLUSTER}-istio-base"
+ISTIOD_RELEASE="${CDS_CLUSTER}-istiod"
 E2E_PROFILE=""
 CLUSTER_EXISTED=0
+ISTIO_INSTALL_STARTED=0
+ISTIO_NAMESPACE_CREATED=0
 if k3d cluster list "$CDS_CLUSTER" >/dev/null 2>&1; then
   CLUSTER_EXISTED=1
 fi
@@ -41,6 +47,16 @@ cleanup() {
     wait "$pid" >/dev/null 2>&1 || true
   done
   if [[ "$KEEP_CLUSTER" != "1" ]]; then
+    if [[ "$ISTIO_INSTALL_STARTED" == "1" ]]; then
+      helm --kube-context "$CDS_CONTEXT" uninstall "$ISTIOD_RELEASE" \
+        --namespace "$ISTIO_NAMESPACE" --ignore-not-found >/dev/null 2>&1 || true
+      helm --kube-context "$CDS_CONTEXT" uninstall "$ISTIO_BASE_RELEASE" \
+        --namespace "$ISTIO_NAMESPACE" --ignore-not-found >/dev/null 2>&1 || true
+      if [[ "$ISTIO_NAMESPACE_CREATED" == "1" ]]; then
+        kubectl --context "$CDS_CONTEXT" delete namespace "$ISTIO_NAMESPACE" \
+          --ignore-not-found --wait=false >/dev/null 2>&1 || true
+      fi
+    fi
     helm --kube-context "$CDS_CONTEXT" uninstall "$CDS_RELEASE" \
       --namespace "$CDS_NAMESPACE" --ignore-not-found >/dev/null 2>&1 || true
     kubectl --context "$CDS_CONTEXT" delete namespace "$CDS_NAMESPACE" \
@@ -66,6 +82,44 @@ run_setup() {
     record_fail "$label"
     return 1
   fi
+}
+
+install_istio() {
+  local base_exists=0
+  local istiod_exists=0
+  if helm --kube-context "$CDS_CONTEXT" status "$ISTIO_BASE_RELEASE" \
+      --namespace "$ISTIO_NAMESPACE" >/dev/null 2>&1; then
+    base_exists=1
+  fi
+  if helm --kube-context "$CDS_CONTEXT" status "$ISTIOD_RELEASE" \
+      --namespace "$ISTIO_NAMESPACE" >/dev/null 2>&1; then
+    istiod_exists=1
+  fi
+  if [[ "$base_exists" != "$istiod_exists" ]]; then
+    echo "ERROR only one E2E Istio release exists in ${ISTIO_NAMESPACE}; remove the partial installation and retry." >&2
+    return 1
+  fi
+  if [[ "$base_exists" == "1" ]]; then
+    echo "==> reusing Istio control plane for ${CDS_CLUSTER}"
+    return 0
+  fi
+
+  if ! kubectl --context "$CDS_CONTEXT" get namespace "$ISTIO_NAMESPACE" \
+      >/dev/null 2>&1; then
+    ISTIO_NAMESPACE_CREATED=1
+  fi
+  ISTIO_INSTALL_STARTED=1
+  helm repo add istio https://istio-release.storage.googleapis.com/charts --force-update || return 1
+  helm repo update istio || return 1
+  helm --kube-context "$CDS_CONTEXT" upgrade --install "$ISTIO_BASE_RELEASE" \
+    istio/base --namespace "$ISTIO_NAMESPACE" --create-namespace \
+    --version "$ISTIO_VERSION" --wait --timeout 5m || return 1
+  kubectl --context "$CDS_CONTEXT" wait \
+    --for=condition=Established crd/peerauthentications.security.istio.io \
+    --timeout=120s || return 1
+  helm --kube-context "$CDS_CONTEXT" upgrade --install "$ISTIOD_RELEASE" \
+    istio/istiod --namespace "$ISTIO_NAMESPACE" \
+    --version "$ISTIO_VERSION" --wait --timeout 5m
 }
 
 wait_for_http() {
@@ -95,8 +149,18 @@ fi
 if ! run_setup "cluster available" "${SCRIPT_DIR}/k3d-up.sh"; then
   exit 1
 fi
+if ! run_setup "Istio control plane and CRDs available" install_istio; then
+  exit 1
+fi
 if ! run_setup "Helm release installed" "${SCRIPT_DIR}/install.sh" "$E2E_PROFILE"; then
   exit 1
+fi
+
+if kubectl --context "$CDS_CONTEXT" -n "$CDS_NAMESPACE" get \
+    peerauthentication "${CDS_RELEASE}-mesh-mtls" >/dev/null 2>&1; then
+  record_pass "mesh PeerAuthentication is installed"
+else
+  record_fail "mesh PeerAuthentication was not installed"
 fi
 
 if kubectl --context "$CDS_CONTEXT" -n "$CDS_NAMESPACE" wait \
