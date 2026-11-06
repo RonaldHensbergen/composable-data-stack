@@ -55,7 +55,7 @@ from .loader import load_yaml_file, save_generated_profile
 from .maturity import build_maturity_report, format_maturity_report
 from .overlay import _merge_profile_docs, resolve_extends, resolve_profile
 from .planner import build_plan
-from .preflight import preflight_passed, run_preflight
+from .preflight import format_check_line, preflight_passed, run_preflight
 from .renderer import render_compose
 from .report import build_compliance_report
 from .secret_leak import (
@@ -3144,7 +3144,7 @@ def _run() -> int:
 
         checks = run_preflight(plan, compose_yaml, env_file, strict=load_saved_security_strict())
         for check in checks:
-            print(f"[{check.status}] {check.name}: {check.message}")
+            print(format_check_line(check))
 
         if preflight_passed(checks):
             print("\nPreflight passed.")

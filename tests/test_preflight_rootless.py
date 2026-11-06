@@ -28,11 +28,36 @@ class RootlessPreflightTest(unittest.TestCase):
     def test_rootless_daemon_passes(self, _which):
         check = self._check("production", _info("name=seccomp,profile=builtin", "name=rootless"))
         self.assertEqual(check.status, "PASS")
+        self.assertIsNone(check.reference)
 
     def test_rootful_daemon_warns_for_production(self, _which):
         check = self._check("production", _info("name=seccomp,profile=builtin"))
         self.assertEqual(check.status, "WARN")
         self.assertIn("docs/rootless-docker.md", check.message)
+        self.assertIsNotNone(check.reference)
+        self.assertIn("rootless-docker.md", check.reference or "")
+
+    def test_rootful_warns_point_at_hardening_baseline(self, _which):
+        plan = {"runtime": {"type": "docker-compose"}, "metadata": {"environment": "production"}}
+        info = json.dumps(
+            {
+                "SecurityOptions": ["name=seccomp,profile=builtin"],
+                "LoggingDriver": "none",
+                "LiveRestoreEnabled": False,
+            }
+        )
+
+        def fake(command, **_kwargs):
+            if "--format" in command:
+                return subprocess.CompletedProcess(command, 0, info, "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with patch("cli.preflight.subprocess.run", side_effect=fake):
+            checks = _check_runtime(plan["runtime"], plan)
+        for check in checks:
+            if check.status == "WARN":
+                self.assertIsNotNone(check.reference, check.name)
+                self.assertIn("blob/main/docs/", check.reference or "")
 
     def test_rootful_daemon_does_not_warn_for_local(self, _which):
         self.assertEqual(self._check("local", _info()).status, "PASS")
