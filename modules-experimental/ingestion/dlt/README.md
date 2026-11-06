@@ -2,7 +2,9 @@
 
 Experimental ingestion module that runs a bind-mounted Python pipeline
 script with [dlt](https://dlthub.com/) as a one-shot job, loading data into
-a consumed `sql-database` contract (e.g. the `postgres` module).
+a consumed warehouse contract — a `sql-database` contract (e.g. the
+`postgres` module) or a `file-database` contract (e.g. the `duckdb`
+module), selected via `config.destinationType`.
 
 ## Purpose
 
@@ -21,9 +23,11 @@ module in a profile.
   so there is no health check and `restart: "no"`. Scheduling repeated runs
   (cron, an external trigger, or a future Dagster integration) is outside
   this module's scope; see the non-goals in issue #589.
-- Only the `postgres` destination is wired up (`dlt[postgres]` in
-  `images/dlt/requirements.txt`), matching the only warehouse module CDS
-  currently ships.
+- Only the `postgres` and `duckdb` destinations are wired up
+  (`dlt[postgres]==` + `duckdb==` in `images/dlt/requirements.in`),
+  matching the `sql-database` (postgres) and `file-database` (duckdb)
+  warehouse modules CDS ships; `config.destinationType` selects between
+  them.
 - No `provides` contract: since the job produces no long-running service,
   there is nothing for another module to consume yet. A future
   orchestration-triggered "ingestion" contract (so Dagster can consume and

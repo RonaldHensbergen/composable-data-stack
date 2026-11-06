@@ -277,6 +277,17 @@ The format is based on Keep a Changelog.
   values in any chart file. The rendered chart is pinned by golden hashes in
   `tests/golden/k8s-chart-oidc.sha256`. A guard test also pins that binding
   the compose-only keycloak on the helm target still fails closed with E072.
+- The experimental `dlt` ingestion module can now load into an embedded
+  `file-database` warehouse in addition to a `sql-database` one: a new
+  `config.destinationType` (`postgres` default, or `duckdb`) selects which
+  consume entry is required (`destinationDatabase` vs the new
+  `destinationWarehouseFile`, enforced at compile time with E041), the
+  consumed contract's shared `hostDirectory` is bind-mounted at
+  `/usr/app/duckdb_data` when duckdb is selected, and the database file path
+  is passed to dlt's duckdb destination via `DESTINATION__DUCKDB__CREDENTIALS`
+  (the `images/dlt` image now also pins the `duckdb` client library). A new
+  `profiles/local-duckdb-dlt-dbt` demo profile composes duckdb + dlt + dbt
+  end to end against the shared file (#593).
 
 - Documented the snap-confined Docker runtime artifact (issue #1155, loose end
   of #1066/PR #1154): on the snap-confined Docker runtime every container
@@ -288,6 +299,19 @@ The format is based on Keep a Changelog.
   (`docs/profile-testing/failure-path-and-ci.md`) classifies the failure as a
   test-infrastructure artifact, and the loki module README's known-limitations
   links to the note.
+- Docker smoke-test CI now covers the experimental observability modules
+  (issue #1065): a new `Docker Runtime Smoke Test` step runs
+  `tests/test_observability_runtime_smoke.py`, which renders the new
+  `profiles/local-loki-otel-collector` profile (loki + otel-collector),
+  brings it up on its own compose project, asserts every container reaches a
+  running state (otel-collector additionally healthy via its healthcheck),
+  POSTs a raw and a structured JSON record to the loki `/logs` ingest
+  endpoint and an OTLP/HTTP log record to the collector's `/v1/logs`,
+  queries both records back from the Loki store under their retention tier,
+  and confirms the collector received the OTLP record — so "renders green but
+  fails at runtime" in experimental modules is caught in CI. The render-level
+  contract coverage for the profile runs everywhere in
+  `tests/test_local_loki_otel_collector_profile.py`.
 
 ### Changed
 
@@ -323,6 +347,15 @@ The format is based on Keep a Changelog.
   mode (validates clean, renders production mode) plus the explicit-`development`
   rejection case.
 
+- The DuckDB warehouse module is promoted out of `modules-experimental/` to
+  `modules/warehouse/duckdb/` and is now production-suitable: the
+  `productionSuitable: false` marker and the `(experimental)` displayName
+  suffix are dropped once the `file-database` contract shape is exercised by
+  real consumers (dlt and dbt wiring plus the `local-duckdb-dlt-dbt` demo
+  profile, #593). `docs/architecture.md` and `docs/roadmap.md` list the module
+  under stable components; `tests/test_duckdb_hardening.py` now asserts the
+  production-suitable metadata instead of the experimental one.
+
 ### Fixed
 
 - The local audit log (`.cds/audit-log.jsonl`, #737/#810) is now anchored to
@@ -337,6 +370,11 @@ The format is based on Keep a Changelog.
   `docs/audit-log.md` documents the resolved location, and
   `tests/test_main.py::AuditLogCLIIntegrationTest` gains #822 regression
   tests (validate/render from a foreign cwd) alongside the common-case test.
+- Bumped the digest-pinned base of the hardened dagster image to remediate
+  CVE-2026-85091 (HIGH, heap buffer overflow in zlib's `gz_vacate()`) reported
+  by the Trivy image scan against the alpine 3.24.2 layer:
+  `python:3.14-alpine` `sha256:f6a589...` -> `sha256:a18b20ad...` (alpine
+  3.24.4, zlib 1.3.2-r1) in both stages of `images/dagster/hardened/Dockerfile`.
 - `cds test --target helm` (and `cds security`) no longer fail the security
   stage with W096 when the profile's Compose render fails *only* because a
   module has no compose implementation (E070 — e.g. a Helm-only module such
@@ -431,6 +469,27 @@ The format is based on Keep a Changelog.
   from bookworm-security). Merging this PR triggers `publish-images.yml`,
   whose pre-push Trivy HIGH/CRITICAL gate re-verifies all five rebuilt
   images before they are signed and republished.
+- Two "renders green but fails at runtime" bugs in the experimental
+  observability modules, caught by building the #1065 docker smoke test
+  (both fixed here so the new CI job is green):
+  - `modules-experimental/observability/loki` now points the Vector gateway's
+    `LOKI_ENDPOINT` at `${service.services.loki-storage}` instead of
+    `${service.host}-loki-storage`. The old template only resolved when the
+    module instance id differed from `loki`; with the conventional id `loki`
+    the rendered storage service is `loki-storage` while the endpoint named
+    the non-existent `loki-loki-storage`, so ingestion failed at runtime.
+    `tests/test_loki_module.py` pins the rendered endpoint for the namesake
+    id.
+  - `modules-experimental/observability/otel-collector` no longer configures
+    the removed `logging` exporter (the pinned
+    `otel/opentelemetry-collector-contrib:0.164.0` fails config validation
+    with it — the collector exited 1 on startup) and no longer renders a
+    container-side healthcheck (that image is distroless — no shell, wget, or
+    curl — so the `CMD-SHELL wget` probe could never pass and would keep the
+    container permanently unhealthy). Pipelines now use the `debug` exporter,
+    and health is probed via the host-published `healthPort`
+    (`health_check` on 13133). `tests/test_otel_collector_module.py` asserts
+    the healthcheck is absent.
 
 ## [0.15.0] - 2026-11-02
 

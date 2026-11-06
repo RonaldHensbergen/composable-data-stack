@@ -1,3 +1,9 @@
 # dlt's postgres destination extra pulls in psycopg2-binary and the
 # SQLAlchemy-based helpers dlt needs to load into Postgres.
 dlt[postgres]==1.31.0
+# The duckdb client library dlt's duckdb destination needs to load into an
+# embedded file-database (the duckdb module's file-database contract).
+# Pinned separately -- like images/dbt's dbt-duckdb adapter -- rather than
+# via a dlt[duckdb] extra, so the publish workflow's ^dlt\[postgres\]== base
+# version grep (and the docs describing it) keeps working unchanged.
+duckdb==2.0.0

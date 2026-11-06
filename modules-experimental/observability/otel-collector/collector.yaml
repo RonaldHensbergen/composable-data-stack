@@ -27,8 +27,11 @@ processors:
   batch: {}
 
 exporters:
-  logging:
-    loglevel: info
+  # The `logging` exporter was removed from the collector in favor of
+  # `debug` (the pinned 0.164.0 image fails config validation with a
+  # `logging` exporter — caught by the docker smoke test, issue #1065).
+  debug:
+    verbosity: detailed
   otlphttp/logs:
     endpoint: http://127.0.0.1:1
     logs_endpoint: ${env:BACKEND_LOGS_ENDPOINT}
@@ -45,12 +48,12 @@ service:
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging, otlphttp/logs]
+      exporters: [debug, otlphttp/logs]
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging, otlphttp/metrics]
+      exporters: [debug, otlphttp/metrics]
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [logging, otlphttp/traces]
+      exporters: [debug, otlphttp/traces]

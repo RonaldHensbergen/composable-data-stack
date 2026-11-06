@@ -271,6 +271,13 @@ workdirs/shared-data/processed/*
 !workdirs/shared-data/incoming/offers-1000.csv
 !workdirs/shared-data/processed/.gitkeep
 
+# DuckDB warehouse file mount (workdirs/duckdb/*): the database file is
+# created by the duckdb-init one-shot job at runtime (local-duckdb-dlt-dbt
+# profile, see modules/warehouse/duckdb). Keep the directory in git, but
+# not the database file.
+workdirs/duckdb/*
+!workdirs/duckdb/.gitkeep
+
 # Traefik TLS certificate/key material (local-haven-reference profile, see
 # modules/integration/traefik). Keep the directory and its README, never a
 # real certificate or key.

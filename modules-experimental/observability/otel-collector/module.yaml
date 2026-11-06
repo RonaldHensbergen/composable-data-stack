@@ -73,7 +73,11 @@ spec:
         minimum: 1
         maximum: 65535
         default: 13133
-        description: Container port of the collector's health_check extension.
+        description: >-
+          Container port of the collector's health_check extension, published
+          on the host loopback. The pinned image is distroless (no shell, no
+          wget/curl), so no container-side healthcheck can run; probe this
+          published port instead (issue #1065).
 
       backends:
         type: object
@@ -94,15 +98,6 @@ spec:
             $ref: "#/$defs/contractBinding"
           traces:
             $ref: "#/$defs/contractBinding"
-
-      healthcheck:
-        type: object
-        additionalProperties: false
-        default: {}
-        properties:
-          enabled:
-            type: boolean
-            default: true
 
   consumes:
     - name: log-backend
@@ -197,12 +192,8 @@ spec:
             BACKEND_LOGS_ENDPOINT: "${ifNonempty:bindings.log-backend.connectionUri,,}${ifNonempty:bindings.log-backend.ingestPath,,}"
             BACKEND_METRICS_ENDPOINT: "${ifNonempty:bindings.metrics-backend.connectionUri,,}${ifNonempty:bindings.metrics-backend.ingestPath,,}"
             BACKEND_TRACES_ENDPOINT: "${ifNonempty:bindings.trace-backend.connectionUri,,}${ifNonempty:bindings.trace-backend.ingestPath,,}"
-          healthcheck:
-            conditionallyEnabledFrom: config.healthcheck.enabled
-            test:
-              - CMD-SHELL
-              - wget --spider -q "http://127.0.0.1:13133/" || exit 1
-            interval: 10s
-            timeout: 5s
-            retries: 10
-            start_period: 15s
+          # No container-side healthcheck: the pinned
+          # otel/opentelemetry-collector-contrib image is distroless (no shell,
+          # no wget/curl), so a CMD-SHELL probe can never pass and would keep
+          # the container permanently unhealthy (issue #1065). Probe the
+          # published health port instead.

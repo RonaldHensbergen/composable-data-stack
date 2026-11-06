@@ -207,7 +207,11 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
             self.assertEqual(env[f"BACKEND_{signal}_ENDPOINT"], "")
         self.assertEqual(env["OTLP_GRPC_PORT"], "4317")
         self.assertEqual(env["OTLP_HTTP_PORT"], "4318")
-        self.assertIn("healthcheck", service)
+        # The pinned contrib image is distroless (no shell/wget), so the
+        # module must not render a container-side healthcheck — it could never
+        # pass and would keep the container unhealthy forever (issue #1065);
+        # the published health port is probed instead.
+        self.assertNotIn("healthcheck", service)
 
     def test_backend_binding_forwards_to_the_provider(self) -> None:
         backend = {

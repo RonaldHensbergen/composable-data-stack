@@ -111,6 +111,13 @@ presence and type, but does not validate the full event schema or tail
 container logs automatically; configure applications or a separate shipper
 to POST records to the provided endpoint.
 
+[`profiles/local-loki-otel-collector`](../profiles/local-loki-otel-collector/README.md)
+bundles `loki` and `otel-collector` into one small local stack; the Docker
+smoke-test CI job drives it end to end (ingest raw + structured records, query
+them back from the store) so the experimental modules' runtime behavior is
+covered, not just their render output (issue #1065,
+`tests/test_observability_runtime_smoke.py`).
+
 ## 6. Profile-level opt-in without naming a module
 
 A profile can opt into log shipping and declare retention tiers without
