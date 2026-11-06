@@ -42,11 +42,15 @@ class LocalLokiOtelCollectorProfileTest(unittest.TestCase):
 
         loki = next(m for m in plan["modules"] if m["id"] == "loki")
         provided = loki["provides"]["log-sink"]["spec"]
-        self.assertEqual(provided["host"], "loki")
-        self.assertEqual(provided["port"], 8686)
-        self.assertEqual(provided["protocol"], "http")
-        self.assertEqual(provided["ingestPath"], "/logs")
-        self.assertEqual(provided["serviceName"], "loki")
+        # The contract advertises Loki's native OTLP/HTTP endpoint on the
+        # loki-storage service (issue #1076); the Vector gateway on the
+        # namesake `loki` service stays the host-loopback plain-JSON endpoint.
+        self.assertEqual(provided["host"], "loki-storage")
+        self.assertEqual(provided["port"], 3100)
+        self.assertEqual(provided["protocol"], "otlp-http")
+        self.assertEqual(provided["ingestPath"], "/otlp/v1/logs")
+        self.assertEqual(provided["connectionUri"], "http://loki-storage:3100")
+        self.assertEqual(provided["serviceName"], "loki-storage")
 
         otel = next(m for m in plan["modules"] if m["id"] == "otel-collector")
         sinks = otel["provides"]

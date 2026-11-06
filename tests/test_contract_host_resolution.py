@@ -601,6 +601,15 @@ _SINK_KINDS = {"lineage-sink", "log-sink", "metrics-sink", "trace-sink"}
 _HOST_FIELDS = ("host", "endpoint", "connectionUri")
 
 
+def _targets_advertised_service(value: str, fields: dict) -> bool:
+    """True when a ${service.services.<name>} placeholder targets the service
+    the contract advertises via its serviceName field (#1029)."""
+    advertised = fields.get("serviceName")
+    if not isinstance(advertised, str) or not advertised:
+        return False
+    return "${service.services." + advertised + "}" in value
+
+
 class ModuleYamlDnsMigrationTest(unittest.TestCase):
     """Checked-in modules with a resolvable serving service must advertise
     checked contract kinds via ${service.dns}, not ${service.host} (#1010);
@@ -637,7 +646,16 @@ class ModuleYamlDnsMigrationTest(unittest.TestCase):
                         continue
                     if "${service.host}" in value:
                         offenders.append(f"{path}:{provided.get('name')}.{field} uses ${{service.host}}")
-                    elif serving and "${service.dns}" not in value:
+                    elif "${service.dns}" in value:
+                        continue
+                    elif _targets_advertised_service(value, fields):
+                        # A per-service placeholder is fine when it targets
+                        # the contract's advertised serving service via
+                        # serviceName (#1029) — e.g. loki's log-sink is served
+                        # by loki-storage, not the namesake loki gateway
+                        # service (#1076).
+                        continue
+                    elif serving:
                         offenders.append(f"{path}:{provided.get('name')}.{field} uses neither placeholder")
         self.assertEqual(offenders, [])
 

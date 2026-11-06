@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 48 of 48 (100%)** — modules 21/21 (100%), profiles 11/11 (100%), shared contracts 16/16 (100%)
+**Overall contract coverage: 49 of 49 (100%)** — modules 21/21 (100%), profiles 12/12 (100%), shared contracts 16/16 (100%)
 
 ## Modules
 

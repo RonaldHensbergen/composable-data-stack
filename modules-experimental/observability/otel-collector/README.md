@@ -33,6 +33,8 @@ sink contract, via `spec.config.backends.<signal>.contractRef`:
   source: modules-experimental/observability/otel-collector
   config:
     backends:
+      logs:
+        contractRef: logs.log-sink            # the loki module's OTLP endpoint
       traces:
         contractRef: otel-backend.trace-sink   # another OTLP/HTTP backend
 ```
@@ -41,14 +43,18 @@ Forwarding uses OTLP/HTTP (`otlphttp` exporter) to the backend's advertised
 `connectionUri` + `ingestPath` — the exporter treats a per-signal endpoint as
 the complete URL and does not append `/v1/<signal> itself, so the ingest path
 must be included. The backend must therefore expose an OTLP/HTTP ingest
-endpoint (as the `trace-sink`/`metrics-sink` contracts provided here do);
-plain-JSON sinks such as the Vector gateway in the `loki` module are not
-OTLP-capable and stay collector-local. Unbound signals are kept
-collector-local: the per-signal endpoint stays empty, the collector falls
-back to a discard endpoint, and every pipeline also exports to the
-collector's own log via the `debug` exporter (the `logging` exporter was
-removed from the collector and fails config validation on the pinned
-0.164.0 image, issue #1065).
+endpoint: all three sink contracts declare `connectionUri` (the `log-sink`
+contract gained the field in #1076), and both shipped providers advertise an
+OTLP endpoint — this module's own `/v1/<signal>` paths, and the `loki` module's
+native Loki endpoint `/otlp/v1/logs` — so **all three signals, including
+logs, forward end-to-end** (#1076). A sink that only speaks plain JSON is not
+OTLP-capable and stays collector-local. Unbound signals are kept
+collector-local too: the per-signal endpoint stays empty, the exporter falls
+back to its base endpoint — the collector's own health_check extension, which
+answers the export POST with 200 on any path and drops the batch silently
+instead of the retry storm a dead port (`127.0.0.1:1`) would cause — and every
+pipeline also exports to the collector's own log (the `debug` exporter; the
+`logging` exporter was removed in the pinned collector v0.164.0).
 
 ## Instrumenting a service (module authors)
 
