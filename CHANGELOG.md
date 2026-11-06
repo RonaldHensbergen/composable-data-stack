@@ -311,6 +311,11 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Bumped the digest-pinned base of the hardened dagster image to remediate
+  CVE-2026-85091 (HIGH, heap buffer overflow in zlib's `gz_vacate()`) reported
+  by the Trivy image scan against the alpine 3.24.2 layer:
+  `python:3.14-alpine` `sha256:f6a589...` -> `sha256:a18b20ad...` (alpine
+  3.24.4, zlib 1.3.2-r1) in both stages of `images/dagster/hardened/Dockerfile`.
 - `cds test --target helm` (and `cds security`) no longer fail the security
   stage with W096 when the profile's Compose render fails *only* because a
   module has no compose implementation (E070 — e.g. a Helm-only module such
