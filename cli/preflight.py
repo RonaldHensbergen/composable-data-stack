@@ -31,12 +31,32 @@ _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)((?:[:?-][^}]*)?)\}")
 # Preflight uses this only for a short-lived availability probe.
 _DOCKER_WILDCARD_IPV4 = "0.0.0.0"  # nosec B104  # noqa: S104
 
+# Base URL of the repo docs, used for the `reference` of non-PASS checks so
+# every WARN/FAIL line can point at the governing document.
+_DOCS_BASE_URL = (
+    "https://github.com/RonaldHensbergen/composable-data-stack/blob/main/docs/"
+)
+
+
+def _doc_ref(path: str) -> str:
+    return f"{_DOCS_BASE_URL}{path}"
+
 
 @dataclass(frozen=True)
 class PreflightCheck:
     status: str
     name: str
     message: str
+    # Link to the repo doc explaining the check; set on WARN/FAIL results.
+    reference: str | None = None
+
+
+def format_check_line(check: PreflightCheck) -> str:
+    """Render one preflight result; WARN/FAIL lines append their doc link."""
+    line = f"[{check.status}] {check.name}: {check.message}"
+    if check.status != "PASS" and check.reference:
+        line += f" (see {check.reference})"
+    return line
 
 
 def run_preflight(
@@ -66,6 +86,7 @@ def _check_runtime(runtime: dict[str, Any], plan: dict[str, Any] | None = None) 
                 "FAIL",
                 "runtime",
                 f'Unsupported runtime type "{runtime_type or "<missing>"}".',
+                reference=_doc_ref("how-it-works.md"),
             )
         ]
 
@@ -76,6 +97,7 @@ def _check_runtime(runtime: dict[str, Any], plan: dict[str, Any] | None = None) 
                 "FAIL",
                 "runtime.cli",
                 "Docker CLI was not found. Install Docker and add it to PATH.",
+                reference=_doc_ref("installation.md#7-check-runtime-prerequisites"),
             )
         ]
 
@@ -88,6 +110,7 @@ def _check_runtime(runtime: dict[str, Any], plan: dict[str, Any] | None = None) 
             "runtime.compose",
             "Docker Compose is available.",
             "Docker Compose is unavailable. Install the Compose plugin.",
+            reference=_doc_ref("installation.md#7-check-runtime-prerequisites"),
         )
     )
     daemon_check, docker_info = _check_daemon()
@@ -115,7 +138,15 @@ def _check_daemon() -> tuple[PreflightCheck, dict[str, Any] | None]:
         detail = ((result.stderr or "").strip().splitlines() or [""])[0][:200] if result else ""
         if detail:
             message = f"{message} ({detail})"
-        return PreflightCheck("FAIL", "runtime.daemon", message), None
+        return (
+            PreflightCheck(
+                "FAIL",
+                "runtime.daemon",
+                message,
+                reference=_doc_ref("installation.md#7-check-runtime-prerequisites"),
+            ),
+            None,
+        )
 
     info: dict[str, Any] | None = None
     try:
@@ -151,12 +182,14 @@ def _check_host_hardening(info: dict[str, Any], production: bool = True) -> list
             else "Docker daemon is not rootless (recommended for production hosts, HOST-001).",
             "Docker daemon runs as root: a container breakout yields host root. "
             "Use rootless Docker for production hosts (HOST-001, see docs/rootless-docker.md).",
+            reference=_doc_ref("rootless-docker.md"),
         ),
         _host_check(
             rootless or "name=userns" in options,
             "host.userns",
             "User namespace isolation is active.",
             "User namespace remapping is not enabled (HOST-002).",
+            reference=_doc_ref("docker-host-hardening.md"),
         ),
         _host_check(
             any(o.startswith("name=seccomp") for o in options)
@@ -164,6 +197,7 @@ def _check_host_hardening(info: dict[str, Any], production: bool = True) -> list
             "host.seccomp",
             "Daemon default seccomp profile is active.",
             "Daemon default seccomp profile is not active (HOST-003).",
+            reference=_doc_ref("docker-host-hardening.md"),
         ),
         _host_check(
             info.get("LoggingDriver") not in {None, "", "none"},
@@ -171,12 +205,14 @@ def _check_host_hardening(info: dict[str, Any], production: bool = True) -> list
             f'Daemon logging driver "{info.get("LoggingDriver")}" is enabled '
             "(log rotation is not verified; check daemon.json, HOST-004).",
             "Daemon logging driver is disabled; container logs are not retained (HOST-004).",
+            reference=_doc_ref("docker-host-hardening.md"),
         ),
         _host_check(
             info.get("LiveRestoreEnabled") is True,
             "host.live-restore",
             "Live restore is enabled.",
             "Live restore is not enabled; daemon restarts stop containers (HOST-005).",
+            reference=_doc_ref("docker-host-hardening.md"),
         ),
     ]
     socket_check = _check_socket_exposure(rootless=rootless)
@@ -185,8 +221,19 @@ def _check_host_hardening(info: dict[str, Any], production: bool = True) -> list
     return checks
 
 
-def _host_check(ok: bool, name: str, pass_message: str, warn_message: str) -> PreflightCheck:
-    return PreflightCheck("PASS" if ok else "WARN", name, pass_message if ok else warn_message)
+def _host_check(
+    ok: bool,
+    name: str,
+    pass_message: str,
+    warn_message: str,
+    reference: str | None = None,
+) -> PreflightCheck:
+    return PreflightCheck(
+        "PASS" if ok else "WARN",
+        name,
+        pass_message if ok else warn_message,
+        reference=None if ok else reference,
+    )
 
 
 def _uses_non_default_context() -> bool:
@@ -219,6 +266,7 @@ def _check_socket_exposure(rootless: bool = False) -> PreflightCheck | None:
             "host.socket",
             "DOCKER_HOST uses TCP without DOCKER_TLS_VERIFY; "
             "an unauthenticated daemon socket grants root on the host (HOST-006).",
+            reference=_doc_ref("docker-host-hardening.md"),
         )
     if scheme == "ssh":
         return PreflightCheck("PASS", "host.socket", "Daemon is reached over SSH.")
@@ -239,6 +287,7 @@ def _check_socket_exposure(rootless: bool = False) -> PreflightCheck | None:
             "WARN",
             "host.socket",
             f"Daemon socket {socket_path} is world-writable (HOST-006).",
+            reference=_doc_ref("docker-host-hardening.md"),
         )
     return PreflightCheck("PASS", "host.socket", "Daemon socket is not world-writable.")
 
@@ -248,6 +297,7 @@ def _run_runtime_command(
     name: str,
     success_message: str,
     failure_message: str,
+    reference: str | None = None,
 ) -> PreflightCheck:
     try:
         result = subprocess.run(  # nosec B603  # noqa: S603
@@ -257,10 +307,10 @@ def _run_runtime_command(
             timeout=15,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return PreflightCheck("FAIL", name, failure_message)
+        return PreflightCheck("FAIL", name, failure_message, reference=reference)
 
     if result.returncode != 0:
-        return PreflightCheck("FAIL", name, failure_message)
+        return PreflightCheck("FAIL", name, failure_message, reference=reference)
     return PreflightCheck("PASS", name, success_message)
 
 
@@ -292,6 +342,7 @@ def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck
                     "FAIL",
                     "environment",
                     f"Environment file could not be read: {env_file}.",
+                    reference=_doc_ref("installation.md#5-initialize-configuration"),
                 )
             )
         else:
@@ -304,6 +355,7 @@ def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck
                         "FAIL",
                         f"environment.{name}",
                         f'Required environment value "{name}" is missing or empty.',
+                        reference=_doc_ref("installation.md#5-initialize-configuration"),
                     )
                     for name in missing
                 )
@@ -329,6 +381,7 @@ def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck
                             "Replace placeholder values for: "  # noqa: S608
                             + ", ".join(placeholders)
                             + ".",
+                            reference=_doc_ref("installation.md#5-initialize-configuration"),
                         )
                     )
     else:
@@ -345,6 +398,7 @@ def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck
                 "WARN",
                 "environment.insecure-defaults",
                 "Replace insecure hardcoded defaults for: " + ", ".join(insecure_defaults) + ".",
+                reference=_doc_ref("installation.md#5-initialize-configuration"),
             )
         )
     return checks
@@ -402,6 +456,7 @@ def _check_images(plan: dict[str, Any], compose_yaml: str, *, strict: bool = Fal
             "FAIL",
             f"images.{finding['path']}",
             f"{finding['rule_id']}: {finding['message']}",
+            reference=_doc_ref("image-signing.md#verification-policy"),
         )
         for finding in findings
     ]
@@ -473,6 +528,7 @@ def _check_ports(compose_yaml: str) -> list[PreflightCheck]:
                     "FAIL",
                     f"ports.{service_name}",
                     f"Host port {host}:{port}/{protocol} conflicts with the port declared by {conflict}.",
+                    reference=_doc_ref("from-docker-to-cds-profile.md"),
                 )
             )
             continue
@@ -485,6 +541,7 @@ def _check_ports(compose_yaml: str) -> list[PreflightCheck]:
                     "WARN",
                     f"ports.{service_name}",
                     f"Host port {host}:{port}/{protocol} uses an unsupported protocol and was not checked.",
+                    reference=_doc_ref("from-docker-to-cds-profile.md"),
                 )
             )
         elif available:
@@ -501,6 +558,7 @@ def _check_ports(compose_yaml: str) -> list[PreflightCheck]:
                     "FAIL",
                     f"ports.{service_name}",
                     f"Host port {host}:{port}/{protocol} is unavailable. Stop the process using it or change the profile port.",
+                    reference=_doc_ref("from-docker-to-cds-profile.md"),
                 )
             )
     return checks

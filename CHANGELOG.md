@@ -328,6 +328,13 @@ The format is based on Keep a Changelog.
   fails at runtime" in experimental modules is caught in CI. The render-level
   contract coverage for the profile runs everywhere in
   `tests/test_local_loki_otel_collector_profile.py`.
+- Every `WARN` and `FAIL` line in `cds preflight` output now ends with a
+  `(see <url>)` link to the repo doc that governs the check
+  (`PreflightCheck.reference`): the Docker host hardening baseline for
+  `host.*` warnings, `docs/rootless-docker.md` for `host.rootless`,
+  `docs/installation.md` for runtime and environment findings,
+  `docs/from-docker-to-cds-profile.md` for host-port findings, and
+  `docs/image-signing.md#verification-policy` for `images.*` failures.
 
 ### Changed
 
