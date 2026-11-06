@@ -332,11 +332,7 @@ The format is based on Keep a Changelog.
   collector-local, and its unbound-signal discard now points at the
   collector's own health_check extension (which answers the export POST with
   200 and drops the batch silently — no retry storm) instead of
-  `http://127.0.0.1:1`. The module's `collector.yaml` also switches
-  the collector-local exporter from `logging` to `debug` — the `logging`
-  exporter was removed in the pinned collector v0.164.0, so the shipped
-  config previously failed to start at runtime ("use the debug exporter
-  instead"). Verified at runtime against the pinned images: a log posted to
+  `http://127.0.0.1:1`. Verified at runtime against the pinned images: a log posted to
   the collector's `/v1/logs` with `backends.logs` bound to a `loki` instance
   lands in Loki (`service_name`/`tier` labels applied), and an unbound signal
   produces no export-retry errors. `docs/observability.md` (sections 5 and
