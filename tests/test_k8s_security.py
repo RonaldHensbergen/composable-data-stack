@@ -300,6 +300,66 @@ class KubernetesSecurityTest(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["severity"], "low")
 
+    def test_unscoped_custom_ingress_is_flagged(self) -> None:
+        # A custom ingress rule without a "from" restriction opens ingress
+        # from all sources on its ports -- equal or worse exposure than a
+        # NodePort/LoadBalancer service (CDS-K8S-007) -- so it is recorded
+        # as a low CDS-K8S-010 finding.
+        plan = self.secure_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
+            "ingress": [
+                {"ports": [{"protocol": "TCP", "port": 8080}]},
+                {"from": [], "ports": [{"protocol": "TCP", "port": 8443}]},
+            ]
+        }
+
+        findings = [
+            f for f in scan_k8s_security(plan) if f["rule_id"] == "CDS-K8S-010"
+        ]
+
+        self.assertEqual(len(findings), 2)
+        self.assertEqual(
+            {f["path"].rsplit(".", 1)[-1] for f in findings}, {"0", "1"}
+        )
+        self.assertEqual(
+            {f["severity"] for f in findings}, {"low"}
+        )
+        self.assertEqual(
+            {f["category"] for f in findings}, {"configuration-management"}
+        )
+
+    def test_narrow_ipblock_custom_ingress_is_still_recorded(self) -> None:
+        # Any ipBlock peer in "from" admits external sources, so even a
+        # tightly scoped rule is recorded as a low finding, mirroring how
+        # CDS-K8S-008 records raw ipBlock egress passthrough rules.
+        plan = self.secure_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
+            "ingress": [{
+                "from": [{"ipBlock": {"cidr": "203.0.113.0/24"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+
+        findings = [
+            f for f in scan_k8s_security(plan) if f["rule_id"] == "CDS-K8S-010"
+        ]
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["severity"], "low")
+        self.assertEqual(
+            findings[0]["path"],
+            "module:demo.implementation.kubernetes.networkPolicy.ingress.0",
+        )
+
+    def test_malformed_custom_ingress_rules_do_not_crash_the_scan(self) -> None:
+        # Shape errors are the renderer's to fail closed on (E149); the scan
+        # must neither crash nor invent findings for them.
+        plan = self.secure_plan()
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
+            "ingress": ["allow-all"],
+        }
+
+        self.assertEqual(scan_k8s_security(plan), [])
+
     def test_malformed_network_policy_block_does_not_crash_the_scan(self) -> None:
         plan = self.secure_plan()
         plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = "allow-all"
