@@ -87,7 +87,9 @@ against.
 
 [`shared/contracts/log-sink.yaml`](../shared/contracts/log-sink.yaml) defines
 a vendor-neutral contract (`kind: log-sink`) that a centralized log collector
-module can provide: `host`, `port`, `protocol`, an optional `ingestPath`, and
+module can provide: `host`, `port`, `protocol`, an optional `ingestPath`, an
+optional `connectionUri` (the pre-composed `<scheme>://<host>:<port>` base a
+client dials directly, as on `trace-sink`/`metrics-sink` — issue #1076), and
 optional `rawRetentionDays`/`structuredRetentionDays`. Any module that ships
 logs can `consume` this contract the same way modules already consume
 `sql-database` or `cache-service` — by declaring a `consumes` entry and
@@ -101,15 +103,23 @@ wire-level fields needed to reach it.
 
 The experimental
 [`loki` module](../modules-experimental/observability/loki/README.md) provides
-this contract using a Vector HTTP gateway and Loki storage. It accepts one
-JSON object per `POST` to `/logs`; records containing the required string
-fields `service`, `profile`, `environment`, `timestamp`, and `severity` are
-stored in the structured tier, while other records use the raw tier. Loki
+this contract over **Loki's native OTLP/HTTP endpoint**
+(`protocol: otlp-http`, `ingestPath: /otlp/v1/logs`,
+`connectionUri: http://<loki-storage>:3100`, served on the storage service's
+port 3100 by default since Loki 3.0 — issue #1076), so OTLP-capable shippers
+such as the `otel-collector` module's `backends.logs` can forward logs
+end-to-end. A Vector gateway additionally accepts one JSON object per `POST`
+to `/logs` on the host loopback for local dev tools; records containing the
+required string fields `service`, `profile`, `environment`, `timestamp`, and
+`severity` are stored in the structured tier, while other records use the raw
+tier. On the OTLP path, Loki promotes the `service.name`,
+`deployment.environment.name`, and `tier` resource attributes to index labels,
+so shippers can set `tier="structured"` to reach the structured tier. Loki
 applies its default retention to raw records and a `tier="structured"`
 retention override to structured events. The gateway classifies by field
 presence and type, but does not validate the full event schema or tail
 container logs automatically; configure applications or a separate shipper
-to POST records to the provided endpoint.
+to ship records to the provided endpoint.
 
 [`profiles/local-loki-otel-collector`](../profiles/local-loki-otel-collector/README.md)
 bundles `loki` and `otel-collector` into one small local stack; the Docker
@@ -307,8 +317,11 @@ contract (issue #777, coordinated with the Grafana module scope of #369):
 - [`shared/contracts/metrics-sink.yaml`](../shared/contracts/metrics-sink.yaml)
   (`kind: metrics-sink`): same shape, plus an optional `scrapePath` so a
   Prometheus-style scrape endpoint (`protocol: prometheus`) also conforms.
+- [`shared/contracts/log-sink.yaml`](../shared/contracts/log-sink.yaml) gained
+  the same optional `connectionUri` field in #1076, so an OTLP/HTTP-capable
+  log backend (e.g. Loki's native `/otlp/v1/logs`) is forwardable too.
 
-Both stay vendor-neutral: nothing in the CLI hardcodes OTel — the contracts
+All stay vendor-neutral: nothing in the CLI hardcodes OTel — the contracts
 only commit to the wire-level fields needed to reach a collector.
 
 ### Reference provider: the `otel-collector` experimental module
@@ -323,7 +336,15 @@ forwarding uses the backend's advertised `connectionUri` **+ `ingestPath`**
 over OTLP/HTTP (the collector's `otlphttp` exporter treats a per-signal
 endpoint as the complete URL and does not append `/v1/<signal>` itself), so
 the backend must expose an OTLP/HTTP ingest endpoint — as the sink contracts
-provided here do. Unbound signals stay collector-local. The module is
+provided here do, and as the `loki` module does through Loki's native
+`/otlp/v1/logs` endpoint. All three sink contracts declare `connectionUri`
+(the `log-sink` contract gained the field in #1076), so **the logs signal
+forwards end-to-end exactly like metrics and traces**, e.g.
+`backends.logs: {contractRef: logs.log-sink}` with a `loki` instance in the
+profile. Unbound signals stay collector-local: the per-signal endpoint renders
+empty and the exporter falls back to its base endpoint (the collector's own
+health_check extension — a permanent 4xx that drops the batch quietly instead
+of retrying a dead port forever). The module is
 experimental (`productionSuitable: false`): single-node, unauthenticated
 OTLP endpoints, no storage of its own.
 

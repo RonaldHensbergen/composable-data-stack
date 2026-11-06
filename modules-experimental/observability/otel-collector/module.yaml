@@ -14,9 +14,11 @@ metadata:
     services can emit OTLP telemetry (logs/metrics/traces) without the
     profile hardcoding a backend (issue #777). Each signal can optionally be
     forwarded to a bound backend module that speaks OTLP/HTTP (e.g. a second
-    `otel-collector` instance, or the Grafana-stack backend planned in #369)
-    through the `backends.*` consumes entries, using the backend's advertised
-    `connectionUri` + `ingestPath`. See
+    `otel-collector` instance, or the `loki` module's native OTLP endpoint
+    /otlp/v1/logs) through the `backends.*` consumes entries, using the
+    backend's advertised `connectionUri` + `ingestPath` — the `log-sink`
+    contract declares `connectionUri` since #1076, so the logs signal
+    forwards end-to-end like metrics/traces. See
     docs/observability.md#opentelemetry-otlp-ingestion for how module authors
     instrument a service and bind it. Experimental: single-node,
     unauthenticated OTLP endpoints and no persistent storage of its own —
@@ -88,9 +90,11 @@ spec:
           module instance that provides the matching sink contract
           (`<module-id>.<provide-name>`); the collector forwards the signal
           over OTLP/HTTP to the backend's advertised `connectionUri` +
-          `ingestPath` (the backend must expose an OTLP/HTTP ingest endpoint).
-          Leave a signal unset to keep it collector-local (exported to the
-          collector's own log only).
+          `ingestPath` (the backend must expose an OTLP/HTTP ingest endpoint —
+          all three sink contracts declare `connectionUri` since #1076, and
+          the `loki` module provides its native OTLP endpoint, so `logs`
+          forwards end-to-end too). Leave a signal unset to keep it
+          collector-local (exported to the collector's own log only).
         properties:
           logs:
             $ref: "#/$defs/contractBinding"
@@ -187,8 +191,10 @@ spec:
             # per-signal *_endpoint as the complete URL (it does NOT append
             # /v1/<signal>), so the ingest path must be part of the value.
             # Unbound signals render empty, in which case the collector config
-            # falls back to a static discard endpoint (the per-signal
-            # *_endpoint keys override `endpoint` only when non-empty).
+            # falls back to its base endpoint (the collector's own health_check
+            # extension, a permanent 4xx discard — see collector.yaml; the
+            # per-signal *_endpoint keys override `endpoint` only when
+            # non-empty).
             BACKEND_LOGS_ENDPOINT: "${ifNonempty:bindings.log-backend.connectionUri,,}${ifNonempty:bindings.log-backend.ingestPath,,}"
             BACKEND_METRICS_ENDPOINT: "${ifNonempty:bindings.metrics-backend.connectionUri,,}${ifNonempty:bindings.metrics-backend.ingestPath,,}"
             BACKEND_TRACES_ENDPOINT: "${ifNonempty:bindings.trace-backend.connectionUri,,}${ifNonempty:bindings.trace-backend.ingestPath,,}"

@@ -1,4 +1,4 @@
-"""trace-sink/metrics-sink contracts + otel-collector reference module (#777).
+"""trace-sink/metrics-sink/log-sink contracts + otel-collector module (#777, #1076).
 
 Covers the acceptance criteria of #777:
 
@@ -13,6 +13,12 @@ Covers the acceptance criteria of #777:
   clean), OTLP ports are wired, and unbound backends fall back to a discard
   endpoint; a bound backend (contractRef) is resolved into the forwarding
   env vars.
+
+And the #1076 follow-up: the log-sink contract declares the optional
+`connectionUri` field (mirroring trace-sink), and the loki module provides
+its native OTLP/HTTP endpoint (/otlp/v1/logs) through it, so binding
+`backends.logs` to a loki instance renders a real forwarding URL instead of
+silently staying collector-local.
 """
 import json
 import os
@@ -32,6 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CONTRACTS_DIR = REPO_ROOT / "shared" / "contracts"
 TRACE_SINK_PATH = CONTRACTS_DIR / "trace-sink.yaml"
 METRICS_SINK_PATH = CONTRACTS_DIR / "metrics-sink.yaml"
+LOG_SINK_PATH = CONTRACTS_DIR / "log-sink.yaml"
 MODULE_PATH = REPO_ROOT / "modules-experimental" / "observability" / "otel-collector" / "module.yaml"
 MODULE_SCHEMA = json.loads(
     (REPO_ROOT / "cli" / "resources" / "module.schema.json").read_text(encoding="utf-8")
@@ -92,6 +99,36 @@ class SinkContractTest(unittest.TestCase):
     def test_contract_files_are_schema_valid(self) -> None:
         self.assertEqual(validate_contract_file(TRACE_SINK_PATH), [])
         self.assertEqual(validate_contract_file(METRICS_SINK_PATH), [])
+        self.assertEqual(validate_contract_file(LOG_SINK_PATH), [])
+
+    def test_log_sink_contract_shape(self) -> None:
+        # #1076: log-sink gained the optional connectionUri field so OTLP/HTTP
+        # forwarders can dial a log backend end-to-end.
+        contract = yaml.safe_load(LOG_SINK_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(contract["metadata"]["name"], "log-sink")
+        fields = contract["spec"]["fields"]
+        for name in ("host", "port", "protocol"):
+            self.assertTrue(fields[name]["required"], name)
+        for name in ("ingestPath", "connectionUri", "serviceName", "rawRetentionDays", "structuredRetentionDays"):
+            self.assertIn(name, fields)
+            self.assertFalse(fields[name]["required"], name)
+        examples = contract["spec"]["examples"]
+        self.assertTrue(
+            any(
+                e.get("protocol") == "otlp-http"
+                and e.get("ingestPath") == "/otlp/v1/logs"
+                and e.get("connectionUri") == "http://loki-storage:3100"
+                for e in examples
+            )
+        )
+        self.assertTrue(
+            any(
+                e.get("protocol") == "otlp-http"
+                and e.get("ingestPath") == "/v1/logs"
+                and e.get("connectionUri") == "http://otel-collector:4318"
+                for e in examples
+            )
+        )
 
     def test_trace_sink_contract_shape(self) -> None:
         contract = yaml.safe_load(TRACE_SINK_PATH.read_text(encoding="utf-8"))
@@ -178,6 +215,26 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
         self.assertEqual(bind["target"], "/etc/otelcol/collector.yaml")
         self.assertTrue(bind["read_only"])
 
+    def test_collector_config_uses_debug_exporter_and_quiet_discard(self) -> None:
+        # Runtime-pinned against the pinned collector image (0.164.0): the
+        # `logging` exporter was removed there (the collector refuses to
+        # start with it), and an unbound signal must not retry a dead port
+        # forever — its base endpoint points at the collector's own
+        # health_check extension (permanent 4xx / silent drop), while the
+        # per-signal endpoints come from the BACKEND_*_ENDPOINT env vars.
+        collector_yaml = yaml.safe_load(
+            (MODULE_PATH.parent / "collector.yaml").read_text(encoding="utf-8")
+        )
+        exporters = collector_yaml["exporters"]
+        self.assertIn("debug", exporters)
+        self.assertNotIn("logging", exporters)
+        for signal in ("logs", "metrics", "traces"):
+            exporter = exporters[f"otlphttp/{signal}"]
+            self.assertEqual(exporter["endpoint"], "http://127.0.0.1:${env:HEALTH_PORT}")
+            self.assertEqual(exporter[f"{signal}_endpoint"], f"${{env:BACKEND_{signal.upper()}_ENDPOINT}}")
+            pipeline = collector_yaml["service"]["pipelines"][signal]
+            self.assertEqual(pipeline["exporters"], ["debug", f"otlphttp/{signal}"])
+
 
 class OtelCollectorPlanRenderTest(unittest.TestCase):
     def test_plan_resolves_provided_sinks_to_compose_dns(self) -> None:
@@ -202,7 +259,8 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
         )
         env = service["environment"]
         # No backend bound: all three forwarding endpoints render empty (the
-        # collector config then falls back to its static discard endpoint).
+        # collector config then falls back to its base discard endpoint — the
+        # collector's own health_check extension, a permanent 4xx).
         for signal in ("LOGS", "METRICS", "TRACES"):
             self.assertEqual(env[f"BACKEND_{signal}_ENDPOINT"], "")
         self.assertEqual(env["OTLP_GRPC_PORT"], "4317")
@@ -239,6 +297,39 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
         # backend's connectionUri + ingestPath.
         self.assertEqual(env["BACKEND_TRACES_ENDPOINT"], "http://otel-backend-otel-collector:4318/v1/traces")
         self.assertEqual(env["BACKEND_LOGS_ENDPOINT"], "")
+
+    def test_logs_backend_binding_forwards_to_lokis_native_otlp_endpoint(self) -> None:
+        # #1076: backends.logs binds the loki module's log-sink, which now
+        # advertises connectionUri + /otlp/v1/logs (Loki's native OTLP/HTTP
+        # endpoint), so the logs signal renders a real forwarding URL.
+        loki = {
+            "id": "logs",
+            "source": "modules-experimental/observability/loki",
+            "version": "0.1.0",
+            "enabled": True,
+            "config": {},
+        }
+        config = {"backends": {"logs": {"contractRef": "logs.log-sink"}}}
+        plan, compose = _plan_and_render(_profile(config, (loki,)))
+
+        otel = next(m for m in plan["modules"] if m["id"] == "otel")
+        consumed = otel["consumes"]["log-backend"]["contract"]["spec"]
+        self.assertEqual(consumed["host"], "logs-loki-storage")
+        self.assertEqual(consumed["port"], 3100)
+        self.assertEqual(consumed["protocol"], "otlp-http")
+        self.assertEqual(consumed["ingestPath"], "/otlp/v1/logs")
+        self.assertEqual(consumed["connectionUri"], "http://logs-loki-storage:3100")
+        # Unbound signals stay absent from the consumes map.
+        self.assertNotIn("metrics-backend", otel["consumes"])
+        self.assertNotIn("trace-backend", otel["consumes"])
+
+        env = compose["services"]["otel-collector"]["environment"]
+        # connectionUri + ingestPath: the otlphttp per-signal endpoint is the
+        # complete URL (no /v1/logs is appended).
+        self.assertEqual(
+            env["BACKEND_LOGS_ENDPOINT"], "http://logs-loki-storage:3100/otlp/v1/logs"
+        )
+        self.assertEqual(env["BACKEND_TRACES_ENDPOINT"], "")
 
     def test_unknown_backend_contract_ref_fails_validation(self) -> None:
         config = {"backends": {"logs": {"contractRef": "nope.log-sink"}}}

@@ -1,5 +1,5 @@
 # OpenTelemetry Collector configuration for the CDS otel-collector module
-# (modules-experimental/observability/otel-collector, issue #777).
+# (modules-experimental/observability/otel-collector, issues #777, #1076).
 #
 # Receives OTLP logs/metrics/traces on gRPC (4317) and HTTP (4318), and
 # forwards each signal to the bound backend module over OTLP/HTTP when a
@@ -8,9 +8,13 @@
 # from the contract binding; the otlphttp exporter uses a per-signal
 # *_endpoint as the complete URL — it does not append /v1/<signal> — so the
 # ingest path must be part of the value. An unbound signal leaves the
-# per-signal endpoint empty, in which case the static discard `endpoint`
-# (127.0.0.1:1) applies (export failures are non-fatal), and every pipeline
-# also exports to the collector's own log.
+# per-signal endpoint empty, in which case the base `endpoint` applies: the
+# collector's own health_check extension, which answers the export POST with
+# a permanent 4xx, so the batch is dropped with a single error line instead
+# of the retry storm a dead port (127.0.0.1:1) causes. (A per-signal `nop`
+# exporter would be fully silent, but selecting an exporter conditionally
+# needs a template expression CDS's vocabulary does not have yet.) Every
+# pipeline also exports to the collector's own log.
 receivers:
   otlp:
     protocols:
@@ -27,19 +31,21 @@ processors:
   batch: {}
 
 exporters:
-  # The `logging` exporter was removed from the collector in favor of
-  # `debug` (the pinned 0.164.0 image fails config validation with a
-  # `logging` exporter — caught by the docker smoke test, issue #1065).
+  # `logging` was removed in collector v0.164 ("use the debug exporter
+  # instead"); `verbosity: normal` is the old `loglevel: info` equivalent.
   debug:
-    verbosity: detailed
+    verbosity: normal
   otlphttp/logs:
-    endpoint: http://127.0.0.1:1
+    # Unbound signal: the empty per-signal endpoint falls back to this base
+    # endpoint — the collector's own health_check, a permanent 4xx that
+    # drops the batch without retrying (see the header comment).
+    endpoint: http://127.0.0.1:${env:HEALTH_PORT}
     logs_endpoint: ${env:BACKEND_LOGS_ENDPOINT}
   otlphttp/metrics:
-    endpoint: http://127.0.0.1:1
+    endpoint: http://127.0.0.1:${env:HEALTH_PORT}
     metrics_endpoint: ${env:BACKEND_METRICS_ENDPOINT}
   otlphttp/traces:
-    endpoint: http://127.0.0.1:1
+    endpoint: http://127.0.0.1:${env:HEALTH_PORT}
     traces_endpoint: ${env:BACKEND_TRACES_ENDPOINT}
 
 service:

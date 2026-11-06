@@ -3,6 +3,20 @@ auth_enabled: false
 server:
   http_listen_port: 3100
 
+# Native OTLP/HTTP ingest (POST /otlp/v1/logs) is served on the same HTTP
+# port since Loki 3.0 and needs no extra toggle. The resource attributes
+# below are promoted to index labels (dots become underscores); all other
+# attributes are stored per log line as structured metadata
+# (allow_structured_metadata defaults to true in Loki 3.x and is set
+# explicitly below). Shippers can set a `tier="structured"` resource
+# attribute to land in the longer structured retention stream (issue #1076).
+distributor:
+  otlp_config:
+    default_resource_attributes_as_index_labels:
+      - service.name
+      - deployment.environment.name
+      - tier
+
 common:
   path_prefix: /loki
   storage:
@@ -25,6 +39,7 @@ schema_config:
         period: 24h
 
 limits_config:
+  allow_structured_metadata: true
   retention_period: ${RAW_RETENTION_DAYS}
   retention_stream:
     - selector: '{tier="structured"}'

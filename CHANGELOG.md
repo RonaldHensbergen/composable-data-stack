@@ -315,6 +315,34 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- The `log-sink` contract and the observability modules can now forward the
+  logs signal end-to-end over OTLP/HTTP (issue #1076, loose end from #777/#1063):
+  `shared/contracts/log-sink.yaml` gains an optional `connectionUri` field
+  (mirroring `trace-sink`/`metrics-sink`) with OTLP-shaped examples, and the
+  experimental `loki` module now provides its `log-sink` contract over Loki's
+  native OTLP/HTTP endpoint (`protocol: otlp-http`, `ingestPath: /otlp/v1/logs`,
+  `connectionUri: http://<loki-storage>:3100`, served by the `loki-storage`
+  service on port 3100) instead of the plain-JSON Vector gateway, which
+  remains as the host-loopback dev endpoint (`/logs`). Loki promotes the
+  `service.name`, `deployment.environment.name`, and `tier` resource
+  attributes to index labels so OTLP shippers can still reach the
+  `tier="structured"` retention stream. The `otel-collector` module's
+  `backends.logs` binding therefore resolves a real forwarding URL (e.g.
+  `http://logs-loki-storage:3100/otlp/v1/logs`) instead of silently staying
+  collector-local, and its unbound-signal discard now points at the
+  collector's own health_check extension (permanent 4xx, no retry storm)
+  instead of `http://127.0.0.1:1`. The module's `collector.yaml` also switches
+  the collector-local exporter from `logging` to `debug` — the `logging`
+  exporter was removed in the pinned collector v0.164.0, so the shipped
+  config previously failed to start at runtime ("use the debug exporter
+  instead"). Verified at runtime against the pinned images: a log posted to
+  the collector's `/v1/logs` with `backends.logs` bound to a `loki` instance
+  lands in Loki (`service_name`/`tier` labels applied), and an unbound signal
+  produces no export-retry errors. `docs/observability.md` (sections 5 and
+  12), both module READMEs, and `tests/test_otel_collector_module.py` /
+  `tests/test_loki_module.py` (including an end-to-end
+  `backends.logs -> loki.log-sink` plan/render test) are updated.
+
 - `cds get` (and `cds list --remote`) now default `--ref` to the release tag
   matching the installed CLI version (e.g. `v0.15.0` for cds 0.15.0) instead
   of `main`, so a fetched profile and its modules are validated by the same
