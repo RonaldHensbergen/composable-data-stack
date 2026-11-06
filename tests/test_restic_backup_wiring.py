@@ -67,7 +67,7 @@ class ResticBackupWiringTest(unittest.TestCase):
                     },
                     {
                         "id": "duckdb",
-                        "source": "modules-experimental/warehouse/duckdb",
+                        "source": "modules/warehouse/duckdb",
                         "version": "0.1.0",
                         "enabled": True,
                         "config": {"hostDirectory": "./data/duckdb"},

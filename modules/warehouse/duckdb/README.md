@@ -1,15 +1,14 @@
-# DuckDB (experimental)
+# DuckDB
 
 Warehouse module providing an embedded, file-based
 [DuckDB](https://duckdb.org/) database as an alternative to
 `modules/warehouse/postgres/` for single-node analytical workloads.
 DuckDB is a fast, vectorized/columnar OLAP engine that is widely regarded
 as production-grade and competitive with distributed engines like Spark
-for single-node analytics -- it is not a "toy" database. The
-**experimental** label on this module reflects that the `file-database`
-contract shape is new to CDS and not yet exercised by real consumers
-(dlt/dbt wiring lands in a follow-up PR), not any immaturity in DuckDB
-itself.
+for single-node analytics -- it is not a "toy" database. The module was
+promoted out of `modules-experimental/` once the `file-database` contract
+shape was exercised by real consumers (dlt and dbt, plus the
+`local-duckdb-dlt-dbt` demo profile, #593).
 
 ## How this differs from postgres
 
@@ -48,9 +47,11 @@ Consumers wire this contract into their own module by:
    library -- there is no connection string/driver handshake beyond
    opening the file.
 
-See #593 for the design discussion that led to this contract shape, and
-the tracking issue for wiring `dlt`/`dbt` to consume it as their
-destination/target.
+See #593 for the design discussion that led to this contract shape; `dlt`
+(consumes it via `config.destinationWarehouseFile`) and `dbt` (via
+`config.targetWarehouseFile` with `warehouseType: duckdb`) consume it as
+their destination/target, as demonstrated by the `local-duckdb-dlt-dbt`
+profile.
 
 ## Known limitations vs. postgres
 

@@ -30,6 +30,7 @@ everyone how much of the system is still unwritten.
 | `modules/secrets/vault` | vault | yes |
 | `modules/storage/garage` | garage | yes |
 | `modules/transformation/dbt` | dbt | yes |
+| `modules/warehouse/duckdb` | duckdb | yes |
 | `modules/warehouse/postgres` | postgres | yes |
 | `modules-experimental/backup/object-storage` | object-storage-backup | yes |
 | `modules-experimental/gitops/fluxcd` | fluxcd | yes |
@@ -40,7 +41,6 @@ everyone how much of the system is still unwritten.
 | `modules-experimental/observability/otel-collector` | otel-collector | yes |
 | `modules-experimental/orchestration/airflow` | airflow | yes |
 | `modules-experimental/security/istio` | istio | yes |
-| `modules-experimental/warehouse/duckdb` | duckdb | yes |
 | `modules-experimental/warehouse/postgres-operator` | postgres-operator | yes |
 
 ## Profiles
@@ -51,6 +51,7 @@ everyone how much of the system is still unwritten.
 | `profiles/local-dagster-postgres-superset` | local-dagster-postgres-superset | yes |
 | `profiles/local-dagster-postgres-superset-dbt` | local-dagster-postgres-superset-dbt | yes |
 | `profiles/local-dagster-postgres-superset-vault` | local-dagster-postgres-superset-vault | yes |
+| `profiles/local-duckdb-dlt-dbt` | local-duckdb-dlt-dbt | yes |
 | `profiles/local-haven-reference` | local-haven-reference | yes |
 | `profiles/local-kubernetes-example` | local-kubernetes-example | yes |
 | `profiles/local-kubernetes-postgres-operator` | local-kubernetes-postgres-operator | yes |
