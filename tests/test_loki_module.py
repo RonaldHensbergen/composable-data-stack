@@ -177,6 +177,56 @@ class LokiModuleTest(unittest.TestCase):
                     compose["services"][name]["security_opt"],
                 )
 
+    def test_loki_endpoint_resolves_for_the_namesake_module_id(self) -> None:
+        # Regression test for the docker smoke coverage gap (#1065): with the
+        # conventional instance id `loki`, the rendered storage service is
+        # `loki-storage`, so the Vector LOKI_ENDPOINT must point there —
+        # `${service.host}-loki-storage` would render the non-existent
+        # `loki-loki-storage` and only fail at runtime. `${service.services.*}`
+        # maps through the renderer's naming rule (issue #1029) for any id.
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "loki-namesake-test", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "loki",
+                        "source": "observability/loki",
+                        "version": "0.1.0",
+                        "enabled": True,
+                    }
+                ],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            profile_path = Path(tmp) / "profile.yaml"
+            profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+            with mock.patch.dict(
+                "os.environ",
+                {"CDS_MODULE_PATH": str(REPO_ROOT / "modules-experimental")},
+                clear=False,
+            ):
+                plan, plan_diagnostics = build_plan(str(profile_path))
+                self.assertIsNotNone(plan)
+                self.assertEqual(
+                    [d.format() for d in plan_diagnostics if d.level == "error"],
+                    [],
+                )
+                rendered, render_diagnostics = render_compose(plan)
+        self.assertEqual(
+            [d.format() for d in render_diagnostics if d.level == "error"],
+            [],
+        )
+        compose = yaml.safe_load(rendered)
+        self.assertIn("loki", compose["services"])
+        self.assertIn("loki-storage", compose["services"])
+        self.assertEqual(
+            compose["services"]["loki"]["environment"]["LOKI_ENDPOINT"],
+            "http://loki-storage:3100",
+        )
+
     def test_ingestion_is_not_granted_host_docker_socket_access(self) -> None:
         services = self.module["spec"]["implementation"]["compose"]["services"]
         for service in services.values():

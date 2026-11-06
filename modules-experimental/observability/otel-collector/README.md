@@ -16,7 +16,7 @@ One Compose service, `otel-collector`, exposing:
 | --- | --- | --- |
 | OTLP/gRPC | 4317 | OTel SDK default transport for logs/metrics/traces |
 | OTLP/HTTP | 4318 | per-signal paths `/v1/logs`, `/v1/metrics`, `/v1/traces` |
-| health_check | 13133 | collector health extension |
+| health_check | 13133 | collector health extension (probed via the host-published port — the pinned image is distroless, so no container-side healthcheck can run, issue #1065) |
 
 The provided sink contracts advertise the OTLP/HTTP endpoint
 (`protocol: otlp-http`, `ingestPath: /v1/<signal>`, plus a pre-composed
@@ -46,7 +46,9 @@ plain-JSON sinks such as the Vector gateway in the `loki` module are not
 OTLP-capable and stay collector-local. Unbound signals are kept
 collector-local: the per-signal endpoint stays empty, the collector falls
 back to a discard endpoint, and every pipeline also exports to the
-collector's own log.
+collector's own log via the `debug` exporter (the `logging` exporter was
+removed from the collector and fails config validation on the pinned
+0.164.0 image, issue #1065).
 
 ## Instrumenting a service (module authors)
 

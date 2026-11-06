@@ -98,7 +98,12 @@ spec:
               target: /etc/vector/vector.yaml
               read_only: true
           environment:
-            LOKI_ENDPOINT: "http://${service.host}-loki-storage:3100"
+            # ${service.services.<name>} maps through the renderer's
+            # service-naming rule (issue #1029), so the storage service
+            # resolves for any module instance id — including the namesake
+            # `loki`, where `${service.host}-loki-storage` would render a
+            # non-existent `loki-loki-storage` DNS name.
+            LOKI_ENDPOINT: "http://${service.services.loki-storage}:3100"
           depends_on:
             loki-storage:
               condition: service_started
