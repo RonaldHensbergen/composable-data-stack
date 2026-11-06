@@ -1,13 +1,13 @@
-# Istio service mesh (experimental)
+# Istio service mesh
 
 This module is the reference provider of the shared
 [`service-mesh` contract](../../../shared/contracts/service-mesh.yaml)
 (issue #776, `docs/haven-parity-plan.md` workstream 3.4). It renders the
 Istio security resources that enforce mutual TLS between the profile's named
 module services on the Helm render target, plus an optional per-service
-`AuthorizationPolicy`. It is experimental, Kubernetes-only
-(`implementation.targets: [kubernetes]`), and marked
-`productionSuitable: false`. It is not wired into any stable profile.
+`AuthorizationPolicy`. It is Kubernetes-only
+(`implementation.targets: [kubernetes]`) and marked
+`productionSuitable: true`.
 
 ## What CDS does and does not do
 
@@ -83,7 +83,7 @@ those modules:
   config: { ... }
 
 - id: mesh
-  source: modules-experimental/security/istio
+  source: modules/security/istio
   version: "0.1.0"
   enabled: true
   config:
