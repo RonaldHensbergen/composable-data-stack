@@ -92,6 +92,12 @@ jobs:
         run: |
           python -m unittest tests.test_object_storage_backup_runtime -v
 
+      - name: Run experimental observability runtime smoke (render -> up loki + otel-collector -> ingest raw + structured + OTLP -> query store -> down) (#1065)
+        env:
+          CDS_RUN_DOCKER_SMOKE: "1"
+        run: |
+          python -m unittest tests.test_observability_runtime_smoke -v
+
       - name: Ensure Docker Compose cleanup runs even on failure
         if: always()
         run: |
@@ -110,4 +116,7 @@ jobs:
           fi
           if [ -f docker-compose.objstore-proof.yml ]; then
             docker compose -f docker-compose.objstore-proof.yml -p cds-objstore-proof down -v --remove-orphans || true
+          fi
+          if [ -f docker-compose.observability-smoke.yml ]; then
+            docker compose -f docker-compose.observability-smoke.yml -p cds-observability-smoke-proof down -v --remove-orphans || true
           fi

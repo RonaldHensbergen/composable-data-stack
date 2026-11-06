@@ -276,6 +276,19 @@ The format is based on Keep a Changelog.
   (`docs/profile-testing/failure-path-and-ci.md`) classifies the failure as a
   test-infrastructure artifact, and the loki module README's known-limitations
   links to the note.
+- Docker smoke-test CI now covers the experimental observability modules
+  (issue #1065): a new `Docker Runtime Smoke Test` step runs
+  `tests/test_observability_runtime_smoke.py`, which renders the new
+  `profiles/local-loki-otel-collector` profile (loki + otel-collector),
+  brings it up on its own compose project, asserts every container reaches a
+  running state (otel-collector additionally healthy via its healthcheck),
+  POSTs a raw and a structured JSON record to the loki `/logs` ingest
+  endpoint and an OTLP/HTTP log record to the collector's `/v1/logs`,
+  queries both records back from the Loki store under their retention tier,
+  and confirms the collector received the OTLP record — so "renders green but
+  fails at runtime" in experimental modules is caught in CI. The render-level
+  contract coverage for the profile runs everywhere in
+  `tests/test_local_loki_otel_collector_profile.py`.
 
 ### Changed
 
@@ -407,6 +420,27 @@ The format is based on Keep a Changelog.
   from bookworm-security). Merging this PR triggers `publish-images.yml`,
   whose pre-push Trivy HIGH/CRITICAL gate re-verifies all five rebuilt
   images before they are signed and republished.
+- Two "renders green but fails at runtime" bugs in the experimental
+  observability modules, caught by building the #1065 docker smoke test
+  (both fixed here so the new CI job is green):
+  - `modules-experimental/observability/loki` now points the Vector gateway's
+    `LOKI_ENDPOINT` at `${service.services.loki-storage}` instead of
+    `${service.host}-loki-storage`. The old template only resolved when the
+    module instance id differed from `loki`; with the conventional id `loki`
+    the rendered storage service is `loki-storage` while the endpoint named
+    the non-existent `loki-loki-storage`, so ingestion failed at runtime.
+    `tests/test_loki_module.py` pins the rendered endpoint for the namesake
+    id.
+  - `modules-experimental/observability/otel-collector` no longer configures
+    the removed `logging` exporter (the pinned
+    `otel/opentelemetry-collector-contrib:0.164.0` fails config validation
+    with it — the collector exited 1 on startup) and no longer renders a
+    container-side healthcheck (that image is distroless — no shell, wget, or
+    curl — so the `CMD-SHELL wget` probe could never pass and would keep the
+    container permanently unhealthy). Pipelines now use the `debug` exporter,
+    and health is probed via the host-published `healthPort`
+    (`health_check` on 13133). `tests/test_otel_collector_module.py` asserts
+    the healthcheck is absent.
 
 ## [0.15.0] - 2026-11-02
 

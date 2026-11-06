@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 47 of 47 (100%)** — modules 21/21 (100%), profiles 10/10 (100%), shared contracts 16/16 (100%)
+**Overall contract coverage: 48 of 48 (100%)** — modules 21/21 (100%), profiles 11/11 (100%), shared contracts 16/16 (100%)
 
 ## Modules
 
@@ -54,6 +54,7 @@ everyone how much of the system is still unwritten.
 | `profiles/local-haven-reference` | local-haven-reference | yes |
 | `profiles/local-kubernetes-example` | local-kubernetes-example | yes |
 | `profiles/local-kubernetes-postgres-operator` | local-kubernetes-postgres-operator | yes |
+| `profiles/local-loki-otel-collector` | local-loki-otel-collector | yes |
 | `profiles/local-postgres-grafana` | local-postgres-grafana | yes |
 | `profiles/production-kubernetes-example` | production-kubernetes-example | yes |
 | `profiles/team-dagster-postgres-superset` | team-dagster-postgres-superset | yes |
