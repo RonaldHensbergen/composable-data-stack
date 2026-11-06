@@ -48,6 +48,9 @@ class K3dE2eProfileTest(unittest.TestCase):
         self.assertIn('clusterip_profile.py" "$PROFILE" "$E2E_PROFILE"', script)
         self.assertIn('install.sh" "$E2E_PROFILE"', script)
         self.assertIn('profiles/local-kubernetes-example/profile.yaml', script)
+        self.assertIn('istio/base', script)
+        self.assertIn('istio/istiod', script)
+        self.assertIn('ISTIO_VERSION="${ISTIO_VERSION:-1.31.3}"', script)
         self.assertIn('templates/mesh-manifest-peer-authentication.yaml', script)
 
 

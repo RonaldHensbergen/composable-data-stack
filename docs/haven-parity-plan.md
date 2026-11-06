@@ -289,8 +289,9 @@ current status in section 4:
    closes an already-designed but unimplemented contract
    ([docs/observability.md](observability.md)); issues #369/#662 are ready
    to pick up now.
-3. **3.4 Security platform modules** — the service mesh landed experimentally
-   (#776: `service-mesh` contract + `modules/security/istio`, promoted by #1171);
+3. **3.4 Security platform modules** — the service mesh first landed
+   experimentally (#776: `service-mesh` contract + `modules/security/istio`)
+   and was promoted to production-suitable in #1171;
    continue the workload identity (#1068) follow-up and OIDC per-resource
    authorization; the OIDC contract/consumer landed in PR #1064 (#681/#1055)
    and the TLS contract work has landed. See the [Zero Trust mapping](zero-trust-architecture.md)
@@ -326,7 +327,7 @@ following CDS's existing `modules/<category>/<name>/module.yaml` convention
 | 3.3 Observability — logs | `modules-experimental/observability/` | `loki` (Vector HTTP gateway, Loki as the store) | existing `log-sink` contract ([shared/contracts/log-sink.yaml](../shared/contracts/log-sink.yaml)) | Implemented experimentally in `modules-experimental/observability/loki/` (#662); accepts pushed records and does not automatically tail container logs. |
 | 3.3 Observability — metrics/traces | `modules-experimental/observability/` | `otel-collector` (OTLP receiver providing `log-sink`/`metrics-sink`/`trace-sink`, landing via #777) + `grafana` (bundling Grafana + Prometheus/Mimir; Tempo optional) as the storage/query backend | `metrics-sink` + `trace-sink` contracts landed via #777 | Grafana landed experimentally via #369 (`modules-experimental/observability/grafana`, a query/UI module consuming the sink contracts as datasources — not a storage backend, so profiles still pair it with `loki`/`otel-collector` or a Prometheus-shaped provider). Keep it as a second module rather than folding into `loki`, so profiles can opt into logs without pulling in the full metrics stack. |
 | 3.4 Security — identity/SSO | `modules/identity/` | `keycloak` | new `identity-broker` contract | Already scaffolded on branch `feat/identity-keycloak-module` (draft, closes #370) — needs `consumes`/`provides` filled in and the hardcoded `postgres` service name replaced with a consumed `sql-database` binding before it is profile-ready. |
-| 3.4 Security — TLS | `modules/integration/` or new `modules-experimental/security/` | `traefik` (already a dependency named in issue #549) | new `reverse-proxy` contract with TLS fields (#579) + `cert-issuer` contract | Do this before Istio — it is the prerequisite blocking #205, and has far lower operational cost than a service mesh. |
+| 3.4 Security — TLS | `modules/integration/` or new `modules-experimental/security/` | `traefik` (already a dependency named in issue #549) | new `reverse-proxy` contract with TLS fields (#579) + `cert-issuer` contract | Edge TLS/certificate issuance is a separate capability from Istio's in-cluster peer mTLS; this work remains tracked by #205/#579/#580. |
 | 3.4 Security — service mesh | `modules/security/` | `istio` | `service-mesh` contract | Promoted to production-suitable by #1171: namespace-wide mTLS `PeerAuthentication` + optional per-service `AuthorizationPolicy` on the Helm target; enrolled in the production and local Kubernetes examples. Kubernetes-only by design; the Istio control plane remains an out-of-band prerequisite. |
 | 3.5 Backup — Postgres | `modules/warehouse/postgres/` (extend, don't fork) | add a sidecar/`backup-target` consumer to the existing module | consumes new `backup-target` contract | Closes #665. A `pgbackrest`- or `wal-g`-shaped sidecar, not a new warehouse module — keeps the existing stable Postgres module as the single source of truth. |
 | 3.5 Backup — generic files | `modules/backup/` | `restic` | provides `backup-target` | Closes #668 (Dagster IO manager, DuckDB, dlt). Define the contract here first (#210); #665/#669 should bind to it rather than inventing their own. |
