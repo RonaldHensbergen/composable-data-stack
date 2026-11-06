@@ -399,6 +399,17 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- The `Mutation Tests (Kill Matrix)` workflow no longer fails on time-capped
+  PR runs (issue #1175): a `timeout`-killed matrix can leave an empty or
+  truncated `mutants/*.meta` cache file, and `mutmut export-cicd-stats`
+  crashed on it with a `JSONDecodeError` (`load()` only tolerates a missing
+  file), while a run capped before any result was recorded left
+  `mutmut badge` failing on the missing `mutants/mutmut-cicd-stats.json`.
+  The export step now drops incomplete meta cache files before exporting and
+  writes an all-zero stats placeholder when no results exist, so the badge,
+  job summary, and artifact still publish the partial matrix.
+  `tests/test_mutation_tests_workflow.py` reproduces the crash against the
+  previous workflow and pins the tolerant export.
 - The local audit log (`.cds/audit-log.jsonl`, #737/#810) is now anchored to
   the profile's own project root — `resolve_project_root(profile_path)`,
   the same resolution that decides where `docker-compose.yml` is rendered —
