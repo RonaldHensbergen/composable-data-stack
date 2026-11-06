@@ -36,13 +36,12 @@ _TRUTHY = {"1", "true", "yes", "on"}
 def audit_log_path(project_root: Path | None = None) -> Path:
     """Return the path audit entries are appended to for `project_root`.
 
-    No `cli.main` call site currently passes an explicit `project_root`, so
-    this defaults to `Path.cwd()` rather than the `resolve_project_root
-    (profile_path)` convention used elsewhere (e.g. for rendered Compose
-    output). That means audit entries land in whatever directory the user
-    happened to invoke `cds` from, not necessarily the profile's own
-    project root (e.g. when `CDS_PROFILE_PATH` points at a separate
-    profiles checkout). Tracked by #822.
+    `cli.main` call sites pass the profile-anchored project root
+    (`resolve_project_root(profile_path)` -- the same resolution that
+    decides where rendered Compose output goes), so entries for a given
+    profile consistently land in one `.cds/audit-log.jsonl` regardless of
+    the cwd `cds` was invoked from (#822). With no `project_root` (direct
+    programmatic use), this falls back to `Path.cwd()`.
     """
     root = (project_root or Path.cwd()).expanduser().resolve()
     return root / _LOG_FILE

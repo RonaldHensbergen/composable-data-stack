@@ -399,6 +399,18 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- The local audit log (`.cds/audit-log.jsonl`, #737/#810) is now anchored to
+  the profile's own project root — `resolve_project_root(profile_path)`,
+  the same resolution that decides where `docker-compose.yml` is rendered —
+  instead of the current working directory (issue #822). Entries for a
+  profile resolved via `CDS_PROFILE_PATH` from an unrelated directory (e.g.
+  a centrally shared profiles checkout) now consistently land in one
+  `.cds/audit-log.jsonl` next to that profile's project, rather than being
+  scattered across whatever directory `cds` was invoked from. When the cwd
+  already is the project root, the location is unchanged.
+  `docs/audit-log.md` documents the resolved location, and
+  `tests/test_main.py::AuditLogCLIIntegrationTest` gains #822 regression
+  tests (validate/render from a foreign cwd) alongside the common-case test.
 - `modules-experimental/observability/otel-collector/collector.yaml` now uses
   the canonical `otlp_http/<signal>` exporter names instead of the deprecated
   `otlphttp` alias, which logged a deprecation warning on every startup of the
