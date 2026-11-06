@@ -330,8 +330,9 @@ The format is based on Keep a Changelog.
   `backends.logs` binding therefore resolves a real forwarding URL (e.g.
   `http://logs-loki-storage:3100/otlp/v1/logs`) instead of silently staying
   collector-local, and its unbound-signal discard now points at the
-  collector's own health_check extension (permanent 4xx, no retry storm)
-  instead of `http://127.0.0.1:1`. The module's `collector.yaml` also switches
+  collector's own health_check extension (which answers the export POST with
+  200 and drops the batch silently — no retry storm) instead of
+  `http://127.0.0.1:1`. The module's `collector.yaml` also switches
   the collector-local exporter from `logging` to `debug` — the `logging`
   exporter was removed in the pinned collector v0.164.0, so the shipped
   config previously failed to start at runtime ("use the debug exporter

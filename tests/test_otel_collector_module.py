@@ -220,13 +220,15 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
         # `logging` exporter was removed there (the collector refuses to
         # start with it), and an unbound signal must not retry a dead port
         # forever — its base endpoint points at the collector's own
-        # health_check extension (permanent 4xx / silent drop), while the
-        # per-signal endpoints come from the BACKEND_*_ENDPOINT env vars.
+        # health_check extension, which answers the export POST with 200 and
+        # drops the batch silently (verified at runtime), while the per-signal
+        # endpoints come from the BACKEND_*_ENDPOINT env vars.
         collector_yaml = yaml.safe_load(
             (MODULE_PATH.parent / "collector.yaml").read_text(encoding="utf-8")
         )
         exporters = collector_yaml["exporters"]
         self.assertIn("debug", exporters)
+        self.assertEqual(exporters["debug"]["verbosity"], "detailed")
         self.assertNotIn("logging", exporters)
         for signal in ("logs", "metrics", "traces"):
             exporter = exporters[f"otlphttp/{signal}"]
@@ -260,7 +262,7 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
         env = service["environment"]
         # No backend bound: all three forwarding endpoints render empty (the
         # collector config then falls back to its base discard endpoint — the
-        # collector's own health_check extension, a permanent 4xx).
+        # collector's own health_check extension, a silent 200 discard).
         for signal in ("LOGS", "METRICS", "TRACES"):
             self.assertEqual(env[f"BACKEND_{signal}_ENDPOINT"], "")
         self.assertEqual(env["OTLP_GRPC_PORT"], "4317")

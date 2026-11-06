@@ -50,10 +50,11 @@ native Loki endpoint `/otlp/v1/logs` — so **all three signals, including
 logs, forward end-to-end** (#1076). A sink that only speaks plain JSON is not
 OTLP-capable and stays collector-local. Unbound signals are kept
 collector-local too: the per-signal endpoint stays empty, the exporter falls
-back to its base endpoint — the collector's own health_check extension, whose
-permanent 4xx answer drops the batch with a single error line instead of the
-retry storm a dead port would cause — and every pipeline also exports to the
-collector's own log.
+back to its base endpoint — the collector's own health_check extension, which
+answers the export POST with 200 on any path and drops the batch silently
+instead of the retry storm a dead port (`127.0.0.1:1`) would cause — and every
+pipeline also exports to the collector's own log (the `debug` exporter; the
+`logging` exporter was removed in the pinned collector v0.164.0).
 
 ## Instrumenting a service (module authors)
 

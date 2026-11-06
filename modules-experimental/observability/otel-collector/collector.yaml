@@ -10,11 +10,10 @@
 # ingest path must be part of the value. An unbound signal leaves the
 # per-signal endpoint empty, in which case the base `endpoint` applies: the
 # collector's own health_check extension, which answers the export POST with
-# a permanent 4xx, so the batch is dropped with a single error line instead
-# of the retry storm a dead port (127.0.0.1:1) causes. (A per-signal `nop`
-# exporter would be fully silent, but selecting an exporter conditionally
-# needs a template expression CDS's vocabulary does not have yet.) Every
-# pipeline also exports to the collector's own log.
+# 200 on any path, so the batch is discarded silently — unlike a dead port
+# (127.0.0.1:1), whose connection-refused failures retry forever and fill the
+# collector log (verified against the pinned image). Every pipeline also
+# exports to the collector's own log.
 receivers:
   otlp:
     protocols:
@@ -32,13 +31,15 @@ processors:
 
 exporters:
   # `logging` was removed in collector v0.164 ("use the debug exporter
-  # instead"); `verbosity: normal` is the old `loglevel: info` equivalent.
+  # instead"); `detailed` logs every record like the old `logging` exporter
+  # did (and like the docker smoke test asserts, issue #1065).
   debug:
-    verbosity: normal
+    verbosity: detailed
   otlphttp/logs:
     # Unbound signal: the empty per-signal endpoint falls back to this base
-    # endpoint — the collector's own health_check, a permanent 4xx that
-    # drops the batch without retrying (see the header comment).
+    # endpoint — the collector's own health_check, which answers the export
+    # POST with 200 and drops the batch silently, no retries (see the header
+    # comment).
     endpoint: http://127.0.0.1:${env:HEALTH_PORT}
     logs_endpoint: ${env:BACKEND_LOGS_ENDPOINT}
   otlphttp/metrics:

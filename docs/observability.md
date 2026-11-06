@@ -342,9 +342,10 @@ provided here do, and as the `loki` module does through Loki's native
 forwards end-to-end exactly like metrics and traces**, e.g.
 `backends.logs: {contractRef: logs.log-sink}` with a `loki` instance in the
 profile. Unbound signals stay collector-local: the per-signal endpoint renders
-empty and the exporter falls back to its base endpoint (the collector's own
-health_check extension — a permanent 4xx that drops the batch quietly instead
-of retrying a dead port forever). The module is
+empty and the exporter falls back to its base endpoint — the collector's own
+health_check extension, which answers the export POST with 200 on any path and
+drops the batch silently instead of retrying a dead port (`127.0.0.1:1`)
+forever. The module is
 experimental (`productionSuitable: false`): single-node, unauthenticated
 OTLP endpoints, no storage of its own.
 

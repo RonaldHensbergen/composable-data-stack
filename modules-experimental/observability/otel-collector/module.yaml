@@ -192,9 +192,9 @@ spec:
             # /v1/<signal>), so the ingest path must be part of the value.
             # Unbound signals render empty, in which case the collector config
             # falls back to its base endpoint (the collector's own health_check
-            # extension, a permanent 4xx discard — see collector.yaml; the
-            # per-signal *_endpoint keys override `endpoint` only when
-            # non-empty).
+            # extension, which answers the export POST with 200 and discards
+            # the batch silently — see collector.yaml; the per-signal
+            # *_endpoint keys override `endpoint` only when non-empty).
             BACKEND_LOGS_ENDPOINT: "${ifNonempty:bindings.log-backend.connectionUri,,}${ifNonempty:bindings.log-backend.ingestPath,,}"
             BACKEND_METRICS_ENDPOINT: "${ifNonempty:bindings.metrics-backend.connectionUri,,}${ifNonempty:bindings.metrics-backend.ingestPath,,}"
             BACKEND_TRACES_ENDPOINT: "${ifNonempty:bindings.trace-backend.connectionUri,,}${ifNonempty:bindings.trace-backend.ingestPath,,}"
