@@ -4102,7 +4102,10 @@ spec:
         self.assertEqual(entries[0]["command"], "render")
         self.assertEqual(entries[0]["outcome"], "success")
         self.assertEqual(entries[0]["details"]["target"], "compose")
-        self.assertEqual(entries[0]["details"]["output"], str(self.checkout / "docker-compose.yml"))
+        # details.output comes from resolve_project_root(), which resolves
+        # symlinks/short names (e.g. /var -> /private/var on macOS, 8.3 names
+        # on Windows), so compare against the resolved checkout path.
+        self.assertEqual(entries[0]["details"]["output"], str(self.checkout.resolve() / "docker-compose.yml"))
         self.assertTrue((self.checkout / "docker-compose.yml").exists())
         self.assertFalse((self.foreign_cwd / ".cds" / "audit-log.jsonl").exists())
 
