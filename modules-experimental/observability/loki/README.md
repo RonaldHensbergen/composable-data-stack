@@ -29,6 +29,13 @@ the configured retention period to each tier.
 - This is a single-node filesystem-backed Loki instance without redundancy,
   authentication, TLS, or a query UI. Pair it with a secured reverse proxy
   and a separately configured dashboard for deployments beyond local use.
+- On the snap-confined Docker runtime used in some agent sandboxes, both
+  services fail to start under `security_opt: no-new-privileges:true` with
+  `exec ...: operation not permitted` for any image; that is a runtime
+  artifact, not an image defect — verify on a non-snap Docker host before
+  changing this module's hardening (see
+  [docs/runtime-confinement.md](../../../docs/runtime-confinement.md#scope-and-caveats),
+  issue #1155).
 
 ## Upstream documentation
 

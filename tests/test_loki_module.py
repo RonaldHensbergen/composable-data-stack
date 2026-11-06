@@ -129,6 +129,54 @@ class LokiModuleTest(unittest.TestCase):
             "http://logs-loki-storage:3100",
         )
 
+    def test_services_run_with_no_new_privileges(self) -> None:
+        # Both pinned images (timberio/vector, grafana/loki) ship their main
+        # binary without file capabilities, so exec succeeds under
+        # no_new_privs (issue #1066); assert the flag on the module and on
+        # the rendered Compose output.
+        services = self.module["spec"]["implementation"]["compose"]["services"]
+        for name, service in services.items():
+            with self.subTest(service=name):
+                self.assertIn("no-new-privileges:true", service["security_opt"])
+
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "loki-nnp-test", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "logs",
+                        "source": "observability/loki",
+                        "version": "0.1.0",
+                        "enabled": True,
+                    }
+                ],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            profile_path = Path(tmp) / "profile.yaml"
+            profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+            with mock.patch.dict(
+                "os.environ",
+                {"CDS_MODULE_PATH": str(REPO_ROOT / "modules-experimental")},
+                clear=False,
+            ):
+                plan, _ = build_plan(str(profile_path))
+                rendered, render_diagnostics = render_compose(plan)
+        self.assertEqual(
+            [d.format() for d in render_diagnostics if d.level == "error"],
+            [],
+        )
+        compose = yaml.safe_load(rendered)
+        for name in ("logs-loki", "logs-loki-storage"):
+            with self.subTest(rendered_service=name):
+                self.assertIn(
+                    "no-new-privileges:true",
+                    compose["services"][name]["security_opt"],
+                )
+
     def test_ingestion_is_not_granted_host_docker_socket_access(self) -> None:
         services = self.module["spec"]["implementation"]["compose"]["services"]
         for service in services.values():
