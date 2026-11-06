@@ -5,7 +5,7 @@
 # forwards each signal to the bound backend module over OTLP/HTTP when a
 # `backends.<signal>` binding is configured. The backend's full ingest URL
 # (connectionUri + ingestPath) arrives as an environment variable rendered
-# from the contract binding; the otlphttp exporter uses a per-signal
+# from the contract binding; the otlp_http exporter uses a per-signal
 # *_endpoint as the complete URL — it does not append /v1/<signal> — so the
 # ingest path must be part of the value. An unbound signal leaves the
 # per-signal endpoint empty, in which case the base `endpoint` applies: the
@@ -24,6 +24,10 @@ receivers:
 
 extensions:
   health_check:
+    # Must stay 0.0.0.0: the pinned 0.164.0 image defaults this extension to
+    # localhost:13133, and the module publishes the port to the host as
+    # 127.0.0.1:<healthPort>:13133 — with a localhost bind that mapping
+    # would never answer from the host (issue #1167).
     endpoint: 0.0.0.0:${env:HEALTH_PORT}
 
 processors:
@@ -35,17 +39,19 @@ exporters:
   # did (and like the docker smoke test asserts, issue #1065).
   debug:
     verbosity: detailed
-  otlphttp/logs:
+  # Canonical `otlp_http` name: the `otlphttp` alias logs a deprecation
+  # warning on every startup of the pinned 0.164.0 image (issue #1167).
+  otlp_http/logs:
     # Unbound signal: the empty per-signal endpoint falls back to this base
     # endpoint — the collector's own health_check, which answers the export
     # POST with 200 and drops the batch silently, no retries (see the header
     # comment).
     endpoint: http://127.0.0.1:${env:HEALTH_PORT}
     logs_endpoint: ${env:BACKEND_LOGS_ENDPOINT}
-  otlphttp/metrics:
+  otlp_http/metrics:
     endpoint: http://127.0.0.1:${env:HEALTH_PORT}
     metrics_endpoint: ${env:BACKEND_METRICS_ENDPOINT}
-  otlphttp/traces:
+  otlp_http/traces:
     endpoint: http://127.0.0.1:${env:HEALTH_PORT}
     traces_endpoint: ${env:BACKEND_TRACES_ENDPOINT}
 
@@ -55,12 +61,12 @@ service:
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug, otlphttp/logs]
+      exporters: [debug, otlp_http/logs]
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug, otlphttp/metrics]
+      exporters: [debug, otlp_http/metrics]
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug, otlphttp/traces]
+      exporters: [debug, otlp_http/traces]

@@ -40,6 +40,7 @@ TRACE_SINK_PATH = CONTRACTS_DIR / "trace-sink.yaml"
 METRICS_SINK_PATH = CONTRACTS_DIR / "metrics-sink.yaml"
 LOG_SINK_PATH = CONTRACTS_DIR / "log-sink.yaml"
 MODULE_PATH = REPO_ROOT / "modules-experimental" / "observability" / "otel-collector" / "module.yaml"
+COLLECTOR_CONFIG_PATH = MODULE_PATH.parent / "collector.yaml"
 MODULE_SCHEMA = json.loads(
     (REPO_ROOT / "cli" / "resources" / "module.schema.json").read_text(encoding="utf-8")
 )
@@ -223,19 +224,39 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
         # health_check extension, which answers the export POST with 200 and
         # drops the batch silently (verified at runtime), while the per-signal
         # endpoints come from the BACKEND_*_ENDPOINT env vars.
-        collector_yaml = yaml.safe_load(
-            (MODULE_PATH.parent / "collector.yaml").read_text(encoding="utf-8")
-        )
+        collector_yaml = yaml.safe_load(COLLECTOR_CONFIG_PATH.read_text(encoding="utf-8"))
         exporters = collector_yaml["exporters"]
         self.assertIn("debug", exporters)
         self.assertEqual(exporters["debug"]["verbosity"], "detailed")
         self.assertNotIn("logging", exporters)
         for signal in ("logs", "metrics", "traces"):
-            exporter = exporters[f"otlphttp/{signal}"]
+            exporter = exporters[f"otlp_http/{signal}"]
             self.assertEqual(exporter["endpoint"], "http://127.0.0.1:${env:HEALTH_PORT}")
             self.assertEqual(exporter[f"{signal}_endpoint"], f"${{env:BACKEND_{signal.upper()}_ENDPOINT}}")
             pipeline = collector_yaml["service"]["pipelines"][signal]
-            self.assertEqual(pipeline["exporters"], ["debug", f"otlphttp/{signal}"])
+            self.assertEqual(pipeline["exporters"], ["debug", f"otlp_http/{signal}"])
+
+    def test_collector_config_uses_canonical_exporters_and_wildcard_health_bind(self) -> None:
+        # Pinned against the 0.164.0 image (issue #1167): the `otlphttp`
+        # component alias logs a deprecation warning on every startup, and
+        # the health_check extension defaults to localhost:13133, which would
+        # leave the host-published 127.0.0.1:<healthPort>:13133 mapping
+        # unanswerable from the host.
+        raw = COLLECTOR_CONFIG_PATH.read_text(encoding="utf-8")
+        non_comment = "\n".join(line for line in raw.splitlines() if not line.lstrip().startswith("#"))
+        self.assertNotIn("otlphttp", non_comment)
+        config = yaml.safe_load(raw)
+        self.assertEqual(
+            sorted(config["exporters"]),
+            ["debug", "otlp_http/logs", "otlp_http/metrics", "otlp_http/traces"],
+        )
+        for signal in ("logs", "metrics", "traces"):
+            self.assertIn(f"otlp_http/{signal}", config["service"]["pipelines"][signal]["exporters"])
+        health_endpoint = config["extensions"]["health_check"]["endpoint"]
+        self.assertTrue(
+            health_endpoint.startswith("0.0.0.0:"),
+            f"health_check must bind all interfaces so the host-published port answers: {health_endpoint}",
+        )
 
 
 class OtelCollectorPlanRenderTest(unittest.TestCase):
@@ -294,7 +315,7 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
         self.assertNotIn("metrics-backend", otel["consumes"])
 
         env = compose["services"]["otel-collector"]["environment"]
-        # The otlphttp exporter uses a per-signal endpoint as the complete URL
+        # The otlp_http exporter uses a per-signal endpoint as the complete URL
         # (no /v1/<signal> is appended), so the forwarded value must be the
         # backend's connectionUri + ingestPath.
         self.assertEqual(env["BACKEND_TRACES_ENDPOINT"], "http://otel-backend-otel-collector:4318/v1/traces")

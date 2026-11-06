@@ -187,7 +187,7 @@ spec:
             OTLP_HTTP_PORT: "4318"
             HEALTH_PORT: "13133"
             # Forwarding targets, resolved from the optional backend bindings'
-            # connectionUri + ingestPath: the otlphttp exporter uses a
+            # connectionUri + ingestPath: the otlp_http exporter uses a
             # per-signal *_endpoint as the complete URL (it does NOT append
             # /v1/<signal>), so the ingest path must be part of the value.
             # Unbound signals render empty, in which case the collector config

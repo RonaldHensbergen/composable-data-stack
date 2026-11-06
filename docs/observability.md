@@ -333,7 +333,7 @@ per-signal paths `/v1/logs`, `/v1/metrics`, `/v1/traces`; OTLP/gRPC on 4317
 is also open for SDKs that prefer it). Each signal can optionally be
 forwarded to a bound backend module via `spec.config.backends.<signal>.contractRef`;
 forwarding uses the backend's advertised `connectionUri` **+ `ingestPath`**
-over OTLP/HTTP (the collector's `otlphttp` exporter treats a per-signal
+over OTLP/HTTP (the collector's `otlp_http` exporter treats a per-signal
 endpoint as the complete URL and does not append `/v1/<signal>` itself), so
 the backend must expose an OTLP/HTTP ingest endpoint — as the sink contracts
 provided here do, and as the `loki` module does through Loki's native

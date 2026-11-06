@@ -383,6 +383,19 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- `modules-experimental/observability/otel-collector/collector.yaml` now uses
+  the canonical `otlp_http/<signal>` exporter names instead of the deprecated
+  `otlphttp` alias, which logged a deprecation warning on every startup of the
+  pinned 0.164.0 image, and pins the `health_check` extension to
+  `0.0.0.0:${env:HEALTH_PORT}` with a comment explaining why: the image's
+  default is `localhost:13133`, which left the host-published
+  `127.0.0.1:<healthPort>:13133` mapping unanswerable from the host (issue
+  #1167; the container-side compose healthcheck half was already closed by
+  #1065/#1165). `tests/test_otel_collector_module.py` pins both properties of
+  the shipped collector config. Verified at runtime against the pinned
+  image: zero deprecation warnings, `otelcol-contrib validate` exits 0,
+  OTLP/HTTP ingest answers 200, and the host-published health port answers
+  `{"status":"Server available"}` with HTTP 200.
 - Bumped the digest-pinned base of the hardened dagster image to remediate
   CVE-2026-85091 (HIGH, heap buffer overflow in zlib's `gz_vacate()`) reported
   by the Trivy image scan against the alpine 3.24.2 layer:

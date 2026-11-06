@@ -39,7 +39,7 @@ sink contract, via `spec.config.backends.<signal>.contractRef`:
         contractRef: otel-backend.trace-sink   # another OTLP/HTTP backend
 ```
 
-Forwarding uses OTLP/HTTP (`otlphttp` exporter) to the backend's advertised
+Forwarding uses OTLP/HTTP (`otlp_http` exporter) to the backend's advertised
 `connectionUri` + `ingestPath` — the exporter treats a per-signal endpoint as
 the complete URL and does not append `/v1/<signal> itself, so the ingest path
 must be included. The backend must therefore expose an OTLP/HTTP ingest
@@ -66,4 +66,8 @@ for the full `consumes`/`mappedFrom` wiring example.
 
 The OTLP and health ports are additionally bound to `127.0.0.1` on the host
 for external non-Compose shippers during development; on the Compose network
-other services should use the provided sink contracts.
+other services should use the provided sink contracts. The `health_check`
+extension is pinned to `0.0.0.0:13133` in `collector.yaml` on purpose: the
+pinned 0.164.0 image defaults it to `localhost:13133`, which would leave the
+host-published `127.0.0.1:<healthPort>:13133` mapping unanswerable from the
+host (issue #1167).
