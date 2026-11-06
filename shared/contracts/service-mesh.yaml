@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: service-mesh
+  category: shared
+  version: "0.1.0"
+  description: >-
+    Vendor-neutral contract describing a service mesh that provides mutual
+    TLS (mTLS) and traffic policy between the named services of a profile's
+    module instances, on the Kubernetes (Helm) render target (issue #776,
+    docs/haven-parity-plan.md workstream 3.4). A provider enforces the
+    `mtlsMode` between the enrolled `services` and may additionally enforce
+    a per-service `authorizationPolicy`. Consumers read the contract to learn
+    the mesh's enforcement mode and enrolled services; `cds maturity` counts
+    a provider of this contract as the service-mesh leg of the Secured tier.
+    CDS's own default-deny NetworkPolicy still governs L3/L4 reachability:
+    a mesh adds peer identity and L7 policy on top of it, it does not open
+    network paths by itself.
+
+spec:
+  fields:
+    mtlsMode:
+      type: string
+      required: true
+      description: >-
+        mTLS enforcement mode between enrolled services: "STRICT" requires
+        mTLS for all traffic to the enrolled workloads, "PERMISSIVE" also
+        accepts plaintext (migration only — prefer STRICT).
+    services:
+      type: array
+      required: true
+      description: >-
+        Named services enrolled in the mesh: a list of objects with `name`
+        (the module instance id whose pods carry the matching cds.dev/module
+        label) and `port` (the TCP port other enrolled services call it on).
+    authorizationPolicy:
+      type: object
+      required: false
+      description: >-
+        Optional per-service authorization policy the provider enforces on
+        top of mTLS, as an object with an `enabled` flag and a
+        provider-shaped `rules` list (the reference Istio provider maps it to
+        an Istio AuthorizationPolicy). Absent or disabled means enrolled
+        services may call each other authenticated by mTLS only.
+  examples:
+    - mtlsMode: STRICT
+      services:
+        - name: warehouse
+          port: 5432
+        - name: orchestration
+          port: 3000
+    - mtlsMode: STRICT
+      services:
+        - name: warehouse
+          port: 5432
+        - name: orchestration
+          port: 3000
+      authorizationPolicy:
+        enabled: true
+        rules:
+          - to:
+              - operation:
+                  ports: ["5432"]
+            from:
+              - source:
+                  principals: ["cluster.local/ns/cds-local/sa/orchestration"]

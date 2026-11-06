@@ -18,6 +18,7 @@ including k3s through k3d.
 - [Network isolation and least privilege](#network-isolation-and-least-privilege)
 - [GitOps handoff](#gitops-handoff)
 - [Operator-managed modules](#operator-managed-modules)
+- [Service mesh (mTLS between module instances)](#service-mesh-mtls-between-module-instances)
 - [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
@@ -482,6 +483,38 @@ cert-manager is not required for a basic install (the operator manages its
 own webhook/cluster CA by default). See the module README for the full flow
 and the demo profile
 [`profiles/local-kubernetes-postgres-operator`](../profiles/local-kubernetes-postgres-operator/).
+
+## Service mesh (mTLS between module instances)
+
+For profiles that need mutual TLS between module instances — rather than only
+TLS at the ingress/reverse proxy — the vendor-neutral
+[`service-mesh` contract](../shared/contracts/service-mesh.yaml) describes
+the mesh (enforcement mode, enrolled named services, optional per-service
+authorization policy), and the experimental reference provider
+[`modules-experimental/security/istio`](../modules-experimental/security/istio/)
+(issue #776) renders the Istio security resources on the Helm target:
+
+- a namespace-wide `PeerAuthentication` with `mtls.mode` from
+  `config.mtlsMode` (`STRICT` by default), and
+- when `config.authorization.enabled` is true, an `AuthorizationPolicy`
+  (`action: ALLOW`) whose rules come from `config.authorization.rules`.
+
+A profile enrolls an existing module simply by naming its instance id (and
+port) in the istio module's `config.services` — no consumer-side changes to
+that module: the mesh policy selects its pods by the `cds.dev/module` label.
+The module advertises the resolved mesh on the `service-mesh` contract, which
+`cds maturity` counts as the service-mesh leg of the **Secured** tier.
+
+Like operator-managed modules, the istio module runs no pods of its own (no
+ServiceAccount/NetworkPolicy), declares the Istio control plane under
+`implementation.kubernetes.operators` (W130 on render/test, E155 on
+`cds up --target helm` while `peerauthentications.security.istio.io` is
+absent), and fails closed with E070 on `--target compose`. The mesh adds peer
+identity and L7 policy on top of CDS's default-deny NetworkPolicy — it does
+not open L3/L4 paths by itself, so enrolled modules still need their
+contract-derived (or passthrough) NetworkPolicy edges. The module is
+experimental and not wired into any stable profile; see its README for the
+out-of-band istiod install and the namespace sidecar-injection label.
 
 ## Troubleshooting
 
