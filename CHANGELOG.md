@@ -8,6 +8,18 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Unscoped custom ingress allow rules are recorded by the Kubernetes
+  security scan (issue #1030): a `networkPolicy.ingress` passthrough rule
+  without a source restriction (no `from` key, an empty `from` list, or an
+  `ipBlock` peer) admits sources no contract binding can name -- all sources
+  when `from` is absent, equally or more exposed than the
+  NodePort/LoadBalancer service CDS-K8S-007 flags -- so `cds security` now
+  reports every such rule as a low CDS-K8S-010 finding
+  (configuration-management), mirroring the CDS-K8S-008 egress shape.
+  Selector-scoped (`namespaceSelector`/`podSelector`) ingress rules stay
+  clean. (The issue text says CDS-K8S-009, but that code had already been
+  taken on `main` by declared-external-egress breadth, so the new rule is
+  CDS-K8S-010.)
 - New `service-mesh` shared contract (`shared/contracts/service-mesh.yaml`)
   and experimental reference provider `modules-experimental/security/istio`
   (issue #776, Haven parity workstream 3.4): vendor-neutral contract for

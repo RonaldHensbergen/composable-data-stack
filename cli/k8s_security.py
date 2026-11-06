@@ -175,6 +175,42 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
                         ],
                         category="configuration-management",
                     ))
+            for index, rule in enumerate(network_policy.get("ingress") or []):
+                if not isinstance(rule, dict):
+                    continue
+                # An ingress rule without a "from" restriction (or with an
+                # ipBlock peer) admits external sources on its ports --
+                # equal or worse exposure than the NodePort/LoadBalancer
+                # service CDS-K8S-007 flags. Selector-based peers stay
+                # cluster-internal and are not flagged.
+                sources = rule.get("from")
+                if isinstance(sources, list) and sources:
+                    opens_external = any(
+                        isinstance(peer, dict) and "ipBlock" in peer
+                        for peer in sources
+                    )
+                else:
+                    opens_external = True
+                if opens_external:
+                    findings.append(_finding(
+                        "CDS-K8S-010",
+                        "low",
+                        (
+                            f'Custom ingress rule {index} of module "{module_id}" '
+                            "admits ingress from all sources (no from restriction "
+                            "or an ipBlock peer), which the default-deny "
+                            "NetworkPolicy baseline would otherwise block."
+                        ),
+                        f"module:{module_id}.implementation.kubernetes.networkPolicy."
+                        f"ingress.{index}",
+                        module_id,
+                        [
+                            "Confirm the source is intended; scope the rule to the "
+                            "minimum: the smallest ipBlock cidr (with except where "
+                            "possible) or a selector-based peer, and a TCP port list."
+                        ],
+                        category="configuration-management",
+                    ))
         _scan_declared_external_egress(
             findings,
             module_id,
@@ -331,8 +367,9 @@ def _finding(
         # runtime-hardening posture checks, so they default to the matching
         # cli.security_common.COMPLIANCE_CATEGORIES value; CDS-K8S-005
         # (resource requests/limits), CDS-K8S-006 (wildcard RBAC rules),
-        # CDS-K8S-008 (unrestricted custom egress), and CDS-K8S-009 (declared
-        # external egress breadth) override this below since they're capacity-,
+        # CDS-K8S-008 (unrestricted custom egress), CDS-K8S-009 (declared
+        # external egress breadth), and CDS-K8S-010 (source-unrestricted
+        # custom ingress) override this below since they're capacity-,
         # privilege-, and network-governance concerns rather than
         # runtime-hardening posture.
         "category": category,

@@ -384,8 +384,10 @@ selector-based peers -- declare raw rules via
 `implementation.kubernetes.networkPolicy.ingress`/`egress`: they are rendered
 verbatim after the binding-derived, route-derived, and declared-egress rules,
 and malformed shapes fail closed with E149. The security scan records every
-external-egress rule as a low CDS-K8S-008 finding, so intentional openings
-stay visible in `cds security --target helm`.
+external-egress rule as a low CDS-K8S-008 finding, and every ingress rule
+without a source restriction (no `from`, an empty `from` list, or an ipBlock
+peer) as a low CDS-K8S-010 finding, so intentional openings stay visible in
+`cds security --target helm`.
 
 ## GitOps handoff
 
