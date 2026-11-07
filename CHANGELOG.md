@@ -429,6 +429,14 @@ The format is based on Keep a Changelog.
   job summary, and artifact still publish the partial matrix.
   `tests/test_mutation_tests_workflow.py` reproduces the crash against the
   previous workflow and pins the tolerant export.
+- The mutmut-side fix for that torn-cache crash is upstreamed (issue #1181):
+  boxed/mutmut#630 proposes that `SourceFileMutationData.load()` catch
+  `json.JSONDecodeError` alongside `FileNotFoundError`, so any interrupted
+  `mutmut run` — not just the kill-matrix workflow — recovers cleanly on the
+  next command. The workflow-side sanitizer in
+  `.github/workflows/mutation-tests.yml` stays in place until a mutmut release
+  ships the fix; the export-step comment now points at the upstream PR as the
+  drop condition (pin bump included).
 - The local audit log (`.cds/audit-log.jsonl`, #737/#810) is now anchored to
   the profile's own project root — `resolve_project_root(profile_path)`,
   the same resolution that decides where `docker-compose.yml` is rendered —
