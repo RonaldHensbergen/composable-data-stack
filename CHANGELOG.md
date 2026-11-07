@@ -592,6 +592,11 @@ The format is based on Keep a Changelog.
   -> v0.43.0. restic 0.19.1 is still the latest upstream release, so the
   image keeps compiling the pinned release tag from source; Renovate's
   regex manager in `renovate.json` keeps tracking the pins.
+- `uv.lock` is regenerated so the locked ruff matches the `ruff==0.17.3` pin
+  in `pyproject.toml` (issue #1194): the lock still recorded 0.17.1 from
+  before the #1056 bump, so `uv lock --check` failed on main and any plain
+  `uv run`/`uv sync` silently rewrote the lock as a side effect. The lock now
+  records ruff 0.17.3 (specifier `==0.17.3`) and `uv lock --check` passes.
 
 ## [0.15.0] - 2026-11-02
 
