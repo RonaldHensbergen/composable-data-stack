@@ -392,6 +392,11 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- `cds preflight` now appends the governing doc link `(see <url>)` to `host.*`
+  `PASS` lines too (previously only `WARN`/`FAIL` lines carried it), so a green
+  host check still points at the explanation: `cli/preflight.py`
+  (`format_check_line` renders any set reference; `_host_check` and
+  `_check_socket_exposure` keep the reference on PASS results).
 - Deduplicated the Kubernetes workload substitution used for NetworkPolicy
   surfaces (issue #1034): `cli/k8s_renderer.py` no longer substitutes each
   module's Kubernetes block twice per render. `_render_module` now collects

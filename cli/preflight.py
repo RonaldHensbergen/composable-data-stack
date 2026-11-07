@@ -31,8 +31,9 @@ _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)((?:[:?-][^}]*)?)\}")
 # Preflight uses this only for a short-lived availability probe.
 _DOCKER_WILDCARD_IPV4 = "0.0.0.0"  # nosec B104  # noqa: S104
 
-# Base URL of the repo docs, used for the `reference` of non-PASS checks so
-# every WARN/FAIL line can point at the governing document.
+# Base URL of the repo docs, used for the `reference` of checks so every
+# line with a governing document can point at it: all WARN/FAIL lines, plus
+# `host.*` PASS lines (the PASS result should still explain the control).
 _DOCS_BASE_URL = (
     "https://github.com/RonaldHensbergen/composable-data-stack/blob/main/docs/"
 )
@@ -47,14 +48,15 @@ class PreflightCheck:
     status: str
     name: str
     message: str
-    # Link to the repo doc explaining the check; set on WARN/FAIL results.
+    # Link to the repo doc explaining the check; set on WARN/FAIL results and
+    # on `host.*` PASS results.
     reference: str | None = None
 
 
 def format_check_line(check: PreflightCheck) -> str:
-    """Render one preflight result; WARN/FAIL lines append their doc link."""
+    """Render one preflight result; a set reference is always appended."""
     line = f"[{check.status}] {check.name}: {check.message}"
-    if check.status != "PASS" and check.reference:
+    if check.reference:
         line += f" (see {check.reference})"
     return line
 
@@ -244,7 +246,9 @@ def _host_check(
         "PASS" if ok else "WARN",
         name,
         pass_message if ok else warn_message,
-        reference=None if ok else reference,
+        # Host PASS results keep the reference so the line still points at
+        # the doc explaining the control.
+        reference=reference,
     )
 
 
@@ -280,6 +284,7 @@ def _check_socket_exposure(rootless: bool = False) -> PreflightCheck | None:
                 "PASS",
                 "host.socket",
                 "Daemon is reached over TCP with TLS verification.",
+                reference=_doc_ref("docker-host-hardening.md"),
             )
         return PreflightCheck(
             "WARN",
@@ -289,7 +294,12 @@ def _check_socket_exposure(rootless: bool = False) -> PreflightCheck | None:
             reference=_doc_ref("docker-host-hardening.md"),
         )
     if scheme == "ssh":
-        return PreflightCheck("PASS", "host.socket", "Daemon is reached over SSH.")
+        return PreflightCheck(
+            "PASS",
+            "host.socket",
+            "Daemon is reached over SSH.",
+            reference=_doc_ref("docker-host-hardening.md"),
+        )
     if scheme not in {"", "unix"} or os.name == "nt":
         return None
 
@@ -309,7 +319,12 @@ def _check_socket_exposure(rootless: bool = False) -> PreflightCheck | None:
             f"Daemon socket {socket_path} is world-writable (HOST-006).",
             reference=_doc_ref("docker-host-hardening.md"),
         )
-    return PreflightCheck("PASS", "host.socket", "Daemon socket is not world-writable.")
+    return PreflightCheck(
+        "PASS",
+        "host.socket",
+        "Daemon socket is not world-writable.",
+        reference=_doc_ref("docker-host-hardening.md"),
+    )
 
 
 def _run_runtime_command(

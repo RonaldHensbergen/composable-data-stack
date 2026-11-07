@@ -47,7 +47,8 @@ governs the check: the [host hardening baseline](docker-host-hardening.md) for
 the [installation guide](installation.md) for runtime and environment findings,
 [from-docker-to-cds-profile.md](from-docker-to-cds-profile.md) for host-port
 findings, and the [image verification policy](image-signing.md#verification-policy)
-for `images.*` failures.
+for `images.*` failures. `host.*` lines keep the link on `PASS` as well, so a
+passing host check still points at the doc that explains the control.
 
 Color output is terminal-only: when stdout is piped or redirected, `cds` prints
 plain text. On a terminal, `cds up` and `cds state` accept `--no-color`, and a
