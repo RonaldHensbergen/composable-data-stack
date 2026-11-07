@@ -1,4 +1,4 @@
-.PHONY: install validate validate-profile package lint lint-markdown lint-yaml lint-deprecated lint-renovate lint-prompts docker-build test check contract-coverage practices-audit practices-audit-pin branch-hygiene test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
+.PHONY: install validate validate-profile profile-matrix package lint lint-markdown lint-yaml lint-deprecated lint-renovate lint-prompts docker-build test check contract-coverage practices-audit practices-audit-pin branch-hygiene test-mutation k3d-build k3d-up k3d-install k3d-expose k3d-e2e k3d-down tender-export tender-load tender-dashboard tender-e2e
 
 PROFILE ?= profiles/local-dagster-postgres-superset/profile.yaml
 
@@ -79,6 +79,12 @@ validate-profile:
 		exit 1; \
 	fi
 	cds validate $(P)
+
+# Validate, plan, and render every shipped profile (plus environment
+# overlays) without Docker: compose target, and helm where defined. CI runs
+# this via the profile-matrix job in .github/workflows/ci.yml (#1208).
+profile-matrix:
+	python scripts/check_profile_matrix.py
 
 package:
 	python3 -m pip install --upgrade build

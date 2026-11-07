@@ -8,6 +8,27 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- CI now exercises the full shipped profile matrix, not just
+  `local-dagster-postgres-superset` (issue #1208). Cheap tier, every PR and
+  no Docker: the new `profile-matrix` job in `.github/workflows/ci.yml` runs
+  `scripts/check_profile_matrix.py` (`make profile-matrix`), which runs the
+  same code paths as `cds validate` / `cds render` over every
+  `profiles/*/profile.yaml` and every `profiles/*/environments/*.yaml`
+  overlay — schema + planner validation, then a compose render, plus a Helm
+  render where the target is defined (a module without a
+  `implementation.kubernetes` block, E072, or a compose-only capability
+  like backup, E142, means "not defined" and is skipped; any other error
+  fails). Guards keep the matrix from shrinking silently: every combo must
+  define at least one target, the Kubernetes example profiles must render
+  to Helm, and the superset/vault variants must render to compose. The same
+  check runs in the unit-test job via `tests/test_profile_matrix.py` on all
+  CI operating systems. Smoke tier: the docker-smoke-test workflow gains a
+  `tests/test_compose_profile_lifecycle_smoke.py` step running the full
+  `render -> build -> up --wait -> cds state -> cds down` lifecycle per
+  compose profile (default `CDS_SMOKE_LIFECYCLE_PROFILES`:
+  `local-dagster-postgres-superset,local-dagster-postgres-superset-vault`).
+  The k3d e2e on the Kubernetes example profiles remains the helm-tier
+  runtime gate.
 - Plan-time validation of `service-mesh` enrollments (issue #1179): every
   `config.services[].name` of a module providing the `service-mesh` contract
   must name a module instance id of the profile, checked against the planned
