@@ -635,7 +635,13 @@ The format is based on Keep a Changelog.
   in the repo's `BEGIN_UNTRUSTED_DATA` / `END_UNTRUSTED_DATA` fences with a
   data-not-instructions preamble before dispatching to any provider, so
   untrusted profile YAML/plan JSON embedded in `scripts/ai_profile_review.py`
-  prompts is structurally isolated (system prompt unchanged).
+  prompts is structurally isolated (system prompt unchanged). The prompt is
+  additionally run through a deterministic sanitizer before fencing (control
+  chars stripped; fence markers, instruction-like patterns, and
+  secret-looking values replaced with `[REDACTED]`, mirroring
+  `scripts/redact_secrets.py`), and fence idempotence is strictly structural
+  (exact preamble+begin+payload+end shape), so embedded markers can neither
+  forge nor break the fences.
 
 ## [0.15.0] - 2026-11-02
 
