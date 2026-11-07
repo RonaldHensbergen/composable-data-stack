@@ -64,6 +64,7 @@ At minimum for this phase:
 
 - `python3 -m unittest discover -s tests -p "*.py"`
 - `CDS_RUN_DOCKER_SMOKE=1 python3 -m unittest tests.test_compose_runtime_smoke -v` when Docker is available
+- `CDS_RUN_DOCKER_SMOKE=1 python3 -m unittest tests.test_compose_profile_lifecycle_smoke -v` when Docker is available (full render -> build -> up -> state -> down lifecycle over the compose profile matrix, #1208)
 - Any focused regression tests for the change set being released
 
 Treat a skipped smoke test as an environment limitation, not as release validation.

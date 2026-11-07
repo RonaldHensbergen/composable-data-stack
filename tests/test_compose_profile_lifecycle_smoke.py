@@ -120,9 +120,13 @@ class ComposeProfileLifecycleSmokeTest(unittest.TestCase):
             # cds render (writes <repo-root>/docker-compose.yml, the path
             # `cds state` / `cds down` read).
             self._run([sys.executable, "-m", "cli.main", "render", profile], env)
-            self.assertTrue(COMPOSE_FILE.exists(), "docker-compose.yml was not generated")
+            self.assertTrue(
+                COMPOSE_FILE.exists(), "docker-compose.yml was not generated"
+            )
             doc = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8")) or {}
-            services = {name for name in doc.get("services", {}) if isinstance(name, str)}
+            services = {
+                name for name in doc.get("services", {}) if isinstance(name, str)
+            }
             self.assertTrue(services, "rendered compose file has no services")
 
             # build -> up --wait
@@ -161,7 +165,9 @@ class ComposeProfileLifecycleSmokeTest(unittest.TestCase):
                 f"cds state reported non-OK buckets: {sorted(buckets - _OK_STATE_BUCKETS)}",
             )
             for service in services:
-                self.assertIn(service, state.stdout, f"cds state did not list {service}")
+                self.assertIn(
+                    service, state.stdout, f"cds state did not list {service}"
+                )
 
             # docker compose ps agrees: running services healthy, one-shots exited 0.
             for row in self._compose_ps(env):
@@ -283,7 +289,16 @@ class ComposeProfileLifecycleSmokeTest(unittest.TestCase):
 
     def _compose_ps(self, env: dict[str, str]) -> list[dict]:
         result = self._run(
-            ["docker", "compose", "-f", str(COMPOSE_FILE), "ps", "-a", "--format", "json"],
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(COMPOSE_FILE),
+                "ps",
+                "-a",
+                "--format",
+                "json",
+            ],
             env,
         )
         stripped = result.stdout.strip()
@@ -347,7 +362,9 @@ def _make_lifecycle_test(profile: str):
         self._lifecycle(profile)
 
     test.__name__ = f"test_lifecycle_{profile}"
-    test.__doc__ = f"render -> build -> up --wait -> state -> down for {profile} (#1208)"
+    test.__doc__ = (
+        f"render -> build -> up --wait -> state -> down for {profile} (#1208)"
+    )
     return test
 
 

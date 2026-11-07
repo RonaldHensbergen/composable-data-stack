@@ -140,7 +140,9 @@ class ComboResult:
 
     @property
     def label(self) -> str:
-        return f"{self.profile}[{self.environment}]" if self.environment else self.profile
+        return (
+            f"{self.profile}[{self.environment}]" if self.environment else self.profile
+        )
 
     def failures(self) -> list[str]:
         out = [f"{self.label}: validate failed: {e}" for e in self.validate_errors]
@@ -246,34 +248,44 @@ def check_matrix(profiles_root: Path, workdir: Path, verbose: bool = True) -> li
             )
 
     # Guards: every combo defines at least one target, and the named
-    # example profiles render for their expected target.
+    # example profiles render for their expected target. The named-target
+    # guards only apply to the shipped profiles root: they exist to catch
+    # silent shrinkage of the shipped matrix, not to judge custom
+    # --profiles-root runs.
     by_combo = {(r.profile, r.environment): r for r in results}
     for profile, environment in _iter_combos(profiles_root):
         r = by_combo[(profile.parent.name, environment)]
         if r.compose == "rendered" or r.helm == "rendered":
             continue
+        if r.validate_errors or r.plan_errors:
+            continue  # already reported above; renders were never attempted
         failures.append(
             f"{r.label}: neither compose nor helm is defined for this profile "
             f"(compose={r.compose}, helm={r.helm})"
         )
-    for profile, environment in sorted(HELM_REQUIRED, key=lambda t: (t[0], t[1] or "")):
-        r = by_combo.get((profile, environment))
-        if r is None:
-            failures.append(f"{profile}[{environment}]: profile/overlay not found")
-        elif r.helm != "rendered":
-            failures.append(
-                f"{profile}[{environment or 'base'}]: expected a successful helm "
-                f"render, got helm={r.helm}"
-            )
-    for profile, environment in sorted(COMPOSE_REQUIRED, key=lambda t: (t[0], t[1] or "")):
-        r = by_combo.get((profile, environment))
-        if r is None:
-            failures.append(f"{profile}[{environment}]: profile/overlay not found")
-        elif r.compose != "rendered":
-            failures.append(
-                f"{profile}[{environment or 'base'}]: expected a successful compose "
-                f"render, got compose={r.compose}"
-            )
+    if profiles_root == PROFILES_ROOT:
+        for profile, environment in sorted(
+            HELM_REQUIRED, key=lambda t: (t[0], t[1] or "")
+        ):
+            r = by_combo.get((profile, environment))
+            if r is None:
+                failures.append(f"{profile}[{environment}]: profile/overlay not found")
+            elif r.helm != "rendered":
+                failures.append(
+                    f"{profile}[{environment or 'base'}]: expected a successful helm "
+                    f"render, got helm={r.helm}"
+                )
+        for profile, environment in sorted(
+            COMPOSE_REQUIRED, key=lambda t: (t[0], t[1] or "")
+        ):
+            r = by_combo.get((profile, environment))
+            if r is None:
+                failures.append(f"{profile}[{environment}]: profile/overlay not found")
+            elif r.compose != "rendered":
+                failures.append(
+                    f"{profile}[{environment or 'base'}]: expected a successful compose "
+                    f"render, got compose={r.compose}"
+                )
 
     return failures
 
