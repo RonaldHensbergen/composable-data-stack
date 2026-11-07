@@ -91,8 +91,8 @@ bootstrap admin account created at init remains available for CLI and
 bootstrap tasks but cannot sign in through the UI. Newly authenticated
 users are registered with the least-privileged `Gamma` role. When the
 provider is the keycloak module, the client can be provisioned
-declaratively on the provider side via its `config.oidcClients` (issue
-#1074) with the exact Superset callback URL
+declaratively on the provider side via its `config.oidcClients` (issue #1074)
+with the exact Superset callback URL
 `<public-superset-url>/oauth-authorized/keycloak` as a redirect URI and
 Standard Flow enabled — then `clientId`/`clientSecretFrom` here simply
 reference that provisioned client, with no admin-console step. Otherwise

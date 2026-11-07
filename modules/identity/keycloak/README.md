@@ -73,8 +73,8 @@ Consumers bind to `<keycloak-module-id>.oidc-provider` and reference the
 provisioned client through their own config (e.g. Superset's
 `identityProvider.clientId`/`clientSecretFrom`).
 
-Declare clients on the provider side with `config.oidcClients` (issue
-#1074): each entry takes a `clientId`, the exact `redirectUris` to register
+Declare clients on the provider side with `config.oidcClients` (issue #1074):
+each entry takes a `clientId`, the exact `redirectUris` to register
 (e.g. `<public-superset-url>/oauth-authorized/keycloak`), optional
 `webOrigins`, `standardFlowEnabled` (default true), realm `roles` created
 and assigned to the client, and an optional `secretFrom` secret alias. CDS
