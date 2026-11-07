@@ -281,7 +281,7 @@ Underneath (`cli/main.py:2812`):
   ```
   (`cli/k8s_runner.py:258-263`). PVCs are retained by default.
 - Lifecycle output goes to `.cds/logs/down-<profile>-<ts>.log`
-  (`cli/main.py:2821` + `default_log_path(..., prefix="down")`,
+  (`cli/main.py:2901` + `default_log_path(..., prefix="down")`,
   `cli/up_runner.py:50`).
 
 ## What `cds` adds on top
