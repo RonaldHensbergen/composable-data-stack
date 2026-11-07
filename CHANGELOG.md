@@ -644,7 +644,10 @@ The format is based on Keep a Changelog.
   forge nor break the fences. As a deterministic trust-boundary gate,
   `complete()` now refuses to send any prompt to the remote `azure_openai`
   backend unless `LLM_ALLOW_REMOTE_PROMPTS=1` is explicitly set
-  (default-deny; local providers unaffected).
+  (default-deny; local providers unaffected). `parse_status()` in
+  `scripts/ai_profile_review.py` is now strict/structural: exactly one
+  `STATUS:` line, required to be the last non-empty line of the model report,
+  so an injected or echoed status line cannot forge a clean verdict.
 
 ## [0.15.0] - 2026-11-02
 

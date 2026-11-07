@@ -90,9 +90,7 @@ STATUS: clean
 STATUS: findings
 """
 
-_STATUS_RE = re.compile(
-    r"^STATUS:\s*(clean|findings)\s*$", re.IGNORECASE | re.MULTILINE
-)
+_STATUS_RE = re.compile(r"^STATUS:\s*(clean|findings)\s*$", re.IGNORECASE)
 
 
 def build_user_prompt(profile_path: Path, profile_text: str, plan: dict) -> str:
@@ -105,9 +103,21 @@ def build_user_prompt(profile_path: Path, profile_text: str, plan: dict) -> str:
 
 
 def parse_status(report: str) -> str | None:
-    """Extract the STATUS line's value ('clean' or 'findings'), or None if missing."""
-    match = _STATUS_RE.search(report)
-    return match.group(1).lower() if match else None
+    """Extract the authoritative status from a model report.
+
+    Strict and structural: the report must contain exactly one STATUS line
+    and it must be the last non-empty line, so an injected or echoed
+    `STATUS: ...` line earlier in the output (e.g. quoted from untrusted
+    profile content) can never be mistaken for the final verdict. Returns
+    'clean' or 'findings', or None when the shape is wrong.
+    """
+    non_empty = [line.strip() for line in report.splitlines() if line.strip()]
+    if not non_empty:
+        return None
+    status_lines = [line for line in non_empty if _STATUS_RE.match(line)]
+    if len(status_lines) != 1 or non_empty[-1] != status_lines[0]:
+        return None
+    return _STATUS_RE.match(status_lines[0]).group(1).lower()
 
 
 def _declared_secret_env_names(profile_text: str) -> set[str]:
