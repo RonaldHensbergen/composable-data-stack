@@ -298,14 +298,13 @@ def render_helm(
         )
         _merge_init_db_env(compose_services, module, secrets)
 
-        module_surfaces[module_id] = _workload_surfaces(k8s, context)
-
         (
             module_values,
             module_manifests,
             module_files,
             module_secret_keys,
             module_diags,
+            module_surfaces[module_id],
         ) = _render_module(
             module=module,
             module_id=module_id,
@@ -416,12 +415,16 @@ def _render_module(
     dict[str, str],
     set[str],
     list[Diagnostic],
+    list[dict[str, Any]],
 ]:
     diagnostics: list[Diagnostic] = []
     manifests: list[tuple[str, dict[str, Any]]] = []
     files: dict[str, str] = {}
     secret_keys: set[str] = set()
     module_values: dict[str, Any] = {}
+    # NetworkPolicy surfaces, collected from the substituted workloads in
+    # the single rendering pass below (issue #1034).
+    surfaces: list[dict[str, Any]] = []
 
     volume_specs = apply_production_gates(
         _substitute_values(deepcopy(k8s.get("volumes", {})), context), is_production
@@ -453,6 +456,8 @@ def _render_module(
         enabled_from = workload.get("enabledFrom")
         if enabled_from and _resolve_expr(enabled_from, context) is False:
             continue
+
+        surfaces.append(_workload_surface(workload))
 
         full_name = _compose_service_name(module_id, workload_name)
         service_name = _release_scoped_service_name(
@@ -606,7 +611,7 @@ def _render_module(
         _render_manifests(module_id, k8s, context, release, diagnostics, secret_keys)
     )
 
-    return module_values, manifests, files, secret_keys, diagnostics
+    return module_values, manifests, files, secret_keys, diagnostics, surfaces
 
 
 # A manifest value that is exactly one ${CDS_*} reference (the shape a
@@ -2135,46 +2140,35 @@ def _service_account_manifest(
     return "---\n".join(_dump(document) for document in documents)
 
 
-def _workload_surfaces(
-    k8s: dict[str, Any], context: dict[str, Any]
-) -> list[dict[str, Any]]:
+def _workload_surface(workload: dict[str, Any]) -> dict[str, Any]:
     """
-    Summarize the enabled workloads' exposure for NetworkPolicy generation:
-    the Service type, the container ports reachable through it, and each
-    declared Service port -> targetPort mapping (the contract port is
-    Service-facing while NetworkPolicy ports match the destination pod
-    port, so a remap must translate one to the other).
+    Summarize one enabled, already-substituted workload's exposure for
+    NetworkPolicy generation: the Service type, the container ports
+    reachable through it, and each declared Service port -> targetPort
+    mapping (the contract port is Service-facing while NetworkPolicy ports
+    match the destination pod port, so a remap must translate one to the
+    other). Called from the single rendering pass in `_render_module`
+    (issue #1034).
     """
-    surfaces: list[dict[str, Any]] = []
-    for workload_raw in (k8s.get("workloads") or {}).values():
-        workload = _substitute_values(deepcopy(workload_raw), context)
-        enabled_from = workload.get("enabledFrom")
-        if enabled_from and _resolve_expr(enabled_from, context) is False:
+    service = workload.get("service")
+    if not isinstance(service, dict):
+        service = {}
+    ports: set[int] = set()
+    port_map: dict[int, set[int]] = {}
+    for port in service.get("ports", []) or []:
+        if not isinstance(port, dict):
             continue
-        service = workload.get("service")
-        if not isinstance(service, dict):
-            service = {}
-        ports: set[int] = set()
-        port_map: dict[int, set[int]] = {}
-        for port in service.get("ports", []) or []:
-            if not isinstance(port, dict):
-                continue
-            target_port = _container_port(port)
-            service_port = _int_or_none(port.get("port"))
-            if target_port is not None:
-                ports.add(target_port)
-            if service_port is not None and target_port is not None:
-                port_map.setdefault(service_port, set()).add(target_port)
-        surfaces.append(
-            {
-                "type": service.get("type") or "ClusterIP",
-                "ports": sorted(ports),
-                "port_map": {
-                    number: sorted(targets) for number, targets in port_map.items()
-                },
-            }
-        )
-    return surfaces
+        target_port = _container_port(port)
+        service_port = _int_or_none(port.get("port"))
+        if target_port is not None:
+            ports.add(target_port)
+        if service_port is not None and target_port is not None:
+            port_map.setdefault(service_port, set()).add(target_port)
+    return {
+        "type": service.get("type") or "ClusterIP",
+        "ports": sorted(ports),
+        "port_map": {number: sorted(targets) for number, targets in port_map.items()},
+    }
 
 
 def _container_port(port: dict[str, Any]) -> int | None:

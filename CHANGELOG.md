@@ -371,6 +371,14 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- Deduplicated the Kubernetes workload substitution used for NetworkPolicy
+  surfaces (issue #1034): `cli/k8s_renderer.py` no longer substitutes each
+  module's Kubernetes block twice per render. `_render_module` now collects
+  each enabled workload's Service type, ports, and port -> targetPort map
+  while the workloads are already being substituted in its single rendering
+  pass, and hands them to the NetworkPolicy generator; the separate
+  `_workload_surfaces` pass is gone. Pure refactor — no behavior change,
+  golden chart hashes unchanged.
 - Added Gate 4.5 (stability and Beta-readiness) to the Kubernetes MVP runbook
   (`docs/plan/k8s-haven-mvp.md`) and gate checklist
   (`docs/plan/k8s-haven-gate-checklist.md`): issues #1206 (versioned profile
