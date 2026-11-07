@@ -252,6 +252,53 @@
               }
             }
           }
+        },
+        "dataSharing": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional, provider-neutral declaration that this profile discloses the listed datasets to other organisations as a data provider in an external data-sharing system (e.g. the FDS Afsprakenstelsel), optionally linked to an external registration. CDS only records and reports the declaration; it never performs, verifies, or claims any registration. See docs/fds-alignment.md (#773, #844).",
+          "required": ["datasets"],
+          "properties": {
+            "registration": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["system", "reference"],
+              "description": "Optional link to the operator's own registration in the external data-sharing system. `system` identifies the external system; `reference` is the registration URL or ID maintained outside CDS. CDS never resolves, verifies, or performs this registration.",
+              "properties": {
+                "system": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9.-]*$",
+                  "description": "Identifier of the external registration/data-sharing system (e.g. \"fds-afsprakenstelsel\", \"dcat-ap-nl\"). Provider-neutral: CDS does not interpret it."
+                },
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "External registration reference (URL or registration ID) maintained by the operator outside CDS. CDS never resolves or verifies it."
+                }
+              }
+            },
+            "datasets": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["datasetId"],
+                "properties": {
+                  "datasetId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Stable identifier of the disclosed dataset, unique within the operator's namespace (e.g. a URI or slug); should match the datasetId a providing module advertises via the open-data-provider contract."
+                  },
+                  "module": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9-]+$",
+                    "description": "Optional id of the module instance in this profile that holds/discloses the dataset, tying the declaration to module-level evidence (e.g. an open-data-provider contract)."
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

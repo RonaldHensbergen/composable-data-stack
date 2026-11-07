@@ -71,6 +71,7 @@ def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list
     diagnostics.extend(validate_image_source_config(module_instances))
     diagnostics.extend(validate_outputs(profile, module_instances))
     diagnostics.extend(validate_observability_config(profile, module_instances))
+    diagnostics.extend(validate_data_sharing_declaration(profile, module_instances))
     diagnostics.extend(validate_backup_config(profile, module_instances))
     diagnostics.extend(validate_module_backup_config(profile, module_instances))
     diagnostics.extend(validate_module_marker_shapes(module_instances))
@@ -1244,6 +1245,64 @@ def validate_observability_config(profile: dict[str, Any], module_instances: lis
                 "spec.observability.logShipping.sink.contractRef",
             )
         )
+
+    return diagnostics
+
+
+def validate_data_sharing_declaration(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
+    """
+    Validates the optional spec.dataSharing declaration (issue #844,
+    docs/fds-alignment.md): a provider-neutral marker that this profile
+    discloses the listed datasets as a data provider, optionally linked to
+    an external registration. Shape (types, required fields, patterns) is
+    enforced by profile.schema.json (E010); this checks the cross-reference
+    rules the schema cannot express: datasetIds must be unique within the
+    declaration, and a dataset entry's optional `module` must name an
+    enabled module instance of this profile. CDS never performs, verifies,
+    or claims any registration -- the declaration is a marker only.
+    """
+    diagnostics: list[Diagnostic] = []
+
+    data_sharing = profile.get("spec", {}).get("dataSharing")
+    if not isinstance(data_sharing, dict):
+        return diagnostics
+
+    datasets = data_sharing.get("datasets")
+    if not isinstance(datasets, list):
+        return diagnostics
+
+    seen_dataset_ids: set[str] = set()
+    known_module_ids = {m["id"] for m in module_instances}
+    for index, dataset in enumerate(datasets):
+        if not isinstance(dataset, dict):
+            continue
+        dataset_id = dataset.get("datasetId")
+        if isinstance(dataset_id, str):
+            if dataset_id in seen_dataset_ids:
+                diagnostics.append(
+                    Diagnostic(
+                        "error",
+                        "E157",
+                        f'Duplicate datasetId "{dataset_id}"; each disclosed dataset '
+                        "must be declared once in spec.dataSharing.datasets.",
+                        f"spec.dataSharing.datasets[{index}].datasetId",
+                    )
+                )
+            else:
+                seen_dataset_ids.add(dataset_id)
+        module_ref = dataset.get("module")
+        if isinstance(module_ref, str) and module_ref not in known_module_ids:
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E158",
+                    f'Dataset "{dataset_id}" names module "{module_ref}", which is not '
+                    "an enabled module instance in this profile.",
+                    f"spec.dataSharing.datasets[{index}].module",
+                )
+            )
 
     return diagnostics
 

@@ -25,7 +25,7 @@ want to run the stack without the `cds` CLI.
 |cds state [profile]|Show Compose services or Kubernetes workloads grouped by health|
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 |cds security [profile]|Run rule-based security validation on a profile|
-|cds report [profile] [--json] [--output \<path\>]|Export a compliance/evidence report for a rendered stack (modules, image signature/SBOM/provenance evidence, contract topology, secret-leak check); see [compliance-report.md](compliance-report.md)|
+|cds report [profile] [--json] [--output \<path\>]|Export a compliance/evidence report for a rendered stack (modules, image signature/SBOM/provenance evidence, contract topology, secret-leak check, and the optional `spec.dataSharing` declaration when the profile declares it); see [compliance-report.md](compliance-report.md)|
 |cds diff [profile] --from \<env\> --to \<env\>|Show effective configuration differences between two environment overlays, secrets never included|
 |cds generate-profile \<input\|-\> [--name \<name\>] [--force]|Persist a JSON/YAML profile document (file path or stdin) to `profiles/<name>/profile.yaml`|
 |cds compose-profile [profile] --add-module \<source\> [--bind \<name\>=\<moduleId.contract\>] [--set \<path\>=\<value\>] [--secret \<alias\>=\<ENV_VAR\>] [--write\|--output \<path\>]|Merge a new module instance into an existing profile, auto-resolving unambiguous contract bindings/dependencies and reporting ambiguous or missing ones|

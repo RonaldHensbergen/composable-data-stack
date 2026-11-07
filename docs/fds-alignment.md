@@ -71,7 +71,7 @@ disclosure without centralising the data itself.
 | Technical | Disclose data via dataservices conforming to FDS's technical interoperability standards. | `shared/contracts/*.yaml` (e.g. `sql-database`, `cache-service`, `file-database`, `log-sink`) already define machine-checkable, versioned field-level interface contracts between modules, resolved at plan time via `provides.contracts`/`consumes`/profile `contractRef` binding (see `cli/validator.py`/`cli/planner.py`). This is the same category of mechanism FDS asks for — uniform, checkable service interfaces — just scoped today to inter-module wiring inside one profile, not to an external FDS dataservice endpoint. | No existing contract expresses an *externally disclosed* dataservice endpoint shape (e.g. an OGC API/REST dataservice per FDS's technical standards) as opposed to CDS's current internal service-to-service contracts. |
 | Semantic | Describe datasets and dataservices uniformly so they are findable across domains (standardised metadata vocabulary). | `module.yaml`'s `metadata.description`/`metadata.displayName` give human-readable prose for the *module catalog*; `shared/contracts/open-data-provider.yaml` (#825) now additionally captures dataset-level semantic metadata (`title`, `description`, `classification`) in a profile-portable, machine-checkable way, demonstrated via the `postgres` module's opt-in `config.dataProvider` block. | Closed (#825). Classification currently accepts any free-text string; adopting a standard vocabulary (e.g. DCAT-AP-NL themes) is left to the operator for now. |
 | Legal | Make access conditions (and, implicitly, licensing) for the disclosed data clear and consistent with privacy/security law. | The existing security rule-set (`cds security`/`cds test`), the NIS2/CRA scoping docs, and the secrets model (`secrets.<alias>` → `${CDS_*}`, never resolved into plans/rendered output) already give a baseline security/privacy evidence story an operator can point to. `shared/contracts/open-data-provider.yaml` (#825) adds `accessConditions`/`licence` fields. | Closed (#825). |
-| Organisational | Be accountable and controllable/auditable for the publication process and the data's quality. | `cds report` (#734, `docs/compliance-report.md`) aggregates module/image/topology/secret-leak evidence for a rendered stack, and the new local audit trail (#737, `docs/audit-log.md`) records a durable history of `validate`/`render`/`up`/`test` invocations. Both give an operator auditable evidence of what was rendered and deployed, and when. | Partially met. Neither mechanism lets a profile *declare* that it participates in the FDS as a specific data-aanbieder, or links its evidence to an FDS registration — there is no "this is an FDS-disclosed dataset" marker today. |
+| Organisational | Be accountable and controllable/auditable for the publication process and the data's quality. | `cds report` (#734, `docs/compliance-report.md`) aggregates module/image/topology/secret-leak evidence for a rendered stack, and the new local audit trail (#737, `docs/audit-log.md`) records a durable history of `validate`/`render`/`up`/`test` invocations. Both give an operator auditable evidence of what was rendered and deployed, and when. `spec.dataSharing` (#844) additionally lets the profile itself declare which datasets it discloses as a data provider, optionally linked to an external registration, and `cds report` surfaces that declaration. | Closed (#844). The declaration is a marker only: CDS never performs, verifies, or claims any registration. |
 
 ## Conclusion
 
@@ -95,6 +95,31 @@ actual consumer of FDS provider metadata is the external FDS catalog, not
 another CDS module — binding this contract via a profile's `contractRef`
 would only make sense once a catalog-facing module/report exists to read
 it, which is a separate, larger scope than this gap-analysis issue.
+
+**Closed by #844**: the organisational row's remaining gap — no marker for a
+disclosed dataset and no link to an external registration — is closed by the
+optional, provider-neutral `spec.dataSharing` profile block:
+
+```yaml
+spec:
+  dataSharing:
+    registration:                      # optional link to an external registration
+      system: fds-afsprakenstelsel     # provider-neutral system identifier
+      reference: https://realisatieibds.nl/registrations/<id>  # maintained outside CDS
+    datasets:                          # datasets this profile discloses
+      - datasetId: urn:example:datasets:address-register
+        module: postgres               # optional: instance that holds the dataset
+```
+
+Shape is enforced by `cli/resources/profile.schema.json` (E010) and the
+cross-reference rules by `cli/validator.py` (`E157` duplicate `datasetId`,
+`E158` `module` naming a non-existent instance). The declaration is carried
+into the plan and surfaced in `cds report` (see
+[`docs/compliance-report.md`](compliance-report.md)), enriched with whether
+the named module actually advertises an `open-data-provider` contract. CDS
+only records and reports the declaration; performing the registration with
+the external system remains the operator's own organisational step, exactly
+as before.
 
 ## Provenance and traceability
 
@@ -126,8 +151,9 @@ No second **metadata** contract is needed for this distinction:
 captures dataset description, classification, access conditions, and licence
 metadata. It is not a catalog integration or registration mechanism. Any
 future catalog-facing runtime integration would be a separate capability.
-The profile-level FDS-disclosure marker and standard classification vocabulary
-remain tracked by #844 and #845 respectively. No additional basisafspraak
+The profile-level FDS-disclosure marker is now provided by #844
+(`spec.dataSharing`, see above); the standard classification vocabulary
+remains tracked by #845. No additional basisafspraak
 gap is opened here because the accessible sources do not establish a separate,
 unmet traceability obligation; revisit this mapping if the authoritative
 basisafspraken specify one.
@@ -139,8 +165,8 @@ basisafspraken specify one.
 - **Any FDS conformity/registration claim** — participating in the FDS as a
   registered data-aanbieder is an organisational/legal step outside CDS's
   scope as a compiler; this document only maps evidence CDS could help
-  produce. Populating `open-data-provider` fields does not register a
-  dataset with the FDS by itself.
+  produce. Populating `open-data-provider` fields or declaring
+  `spec.dataSharing` does not register a dataset with the FDS by itself.
 
 ## References
 

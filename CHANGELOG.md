@@ -15,6 +15,22 @@ The format is based on Keep a Changelog.
   rendered `PeerAuthentication` resource; the per-service
   `AuthorizationPolicy` selectors from #1170 remain explicitly scoped to each
   enrolled service. (#1171)
+- Optional, provider-neutral `spec.dataSharing` profile block (issue #844,
+  closing the Organisational row of `docs/fds-alignment.md`): a profile can
+  declare the datasets it discloses as a data provider (`datasets[].datasetId`,
+  optionally tied to a module instance via `datasets[].module`) and link the
+  declaration to an external registration (`registration.system` +
+  `registration.reference`, both maintained outside CDS). Shape is validated
+  by `cli/resources/profile.schema.json` (E010); cross-reference rules are
+  E157 (duplicate `datasetId`) and E158 (`module` naming a non-existent
+  enabled instance) in `cli/validator.py`. The declaration is carried into
+  the plan and surfaced in `cds report` under `dataSharing` (enriched with
+  whether the named module advertises an `open-data-provider` contract).
+  CDS only records and reports the declaration — it never performs, verifies,
+  or claims any registration. Existing profiles without the block are
+  unaffected. Documented in `docs/fds-alignment.md`,
+  `docs/compliance-report.md`, `docs/cli-reference.md`, and the README
+  troubleshooting table (E157/E158).
 - Unscoped custom ingress allow rules are recorded by the Kubernetes
   security scan (issue #1030): a `networkPolicy.ingress` passthrough rule
   without a source restriction (no `from` key, an empty `from` list, or an
