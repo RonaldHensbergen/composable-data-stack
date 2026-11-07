@@ -6,6 +6,7 @@ Render docker-compose YAML from a composition plan.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import Callable
@@ -252,6 +253,10 @@ def render_compose(
     diagnostics.extend(_validate_provided_contract_hosts(plan, module_service_names))
 
     _add_cross_module_dependencies(compose, plan, module_service_names)
+
+    diagnostics.extend(
+        _inject_oidc_realm_imports(plan, compose, module_service_names, secrets)
+    )
 
     output = yaml.safe_dump(compose, sort_keys=False)
     diagnostics.extend(_check_unresolved_expressions(output))
@@ -925,6 +930,231 @@ def _write_reverse_proxy_route_documents(
         for stale in dynamic_dir.glob("cds-routes-*.yml"):
             if stale.name not in written:
                 stale.unlink()
+
+
+_OIDC_CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_OIDC_ROLE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_SECRET_REF_RE = re.compile(r"^secrets\.([a-zA-Z0-9_-]+)$")
+
+
+def _oidc_realm_import_document(
+    module_id: str, config: dict[str, Any], secrets: dict[str, str]
+) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
+    """
+    Build the Keycloak realm-import JSON for a module providing the
+    `oidc-provider` contract, from `config.realm` + `config.oidcClients`
+    (issue #1074). Client secrets stay `secrets.*` aliases mapped to their
+    `${CDS_*}` runtime placeholders, so the rendered Compose file never
+    contains a resolved secret value; Compose interpolates the placeholders
+    at up time and the container's entrypoint writes the import file with
+    the real values on its tmpfs.
+
+    Malformed entries (a plan loaded from a file bypasses the module
+    schema) fail closed with E160 instead of rendering a broken realm.
+    """
+    diagnostics: list[Diagnostic] = []
+    realm = config.get("realm") or "master"
+    clients_cfg = config.get("oidcClients") or []
+    if not isinstance(clients_cfg, list):
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E160",
+                message=(
+                    f'Module "{module_id}" config.oidcClients must be a list of '
+                    "client objects (plan-file bypass of the module schema)."
+                ),
+                path=f"module:{module_id}.config.oidcClients",
+            )
+        )
+        return None, diagnostics
+
+    clients: list[dict[str, Any]] = []
+    realm_roles: list[str] = []
+    for index, entry in enumerate(clients_cfg):
+        path = f"module:{module_id}.config.oidcClients[{index}]"
+        if not isinstance(entry, dict):
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E160",
+                    f"OIDC client entry must be an object ({path}).",
+                    path,
+                )
+            )
+            continue
+        client_id = entry.get("clientId")
+        redirect_uris = entry.get("redirectUris")
+        if not isinstance(client_id, str) or not _OIDC_CLIENT_ID_RE.match(client_id):
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E160",
+                    f'OIDC client "clientId" must be a non-empty string of [A-Za-z0-9._-] ({path}.clientId).',
+                    f"{path}.clientId",
+                )
+            )
+            continue
+        if (
+            not isinstance(redirect_uris, list)
+            or not redirect_uris
+            or not all(isinstance(u, str) and u for u in redirect_uris)
+        ):
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E160",
+                    f'OIDC client "{client_id}" needs a non-empty redirectUris list of strings ({path}.redirectUris).',
+                    f"{path}.redirectUris",
+                )
+            )
+            continue
+
+        web_origins = entry.get("webOrigins") or []
+        if not isinstance(web_origins, list) or not all(
+            isinstance(o, str) and o for o in web_origins
+        ):
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E160",
+                    f'OIDC client "{client_id}" webOrigins must be a list of non-empty strings ({path}.webOrigins).',
+                    f"{path}.webOrigins",
+                )
+            )
+            continue
+
+        client: dict[str, Any] = {
+            "clientId": client_id,
+            "enabled": True,
+            "protocol": "openid-connect",
+            "standardFlowEnabled": bool(entry.get("standardFlowEnabled", True)),
+            "redirectUris": list(redirect_uris),
+            "webOrigins": list(web_origins),
+        }
+
+        roles = entry.get("roles") or []
+        if not isinstance(roles, list) or not all(
+            isinstance(r, str) and _OIDC_ROLE_RE.match(r) for r in roles
+        ):
+            diagnostics.append(
+                Diagnostic(
+                    "error",
+                    "E160",
+                    f'OIDC client "{client_id}" roles must be a list of [A-Za-z0-9._-] strings ({path}.roles).',
+                    f"{path}.roles",
+                )
+            )
+            continue
+        if roles:
+            client["defaultRoles"] = list(roles)
+            for role in roles:
+                if role not in realm_roles:
+                    realm_roles.append(role)
+
+        secret_from = entry.get("secretFrom")
+        if secret_from is not None:
+            match = (
+                _SECRET_REF_RE.match(secret_from)
+                if isinstance(secret_from, str)
+                else None
+            )
+            if match is None:
+                diagnostics.append(
+                    Diagnostic(
+                        "error",
+                        "E160",
+                        f'OIDC client "{client_id}" secretFrom must match ^secrets\\.[a-zA-Z0-9_-]+$ ({path}.secretFrom).',
+                        f"{path}.secretFrom",
+                    )
+                )
+                continue
+            alias = match.group(1)
+            env_name = secrets.get(alias)
+            if not env_name:
+                diagnostics.append(
+                    Diagnostic(
+                        "error",
+                        "E160",
+                        f'OIDC client "{client_id}" secretFrom names secret alias "{alias}", '
+                        "which is not declared in spec.secrets.values.",
+                        f"{path}.secretFrom",
+                    )
+                )
+                continue
+            client["publicClient"] = False
+            client["secret"] = f"${{{env_name}}}"
+        else:
+            client["publicClient"] = True
+
+        clients.append(client)
+
+    if any(d.level == "error" for d in diagnostics):
+        return None, diagnostics
+
+    document: dict[str, Any] = {
+        "realm": str(realm),
+        "enabled": True,
+        "clients": clients,
+    }
+    if realm_roles:
+        document["roles"] = {"realm": [{"name": role} for role in realm_roles]}
+    return document, diagnostics
+
+
+def _inject_oidc_realm_imports(
+    plan: dict[str, Any],
+    compose: dict[str, Any],
+    module_service_names: dict[str, list[str]],
+    secrets: dict[str, str],
+) -> list[Diagnostic]:
+    """
+    Inject the CDS_OIDC_REALM_IMPORT environment variable into every compose
+    service of a module providing the `oidc-provider` contract (issue
+    #1074): the module's entrypoint writes it to Keycloak's import
+    directory on startup. Pure config-list splicing into `environment` is
+    rejected by the E072 unsafe-field check, so the renderer builds the JSON
+    itself -- JSON-encoding keeps profile-controlled values inert strings,
+    and secret aliases become ${CDS_*} placeholders (never resolved values).
+    """
+    diagnostics: list[Diagnostic] = []
+    for module in plan.get("modules", []):
+        if not isinstance(module, dict):
+            continue
+        provides = module.get("provides") or {}
+        if not any(
+            isinstance(provided, dict) and provided.get("kind") == "oidc-provider"
+            for provided in provides.values()
+        ):
+            continue
+        module_id = str(module.get("id"))
+        config = module.get("config") if isinstance(module.get("config"), dict) else {}
+        document, doc_diags = _oidc_realm_import_document(module_id, config, secrets)
+        diagnostics.extend(doc_diags)
+        if document is None:
+            continue
+        env_value = json.dumps(document)
+        for service_name in module_service_names.get(module_id, []):
+            service_def = compose.get("services", {}).get(service_name)
+            if not isinstance(service_def, dict):
+                continue
+            environment = service_def.setdefault("environment", {})
+            if isinstance(environment, dict):
+                environment["CDS_OIDC_REALM_IMPORT"] = env_value
+            else:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E160",
+                        message=(
+                            f'Module "{module_id}" service "{service_name}" has a '
+                            "non-mapping environment block, so the OIDC realm import "
+                            "cannot be injected."
+                        ),
+                        path=f"module:{module_id}.implementation.compose.services.{service_name}.environment",
+                    )
+                )
+    return diagnostics
 
 
 _UNRESOLVED_EXPRESSION_PATTERN = re.compile(

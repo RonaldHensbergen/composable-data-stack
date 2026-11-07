@@ -21,8 +21,10 @@ its own metadata storage, instead of hardcoding a database service name.
   #974)
 - The default realm is Keycloak's built-in `master`; set `realm` to a
   dedicated application realm to have Keycloak import it on startup.
-  Existing realms are not overwritten. Configure clients and users through
-  the Keycloak admin console or a separate realm provisioning workflow.
+  Existing realms are not overwritten. OIDC clients for consumers are
+  provisioned declaratively via `config.oidcClients` (issue #1074);
+  users are still managed through the Keycloak admin console or a separate
+  realm provisioning workflow.
 - `publicUrl` is the canonical OIDC issuer base URL. It must resolve to the
   same Keycloak issuer from the user's browser and from consuming service
   containers. Set it to the TLS reverse-proxy URL in deployed profiles;
@@ -67,9 +69,20 @@ its own metadata storage, instead of hardcoding a database service name.
 ## OIDC clients
 
 The module provides both `http-service` and `oidc-provider` contracts.
-Consumers bind to `<keycloak-module-id>.oidc-provider`. Client credentials
-belong to each consumer, not the identity provider. Create an OpenID Connect
-client in the configured realm, enable Standard Flow, and register the
-consumer's exact callback URL. Keep the client secret in the profile's secret
-values and refer to it from the consumer config; it remains a `${CDS_*}`
-placeholder in generated plans and Compose files.
+Consumers bind to `<keycloak-module-id>.oidc-provider` and reference the
+provisioned client through their own config (e.g. Superset's
+`identityProvider.clientId`/`clientSecretFrom`).
+
+Declare clients on the provider side with `config.oidcClients` (issue
+#1074): each entry takes a `clientId`, the exact `redirectUris` to register
+(e.g. `<public-superset-url>/oauth-authorized/keycloak`), optional
+`webOrigins`, `standardFlowEnabled` (default true), realm `roles` created
+and assigned to the client, and an optional `secretFrom` secret alias. CDS
+renders the realm-import JSON from this list and injects it as the
+`CDS_OIDC_REALM_IMPORT` environment variable, which the entrypoint writes
+to `/opt/keycloak/data/import` on startup (non-master realms only). Client
+secrets stay profile secret aliases: they render as `${CDS_*}` runtime
+placeholders in the generated Compose file and are interpolated by Compose
+at `up` time, so a resolved secret value never lands in plans or rendered
+output (CDS-SEC-030/E078). A client without `secretFrom` is created as a
+public client. Malformed entries fail rendering with E160.

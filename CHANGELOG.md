@@ -8,6 +8,20 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Declarative OIDC client provisioning for the keycloak module (issue
+  #1074): `config.oidcClients` accepts a list of clients (`clientId`,
+  `redirectUris`, optional `webOrigins`/`standardFlowEnabled`/`roles`/
+  `secretFrom`), validated by the module config schema. The Compose renderer
+  builds the realm-import JSON from `config.realm` + `config.oidcClients` and
+  injects it as the `CDS_OIDC_REALM_IMPORT` environment variable, which the
+  keycloak entrypoint writes to `/opt/keycloak/data/import` on startup of a
+  non-master realm. Client secrets stay profile secret aliases rendered as
+  `${CDS_*}` runtime placeholders — never embedded in rendered output
+  (CDS-SEC-030/E078 keep passing) — and malformed entries (plan-file
+  bypass) fail closed with E160. Consumers such as Superset reference the
+  provisioned client via their existing `identityProvider`
+  `clientId`/`clientSecretFrom` config. Documented in the keycloak and
+  Superset READMEs and the local-haven-reference README.
 - Plan-time validation of `service-mesh` enrollments (issue #1179): every
   `config.services[].name` of a module providing the `service-mesh` contract
   must name a module instance id of the profile, checked against the planned
