@@ -371,6 +371,12 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- CI now guards `uv.lock` freshness (issue #1197): the `lint` job in
+  `.github/workflows/ci.yml` runs `uv lock --check` right after setting up
+  Python, so a `pyproject.toml` change that is not followed by `uv lock`
+  fails the build instead of silently drifting (previously only caught when
+  someone ran `uv lock --check` locally, e.g. the ruff 0.17.1 -> 0.17.3 drift
+  from #1056).
 - The `log-sink` contract and the observability modules can now forward the
   logs signal end-to-end over OTLP/HTTP (issue #1076, loose end from #777/#1063):
   `shared/contracts/log-sink.yaml` gains an optional `connectionUri` field

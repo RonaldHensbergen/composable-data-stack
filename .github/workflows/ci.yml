@@ -29,6 +29,11 @@ jobs:
         with:
           python-version: "3.14"
 
+      - name: Check uv.lock is in sync with pyproject.toml
+        run: |
+          python -m pip install uv
+          uv lock --check
+
       - name: Install lint dependencies
         run: |
           python -m pip install --upgrade pip
