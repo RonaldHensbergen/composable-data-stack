@@ -1,7 +1,7 @@
 # Kubernetes MVP Runbook: From a Fresh Directory to v1.0.0, with Haven Parity
 
-Version: 0.2
-Status: Draft — execution runbook, drafted 2026-11-02. Fill in the signoff
+Version: 0.3
+Status: Draft — execution runbook, drafted 2026-11-02, updated 2026-11-07 (Gate 4.5 added). Fill in the signoff
 table (section 13) while running it; promote to a committed plan once a cycle
 has completed.
 Related: [docs/kubernetes.md](../kubernetes.md),
@@ -69,6 +69,7 @@ post-MVP items at the end of this section may still be open after Gate 5.
 | [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) | Gate 3, task G3.5 | A CloudNativePG-shaped operator module provides `sql-database` on Helm as the production warehouse; StatefulSet+PVC Postgres stays the dev path. |
 | [#369](https://github.com/RonaldHensbergen/composable-data-stack/issues/369), [#1066](https://github.com/RonaldHensbergen/composable-data-stack/issues/1066), [#1076](https://github.com/RonaldHensbergen/composable-data-stack/issues/1076) | Gate 3, task G3.6 | Observability providers run live on Helm: the Grafana metrics module is delivered (#369), Loki/otel-collector are wired into the profile, and the no-new-privileges exec failure (#1066) and the OTLP log-sink gap (#1076) are fixed — the **Observed** tier is reached with providers running, not merely declared. |
 | [#1065](https://github.com/RonaldHensbergen/composable-data-stack/issues/1065) | Gate 4, task G4.2 | Docker smoke-test CI covers the experimental modules this MVP runs (loki, otel-collector). |
+| [#1206](https://github.com/RonaldHensbergen/composable-data-stack/issues/1206), [#1207](https://github.com/RonaldHensbergen/composable-data-stack/issues/1207), [#1208](https://github.com/RonaldHensbergen/composable-data-stack/issues/1208) | Gate 4.5, tasks G4.4–G4.7 | Profile schema carries a machine-readable version with a breaking-change/deprecation policy in `docs/release-strategy.md` (#1206); CLI stability guarantees and the E/W error-code lifecycle are documented (#1207); CI validates/renders the full `profiles/*` matrix and the docker smoke lifecycle covers more than one compose profile (#1208); the Alpha → Beta classifier decision is recorded in G4.7. |
 
 Already landed — do not re-file: the Helm render target with NetworkPolicy
 generation (#608, #75), kind-based CI validation (#76), Kubernetes docs and
@@ -129,6 +130,7 @@ evidence.
 | [2 — Production-ready](#7-gate-2--production-ready-posture-on-kubernetes) | Prod overlay passes fail-closed gates on Helm, with real backup | `validate`/`security`/`preflight` diff-clean, checklist mapped with every control working on Helm, backup + restore verified (#665/#668/#669, E142), #1033 closed, maturity tier **Secured** recorded | 10–12 h |
 | [3 — Haven parity](#8-gate-3--haven-parity) | Haven-shaped profile runs on Helm | Identity + TLS ingress + operator-managed DB + backup + live observability + GitOps on `--target helm` (#1075, #682, #974, #883, #768, #369, #1066, #1076 closed), maturity tier **Secured**, gap matrix recorded, GitOps sync proven live and workload code running from a Git checkout (G3.8/G3.9 = #1136/#1137) | 5–8 working days |
 | [4 — Evidence and issues](#9-gate-4--evidence-and-issue-triage) | Everything reproducible, every remaining gap tracked | Signoff table complete, one issue per non-blocking gap (#1065 included), docs/changelog updated | 3–4 h |
+| [4.5 — Stability and Beta-readiness](#95-gate-45--stability-and-beta-readiness) | Release surface stable enough to ship | #1206/#1207/#1208 closed; profile-matrix CI green; stability policy merged in `docs/release-strategy.md`; classifier decision recorded | 1–2 days |
 | [5 — v1.0.0 release](#10-gate-5--v100-release) | Cut and publish v1.0.0 | All section-2 blocking issues closed, tag pushed, release published with evidence assets, announcement done | 4–6 h |
 
 Total: roughly 3–4 weeks of ≤2 h tasks — Gate 3 is the heavy gate, because the
@@ -406,6 +408,23 @@ code running from a Git checkout (G3.8/G3.9).
 Gate 4 exit: signoff table complete, remaining non-blocking gaps filed as
 issues, docs/changelog in sync.
 
+## 9.5 Gate 4.5 — Stability and Beta-readiness
+
+The release surface must be stable before v1.0.0 is cut. This gate turns the
+Beta-readiness criteria into blocking work for the cycle: the profile schema
+gets a version and a breaking-change policy, the CLI gets documented stability
+guarantees, and CI exercises the whole example-profile matrix — not just one
+profile.
+
+- [ ] **G4.4 Resolve #1206 — versioned profile schema + breaking-change policy** (≤2 h subtasks under the issue). `cli/resources/profile.schema.json` carries a machine-readable schema `version` that the CLI reports, and `docs/release-strategy.md` defines what counts as breaking, the `**Breaking:**` CHANGELOG banner, and the deprecation window.
+- [ ] **G4.5 Resolve #1207 — documented CLI stability guarantees** (~1–2 h). Every command/flag marked stable or experimental in `docs/cli-reference.md`; E/W error-code lifecycle policy written down; README links to it.
+- [ ] **G4.6 Resolve #1208 — profile-matrix E2E in CI** (≤2 h subtasks under the issue). CI validates/renders every `profiles/*/profile.yaml` on PRs; the docker smoke lifecycle covers more than one compose profile and includes `state`/`down`.
+- [ ] **G4.7 Record the classifier decision** (~0.5 h). With G4.4–G4.6 closed and 2–3 consecutive releases without breaking changes, move `Development Status` from `3 - Alpha` to `4 - Beta` in `pyproject.toml`, note it in `CHANGELOG.md`, and update `docs/roadmap.md`.
+
+Gate 4.5 exit: #1206/#1207/#1208 closed, profile-matrix CI green on main, the
+stability policy merged, and the classifier decision recorded. Gate 5 does not
+start over an open Gate 4.5 issue.
+
 ## 10. Gate 5 — v1.0.0 release
 
 - [ ] **G5.1 Confirm the 1.0.0 criteria** (~1 h). Definition for this project:
@@ -459,7 +478,7 @@ assets, announcement done.
 
 ## 12. Definition of done for the MVP cycle
 
-- [ ] Gate 0–4 exit criteria all met, signoff table filled in.
+- [ ] Gate 0–4.5 exit criteria all met, signoff table filled in.
 - [ ] Every blocking issue in section 2 is closed before Gate 5 starts; only
   the explicitly post-MVP list (service mesh #776, workload identity #1068,
   persisted Helm context #812, Marquez promotion #976) may remain open, each
@@ -575,6 +594,7 @@ issues land — on the Compose target the suite renders and runs today.
 | 2 — Production-ready | `cds test production-kubernetes-example --environment prod --target helm`, plus `cds preflight ... --environment prod` and `cds security ... --environment prod --target helm` | exit 0, or findings exactly matching the documented snapshot; no preflight `[FAIL]` |
 | 3 — Haven parity | `cds maturity local-haven-reference --format json --target helm`, plus a live `--target helm` run of the Haven-shaped profile from G3.3–G3.9 | Haven-shaped profile running on Helm; tier **Secured** reported with justifying contracts; gap matrix complete; GitOps sync and code-from-Git proven (G3.8/G3.9) |
 | 4 — Evidence and issues | (process gate — no command) | results recorded, one issue per gap, docs/changelog updated |
+| 4.5 — Stability and Beta-readiness | CI on main: `ci.yml` + `docker-smoke-test.yml` profile matrix (locally: `cds validate`/`cds render` over every `profiles/*/profile.yaml`) | matrix green; #1206/#1207/#1208 closed |
 | 5 — v1.0.0 release | `python -m unittest discover -s tests -p "*.py"` + `CDS_RUN_DOCKER_SMOKE=1 python3 -m unittest tests.test_compose_runtime_smoke -v` + `make k3d-build && make k3d-e2e` (from a clone) | all green, per [docs/release-strategy.md](../release-strategy.md#release-gates) |
 
 Signoff table — one row per gate, filled in while running. A gate is signed off
@@ -589,6 +609,7 @@ filed as an issue (last column).
 | 2 — Production-ready | | | | | | | | |
 | 3 — Haven parity | | | | | | | | |
 | 4 — Evidence and issues | | | | | | | | |
+| 4.5 — Stability and Beta-readiness | | | | | | | | |
 | 5 — v1.0.0 release | | | | | | | | |
 
 Per-task detail (which of G0.0–G5.5 ran, timings, exact outputs) goes in the

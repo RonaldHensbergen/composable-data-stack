@@ -46,7 +46,12 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[test]" "mutmut==3.8.1" pytest
+          # mutmut is pinned ad hoc here (and in the Makefile test-mutation
+          # target), not in uv.lock. The git pin points at the boxed/mutmut
+          # main commit shipping the torn-.meta fix (boxed/mutmut#630, merged
+          # 2026-11-07); flip it to "mutmut==<release>" once a mutmut release
+          # > 3.8.1 is on PyPI (#1193).
+          pip install -e ".[test]" "mutmut @ git+https://github.com/boxed/mutmut@6837b3c3ab0cfa4f5488f68adbd1bb26f68b8eb8" pytest
 
       - name: Run kill matrix
         run: |
@@ -74,30 +79,11 @@ jobs:
       - name: Export stats, badge, and results
         run: |
           # A time-capped PR run (exit 124) can be killed mid-write, leaving an
-          # empty or truncated mutants/*.meta cache file. mutmut's load() only
-          # tolerates a missing file (FileNotFoundError), so drop unparseable or
-          # incomplete meta files first, or export-cicd-stats crashes with a
-          # JSONDecodeError and fails the whole job (#1175).
-          # Upstream fix: boxed/mutmut#630 makes load() also catch
-          # JSONDecodeError; once a mutmut release ships it, this sanitizer is
-          # redundant and can be dropped along with the mutmut==3.8.1 pin (#1181).
-          python - <<'EOF'
-          import json
-          from pathlib import Path
-          # Keys mutmut's SourceFileMutationData.load() pops without a default;
-          # a meta file missing any of them is incomplete and would crash the export.
-          required_keys = {"exit_code_by_key", "durations_by_key", "estimated_durations_by_key"}
-          mutants_dir = Path("mutants")
-          if mutants_dir.is_dir():
-              for meta_path in mutants_dir.rglob("*.meta"):
-                  try:
-                      meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                  except (json.JSONDecodeError, UnicodeDecodeError, OSError):
-                      meta = None
-                  if not isinstance(meta, dict) or not required_keys <= meta.keys():
-                      meta_path.unlink()
-                      print(f"::notice::Removed incomplete mutation cache file {meta_path} (time-capped run, #1175)")
-          EOF
+          # empty or truncated mutants/*.meta cache file. mutmut's load() now
+          # treats an unparseable cache like a missing one (catches
+          # json.JSONDecodeError alongside FileNotFoundError, boxed/mutmut#630),
+          # so export-cicd-stats tolerates a torn cache and no workflow-side
+          # sanitizer is needed (#1175, #1193).
           python -m mutmut export-cicd-stats
           # When a time-capped run recorded no results at all, export-cicd-stats
           # writes no stats file, and badge requires an existing valid-JSON input,
