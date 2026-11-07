@@ -413,6 +413,11 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- `cds down` now writes its lifecycle log to `.cds/logs/down-<profile>-<ts>.log`
+  instead of `.cds/logs/up-down-<profile>-<ts>.log`: `default_log_path()`
+  takes a `prefix` parameter (`"up"` for `cds up`, `"down"` for `cds down`)
+  instead of unconditionally prefixing `up-` (#1123).
+
 - The `Mutation Tests (Kill Matrix)` workflow no longer fails on time-capped
   PR runs (issue #1175): a `timeout`-killed matrix can leave an empty or
   truncated `mutants/*.meta` cache file, and `mutmut export-cicd-stats`

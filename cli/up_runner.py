@@ -47,12 +47,14 @@ def _validate_command(cmd: list[str]) -> list[str]:
     return cmd
 
 
-def default_log_path(profile_name: str, logs_dir: Path | None = None) -> Path:
+def default_log_path(profile_name: str, logs_dir: Path | None = None, prefix: str = "up") -> Path:
     """
-    Default log path for a `cds up` run: `.cds/logs/up-<profile>-<UTC
-    timestamp>.log`, relative to the current working directory. Slashes
-    and spaces in `profile_name` (profiles can be passed as paths) are
-    flattened so the result is always a single valid filename.
+    Default log path for a lifecycle run: `.cds/logs/<prefix>-<profile>-<UTC
+    timestamp>.log`, relative to the current working directory. `prefix` is
+    `"up"` for `cds up` runs and `"down"` for `cds down` runs. Slashes and
+    spaces in `profile_name` (profiles can be passed as paths) are flattened
+    so the result is always a single valid filename; `prefix` is sanitized
+    the same way.
 
     `logs_dir` is injectable so tests don't have to write into a real
     `.cds/logs` under the repo checkout.
@@ -60,7 +62,8 @@ def default_log_path(profile_name: str, logs_dir: Path | None = None) -> Path:
     base = logs_dir if logs_dir is not None else Path(".cds") / "logs"
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     safe_profile = profile_name.strip().replace("/", "-").replace("\\", "-").replace(" ", "-") or "profile"
-    return base / f"up-{safe_profile}-{timestamp}.log"
+    safe_prefix = prefix.strip().replace("/", "-").replace("\\", "-").replace(" ", "-") or "log"
+    return base / f"{safe_prefix}-{safe_profile}-{timestamp}.log"
 
 
 def run_streamed(

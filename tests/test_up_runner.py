@@ -39,6 +39,20 @@ class DefaultLogPathTest(unittest.TestCase):
         path = default_log_path("demo")
         self.assertEqual(path.parent, Path(".cds") / "logs")
 
+    def test_prefix_parameterizes_the_filename(self):
+        # Regression test for #1123: `cds down` logs must not get the `up-` prefix.
+        logs_dir = Path("/tmp/cds-logs")
+        path = default_log_path("demo", logs_dir=logs_dir, prefix="down")
+        self.assertEqual(path.parent, logs_dir)
+        self.assertTrue(path.name.startswith("down-demo-"))
+        self.assertTrue(path.name.endswith(".log"))
+
+    def test_prefix_is_sanitized_like_the_profile_name(self):
+        path = default_log_path("demo", logs_dir=Path("/tmp/cds-logs"), prefix="down/x y")
+        self.assertNotIn("/", path.name)
+        self.assertNotIn(" ", path.name)
+        self.assertTrue(path.name.startswith("down-x-y-demo-"))
+
 
 class RunStreamedTest(unittest.TestCase):
     @patch("cli.up_runner.subprocess.Popen")
