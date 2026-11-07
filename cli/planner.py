@@ -374,6 +374,7 @@ def build_plan_from_profile(
         planned_modules, module_categories, diagnostics
     )
     validate_service_mesh_enrollments(planned_modules, diagnostics)
+    validate_open_data_classification(planned_modules, diagnostics)
 
     plan = {
         "apiVersion": "cds/v1alpha1",
@@ -857,6 +858,104 @@ def validate_service_mesh_enrollments(
                         "cds.dev/module label -- a silent no-op."
                     ),
                     path=f"module:{module['id']}.config.services[{i}].name",
+                )
+            )
+
+
+# Recommended standard vocabulary for the open-data-provider contract's
+# `classification` field (issue #845): the DCAT-AP-NL data themes, i.e. the
+# EU Publications Office data-theme authority list. The http spelling is the
+# canonical registered URI; the https spelling resolves to the same resource
+# and is accepted as an alias.
+OPEN_DATA_CLASSIFICATION_THEME_URI = "http://publications.europa.eu/resource/authority/data-theme/"  # NOSONAR - canonical authority URI is http; https serves the same resource
+OPEN_DATA_CLASSIFICATION_THEME_URI_HTTPS = (
+    "https://publications.europa.eu/resource/authority/data-theme/"
+)
+OPEN_DATA_CLASSIFICATION_THEMES = frozenset(
+    {
+        "AGRI",
+        "ECON",
+        "EDUC",
+        "ENER",
+        "ENVI",
+        "GEOJ",
+        "GOVE",
+        "HEAH",
+        "INTR",
+        "JUST",
+        "REGI",
+        "SOCI",
+        "TRAN",
+    }
+)
+
+
+def _is_recommended_classification(value: str) -> bool:
+    theme = value.strip()
+    if theme.upper() in OPEN_DATA_CLASSIFICATION_THEMES:
+        return True
+    prefix, _, code = theme.rpartition("/")
+    return (
+        prefix
+        in (
+            OPEN_DATA_CLASSIFICATION_THEME_URI.rstrip("/"),
+            OPEN_DATA_CLASSIFICATION_THEME_URI_HTTPS.rstrip("/"),
+        )
+        and code.upper() in OPEN_DATA_CLASSIFICATION_THEMES
+    )
+
+
+def validate_open_data_classification(
+    planned_modules: list[dict[str, Any]], diagnostics: list[Diagnostic]
+) -> None:
+    """
+    W131: a provided `open-data-provider` contract's `classification` should
+    come from the recommended standard vocabulary -- the DCAT-AP-NL data
+    themes (the EU data-theme authority list) -- so dataset metadata stays
+    comparable across domains (issue #845). Free text still renders; this
+    only warns, so existing profiles are not broken.
+    """
+    for module in planned_modules:
+        if not isinstance(module, dict):
+            continue
+        provides = module.get("provides")
+        if not isinstance(provides, dict):
+            continue
+        for provide_name, provided in provides.items():
+            if not isinstance(provided, dict):
+                continue
+            if provided.get("kind") != "open-data-provider":
+                continue
+            spec = provided.get("spec")
+            if not isinstance(spec, dict):
+                continue
+            classification = spec.get("classification")
+            if not isinstance(classification, str) or not classification.strip():
+                continue
+            if "${" in classification:
+                # Unresolved interpolation: reported by the existing
+                # substitution diagnostics, not here.
+                continue
+            if _is_recommended_classification(classification):
+                continue
+            diagnostics.append(
+                Diagnostic(
+                    level="warning",
+                    code="W131",
+                    message=(
+                        f'Module "{module["id"]}" provides open-data-provider contract '
+                        f'"{provide_name}" with classification "{classification}", which '
+                        "is outside the recommended DCAT-AP-NL data-theme vocabulary "
+                        f"({', '.join(sorted(OPEN_DATA_CLASSIFICATION_THEMES))}, or the "
+                        "full authority URI "
+                        f"{OPEN_DATA_CLASSIFICATION_THEME_URI}<CODE>). Free text still "
+                        "renders; use a vocabulary theme so the dataset stays findable "
+                        "domain-crossing."
+                    ),
+                    path=(
+                        f"module:{module['id']}.provides.{provide_name}."
+                        "spec.classification"
+                    ),
                 )
             )
 
