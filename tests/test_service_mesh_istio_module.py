@@ -472,6 +472,7 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
 
         warnings = [d for d in diagnostics if d.level == "warning"]
         self.assertIn("W130", [d.code for d in warnings])
+        self.assertNotIn("W131", [d.code for d in warnings])
         self.assertIn(
             "peerauthentications.security.istio.io",
             next(d for d in warnings if d.code == "W130").message,
