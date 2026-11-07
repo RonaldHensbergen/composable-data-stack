@@ -371,6 +371,14 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- Added Gate 4.5 (stability and Beta-readiness) to the Kubernetes MVP runbook
+  (`docs/plan/k8s-haven-mvp.md`) and gate checklist
+  (`docs/plan/k8s-haven-gate-checklist.md`): issues #1206 (versioned profile
+  schema + breaking-change/deprecation policy), #1207 (documented CLI
+  stability guarantees and E/W error-code lifecycle), and #1208
+  (profile-matrix E2E in CI) are now blocking issues for the v1.0.0 release
+  gate, with the `Development Status` classifier decision (Alpha → Beta)
+  recorded as task G4.7.
 - The `log-sink` contract and the observability modules can now forward the
   logs signal end-to-end over OTLP/HTTP (issue #1076, loose end from #777/#1063):
   `shared/contracts/log-sink.yaml` gains an optional `connectionUri` field

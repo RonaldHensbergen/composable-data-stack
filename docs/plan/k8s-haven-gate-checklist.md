@@ -1,7 +1,7 @@
 # Kubernetes MVP — Gate Checklist and Sign-off (G0.0–G5.5)
 
-Version: 0.1
-Status: Draft — companion checklist to [k8s-haven-mvp.md](k8s-haven-mvp.md).
+Version: 0.2
+Status: Draft — companion checklist to [k8s-haven-mvp.md](k8s-haven-mvp.md), updated 2026-11-07 (Gate 4.5 added).
 
 This is the executable form of the runbook: one row per task (G0.0–G5.5), with
 the exact instructions, a one-line explanation of *why*, the exit criterion,
@@ -102,6 +102,17 @@ Loki/otel-collector), operator-managed database on Helm. It is the ~v2.0 suite.
 | G4.2 | File one issue per remaining non-blocking gap (labels + effort estimate; milestone inherited from milestone-tracked efforts); extend Docker smoke-test CI to loki/otel-collector (#1065) | Gaps become tracked issues, never notes-only; section-2 blocking issues must already be closed | #1065 closed; every gap has an issue; no open blocking issue | ~1–2 h | [ ] |
 | G4.3 | Add surprises to [docs/kubernetes.md](../kubernetes.md) troubleshooting or the relevant profile README; user-facing fixes get `CHANGELOG.md` `[Unreleased]` entries per repo convention | The next operator should not rediscover your surprises | Docs and changelog in sync | ~1 h | [ ] |
 
+## Gate 4.5 — Stability and Beta-readiness (release prerequisite)
+
+Blocking issues: [#1206](https://github.com/RonaldHensbergen/composable-data-stack/issues/1206), [#1207](https://github.com/RonaldHensbergen/composable-data-stack/issues/1207), [#1208](https://github.com/RonaldHensbergen/composable-data-stack/issues/1208) (runbook section 2). Gate 5 (v1.0.0 release) does not sign off over an open Gate 4.5 issue.
+
+| Task | Instructions | Explanation | Exit criteria | Effort | Sign-off |
+| --- | --- | --- | --- | --- | --- |
+| G4.4 | Resolve #1206: add a machine-readable `version` to `cli/resources/profile.schema.json`, surface it from the CLI (`cds validate`/`cds report`), and extend `docs/release-strategy.md` with the breaking-change/deprecation policy and the `**Breaking:**` CHANGELOG banner convention; split into ≤2 h subtasks under the issue | The profile schema is the core user-facing surface; without a version and policy, breaking changes land silently in 0.x releases | Issue closed; schema version reported by the CLI; policy merged with tests | ≤2 h subtasks | [ ] |
+| G4.5 | Resolve #1207: mark every CLI command/flag stable or experimental in `docs/cli-reference.md`, write the E/W error-code lifecycle policy (never reused, retirement announced), link it from the README and `docs/release-strategy.md` | Users need to know which surfaces a Beta release protects | Issue closed; markers and policy in the docs | ~1–2 h | [ ] |
+| G4.6 | Resolve #1208: CI validates/renders every `profiles/*/profile.yaml` on PRs (compose and helm targets where defined); extend the docker smoke lifecycle beyond one compose profile and include `state`/`down`; keep added CI time <15 min | 12 profiles ship but CI only exercises `local-dagster-postgres-superset`; a matrix regression would otherwise ship unnoticed | Issue closed; matrix green in CI on main | ≤2 h subtasks | [ ] |
+| G4.7 | Record the classifier decision: with G4.4–G4.6 closed and 2–3 consecutive releases without breaking changes, set `Development Status :: 4 - Beta` in `pyproject.toml`, add a `CHANGELOG.md` entry, update `docs/roadmap.md` | The PyPI classifier is a promise about stability — flip it when true, not before | Decision recorded; classifier updated on the next release | ~0.5 h | [ ] |
+
 ## Gate 5 — v1.0.0 release
 
 | Task | Instructions | Explanation | Exit criteria | Effort | Sign-off |
@@ -126,4 +137,5 @@ an issue.
 | 2 — Production-ready | [ ] | #1033, #665/#668/#669 (E142) | | | |
 | 3 — Haven parity | [ ] | #1075, #682, #974, #883, #768, #369, #1066, #1076; tasks #1136/#1137 | | | |
 | 4 — Evidence and issues | [ ] | #1065 (section-2 issues must already be closed) | | | |
+| 4.5 — Stability and Beta-readiness | [ ] | #1206, #1207, #1208 | | | |
 | 5 — v1.0.0 release | [ ] | all section-2 blocking issues | | | |
