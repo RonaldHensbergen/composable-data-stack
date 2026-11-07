@@ -80,9 +80,9 @@ _TRANSIENT_REGISTRY_ERROR_MARKERS = (
 _WAIT_TIMEOUT_SECONDS = "600"
 
 # Bucket labels cds state may legitimately show after a healthy `up --wait`
-# (cli/state.py: healthy/running for live services, healthy exit for
-# completed one-shot init containers).
-_OK_STATE_BUCKETS = {"healthy:", "running:", "healthy exit:"}
+# (cli/state.py uppercases them: HEALTHY/RUNNING for live services,
+# HEALTHY EXIT for completed one-shot init containers).
+_OK_STATE_BUCKETS = {"HEALTHY:", "RUNNING:", "HEALTHY EXIT:"}
 
 
 def _profiles() -> list[str]:
