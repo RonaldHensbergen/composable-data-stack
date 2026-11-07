@@ -90,6 +90,70 @@ spec:
           slash. It must resolve from both the user's browser and consuming
           service containers; set it to the TLS reverse-proxy URL in deployed
           profiles.
+      oidcClients:
+        type: array
+        default: []
+        description: >-
+          Optional OIDC clients provisioned into the imported (non-master)
+          realm on startup (issue #1074), so consumers such as Superset need
+          no manual admin-console work. CDS renders the realm-import JSON
+          from this list and injects it as the CDS_OIDC_REALM_IMPORT
+          environment variable; client secrets stay profile secret-alias
+          references and render as ${CDS_*} runtime placeholders, never
+          embedded in the rendered Compose output. The built-in master realm
+          is never imported, so clients are only provisioned for a dedicated
+          realm.
+        items:
+          type: object
+          additionalProperties: false
+          required:
+            - clientId
+            - redirectUris
+          properties:
+            clientId:
+              type: string
+              minLength: 1
+              pattern: "^[A-Za-z0-9._-]+$"
+              description: OIDC client id, e.g. "superset".
+            redirectUris:
+              type: array
+              minItems: 1
+              items:
+                type: string
+                minLength: 1
+              description: >-
+                Exact callback URLs registered for this client, e.g.
+                "${publicUrl}/oauth-authorized/keycloak" for a Superset
+                consumer fronted by a reverse proxy.
+            webOrigins:
+              type: array
+              default: []
+              items:
+                type: string
+                minLength: 1
+              description: Allowed CORS web origins; empty disables CORS.
+            standardFlowEnabled:
+              type: boolean
+              default: true
+              description: Enable the OIDC Authorization Code flow.
+            roles:
+              type: array
+              default: []
+              items:
+                type: string
+                minLength: 1
+                pattern: "^[A-Za-z0-9._-]+$"
+              description: >-
+                Realm roles created (if absent) and assigned to this client
+                as default roles.
+            secretFrom:
+              type: string
+              pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+              description: >-
+                Profile secret alias holding the client secret. When set, the
+                client is confidential and the secret is provisioned from the
+                CDS_* environment placeholder at container start; when absent,
+                the client is public.
       metadataDatabase:
         type: object
         additionalProperties: false
@@ -202,7 +266,17 @@ spec:
               REALM="$${CDS_KEYCLOAK_REALM:-master}"
               if [ "$$REALM" != "master" ]; then
                   mkdir -p /opt/keycloak/data/import
-                  printf '{"realm":"%s","enabled":true}' "$$REALM" > "/opt/keycloak/data/import/$$REALM-realm.json"
+                  # CDS_OIDC_REALM_IMPORT is injected by the CDS renderer from
+                  # config.realm + config.oidcClients (issue #1074). Client
+                  # secrets inside it are ${CDS_*} placeholders in the
+                  # rendered Compose file, interpolated by Compose at up time,
+                  # so the import file on the tmpfs holds the real value while
+                  # the rendered output never does.
+                  IMPORT_JSON="$${CDS_OIDC_REALM_IMPORT:-}"
+                  if [ -z "$$IMPORT_JSON" ]; then
+                      IMPORT_JSON="{\"realm\":\"$$REALM\",\"enabled\":true}"
+                  fi
+                  printf '%s' "$$IMPORT_JSON" > "/opt/keycloak/data/import/$$REALM-realm.json"
                   IMPORT_REALM="--import-realm"
               else
                   IMPORT_REALM=""

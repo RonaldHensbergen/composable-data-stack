@@ -13,7 +13,10 @@ Experimental (tracked in [docs/roadmap.md](../../docs/roadmap.md) under
 Experimental Components) because the Traefik routing is hand-authored and
 the modules have no `--target helm` implementations yet (#1075, #883). The
 profile configures the `cds` realm and advertises an OIDC issuer, but
-does not provision an application client. No new Common Ground-specific
+does not provision an application client (clients can now be declared on
+the keycloak module via `config.oidcClients`, issue #1074 — this reference
+profile intentionally keeps the manual-console flow). No new
+Common Ground-specific
 modules were introduced for this profile; it only wires together modules
 CDS already has.
 
