@@ -8,6 +8,16 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Plan-time validation of `service-mesh` enrollments (issue #1179): every
+  `config.services[].name` of a module providing the `service-mesh` contract
+  must name a module instance id of the profile, checked against the planned
+  module ids in `cli/planner.py` (`validate_service_mesh_enrollments`). An
+  unknown id -- a typo such as `warehose` for `warehouse`, or a disabled
+  module -- fails closed with E159 naming the enrollment and listing the
+  planned ids, because the rendered per-service `AuthorizationPolicy` would
+  otherwise select zero pods via the `cds.dev/module` label (a silent no-op
+  allow policy). Documented in the README troubleshooting table (E159),
+  `modules/security/istio/README.md`, and `docs/kubernetes.md`.
 - Promoted the Istio service-mesh provider to `modules/security/istio/` with
   `productionSuitable: true`, and enrolled Postgres, Dagster, and Superset in
   the production-style and local Kubernetes example profiles. The k3d E2E

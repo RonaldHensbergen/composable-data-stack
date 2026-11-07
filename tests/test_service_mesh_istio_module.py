@@ -16,6 +16,10 @@ Covers the acceptance criteria of #776 and the promotion in #1171:
   service-mesh contract from it, `cds maturity` counts the mesh, and
   render_helm emits the PeerAuthentication (plus the gated
   AuthorizationPolicy) as chart templates with a W130 operator warning.
+- Every `config.services[].name` enrollment is validated at plan time
+  against the profile's module instance ids (issue #1179): an unknown id
+  (typo or disabled module) fails closed with E159, because the rendered
+  per-service AuthorizationPolicy would select zero pods.
 """
 
 import json
@@ -29,7 +33,7 @@ from jsonschema import Draft202012Validator
 
 from cli.k8s_renderer import render_helm
 from cli.maturity import build_maturity_report
-from cli.planner import build_plan
+from cli.planner import build_plan, validate_service_mesh_enrollments
 from cli.renderer import render_compose
 from cli.validator import validate_contract_file, validate_profile
 
@@ -180,6 +184,80 @@ class IstioModuleShapeTest(unittest.TestCase):
         self.assertEqual(spec["configSchema"]["required"], ["services"])
 
 
+class ServiceMeshEnrollmentValidationTest(unittest.TestCase):
+    """Unit tests for the E159 plan-time enrollment check (issue #1179)."""
+
+    @staticmethod
+    def _mesh_module(config: dict) -> dict:
+        return {
+            "id": "mesh",
+            "config": config,
+            "provides": {"service-mesh": {"kind": "service-mesh", "spec": {}}},
+        }
+
+    def test_unknown_enrollment_is_an_e159_error(self) -> None:
+        modules = [
+            {"id": "warehouse", "config": {}, "provides": {}},
+            self._mesh_module(
+                {
+                    "services": [
+                        {"name": "warehouse", "port": 5432},
+                        {"name": "warehose", "port": 5432},
+                    ]
+                }
+            ),
+        ]
+        diagnostics: list = []
+        validate_service_mesh_enrollments(modules, diagnostics)
+        self.assertEqual(len(diagnostics), 1)
+        diag = diagnostics[0]
+        self.assertEqual(diag.level, "error")
+        self.assertEqual(diag.code, "E159")
+        self.assertEqual(diag.path, "module:mesh.config.services[1].name")
+        # Names the unknown enrollment and the ids that do exist.
+        self.assertIn('"warehose"', diag.message)
+        self.assertIn("warehouse", diag.message)
+        self.assertIn("cds.dev/module", diag.message)
+
+    def test_known_enrollments_are_clean(self) -> None:
+        modules = [
+            {"id": "warehouse", "config": {}, "provides": {}},
+            self._mesh_module(
+                {
+                    "services": [
+                        {"name": "warehouse", "port": 5432},
+                        {"name": "mesh", "port": 8080},
+                    ]
+                }
+            ),
+        ]
+        diagnostics: list = []
+        validate_service_mesh_enrollments(modules, diagnostics)
+        self.assertEqual(diagnostics, [])
+
+    def test_module_without_service_mesh_contract_is_not_checked(self) -> None:
+        modules = [
+            {
+                "id": "app",
+                "config": {"services": [{"name": "ghost", "port": 1}]},
+                "provides": {},
+            }
+        ]
+        diagnostics: list = []
+        validate_service_mesh_enrollments(modules, diagnostics)
+        self.assertEqual(diagnostics, [])
+
+    def test_malformed_entries_are_left_to_schema_validation(self) -> None:
+        modules = [
+            self._mesh_module({"services": ["x", {"name": 5}, {}, {"name": ""}]}),
+            self._mesh_module({}),  # no services key at all
+        ]
+        modules[1]["id"] = "mesh2"
+        diagnostics: list = []
+        validate_service_mesh_enrollments(modules, diagnostics)
+        self.assertEqual(diagnostics, [])
+
+
 class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
     def _build_plan(self, istio_config: dict, render: bool = False):
         profile = _profile(istio_config)
@@ -250,6 +328,65 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
         mesh_cap = next(c for c in report["capabilities"] if c["id"] == "service-mesh")
         self.assertTrue(mesh_cap["bound"])
         self.assertEqual(mesh_cap["providerInstances"], ["mesh"])
+
+    def _build_plan_diags(self, istio_config: dict, disable: tuple[str, ...] = ()):
+        """Like _build_plan, but returns the plan diagnostics instead of
+        asserting them empty, and can disable module instances by id."""
+        profile = _profile(istio_config)
+        for module in profile["spec"]["modules"]:
+            if module["id"] in disable:
+                module["enabled"] = False
+        self._tmp = tempfile.TemporaryDirectory(dir=REPO_ROOT)
+        tmp = self._tmp.name
+        profile_path = Path(tmp) / "profile.yaml"
+        profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+        (Path(tmp) / "init-db.sql").write_text("-- none\n", encoding="utf-8")
+        with unittest.mock.patch.dict(
+            "os.environ", {"CDS_MODULE_PATH": str(REPO_ROOT)}, clear=False
+        ):
+            plan, plan_diagnostics = build_plan(
+                str(profile_path), env_file=str(self.env_file)
+            )
+        return plan, plan_diagnostics
+
+    def test_unknown_service_enrollment_fails_closed_with_e159(self) -> None:
+        # `warehose` is a typo for the `warehouse` module id (issue #1179):
+        # the rendered per-service AuthorizationPolicy would select zero
+        # pods, so the plan fails closed naming the unknown enrollment.
+        config = {
+            "mtlsMode": "STRICT",
+            "services": [
+                {"name": "warehouse", "port": 5432},
+                {"name": "warehose", "port": 5432},
+            ],
+        }
+        plan, diagnostics = self._build_plan_diags(config)
+        self.assertIsNotNone(plan)
+        e159 = [d for d in diagnostics if d.code == "E159"]
+        self.assertEqual(len(e159), 1)
+        self.assertEqual(e159[0].level, "error")
+        self.assertEqual(e159[0].path, "module:mesh.config.services[1].name")
+        self.assertIn('"warehose"', e159[0].message)
+        # The known module ids are listed to make the typo obvious.
+        self.assertIn("warehouse", e159[0].message)
+        self.assertIn("cache", e159[0].message)
+
+    def test_valid_enrollments_emit_no_e159(self) -> None:
+        _, diagnostics = self._build_plan_diags(dict(ISTIO_CONFIG))
+        self.assertEqual([d for d in diagnostics if d.code == "E159"], [])
+
+    def test_enrollment_of_a_disabled_module_fails_with_e159(self) -> None:
+        # A disabled module instance is not in the plan, so enrolling its id
+        # is the same silent no-op as a typo.
+        plan, diagnostics = self._build_plan_diags(
+            dict(ISTIO_CONFIG), disable=("cache",)
+        )
+        self.assertIsNotNone(plan)
+        self.assertNotIn("cache", [m["id"] for m in plan["modules"]])
+        e159 = [d for d in diagnostics if d.code == "E159"]
+        self.assertEqual(len(e159), 1)
+        self.assertEqual(e159[0].path, "module:mesh.config.services[1].name")
+        self.assertIn('"cache"', e159[0].message)
 
     def _render(self, istio_config: dict):
         _, files, diagnostics = self._build_plan(istio_config, render=True)
