@@ -24,12 +24,14 @@ _VALID_META = {
     "estimated_durations_by_key": {"foo.py::add-1": 0.1},
 }
 
-# Emulation of the mutmut 3.8.1 subcommands the export step calls, reproducing
-# the exact failure from issue #1175 when the cache is empty/partial:
-# export-cicd-stats crashes with JSONDecodeError on an unparseable
-# mutants/*.meta (mutmut/mutation/data.py load() only catches
-# FileNotFoundError), and badge exits 2 when mutants/mutmut-cicd-stats.json is
-# missing (click.Path(exists=True)). Used only when mutmut is not installed.
+# Emulation of the mutmut subcommands the export step calls, mirroring the
+# boxed/mutmut#630 behaviour (merged 2026-11-07; the workflow and Makefile pin
+# that commit via git): SourceFileMutationData.load() catches
+# json.JSONDecodeError alongside FileNotFoundError, so export-cicd-stats
+# tolerates an unparseable mutants/*.meta instead of crashing with it
+# (#1175/#1193). badge still exits 2 when mutants/mutmut-cicd-stats.json is
+# missing (click.Path(exists=True)); the export step's placeholder guards that.
+# Used only when mutmut is not installed.
 _MUTMUT_EMULATION = """import json
 import sys
 from pathlib import Path
@@ -38,8 +40,11 @@ from pathlib import Path
 def export_cicd_stats() -> int:
     data = {}
     for meta_path in sorted(Path("mutants").rglob("*.meta")):
-        with open(meta_path) as f:
-            meta = json.load(f)  # JSONDecodeError propagates, like mutmut
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except json.JSONDecodeError:
+            continue  # torn cache tolerated, like mutmut with boxed/mutmut#630
         if meta.get("exit_code_by_key"):
             data[str(meta_path)] = meta
     if not data:
@@ -118,23 +123,33 @@ class MutationTestsWorkflowTest(unittest.TestCase):
         # A time-capped matrix (exit 124) is a documented partial, not a failure.
         self.assertIn("$rc -ne 124", run)
 
-    def test_export_step_sanitizes_incomplete_meta_cache_before_export(self) -> None:
+    def test_mutmut_pin_carries_the_torn_meta_cache_fix(self) -> None:
+        # The ad hoc pin (here and in the Makefile test-mutation target) must
+        # not stay on mutmut 3.8.1, whose load() only catches FileNotFoundError
+        # and crashes on a torn mutants/*.meta (#1175). It points at the
+        # boxed/mutmut#630 commit until a release > 3.8.1 ships on PyPI, at
+        # which point this pin flips to "mutmut==<release>" (#1193).
+        run = self._step("Install dependencies")["run"]
+        self.assertNotIn("mutmut==3.8.1", run)
+        self.assertIn(
+            "mutmut @ git+https://github.com/boxed/mutmut@6837b3c3ab0cfa4f5488f68adbd1bb26f68b8eb8",
+            run,
+        )
+        makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertNotIn("mutmut==3.8.1", makefile)
+        self.assertIn("boxed/mutmut@6837b3c3ab0cfa4f5488f68adbd1bb26f68b8eb8", makefile)
+
+    def test_export_step_has_no_meta_cache_sanitizer(self) -> None:
+        # boxed/mutmut#630 (merged) makes mutmut's load() treat an unparseable
+        # mutants/*.meta like a missing one, so the export step must NOT
+        # sanitize the cache itself anymore; it relies on mutmut (#1193).
         run = self._step("Export stats, badge, and results")["run"]
-        sanitize_at = run.find('rglob("*.meta")')
         export_at = run.find("python -m mutmut export-cicd-stats")
-        self.assertGreater(
-            sanitize_at, -1, "export step must scan mutants/*.meta cache files"
-        )
-        self.assertGreater(
-            export_at,
-            sanitize_at,
-            "cache sanitization must run before export-cicd-stats",
-        )
-        # Incomplete cache files (empty/truncated on a time-capped run, #1175)
-        # are dropped, not parsed: mutmut's load() only tolerates a missing file
-        # (upstream fix pending in boxed/mutmut#630, tracked by #1181).
-        self.assertIn("JSONDecodeError", run)
-        self.assertIn("unlink", run)
+        self.assertGreater(export_at, -1, "export step must run export-cicd-stats")
+        self.assertNotIn('rglob("*.meta")', run)
+        self.assertNotIn("unlink", run)
+        # No python heredoc either: the sanitizer block must not come back.
+        self.assertNotIn("<<'EOF'", run)
 
     def test_export_step_writes_empty_stats_placeholder_before_badge(self) -> None:
         run = self._step("Export stats, badge, and results")["run"]
@@ -162,11 +177,15 @@ class MutationTestsWorkflowTest(unittest.TestCase):
 class ExportStepFunctionalTest(unittest.TestCase):
     """Run the export step's script end-to-end against an empty/partial cache.
 
-    Reproduces issue #1175: before the fix, an empty mutants/*.meta (killed
-    mid-write by the PR time cap) made `mutmut export-cicd-stats` crash with a
-    JSONDecodeError and fail the job; with no results at all, `mutmut badge`
-    exited 2 on the missing stats file. Uses real mutmut when installed,
-    otherwise a stub that mirrors the same failure modes.
+    Issue #1175/#1193: an empty mutants/*.meta (killed mid-write by the PR time
+    cap) used to make `mutmut export-cicd-stats` crash with a JSONDecodeError
+    and fail the job. With the boxed/mutmut#630 fix pinned in the workflow,
+    mutmut itself now tolerates the torn file (load() catches
+    json.JSONDecodeError), so the export step succeeds without any sanitizer
+    and leaves the torn file in place. With no results at all, `mutmut badge`
+    would still exit 2 on the missing stats file, which the placeholder
+    guards. Uses real mutmut when installed, otherwise a stub that mirrors the
+    fixed behaviour.
     """
 
     def setUp(self) -> None:
@@ -240,20 +259,24 @@ class ExportStepFunctionalTest(unittest.TestCase):
     def test_empty_meta_cache_no_longer_fails_the_export_step(self) -> None:
         # The original #1175 crash: time-capped run killed mid-write leaves an
         # empty mutants/foo.py.meta; export-cicd-stats used to die with
-        # JSONDecodeError and the step exited 1.
+        # JSONDecodeError and the step exited 1. mutmut now tolerates the torn
+        # file itself (boxed/mutmut#630), so it is ignored, not deleted.
         project = self._make_project({"foo.py.meta": ""})
         result = self._run_step(project)
         self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
         self.assertEqual(self._stats(project)["total"], 0)
+        self.assertTrue((project / "mutants" / "foo.py.meta").exists())
         self.assertTrue((project / "runner_temp" / "mutation-badge.svg").exists())
 
-    def test_truncated_meta_cache_is_dropped(self) -> None:
+    def test_truncated_meta_cache_is_tolerated_not_dropped(self) -> None:
+        # mutmut's load() treats an unparseable cache like a missing one
+        # (boxed/mutmut#630), so the torn file is skipped, not unlinked.
         project = self._make_project(
             {"foo.py.meta": '{"exit_code_by_key": {"foo.py::add-1": 0}, "durations_by_'}
         )
         result = self._run_step(project)
         self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
-        self.assertFalse((project / "mutants" / "foo.py.meta").exists())
+        self.assertTrue((project / "mutants" / "foo.py.meta").exists())
         self.assertEqual(self._stats(project)["total"], 0)
 
     def test_missing_cache_writes_empty_stats_placeholder(self) -> None:
@@ -284,7 +307,8 @@ class ExportStepFunctionalTest(unittest.TestCase):
         result = self._run_step(project)
         self.assertEqual(result.returncode, 0, msg=result.stderr + result.stdout)
         self.assertEqual(self._stats(project)["total"], 1)
-        self.assertFalse((project / "mutants" / "bar.py.meta").exists())
+        # The empty cache is tolerated by mutmut (boxed/mutmut#630), not dropped.
+        self.assertTrue((project / "mutants" / "bar.py.meta").exists())
         self.assertTrue((project / "mutants" / "foo.py.meta").exists())
 
 
