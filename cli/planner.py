@@ -864,9 +864,12 @@ def validate_service_mesh_enrollments(
 
 # Recommended standard vocabulary for the open-data-provider contract's
 # `classification` field (issue #845): the DCAT-AP-NL data themes, i.e. the
-# EU Publications Office data-theme authority list.
-OPEN_DATA_CLASSIFICATION_THEME_URI = (
-    "http://publications.europa.eu/resource/authority/data-theme/"
+# EU Publications Office data-theme authority list. The http spelling is the
+# canonical registered URI; the https spelling resolves to the same resource
+# and is accepted as an alias.
+OPEN_DATA_CLASSIFICATION_THEME_URI = "http://publications.europa.eu/resource/authority/data-theme/"  # NOSONAR - canonical authority URI is http; https serves the same resource
+OPEN_DATA_CLASSIFICATION_THEME_URI_HTTPS = (
+    "https://publications.europa.eu/resource/authority/data-theme/"
 )
 OPEN_DATA_CLASSIFICATION_THEMES = frozenset(
     {
@@ -893,7 +896,11 @@ def _is_recommended_classification(value: str) -> bool:
         return True
     prefix, _, code = theme.rpartition("/")
     return (
-        prefix == OPEN_DATA_CLASSIFICATION_THEME_URI.rstrip("/")
+        prefix
+        in (
+            OPEN_DATA_CLASSIFICATION_THEME_URI.rstrip("/"),
+            OPEN_DATA_CLASSIFICATION_THEME_URI_HTTPS.rstrip("/"),
+        )
         and code.upper() in OPEN_DATA_CLASSIFICATION_THEMES
     )
 

@@ -557,16 +557,13 @@ class OpenDataClassificationValidationTest(unittest.TestCase):
             self.assertEqual(diagnostics, [], f"theme {theme!r} should be clean")
 
     def test_full_authority_uri_is_clean(self) -> None:
-        diagnostics: list = []
-        validate_open_data_classification(
-            [
-                self._odp_module(
-                    "http://publications.europa.eu/resource/authority/data-theme/GEOJ"
-                )
-            ],
-            diagnostics,
-        )
-        self.assertEqual(diagnostics, [])
+        for uri in (
+            "http://publications.europa.eu/resource/authority/data-theme/GEOJ",
+            "https://publications.europa.eu/resource/authority/data-theme/GEOJ",
+        ):
+            diagnostics: list = []
+            validate_open_data_classification([self._odp_module(uri)], diagnostics)
+            self.assertEqual(diagnostics, [], f"uri {uri!r} should be clean")
 
     def test_free_text_is_a_w131_warning_not_an_error(self) -> None:
         diagnostics: list = []
