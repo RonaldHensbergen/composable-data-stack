@@ -89,10 +89,15 @@ configuration fails during Superset startup.
 With OIDC enabled, web UI sign-in is exclusively through the provider; the
 bootstrap admin account created at init remains available for CLI and
 bootstrap tasks but cannot sign in through the UI. Newly authenticated
-users are registered with the least-privileged `Gamma` role. Register the
-exact Superset callback URL
-`<public-superset-url>/oauth-authorized/keycloak` in the identity-provider
-client, enable Standard Flow, and ensure the issuer URL is reachable and
+users are registered with the least-privileged `Gamma` role. When the
+provider is the keycloak module, the client can be provisioned
+declaratively on the provider side via its `config.oidcClients` (issue #1074)
+with the exact Superset callback URL
+`<public-superset-url>/oauth-authorized/keycloak` as a redirect URI and
+Standard Flow enabled — then `clientId`/`clientSecretFrom` here simply
+reference that provisioned client, with no admin-console step. Otherwise
+register the callback URL in the identity-provider client manually. Ensure
+the issuer URL is reachable and
 consistent for both browsers and Superset containers. Client secrets remain
 runtime placeholders in rendered output: `${CDS_*}` in Compose, and on the
 Helm target a `$(CDS_*)` expansion backed by a `secretKeyRef` entry plus a

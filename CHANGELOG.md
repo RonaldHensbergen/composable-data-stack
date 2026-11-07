@@ -20,6 +20,20 @@ The format is based on Keep a Changelog.
   Documented in `shared/contracts/open-data-provider.yaml`, the postgres
   module's `config.dataProvider.classification`, `docs/fds-alignment.md`, and
   the README troubleshooting table (W131).
+- Declarative OIDC client provisioning for the keycloak module (issue
+  #1074): `config.oidcClients` accepts a list of clients (`clientId`,
+  `redirectUris`, optional `webOrigins`/`standardFlowEnabled`/`roles`/
+  `secretFrom`), validated by the module config schema. The Compose renderer
+  builds the realm-import JSON from `config.realm` + `config.oidcClients` and
+  injects it as the `CDS_OIDC_REALM_IMPORT` environment variable, which the
+  keycloak entrypoint writes to `/opt/keycloak/data/import` on startup of a
+  non-master realm. Client secrets stay profile secret aliases rendered as
+  `${CDS_*}` runtime placeholders — never embedded in rendered output
+  (CDS-SEC-030/E078 keep passing) — and malformed entries (plan-file
+  bypass) fail closed with E160. Consumers such as Superset reference the
+  provisioned client via their existing `identityProvider`
+  `clientId`/`clientSecretFrom` config. Documented in the keycloak and
+  Superset READMEs and the local-haven-reference README.
 - CI now exercises the full shipped profile matrix, not just
   `local-dagster-postgres-superset` (issue #1208). Cheap tier, every PR and
   no Docker: the new `profile-matrix` job in `.github/workflows/ci.yml` runs
