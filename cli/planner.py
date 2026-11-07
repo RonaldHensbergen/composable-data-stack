@@ -357,6 +357,14 @@ def build_plan_from_profile(
         "modules": planned_modules,
     }
 
+    # Optional provider-neutral data-sharing declaration (issue #844): carried
+    # through verbatim so `cds plan`/`cds report` can surface it. Only present
+    # when the profile declares it, so plans for profiles without the block
+    # keep their existing shape.
+    data_sharing = spec.get("dataSharing")
+    if data_sharing is not None:
+        plan["dataSharing"] = deepcopy(data_sharing)
+
     return plan, diagnostics
 
 

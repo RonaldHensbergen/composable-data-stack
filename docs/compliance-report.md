@@ -23,6 +23,7 @@ signed-images fixture. It covers issue #734.
 | `images` | Every image referenced by the rendered Compose output, whether it is digest-pinned, and linked signature/SBOM/provenance evidence looked up from the signed-images fixture (see [image-signing.md](image-signing.md#offline-verification)). |
 | `topology` | Each module's provided and consumed contracts (with the resolved `contractRef` and provider module) and its `dependsOn` edges. |
 | `secretLeakCheck` | Confirms none of the profile's declared secret values (`spec.secrets.values`) appear literally in the rendered Compose output — only `${CDS_*}` placeholders should. |
+| `dataSharing` | The profile's optional data-sharing declaration (`spec.dataSharing`, issue #844), included **only when the profile declares it**: the disclosed `datasets` (each `datasetId`, plus `module` and `moduleProvidesOpenDataProvider` when a module instance is named — the latter records whether that module advertises an `open-data-provider` contract in this plan) and the external `registration` link (`system` + `reference`). The section always carries a `note` making clear CDS does not perform, verify, or claim any registration. |
 | `disclaimer` | The exact text above, always included verbatim. |
 
 Missing evidence never fails the report outright — it degrades gracefully:
@@ -92,9 +93,22 @@ output on stdout stays parseable even when the report has warnings.
     {"id": "postgres", "dependsOn": [], "provides": [{"name": "sql-database", "kind": "sql-database"}], "consumes": []}
   ],
   "secretLeakCheck": {"status": "pass", "checkedSecretCount": 6, "leakedSecretNames": []},
+  "dataSharing": {
+    "registration": {"system": "fds-afsprakenstelsel", "reference": "https://realisatieibds.nl/registrations/example-123"},
+    "datasets": [
+      {"datasetId": "urn:example:datasets:address-register", "module": "postgres", "moduleProvidesOpenDataProvider": true}
+    ],
+    "note": "Declared by the profile; CDS does not perform, verify, or claim any registration in the named external system."
+  },
   "disclaimer": "This report aggregates readiness evidence ..."
 }
 ```
+
+(The `dataSharing` section appears only when the profile declares
+`spec.dataSharing`; profiles without it produce a report without the key.
+The declaration is a marker the operator makes about their own participation
+in an external data-sharing system — CDS never performs, verifies, or
+claims any registration, see [fds-alignment.md](fds-alignment.md).)
 
 ## Limitations
 

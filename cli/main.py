@@ -222,6 +222,28 @@ def _format_compliance_report_text(report: dict[str, Any]) -> str:
             )
     lines.append("")
 
+    data_sharing = report.get("dataSharing")
+    if data_sharing:
+        lines.append("-- Data Sharing Declaration --")
+        registration = data_sharing.get("registration")
+        if registration:
+            lines.append(
+                f"  registration: system={registration.get('system')} reference={registration.get('reference')}"
+            )
+        for dataset in data_sharing.get("datasets", []):
+            module_note = ""
+            if dataset.get("module"):
+                provides_odp = dataset.get("moduleProvidesOpenDataProvider")
+                module_note = (
+                    f" module={dataset['module']} "
+                    f"(open-data-provider contract: {'yes' if provides_odp else 'no'})"
+                )
+            lines.append(f"  dataset: {dataset.get('datasetId')}{module_note}")
+        note = data_sharing.get("note")
+        if note:
+            lines.append(f"  note: {note}")
+        lines.append("")
+
     secret_check = report.get("secretLeakCheck", {})
     lines.append("-- Secret Leak Check --")
     lines.append(

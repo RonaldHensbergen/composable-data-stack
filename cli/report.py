@@ -4,9 +4,10 @@ Compliance/evidence report assembly for a rendered stack (#734).
 
 CDS already produces evidence useful for a user's own regulatory
 documentation (module/image identification, signature/SBOM/provenance
-attestation via the signed-images fixture, the contract/topology graph, and
-confirmation that no resolved secret value leaked into rendered output) but
-never aggregates it into one exportable artifact. `build_compliance_report`
+attestation via the signed-images fixture, the contract/topology graph,
+confirmation that no resolved secret value leaked into rendered output, and
+the profile's optional data-sharing declaration) but never aggregates it
+into one exportable artifact. `build_compliance_report`
 assembles that evidence for a single profile; `cli.main`'s `cds report`
 command exposes it as human-readable text or machine-readable JSON.
 
@@ -101,9 +102,14 @@ def build_compliance_report(
         "modules": _build_module_summary(plan),
         "images": image_entries,
         "topology": _build_topology_summary(plan),
-        "secretLeakCheck": secret_check,
-        "disclaimer": REPORT_DISCLAIMER,
     }
+    if plan.get("dataSharing"):
+        # Optional provider-neutral data-sharing declaration (issue #844):
+        # echoed from the plan and enriched with module-level evidence. CDS
+        # does not perform, verify, or claim any registration.
+        report["dataSharing"] = _build_data_sharing_summary(plan)
+    report["secretLeakCheck"] = secret_check
+    report["disclaimer"] = REPORT_DISCLAIMER
     return report, diagnostics
 
 
@@ -198,6 +204,53 @@ def _build_topology_summary(plan: dict[str, Any]) -> list[dict[str, Any]]:
             "consumes": consumes,
         })
     return topology
+
+
+DATA_SHARING_NOTE = (
+    "Declared by the profile; CDS does not perform, verify, or claim any "
+    "registration in the named external system."
+)
+
+
+def _build_data_sharing_summary(plan: dict[str, Any]) -> dict[str, Any]:
+    """
+    Summarize the profile's optional spec.dataSharing declaration (issue
+    #844) for the report: the external registration link (if any) and each
+    disclosed dataset, enriched with whether the named module instance
+    actually advertises an open-data-provider contract in this plan, so the
+    declaration can be tied to module-level evidence. The declaration is
+    echoed as-is otherwise; CDS never performs or verifies a registration.
+    """
+    data_sharing = plan.get("dataSharing") or {}
+
+    provides_by_module = {
+        module["id"]: {
+            name: (contract or {}).get("kind")
+            for name, contract in (module.get("provides") or {}).items()
+        }
+        for module in plan.get("modules", [])
+    }
+
+    datasets: list[dict[str, Any]] = []
+    for dataset in data_sharing.get("datasets", []):
+        if not isinstance(dataset, dict):
+            continue
+        entry: dict[str, Any] = {"datasetId": dataset.get("datasetId")}
+        module_ref = dataset.get("module")
+        if isinstance(module_ref, str):
+            entry["module"] = module_ref
+            kinds = provides_by_module.get(module_ref, {})
+            entry["moduleProvidesOpenDataProvider"] = "open-data-provider" in kinds.values()
+        datasets.append(entry)
+
+    summary: dict[str, Any] = {"datasets": datasets, "note": DATA_SHARING_NOTE}
+    registration = data_sharing.get("registration")
+    if isinstance(registration, dict):
+        summary["registration"] = {
+            "system": registration.get("system"),
+            "reference": registration.get("reference"),
+        }
+    return summary
 
 
 def _check_no_leaked_secrets(
