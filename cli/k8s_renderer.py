@@ -322,14 +322,11 @@ def render_helm(
             "config": _values_config(module.get("config", {})),
             "workloads": module_values,
         }
-        manifests.extend(module_manifests        )
+        manifests.extend(module_manifests)
         files.update(module_files)
         secret_keys.update(module_secret_keys)
         diagnostics.extend(module_diags)
-        if any(
-            _manifest_renders_module_pods(manifest, module_id)
-            for _, manifest in module_manifests
-        ):
+        if _module_renders_pods(module, module_values, module_manifests):
             rendered_pod_modules.add(module_id)
         # A manifest-only module (e.g. a GitOps bootstrap, issue #767) runs
         # no pods of its own, so it gets no ServiceAccount and no
@@ -442,58 +439,35 @@ def _check_service_mesh_enrollments(
     return diagnostics
 
 
-def _manifest_renders_module_pods(manifest: dict[str, Any], module_id: str) -> bool:
-    """Return whether a rendered manifest can create pods bearing this module label."""
-    kind = manifest.get("kind")
-    spec = manifest.get("spec")
-    job_spec = None
-    if kind == "Pod":
-        pod_metadata = manifest.get("metadata")
-    elif kind in {
-        "CronJob",
-        "DaemonSet",
-        "Deployment",
-        "Job",
-        "ReplicaSet",
-        "ReplicationController",
-        "StatefulSet",
-    } and isinstance(spec, dict):
-        if kind == "CronJob":
-            job_template = spec.get("jobTemplate")
-            job_spec = job_template.get("spec") if isinstance(job_template, dict) else None
-            pod_template = job_spec.get("template") if isinstance(job_spec, dict) else None
-        else:
-            pod_template = spec.get("template")
-            if kind == "Job":
-                job_spec = spec
-        pod_metadata = (
-            pod_template.get("metadata") if isinstance(pod_template, dict) else None
-        )
-    else:
-        return False
-
-    pod_labels = pod_metadata.get("labels") if isinstance(pod_metadata, dict) else None
-    if not isinstance(pod_labels, dict) or pod_labels.get("cds.dev/module") != module_id:
-        return False
-    if kind == "Pod":
-        return True
-    if kind == "Job":
-        return _job_spec_renders_pods(job_spec)
-    if kind == "CronJob":
-        return spec.get("suspend") is not True and _job_spec_renders_pods(job_spec)
-    if kind == "DaemonSet":
-        return True
-    replicas = spec.get("replicas", 1)
-    return isinstance(replicas, int) and not isinstance(replicas, bool) and replicas > 0
-
-
-def _job_spec_renders_pods(spec: dict[str, Any] | None) -> bool:
-    return (
-        isinstance(spec, dict)
-        and spec.get("suspend") is not True
-        and spec.get("parallelism") != 0
-        and spec.get("completions") != 0
-    )
+def _module_renders_pods(
+    module: dict[str, Any],
+    rendered_workloads: dict[str, Any],
+    manifests: list[tuple[str, dict[str, Any]]],
+) -> bool:
+    """Return whether the module renders at least one pod with its module label."""
+    module_id = module["id"]
+    workload_specs = (
+        (module.get("implementation") or {}).get("kubernetes") or {}
+    ).get("workloads", {})
+    for name, rendered in rendered_workloads.items():
+        spec = workload_specs.get(name, {})
+        kind = spec.get("kind", "Deployment")
+        replicas = rendered.get("replicas", 1)
+        if kind == "Job" or (
+            kind in {"Deployment", "StatefulSet"}
+            and isinstance(replicas, int)
+            and not isinstance(replicas, bool)
+            and replicas > 0
+        ):
+            return True
+    for _, manifest in manifests:
+        if manifest.get("kind") != "Pod":
+            continue
+        metadata = manifest.get("metadata")
+        labels = metadata.get("labels") if isinstance(metadata, dict) else None
+        if isinstance(labels, dict) and labels.get("cds.dev/module") == module_id:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------

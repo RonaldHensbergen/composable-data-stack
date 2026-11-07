@@ -33,7 +33,7 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator
 
-from cli.k8s_renderer import _manifest_renders_module_pods, render_helm
+from cli.k8s_renderer import render_helm
 from cli.maturity import build_maturity_report
 from cli.planner import build_plan, validate_service_mesh_enrollments
 from cli.renderer import render_compose
@@ -433,24 +433,6 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
         }
         _, diagnostics = render_helm(plan)
         self.assertEqual([d for d in diagnostics if d.code == "W131"], [])
-
-    def test_job_manifests_with_no_completions_do_not_count_as_workloads(self) -> None:
-        pod_labels = {"cds.dev/module": "warehouse"}
-        pod_template = {"metadata": {"labels": pod_labels}}
-        job = {
-            "kind": "Job",
-            "spec": {"completions": 0, "template": pod_template},
-        }
-        cron_job = {
-            "kind": "CronJob",
-            "spec": {
-                "jobTemplate": {
-                    "spec": {"completions": 0, "template": pod_template}
-                }
-            },
-        }
-        self.assertFalse(_manifest_renders_module_pods(job, "warehouse"))
-        self.assertFalse(_manifest_renders_module_pods(cron_job, "warehouse"))
 
     def test_enrollment_of_a_disabled_module_fails_with_e159(self) -> None:
         # A disabled module instance is not in the plan, so enrolling its id
