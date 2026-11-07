@@ -55,7 +55,11 @@ Two boundaries worth knowing:
 - **Enrollment needs no consumer-side changes.** A profile enrolls an
   existing module by naming its instance id in `config.services`; the mesh
   policy selects the module's pods by the `cds.dev/module` label CDS renders
-  on every workload. The enrolled modules themselves are untouched.
+  on every workload. The enrolled modules themselves are untouched. Each
+  `services[].name` is validated at plan time against the profile's module
+  instance ids: an unknown id (a typo, or a disabled module) fails closed
+  with `E159`, because the rendered per-service `AuthorizationPolicy` would
+  select zero pods — a silent no-op.
 
 ## Configuration
 

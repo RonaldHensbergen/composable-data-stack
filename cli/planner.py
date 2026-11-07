@@ -373,6 +373,7 @@ def build_plan_from_profile(
     validate_object_storage_backup_destinations(
         planned_modules, module_categories, diagnostics
     )
+    validate_service_mesh_enrollments(planned_modules, diagnostics)
 
     plan = {
         "apiVersion": "cds/v1alpha1",
@@ -793,6 +794,69 @@ def validate_object_storage_backup_destinations(
                         "destination endpoint and bucket."
                     ),
                     path=f"module:{module['id']}.config.destination",
+                )
+            )
+
+
+def validate_service_mesh_enrollments(
+    planned_modules: list[dict[str, Any]], diagnostics: list[Diagnostic]
+) -> None:
+    """
+    E159: every `config.services[].name` enrollment of a module providing the
+    `service-mesh` contract must name a module instance id of the profile
+    (issue #1179).
+
+    A mesh provider's per-service AuthorizationPolicy selects pods via
+    `spec.selector.matchLabels: {cds.dev/module: <name>}`, so an enrollment
+    naming an id no planned module has (a typo such as `warehose` for
+    `warehouse`, or a disabled module) renders green but selects zero pods --
+    a silent no-op allow policy. Fail closed at plan time, like the E150
+    contract-host checks, instead of shipping a mesh policy that governs
+    nothing.
+    """
+    module_ids = {
+        str(module["id"])
+        for module in planned_modules
+        if isinstance(module, dict) and module.get("id")
+    }
+    for module in planned_modules:
+        if not isinstance(module, dict):
+            continue
+        provides = module.get("provides")
+        if not isinstance(provides, dict):
+            continue
+        if not any(
+            isinstance(provided, dict) and provided.get("kind") == "service-mesh"
+            for provided in provides.values()
+        ):
+            continue
+        config = module.get("config")
+        if not isinstance(config, dict):
+            continue
+        services = config.get("services")
+        if not isinstance(services, list):
+            continue
+        for i, service in enumerate(services):
+            if not isinstance(service, dict):
+                continue
+            name = service.get("name")
+            if not isinstance(name, str) or not name:
+                continue
+            if name in module_ids:
+                continue
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E159",
+                    message=(
+                        f'Module "{module["id"]}" enrolls service "{name}" in its '
+                        f"service-mesh config (config.services[{i}].name), but no "
+                        "module instance with that id exists in the profile (planned "
+                        f"module ids: {', '.join(sorted(module_ids))}). The rendered "
+                        "per-service policy would select zero pods via the "
+                        "cds.dev/module label -- a silent no-op."
+                    ),
+                    path=f"module:{module['id']}.config.services[{i}].name",
                 )
             )
 

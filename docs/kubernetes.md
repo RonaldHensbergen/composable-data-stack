@@ -513,8 +513,12 @@ by #1171) renders the Istio security resources on the Helm target:
 A profile enrolls an existing module simply by naming its instance id (and
 port) in the istio module's `config.services` — no consumer-side changes to
 that module: the mesh policy selects its pods by the `cds.dev/module` label.
-The module advertises the resolved mesh on the `service-mesh` contract, which
-`cds maturity` counts as the service-mesh leg of the **Secured** tier.
+Each enrolled name is validated at plan time against the profile's module
+instance ids: an unknown id (a typo, or a disabled module) fails closed with
+E159, because the per-service `AuthorizationPolicy` would otherwise select
+zero pods — a silent no-op. The module advertises the resolved mesh on the
+`service-mesh` contract, which `cds maturity` counts as the service-mesh leg
+of the **Secured** tier.
 
 Like operator-managed modules, the istio module runs no pods of its own (no
 ServiceAccount/NetworkPolicy), declares the Istio control plane under
