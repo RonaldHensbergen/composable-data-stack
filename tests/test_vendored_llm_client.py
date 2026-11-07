@@ -92,5 +92,58 @@ class CompleteDispatchTest(unittest.TestCase):
         mock_ollama_preflight.assert_not_called()
 
 
+class FailClosedDispatchTest(unittest.TestCase):
+    def test_complete_dispatches_to_azure_openai_backend(self) -> None:
+        with (
+            mock.patch.dict("os.environ", {"LLM_PROVIDER": "azure_openai"}, clear=True),
+            mock.patch.object(
+                llm_client, "_complete_azure_openai", return_value="ok"
+            ) as mock_azure,
+        ):
+            result = llm_client.complete("hello")
+        mock_azure.assert_called_once()
+        self.assertEqual(result, "ok")
+
+    def test_complete_fails_closed_for_unknown_provider(self) -> None:
+        # config.LLM_PROVIDER() rejects unknown values itself; the dispatch
+        # must not fall through to a backend (e.g. Azure) if it ever sees one.
+        with (
+            mock.patch.object(llm_client.config, "LLM_PROVIDER", return_value="bogus"),
+            mock.patch.object(
+                llm_client, "_complete_azure_openai", return_value="leaked"
+            ) as mock_azure,
+            mock.patch.object(llm_client, "_complete_ollama") as mock_ollama,
+            mock.patch.object(llm_client, "_complete_copilot_cli") as mock_copilot,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                llm_client.complete("hello")
+        self.assertIn("bogus", str(ctx.exception))
+        mock_azure.assert_not_called()
+        mock_ollama.assert_not_called()
+        mock_copilot.assert_not_called()
+
+
+class UntrustedPromptFencingTest(unittest.TestCase):
+    def test_user_prompt_is_fenced_before_dispatch(self) -> None:
+        with (
+            mock.patch.dict("os.environ", {"LLM_PROVIDER": "ollama"}, clear=True),
+            mock.patch.object(
+                llm_client, "_complete_ollama", return_value="ok"
+            ) as mock_ollama,
+        ):
+            llm_client.complete("profile yaml goes here", system="sys")
+        sent_prompt = mock_ollama.call_args.args[0]
+        self.assertIn("BEGIN_UNTRUSTED_DATA", sent_prompt)
+        self.assertIn("END_UNTRUSTED_DATA", sent_prompt)
+        self.assertIn("profile yaml goes here", sent_prompt)
+        self.assertIn("untrusted", sent_prompt)
+        # system prompt passes through unchanged
+        self.assertEqual(mock_ollama.call_args.args[1], "sys")
+
+    def test_fencing_is_idempotent(self) -> None:
+        already = "BEGIN_UNTRUSTED_DATA\nsecret\nEND_UNTRUSTED_DATA"
+        self.assertEqual(llm_client._fence_untrusted_prompt(already), already)
+
+
 if __name__ == "__main__":
     unittest.main()

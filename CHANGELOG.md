@@ -627,6 +627,15 @@ The format is based on Keep a Changelog.
   in `cli/main.py`, which re-attributed that false positive (operator's own
   CLI path argument) to this PR; the line now carries an explicit `# NOSONAR`
   with the justification, so the PR quality gate stays green.
+- LLM seam hardening (github-advanced-security findings on this PR):
+  `scripts/_vendor/llm/client.py::complete()` now dispatches on an explicit
+  provider allowlist and raises `ValueError` for unknown providers instead of
+  falling through to Azure OpenAI (a misconfigured `LLM_PROVIDER` can no
+  longer off-box the prompt by accident), and wraps the caller's user prompt
+  in the repo's `BEGIN_UNTRUSTED_DATA` / `END_UNTRUSTED_DATA` fences with a
+  data-not-instructions preamble before dispatching to any provider, so
+  untrusted profile YAML/plan JSON embedded in `scripts/ai_profile_review.py`
+  prompts is structurally isolated (system prompt unchanged).
 
 ## [0.15.0] - 2026-11-02
 
