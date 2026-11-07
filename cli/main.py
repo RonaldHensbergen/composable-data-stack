@@ -2490,7 +2490,9 @@ def _run() -> int:
                 # Try to load as plan
                 try:
                     plan_content = json.loads(
-                        candidate_path.read_text(encoding="utf-8")
+                        # S8707 false positive: profile_or_plan is the operator's own
+                        # CLI argument on a local operator tool (docs/threat-model.md).
+                        candidate_path.read_text(encoding="utf-8")  # NOSONAR
                     )
                     if (
                         isinstance(plan_content, dict)

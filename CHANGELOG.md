@@ -622,7 +622,11 @@ The format is based on Keep a Changelog.
   reformatting detached from their flagged line were moved back:
   `# noqa: S104` in `tests/test_security.py` (onto the `"0.0.0.0"` literal)
   and `# NOSONAR` in `cli/renderer.py` (onto the `http://` backend URL, so
-  the S5332 false positive stays suppressed).
+  the S5332 false positive stays suppressed). The reformatting also
+  re-wrapped the line SonarCloud anchors its pre-existing S8707 finding on
+  in `cli/main.py`, which re-attributed that false positive (operator's own
+  CLI path argument) to this PR; the line now carries an explicit `# NOSONAR`
+  with the justification, so the PR quality gate stays green.
 
 ## [0.15.0] - 2026-11-02
 
