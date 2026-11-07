@@ -336,7 +336,7 @@ def current_kube_context() -> str | None:
             timeout=_HEALTHZ_TIMEOUT_SECONDS,
             shell=False,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except FileNotFoundError, subprocess.TimeoutExpired, OSError:
         return None
     if result.returncode != 0:
         return None
@@ -363,7 +363,7 @@ def cluster_is_reachable(kube_context: str | None = None) -> bool:
             timeout=_HEALTHZ_TIMEOUT_SECONDS,
             shell=False,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except FileNotFoundError, subprocess.TimeoutExpired, OSError:
         return False
     return result.returncode == 0
 

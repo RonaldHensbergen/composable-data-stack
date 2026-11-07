@@ -1200,7 +1200,7 @@ def _compose_port_target(entry: Any) -> int | None:
     if isinstance(entry, dict):
         try:
             return int(entry.get("target"))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
     text = str(entry).split("/")[0]
     parts = text.split(":")
@@ -1585,7 +1585,7 @@ def _read_bind_file(
         try:
             resolved = candidate.resolve()
             resolved.relative_to(project_root.resolve())
-        except (OSError, ValueError):
+        except OSError, ValueError:
             escaped_root = True
             continue
         if resolved.is_file():
@@ -2283,7 +2283,7 @@ def _int_or_none(value: Any) -> int | None:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

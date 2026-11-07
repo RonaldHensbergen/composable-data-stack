@@ -105,7 +105,7 @@ def _fetch_bearer_token(www_authenticate: str) -> str | None:
         # registry-controlled URL rather than to full SSRF.
         with urlopen(req, timeout=_TIMEOUT) as response:  # nosec B310  # noqa: S310
             data = json.loads(response.read().decode())
-    except (HTTPError, URLError, ValueError):
+    except HTTPError, URLError, ValueError:
         return None
     token = data.get("token") or data.get("access_token")
     return token if isinstance(token, str) else None

@@ -105,7 +105,7 @@ def _bucket_for(service: dict[str, Any]) -> str:
         exit_code_raw = service.get("ExitCode")
         try:
             exit_code = int(exit_code_raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return "UNKNOWN"
         return "HEALTHY EXIT" if exit_code == 0 else "UNHEALTHY EXIT"
     if state == "running":

@@ -488,8 +488,6 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
-- Corrected malformed Python exception handlers across the CLI that prevented
-  modules from compiling or importing (issue #1198).
 - `cds get` no longer follows a symlinked `.cds` tracking directory, update
   notifications parse bounded PEP 440 versions, and image digest pins use
   deterministic validation instead of potentially super-linear regular

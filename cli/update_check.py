@@ -82,7 +82,7 @@ def fetch_latest_version() -> str | None:
         with urlopen(request, timeout=_TIMEOUT) as response:  # nosec B310  # noqa: S310
             data = json.loads(response.read().decode("utf-8"))
         latest = data["info"]["version"]
-    except (OSError, URLError, ValueError, KeyError, TypeError):
+    except OSError, URLError, ValueError, KeyError, TypeError:
         return None
     return latest if isinstance(latest, str) else None
 
@@ -92,7 +92,7 @@ def _cached_latest() -> str | None:
         data = json.loads(_cache_path().read_text(encoding="utf-8"))
         if time.time() - float(data["checkedAt"]) < COOLDOWN_SECONDS:
             return data["latest"] if isinstance(data["latest"], str) else None
-    except (OSError, ValueError, KeyError, TypeError):
+    except OSError, ValueError, KeyError, TypeError:
         pass
     return None
 

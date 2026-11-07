@@ -308,7 +308,7 @@ def _resolve_profile_document_best_effort(
 
     try:
         overlay = yaml.safe_load(overlay_file.read_text(encoding="utf-8")) or {}
-    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+    except OSError, UnicodeDecodeError, yaml.YAMLError:
         return document
 
     merged, merge_diagnostics = _merge_profile_docs(
@@ -2501,7 +2501,7 @@ def _run() -> int:
                         is_plan_file = True
                         plan = plan_content
                         plan_path = candidate_path
-                except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+                except json.JSONDecodeError, OSError, UnicodeDecodeError:
                     pass
 
         if is_plan_file:
