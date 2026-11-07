@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -865,6 +866,39 @@ class CopyAndManifestTest(unittest.TestCase):
             self.assertFalse(manifest.is_symlink())
             self.assertEqual(outside.read_text(), "orig")
             self.assertIn("p", json.loads(manifest.read_text())["profiles"])
+
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
+    def test_write_manifest_rejects_symlinked_tracking_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            repo = root / "repo"
+            _write(repo / "profiles" / "p" / "profile.yaml", "x")
+            target = root / "target"
+            target.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            outside_manifest = outside / "get-manifest.json"
+            _write(outside_manifest, "do not overwrite")
+            (target / ".cds").symlink_to(outside, target_is_directory=True)
+
+            with self.assertRaisesRegex(GetError, "symlinked tracking metadata"):
+                getter._write_tracking_manifest(
+                    target_root=target,
+                    requested_profile="p",
+                    source_repo=repo,
+                    profile_path=repo / "profiles" / "p" / "profile.yaml",
+                    remote=None,
+                    ref="main",
+                    local=None,
+                    actions=[],
+                    asset_roots=[],
+                )
+
+            self.assertTrue((target / ".cds").is_symlink())
+            self.assertEqual(outside_manifest.read_text(), "do not overwrite")
 
     def test_asset_root_relative_path_outside_repo(self) -> None:
         with (

@@ -447,6 +447,11 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- `cds get` no longer follows a symlinked `.cds` tracking directory, update
+  notifications parse bounded PEP 440 versions, and image digest pins use
+  deterministic validation instead of potentially super-linear regular
+  expressions (issue #1199).
+
 - `cds down` now writes its lifecycle log to `.cds/logs/down-<profile>-<ts>.log`
   instead of `.cds/logs/up-down-<profile>-<ts>.log`: `default_log_path()`
   takes a `prefix` parameter (`"up"` for `cds up`, `"down"` for `cds down`)
