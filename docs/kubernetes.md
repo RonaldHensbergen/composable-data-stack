@@ -578,3 +578,9 @@ module README for the istiod install and namespace sidecar-injection label.
   helm` checks reachability before installing and fails with this guidance.
 - If Helm reports missing secret data, rerun `cds init`, fill every required
   `CDS_*` value, and keep `.env` untracked.
+- If every Service name lookup times out under the default-deny NetworkPolicy,
+  the cluster's DNS pods are probably not labeled `k8s-app: kube-dns` in
+  `kube-system` (for example OpenShift's `dns-default`): add the passthrough
+  egress rule from
+  [Network isolation and least privilege](#network-isolation-and-least-privilege)
+  to every module that needs to resolve names (#1032).
