@@ -45,8 +45,11 @@ branch-hygiene:
 # Kill matrix (mutation testing): every test must earn its place by catching a
 # mutant no other test catches. Installs mutmut ad hoc (pinned) so the
 # project's own lockfile is untouched; see pyproject.toml [tool.mutmut].
+# The pin is a git ref to the boxed/mutmut#630 fix (torn .meta cache tolerated
+# by load()); flip to "mutmut==<release>" once a release > 3.8.1 ships on
+# PyPI (#1193).
 test-mutation:
-	python -m pip install "mutmut==3.8.1" pytest
+	python -m pip install "mutmut @ git+https://github.com/boxed/mutmut@6837b3c3ab0cfa4f5488f68adbd1bb26f68b8eb8" pytest
 	python -m mutmut run
 	python -m mutmut results
 
