@@ -58,6 +58,14 @@ class ParsePinnedReferenceTest(unittest.TestCase):
     def test_returns_none_for_malformed_digest(self):
         self.assertIsNone(parse_pinned_reference("postgres:18@sha256:not-hex"))
 
+    def test_returns_none_for_multiple_separators_or_overlong_reference(self):
+        self.assertIsNone(
+            parse_pinned_reference(f"postgres@extra@sha256:{'a' * 64}")
+        )
+        self.assertIsNone(
+            parse_pinned_reference(f"postgres@sha256:{'a' * 10000}")
+        )
+
 
 class IsEnabledTest(unittest.TestCase):
     def test_explicit_flag_wins_regardless_of_env(self):

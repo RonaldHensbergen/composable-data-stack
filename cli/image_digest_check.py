@@ -41,7 +41,6 @@ _MANIFEST_ACCEPT = ", ".join(
 )
 _USER_AGENT = "cds-digest-check/1.0"
 
-_PINNED_DIGEST_PATTERN = re.compile(r"^([^@]+)@(sha256:[a-f0-9]{64})$")
 _AUTH_PARAM_PATTERN = re.compile(r'(\w+)="([^"]*)"')
 
 
@@ -58,10 +57,17 @@ def is_enabled(explicit: bool | None = None) -> bool:
 
 def parse_pinned_reference(image: str) -> tuple[str, str] | None:
     """Split "repo:tag@sha256:..." into ("repo:tag", "sha256:...")."""
-    match = _PINNED_DIGEST_PATTERN.match(image)
-    if not match:
+    repository, separator, digest = image.partition("@")
+    if (
+        not separator
+        or not repository
+        or "@" in digest
+        or not digest.startswith("sha256:")
+        or len(digest) != len("sha256:") + 64
+        or any(character not in "0123456789abcdef" for character in digest[7:])
+    ):
         return None
-    return match.group(1), match.group(2)
+    return repository, digest
 
 
 def _registry_base_url(registry: str) -> str:

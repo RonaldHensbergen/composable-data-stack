@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import time
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
+
+from packaging.version import InvalidVersion, Version
 
 ENV_VAR = "CDS_CHECK_UPDATES"
 PACKAGE = "composable-data-stack"
@@ -26,6 +27,7 @@ CHANGELOG_URL = (
 RELEASES_URL = "https://github.com/RonaldHensbergen/composable-data-stack/releases"
 COOLDOWN_SECONDS = 24 * 60 * 60
 _TIMEOUT = 3
+_MAX_VERSION_LENGTH = 256
 
 
 def is_enabled() -> bool:
@@ -43,14 +45,18 @@ def _cache_path() -> Path:
     return root / "cds" / "update-check.json"
 
 
-def _parse_version(value: str) -> tuple[tuple[int, ...], bool] | None:
-    """Return (release numbers, is_prerelease) or None when unparseable."""
-    match = re.fullmatch(
-        r"v?(\d+(?:\.\d+)*)((?:a|b|rc|\.?dev|\.?post)\d*.*)?", value.strip()
-    )
-    if not match:
+def _parse_version(value: str) -> Version | None:
+    """Parse a bounded PEP 440 version, or return None when unparseable."""
+    normalized = value.strip()
+    if not normalized or len(normalized) > _MAX_VERSION_LENGTH:
         return None
-    return tuple(int(part) for part in match.group(1).split(".")), bool(match.group(2))
+    try:
+        version = Version(normalized)
+    except InvalidVersion:
+        return None
+    if version.epoch or version.local is not None:
+        return None
+    return version
 
 
 def is_newer(latest: str, current: str) -> bool:
@@ -59,14 +65,14 @@ def is_newer(latest: str, current: str) -> bool:
     A pre-release of the same base version counts as older than its final.
     """
     latest_p, current_p = _parse_version(latest), _parse_version(current)
-    if latest_p is None or current_p is None or latest_p[1]:
+    if (
+        latest_p is None
+        or current_p is None
+        or latest_p.is_prerelease
+        or latest_p.is_postrelease
+    ):
         return False
-    latest_v, current_v = latest_p[0], current_p[0]
-    width = max(len(latest_v), len(current_v))
-    pad = lambda v: v + (0,) * (width - len(v))  # noqa: E731
-    if current_p[1]:
-        return pad(latest_v) >= pad(current_v)
-    return pad(latest_v) > pad(current_v)
+    return latest_p > current_p
 
 
 def fetch_latest_version() -> str | None:
