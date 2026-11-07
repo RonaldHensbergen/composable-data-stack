@@ -569,6 +569,16 @@ The format is based on Keep a Changelog.
     and health is probed via the host-published `healthPort`
     (`health_check` on 13133). `tests/test_otel_collector_module.py` asserts
     the healthcheck is absent.
+- The `cds-restic` image's compiled restic binary is rebuilt with the fixed
+  Go module versions to clear CVE-2026-78661 (HIGH, DoS via crafted HTML
+  input in `golang.org/x/net/html`, reported by the Trivy image scan against
+  the published `cds-restic` digest, issue #1185): the `go get` pins in
+  `images/restic/Dockerfile` move `golang.org/x/net` v0.60.0 -> v0.62.0 (the
+  fixed version), with the minimum versions that release requires,
+  `golang.org/x/crypto` v0.57.0 -> v0.58.0 and `golang.org/x/text` v0.42.0
+  -> v0.43.0. restic 0.19.1 is still the latest upstream release, so the
+  image keeps compiling the pinned release tag from source; Renovate's
+  regex manager in `renovate.json` keeps tracking the pins.
 
 ## [0.15.0] - 2026-11-02
 
