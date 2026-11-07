@@ -93,6 +93,7 @@ class KeycloakOidcClientsTest(unittest.TestCase):
     def _base_keycloak_config(self) -> dict:
         return {
             "realm": "app",
+            "publicUrl": "https://id.example.org",
             "metadataDatabase": {"contractRef": "postgres.sql-database"},
             "adminUser": {
                 "username": "admin",
@@ -137,9 +138,9 @@ class KeycloakOidcClientsTest(unittest.TestCase):
             config["oidcClients"] = [
                 {
                     "clientId": "superset",
-                    "redirectUris": [
-                        "https://superset.example.org/oauth-authorized/keycloak"
-                    ],
+                    # Self-reference: must resolve via the module render
+                    # context, not leak a raw ${config.*} into the JSON.
+                    "redirectUris": ["${config.publicUrl}/oauth-authorized/superset"],
                     "webOrigins": ["https://superset.example.org"],
                     "standardFlowEnabled": True,
                     "roles": ["viewer", "editor"],
@@ -175,8 +176,9 @@ class KeycloakOidcClientsTest(unittest.TestCase):
             self.assertTrue(superset["standardFlowEnabled"])
             self.assertEqual(
                 superset["redirectUris"],
-                ["https://superset.example.org/oauth-authorized/keycloak"],
+                ["https://id.example.org/oauth-authorized/superset"],
             )
+            self.assertNotIn("${config.", keycloak_env["CDS_OIDC_REALM_IMPORT"])
             self.assertEqual(superset["webOrigins"], ["https://superset.example.org"])
             self.assertFalse(superset["publicClient"])
             # The secret stays a runtime placeholder in the rendered output.

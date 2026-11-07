@@ -255,7 +255,9 @@ def render_compose(
     _add_cross_module_dependencies(compose, plan, module_service_names)
 
     diagnostics.extend(
-        _inject_oidc_realm_imports(plan, compose, module_service_names, secrets)
+        _inject_oidc_realm_imports(
+            plan, compose, module_service_names, secrets, certificates
+        )
     )
 
     output = yaml.safe_dump(compose, sort_keys=False)
@@ -937,6 +939,9 @@ _OIDC_ROLE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _SECRET_REF_RE = re.compile(r"^secrets\.([a-zA-Z0-9_-]+)$")
 
 
+_CDS_PLACEHOLDER_RE = re.compile(r"^\$\{CDS_[A-Z0-9_]+\}$")
+
+
 def _oidc_realm_import_document(
     module_id: str, config: dict[str, Any], secrets: dict[str, str]
 ) -> tuple[dict[str, Any] | None, list[Diagnostic]]:
@@ -954,6 +959,19 @@ def _oidc_realm_import_document(
     """
     diagnostics: list[Diagnostic] = []
     realm = config.get("realm") or "master"
+    if not isinstance(realm, str) or "${" in realm:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E160",
+                message=(
+                    f'Module "{module_id}" config.realm must be a fully resolved string '
+                    "(module:{module_id}.config.realm)."
+                ),
+                path=f"module:{module_id}.config.realm",
+            )
+        )
+        return None, diagnostics
     clients_cfg = config.get("oidcClients") or []
     if not isinstance(clients_cfg, list):
         diagnostics.append(
@@ -998,13 +1016,16 @@ def _oidc_realm_import_document(
         if (
             not isinstance(redirect_uris, list)
             or not redirect_uris
-            or not all(isinstance(u, str) and u for u in redirect_uris)
+            or not all(
+                isinstance(u, str) and u and "${" not in u for u in redirect_uris
+            )
         ):
             diagnostics.append(
                 Diagnostic(
                     "error",
                     "E160",
-                    f'OIDC client "{client_id}" needs a non-empty redirectUris list of strings ({path}.redirectUris).',
+                    f'OIDC client "{client_id}" needs a non-empty redirectUris list of fully '
+                    f"resolved strings ({path}.redirectUris).",
                     f"{path}.redirectUris",
                 )
             )
@@ -1012,7 +1033,7 @@ def _oidc_realm_import_document(
 
         web_origins = entry.get("webOrigins") or []
         if not isinstance(web_origins, list) or not all(
-            isinstance(o, str) and o for o in web_origins
+            isinstance(o, str) and o and "${" not in o for o in web_origins
         ):
             diagnostics.append(
                 Diagnostic(
@@ -1054,36 +1075,44 @@ def _oidc_realm_import_document(
 
         secret_from = entry.get("secretFrom")
         if secret_from is not None:
-            match = (
-                _SECRET_REF_RE.match(secret_from)
-                if isinstance(secret_from, str)
-                else None
-            )
-            if match is None:
-                diagnostics.append(
-                    Diagnostic(
-                        "error",
-                        "E160",
-                        f'OIDC client "{client_id}" secretFrom must match ^secrets\\.[a-zA-Z0-9_-]+$ ({path}.secretFrom).',
-                        f"{path}.secretFrom",
-                    )
+            if isinstance(secret_from, str) and _CDS_PLACEHOLDER_RE.match(secret_from):
+                # Already substituted to its runtime placeholder by the
+                # caller (secrets.<alias> -> ${CDS_*} via the render context).
+                client["publicClient"] = False
+                client["secret"] = secret_from
+            else:
+                match = (
+                    _SECRET_REF_RE.match(secret_from)
+                    if isinstance(secret_from, str)
+                    else None
                 )
-                continue
-            alias = match.group(1)
-            env_name = secrets.get(alias)
-            if not env_name:
-                diagnostics.append(
-                    Diagnostic(
-                        "error",
-                        "E160",
-                        f'OIDC client "{client_id}" secretFrom names secret alias "{alias}", '
-                        "which is not declared in spec.secrets.values.",
-                        f"{path}.secretFrom",
+                if match is None:
+                    diagnostics.append(
+                        Diagnostic(
+                            "error",
+                            "E160",
+                            f'OIDC client "{client_id}" secretFrom must match '
+                            "^secrets\\.[a-zA-Z0-9_-]+$ "
+                            f"({path}.secretFrom).",
+                            f"{path}.secretFrom",
+                        )
                     )
-                )
-                continue
-            client["publicClient"] = False
-            client["secret"] = f"${{{env_name}}}"
+                    continue
+                alias = match.group(1)
+                env_name = secrets.get(alias)
+                if not env_name:
+                    diagnostics.append(
+                        Diagnostic(
+                            "error",
+                            "E160",
+                            f'OIDC client "{client_id}" secretFrom names secret alias "{alias}", '
+                            "which is not declared in spec.secrets.values.",
+                            f"{path}.secretFrom",
+                        )
+                    )
+                    continue
+                client["publicClient"] = False
+                client["secret"] = f"${{{env_name}}}"
         else:
             client["publicClient"] = True
 
@@ -1107,6 +1136,7 @@ def _inject_oidc_realm_imports(
     compose: dict[str, Any],
     module_service_names: dict[str, list[str]],
     secrets: dict[str, str],
+    certificates: dict[str, dict[str, str]] | None = None,
 ) -> list[Diagnostic]:
     """
     Inject the CDS_OIDC_REALM_IMPORT environment variable into every compose
@@ -1116,6 +1146,8 @@ def _inject_oidc_realm_imports(
     rejected by the E072 unsafe-field check, so the renderer builds the JSON
     itself -- JSON-encoding keeps profile-controlled values inert strings,
     and secret aliases become ${CDS_*} placeholders (never resolved values).
+    Config values are substituted with the module's own render context first,
+    so self-references such as ${config.publicUrl} in a redirect URI resolve.
     """
     diagnostics: list[Diagnostic] = []
     for module in plan.get("modules", []):
@@ -1128,7 +1160,13 @@ def _inject_oidc_realm_imports(
         ):
             continue
         module_id = str(module.get("id"))
-        config = module.get("config") if isinstance(module.get("config"), dict) else {}
+        context = _build_context(module, secrets, certificates)
+        raw_config = (
+            module.get("config") if isinstance(module.get("config"), dict) else {}
+        )
+        config = _substitute_values(deepcopy(raw_config), context)
+        if not isinstance(config, dict):
+            config = {}
         document, doc_diags = _oidc_realm_import_document(module_id, config, secrets)
         diagnostics.extend(doc_diags)
         if document is None:
