@@ -236,6 +236,11 @@ spec:
           classification:
             type: string
             default: ""
+            description: >
+              Dataset theme from the recommended DCAT-AP-NL data-theme
+              vocabulary (EU data-theme authority list; see
+              shared/contracts/open-data-provider.yaml). CDS warns (W131) at
+              plan time on any other non-empty value but still renders it.
           accessConditions:
             type: string
             default: ""

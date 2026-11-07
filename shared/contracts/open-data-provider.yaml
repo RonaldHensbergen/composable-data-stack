@@ -41,10 +41,15 @@ spec:
       type: string
       required: false
       description: >
-        Theme/classification for the dataset, ideally referencing a
-        standard vocabulary (e.g. a DCAT-AP-NL theme) so it is findable
-        domain-crossing, per the FDS Afsprakenstelsel's semantic
-        agreements. Empty string if not yet classified.
+        Theme/classification for the dataset from the recommended standard
+        vocabulary -- the DCAT-AP-NL data themes, i.e. the EU data-theme
+        authority list (http://publications.europa.eu/resource/authority/data-theme:
+        AGRI, ECON, EDUC, ENER, ENVI, GEOJ, GOVE, HEAH, INTR, JUST, REGI,
+        SOCI, TRAN), given as the bare code or the full authority URI -- so
+        the dataset is findable domain-crossing, per the FDS
+        Afsprakenstelsel's semantic agreements. CDS warns (W131) at plan
+        time on any other non-empty value but still renders it, so existing
+        free-text profiles keep working. Empty string if not yet classified.
     accessConditions:
       type: string
       required: true
@@ -66,6 +71,6 @@ spec:
       description: >
         Authoritative register of addresses within the municipality,
         refreshed nightly from the source system.
-      classification: base-registration
+      classification: GOVE
       accessConditions: restricted to public-task organisations
       licence: ""

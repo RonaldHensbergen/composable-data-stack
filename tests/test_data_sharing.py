@@ -25,7 +25,11 @@ import yaml
 
 from cli import validator
 from cli.main import main
-from cli.planner import build_plan_from_profile
+from cli.planner import (
+    OPEN_DATA_CLASSIFICATION_THEMES,
+    build_plan_from_profile,
+    validate_open_data_classification,
+)
 from cli.report import (
     DATA_SHARING_NOTE,
     _build_data_sharing_summary,
@@ -528,6 +532,105 @@ class EndToEndTest(unittest.TestCase):
         linked = by_id["urn:example:datasets:address-register"]
         self.assertEqual(linked["module"], "postgres")
         self.assertIn("moduleProvidesOpenDataProvider", linked)
+
+
+class OpenDataClassificationValidationTest(unittest.TestCase):
+    """Unit tests for the W131 classification-vocabulary warning (#845)."""
+
+    @staticmethod
+    def _odp_module(classification: object, module_id: str = "warehouse") -> dict:
+        return {
+            "id": module_id,
+            "config": {},
+            "provides": {
+                "data-provider-metadata": {
+                    "kind": "open-data-provider",
+                    "spec": {"classification": classification},
+                }
+            },
+        }
+
+    def test_vocabulary_theme_is_clean(self) -> None:
+        for theme in ("GOVE", "agri", "TRAN"):
+            diagnostics: list = []
+            validate_open_data_classification([self._odp_module(theme)], diagnostics)
+            self.assertEqual(diagnostics, [], f"theme {theme!r} should be clean")
+
+    def test_full_authority_uri_is_clean(self) -> None:
+        diagnostics: list = []
+        validate_open_data_classification(
+            [
+                self._odp_module(
+                    "http://publications.europa.eu/resource/authority/data-theme/GEOJ"
+                )
+            ],
+            diagnostics,
+        )
+        self.assertEqual(diagnostics, [])
+
+    def test_free_text_is_a_w131_warning_not_an_error(self) -> None:
+        diagnostics: list = []
+        validate_open_data_classification(
+            [self._odp_module("base-registration")], diagnostics
+        )
+        self.assertEqual(len(diagnostics), 1)
+        diag = diagnostics[0]
+        self.assertEqual(diag.level, "warning")
+        self.assertEqual(diag.code, "W131")
+        self.assertEqual(
+            diag.path,
+            "module:warehouse.provides.data-provider-metadata.spec.classification",
+        )
+        self.assertIn('"base-registration"', diag.message)
+        self.assertIn("GOVE", diag.message)
+
+    def test_empty_and_unresolved_values_are_not_checked(self) -> None:
+        diagnostics: list = []
+        validate_open_data_classification(
+            [
+                self._odp_module(""),
+                self._odp_module("   "),
+                self._odp_module("${config.dataProvider.classification}"),
+                self._odp_module(None),
+                self._odp_module(42),
+            ],
+            diagnostics,
+        )
+        self.assertEqual(diagnostics, [])
+
+    def test_module_without_open_data_contract_is_not_checked(self) -> None:
+        modules = [
+            {
+                "id": "app",
+                "config": {},
+                "provides": {
+                    "api": {"kind": "http-service", "spec": {"classification": "nope"}}
+                },
+            }
+        ]
+        diagnostics: list = []
+        validate_open_data_classification(modules, diagnostics)
+        self.assertEqual(diagnostics, [])
+
+    def test_recommended_vocabulary_covers_the_dcat_ap_nl_themes(self) -> None:
+        self.assertEqual(
+            sorted(OPEN_DATA_CLASSIFICATION_THEMES),
+            [
+                "AGRI",
+                "ECON",
+                "EDUC",
+                "ENER",
+                "ENVI",
+                "GEOJ",
+                "GOVE",
+                "HEAH",
+                "INTR",
+                "JUST",
+                "REGI",
+                "SOCI",
+                "TRAN",
+            ],
+        )
 
 
 if __name__ == "__main__":

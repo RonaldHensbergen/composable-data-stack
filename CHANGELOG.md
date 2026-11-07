@@ -8,6 +8,18 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Recommended standard vocabulary for the `open-data-provider` contract's
+  `classification` field (issue #845): CDS now recommends the DCAT-AP-NL data
+  themes — the EU data-theme authority list
+  (`http://publications.europa.eu/resource/authority/data-theme`: AGRI, ECON,
+  EDUC, ENER, ENVI, GEOJ, GOVE, HEAH, INTR, JUST, REGI, SOCI, TRAN), given as
+  the bare code or the full authority URI. `cli/planner.py`'s new
+  `validate_open_data_classification` warns W131 at plan time when a provided
+  `open-data-provider` contract carries any other non-empty classification,
+  without breaking existing free-text profiles (warning only, still renders).
+  Documented in `shared/contracts/open-data-provider.yaml`, the postgres
+  module's `config.dataProvider.classification`, `docs/fds-alignment.md`, and
+  the README troubleshooting table (W131).
 - Plan-time validation of `service-mesh` enrollments (issue #1179): every
   `config.services[].name` of a module providing the `service-mesh` contract
   must name a module instance id of the profile, checked against the planned
