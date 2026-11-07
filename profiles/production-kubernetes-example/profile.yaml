@@ -28,6 +28,20 @@ spec:
         # password up automatically in its connectionUri.
         passwordFrom: secrets.cache_password
 
+    - id: mesh
+      source: ../../modules/security/istio
+      version: "0.1.0"
+      enabled: true
+      config:
+        mtlsMode: STRICT
+        services:
+          - name: postgres
+            port: 5432
+          - name: dagster
+            port: 3000
+          - name: superset
+            port: 8088
+
   secrets:
     values:
       cache_password:

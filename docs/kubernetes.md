@@ -497,9 +497,9 @@ For profiles that need mutual TLS between module instances — rather than only
 TLS at the ingress/reverse proxy — the vendor-neutral
 [`service-mesh` contract](../shared/contracts/service-mesh.yaml) describes
 the mesh (enforcement mode, enrolled named services, optional per-service
-authorization policy), and the experimental reference provider
-[`modules-experimental/security/istio`](../modules-experimental/security/istio/)
-(issue #776) renders the Istio security resources on the Helm target:
+authorization policy), and the production-suitable reference provider
+[`modules/security/istio`](../modules/security/istio/) (issue #776, promoted
+by #1171) renders the Istio security resources on the Helm target:
 
 - a namespace-wide `PeerAuthentication` with `mtls.mode` from
   `config.mtlsMode` (`STRICT` by default), and
@@ -524,8 +524,11 @@ absent), and fails closed with E070 on `--target compose`. The mesh adds peer
 identity and L7 policy on top of CDS's default-deny NetworkPolicy — it does
 not open L3/L4 paths by itself, so enrolled modules still need their
 contract-derived (or passthrough) NetworkPolicy edges. The module is
-experimental and not wired into any stable profile; see its README for the
-out-of-band istiod install and the namespace sidecar-injection label.
+included in the `production-kubernetes-example` and
+`local-kubernetes-example` profiles. The Istio control plane remains an
+out-of-band prerequisite: render/test report W130, and `cds up --target helm`
+fails closed with E155 while the `PeerAuthentication` CRD is absent. See the
+module README for the istiod install and namespace sidecar-injection label.
 
 ## Troubleshooting
 

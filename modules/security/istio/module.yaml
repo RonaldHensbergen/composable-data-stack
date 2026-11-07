@@ -1,4 +1,4 @@
-# modules-experimental/security/istio/module.yaml
+# modules/security/istio/module.yaml
 # yaml-language-server: $schema=../../../../cli/resources/module.schema.json
 apiVersion: cds/v1alpha1
 kind: Module
@@ -7,8 +7,8 @@ metadata:
   name: istio
   category: security
   version: "0.1.0"
-  productionSuitable: false
-  displayName: Istio service mesh (experimental)
+  productionSuitable: true
+  displayName: Istio service mesh
   description: >
     Reference provider of the shared service-mesh contract (issue #776,
     docs/haven-parity-plan.md workstream 3.4). Renders the Istio security
@@ -21,8 +21,7 @@ metadata:
     implementation.kubernetes.operators, so render/test warn with W130 and
     `cds up --target helm` fails closed with E155 while its CRDs are absent.
     Kubernetes render target only — there is no compose implementation, so
-    `--target compose` fails closed with E070. Not wired into any stable
-    profile; see README.md in this directory.
+    `--target compose` fails closed with E070. See README.md in this directory.
 
 spec:
   runtime:

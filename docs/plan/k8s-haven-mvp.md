@@ -76,12 +76,16 @@ example profiles (#77), the production hardening checklist (#72), FluxCD
 GitOps rendering (#767), the `backup-target` contract (#210), the Loki
 log-sink provider (#662), the `trace-sink`/`metrics-sink` contracts and
 otel-collector module (#777), the Keycloak module with the shared
-`oidc-provider` contract and Superset consumer (#370, #1064), and the
-`cds maturity` tier report (#769, #1059).
+`oidc-provider` contract and Superset consumer (#370, #1064), the
+`cds maturity` tier report (#769, #1059), and the production-suitable
+Istio service-mesh module wired into the production and local Kubernetes
+examples (#1171).
 
 Post-MVP, tracked but **not** blocking this cycle (each keeps its issue and
 milestone): [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776)
-service mesh and
+service mesh (its reference module is now production-suitable and used by
+the Kubernetes example profiles via #1171, but the full Haven MVP still does
+not require it) and
 [#1068](https://github.com/RonaldHensbergen/composable-data-stack/issues/1068)
 workload identity — the **Secured** tier is reachable via TLS + identity broker
 without a mesh;
@@ -529,6 +533,7 @@ module set, mapped to the Haven+ baseline of
 | `orchestration/dagster` | `http-service`, `backup-source` | orchestration workload | stable; has `kubernetes:` block |
 | `bi/superset` | `http-service`, consumes `oidc-provider` | BI workload | stable; has `kubernetes:` block |
 | `cache/keydb` | `cache-service` | cache | stable; has `kubernetes:` block |
+| `security/istio` | `service-mesh` | peer identity and optional L7 authorization | production-suitable; used in `production-kubernetes-example` and `local-kubernetes-example` (#1171); Helm-only with out-of-band istiod |
 | `transformation/dbt` | consumes `sql-database`, `docs-service` | transformation | stable; no `kubernetes:` block yet |
 | `identity/keycloak` | `oidc-provider` | identity/SSO (Haven+: Keycloak) | production-suitable with production web serving by default (#974 landed); no `kubernetes:` block — #1075, #682 (G3.3) |
 | `integration/traefik` | `reverse-proxy` with TLS | TLS ingress edge (stands in for cert-manager+ingress at MVP scope) | no `kubernetes:` block — #1075, #883, #1033 (G3.3/G3.4) |
@@ -539,7 +544,8 @@ module set, mapped to the Haven+ baseline of
 | `observability/loki` + `observability/otel-collector` (experimental) | `log-sink`, `metrics-sink`, `trace-sink` | observability: logs + OTLP pipeline (Haven+: Loki/Alloy; Grafana metrics backend = #369) | experimental; no `kubernetes:` blocks — G3.6 (#369, #1066, #1076) |
 
 Deliberately **not** in the full profile (post-MVP, per section 2): service
-mesh/Istio (#776), workload identity (#1068), a standalone cert-manager
+mesh/Istio (#776; its production-suitable reference module is available via
+issue #1171), workload identity (#1068), a standalone cert-manager
 (#205/#577/#580 — Traefik TLS covers the edge), and Marquez lineage (#976).
 
 Once the profile exists, the same command shape runs the whole ~v2.0 suite:

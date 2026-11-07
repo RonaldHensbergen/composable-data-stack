@@ -62,11 +62,14 @@ These are considered production-ready in the current release (v0.15.0):
 - Module: KeyDB (`modules/cache/keydb/`)
 - Module: Vault (`modules/secrets/vault/`)
 - Module: dbt (`modules/transformation/dbt/`) — promoted from experimental with production-suitable hardening (#594)
+- Module: Istio service mesh (`modules/security/istio/`) — production-suitable Helm-only provider of the `service-mesh` contract, enrolled by the production and local Kubernetes example profiles (#1171)
 - Module: DuckDB (`modules/warehouse/duckdb/`) — promoted from experimental (#593); embedded/file-based warehouse via the `file-database` contract, consumed by dlt and dbt
 - Module: Traefik (`modules/integration/traefik/`) — TLS-enforcing reverse proxy; not yet wired into a stable profile
 - Profile: `local-dagster-postgres-superset`
 - Profile: `local-dagster-postgres-superset-dbt`
 - Profile: `local-duckdb-dlt-dbt` — local-analytics demo with DuckDB as the warehouse, loaded by dlt and transformed by dbt (#593)
+- Profile: `production-kubernetes-example` — production-style Helm stack with STRICT Istio mTLS enrollment for Postgres, Dagster, and Superset (#1171)
+- Profile: `local-kubernetes-example` — k3d Helm example with STRICT Istio mTLS enrollment, exercised by Kubernetes E2E (#1171)
 - Image supply chain: signed, SBOM- and provenance-attested image publishing to both Docker Hub and GHCR, with `--hardened` variant selection and `image.source: build|registry` per module
 
 ---
@@ -99,7 +102,7 @@ These work but may have breaking changes in upcoming releases:
 - 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
 - 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77); see the [Zero Trust mapping](zero-trust-architecture.md) for the security boundaries and remaining gaps
 - 🚧 **Haven parity — Kubernetes database operators** — GitOps rendering is delivered: `gitops-target` contract + FluxCD reference module render Flux bootstrap manifests over the Helm chart output (#767); the Kubernetes-native database operator pattern is delivered experimentally: CloudNativePG-backed `postgres-operator` module providing `sql-database` on `--target helm` (#768); the Basic/Automated/Observed/Secured/Resilient profile maturity report is implemented across #769 and #1059
-- 🚧 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module delivered experimentally (#776 — `modules-experimental/security/istio`, Helm target only), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink`/`metrics-sink` contracts + OpenTelemetry Collector reference module (#777 — contracts and the experimental `otel-collector` module in progress)
+- 🚧 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + production-suitable Istio reference module (#776, #1171 — `modules/security/istio`, Helm target only), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink`/`metrics-sink` contracts + OpenTelemetry Collector reference module (#777 — contracts and the experimental `otel-collector` module in progress)
 
 ---
 

@@ -39,6 +39,7 @@ The platform is divided into logical layers.
 | --- | --- | --- |
 | **Secrets** | credentials, secret injection, key management | Vault |
 | **Identity** | authentication, SSO, and centrally revocable identity for admin-facing modules | Keycloak |
+| **Security** | peer identity and optional L7 authorization between Kubernetes workloads | Istio service mesh (`modules/security/istio`, Helm target only) |
 | **Infrastructure services** | service coordination backends and support systems | KeyDB |
 | **Ingestion** | extract-load pipelines into the warehouse | dlt (experimental) |
 | **Storage / compute** | databases, warehouses, and processing engines | Postgres, DuckDB |
@@ -51,6 +52,13 @@ The platform is divided into logical layers.
 Modules marked *(planned)* are not yet implemented. See the [roadmap](roadmap.md) for planned modules.
 
 Not every profile will contain every layer, but this layered model makes module responsibilities explicit and supports future production hardening.
+
+The Istio reference module provides the vendor-neutral `service-mesh`
+contract. It renders namespace-wide mTLS and optional per-service authorization
+resources into Helm charts; operators install the Istio control plane and
+enable sidecar injection separately. The module is included in the
+`production-kubernetes-example` and `local-kubernetes-example` profiles
+(issue #1171).
 
 ## Modules
 

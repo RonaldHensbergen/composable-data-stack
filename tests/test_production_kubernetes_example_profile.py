@@ -15,6 +15,7 @@ import yaml
 
 from cli.k8s_renderer import render_helm
 from cli.planner import build_plan
+from cli.security import run_security_validation
 from cli.validator import validate_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -80,6 +81,17 @@ class ProductionKubernetesExampleProfileTest(unittest.TestCase):
 
                 chart = yaml.safe_load(files["Chart.yaml"])
                 self.assertEqual(chart["name"], "production-kubernetes-example")
+                self.assertIn("templates/mesh-manifest-peer-authentication.yaml", files)
+                peer_auth = yaml.safe_load(
+                    files["templates/mesh-manifest-peer-authentication.yaml"]
+                )
+                self.assertEqual(peer_auth["spec"]["mtls"]["mode"], "STRICT")
+
+                mesh = next(module for module in plan["modules"] if module["id"] == "mesh")
+                self.assertEqual(
+                    [service["name"] for service in mesh["config"]["services"]],
+                    ["postgres", "dagster", "superset"],
+                )
 
     def test_prod_overlay_promotes_environment_and_requires_cache_secret(self) -> None:
         plan, _ = build_plan(
@@ -91,6 +103,20 @@ class ProductionKubernetesExampleProfileTest(unittest.TestCase):
         self.assertEqual(plan["metadata"]["environment"], "production")
         keydb = next(m for m in plan["modules"] if m["id"] == "keydb")
         self.assertEqual(keydb["config"]["passwordFrom"], "secrets.cache_password")
+
+        findings, _ = run_security_validation(
+            PROFILE_PATH,
+            env_file=str(self.env_file),
+            environment="prod",
+        )
+        self.assertNotIn(
+            "mesh",
+            [
+                finding["module"]
+                for finding in findings
+                if finding["rule_id"] == "CDS-SEC-073"
+            ],
+        )
 
 
 if __name__ == "__main__":
