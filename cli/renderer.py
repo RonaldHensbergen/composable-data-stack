@@ -878,8 +878,12 @@ def _generate_reverse_proxy_routes(
             # therefore reports a false positive here.
             services[service_name] = {
                 "loadBalancer": {
-                    "servers": [{"url": f"http://{backend_host}:{backend_port}"}]
-                },  # NOSONAR
+                    "servers": [
+                        # NOSONAR stays on the line with the http:// literal:
+                        # wrapping this further would detach it and re-expose S5332.
+                        {"url": f"http://{backend_host}:{backend_port}"}  # NOSONAR
+                    ]
+                },
             }
 
         if routers:

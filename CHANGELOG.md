@@ -618,10 +618,11 @@ The format is based on Keep a Changelog.
   `cli/resources/module.schema.json` (now single-line, matching the other
   inline enums), and `ruff format` (pinned `==0.17.3` in `pyproject.toml`) has
   been applied repo-wide, so `ruff format --check .` is clean alongside the
-  already-gated `ruff check .`. One suppression comment in
-  `tests/test_security.py` moved back onto the line containing the
-  `"0.0.0.0"` literal so `# noqa: S104` keeps covering it after the
-  reformatting.
+  already-gated `ruff check .`. Two suppression comments that the
+  reformatting detached from their flagged line were moved back:
+  `# noqa: S104` in `tests/test_security.py` (onto the `"0.0.0.0"` literal)
+  and `# NOSONAR` in `cli/renderer.py` (onto the `http://` backend URL, so
+  the S5332 false positive stays suppressed).
 
 ## [0.15.0] - 2026-11-02
 
