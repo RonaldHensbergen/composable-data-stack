@@ -7,6 +7,7 @@ behavior: the profile (which composes local-dagster-postgres-superset via
 overlay) validates, plans, and renders to a Helm chart without errors in
 both the base and the production environment.
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -59,7 +60,9 @@ class ProductionKubernetesExampleProfileTest(unittest.TestCase):
         self.assertTrue(PROFILE_PATH.exists(), f"profile not found at {PROFILE_PATH}")
         for environment in (None, "prod"):
             with self.subTest(environment=environment or "base"):
-                diagnostics = validate_profile(str(PROFILE_PATH), environment=environment)
+                diagnostics = validate_profile(
+                    str(PROFILE_PATH), environment=environment
+                )
                 errors = [d for d in diagnostics if d.level == "error"]
                 self.assertEqual(errors, [])
 
@@ -87,7 +90,9 @@ class ProductionKubernetesExampleProfileTest(unittest.TestCase):
                 )
                 self.assertEqual(peer_auth["spec"]["mtls"]["mode"], "STRICT")
 
-                mesh = next(module for module in plan["modules"] if module["id"] == "mesh")
+                mesh = next(
+                    module for module in plan["modules"] if module["id"] == "mesh"
+                )
                 self.assertEqual(
                     [service["name"] for service in mesh["config"]["services"]],
                     ["postgres", "dagster", "superset"],

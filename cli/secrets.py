@@ -1,6 +1,7 @@
 """
 Secret resolution from .env files and environment.
 """
+
 from __future__ import annotations
 
 import os
@@ -10,7 +11,9 @@ from typing import Any
 from .diagnostics import Diagnostic
 
 
-def load_secrets_from_env(env_file: Path | None = None) -> tuple[dict[str, str], list[Diagnostic]]:
+def load_secrets_from_env(
+    env_file: Path | None = None,
+) -> tuple[dict[str, str], list[Diagnostic]]:
     """
     Load CDS_* secrets from .env file and environment variables.
 
@@ -60,8 +63,9 @@ def load_secrets_from_env(env_file: Path | None = None) -> tuple[dict[str, str],
                     key = key.strip()
                     value = value.strip()
 
-                    if (value.startswith('"') and value.endswith('"')) or \
-                       (value.startswith("'") and value.endswith("'")):
+                    if (value.startswith('"') and value.endswith('"')) or (
+                        value.startswith("'") and value.endswith("'")
+                    ):
                         value = value[1:-1]
 
                     # Only accept CDS_* keys from .env — logical aliases come from the profile
@@ -86,21 +90,24 @@ def load_secrets_from_env(env_file: Path | None = None) -> tuple[dict[str, str],
 
     return secrets, diagnostics
 
-def resolve_secret(key: str, secrets: dict[str, str], required: bool = False) -> tuple[str | None, Diagnostic | None]:
+
+def resolve_secret(
+    key: str, secrets: dict[str, str], required: bool = False
+) -> tuple[str | None, Diagnostic | None]:
     """
     Resolve a single secret by key.
-    
+
     Args:
         key: Secret key (e.g., "CDS_ANALYTICS_POSTGRES_PASSWORD")
         secrets: Dictionary of available secrets
         required: If True, emit error if secret is missing
-        
+
     Returns:
         Tuple of (value, diagnostic). Value is None if not found.
     """
     if key in secrets:
         return secrets[key], None
-    
+
     if required:
         return None, Diagnostic(
             level="error",
@@ -108,8 +115,9 @@ def resolve_secret(key: str, secrets: dict[str, str], required: bool = False) ->
             message=f'Required secret "{key}" not found in .env or environment',
             path=f"secrets.{key}",
         )
-    
+
     return None, None
+
 
 def load_profile_secrets(
     spec_secrets: dict[str, Any] | None,
@@ -138,36 +146,47 @@ def load_profile_secrets(
 
     for secret_name, secret_def in values.items():
         if not isinstance(secret_def, dict):
-            diagnostics.append(Diagnostic(
-                level="error", code="E082",
-                message=f'Secret definition "{secret_name}" must be an object.',
-                path=f"spec.secrets.values.{secret_name}",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E082",
+                    message=f'Secret definition "{secret_name}" must be an object.',
+                    path=f"spec.secrets.values.{secret_name}",
+                )
+            )
             continue
 
         env_name = secret_def.get("env")
         required = secret_def.get("required", False)
 
         if not isinstance(env_name, str) or not env_name:
-            diagnostics.append(Diagnostic(
-                level="error", code="E082",
-                message=f'Secret definition "{secret_name}" must include a valid env name.',
-                path=f"spec.secrets.values.{secret_name}.env",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E082",
+                    message=f'Secret definition "{secret_name}" must include a valid env name.',
+                    path=f"spec.secrets.values.{secret_name}.env",
+                )
+            )
             continue
 
         if env_name not in raw_secrets:
             if required and not allow_missing:
-                diagnostics.append(Diagnostic(
-                    level="error", code="E081",
-                    message=f'Required secret "{env_name}" not found in environment.',
-                    path=f"spec.secrets.values.{secret_name}",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E081",
+                        message=f'Required secret "{env_name}" not found in environment.',
+                        path=f"spec.secrets.values.{secret_name}",
+                    )
+                )
             if allow_missing:
                 secrets[secret_name] = env_name
             continue
 
         # Map logical name → CDS_* var name, NOT the value.
-        secrets[secret_name] = env_name  # e.g. "analytics_postgres_password" → "CDS_ANALYTICS_POSTGRES_PASSWORD"
+        secrets[secret_name] = (
+            env_name  # e.g. "analytics_postgres_password" → "CDS_ANALYTICS_POSTGRES_PASSWORD"
+        )
 
     return secrets, diagnostics

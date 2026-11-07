@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Any
 
 
-def _atomic_write(path: Path, content: str, encoding: str = "utf-8", overwrite: bool = True) -> None:
+def _atomic_write(
+    path: Path, content: str, encoding: str = "utf-8", overwrite: bool = True
+) -> None:
     """Write `content` to `path` atomically via a temp file, then publish it.
 
     Avoids leaving a truncated/partial file behind if the process is
@@ -23,7 +25,9 @@ def _atomic_write(path: Path, content: str, encoding: str = "utf-8", overwrite: 
     """
     path = Path(path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp"
+    )
     try:
         with os.fdopen(fd, "w", encoding=encoding) as tmp_file:
             tmp_file.write(content)
@@ -58,10 +62,15 @@ def module_service_dns_names(module_id: str, compose_services: Any) -> dict[str,
     """
     if not isinstance(compose_services, dict):
         return {}
-    return {str(name): _compose_service_name(module_id, str(name)) for name in compose_services}
+    return {
+        str(name): _compose_service_name(module_id, str(name))
+        for name in compose_services
+    }
 
 
-def module_dns_host(module_id: str, compose_services: Any, module_name: str | None = None) -> str:
+def module_dns_host(
+    module_id: str, compose_services: Any, module_name: str | None = None
+) -> str:
     """
     The Compose DNS name a module instance's serving service answers to.
 

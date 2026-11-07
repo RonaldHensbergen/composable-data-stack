@@ -28,10 +28,15 @@ class UpdateCheckTest(unittest.TestCase):
                 fetch.assert_not_called()
 
     def test_enabled_prints_notice_and_uses_cache(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {update_check.ENV_VAR: "1", "XDG_CACHE_HOME": tmp}
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(
+                os.environ, {update_check.ENV_VAR: "1", "XDG_CACHE_HOME": tmp}
+            ),
         ):
-            with mock.patch.object(update_check, "fetch_latest_version", return_value="9.9.9") as fetch:
+            with mock.patch.object(
+                update_check, "fetch_latest_version", return_value="9.9.9"
+            ) as fetch:
                 buf = io.StringIO()
                 with redirect_stderr(buf):
                     update_check.maybe_notify("0.1.0")
@@ -42,8 +47,12 @@ class UpdateCheckTest(unittest.TestCase):
 
     def test_up_to_date_and_failure_are_silent(self):
         for latest in ("0.1.0", None):
-            with self.subTest(latest=latest), tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-                os.environ, {update_check.ENV_VAR: "1", "XDG_CACHE_HOME": tmp}
+            with (
+                self.subTest(latest=latest),
+                tempfile.TemporaryDirectory() as tmp,
+                mock.patch.dict(
+                    os.environ, {update_check.ENV_VAR: "1", "XDG_CACHE_HOME": tmp}
+                ),
             ):
                 buf = io.StringIO()
                 with mock.patch.object(
@@ -59,7 +68,10 @@ class UpdateCheckTest(unittest.TestCase):
             self.assertIsNone(update_check.fetch_latest_version())
 
     def test_cache_file_content(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"XDG_CACHE_HOME": tmp}):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(os.environ, {"XDG_CACHE_HOME": tmp}),
+        ):
             update_check._store_cache("1.2.3")
             data = json.loads(update_check._cache_path().read_text())
             self.assertEqual(data["latest"], "1.2.3")

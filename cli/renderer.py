@@ -3,6 +3,7 @@
 """
 Render docker-compose YAML from a composition plan.
 """
+
 from __future__ import annotations
 
 import os
@@ -61,14 +62,16 @@ def render_compose(
     diagnostics: list[Diagnostic] = []
     secrets = plan.get("secrets", {})
     certificates = plan.get("certificates", {})
-    compose_dir = Path(output_path).resolve().parent if output_path else Path.cwd().resolve()
+    compose_dir = (
+        Path(output_path).resolve().parent if output_path else Path.cwd().resolve()
+    )
     profile_dir = _resolve_profile_dir(plan)
     project_root = _resolve_project_root(profile_dir)
 
     # Extract networks from runtime config
     runtime = plan.get("runtime", {})
     networks_config = runtime.get("networks", [])
-    
+
     # Build networks section
     networks: dict[str, Any] = {}
     for net in networks_config:
@@ -79,7 +82,9 @@ def render_compose(
             networks[net_name]["driver"] = driver
 
     # Build the default network name from namespace or profile name
-    default_network_name = runtime.get("namespace") or plan.get("metadata", {}).get("name", "cds")
+    default_network_name = runtime.get("namespace") or plan.get("metadata", {}).get(
+        "name", "cds"
+    )
 
     compose: dict[str, Any] = {
         "name": plan.get("metadata", {}).get("name", "cds"),
@@ -87,7 +92,7 @@ def render_compose(
         "volumes": {},
     }
     module_service_names: dict[str, list[str]] = {}
-    
+
     # Add networks if defined
     if networks or default_network_name:
         if not networks:
@@ -113,38 +118,44 @@ def render_compose(
             continue
         impl = module.get("implementation", {})
         compose_impl = impl.get("compose") if isinstance(impl, dict) else None
-        volumes = compose_impl.get("volumes") if isinstance(compose_impl, dict) else None
+        volumes = (
+            compose_impl.get("volumes") if isinstance(compose_impl, dict) else None
+        )
         if isinstance(volumes, dict):
             for volume_name in volumes:
                 if isinstance(volume_name, str) and volume_name:
-                    external_volume_names.add(f'{module.get("id")}-{volume_name}')
+                    external_volume_names.add(f"{module.get('id')}-{volume_name}")
 
     for module in plan.get("modules", []):
         implementation = module.get("implementation", {})
 
         if implementation.get("kind") != "docker-compose":
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E070",
-                message=(
-                    f'Module "{module.get("id")}" has unsupported implementation '
-                    f'kind "{implementation.get("kind")}".'
-                ),
-                path=f'module:{module.get("id")}.implementation.kind',
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E070",
+                    message=(
+                        f'Module "{module.get("id")}" has unsupported implementation '
+                        f'kind "{implementation.get("kind")}".'
+                    ),
+                    path=f"module:{module.get('id')}.implementation.kind",
+                )
+            )
             continue
 
         compose_impl = implementation.get("compose")
         if not compose_impl:
-            diagnostics.append(Diagnostic(
-                level="warning",
-                code="W071",
-                message=(
-                    f'Module "{module.get("id")}" has kind "docker-compose" '
-                    f'but no "compose" definition.'
-                ),
-                path=f'module:{module.get("id")}.implementation.compose',
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="warning",
+                    code="W071",
+                    message=(
+                        f'Module "{module.get("id")}" has kind "docker-compose" '
+                        f'but no "compose" definition.'
+                    ),
+                    path=f"module:{module.get('id')}.implementation.compose",
+                )
+            )
             continue
 
         # Plans can be loaded from files, so re-check what validate already
@@ -158,9 +169,7 @@ def render_compose(
         services = apply_production_gates(
             compose_impl.get("services", {}), is_production
         )
-        volumes = apply_production_gates(
-            compose_impl.get("volumes", {}), is_production
-        )
+        volumes = apply_production_gates(compose_impl.get("volumes", {}), is_production)
 
         try:
             rendered_services, unsafe_diags = _render_services(
@@ -178,36 +187,50 @@ def render_compose(
             diagnostics.extend(unsafe_diags)
             rendered_volumes = _render_volumes(module, volumes, secrets, certificates)
         except MaxNestingDepthExceeded:
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E094",
-                message=(
-                    f'Module "{module.get("id")}" service/volume templates exceed the '
-                    f"maximum supported nesting depth ({MAX_NESTING_DEPTH})."
-                ),
-                path=f'module:{module.get("id")}.implementation.compose',
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E094",
+                    message=(
+                        f'Module "{module.get("id")}" service/volume templates exceed the '
+                        f"maximum supported nesting depth ({MAX_NESTING_DEPTH})."
+                    ),
+                    path=f"module:{module.get('id')}.implementation.compose",
+                )
+            )
             continue
 
-        confinement_path = f'module:{module.get("id")}.security.confinement'
+        confinement_path = f"module:{module.get('id')}.security.confinement"
         # Plans can be loaded from files, so re-check what validate already checked.
         confinement_diags = list(profile_confinement_diags)
-        confinement_diags.extend(validate_confinement(
-            (module.get("security") or {}).get("confinement"), confinement_path, profile_dir
-        ))
+        confinement_diags.extend(
+            validate_confinement(
+                (module.get("security") or {}).get("confinement"),
+                confinement_path,
+                profile_dir,
+            )
+        )
         if not confinement_diags:
             module_confinement = effective_confinement(
                 profile_confinement(plan),
                 (module.get("security") or {}).get("confinement"),
             )
             for service_def in rendered_services.values():
-                confinement_diags.extend(apply_confinement(
-                    service_def, module_confinement, compose_dir, profile_dir, confinement_path
-                ))
+                confinement_diags.extend(
+                    apply_confinement(
+                        service_def,
+                        module_confinement,
+                        compose_dir,
+                        profile_dir,
+                        confinement_path,
+                    )
+                )
                 if confinement_diags:
                     break
         if confinement_diags:
-            diagnostics.extend(d for d in confinement_diags if d not in profile_confinement_diags)
+            diagnostics.extend(
+                d for d in confinement_diags if d not in profile_confinement_diags
+            )
             continue
 
         # Handle initDbEnv for postgres service (merge additional env vars)
@@ -216,10 +239,12 @@ def render_compose(
         for service_name, service_def in rendered_services.items():
             compose_service_name = _compose_service_name(module["id"], service_name)
             compose["services"][compose_service_name] = service_def
-            module_service_names.setdefault(module["id"], []).append(compose_service_name)
+            module_service_names.setdefault(module["id"], []).append(
+                compose_service_name
+            )
 
         for volume_name, volume_def in rendered_volumes.items():
-            compose["volumes"][f'{module["id"]}-{volume_name}'] = volume_def
+            compose["volumes"][f"{module['id']}-{volume_name}"] = volume_def
 
     if not compose["volumes"]:
         compose.pop("volumes")
@@ -244,7 +269,9 @@ def render_compose(
             path.parent.mkdir(parents=True, exist_ok=True)
             _atomic_write(path, output)
 
-    route_documents, route_diags = _generate_reverse_proxy_routes(plan, module_service_names)
+    route_documents, route_diags = _generate_reverse_proxy_routes(
+        plan, module_service_names
+    )
     diagnostics.extend(route_diags)
     if output_path and not any(d.level == "error" for d in diagnostics):
         _write_reverse_proxy_route_documents(route_documents, compose_dir)
@@ -326,7 +353,9 @@ def _provided_contract_host_candidates(
                 ("serviceName", _compose_service_name(module_id, advertised_service))
             )
         candidates.append(("host", spec.get("host")))
-        candidates.append(("connectionUri", _endpoint_hostname(spec.get("connectionUri"))))
+        candidates.append(
+            ("connectionUri", _endpoint_hostname(spec.get("connectionUri")))
+        )
     return candidates
 
 
@@ -370,7 +399,9 @@ def _validate_provided_contract_hosts_against(
             spec = provided.get("spec")
             if not isinstance(spec, dict):
                 continue
-            for field, advertised in _provided_contract_host_candidates(kind, spec, module_id):
+            for field, advertised in _provided_contract_host_candidates(
+                kind, spec, module_id
+            ):
                 host = _endpoint_hostname(advertised)
                 if not isinstance(host, str) or not _DNS_LABEL_RE.match(host):
                     continue
@@ -378,18 +409,20 @@ def _validate_provided_contract_hosts_against(
                     host = resolve_service_name(module_id, host)
                 if host in rendered:
                     continue
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E150",
-                    message=(
-                        f'Provided contract "{provide_name}" of module "{module_id}" '
-                        f'advertises network host "{host}", which is not a {service_kind} '
-                        "the render produced for that module (rendered "
-                        f'services: {", ".join(rendered)}); consumers of the contract '
-                        "would resolve a hostname nothing answers. " + fix_hint
-                    ),
-                    path=f"module:{module_id}.provides.{provide_name}.spec.{field}",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E150",
+                        message=(
+                            f'Provided contract "{provide_name}" of module "{module_id}" '
+                            f'advertises network host "{host}", which is not a {service_kind} '
+                            "the render produced for that module (rendered "
+                            f"services: {', '.join(rendered)}); consumers of the contract "
+                            "would resolve a hostname nothing answers. " + fix_hint
+                        ),
+                        path=f"module:{module_id}.provides.{provide_name}.spec.{field}",
+                    )
+                )
     return diagnostics
 
 
@@ -492,7 +525,9 @@ def _generate_reverse_proxy_routes(
             continue
         proxy_id = module.get("id")
         resolved_provides = module.get("provides") or {}
-        if not any(p.get("kind") == "reverse-proxy" for p in resolved_provides.values()):
+        if not any(
+            p.get("kind") == "reverse-proxy" for p in resolved_provides.values()
+        ):
             continue
 
         routes = (module.get("config") or {}).get("routes") or []
@@ -532,7 +567,10 @@ def _generate_reverse_proxy_routes(
         for route_index, route in enumerate(routes):
             if not isinstance(route, dict):
                 continue
-            rule_key = (str(route.get("host") or ""), str(route.get("pathPrefix") or ""))
+            rule_key = (
+                str(route.get("host") or ""),
+                str(route.get("pathPrefix") or ""),
+            )
             if rule_key in rules_seen:
                 duplicate_route_indexes.add(route_index)
             else:
@@ -561,18 +599,20 @@ def _generate_reverse_proxy_routes(
             route_path_prefix = route.get("pathPrefix")
 
             if original_index in duplicate_route_indexes:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E136",
-                    message=(
-                        f'Reverse-proxy route rule (host "{host or ""}" pathPrefix '
-                        f'"{route_path_prefix or ""}") duplicates an earlier route of '
-                        f'proxy "{proxy_id}"; every route must expose a unique rule (two '
-                        "routers with the same rule would make the proxy pick one "
-                        "by priority, silently)."
-                    ),
-                    path=path_prefix,
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route rule (host "{host or ""}" pathPrefix '
+                            f'"{route_path_prefix or ""}") duplicates an earlier route of '
+                            f'proxy "{proxy_id}"; every route must expose a unique rule (two '
+                            "routers with the same rule would make the proxy pick one "
+                            "by priority, silently)."
+                        ),
+                        path=path_prefix,
+                    )
+                )
                 continue
 
             # `contractRef` names the bound http-service provide in the
@@ -580,17 +620,23 @@ def _generate_reverse_proxy_routes(
             # contract binding; a bare module id is rejected here (and by
             # the module's configSchema) instead of guessing which provide
             # to route to.
-            parsed_ref = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+            parsed_ref = (
+                parse_contract_ref(contract_ref)
+                if isinstance(contract_ref, str)
+                else None
+            )
             if parsed_ref is None:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E136",
-                    message=(
-                        f'Reverse-proxy route names contractRef "{contract_ref}", which is '
-                        'not a valid "<module-id>.<contract-name>" reference (issue #883).'
-                    ),
-                    path=f"{path_prefix}.contractRef",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route names contractRef "{contract_ref}", which is '
+                            'not a valid "<module-id>.<contract-name>" reference (issue #883).'
+                        ),
+                        path=f"{path_prefix}.contractRef",
+                    )
+                )
                 continue
             target_module_id, provide_name = parsed_ref
 
@@ -598,41 +644,47 @@ def _generate_reverse_proxy_routes(
             if http_entry is None:
                 target = modules_by_id.get(target_module_id)
                 if target is None:
-                    diagnostics.append(Diagnostic(
-                        level="error",
-                        code="E136",
-                        message=(
-                            f'Reverse-proxy route contractRef "{contract_ref}" targets '
-                            f'unknown module "{target_module_id}".'
-                        ),
-                        path=f"{path_prefix}.contractRef",
-                    ))
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E136",
+                            message=(
+                                f'Reverse-proxy route contractRef "{contract_ref}" targets '
+                                f'unknown module "{target_module_id}".'
+                            ),
+                            path=f"{path_prefix}.contractRef",
+                        )
+                    )
                     continue
                 target_provides = target.get("provides") or {}
                 http_entry = target_provides.get(provide_name)
                 if http_entry is None or http_entry.get("kind") != "http-service":
-                    diagnostics.append(Diagnostic(
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E136",
+                            message=(
+                                f'Reverse-proxy route contractRef "{contract_ref}" targets module '
+                                f'"{target_module_id}", which does not provide an http-service '
+                                f'contract named "{provide_name}" (a "<module-id>.<contract-name>" '
+                                "ref must name an existing http-service provide entry)."
+                            ),
+                            path=f"{path_prefix}.contractRef",
+                        )
+                    )
+                    continue
+            elif http_entry.get("kind") != "http-service":
+                diagnostics.append(
+                    Diagnostic(
                         level="error",
                         code="E136",
                         message=(
-                            f'Reverse-proxy route contractRef "{contract_ref}" targets module '
-                            f'"{target_module_id}", which does not provide an http-service '
-                            f'contract named "{provide_name}" (a "<module-id>.<contract-name>" '
-                            "ref must name an existing http-service provide entry)."
+                            f'Reverse-proxy route contractRef "{contract_ref}" resolves to a '
+                            f'"{http_entry.get("kind")}" contract, not "http-service".'
                         ),
                         path=f"{path_prefix}.contractRef",
-                    ))
-                    continue
-            elif http_entry.get("kind") != "http-service":
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E136",
-                    message=(
-                        f'Reverse-proxy route contractRef "{contract_ref}" resolves to a '
-                        f'"{http_entry.get("kind")}" contract, not "http-service".'
-                    ),
-                    path=f"{path_prefix}.contractRef",
-                ))
+                    )
+                )
                 continue
 
             spec = (http_entry or {}).get("spec") or {}
@@ -643,17 +695,19 @@ def _generate_reverse_proxy_routes(
                 or not advertised_host
                 or not _is_valid_backend_port(backend_port)
             ):
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E136",
-                    message=(
-                        f'Reverse-proxy route contractRef "{contract_ref}" targets module '
-                        f'"{target_module_id}", which does not expose a resolvable '
-                        "http-service endpoint (its contract spec lacks host/port); "
-                        "route generation refuses to guess a backend address."
-                    ),
-                    path=f"{path_prefix}.contractRef",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route contractRef "{contract_ref}" targets module '
+                            f'"{target_module_id}", which does not expose a resolvable '
+                            "http-service endpoint (its contract spec lacks host/port); "
+                            "route generation refuses to guess a backend address."
+                        ),
+                        path=f"{path_prefix}.contractRef",
+                    )
+                )
                 continue
 
             # The backend address must be a name that actually resolves on
@@ -664,26 +718,30 @@ def _generate_reverse_proxy_routes(
             # matches the name Compose creates.
             advertised_service = spec.get("serviceName")
             if isinstance(advertised_service, str) and advertised_service:
-                backend_host = _compose_service_name(str(target_module_id), advertised_service)
+                backend_host = _compose_service_name(
+                    str(target_module_id), advertised_service
+                )
             else:
                 backend_host = advertised_host
 
             rendered_services = module_service_names.get(str(target_module_id), [])
             if backend_host not in rendered_services:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E136",
-                    message=(
-                        f'Reverse-proxy route contractRef "{contract_ref}" resolves to backend '
-                        f'address "{backend_host}", which is not a rendered compose service of '
-                        f'module "{target_module_id}" (rendered services: '
-                        f'{", ".join(rendered_services) or "none"}); route generation refuses to '
-                        "emit an address nothing answers. Multi-service providers must advertise "
-                        "the serving service via a serviceName field in their http-service "
-                        "provide entry."
-                    ),
-                    path=f"{path_prefix}.contractRef",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route contractRef "{contract_ref}" resolves to backend '
+                            f'address "{backend_host}", which is not a rendered compose service of '
+                            f'module "{target_module_id}" (rendered services: '
+                            f"{', '.join(rendered_services) or 'none'}); route generation refuses to "
+                            "emit an address nothing answers. Multi-service providers must advertise "
+                            "the serving service via a serviceName field in their http-service "
+                            "provide entry."
+                        ),
+                        path=f"{path_prefix}.contractRef",
+                    )
+                )
                 continue
 
             # The public rule is a Host() and/or PathPrefix() matcher; at
@@ -692,38 +750,46 @@ def _generate_reverse_proxy_routes(
             if route_path_prefix is None:
                 route_path_prefix = spec.get("pathPrefix")
             if host is not None and not _ROUTE_HOST_RE.match(str(host)):
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E136",
-                    message=(
-                        f'Reverse-proxy route host "{host}" is not a DNS-safe hostname; '
-                        "the rule would not match (or could inject rule syntax)."
-                    ),
-                    path=f"{path_prefix}.host",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route host "{host}" is not a DNS-safe hostname; '
+                            "the rule would not match (or could inject rule syntax)."
+                        ),
+                        path=f"{path_prefix}.host",
+                    )
+                )
                 continue
-            if route_path_prefix is not None and not _ROUTE_PATH_PREFIX_RE.match(str(route_path_prefix)):
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E136",
-                    message=(
-                        f'Reverse-proxy route pathPrefix "{route_path_prefix}" must start with '
-                        '"/" and contain only URL-path characters.'
-                    ),
-                    path=f"{path_prefix}.pathPrefix",
-                ))
+            if route_path_prefix is not None and not _ROUTE_PATH_PREFIX_RE.match(
+                str(route_path_prefix)
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route pathPrefix "{route_path_prefix}" must start with '
+                            '"/" and contain only URL-path characters.'
+                        ),
+                        path=f"{path_prefix}.pathPrefix",
+                    )
+                )
                 continue
             if not host and not route_path_prefix:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E136",
-                    message=(
-                        f'Reverse-proxy route contractRef "{contract_ref}" names neither a '
-                        "host nor a pathPrefix; a router with an empty rule matches nothing "
-                        "deterministically."
-                    ),
-                    path=path_prefix,
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route contractRef "{contract_ref}" names neither a '
+                            "host nor a pathPrefix; a router with an empty rule matches nothing "
+                            "deterministically."
+                        ),
+                        path=path_prefix,
+                    )
+                )
                 continue
             rule_parts = []
             if host:
@@ -735,15 +801,17 @@ def _generate_reverse_proxy_routes(
             tls_enabled = route.get("tls", True)
             certificate = route.get("certificate")
             if certificate is not None and certificate not in certificates:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E136",
-                    message=(
-                        f'Reverse-proxy route contractRef "{contract_ref}" references certificate '
-                        f'alias "{certificate}", which is not declared in spec.certificates.values.'
-                    ),
-                    path=f"{path_prefix}.certificate",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route contractRef "{contract_ref}" references certificate '
+                            f'alias "{certificate}", which is not declared in spec.certificates.values.'
+                        ),
+                        path=f"{path_prefix}.certificate",
+                    )
+                )
                 continue
             # The alias is validated regardless of the router's TLS flag, but
             # only wired for TLS routers: a plaintext router never presents a
@@ -758,7 +826,10 @@ def _generate_reverse_proxy_routes(
             name_part = (
                 str(host)
                 if host
-                else (re.sub(r"[^A-Za-z0-9.-]+", "-", str(route_path_prefix)).strip("-") or "default")
+                else (
+                    re.sub(r"[^A-Za-z0-9.-]+", "-", str(route_path_prefix)).strip("-")
+                    or "default"
+                )
             )
             router_name = f"cds-route-{sorted_index}-{name_part}"
             # One load-balancer service per bound contract (not per module):
@@ -775,18 +846,20 @@ def _generate_reverse_proxy_routes(
             if known_entry_points is not None and any(
                 ep not in known_entry_points for ep in route_entry_points
             ):
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E136",
-                    message=(
-                        f'Reverse-proxy route rule "{rule}" names entrypoint(s) '
-                        f'"{", ".join(ep for ep in route_entry_points if ep not in known_entry_points)}" '
-                        f'not declared by proxy "{proxy_id}" (declared: '
-                        f'{", ".join(sorted(known_entry_points))}); a router no '
-                        "entrypoint serves would drop its traffic silently."
-                    ),
-                    path=f"{path_prefix}.entryPoints",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E136",
+                        message=(
+                            f'Reverse-proxy route rule "{rule}" names entrypoint(s) '
+                            f'"{", ".join(ep for ep in route_entry_points if ep not in known_entry_points)}" '
+                            f'not declared by proxy "{proxy_id}" (declared: '
+                            f"{', '.join(sorted(known_entry_points))}); a router no "
+                            "entrypoint serves would drop its traffic silently."
+                        ),
+                        path=f"{path_prefix}.entryPoints",
+                    )
+                )
                 continue
             router: dict[str, Any] = {
                 "entryPoints": route_entry_points,
@@ -804,7 +877,9 @@ def _generate_reverse_proxy_routes(
             # transport encryption is tracked as T10 / #205). S5332
             # therefore reports a false positive here.
             services[service_name] = {
-                "loadBalancer": {"servers": [{"url": f"http://{backend_host}:{backend_port}"}]},  # NOSONAR
+                "loadBalancer": {
+                    "servers": [{"url": f"http://{backend_host}:{backend_port}"}]
+                },  # NOSONAR
             }
 
         if routers:
@@ -813,14 +888,18 @@ def _generate_reverse_proxy_routes(
             }
             if tls_certificates:
                 document["tls"] = {
-                    "certificates": [tls_certificates[a] for a in sorted(tls_certificates)]
+                    "certificates": [
+                        tls_certificates[a] for a in sorted(tls_certificates)
+                    ]
                 }
             documents[str(proxy_id)] = document
 
     return documents, diagnostics
 
 
-def _write_reverse_proxy_route_documents(documents: dict[str, dict[str, Any]], compose_dir: Path) -> None:
+def _write_reverse_proxy_route_documents(
+    documents: dict[str, dict[str, Any]], compose_dir: Path
+) -> None:
     """
     Write one file-provider document per proxy next to the rendered
     compose file, and remove stale CDS-generated route files whose proxy
@@ -832,7 +911,9 @@ def _write_reverse_proxy_route_documents(documents: dict[str, dict[str, Any]], c
     for proxy_id, document in documents.items():
         target = compose_dir / _REVERSE_PROXY_ROUTES_FILE.format(module=proxy_id)
         target.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write(target, yaml.safe_dump(document, sort_keys=True, default_flow_style=False))
+        _atomic_write(
+            target, yaml.safe_dump(document, sort_keys=True, default_flow_style=False)
+        )
         written.add(target.name)
 
     dynamic_dir = compose_dir / "traefik" / "dynamic"
@@ -877,6 +958,7 @@ def _check_unresolved_expressions(rendered_yaml: str) -> list[Diagnostic]:
 # Internal rendering helpers
 # ---------------------------------------------------------------------------
 
+
 def _is_production_plan(plan: dict[str, Any]) -> bool:
     """Whether the rendered profile is a production profile
     (metadata.environment == "production")."""
@@ -893,7 +975,9 @@ def _deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, An
     return merged
 
 
-def apply_production_gates(entries: dict[str, Any], is_production: bool) -> dict[str, Any]:
+def apply_production_gates(
+    entries: dict[str, Any], is_production: bool
+) -> dict[str, Any]:
     """
     The production / learning dividing line for module templates.
 
@@ -988,7 +1072,9 @@ def _render_services(
                     item_enabled_from = volume_item.pop("enabledFrom", None)
                     if _is_disabled(item_enabled_from, context):
                         continue
-                if isinstance(volume_item, dict) and isinstance(volume_item.get("production"), bool):
+                if isinstance(volume_item, dict) and isinstance(
+                    volume_item.get("production"), bool
+                ):
                     volume_item = deepcopy(volume_item)
                     item_production = volume_item.pop("production", None)
                     if item_production != is_production:
@@ -997,7 +1083,9 @@ def _render_services(
             service_copy["volumes"] = kept_volumes
 
         diagnostics.extend(
-            _check_unsafe_field_type_substitutions(service_copy, module.get("id"), service_name, context)
+            _check_unsafe_field_type_substitutions(
+                service_copy, module.get("id"), service_name, context
+            )
         )
         service_copy = _substitute_values(service_copy, context)
         service_copy = _rewrite_service_volumes(
@@ -1021,7 +1109,7 @@ def _render_services(
         # Attach to the network if network_name is provided
         if network_name:
             service_copy["networks"] = [network_name]
-        
+
         rendered[service_name] = service_copy
 
     return rendered, diagnostics
@@ -1071,7 +1159,7 @@ def _merge_init_db_env(
         env = postgres_service.setdefault("environment", {})
         if not isinstance(env, dict):
             return
-        
+
         # Substitute values in init_db_env and merge
         context = _build_context(module, secrets, certificates)
         for key, value in init_db_env.items():
@@ -1112,7 +1200,9 @@ def _build_context(
             bindings[consume_name] = spec if isinstance(spec, dict) else {}
 
     implementation = module.get("implementation") or {}
-    compose_impl = implementation.get("compose") if isinstance(implementation, dict) else None
+    compose_impl = (
+        implementation.get("compose") if isinstance(implementation, dict) else None
+    )
     services = compose_impl.get("services") if isinstance(compose_impl, dict) else None
     module_id = str(module.get("id"))
     module_name = module_name_from_source(module.get("source"))
@@ -1178,28 +1268,30 @@ def _substitute_string(value: str, context: dict[str, Any]) -> Any:
 # always attacker-relevant: they control what docker-compose executes, sets
 # as environment, or bind-mounts on the host, regardless of the module
 # author's intent. See GHSA-gmc4-jw3j-mqcf.
-_UNSAFE_TYPED_SUBSTITUTION_FIELDS = frozenset({
-    "command",
-    "entrypoint",
-    "environment",
-    "volumes",
-    "cap_add",
-    "cap_drop",
-    "devices",
-    "security_opt",
-    "privileged",
-    "network_mode",
-    "pid",
-    "ports",
-    "labels",
-    "tmpfs",
-    "dns",
-    "extra_hosts",
-    "logging",
-    "expose",
-    "depends_on",
-    "build",
-})
+_UNSAFE_TYPED_SUBSTITUTION_FIELDS = frozenset(
+    {
+        "command",
+        "entrypoint",
+        "environment",
+        "volumes",
+        "cap_add",
+        "cap_drop",
+        "devices",
+        "security_opt",
+        "privileged",
+        "network_mode",
+        "pid",
+        "ports",
+        "labels",
+        "tmpfs",
+        "dns",
+        "extra_hosts",
+        "logging",
+        "expose",
+        "depends_on",
+        "build",
+    }
+)
 
 # Fields where the field itself is already scalar (bool/str), so a dict/list
 # resolution is not the only attacker-relevant outcome: a profile-controlled
@@ -1254,34 +1346,38 @@ def _check_unsafe_field_type_substitutions(
         resolved = _resolve_expr(match.group(1), context)
         unsafe_scalars = _UNSAFE_SCALAR_SUBSTITUTION_VALUES.get(field, frozenset())
         if isinstance(resolved, (dict, list)):
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E072",
-                message=(
-                    f'Module "{module_id}" service "{service_name}" field "{field}" resolves '
-                    f'"${{{match.group(1)}}}" to a {type(resolved).__name__}, but pure '
-                    "substitution in this field position is not permitted: a profile-supplied "
-                    "config value would be spliced verbatim into the rendered Compose file, "
-                    "letting an untrusted profile inject arbitrary command/environment/volumes "
-                    "entries. Restructure the module template to interpolate scalar leaf values "
-                    "individually instead of substituting the whole field."
-                ),
-                path=f"module:{module_id}.implementation.compose.services.{service_name}.{field}",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E072",
+                    message=(
+                        f'Module "{module_id}" service "{service_name}" field "{field}" resolves '
+                        f'"${{{match.group(1)}}}" to a {type(resolved).__name__}, but pure '
+                        "substitution in this field position is not permitted: a profile-supplied "
+                        "config value would be spliced verbatim into the rendered Compose file, "
+                        "letting an untrusted profile inject arbitrary command/environment/volumes "
+                        "entries. Restructure the module template to interpolate scalar leaf values "
+                        "individually instead of substituting the whole field."
+                    ),
+                    path=f"module:{module_id}.implementation.compose.services.{service_name}.{field}",
+                )
+            )
         elif resolved in unsafe_scalars:
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E072",
-                message=(
-                    f'Module "{module_id}" service "{service_name}" field "{field}" resolves '
-                    f'"${{{match.group(1)}}}" to {resolved!r}, a host-escalating value for this '
-                    "field. A profile-supplied config value would grant host-level privileges "
-                    "(privileged mode, or host network/PID namespace sharing) through what "
-                    "should be module-controlled configuration. Do not let profile-controlled "
-                    "config drive this field."
-                ),
-                path=f"module:{module_id}.implementation.compose.services.{service_name}.{field}",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E072",
+                    message=(
+                        f'Module "{module_id}" service "{service_name}" field "{field}" resolves '
+                        f'"${{{match.group(1)}}}" to {resolved!r}, a host-escalating value for this '
+                        "field. A profile-supplied config value would grant host-level privileges "
+                        "(privileged mode, or host network/PID namespace sharing) through what "
+                        "should be module-controlled configuration. Do not let profile-controlled "
+                        "config drive this field."
+                    ),
+                    path=f"module:{module_id}.implementation.compose.services.{service_name}.{field}",
+                )
+            )
 
     return diagnostics
 
@@ -1323,7 +1419,7 @@ def _resolve_expr(expr: str, context: dict[str, Any]) -> Any:
         return _resolve_expr(path.strip(), context) == expected.strip()
 
     if expr.startswith("ifNonempty:"):
-        args = expr[len("ifNonempty:"):].split(",", 2)
+        args = expr[len("ifNonempty:") :].split(",", 2)
         if len(args) != 3:
             return None
         path, prefix, suffix = args
@@ -1429,16 +1525,17 @@ def _rewrite_service_volumes(
                 # which fails for any bind source that isn't already a
                 # single path segment. Re-add the "./" prefix so a rewritten
                 # multi-segment relative path stays an unambiguous bind.
-                if (
-                    rewritten_source != source
-                    and not rewritten_source.startswith((".", "/", "~"))
+                if rewritten_source != source and not rewritten_source.startswith(
+                    (".", "/", "~")
                 ):
                     rewritten_source = f"./{rewritten_source}"
                 if rewritten_source != source:
                     item = f"{rewritten_source}:{parts[1]}"
         elif isinstance(item, dict):
             item_copy = deepcopy(item)
-            if item_copy.get("type") == "bind" and isinstance(item_copy.get("source"), str):
+            if item_copy.get("type") == "bind" and isinstance(
+                item_copy.get("source"), str
+            ):
                 item_copy["source"] = _rewrite_local_path(
                     item_copy["source"],
                     module=module,
@@ -1446,7 +1543,9 @@ def _rewrite_service_volumes(
                     project_root=project_root,
                     compose_dir=compose_dir,
                 )
-            elif item_copy.get("type") == "volume" and isinstance(item_copy.get("source"), str):
+            elif item_copy.get("type") == "volume" and isinstance(
+                item_copy.get("source"), str
+            ):
                 source = item_copy["source"]
                 if source in external_volume_names:
                     # Cross-module reference (issue #668): the source is
@@ -1468,7 +1567,11 @@ def _rewrite_local_path(
     project_root: Path | None,
     compose_dir: Path,
 ) -> str:
-    if Path(path_value).is_absolute() or _looks_remote_context(path_value) or "${" in path_value:
+    if (
+        Path(path_value).is_absolute()
+        or _looks_remote_context(path_value)
+        or "${" in path_value
+    ):
         return path_value
 
     candidates: list[Path] = []
@@ -1717,7 +1820,9 @@ def _context_bases(
     return bases
 
 
-def _choose_best_context_candidate(candidates: list[Path], dockerfile: str | None) -> Path:
+def _choose_best_context_candidate(
+    candidates: list[Path], dockerfile: str | None
+) -> Path:
     if dockerfile:
         for candidate in candidates:
             if candidate.exists() and (candidate / dockerfile).exists():
@@ -1762,7 +1867,9 @@ def _resolve_project_root(profile_dir: Path | None) -> Path | None:
     return find_project_root_dir(profile_dir)
 
 
-def _resolve_module_dir(module: dict[str, Any], profile_dir: Path | None) -> Path | None:
+def _resolve_module_dir(
+    module: dict[str, Any], profile_dir: Path | None
+) -> Path | None:
     source = module.get("source")
     if not isinstance(source, str):
         return None
@@ -1786,30 +1893,30 @@ def _add_cross_module_dependencies(
 ) -> None:
     """
     Add explicit cross-module dependencies to docker-compose services.
-    
+
     For each module that has dependsOn declarations, add depends_on entries
     to all its services, referencing all services from the dependent modules.
     """
     modules = plan.get("modules", [])
     services = compose.get("services", {})
-    
+
     # For each module, add depends_on for its dependencies
     for module in modules:
         module_id = module.get("id")
         depends_on = module.get("dependsOn", [])
-        
+
         if not depends_on or not module_id:
             continue
-        
+
         # Find all services belonging to this module
         current_module_service_names = module_service_names.get(module_id, [])
-        
+
         # For each service in this module, add depends_on entries
         for service_name in current_module_service_names:
             service_def = services.get(service_name)
             if not service_def:
                 continue
-            
+
             # Collect all services from dependent modules
             for dep_module_id in depends_on:
                 dep_services = module_service_names.get(dep_module_id, [])
@@ -1827,7 +1934,11 @@ def _add_cross_module_dependencies(
                     if not isinstance(dep_def, dict):
                         continue
                     dep_healthcheck = dep_def.get("healthcheck")
-                    if not isinstance(dep_healthcheck, dict) or dep_healthcheck.get("disable") is True or "test" not in dep_healthcheck:
+                    if (
+                        not isinstance(dep_healthcheck, dict)
+                        or dep_healthcheck.get("disable") is True
+                        or "test" not in dep_healthcheck
+                    ):
                         continue
                     if dep_def.get("profiles"):
                         continue
@@ -1835,7 +1946,7 @@ def _add_cross_module_dependencies(
                     # Initialize depends_on if not present
                     if "depends_on" not in service_def:
                         service_def["depends_on"] = {}
-                    
+
                     # Add the dependency with a started condition
                     if isinstance(service_def["depends_on"], dict):
                         service_def["depends_on"][dep_service_name] = {

@@ -19,6 +19,7 @@ Usage:
 
 Exit codes: 0 clean (or --dry-run), 1 findings reported or validation failed.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -87,7 +88,9 @@ STATUS: clean
 STATUS: findings
 """
 
-_STATUS_RE = re.compile(r"^STATUS:\s*(clean|findings)\s*$", re.IGNORECASE | re.MULTILINE)
+_STATUS_RE = re.compile(
+    r"^STATUS:\s*(clean|findings)\s*$", re.IGNORECASE | re.MULTILINE
+)
 
 
 def build_user_prompt(profile_path: Path, profile_text: str, plan: dict) -> str:
@@ -114,7 +117,9 @@ def _declared_secret_env_names(profile_text: str) -> set[str]:
     return {
         secret_def["env"]
         for secret_def in values.values()
-        if isinstance(secret_def, dict) and isinstance(secret_def.get("env"), str) and secret_def["env"]
+        if isinstance(secret_def, dict)
+        and isinstance(secret_def.get("env"), str)
+        and secret_def["env"]
     }
 
 
@@ -181,14 +186,25 @@ def review_profile(profile: str, *, environment: str | None, dry_run: bool) -> d
     preflight_provider()
     report = complete(user_prompt, system=SYSTEM_PROMPT, temperature=0.1)
     status = parse_status(report) or "unparsed"
-    return {"profile_path": str(profile_path), "status": status, "report": report, "error": None}
+    return {
+        "profile_path": str(profile_path),
+        "status": status,
+        "report": report,
+        "error": None,
+    }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("profile", help="Profile name or path (same resolution as `cds validate`)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "profile", help="Profile name or path (same resolution as `cds validate`)"
+    )
     parser.add_argument("--environment", help="Environment overlay name, e.g. dev/prod")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON instead of text")
+    parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON instead of text"
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -196,7 +212,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    result = review_profile(args.profile, environment=args.environment, dry_run=args.dry_run)
+    result = review_profile(
+        args.profile, environment=args.environment, dry_run=args.dry_run
+    )
 
     if args.json:
         print(json.dumps(result, indent=2))

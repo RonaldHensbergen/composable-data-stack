@@ -8,6 +8,7 @@
 See ``resolution`` for the environment convention and ``database`` for the
 connection object's API.
 """
+
 from __future__ import annotations
 
 import threading
@@ -16,7 +17,13 @@ from collections.abc import Mapping
 from .database import DatabaseConnection
 from .resolution import env_prefix_for, resolve_connection_uri
 
-__all__ = ["close_all", "database", "env_prefix_for", "resolve_connection_uri", "DatabaseConnection"]
+__all__ = [
+    "close_all",
+    "database",
+    "env_prefix_for",
+    "resolve_connection_uri",
+    "DatabaseConnection",
+]
 
 # Registry of connections resolved from the process environment, keyed by
 # (name, environment prefix): a connection is identified by both its name

@@ -13,6 +13,7 @@ signing/SBOM/provenance attestations (docs/image-signing.md), tracked in
 `tests/fixtures/signed-images.json`. This inventory references that
 existing evidence by pointer rather than duplicating it.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -111,13 +112,40 @@ def build_inventory(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dist-dir", required=True, type=Path, help="Directory containing the built wheel/sdist")
-    parser.add_argument("--sbom-file", required=True, help="Filename of the CLI SBOM this build produced")
-    parser.add_argument("--sbom-format", default="CycloneDX", help="SBOM format label (default: CycloneDX)")
-    parser.add_argument("--commit-sha", required=True, help="Source commit SHA this build was produced from")
-    parser.add_argument("--source-ref", required=True, help="Git ref (tag/branch) this build was produced from")
-    parser.add_argument("--generated-at", required=True, help="UTC ISO-8601 timestamp of generation")
-    parser.add_argument("--generated-by", required=True, help="URL of the workflow run that generated this inventory")
+    parser.add_argument(
+        "--dist-dir",
+        required=True,
+        type=Path,
+        help="Directory containing the built wheel/sdist",
+    )
+    parser.add_argument(
+        "--sbom-file",
+        required=True,
+        help="Filename of the CLI SBOM this build produced",
+    )
+    parser.add_argument(
+        "--sbom-format",
+        default="CycloneDX",
+        help="SBOM format label (default: CycloneDX)",
+    )
+    parser.add_argument(
+        "--commit-sha",
+        required=True,
+        help="Source commit SHA this build was produced from",
+    )
+    parser.add_argument(
+        "--source-ref",
+        required=True,
+        help="Git ref (tag/branch) this build was produced from",
+    )
+    parser.add_argument(
+        "--generated-at", required=True, help="UTC ISO-8601 timestamp of generation"
+    )
+    parser.add_argument(
+        "--generated-by",
+        required=True,
+        help="URL of the workflow run that generated this inventory",
+    )
     parser.add_argument(
         "--pyproject",
         type=Path,
@@ -130,7 +158,9 @@ def main() -> int:
         default=Path("tests/fixtures/signed-images.json"),
         help="Path to the existing published-image evidence fixture to reference",
     )
-    parser.add_argument("--output", required=True, type=Path, help="Path to write the inventory JSON to")
+    parser.add_argument(
+        "--output", required=True, type=Path, help="Path to write the inventory JSON to"
+    )
     args = parser.parse_args()
 
     name, version = pyproject_name_and_version(args.pyproject)
@@ -152,7 +182,9 @@ def main() -> int:
         image_evidence=image_evidence_reference(args.image_fixture),
     )
 
-    args.output.write_text(json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.output.write_text(
+        json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     print(f"OK: wrote release artifact inventory for {name} {version} to {args.output}")
     return 0
 

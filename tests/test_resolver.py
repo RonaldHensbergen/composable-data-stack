@@ -12,7 +12,10 @@ from cli.resolver import (
 
 class ParseContractRefTest(unittest.TestCase):
     def test_valid_ref_splits_module_and_contract(self):
-        self.assertEqual(parse_contract_ref("warehouse.postgres-main"), ("warehouse", "postgres-main"))
+        self.assertEqual(
+            parse_contract_ref("warehouse.postgres-main"),
+            ("warehouse", "postgres-main"),
+        )
 
     def test_missing_dot_returns_none(self):
         self.assertIsNone(parse_contract_ref("no-dot-here"))
@@ -53,10 +56,18 @@ class SecretRefTest(unittest.TestCase):
 
 class EvaluateRequiredIfTest(unittest.TestCase):
     def test_true_when_config_value_matches(self):
-        self.assertTrue(evaluate_required_if("config.warehouseType==duckdb", {"warehouseType": "duckdb"}))
+        self.assertTrue(
+            evaluate_required_if(
+                "config.warehouseType==duckdb", {"warehouseType": "duckdb"}
+            )
+        )
 
     def test_false_when_config_value_differs(self):
-        self.assertFalse(evaluate_required_if("config.warehouseType==duckdb", {"warehouseType": "postgres"}))
+        self.assertFalse(
+            evaluate_required_if(
+                "config.warehouseType==duckdb", {"warehouseType": "postgres"}
+            )
+        )
 
     def test_false_when_path_not_set_on_this_instance(self):
         # Syntactically valid gate, but the field simply isn't present on
@@ -64,7 +75,11 @@ class EvaluateRequiredIfTest(unittest.TestCase):
         self.assertFalse(evaluate_required_if("config.warehouseType==duckdb", {}))
 
     def test_tolerates_whitespace_around_operator_and_path(self):
-        self.assertTrue(evaluate_required_if("config.warehouseType == duckdb", {"warehouseType": "duckdb"}))
+        self.assertTrue(
+            evaluate_required_if(
+                "config.warehouseType == duckdb", {"warehouseType": "duckdb"}
+            )
+        )
 
     def test_missing_operator_raises_syntax_error(self):
         with self.assertRaises(RequiredIfSyntaxError):
@@ -72,7 +87,9 @@ class EvaluateRequiredIfTest(unittest.TestCase):
 
     def test_path_not_rooted_at_config_raises_syntax_error(self):
         with self.assertRaises(RequiredIfSyntaxError):
-            evaluate_required_if("cofnig.warehouseType==duckdb", {"warehouseType": "duckdb"})
+            evaluate_required_if(
+                "cofnig.warehouseType==duckdb", {"warehouseType": "duckdb"}
+            )
 
     def test_bare_config_with_no_subpath_raises_syntax_error(self):
         with self.assertRaises(RequiredIfSyntaxError):

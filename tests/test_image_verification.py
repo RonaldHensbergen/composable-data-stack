@@ -115,9 +115,7 @@ class ImagePolicyTest(unittest.TestCase):
         self.assertEqual(policy.mode, "full")
         self.assertEqual(policy.trusted_registries, ("ghcr.io", "registry.example.com"))
         self.assertEqual(policy.oidc_issuer, "https://issuer.example.com")
-        self.assertEqual(
-            policy.cert_identity_regexp, "^https://example.com/workflow$"
-        )
+        self.assertEqual(policy.cert_identity_regexp, "^https://example.com/workflow$")
         self.assertEqual(policy.cosign_bin, "/opt/cosign")
         self.assertEqual(policy.key_path, "/keys/cosign.pub")
 
@@ -180,17 +178,15 @@ class StaticPolicyTest(unittest.TestCase):
         for build in (None, "", "   ", {}, {"context": ""}):
             with self.subTest(build=build):
                 compose = yaml.safe_dump(
-                    {
-                        "services": {
-                            "a": {"image": "local/evil:custom", "build": build}
-                        }
-                    }
+                    {"services": {"a": {"image": "local/evil:custom", "build": build}}}
                 )
                 findings = verify_images(compose, _policy(mode="policy"))
                 self.assertIn("CDS-SEC-051", {f["rule_id"] for f in findings})
 
     def test_custom_suffix_alone_does_not_bypass_checks(self) -> None:
-        compose = yaml.safe_dump({"services": {"a": {"image": "quay.io/example/tool:custom"}}})
+        compose = yaml.safe_dump(
+            {"services": {"a": {"image": "quay.io/example/tool:custom"}}}
+        )
         findings = verify_images(compose, _policy(mode="policy"))
         self.assertIn("CDS-SEC-052", {f["rule_id"] for f in findings})
 
@@ -207,8 +203,18 @@ class StaticPolicyTest(unittest.TestCase):
         self.assertIn("CDS-SEC-050", {f["rule_id"] for f in findings})
 
     def test_digest_pinned_image_not_flagged_as_latest(self) -> None:
-        compose = yaml.safe_dump({"services": {"app": {"image": f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"}}})
-        rule_ids = {f["rule_id"] for f in verify_images(compose, _policy(mode="policy"))}
+        compose = yaml.safe_dump(
+            {
+                "services": {
+                    "app": {
+                        "image": f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"
+                    }
+                }
+            }
+        )
+        rule_ids = {
+            f["rule_id"] for f in verify_images(compose, _policy(mode="policy"))
+        }
         self.assertNotIn("CDS-SEC-050", rule_ids)
 
     def test_digest_pin_skipped_when_not_required(self) -> None:
@@ -248,7 +254,9 @@ class DeferredImagePolicyFindingIdsTest(unittest.TestCase):
         self.assertNotIn("CDS-SEC-053", rule_ids)
         self.assertNotIn("CDS-SEC-054", rule_ids)
 
-    def test_non_compliant_compose_still_emits_exactly_the_image_policy_finding_ids(self):
+    def test_non_compliant_compose_still_emits_exactly_the_image_policy_finding_ids(
+        self,
+    ):
         findings = verify_images(_COMPOSE, _policy(mode="policy"))
         self.assertEqual(
             {f["rule_id"] for f in findings},
@@ -260,7 +268,11 @@ class FixtureVerificationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.fixture = {
             "schemaVersion": 1,
-            "trustRoot": {"oidcIssuer": "issuer", "certificateIdentityRegexp": "re", "registries": ["ghcr.io"]},
+            "trustRoot": {
+                "oidcIssuer": "issuer",
+                "certificateIdentityRegexp": "re",
+                "registries": ["ghcr.io"],
+            },
             "images": {
                 "cds-dagster": {
                     "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
@@ -275,14 +287,30 @@ class FixtureVerificationTest(unittest.TestCase):
     def test_matching_fixture_entry_verifies_offline(self) -> None:
         bundled = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
         digest = bundled["images"]["cds-dagster"]["digest"]
-        compose = yaml.safe_dump({"services": {"app": {"image": f"ghcr.io/ronaldhensbergen/cds-dagster@{digest}"}}})
-        with patch("cli.image_verification.shutil.which", return_value=None) as mock_which:
+        compose = yaml.safe_dump(
+            {
+                "services": {
+                    "app": {"image": f"ghcr.io/ronaldhensbergen/cds-dagster@{digest}"}
+                }
+            }
+        )
+        with patch(
+            "cli.image_verification.shutil.which", return_value=None
+        ) as mock_which:
             findings = verify_images(compose, _policy(), fixture=_FIXTURE_PATH)
         mock_which.assert_not_called()
         self.assertEqual(findings, [])
 
     def test_digest_mismatch_is_flagged(self) -> None:
-        compose = yaml.safe_dump({"services": {"app": {"image": f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_B}"}}})
+        compose = yaml.safe_dump(
+            {
+                "services": {
+                    "app": {
+                        "image": f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_B}"
+                    }
+                }
+            }
+        )
         findings = verify_images(compose, _policy(), fixture=_FIXTURE_PATH)
         self.assertEqual(findings[0]["rule_id"], "CDS-VER-003")
         self.assertEqual(findings[0]["severity"], "high")
@@ -324,7 +352,9 @@ class FixtureVerificationTest(unittest.TestCase):
 
     def test_fixture_repository_match_is_case_insensitive(self) -> None:
         image = f"GHCR.IO/ronaldhensbergen/cds-dagster@{_DIGEST_A}"
-        with patch("cli.image_verification.shutil.which", return_value=None) as mock_which:
+        with patch(
+            "cli.image_verification.shutil.which", return_value=None
+        ) as mock_which:
             findings = _verification_findings(
                 [("app", image, False)],
                 _policy(trusted_registries=("ghcr.io",)),
@@ -349,7 +379,9 @@ class FixtureVerificationTest(unittest.TestCase):
         )
 
     def test_local_build_entries_are_skipped_by_verification(self) -> None:
-        with patch("cli.image_verification.shutil.which", return_value="/usr/bin/cosign") as mock_which:
+        with patch(
+            "cli.image_verification.shutil.which", return_value="/usr/bin/cosign"
+        ) as mock_which:
             findings = _verification_findings(
                 [("app", f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}", True)],
                 _policy(),
@@ -415,7 +447,9 @@ class CosignVerificationTest(unittest.TestCase):
         self.assertNotIn("--key", command)
 
         attest_command = mock_run.call_args_list[1].args[0]
-        self.assertEqual(attest_command[:3], ["/usr/bin/cosign", "verify-attestation", "--type"])
+        self.assertEqual(
+            attest_command[:3], ["/usr/bin/cosign", "verify-attestation", "--type"]
+        )
         self.assertIn("slsaprovenance", attest_command)
 
     @patch("cli.image_verification.subprocess.run")
@@ -423,7 +457,9 @@ class CosignVerificationTest(unittest.TestCase):
     def test_key_managed_verification_command(self, _mock_which, mock_run) -> None:
         mock_run.return_value = subprocess.CompletedProcess([], 0)
         image = f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"
-        findings = verify_images(self._compose(image), _policy(key_path="/keys/cosign.pub"))
+        findings = verify_images(
+            self._compose(image), _policy(key_path="/keys/cosign.pub")
+        )
         self.assertEqual(findings, [])
 
         command = mock_run.call_args_list[0].args[0]
@@ -443,7 +479,9 @@ class CosignVerificationTest(unittest.TestCase):
     @patch("cli.image_verification.subprocess.run")
     @patch("cli.image_verification.shutil.which", return_value="/usr/bin/cosign")
     def test_rejected_signature_fails_closed(self, _mock_which, mock_run) -> None:
-        mock_run.return_value = subprocess.CompletedProcess([], 1, stderr="signature mismatch")
+        mock_run.return_value = subprocess.CompletedProcess(
+            [], 1, stderr="signature mismatch"
+        )
         image = f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"
         findings = verify_images(self._compose(image), _policy())
         self.assertEqual(findings[0]["rule_id"], "CDS-VER-001")
@@ -501,7 +539,11 @@ class SignedImagesFixtureTest(unittest.TestCase):
     def test_validate_fixture_rejects_placeholder_digests(self) -> None:
         fixture = {
             "schemaVersion": 1,
-            "trustRoot": {"oidcIssuer": "issuer", "certificateIdentityRegexp": "re", "registries": ["ghcr.io"]},
+            "trustRoot": {
+                "oidcIssuer": "issuer",
+                "certificateIdentityRegexp": "re",
+                "registries": ["ghcr.io"],
+            },
             "images": {
                 "cds-dagster": {
                     "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
@@ -515,7 +557,9 @@ class SignedImagesFixtureTest(unittest.TestCase):
         errors = validate_fixture(fixture)
         self.assertTrue(any("placeholder" in e for e in errors))
 
-    def test_validate_fixture_rejects_malformed_trust_root_and_image_entries(self) -> None:
+    def test_validate_fixture_rejects_malformed_trust_root_and_image_entries(
+        self,
+    ) -> None:
         errors = validate_fixture(
             {
                 "schemaVersion": 1,
@@ -551,12 +595,22 @@ class SignedImagesFixtureTest(unittest.TestCase):
         self.assertEqual(path.resolve(), _FIXTURE_PATH.resolve())
 
     def test_fixture_env_var_overrides_default_path(self) -> None:
-        with patch.dict(os.environ, {"CDS_SIGNED_IMAGES_FIXTURE": "C:/custom/fixture.json"}, clear=True):
+        with patch.dict(
+            os.environ,
+            {"CDS_SIGNED_IMAGES_FIXTURE": "C:/custom/fixture.json"},
+            clear=True,
+        ):
             self.assertEqual(default_fixture_path(), Path("C:/custom/fixture.json"))
 
     @patch("cli.image_verification.subprocess.run")
     def test_unreadable_explicit_fixture_fails_closed(self, mock_run) -> None:
-        compose = yaml.safe_dump({"services": {"a": {"image": f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"}}})
+        compose = yaml.safe_dump(
+            {
+                "services": {
+                    "a": {"image": f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_A}"}
+                }
+            }
+        )
         with patch.dict(
             os.environ,
             {"CDS_SIGNED_IMAGES_FIXTURE": "C:/missing/signed-images.json"},
@@ -574,7 +628,9 @@ class PreflightIntegrationTest(unittest.TestCase):
     def test_image_checks_off_by_default(self, mock_run, _mock_which) -> None:
         mock_run.return_value = subprocess.CompletedProcess([], 0)
         plan = {"runtime": {"type": "docker-compose"}}
-        compose = yaml.safe_dump({"services": {"a": {"image": "quay.io/example/tool:1.0"}}})
+        compose = yaml.safe_dump(
+            {"services": {"a": {"image": "quay.io/example/tool:1.0"}}}
+        )
         with patch.dict(os.environ, {}, clear=True):
             checks = run_preflight(plan, compose, Path("missing.env"))
         self.assertTrue(
@@ -592,12 +648,12 @@ class PreflightIntegrationTest(unittest.TestCase):
             "runtime": {"type": "docker-compose"},
             "metadata": {"environment": "production"},
         }
-        compose = yaml.safe_dump({"services": {"a": {"image": "quay.io/example/tool:1.0"}}})
+        compose = yaml.safe_dump(
+            {"services": {"a": {"image": "quay.io/example/tool:1.0"}}}
+        )
         with patch.dict(os.environ, {}, clear=True):
             checks = run_preflight(plan, compose, Path("missing.env"))
-        image_failures = [
-            check for check in checks if check.name.startswith("images")
-        ]
+        image_failures = [check for check in checks if check.name.startswith("images")]
         self.assertTrue(any(check.status == "FAIL" for check in image_failures))
         self.assertTrue(any("CDS-SEC-052" in check.message for check in image_failures))
 
@@ -629,19 +685,30 @@ class PreflightIntegrationTest(unittest.TestCase):
         --verify-images` (#546)."""
         mock_run.return_value = subprocess.CompletedProcess([], 0)
         plan = {"runtime": {"type": "docker-compose"}}
-        compose = yaml.safe_dump({"services": {"a": {"image": "quay.io/example/tool:1.0"}}})
+        compose = yaml.safe_dump(
+            {"services": {"a": {"image": "quay.io/example/tool:1.0"}}}
+        )
         with patch.dict(os.environ, {}, clear=True):
             lenient_checks = run_preflight(plan, compose, Path("missing.env"))
-            strict_checks = run_preflight(plan, compose, Path("missing.env"), strict=True)
+            strict_checks = run_preflight(
+                plan, compose, Path("missing.env"), strict=True
+            )
 
         self.assertTrue(
             all(check.name != "images" for check in lenient_checks),
             "image checks must stay disabled for a non-strict local profile",
         )
-        strict_image_checks = [check for check in strict_checks if check.name.startswith("images")]
-        self.assertTrue(strict_image_checks, "strict=True must enable image checks regardless of environment")
+        strict_image_checks = [
+            check for check in strict_checks if check.name.startswith("images")
+        ]
+        self.assertTrue(
+            strict_image_checks,
+            "strict=True must enable image checks regardless of environment",
+        )
         self.assertTrue(any(check.status == "FAIL" for check in strict_image_checks))
-        self.assertTrue(any("CDS-SEC-052" in check.message for check in strict_image_checks))
+        self.assertTrue(
+            any("CDS-SEC-052" in check.message for check in strict_image_checks)
+        )
 
 
 if __name__ == "__main__":

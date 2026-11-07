@@ -5,6 +5,7 @@ for the explicit `cds check-update` command or when CDS_CHECK_UPDATES=1.
 The only request made is an unauthenticated GET of the public PyPI JSON index
 for this package; no profile or project content is transmitted.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,7 +20,9 @@ from urllib.request import Request, urlopen
 ENV_VAR = "CDS_CHECK_UPDATES"
 PACKAGE = "composable-data-stack"
 PYPI_URL = f"https://pypi.org/pypi/{PACKAGE}/json"
-CHANGELOG_URL = "https://github.com/RonaldHensbergen/composable-data-stack/blob/main/CHANGELOG.md"
+CHANGELOG_URL = (
+    "https://github.com/RonaldHensbergen/composable-data-stack/blob/main/CHANGELOG.md"
+)
 RELEASES_URL = "https://github.com/RonaldHensbergen/composable-data-stack/releases"
 COOLDOWN_SECONDS = 24 * 60 * 60
 _TIMEOUT = 3
@@ -42,7 +45,9 @@ def _cache_path() -> Path:
 
 def _parse_version(value: str) -> tuple[tuple[int, ...], bool] | None:
     """Return (release numbers, is_prerelease) or None when unparseable."""
-    match = re.fullmatch(r"v?(\d+(?:\.\d+)*)((?:a|b|rc|\.?dev|\.?post)\d*.*)?", value.strip())
+    match = re.fullmatch(
+        r"v?(\d+(?:\.\d+)*)((?:a|b|rc|\.?dev|\.?post)\d*.*)?", value.strip()
+    )
     if not match:
         return None
     return tuple(int(part) for part in match.group(1).split(".")), bool(match.group(2))
@@ -71,7 +76,7 @@ def fetch_latest_version() -> str | None:
         with urlopen(request, timeout=_TIMEOUT) as response:  # nosec B310  # noqa: S310
             data = json.loads(response.read().decode("utf-8"))
         latest = data["info"]["version"]
-    except (OSError, URLError, ValueError, KeyError, TypeError):
+    except OSError, URLError, ValueError, KeyError, TypeError:
         return None
     return latest if isinstance(latest, str) else None
 
@@ -81,7 +86,7 @@ def _cached_latest() -> str | None:
         data = json.loads(_cache_path().read_text(encoding="utf-8"))
         if time.time() - float(data["checkedAt"]) < COOLDOWN_SECONDS:
             return data["latest"] if isinstance(data["latest"], str) else None
-    except (OSError, ValueError, KeyError, TypeError):
+    except OSError, ValueError, KeyError, TypeError:
         pass
     return None
 
@@ -90,7 +95,9 @@ def _store_cache(latest: str) -> None:
     try:
         path = _cache_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"checkedAt": time.time(), "latest": latest}), encoding="utf-8")
+        path.write_text(
+            json.dumps({"checkedAt": time.time(), "latest": latest}), encoding="utf-8"
+        )
     except OSError:
         pass
 

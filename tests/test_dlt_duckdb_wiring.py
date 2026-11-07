@@ -13,6 +13,7 @@ Also covers the shipped `local-duckdb-dlt-dbt` demo profile through
 validate -> plan -> render, and the compile-time guards (E041) that force
 config.destinationType to match the binding that is actually set.
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -85,16 +86,19 @@ class DltDuckdbWiringTest(unittest.TestCase):
             _wiring_profile("duckdb", with_warehouse_file=True)
         )
         self.assertEqual(
-            [d for d in diagnostics if d.level == "error"], [],
+            [d for d in diagnostics if d.level == "error"],
+            [],
             msg=f"unexpected validation errors: {diagnostics}",
         )
         self.assertIsNotNone(plan)
         self.assertEqual(
-            [d for d in plan_diags if d.level == "error"], [],
+            [d for d in plan_diags if d.level == "error"],
+            [],
             msg=f"unexpected plan errors: {plan_diags}",
         )
         self.assertEqual(
-            [d for d in render_diags if d.level == "error"], [],
+            [d for d in render_diags if d.level == "error"],
+            [],
             msg=f"unexpected render errors: {render_diags}",
         )
 
@@ -171,23 +175,28 @@ class ShippedDuckdbDemoProfileTest(unittest.TestCase):
     """The shipped local-duckdb-dlt-dbt profile must validate, plan, render."""
 
     def test_demo_profile_compiles_through_render(self):
-        self.assertTrue(_DEMO_PROFILE.is_file(), msg=f"missing demo profile: {_DEMO_PROFILE}")
+        self.assertTrue(
+            _DEMO_PROFILE.is_file(), msg=f"missing demo profile: {_DEMO_PROFILE}"
+        )
         diagnostics = validate_profile(str(_DEMO_PROFILE))
         self.assertEqual(
-            [d for d in diagnostics if d.level == "error"], [],
+            [d for d in diagnostics if d.level == "error"],
+            [],
             msg=f"unexpected validation errors: {diagnostics}",
         )
 
         plan, plan_diags = build_plan(str(_DEMO_PROFILE))
         self.assertIsNotNone(plan)
         self.assertEqual(
-            [d for d in plan_diags if d.level == "error"], [],
+            [d for d in plan_diags if d.level == "error"],
+            [],
             msg=f"unexpected plan errors: {plan_diags}",
         )
 
         output, render_diags = render_compose(plan)
         self.assertEqual(
-            [d for d in render_diags if d.level == "error"], [],
+            [d for d in render_diags if d.level == "error"],
+            [],
             msg=f"unexpected render errors: {render_diags}",
         )
         compose = yaml.safe_load(output)
@@ -212,7 +221,9 @@ class ShippedDuckdbDemoProfileTest(unittest.TestCase):
 
         dbt_env = services["dbt-run"]["environment"]
         self.assertEqual(dbt_env["DBT_WAREHOUSE_TYPE"], "duckdb")
-        self.assertEqual(dbt_env["DBT_DUCKDB_PATH"], "/usr/app/dbt_duckdb/warehouse.duckdb")
+        self.assertEqual(
+            dbt_env["DBT_DUCKDB_PATH"], "/usr/app/dbt_duckdb/warehouse.duckdb"
+        )
         dbt_mount = next(
             v
             for v in services["dbt-run"]["volumes"]

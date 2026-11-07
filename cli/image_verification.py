@@ -20,6 +20,7 @@ The policy is gated by CDS_IMAGE_VERIFICATION (off | policy | full);
 production profiles default to "policy", and "full" additionally requires
 signature/provenance verification to succeed.
 """
+
 from __future__ import annotations
 
 import json
@@ -80,11 +81,14 @@ def load_policy_from_env(
     if mode not in ("off", "policy", "full"):
         mode = "policy" if profile_class == "prod" else "off"
 
-    registries = tuple(
-        part.strip()
-        for part in os.getenv("CDS_TRUSTED_REGISTRIES", "").split(",")
-        if part.strip()
-    ) or DEFAULT_TRUSTED_REGISTRIES
+    registries = (
+        tuple(
+            part.strip()
+            for part in os.getenv("CDS_TRUSTED_REGISTRIES", "").split(",")
+            if part.strip()
+        )
+        or DEFAULT_TRUSTED_REGISTRIES
+    )
 
     return ImagePolicy(
         mode=mode,
@@ -188,43 +192,49 @@ def _static_findings(
         ref = parse_image_reference(image)
         registry = cast(str, ref["registry"])
         if not _registry_is_trusted(registry, policy):
-            findings.append(_finding(
-                "CDS-SEC-052",
-                "medium",
-                service,
-                image,
-                f"Image registry '{ref['registry']}' is not in the trusted registry allowlist",
-                [
-                    "Restrict images to trusted registries.",
-                    "Maintain an explicit allowlist per environment via CDS_TRUSTED_REGISTRIES.",
-                ],
-            ))
+            findings.append(
+                _finding(
+                    "CDS-SEC-052",
+                    "medium",
+                    service,
+                    image,
+                    f"Image registry '{ref['registry']}' is not in the trusted registry allowlist",
+                    [
+                        "Restrict images to trusted registries.",
+                        "Maintain an explicit allowlist per environment via CDS_TRUSTED_REGISTRIES.",
+                    ],
+                )
+            )
 
         if "@sha256:" not in image and ref["tag"] == "latest":
-            findings.append(_finding(
-                "CDS-SEC-050",
-                "medium",
-                service,
-                image,
-                "Container image uses the latest tag",
-                [
-                    "Pin images to explicit versions.",
-                    "Prefer immutable digests for critical services.",
-                ],
-            ))
+            findings.append(
+                _finding(
+                    "CDS-SEC-050",
+                    "medium",
+                    service,
+                    image,
+                    "Container image uses the latest tag",
+                    [
+                        "Pin images to explicit versions.",
+                        "Prefer immutable digests for critical services.",
+                    ],
+                )
+            )
 
         if policy.require_digest and "@sha256:" not in image:
-            findings.append(_finding(
-                "CDS-SEC-051",
-                "medium",
-                service,
-                image,
-                "Critical service image is not pinned by digest",
-                [
-                    "Use image digests for critical services.",
-                    "Define policy exceptions only when necessary.",
-                ],
-            ))
+            findings.append(
+                _finding(
+                    "CDS-SEC-051",
+                    "medium",
+                    service,
+                    image,
+                    "Critical service image is not pinned by digest",
+                    [
+                        "Use image digests for critical services.",
+                        "Define policy exceptions only when necessary.",
+                    ],
+                )
+            )
     return findings
 
 
@@ -354,85 +364,99 @@ def _verification_findings(
             ref_digest = image.rsplit("@", 1)[1] if "@sha256:" in image else None
             entry_digest = entry.get("digest")
             if ref_digest is None:
-                findings.append(_finding(
-                    "CDS-VER-003",
-                    "high",
-                    service,
-                    image,
-                    "Tagged image reference cannot be verified against the signed-images fixture; pin the image by digest",
-                    [
-                        "Reference the image by its published digest (@sha256:...).",
-                        "Refresh tests/fixtures/signed-images.json from the latest publish-images run.",
-                    ],
-                ))
+                findings.append(
+                    _finding(
+                        "CDS-VER-003",
+                        "high",
+                        service,
+                        image,
+                        "Tagged image reference cannot be verified against the signed-images fixture; pin the image by digest",
+                        [
+                            "Reference the image by its published digest (@sha256:...).",
+                            "Refresh tests/fixtures/signed-images.json from the latest publish-images run.",
+                        ],
+                    )
+                )
                 continue
             if ref_digest != entry_digest:
-                findings.append(_finding(
-                    "CDS-VER-003",
-                    "high",
-                    service,
-                    image,
-                    "Image digest does not match the signed-images fixture entry",
-                    [
-                        "Pull the image by its published digest.",
-                        "Refresh tests/fixtures/signed-images.json from the latest publish-images run.",
-                    ],
-                ))
+                findings.append(
+                    _finding(
+                        "CDS-VER-003",
+                        "high",
+                        service,
+                        image,
+                        "Image digest does not match the signed-images fixture entry",
+                        [
+                            "Pull the image by its published digest.",
+                            "Refresh tests/fixtures/signed-images.json from the latest publish-images run.",
+                        ],
+                    )
+                )
                 continue
             if entry.get("signed") is not True:
-                findings.append(_finding(
-                    "CDS-VER-001",
-                    "high",
-                    service,
-                    image,
-                    "Image has no verifiable signature in the signed-images fixture",
-                    [
-                        "Re-publish the image through publish-images.yml so it is signed.",
-                        "Verify with cosign verify before deploying.",
-                    ],
-                ))
+                findings.append(
+                    _finding(
+                        "CDS-VER-001",
+                        "high",
+                        service,
+                        image,
+                        "Image has no verifiable signature in the signed-images fixture",
+                        [
+                            "Re-publish the image through publish-images.yml so it is signed.",
+                            "Verify with cosign verify before deploying.",
+                        ],
+                    )
+                )
             if entry.get("provenanceAttested") is not True:
-                findings.append(_finding(
-                    "CDS-VER-002",
-                    "high",
-                    service,
-                    image,
-                    "Image has no verifiable build provenance attestation",
-                    [
-                        "Re-publish the image so the SLSA provenance attestation is attached.",
-                        "Verify with cosign verify-attestation --type slsaprovenance.",
-                    ],
-                ))
+                findings.append(
+                    _finding(
+                        "CDS-VER-002",
+                        "high",
+                        service,
+                        image,
+                        "Image has no verifiable build provenance attestation",
+                        [
+                            "Re-publish the image so the SLSA provenance attestation is attached.",
+                            "Verify with cosign verify-attestation --type slsaprovenance.",
+                        ],
+                    )
+                )
             continue
 
         ok, detail = _verify_with_cosign(image, policy, attestation_type=None)
         if not ok:
-            findings.append(_finding(
-                "CDS-VER-001",
-                "high",
-                service,
-                image,
-                f"Image signature could not be verified: {detail}",
-                [
-                    "Ensure the image was signed by the trusted publish-images workflow.",
-                    "Provide a known-good signed-images fixture for offline verification.",
-                ],
-            ))
+            findings.append(
+                _finding(
+                    "CDS-VER-001",
+                    "high",
+                    service,
+                    image,
+                    f"Image signature could not be verified: {detail}",
+                    [
+                        "Ensure the image was signed by the trusted publish-images workflow.",
+                        "Provide a known-good signed-images fixture for offline verification.",
+                    ],
+                )
+            )
             continue
 
-        ok, detail = _verify_with_cosign(image, policy, attestation_type="slsaprovenance")
+        ok, detail = _verify_with_cosign(
+            image, policy, attestation_type="slsaprovenance"
+        )
         if not ok:
-            findings.append(_finding(
-                "CDS-VER-002",
-                "high",
-                service,
-                image,
-                f"Build provenance attestation could not be verified: {detail}",
-                [
-                    "Re-publish the image through publish-images.yml so provenance is attested.",
-                    "Verify with cosign verify-attestation --type slsaprovenance.",
-                ],
-            ))
+            findings.append(
+                _finding(
+                    "CDS-VER-002",
+                    "high",
+                    service,
+                    image,
+                    f"Build provenance attestation could not be verified: {detail}",
+                    [
+                        "Re-publish the image through publish-images.yml so provenance is attested.",
+                        "Verify with cosign verify-attestation --type slsaprovenance.",
+                    ],
+                )
+            )
     return findings
 
 
@@ -455,27 +479,31 @@ def verify_images(
     if policy.mode == "full":
         fixture_data, fixture_error = _load_fixture(fixture)
         if fixture_error is not None:
-            findings.append(_finding(
-                "CDS-VER-004",
-                "high",
-                "<profile>",
-                str(fixture),
-                f"Configured signed-images fixture '{fixture}' {fixture_error}; "
-                "failing closed instead of silently falling back to live cosign "
-                "verification with different trust constraints",
-                [
-                    "Fix the path in CDS_SIGNED_IMAGES_FIXTURE or unset it to use the bundled fixture.",
-                    "Restore tests/fixtures/signed-images.json if it was removed.",
-                ],
-            ))
+            findings.append(
+                _finding(
+                    "CDS-VER-004",
+                    "high",
+                    "<profile>",
+                    str(fixture),
+                    f"Configured signed-images fixture '{fixture}' {fixture_error}; "
+                    "failing closed instead of silently falling back to live cosign "
+                    "verification with different trust constraints",
+                    [
+                        "Fix the path in CDS_SIGNED_IMAGES_FIXTURE or unset it to use the bundled fixture.",
+                        "Restore tests/fixtures/signed-images.json if it was removed.",
+                    ],
+                )
+            )
         else:
             findings.extend(_verification_findings(images, policy, fixture_data))
 
-    findings.sort(key=lambda x: (
-        SEVERITY_ORDER.get(x["severity"], 99),
-        x["rule_id"],
-        x["path"],
-    ))
+    findings.sort(
+        key=lambda x: (
+            SEVERITY_ORDER.get(x["severity"], 99),
+            x["rule_id"],
+            x["path"],
+        )
+    )
     return findings
 
 

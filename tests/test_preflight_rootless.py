@@ -1,4 +1,5 @@
 """Production-aware rootless host check (#207)."""
+
 import json
 import subprocess
 import unittest
@@ -14,7 +15,10 @@ def _info(*options):
 @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
 class RootlessPreflightTest(unittest.TestCase):
     def _check(self, environment, info_stdout):
-        plan = {"runtime": {"type": "docker-compose"}, "metadata": {"environment": environment}}
+        plan = {
+            "runtime": {"type": "docker-compose"},
+            "metadata": {"environment": environment},
+        }
 
         def fake(command, **_kwargs):
             if "--format" in command:
@@ -26,7 +30,9 @@ class RootlessPreflightTest(unittest.TestCase):
         return next(c for c in checks if c.name == "host.rootless")
 
     def test_rootless_daemon_passes(self, _which):
-        check = self._check("production", _info("name=seccomp,profile=builtin", "name=rootless"))
+        check = self._check(
+            "production", _info("name=seccomp,profile=builtin", "name=rootless")
+        )
         self.assertEqual(check.status, "PASS")
         self.assertIsNone(check.reference)
 
@@ -38,7 +44,10 @@ class RootlessPreflightTest(unittest.TestCase):
         self.assertIn("rootless-docker.md", check.reference or "")
 
     def test_rootful_warns_point_at_hardening_baseline(self, _which):
-        plan = {"runtime": {"type": "docker-compose"}, "metadata": {"environment": "production"}}
+        plan = {
+            "runtime": {"type": "docker-compose"},
+            "metadata": {"environment": "production"},
+        }
         info = json.dumps(
             {
                 "SecurityOptions": ["name=seccomp,profile=builtin"],

@@ -87,7 +87,11 @@ def _inst(inst_id: str = "postgres") -> dict:
         "module": {
             "kind": "Module",
             "metadata": {"name": inst_id, "category": "warehouse"},
-            "spec": {"provides": [], "consumes": [], "configSchema": {"type": "object"}},
+            "spec": {
+                "provides": [],
+                "consumes": [],
+                "configSchema": {"type": "object"},
+            },
         },
     }
 
@@ -104,12 +108,19 @@ class SchemaShapeTest(unittest.TestCase):
     def test_missing_datasets_is_e010(self) -> None:
         profile = _base_profile({"registration": _DECLARATION["registration"]})
         diagnostics = validate_profile_shape(profile)
-        self.assertTrue(any(d.code == "E010" and d.path == "spec.dataSharing" for d in diagnostics))
+        self.assertTrue(
+            any(d.code == "E010" and d.path == "spec.dataSharing" for d in diagnostics)
+        )
 
     def test_empty_datasets_array_is_e010(self) -> None:
         profile = _base_profile({"datasets": []})
         diagnostics = validate_profile_shape(profile)
-        self.assertTrue(any(d.code == "E010" and d.path == "spec.dataSharing.datasets" for d in diagnostics))
+        self.assertTrue(
+            any(
+                d.code == "E010" and d.path == "spec.dataSharing.datasets"
+                for d in diagnostics
+            )
+        )
 
     def test_registration_requires_system_and_reference(self) -> None:
         profile = _base_profile(
@@ -117,7 +128,10 @@ class SchemaShapeTest(unittest.TestCase):
         )
         diagnostics = validate_profile_shape(profile)
         self.assertTrue(
-            any(d.code == "E010" and d.path == "spec.dataSharing.registration" for d in diagnostics)
+            any(
+                d.code == "E010" and d.path == "spec.dataSharing.registration"
+                for d in diagnostics
+            )
         )
 
     def test_unknown_key_inside_block_is_e010(self) -> None:
@@ -125,7 +139,9 @@ class SchemaShapeTest(unittest.TestCase):
         declaration["bogus"] = True
         profile = _base_profile(declaration)
         diagnostics = validate_profile_shape(profile)
-        self.assertTrue(any(d.code == "E010" and d.path == "spec.dataSharing" for d in diagnostics))
+        self.assertTrue(
+            any(d.code == "E010" and d.path == "spec.dataSharing" for d in diagnostics)
+        )
 
     def test_bad_module_pattern_is_e010(self) -> None:
         declaration = copy.deepcopy(_DECLARATION)
@@ -133,20 +149,28 @@ class SchemaShapeTest(unittest.TestCase):
         profile = _base_profile(declaration)
         diagnostics = validate_profile_shape(profile)
         self.assertTrue(
-            any(d.code == "E010" and d.path == "spec.dataSharing.datasets.0.module" for d in diagnostics)
+            any(
+                d.code == "E010" and d.path == "spec.dataSharing.datasets.0.module"
+                for d in diagnostics
+            )
         )
 
     def test_dataset_entry_requires_dataset_id(self) -> None:
         profile = _base_profile({"datasets": [{"module": "postgres"}]})
         diagnostics = validate_profile_shape(profile)
         self.assertTrue(
-            any(d.code == "E010" and d.path == "spec.dataSharing.datasets.0" for d in diagnostics)
+            any(
+                d.code == "E010" and d.path == "spec.dataSharing.datasets.0"
+                for d in diagnostics
+            )
         )
 
 
 class DeclarationValidationTest(unittest.TestCase):
     def test_absent_block_returns_no_diagnostics(self) -> None:
-        self.assertEqual(validate_data_sharing_declaration(_base_profile(), [_inst()]), [])
+        self.assertEqual(
+            validate_data_sharing_declaration(_base_profile(), [_inst()]), []
+        )
 
     def test_valid_declaration_returns_no_diagnostics(self) -> None:
         profile = _base_profile(copy.deepcopy(_DECLARATION))
@@ -154,7 +178,9 @@ class DeclarationValidationTest(unittest.TestCase):
 
     def test_duplicate_dataset_id_is_e157(self) -> None:
         declaration = copy.deepcopy(_DECLARATION)
-        declaration["datasets"].append({"datasetId": "urn:example:datasets:address-register"})
+        declaration["datasets"].append(
+            {"datasetId": "urn:example:datasets:address-register"}
+        )
         profile = _base_profile(declaration)
         diagnostics = validate_data_sharing_declaration(profile, [_inst()])
         e157 = [d for d in diagnostics if d.code == "E157"]
@@ -174,11 +200,15 @@ class DeclarationValidationTest(unittest.TestCase):
 
     def test_wired_into_validate_loaded_profile(self) -> None:
         declaration = copy.deepcopy(_DECLARATION)
-        declaration["datasets"].append({"datasetId": "urn:example:datasets:address-register", "module": "ghost"})
+        declaration["datasets"].append(
+            {"datasetId": "urn:example:datasets:address-register", "module": "ghost"}
+        )
         profile = _base_profile(declaration)
         with (
             patch.object(validator, "validate_profile_shape", return_value=[]),
-            patch.object(validator, "load_module_instances", return_value=([_inst()], [])),
+            patch.object(
+                validator, "load_module_instances", return_value=([_inst()], [])
+            ),
         ):
             diagnostics = validate_loaded_profile(profile, Path("profile.yaml"))
         codes = {d.code for d in diagnostics}
@@ -208,7 +238,9 @@ class PlanCarriesDeclarationTest(unittest.TestCase):
 
     def test_plan_carries_declaration_when_present(self) -> None:
         profile, profile_dir = self._profile_with(_DECLARATION)
-        plan, diagnostics = build_plan_from_profile(profile, profile_dir, allow_missing_secrets=True)
+        plan, diagnostics = build_plan_from_profile(
+            profile, profile_dir, allow_missing_secrets=True
+        )
         errors = [d for d in diagnostics if d.level == "error"]
         self.assertEqual(errors, [], errors)
         self.assertIsNotNone(plan)
@@ -216,7 +248,9 @@ class PlanCarriesDeclarationTest(unittest.TestCase):
 
     def test_plan_omits_key_when_absent(self) -> None:
         profile, profile_dir = self._profile_with(None)
-        plan, diagnostics = build_plan_from_profile(profile, profile_dir, allow_missing_secrets=True)
+        plan, diagnostics = build_plan_from_profile(
+            profile, profile_dir, allow_missing_secrets=True
+        )
         errors = [d for d in diagnostics if d.level == "error"]
         self.assertEqual(errors, [], errors)
         self.assertIsNotNone(plan)
@@ -256,7 +290,10 @@ class DataSharingSummaryTest(unittest.TestCase):
         self.assertNotIn("moduleProvidesOpenDataProvider", unlinked)
 
     def test_module_without_open_data_provider_is_flagged_false(self) -> None:
-        plan = self._plan(copy.deepcopy(_DECLARATION), provides={"sql-database": {"kind": "sql-database"}})
+        plan = self._plan(
+            copy.deepcopy(_DECLARATION),
+            provides={"sql-database": {"kind": "sql-database"}},
+        )
         summary = _build_data_sharing_summary(plan)
         linked = summary["datasets"][0]
         self.assertIs(linked["moduleProvidesOpenDataProvider"], False)
@@ -281,7 +318,9 @@ class BuildReportDataSharingTest(unittest.TestCase):
             "modules": [
                 {
                     "id": "postgres",
-                    "provides": {"data-provider-metadata": {"kind": "open-data-provider"}},
+                    "provides": {
+                        "data-provider-metadata": {"kind": "open-data-provider"}
+                    },
                     "consumes": {},
                 }
             ],
@@ -321,7 +360,11 @@ class MainReportTextFormatTest(unittest.TestCase):
             "apiVersion": "cds/v1alpha1",
             "kind": "ComplianceReport",
             "generatedAt": "2026-11-07T10:00:00+00:00",
-            "profile": {"sourceProfile": _PROFILE_FILE, "name": _PROFILE_NAME, "environment": None},
+            "profile": {
+                "sourceProfile": _PROFILE_FILE,
+                "name": _PROFILE_NAME,
+                "environment": None,
+            },
             "modules": [],
             "images": [],
             "topology": [],
@@ -339,35 +382,52 @@ class MainReportTextFormatTest(unittest.TestCase):
                 ],
                 "note": DATA_SHARING_NOTE,
             },
-            "secretLeakCheck": {"status": "pass", "checkedSecretCount": 0, "leakedSecretNames": []},
+            "secretLeakCheck": {
+                "status": "pass",
+                "checkedSecretCount": 0,
+                "leakedSecretNames": [],
+            },
             "disclaimer": "disclaimer text",
         }
 
     def _run_main(self, argv: list) -> tuple[int, str, str]:
         stdout, stderr = io.StringIO(), io.StringIO()
-        with patch.object(sys, "argv", ["cds", *argv]), \
-             contextlib.redirect_stdout(stdout), \
-             contextlib.redirect_stderr(stderr):
+        with (
+            patch.object(sys, "argv", ["cds", *argv]),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
             code = main()
         return code, stdout.getvalue(), stderr.getvalue()
 
     def test_text_output_includes_data_sharing_section(self) -> None:
-        with patch("cli.main.build_compliance_report", return_value=(self._canned_report(), [])):
+        with patch(
+            "cli.main.build_compliance_report", return_value=(self._canned_report(), [])
+        ):
             code, stdout, _stderr = self._run_main(["report", _PROFILE_FILE])
         self.assertEqual(code, 0)
         self.assertIn("-- Data Sharing Declaration --", stdout)
         self.assertIn("system=fds-afsprakenstelsel", stdout)
-        self.assertIn("reference=https://realisatieibds.nl/registrations/example-123", stdout)
-        self.assertIn("dataset: urn:example:datasets:address-register module=postgres", stdout)
+        self.assertIn(
+            "reference=https://realisatieibds.nl/registrations/example-123", stdout
+        )
+        self.assertIn(
+            "dataset: urn:example:datasets:address-register module=postgres", stdout
+        )
         self.assertIn("open-data-provider contract: yes", stdout)
         self.assertIn(DATA_SHARING_NOTE, stdout)
 
     def test_json_output_includes_data_sharing_section(self) -> None:
-        with patch("cli.main.build_compliance_report", return_value=(self._canned_report(), [])):
+        with patch(
+            "cli.main.build_compliance_report", return_value=(self._canned_report(), [])
+        ):
             code, stdout, _stderr = self._run_main(["report", _PROFILE_FILE, "--json"])
         self.assertEqual(code, 0)
         parsed = json.loads(stdout)
-        self.assertEqual(parsed["dataSharing"]["datasets"][0]["datasetId"], "urn:example:datasets:address-register")
+        self.assertEqual(
+            parsed["dataSharing"]["datasets"][0]["datasetId"],
+            "urn:example:datasets:address-register",
+        )
 
 
 def _write_env(project: Path, profile: dict) -> Path:
@@ -376,13 +436,18 @@ def _write_env(project: Path, profile: dict) -> Path:
     spawning the cds CLI — subprocess-spawning tests are excluded from the
     mutmut kill matrix (see pyproject.toml [tool.mutmut])."""
     names = set()
-    values = (profile.get("spec", {}).get("secrets", {}).get("values") or {})
+    values = profile.get("spec", {}).get("secrets", {}).get("values") or {}
     for value in values.values():
         if isinstance(value, dict) and isinstance(value.get("env"), str):
             names.add(value["env"])
-    names.update(re.findall(r"\$\{(CDS_[A-Z0-9_]+)\}", yaml.safe_dump(profile, sort_keys=False)))
+    names.update(
+        re.findall(r"\$\{(CDS_[A-Z0-9_]+)\}", yaml.safe_dump(profile, sort_keys=False))
+    )
     env_path = project / ".env"
-    env_path.write_text("".join(f"{name}=test-placeholder\n" for name in sorted(names)), encoding="utf-8")
+    env_path.write_text(
+        "".join(f"{name}=test-placeholder\n" for name in sorted(names)),
+        encoding="utf-8",
+    )
     return env_path
 
 
@@ -399,7 +464,9 @@ class EndToEndTest(unittest.TestCase):
         cls.profile_file = str(make_project(cls.project, _PROFILE_NAME))
         profile = yaml.safe_load(Path(cls.profile_file).read_text(encoding="utf-8"))
         profile["spec"]["dataSharing"] = copy.deepcopy(_DECLARATION)
-        Path(cls.profile_file).write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+        Path(cls.profile_file).write_text(
+            yaml.safe_dump(profile, sort_keys=False), encoding="utf-8"
+        )
         cls.env_file = str(_write_env(cls.project, profile))
 
     @classmethod
@@ -441,9 +508,13 @@ class EndToEndTest(unittest.TestCase):
         self.assertTrue(any(d.code == "E158" for d in diagnostics), diagnostics)
 
     def test_report_includes_declaration_end_to_end(self) -> None:
-        clean_environ = {k: v for k, v in os.environ.items() if not k.startswith("CDS_")}
+        clean_environ = {
+            k: v for k, v in os.environ.items() if not k.startswith("CDS_")
+        }
         with patch.dict(os.environ, clean_environ, clear=True):
-            report, diagnostics = build_compliance_report(self.profile_file, env_file=self.env_file)
+            report, diagnostics = build_compliance_report(
+                self.profile_file, env_file=self.env_file
+            )
         self.assertIsNotNone(report, f"report build failed: {diagnostics}")
         self.assertIn("dataSharing", report)
         section = report["dataSharing"]

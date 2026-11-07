@@ -11,6 +11,7 @@ The runtime proof (up -> ingest -> query -> down) lives in
 tests/test_observability_runtime_smoke.py and runs under
 CDS_RUN_DOCKER_SMOKE=1.
 """
+
 import unittest
 from pathlib import Path
 
@@ -31,7 +32,9 @@ class LocalLokiOtelCollectorProfileTest(unittest.TestCase):
         errors = [d for d in diagnostics if d.level == "error"]
         self.assertEqual(errors, [])
 
-    def test_profile_plans_and_renders_compose_for_both_observability_modules(self) -> None:
+    def test_profile_plans_and_renders_compose_for_both_observability_modules(
+        self,
+    ) -> None:
         plan, plan_diags = build_plan(str(PROFILE_PATH))
         self.assertIsNotNone(plan)
         errors = [d for d in plan_diags if d.level == "error"]
@@ -65,9 +68,7 @@ class LocalLokiOtelCollectorProfileTest(unittest.TestCase):
             self.assertEqual(spec["port"], 4318)
             self.assertEqual(spec["protocol"], "otlp-http")
             self.assertEqual(spec["ingestPath"], ingest_path)
-            self.assertEqual(
-                spec["connectionUri"], "http://otel-collector:4318"
-            )
+            self.assertEqual(spec["connectionUri"], "http://otel-collector:4318")
 
         output, render_diags = render_compose(plan)
         errors = [d for d in render_diags if d.level == "error"]

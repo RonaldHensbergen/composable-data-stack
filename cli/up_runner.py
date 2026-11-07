@@ -47,7 +47,9 @@ def _validate_command(cmd: list[str]) -> list[str]:
     return cmd
 
 
-def default_log_path(profile_name: str, logs_dir: Path | None = None, prefix: str = "up") -> Path:
+def default_log_path(
+    profile_name: str, logs_dir: Path | None = None, prefix: str = "up"
+) -> Path:
     """
     Default log path for a lifecycle run: `.cds/logs/<prefix>-<profile>-<UTC
     timestamp>.log`, relative to the current working directory. `prefix` is
@@ -61,8 +63,13 @@ def default_log_path(profile_name: str, logs_dir: Path | None = None, prefix: st
     """
     base = logs_dir if logs_dir is not None else Path(".cds") / "logs"
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    safe_profile = profile_name.strip().replace("/", "-").replace("\\", "-").replace(" ", "-") or "profile"
-    safe_prefix = prefix.strip().replace("/", "-").replace("\\", "-").replace(" ", "-") or "log"
+    safe_profile = (
+        profile_name.strip().replace("/", "-").replace("\\", "-").replace(" ", "-")
+        or "profile"
+    )
+    safe_prefix = (
+        prefix.strip().replace("/", "-").replace("\\", "-").replace(" ", "-") or "log"
+    )
     return base / f"{safe_prefix}-{safe_profile}-{timestamp}.log"
 
 
@@ -203,11 +210,17 @@ def stop_log_tail(process: subprocess.Popen, timeout: float = 5.0) -> None:
         process.wait()
 
 
-def _is_settled(grouped: dict[str, list[str]], expected_service_count: int | None) -> bool:
+def _is_settled(
+    grouped: dict[str, list[str]], expected_service_count: int | None
+) -> bool:
     if not grouped:
         return expected_service_count == 0
 
-    pending = sum(len(names) for bucket, names in grouped.items() if bucket not in _SETTLED_BUCKETS)
+    pending = sum(
+        len(names)
+        for bucket, names in grouped.items()
+        if bucket not in _SETTLED_BUCKETS
+    )
     if pending:
         return False
     if expected_service_count is not None:
@@ -298,7 +311,10 @@ def _poll_until_settled(
         redraw_fn(format_state_output(grouped, use_color=use_color))
 
         if _is_settled(grouped, expected_service_count):
-            has_failure = any(bucket in _FAILURE_BUCKETS and names for bucket, names in grouped.items())
+            has_failure = any(
+                bucket in _FAILURE_BUCKETS and names
+                for bucket, names in grouped.items()
+            )
             return (not has_failure), grouped
 
         up_exit_code = up_done_fn()
@@ -369,13 +385,25 @@ def poll_state_until_settled(
     than running it concurrently with `up`'s own output.
     """
     if ps_fn is None:
+
         def ps_fn() -> subprocess.CompletedProcess:
-            ps_cmd = ["docker", "compose", "-f", compose_path, "ps", "-a", "--format", "json"]
+            ps_cmd = [
+                "docker",
+                "compose",
+                "-f",
+                compose_path,
+                "ps",
+                "-a",
+                "--format",
+                "json",
+            ]
             return subprocess.run(ps_cmd, capture_output=True, text=True)  # nosec B603  # noqa: S603
 
     def fetch_grouped() -> dict[str, list[str]]:
         ps_result = ps_fn()
-        services = parse_compose_ps_json(ps_result.stdout) if ps_result.returncode == 0 else []
+        services = (
+            parse_compose_ps_json(ps_result.stdout) if ps_result.returncode == 0 else []
+        )
         return group_services_by_health(services)
 
     return _poll_until_settled(

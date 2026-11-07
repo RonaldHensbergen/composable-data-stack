@@ -6,6 +6,7 @@ guessing from entropy, these look for the literal secret values CDS knows
 about (the `CDS_*` variables from `.env`/the environment), so a hit is a real
 leak: CDS only ever renders `${CDS_*}` placeholders, never resolved values.
 """
+
 from __future__ import annotations
 
 import io
@@ -28,14 +29,16 @@ CLI_OUTPUT_REDACTED_CODE = "W102"
 
 # CDS_* variables that configure the CLI itself and are never secret even if
 # their names happen to contain a secret-like word.
-_NON_SECRET_ENV_NAMES = frozenset({
-    "CDS_CHECK_UPDATES",
-    "CDS_CHECK_IMAGE_DIGESTS",
-    "CDS_MODULE_PATH",
-    "CDS_PROFILE_PATH",
-    "CDS_CONFIG_PATH",
-    "CDS_AUDIT_LOG_DISABLE",
-})
+_NON_SECRET_ENV_NAMES = frozenset(
+    {
+        "CDS_CHECK_UPDATES",
+        "CDS_CHECK_IMAGE_DIGESTS",
+        "CDS_MODULE_PATH",
+        "CDS_PROFILE_PATH",
+        "CDS_CONFIG_PATH",
+        "CDS_AUDIT_LOG_DISABLE",
+    }
+)
 
 
 def declared_secret_env_names(plan: dict[str, Any] | None) -> set[str]:
@@ -46,7 +49,8 @@ def declared_secret_env_names(plan: dict[str, Any] | None) -> set[str]:
     if not isinstance(secrets, dict):
         return set()
     return {
-        value for alias, value in secrets.items()
+        value
+        for alias, value in secrets.items()
         if isinstance(value, str) and alias != value
     }
 
@@ -77,7 +81,9 @@ def resolved_secret_values(
     return result
 
 
-def find_secret_leaks(text: str, secret_values: dict[str, str]) -> list[tuple[str, int]]:
+def find_secret_leaks(
+    text: str, secret_values: dict[str, str]
+) -> list[tuple[str, int]]:
     """Return (env name, 1-based line) for each literal secret occurrence."""
     leaks: list[tuple[str, int]] = []
     for name, value in secret_values.items():
@@ -100,17 +106,19 @@ def check_generated_text(
         if name in seen:
             continue
         seen.add(name)
-        diagnostics.append(Diagnostic(
-            level="error",
-            code=GENERATED_FILE_LEAK_CODE,
-            message=(
-                f"[CDS-SEC-030] Generated content contains the resolved value of {name}; "
-                "refusing to write it. Render secrets as ${CDS_*} placeholders instead of "
-                "literal values (for example by moving the literal out of module/profile "
-                "config and into spec.secrets.values)."
-            ),
-            path=f"{label}:{line}",
-        ))
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code=GENERATED_FILE_LEAK_CODE,
+                message=(
+                    f"[CDS-SEC-030] Generated content contains the resolved value of {name}; "
+                    "refusing to write it. Render secrets as ${CDS_*} placeholders instead of "
+                    "literal values (for example by moving the literal out of module/profile "
+                    "config and into spec.secrets.values)."
+                ),
+                path=f"{label}:{line}",
+            )
+        )
     return diagnostics
 
 
@@ -125,7 +133,9 @@ def _redaction_candidates(secret_values: dict[str, str]) -> list[tuple[str, str]
         candidates.append((name, value))
         if "\n" in value:
             stripped = (line.strip() for line in value.splitlines())
-            candidates.extend((name, line) for line in stripped if len(line) >= MIN_SECRET_LENGTH)
+            candidates.extend(
+                (name, line) for line in stripped if len(line) >= MIN_SECRET_LENGTH
+            )
     return sorted(candidates, key=lambda item: -len(item[1]))
 
 
@@ -207,4 +217,3 @@ class RedactingStream(io.TextIOBase):
         redacted, hit = redact_text(text, self._secrets)
         self._hits.update(hit)
         self._wrapped.write(redacted)
-

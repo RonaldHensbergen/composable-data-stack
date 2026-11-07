@@ -24,6 +24,7 @@ def _read_max_pages() -> int:
         return 3
     return value if value > 0 else 3
 
+
 def _default_config_context(
     module_def: dict[str, Any], environment: str | None = None
 ) -> dict[str, Any] | None:
@@ -56,7 +57,9 @@ def collect_module_images(
             continue
 
         module_name = str(module_file.parent.relative_to(module_root))
-        compose = module_def.get("spec", {}).get("implementation", {}).get("compose", {})
+        compose = (
+            module_def.get("spec", {}).get("implementation", {}).get("compose", {})
+        )
         context = _default_config_context(module_def, environment=environment)
         module_images = find_images_in_compose(
             compose, module_dir=module_file.parent, context=context
@@ -70,6 +73,7 @@ def collect_module_images(
             images.append(entry)
 
     return images
+
 
 def find_images_in_compose(
     compose: Any,
@@ -111,13 +115,19 @@ def find_images_in_compose(
                 for svc_name, svc_def in value.items():
                     images.extend(
                         find_images_in_compose(
-                            svc_def, service_name=svc_name, module_dir=module_dir, context=context
+                            svc_def,
+                            service_name=svc_name,
+                            module_dir=module_dir,
+                            context=context,
                         )
                     )
             elif key != "build":  # don't recurse into build blocks
                 images.extend(
                     find_images_in_compose(
-                        value, service_name=service_name, module_dir=module_dir, context=context
+                        value,
+                        service_name=service_name,
+                        module_dir=module_dir,
+                        context=context,
                     )
                 )
 
@@ -125,13 +135,18 @@ def find_images_in_compose(
         for item in compose:
             images.extend(
                 find_images_in_compose(
-                    item, service_name=service_name, module_dir=module_dir, context=context
+                    item,
+                    service_name=service_name,
+                    module_dir=module_dir,
+                    context=context,
                 )
             )
 
     return images
 
+
 _ARG_REF = re.compile(r"\$\{?\w+\}?")
+
 
 def extract_base_image(dockerfile: Path, *, final_stage: bool = True) -> str | None:
     """
@@ -175,6 +190,7 @@ def extract_base_image(dockerfile: Path, *, final_stage: bool = True) -> str | N
         return None
 
     return from_images[-1] if final_stage else from_images[0]
+
 
 def parse_image_reference(image: str) -> dict[str, str | None]:
     ref = image.split("@", 1)[0]
@@ -237,7 +253,9 @@ def semver_key(tag: str) -> tuple[int, int, int] | None:
     return tuple(int(part) for part in parts)
 
 
-def fetch_dockerhub_tags(namespace: str, repository: str, page_size: int = 100, max_pages: int | None = None) -> list[str] | None:
+def fetch_dockerhub_tags(
+    namespace: str, repository: str, page_size: int = 100, max_pages: int | None = None
+) -> list[str] | None:
     tags: list[str] = []
     url = f"{DOCKER_HUB_API}/{namespace}/{repository}/tags?page_size={page_size}"
     pages_read = 0
@@ -250,7 +268,7 @@ def fetch_dockerhub_tags(namespace: str, repository: str, page_size: int = 100, 
             # constant or the scheme-validated pagination url below.
             with urlopen(req, timeout=10) as response:  # nosec B310  # noqa: S310
                 data = json.loads(response.read().decode())
-        except (HTTPError, URLError, ValueError):
+        except HTTPError, URLError, ValueError:
             return None
 
         pages_read += 1
@@ -261,7 +279,12 @@ def fetch_dockerhub_tags(namespace: str, repository: str, page_size: int = 100, 
                 tags.append(name)
 
         next_url = data.get("next")
-        url = next_url if isinstance(next_url, str) and next_url.startswith(("http://", "https://")) else None
+        url = (
+            next_url
+            if isinstance(next_url, str)
+            and next_url.startswith(("http://", "https://"))
+            else None
+        )
         if not url:
             break
 
@@ -302,7 +325,10 @@ def find_newer_tag(current_tag: str, tags: list[str]) -> str | None:
         return candidate_tags[latest]
     return None
 
-def check_image_update(image: str, dockerfile: Path | str | None = None) -> dict[str, Any]:
+
+def check_image_update(
+    image: str, dockerfile: Path | str | None = None
+) -> dict[str, Any]:
     info = parse_image_reference(image)
     if is_local_image(image) or dockerfile is not None:
         if dockerfile is None:

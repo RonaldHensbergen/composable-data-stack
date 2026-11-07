@@ -13,8 +13,15 @@ def _write(path: Path, content: str) -> None:
     path.write_text(dedent(content), encoding="utf-8")
 
 
-def _module(name, provides="", consumes="", config_schema="type: object", kind="Module", metadata=True):
-    meta = f"metadata:\n  name: {name}\n  version: \"0.1.0\"\n" if metadata else ""
+def _module(
+    name,
+    provides="",
+    consumes="",
+    config_schema="type: object",
+    kind="Module",
+    metadata=True,
+):
+    meta = f'metadata:\n  name: {name}\n  version: "0.1.0"\n' if metadata else ""
     return (
         "apiVersion: cds/v1alpha1\n"
         f"kind: {kind}\n"
@@ -64,7 +71,9 @@ class ComposeProfileExtraTest(unittest.TestCase):
         }
 
     def _compose(self, profile, source="app/consumer", **kwargs):
-        return compose_profile(profile, self.profile_dir, source, modules_root=self.modules_root, **kwargs)
+        return compose_profile(
+            profile, self.profile_dir, source, modules_root=self.modules_root, **kwargs
+        )
 
     def _codes(self, diagnostics):
         return [d.code for d in diagnostics]
@@ -105,7 +114,9 @@ class ComposeProfileExtraTest(unittest.TestCase):
 
     def test_duplicate_instance_id_returns_e123(self):
         self._add("app/consumer", _module("consumer"))
-        profile = self._profile(modules=[{"id": "consumer", "source": "app/consumer", "enabled": False}])
+        profile = self._profile(
+            modules=[{"id": "consumer", "source": "app/consumer", "enabled": False}]
+        )
         merged, diagnostics = self._compose(profile)
         self.assertIsNone(merged)
         self.assertEqual(self._codes(diagnostics), ["E123"])
@@ -150,12 +161,16 @@ class ComposeProfileExtraTest(unittest.TestCase):
         self._add("app/consumer", _module("consumer", consumes=_consumes()))
         merged, diagnostics = self._compose(profile)
         self.assertEqual(diagnostics, [])
-        self.assertEqual(merged["spec"]["modules"][-1]["config"]["db"]["contractRef"], "odd.sql-database")
+        self.assertEqual(
+            merged["spec"]["modules"][-1]["config"]["db"]["contractRef"],
+            "odd.sql-database",
+        )
 
     def test_explicit_binding_success(self):
         self._add("app/consumer", _module("consumer", consumes=_consumes()))
         merged, diagnostics = self._compose(
-            self._profile(modules=[self._provider()]), bindings={"db": "db1.sql-database"}
+            self._profile(modules=[self._provider()]),
+            bindings={"db": "db1.sql-database"},
         )
         self.assertEqual(diagnostics, [])
         self.assertEqual(merged["spec"]["modules"][-1]["dependsOn"], ["db1"])
@@ -172,16 +187,21 @@ class ComposeProfileExtraTest(unittest.TestCase):
     def test_unknown_binding_returns_e124(self):
         self._add("app/consumer", _module("consumer", consumes=_consumes()))
         merged, diagnostics = self._compose(
-            self._profile(modules=[self._provider()]), bindings={"db": "other.sql-database"}
+            self._profile(modules=[self._provider()]),
+            bindings={"db": "other.sql-database"},
         )
         self.assertIsNone(merged)
         self.assertEqual(self._codes(diagnostics), ["E124"])
         self.assertIn("does not match", diagnostics[0].message)
 
     def test_binding_kind_mismatch_returns_e124(self):
-        self._add("app/consumer", _module("consumer", consumes=_consumes(kind="cache-service")))
+        self._add(
+            "app/consumer",
+            _module("consumer", consumes=_consumes(kind="cache-service")),
+        )
         merged, diagnostics = self._compose(
-            self._profile(modules=[self._provider()]), bindings={"db": "db1.sql-database"}
+            self._profile(modules=[self._provider()]),
+            bindings={"db": "db1.sql-database"},
         )
         self.assertIsNone(merged)
         self.assertEqual(self._codes(diagnostics), ["E124"])
@@ -194,7 +214,9 @@ class ComposeProfileExtraTest(unittest.TestCase):
         self.assertEqual(self._codes(diagnostics), ["E125"])
 
     def test_optional_consume_without_candidates_is_skipped(self):
-        self._add("app/consumer", _module("consumer", consumes=_consumes(required="false")))
+        self._add(
+            "app/consumer", _module("consumer", consumes=_consumes(required="false"))
+        )
         merged, diagnostics = self._compose(self._profile())
         self.assertEqual(diagnostics, [])
         self.assertNotIn("dependsOn", merged["spec"]["modules"][-1])
@@ -204,7 +226,10 @@ class ComposeProfileExtraTest(unittest.TestCase):
         self._add("app/consumer", _module("consumer", consumes=_consumes()))
         self._add("db/two", _module("two", provides=PROVIDES_SQL))
         profile = self._profile(
-            modules=[self._provider(), {"id": "db2", "source": "db/two", "enabled": True}]
+            modules=[
+                self._provider(),
+                {"id": "db2", "source": "db/two", "enabled": True},
+            ]
         )
         merged, diagnostics = self._compose(profile)
         self.assertIsNone(merged)
@@ -235,7 +260,9 @@ class ComposeProfileExtraTest(unittest.TestCase):
         self.assertIsNotNone(merged)
 
     def test_mapped_from_without_prefix_and_explicit_options(self):
-        self._add("app/consumer", _module("consumer", consumes=_consumes(mapped="db.nested")))
+        self._add(
+            "app/consumer", _module("consumer", consumes=_consumes(mapped="db.nested"))
+        )
         merged, diagnostics = self._compose(
             self._profile(modules=[self._provider()]),
             instance_id="web",
@@ -250,19 +277,25 @@ class ComposeProfileExtraTest(unittest.TestCase):
         self.assertEqual(new["version"], "2.0.0")
         self.assertFalse(new["enabled"])
         self.assertEqual(new["dependsOn"], ["db1", "extra"])
-        self.assertEqual(new["config"]["db"]["nested"], {"driver": "pg", "contractRef": "db1.sql-database"})
+        self.assertEqual(
+            new["config"]["db"]["nested"],
+            {"driver": "pg", "contractRef": "db1.sql-database"},
+        )
 
     def test_missing_secret_alias_returns_e126(self):
         self._add("app/consumer", _module("consumer"))
         merged, diagnostics = self._compose(
-            self._profile(), config_settings=[("tokens", ["secrets.api_token", {"k": "secrets.other"}])]
+            self._profile(),
+            config_settings=[("tokens", ["secrets.api_token", {"k": "secrets.other"}])],
         )
         self.assertIsNone(merged)
         self.assertEqual(self._codes(diagnostics), ["E126", "E126"])
 
     def test_secret_alias_added_and_existing_preserved(self):
         self._add("app/consumer", _module("consumer"))
-        profile = self._profile(secrets={"other": {"env": "CDS_OTHER", "required": True}})
+        profile = self._profile(
+            secrets={"other": {"env": "CDS_OTHER", "required": True}}
+        )
         merged, diagnostics = self._compose(
             profile,
             config_settings=[("a", "secrets.api_token"), ("b", "secrets.other")],
@@ -270,7 +303,9 @@ class ComposeProfileExtraTest(unittest.TestCase):
         )
         self.assertEqual(diagnostics, [])
         values = merged["spec"]["secrets"]["values"]
-        self.assertEqual(values["api_token"], {"env": "CDS_API_TOKEN", "required": True})
+        self.assertEqual(
+            values["api_token"], {"env": "CDS_API_TOKEN", "required": True}
+        )
         self.assertEqual(values["other"]["env"], "CDS_OTHER")
         self.assertNotIn("api_token", profile["spec"]["secrets"]["values"])
 
@@ -280,7 +315,9 @@ class ComposeProfileExtraTest(unittest.TestCase):
         del profile["spec"]["secrets"]
         del profile["spec"]["modules"]
         merged, diagnostics = self._compose(
-            profile, config_settings=[("a", "secrets.tok")], secret_env_names={"tok": "CDS_TOK"}
+            profile,
+            config_settings=[("a", "secrets.tok")],
+            secret_env_names={"tok": "CDS_TOK"},
         )
         self.assertEqual(diagnostics, [])
         self.assertEqual(merged["spec"]["secrets"]["provider"], {"type": "env"})

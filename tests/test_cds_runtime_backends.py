@@ -14,6 +14,7 @@ them via follow-up wiring). Example setup:
         -e MYSQL_ROOT_PASSWORD=rootpass -p 127.0.0.1:55330:3306 mysql:8
     export CDS_IT_MYSQL_URI=mysql+pymysql://ituser:itpass@127.0.0.1:55330/itdb
 """
+
 import sys
 import unittest
 from os import environ
@@ -53,7 +54,9 @@ class BackendIntegrationTest:
         }
         cls.db = connections.database("it", env=cls.env)
         cls.db.execute("DROP TABLE IF EXISTS customers")
-        cls.db.execute("CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT, active INTEGER)")
+        cls.db.execute(
+            "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT, active INTEGER)"
+        )
 
     @classmethod
     def tearDownClass(cls):
@@ -78,11 +81,15 @@ class BackendIntegrationTest:
             "INSERT INTO customers (id, name, active) VALUES (:id, :name, :active)",
             {"id": 1, "name": "acme", "active": 1},
         )
-        rows = self.db.fetch_all("SELECT id, name, active FROM customers WHERE active = :a", {"a": 1})
+        rows = self.db.fetch_all(
+            "SELECT id, name, active FROM customers WHERE active = :a", {"a": 1}
+        )
         self.assertEqual(rows, [{"id": 1, "name": "acme", "active": 1}])
         row = self.db.fetch_one("SELECT name FROM customers WHERE id = :i", {"i": 1})
         self.assertEqual(row, {"name": "acme"})
-        self.assertIsNone(self.db.fetch_one("SELECT * FROM customers WHERE id = :i", {"i": 999}))
+        self.assertIsNone(
+            self.db.fetch_one("SELECT * FROM customers WHERE id = :i", {"i": 999})
+        )
 
     def test_execute_reports_rowcount(self):
         self.db.execute("DELETE FROM customers")
@@ -141,7 +148,9 @@ class BackendIntegrationTest:
             self.db.insert_rows("customers; DROP TABLE customers", [{"id": 1}])
 
 
-@unittest.skipUnless(environ.get("CDS_IT_POSTGRES_URI"), "CDS_IT_POSTGRES_URI is not set")
+@unittest.skipUnless(
+    environ.get("CDS_IT_POSTGRES_URI"), "CDS_IT_POSTGRES_URI is not set"
+)
 class PostgresIntegrationTest(BackendIntegrationTest, unittest.TestCase):
     backend = "postgres"
     uri = environ.get("CDS_IT_POSTGRES_URI", "")

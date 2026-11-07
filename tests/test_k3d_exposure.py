@@ -116,7 +116,9 @@ esac
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertRegex(result.stdout, r"node ports  : \d+ \(Dagster\), \d+ \(Superset\)")
+        self.assertRegex(
+            result.stdout, r"node ports  : \d+ \(Dagster\), \d+ \(Superset\)"
+        )
         self.assertIn("context     : k3d-cds-", result.stdout)
 
     def test_cluster_publishes_ui_nodeports_on_loopback_only(self) -> None:
@@ -124,8 +126,8 @@ esac
             encoding="utf-8"
         )
 
-        self.assertIn('127.0.0.1:${CDS_DAGSTER_PORT}:30300@server:0', script)
-        self.assertIn('127.0.0.1:${CDS_SUPERSET_PORT}:30808@server:0', script)
+        self.assertIn("127.0.0.1:${CDS_DAGSTER_PORT}:30300@server:0", script)
+        self.assertIn("127.0.0.1:${CDS_SUPERSET_PORT}:30808@server:0", script)
         self.assertNotIn('--port "${CDS_DAGSTER_PORT}:30300', script)
         self.assertNotIn('--port "${CDS_SUPERSET_PORT}:30808', script)
 

@@ -20,6 +20,7 @@ its native OTLP/HTTP endpoint (/otlp/v1/logs) through it, so binding
 `backends.logs` to a loki instance renders a real forwarding URL instead of
 silently staying collector-local.
 """
+
 import json
 import os
 import tempfile
@@ -39,7 +40,13 @@ CONTRACTS_DIR = REPO_ROOT / "shared" / "contracts"
 TRACE_SINK_PATH = CONTRACTS_DIR / "trace-sink.yaml"
 METRICS_SINK_PATH = CONTRACTS_DIR / "metrics-sink.yaml"
 LOG_SINK_PATH = CONTRACTS_DIR / "log-sink.yaml"
-MODULE_PATH = REPO_ROOT / "modules-experimental" / "observability" / "otel-collector" / "module.yaml"
+MODULE_PATH = (
+    REPO_ROOT
+    / "modules-experimental"
+    / "observability"
+    / "otel-collector"
+    / "module.yaml"
+)
 COLLECTOR_CONFIG_PATH = MODULE_PATH.parent / "collector.yaml"
 MODULE_SCHEMA = json.loads(
     (REPO_ROOT / "cli" / "resources" / "module.schema.json").read_text(encoding="utf-8")
@@ -110,7 +117,13 @@ class SinkContractTest(unittest.TestCase):
         fields = contract["spec"]["fields"]
         for name in ("host", "port", "protocol"):
             self.assertTrue(fields[name]["required"], name)
-        for name in ("ingestPath", "connectionUri", "serviceName", "rawRetentionDays", "structuredRetentionDays"):
+        for name in (
+            "ingestPath",
+            "connectionUri",
+            "serviceName",
+            "rawRetentionDays",
+            "structuredRetentionDays",
+        ):
             self.assertIn(name, fields)
             self.assertFalse(fields[name]["required"], name)
         examples = contract["spec"]["examples"]
@@ -141,9 +154,17 @@ class SinkContractTest(unittest.TestCase):
             self.assertIn(name, fields)
             self.assertFalse(fields[name]["required"], name)
         examples = contract["spec"]["examples"]
-        self.assertTrue(any(e.get("protocol") == "otlp-grpc" and e.get("port") == 4317 for e in examples))
         self.assertTrue(
-            any(e.get("protocol") == "otlp-http" and e.get("ingestPath") == "/v1/traces" for e in examples)
+            any(
+                e.get("protocol") == "otlp-grpc" and e.get("port") == 4317
+                for e in examples
+            )
+        )
+        self.assertTrue(
+            any(
+                e.get("protocol") == "otlp-http" and e.get("ingestPath") == "/v1/traces"
+                for e in examples
+            )
         )
 
     def test_metrics_sink_contract_shape(self) -> None:
@@ -156,7 +177,10 @@ class SinkContractTest(unittest.TestCase):
         self.assertIn("ingestPath", fields)
         self.assertIn("scrapePath", fields)
         self.assertTrue(
-            any(e.get("protocol") == "prometheus" and e.get("scrapePath") == "/metrics" for e in contract["spec"]["examples"])
+            any(
+                e.get("protocol") == "prometheus" and e.get("scrapePath") == "/metrics"
+                for e in contract["spec"]["examples"]
+            )
         )
 
 
@@ -177,7 +201,11 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
         self.assertEqual(provides["log-sink"]["kind"], "log-sink")
         self.assertEqual(provides["metrics-sink"]["kind"], "metrics-sink")
         self.assertEqual(provides["trace-sink"]["kind"], "trace-sink")
-        for name, path in (("log-sink", "/v1/logs"), ("metrics-sink", "/v1/metrics"), ("trace-sink", "/v1/traces")):
+        for name, path in (
+            ("log-sink", "/v1/logs"),
+            ("metrics-sink", "/v1/metrics"),
+            ("trace-sink", "/v1/traces"),
+        ):
             provided = provides[name]["spec"]
             self.assertEqual(provided["protocol"], "otlp-http")
             self.assertEqual(provided["ingestPath"], path)
@@ -186,9 +214,13 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
 
     def test_module_consumes_optional_backends(self) -> None:
         consumes = {c["name"]: c for c in self.module["spec"]["consumes"]}
-        self.assertEqual(sorted(consumes), ["log-backend", "metrics-backend", "trace-backend"])
+        self.assertEqual(
+            sorted(consumes), ["log-backend", "metrics-backend", "trace-backend"]
+        )
         self.assertEqual(consumes["log-backend"]["contract"]["kind"], "log-sink")
-        self.assertEqual(consumes["metrics-backend"]["contract"]["kind"], "metrics-sink")
+        self.assertEqual(
+            consumes["metrics-backend"]["contract"]["kind"], "metrics-sink"
+        )
         self.assertEqual(consumes["trace-backend"]["contract"]["kind"], "trace-sink")
         for name, path in (
             ("log-backend", "spec.config.backends.logs"),
@@ -199,7 +231,9 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
             self.assertEqual(consumes[name]["mappedFrom"], path)
 
     def test_compose_service_is_hardened_and_pinned(self) -> None:
-        service = self.module["spec"]["implementation"]["compose"]["services"]["otel-collector"]
+        service = self.module["spec"]["implementation"]["compose"]["services"][
+            "otel-collector"
+        ]
         # Multi-arch manifest-list digest (not an amd64-only manifest), so the
         # pin pulls the native image on arm64 hosts too.
         self.assertEqual(
@@ -210,8 +244,14 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
         self.assertEqual(service["cap_drop"], ["ALL"])
         self.assertTrue(service["read_only"])
         self.assertIn("no-new-privileges:true", service["security_opt"])
-        self.assertEqual(service["command"], ["--config", "/etc/otelcol/collector.yaml"])
-        bind = next(v for v in service["volumes"] if isinstance(v, dict) and v.get("type") == "bind")
+        self.assertEqual(
+            service["command"], ["--config", "/etc/otelcol/collector.yaml"]
+        )
+        bind = next(
+            v
+            for v in service["volumes"]
+            if isinstance(v, dict) and v.get("type") == "bind"
+        )
         self.assertEqual(bind["source"], "collector.yaml")
         self.assertEqual(bind["target"], "/etc/otelcol/collector.yaml")
         self.assertTrue(bind["read_only"])
@@ -224,26 +264,37 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
         # health_check extension, which answers the export POST with 200 and
         # drops the batch silently (verified at runtime), while the per-signal
         # endpoints come from the BACKEND_*_ENDPOINT env vars.
-        collector_yaml = yaml.safe_load(COLLECTOR_CONFIG_PATH.read_text(encoding="utf-8"))
+        collector_yaml = yaml.safe_load(
+            COLLECTOR_CONFIG_PATH.read_text(encoding="utf-8")
+        )
         exporters = collector_yaml["exporters"]
         self.assertIn("debug", exporters)
         self.assertEqual(exporters["debug"]["verbosity"], "detailed")
         self.assertNotIn("logging", exporters)
         for signal in ("logs", "metrics", "traces"):
             exporter = exporters[f"otlp_http/{signal}"]
-            self.assertEqual(exporter["endpoint"], "http://127.0.0.1:${env:HEALTH_PORT}")
-            self.assertEqual(exporter[f"{signal}_endpoint"], f"${{env:BACKEND_{signal.upper()}_ENDPOINT}}")
+            self.assertEqual(
+                exporter["endpoint"], "http://127.0.0.1:${env:HEALTH_PORT}"
+            )
+            self.assertEqual(
+                exporter[f"{signal}_endpoint"],
+                f"${{env:BACKEND_{signal.upper()}_ENDPOINT}}",
+            )
             pipeline = collector_yaml["service"]["pipelines"][signal]
             self.assertEqual(pipeline["exporters"], ["debug", f"otlp_http/{signal}"])
 
-    def test_collector_config_uses_canonical_exporters_and_wildcard_health_bind(self) -> None:
+    def test_collector_config_uses_canonical_exporters_and_wildcard_health_bind(
+        self,
+    ) -> None:
         # Pinned against the 0.164.0 image (issue #1167): the `otlphttp`
         # component alias logs a deprecation warning on every startup, and
         # the health_check extension defaults to localhost:13133, which would
         # leave the host-published 127.0.0.1:<healthPort>:13133 mapping
         # unanswerable from the host.
         raw = COLLECTOR_CONFIG_PATH.read_text(encoding="utf-8")
-        non_comment = "\n".join(line for line in raw.splitlines() if not line.lstrip().startswith("#"))
+        non_comment = "\n".join(
+            line for line in raw.splitlines() if not line.lstrip().startswith("#")
+        )
         self.assertNotIn("otlphttp", non_comment)
         config = yaml.safe_load(raw)
         self.assertEqual(
@@ -251,7 +302,10 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
             ["debug", "otlp_http/logs", "otlp_http/metrics", "otlp_http/traces"],
         )
         for signal in ("logs", "metrics", "traces"):
-            self.assertIn(f"otlp_http/{signal}", config["service"]["pipelines"][signal]["exporters"])
+            self.assertIn(
+                f"otlp_http/{signal}",
+                config["service"]["pipelines"][signal]["exporters"],
+            )
         health_endpoint = config["extensions"]["health_check"]["endpoint"]
         self.assertTrue(
             health_endpoint.startswith("0.0.0.0:"),
@@ -263,7 +317,11 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
     def test_plan_resolves_provided_sinks_to_compose_dns(self) -> None:
         plan, _compose = _plan_and_render(_profile({}))
         otel = next(m for m in plan["modules"] if m["id"] == "otel")
-        for name, path in (("log-sink", "/v1/logs"), ("metrics-sink", "/v1/metrics"), ("trace-sink", "/v1/traces")):
+        for name, path in (
+            ("log-sink", "/v1/logs"),
+            ("metrics-sink", "/v1/metrics"),
+            ("trace-sink", "/v1/traces"),
+        ):
             provided = otel["provides"][name]["spec"]
             self.assertEqual(provided["host"], "otel-collector")
             self.assertEqual(provided["port"], 4318)
@@ -274,7 +332,9 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
     def test_render_wires_otlp_ports_and_discard_backends(self) -> None:
         _plan, compose = _plan_and_render(_profile({}))
         service = compose["services"]["otel-collector"]
-        self.assertIn("otel/opentelemetry-collector-contrib:0.164.0@sha256:", service["image"])
+        self.assertIn(
+            "otel/opentelemetry-collector-contrib:0.164.0@sha256:", service["image"]
+        )
         ports = sorted(service["ports"])
         self.assertEqual(
             ports,
@@ -309,7 +369,9 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
         consumed = otel["consumes"]["trace-backend"]["contract"]["spec"]
         self.assertEqual(consumed["host"], "otel-backend-otel-collector")
         self.assertEqual(consumed["port"], 4318)
-        self.assertEqual(consumed["connectionUri"], "http://otel-backend-otel-collector:4318")
+        self.assertEqual(
+            consumed["connectionUri"], "http://otel-backend-otel-collector:4318"
+        )
         # Unbound signals stay absent from the consumes map.
         self.assertNotIn("log-backend", otel["consumes"])
         self.assertNotIn("metrics-backend", otel["consumes"])
@@ -318,7 +380,10 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
         # The otlp_http exporter uses a per-signal endpoint as the complete URL
         # (no /v1/<signal> is appended), so the forwarded value must be the
         # backend's connectionUri + ingestPath.
-        self.assertEqual(env["BACKEND_TRACES_ENDPOINT"], "http://otel-backend-otel-collector:4318/v1/traces")
+        self.assertEqual(
+            env["BACKEND_TRACES_ENDPOINT"],
+            "http://otel-backend-otel-collector:4318/v1/traces",
+        )
         self.assertEqual(env["BACKEND_LOGS_ENDPOINT"], "")
 
     def test_logs_backend_binding_forwards_to_lokis_native_otlp_endpoint(self) -> None:
@@ -362,7 +427,9 @@ class OtelCollectorPlanRenderTest(unittest.TestCase):
             with unittest.mock.patch.dict(os.environ, _TEST_ENV, clear=False):
                 diagnostics = validate_profile(str(profile_path))
                 plan, plan_diagnostics = build_plan(str(profile_path))
-        codes = {d.code for d in [*diagnostics, *plan_diagnostics] if d.level == "error"}
+        codes = {
+            d.code for d in [*diagnostics, *plan_diagnostics] if d.level == "error"
+        }
         self.assertIn("E041", codes)
 
 

@@ -47,7 +47,9 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
         cls.compose_file = cls.repo_root / "docker-compose.yml"
 
         if os.getenv("CDS_RUN_DOCKER_SMOKE") != "1":
-            raise unittest.SkipTest("Set CDS_RUN_DOCKER_SMOKE=1 to run Docker Compose smoke tests")
+            raise unittest.SkipTest(
+                "Set CDS_RUN_DOCKER_SMOKE=1 to run Docker Compose smoke tests"
+            )
 
         if shutil.which("docker") is None:
             raise unittest.SkipTest("Docker CLI not available")
@@ -100,7 +102,9 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
                 ],
                 env,
             )
-            self.assertTrue(self.compose_file.exists(), "docker-compose.yml was not generated")
+            self.assertTrue(
+                self.compose_file.exists(), "docker-compose.yml was not generated"
+            )
 
             self._run_with_registry_retry(
                 ["docker", "compose", "-f", str(self.compose_file), "build"], env
@@ -215,7 +219,8 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
             last_result = result
             combined_output = result.stdout + result.stderr
             is_transient = any(
-                marker in combined_output for marker in self._TRANSIENT_REGISTRY_ERROR_MARKERS
+                marker in combined_output
+                for marker in self._TRANSIENT_REGISTRY_ERROR_MARKERS
             )
             if not is_transient or attempt == attempts:
                 break
@@ -265,7 +270,9 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
     def _redact(value: str, env: dict[str, str]) -> str:
         redacted = value
         for key, secret in env.items():
-            if secret and any(marker in key.upper() for marker in ("PASSWORD", "SECRET", "TOKEN")):
+            if secret and any(
+                marker in key.upper() for marker in ("PASSWORD", "SECRET", "TOKEN")
+            ):
                 redacted = redacted.replace(secret, "<redacted>")
         return re.sub(
             r"(postgresql(?:\+[a-z0-9]+)?://[^:/\s]*:)[^@/\s]+",
@@ -512,7 +519,9 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
         )
         output = result.stdout + result.stderr
         match = self._RUN_ID_PATTERN.search(output)
-        self.assertIsNotNone(match, "Dagster output did not contain a successful run ID")
+        self.assertIsNotNone(
+            match, "Dagster output did not contain a successful run ID"
+        )
         run_id = match.group(1)
         self.assertEqual(self._dagster_run_status(run_id, env), "SUCCESS")
         return run_id

@@ -5,6 +5,7 @@ helpers produce display-safe strings: a redacted URI keeps its scheme,
 host, and database but masks the password, and secret values are removed
 from arbitrary text (driver error messages) before they are surfaced.
 """
+
 from __future__ import annotations
 
 import re
@@ -41,8 +42,12 @@ def redact_uri(uri: str) -> str:
         if sep:
             netloc = f"{user}:***@{host}"
     query = "&".join(
-        f"{key}=***" if key.lower() in _SECRET_QUERY_KEYS and value else f"{key}={value}"
-        for key, _, value in (item.partition("=") for item in parts.query.split("&") if item)
+        f"{key}=***"
+        if key.lower() in _SECRET_QUERY_KEYS and value
+        else f"{key}={value}"
+        for key, _, value in (
+            item.partition("=") for item in parts.query.split("&") if item
+        )
     )
     return urlunsplit((parts.scheme, netloc, parts.path, query, parts.fragment))
 

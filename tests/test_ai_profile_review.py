@@ -4,6 +4,7 @@ Kept independent of any real LLM provider: `complete()` is monkeypatched in
 every test that exercises the non-dry-run path, since it's the single seam
 through which every provider is called.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -14,7 +15,9 @@ from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ai_profile_review.py"
-EXAMPLE_PROFILE = REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+EXAMPLE_PROFILE = (
+    REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+)
 
 for _path in (str(REPO_ROOT), str(REPO_ROOT / "scripts" / "_vendor")):
     if _path not in sys.path:
@@ -58,20 +61,26 @@ class ReviewProfileTest(unittest.TestCase):
         )
         with (
             mock.patch.object(ai_profile_review, "preflight_provider"),
-            mock.patch.object(ai_profile_review, "complete", return_value=fake_report) as mock_complete,
+            mock.patch.object(
+                ai_profile_review, "complete", return_value=fake_report
+            ) as mock_complete,
         ):
             result = ai_profile_review.review_profile(
                 str(EXAMPLE_PROFILE), environment=None, dry_run=False
             )
         mock_complete.assert_called_once()
-        self.assertEqual(mock_complete.call_args.kwargs["system"], ai_profile_review.SYSTEM_PROMPT)
+        self.assertEqual(
+            mock_complete.call_args.kwargs["system"], ai_profile_review.SYSTEM_PROMPT
+        )
         self.assertEqual(result["status"], "clean")
         self.assertEqual(result["report"], fake_report)
 
     def test_model_reply_without_status_line_is_unparsed(self) -> None:
         with (
             mock.patch.object(ai_profile_review, "preflight_provider"),
-            mock.patch.object(ai_profile_review, "complete", return_value="free-form reply"),
+            mock.patch.object(
+                ai_profile_review, "complete", return_value="free-form reply"
+            ),
         ):
             result = ai_profile_review.review_profile(
                 str(EXAMPLE_PROFILE), environment=None, dry_run=False

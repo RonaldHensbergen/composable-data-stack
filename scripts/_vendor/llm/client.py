@@ -33,8 +33,12 @@ def complete(
     if provider == "copilot_cli":
         return _complete_copilot_cli(prompt, system)
     if provider == "ollama":
-        return _complete_ollama(prompt, system, temperature=temperature, max_tokens=max_tokens)
-    return _complete_azure_openai(prompt, system, temperature=temperature, max_tokens=max_tokens)
+        return _complete_ollama(
+            prompt, system, temperature=temperature, max_tokens=max_tokens
+        )
+    return _complete_azure_openai(
+        prompt, system, temperature=temperature, max_tokens=max_tokens
+    )
 
 
 def preflight_provider() -> None:

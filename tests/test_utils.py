@@ -42,7 +42,9 @@ class AtomicWriteTest(unittest.TestCase):
             self.assertEqual(len(captured_tmp_names), 1)
             self.assertFalse(os.path.exists(captured_tmp_names[0]))
 
-    def test_replace_failure_when_temp_file_already_removed_does_not_mask_original_error(self):
+    def test_replace_failure_when_temp_file_already_removed_does_not_mask_original_error(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmp_dir:
             target = Path(tmp_dir) / "output.txt"
 
@@ -62,7 +64,9 @@ class AtomicWriteTest(unittest.TestCase):
             _atomic_write(target, "first writer", overwrite=False)
             self.assertEqual(target.read_text(encoding="utf-8"), "first writer")
 
-    def test_overwrite_false_fails_closed_instead_of_silently_replacing_existing_target(self):
+    def test_overwrite_false_fails_closed_instead_of_silently_replacing_existing_target(
+        self,
+    ):
         """The check-then-write race a caller-side path.exists() guard can't
         close (a second writer creating `path` between the check and the
         write) must not silently clobber the first writer's content:

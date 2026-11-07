@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Diagnostic:
-    level: str   # "error" | "warning"
+    level: str  # "error" | "warning"
     code: str
     message: str
     path: str

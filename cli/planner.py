@@ -28,7 +28,9 @@ from .utils import module_dns_host, module_name_from_source, module_service_dns_
 @dataclass
 class SecretRef:
     """Signals that a value should be emitted as a runtime ${VAR} placeholder."""
+
     var_name: str
+
 
 def build_plan(
     profile_path: str,
@@ -191,12 +193,14 @@ def build_plan_from_profile(
         # entry point that may be called directly (e.g. by tests/tools)
         # without prior validation, so it must not crash with an unhandled
         # TypeError from enumerate() on a non-iterable/scalar value.
-        diagnostics.append(Diagnostic(
-            level="error",
-            code="E010",
-            message="spec.modules must be a list.",
-            path="spec.modules",
-        ))
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E010",
+                message="spec.modules must be a list.",
+                path="spec.modules",
+            )
+        )
         return None, diagnostics
 
     loaded_modules: list[dict[str, Any]] = []
@@ -208,12 +212,14 @@ def build_plan_from_profile(
             # module entries (E010), but build_plan() is a public entry point
             # that may be called directly (e.g. by tests/tools) without prior
             # validation, so it must not crash on malformed-but-plausible YAML.
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E010",
-                message="Module entry must be an object.",
-                path=f"spec.modules[{i}]",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E010",
+                    message="Module entry must be an object.",
+                    path=f"spec.modules[{i}]",
+                )
+            )
             continue
 
         if module_instance.get("enabled", True) is False:
@@ -221,26 +227,34 @@ def build_plan_from_profile(
 
         module_id = module_instance.get("id")
         if not module_id:
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E010",
-                message="Module id is required.",
-                path=f"spec.modules[{i}].id",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E010",
+                    message="Module id is required.",
+                    path=f"spec.modules[{i}].id",
+                )
+            )
             continue
 
         source = module_instance.get("source")
         if not source:
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E010",
-                message="Module source is required.",
-                path=f"spec.modules[{i}].source",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E010",
+                    message="Module source is required.",
+                    path=f"spec.modules[{i}].source",
+                )
+            )
             continue
 
         source_path = Path(source)
-        if not source_path.is_absolute() and source_path.parts and source_path.parts[0] == ".":
+        if (
+            not source_path.is_absolute()
+            and source_path.parts
+            and source_path.parts[0] == "."
+        ):
             source_path = source_path.relative_to(".")
 
         module_root = os.getenv("CDS_MODULE_PATH")
@@ -271,21 +285,27 @@ def build_plan_from_profile(
                 normalized_config.setdefault("image", {})["variant"] = "hardened"
             _apply_image_source_override(normalized_config, module_def, image_source)
         except MaxNestingDepthExceeded:
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E094",
-                message=(
-                    f"Module config or schema nesting exceeds the maximum "
-                    f"supported depth ({MAX_NESTING_DEPTH})."
-                ),
-                path=f"spec.modules[{i}].config",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E094",
+                    message=(
+                        f"Module config or schema nesting exceeds the maximum "
+                        f"supported depth ({MAX_NESTING_DEPTH})."
+                    ),
+                    path=f"spec.modules[{i}].config",
+                )
+            )
             continue
 
         # Validate secrets exist but leave "secrets.VAR" strings intact
-        resolve_secret_refs(normalized_config, secrets, f"spec.modules[{i}].config", diagnostics)
+        resolve_secret_refs(
+            normalized_config, secrets, f"spec.modules[{i}].config", diagnostics
+        )
         # Same for certificate refs (issue #578): env names only, never material
-        resolve_certificate_refs(normalized_config, certificates, f"spec.modules[{i}].config", diagnostics)
+        resolve_certificate_refs(
+            normalized_config, certificates, f"spec.modules[{i}].config", diagnostics
+        )
 
         loaded = {
             "index": i,
@@ -304,17 +324,21 @@ def build_plan_from_profile(
     resolved_contracts_by_module: dict[str, dict[str, Any]] = {}
     for inst in loaded_modules:
         try:
-            resolved_contracts_by_module[inst["id"]] = resolve_provided_contracts(inst, secrets)
+            resolved_contracts_by_module[inst["id"]] = resolve_provided_contracts(
+                inst, secrets
+            )
         except MaxNestingDepthExceeded:
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E094",
-                message=(
-                    f"Provided contract nesting for module \"{inst['id']}\" exceeds the "
-                    f"maximum supported depth ({MAX_NESTING_DEPTH})."
-                ),
-                path=f"module:{inst['id']}.provides",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E094",
+                    message=(
+                        f'Provided contract nesting for module "{inst["id"]}" exceeds the '
+                        f"maximum supported depth ({MAX_NESTING_DEPTH})."
+                    ),
+                    path=f"module:{inst['id']}.provides",
+                )
+            )
             resolved_contracts_by_module[inst["id"]] = {}
 
     planned_modules: list[dict[str, Any]] = []
@@ -327,9 +351,17 @@ def build_plan_from_profile(
                 "dependsOn": inst["dependsOn"],
                 "config": inst["config"],
                 "security": deepcopy(inst["instance"].get("security") or {}),
-                "consumes": resolve_consumed_contracts(inst, module_instances_by_id, resolved_contracts_by_module, diagnostics, secrets),
+                "consumes": resolve_consumed_contracts(
+                    inst,
+                    module_instances_by_id,
+                    resolved_contracts_by_module,
+                    diagnostics,
+                    secrets,
+                ),
                 "provides": resolved_contracts_by_module[inst["id"]],
-                "implementation": inst["module"].get("spec", {}).get("implementation", {}),
+                "implementation": inst["module"]
+                .get("spec", {})
+                .get("implementation", {}),
             }
         )
 
@@ -353,7 +385,9 @@ def build_plan_from_profile(
         "security": deepcopy(spec.get("security") or {}),
         "secrets": secrets,
         "certificates": certificates,
-        "outputs": resolve_outputs(spec.get("outputs", {}), resolved_contracts_by_module, diagnostics),
+        "outputs": resolve_outputs(
+            spec.get("outputs", {}), resolved_contracts_by_module, diagnostics
+        ),
         "modules": planned_modules,
     }
 
@@ -410,7 +444,9 @@ def plan_generated_profile(
             profile, profile_dir, environment, source_label
         )
     else:
-        resolved, provenance, diags = resolve_extends_from_profile(profile, profile_dir, source_label)
+        resolved, provenance, diags = resolve_extends_from_profile(
+            profile, profile_dir, source_label
+        )
     diagnostics.extend(diags)
 
     if resolved is None:
@@ -429,7 +465,9 @@ def plan_generated_profile(
     diagnostics.extend(plan_diagnostics)
     return plan, diagnostics
 
+
 _CDS_VAR_PATTERN = re.compile(r"\$\{(CDS_[A-Z0-9_]+)\}")
+
 
 def _substitute_config_env_vars(
     obj: Any,
@@ -439,23 +477,34 @@ def _substitute_config_env_vars(
 ) -> Any:
     """Recursively substitute ${CDS_*} patterns in config values with values from .env."""
     if isinstance(obj, dict):
-        return {k: _substitute_config_env_vars(v, raw_env, f"{path}.{k}", diagnostics) for k, v in obj.items()}
+        return {
+            k: _substitute_config_env_vars(v, raw_env, f"{path}.{k}", diagnostics)
+            for k, v in obj.items()
+        }
     if isinstance(obj, list):
-        return [_substitute_config_env_vars(v, raw_env, f"{path}[{i}]", diagnostics) for i, v in enumerate(obj)]
+        return [
+            _substitute_config_env_vars(v, raw_env, f"{path}[{i}]", diagnostics)
+            for i, v in enumerate(obj)
+        ]
     if isinstance(obj, str):
+
         def _replace(m: re.Match) -> str:
             var = m.group(1)
             if var not in raw_env:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E083",
-                    message=f'Config references env var "${{{var}}}" which is not set in .env or environment.',
-                    path=path,
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E083",
+                        message=f'Config references env var "${{{var}}}" which is not set in .env or environment.',
+                        path=path,
+                    )
+                )
                 return ""
             return raw_env[var]
+
         return _CDS_VAR_PATTERN.sub(_replace, obj)
     return obj
+
 
 def _supports_image_variant(module_def: dict[str, Any]) -> bool:
     """
@@ -536,7 +585,9 @@ def apply_defaults(
     return _apply_schema_defaults(config_copy, schema, environment=environment)
 
 
-def _schema_default(schema: dict[str, Any], environment: str | None) -> tuple[bool, Any]:
+def _schema_default(
+    schema: dict[str, Any], environment: str | None
+) -> tuple[bool, Any]:
     environment_defaults = schema.get("defaultByEnvironment")
     if isinstance(environment_defaults, dict):
         if environment is not None and environment in environment_defaults:
@@ -612,6 +663,7 @@ def _apply_schema_defaults(
 
     return value
 
+
 def validate_backup_source_bindings(
     planned_modules: list[dict[str, Any]], diagnostics: list[Diagnostic]
 ) -> None:
@@ -633,11 +685,15 @@ def validate_backup_source_bindings(
         if not isinstance(module, dict):
             continue
         implementation = module.get("implementation") or {}
-        compose_impl = implementation.get("compose") if isinstance(implementation, dict) else None
-        volumes = compose_impl.get("volumes") if isinstance(compose_impl, dict) else None
+        compose_impl = (
+            implementation.get("compose") if isinstance(implementation, dict) else None
+        )
+        volumes = (
+            compose_impl.get("volumes") if isinstance(compose_impl, dict) else None
+        )
         if isinstance(volumes, dict):
             volumes_by_module[module["id"]] = {
-                f'{module["id"]}-{name}' for name in volumes if isinstance(name, str)
+                f"{module['id']}-{name}" for name in volumes if isinstance(name, str)
             }
 
     for module in planned_modules:
@@ -667,7 +723,7 @@ def validate_backup_source_bindings(
                             "volume. The backup sidecar would mount an empty implicit volume and "
                             "protect nothing; fix the producer's backup-source contract."
                         ),
-                        path=f'module:{module["id"]}.consumes.{consume_name}',
+                        path=f"module:{module['id']}.consumes.{consume_name}",
                     )
                 )
 
@@ -706,14 +762,18 @@ def validate_object_storage_backup_destinations(
             spec = contract.get("spec") or {}
             source_endpoint = spec.get("endpoint")
             source_bucket = spec.get("bucket")
-            if not isinstance(source_endpoint, str) or not isinstance(source_bucket, str):
+            if not isinstance(source_endpoint, str) or not isinstance(
+                source_bucket, str
+            ):
                 continue
             destination = (module.get("config") or {}).get("destination")
             if not isinstance(destination, dict):
                 continue
             destination_endpoint = destination.get("endpoint")
             destination_bucket = destination.get("bucket")
-            if not isinstance(destination_endpoint, str) or not isinstance(destination_bucket, str):
+            if not isinstance(destination_endpoint, str) or not isinstance(
+                destination_bucket, str
+            ):
                 continue
             if (
                 source_endpoint.rstrip("/") != destination_endpoint.rstrip("/")
@@ -727,12 +787,12 @@ def validate_object_storage_backup_destinations(
                     message=(
                         f'Module "{module["id"]}" binds object-storage source '
                         f'"{consume_name}" ({consumed.get("contractRef")}) but configures '
-                        f'its destination as the same endpoint and bucket '
+                        f"its destination as the same endpoint and bucket "
                         f'("{destination_endpoint}", "{destination_bucket}"). Snapshots '
                         "would copy the bucket onto itself; configure a separate "
                         "destination endpoint and bucket."
                     ),
-                    path=f'module:{module["id"]}.config.destination',
+                    path=f"module:{module['id']}.config.destination",
                 )
             )
 
@@ -764,11 +824,18 @@ def resolve_provided_contracts(
     secrets = secrets if secrets is not None else {}
     provides = inst["module"].get("spec", {}).get("provides", [])
     resolved: dict[str, Any] = {}
-    implementation = (inst["module"].get("spec", {}) or {}).get("implementation", {}) or {}
-    compose_impl = implementation.get("compose") if isinstance(implementation, dict) else None
+    implementation = (inst["module"].get("spec", {}) or {}).get(
+        "implementation", {}
+    ) or {}
+    compose_impl = (
+        implementation.get("compose") if isinstance(implementation, dict) else None
+    )
     services = compose_impl.get("services") if isinstance(compose_impl, dict) else None
     service_host = str(inst["id"])
-    module_name = str((inst["module"].get("metadata") or {}).get("name") or module_name_from_source(inst.get("source")))
+    module_name = str(
+        (inst["module"].get("metadata") or {}).get("name")
+        or module_name_from_source(inst.get("source"))
+    )
 
     for provided in provides:
         provide_name = provided.get("name")
@@ -816,14 +883,16 @@ def resolve_consumed_contracts(
         required_if = consume.get("requiredIf")
         if required_if:
             try:
-                conditionally_required = evaluate_required_if(required_if, inst["config"])
+                conditionally_required = evaluate_required_if(
+                    required_if, inst["config"]
+                )
             except RequiredIfSyntaxError as err:
                 diagnostics.append(
                     Diagnostic(
                         level="error",
                         code="E021",
                         message=f'Consume entry "{consume_name}" in module "{inst["id"]}" has a malformed requiredIf: {err}',
-                        path=f'module:{inst["id"]}.consumes.{consume_name}',
+                        path=f"module:{inst['id']}.consumes.{consume_name}",
                     )
                 )
                 conditionally_required = False
@@ -841,14 +910,16 @@ def resolve_consumed_contracts(
                     level="error",
                     code="E041",
                     message=f'Path "{mapped_from}" could not be resolved in planned config.',
-                    path=f'module:{inst["id"]}.consumes.{consume_name}',
+                    path=f"module:{inst['id']}.consumes.{consume_name}",
                 )
             )
             continue
 
         def _resolve_one_ref(ref_value: Any, ref_path: str) -> dict[str, Any] | None:
             """Resolve one contractRef string to its {contractRef, contract} binding."""
-            parsed = parse_contract_ref(ref_value) if isinstance(ref_value, str) else None
+            parsed = (
+                parse_contract_ref(ref_value) if isinstance(ref_value, str) else None
+            )
             if parsed is None:
                 diagnostics.append(
                     Diagnostic(
@@ -891,7 +962,7 @@ def resolve_consumed_contracts(
                 "contract": deepcopy(matched),
             }
 
-        consume_path = f'module:{inst["id"]}.consumes.{consume_name}'
+        consume_path = f"module:{inst['id']}.consumes.{consume_name}"
 
         if isinstance(binding, list):
             # List-valued binding (issue #883): the mappedFrom path resolves
@@ -950,6 +1021,7 @@ def resolve_consumed_contracts(
 
     return resolved
 
+
 def build_certificate_env_map(spec_certificates: Any) -> dict[str, dict[str, str]]:
     """
     Map each certificate alias to its two runtime environment variable NAMES
@@ -970,13 +1042,21 @@ def build_certificate_env_map(spec_certificates: Any) -> dict[str, dict[str, str
             continue
         cert_env = definition.get("certEnv")
         key_env = definition.get("keyEnv")
-        if isinstance(cert_env, str) and cert_env and isinstance(key_env, str) and key_env:
+        if (
+            isinstance(cert_env, str)
+            and cert_env
+            and isinstance(key_env, str)
+            and key_env
+        ):
             certificates[alias] = {"cert": cert_env, "key": key_env}
     return certificates
 
 
 def resolve_certificate_refs(
-    obj: Any, certificates: dict[str, dict[str, str]], current_path: str, diagnostics: list[Diagnostic]
+    obj: Any,
+    certificates: dict[str, dict[str, str]],
+    current_path: str,
+    diagnostics: list[Diagnostic],
 ) -> Any:
     """
     Validate that `certificates.<alias>.cert|.key` refs in planned config name
@@ -985,13 +1065,17 @@ def resolve_certificate_refs(
     """
     if isinstance(obj, dict):
         return {
-            key: resolve_certificate_refs(value, certificates, f"{current_path}.{key}", diagnostics)
+            key: resolve_certificate_refs(
+                value, certificates, f"{current_path}.{key}", diagnostics
+            )
             for key, value in obj.items()
         }
 
     if isinstance(obj, list):
         return [
-            resolve_certificate_refs(value, certificates, f"{current_path}[{index}]", diagnostics)
+            resolve_certificate_refs(
+                value, certificates, f"{current_path}[{index}]", diagnostics
+            )
             for index, value in enumerate(obj)
         ]
 
@@ -1011,7 +1095,9 @@ def resolve_certificate_refs(
     return obj  # always return unchanged
 
 
-def resolve_secret_refs(obj: Any, secrets: dict[str, str], current_path: str, diagnostics: list[Diagnostic]) -> Any:
+def resolve_secret_refs(
+    obj: Any, secrets: dict[str, str], current_path: str, diagnostics: list[Diagnostic]
+) -> Any:
     """
     Validate that all secrets.* references in obj exist in the secrets dict.
     Emits E081 diagnostics for missing secrets.
@@ -1020,7 +1106,9 @@ def resolve_secret_refs(obj: Any, secrets: dict[str, str], current_path: str, di
     """
     if isinstance(obj, dict):
         return {
-            key: resolve_secret_refs(value, secrets, f"{current_path}.{key}", diagnostics)
+            key: resolve_secret_refs(
+                value, secrets, f"{current_path}.{key}", diagnostics
+            )
             for key, value in obj.items()
         }
 
@@ -1055,15 +1143,15 @@ def resolve_outputs(
     """
     contracts = outputs.get("contracts", {})
     resolved: dict[str, Any] = {"contracts": {}}
-    
+
     for name, value in contracts.items():
         ref = value.get("from")
-        
+
         if not isinstance(ref, str):
             continue
-        
+
         parsed = parse_contract_ref(ref)
-        
+
         if parsed is None:
             diagnostics.append(
                 Diagnostic(
@@ -1074,10 +1162,10 @@ def resolve_outputs(
                 )
             )
             continue
-        
+
         module_id, provide_name = parsed
         contract = resolved_contracts_by_module.get(module_id, {}).get(provide_name)
-        
+
         if contract is None:
             diagnostics.append(
                 Diagnostic(
@@ -1088,12 +1176,12 @@ def resolve_outputs(
                 )
             )
             continue
-        
+
         resolved["contracts"][name] = {
             "from": ref,
             "contract": contract,
         }
-    
+
     return resolved
 
 
@@ -1113,6 +1201,7 @@ def substitute_values(obj: Any, context: dict[str, Any], _depth: int = 0) -> Any
     if isinstance(obj, str):
         return substitute_string(obj, context)
     return obj
+
 
 def substitute_string(value: str, context: dict[str, Any]) -> Any:
     """
@@ -1134,7 +1223,6 @@ def substitute_string(value: str, context: dict[str, Any]) -> Any:
     """
     if "${" not in value:
         return value
-
 
     ESCAPE_PLACEHOLDER = "\x00ESC\x00"
     value = value.replace("$$", ESCAPE_PLACEHOLDER)
@@ -1161,6 +1249,7 @@ def substitute_string(value: str, context: dict[str, Any]) -> Any:
     value = re.sub(r"\$\{([^}]+)\}", replace_match, value)
     return value.replace(ESCAPE_PLACEHOLDER, "$")
 
+
 def resolve_expr(expr: str, context: dict[str, Any]) -> Any:
     """
     Resolve a dotted expression against context.
@@ -1170,7 +1259,7 @@ def resolve_expr(expr: str, context: dict[str, Any]) -> Any:
     Raw secret values are never returned.
     """
     if expr.startswith("ifNonempty:"):
-        args = expr[len("ifNonempty:"):].split(",", 2)
+        args = expr[len("ifNonempty:") :].split(",", 2)
         if len(args) != 3:
             return None
         path, prefix, suffix = args

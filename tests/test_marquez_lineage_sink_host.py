@@ -6,6 +6,7 @@ so the module instance id is not a DNS name on the Compose network. Its
 service's rendered compose name (via ${service.services.<name>}), for any
 instance id.
 """
+
 import os
 import tempfile
 import unittest
@@ -18,7 +19,9 @@ from cli.planner import build_plan
 from cli.renderer import render_compose
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PROFILE_PATH = REPO_ROOT / "profiles" / "local-dagster-postgres-marquez" / "profile.yaml"
+PROFILE_PATH = (
+    REPO_ROOT / "profiles" / "local-dagster-postgres-marquez" / "profile.yaml"
+)
 
 _TEST_ENV = {
     "CDS_MODULE_PATH": str(REPO_ROOT),
@@ -48,9 +51,12 @@ def _profile_variant(tmpdir: str, new_marquez_id: str | None = None):
                 module["id"] = new_marquez_id
             if module["id"] == "dagster":
                 module["dependsOn"] = [
-                    new_marquez_id if dep == "marquez" else dep for dep in module.get("dependsOn", [])
+                    new_marquez_id if dep == "marquez" else dep
+                    for dep in module.get("dependsOn", [])
                 ]
-                module["config"]["lineageSink"]["contractRef"] = f"{new_marquez_id}.lineage-sink"
+                module["config"]["lineageSink"]["contractRef"] = (
+                    f"{new_marquez_id}.lineage-sink"
+                )
         outputs = doc["spec"].get("outputs", {}).get("contracts", {})
         if "lineageApi" in outputs:
             outputs["lineageApi"]["from"] = f"{new_marquez_id}.lineage-sink"
@@ -62,7 +68,9 @@ def _profile_variant(tmpdir: str, new_marquez_id: str | None = None):
 def _plan_and_render(profile_path: str):
     with patch.dict(os.environ, _TEST_ENV):
         plan, plan_diagnostics = build_plan(profile_path)
-        assert plan is not None, [d.format() for d in plan_diagnostics if d.level == "error"]
+        assert plan is not None, [
+            d.format() for d in plan_diagnostics if d.level == "error"
+        ]
         assert [d.format() for d in plan_diagnostics if d.level == "error"] == []
         compose_text, render_diagnostics = render_compose(plan)
     assert [d.format() for d in render_diagnostics if d.level == "error"] == []
@@ -87,9 +95,15 @@ class MarquezLineageSinkHostTest(unittest.TestCase):
         self.assertIn("marquez-web", services)
         self.assertNotIn("marquez", services)
         # The web UI reaches the API backend over the Compose network.
-        self.assertEqual(services["marquez-web"]["environment"]["MARQUEZ_HOST"], "marquez-api")
+        self.assertEqual(
+            services["marquez-web"]["environment"]["MARQUEZ_HOST"], "marquez-api"
+        )
         # Dagster consumes the contract's connectionUri verbatim.
-        for dagster_service in ("dagster-user-code", "dagster-webserver", "dagster-daemon"):
+        for dagster_service in (
+            "dagster-user-code",
+            "dagster-webserver",
+            "dagster-daemon",
+        ):
             env = services[dagster_service]["environment"]
             self.assertEqual(env["OPENLINEAGE_URL"], "http://marquez-api:5000")
             self.assertEqual(env["OPENLINEAGE_ENDPOINT"], "/api/v1/lineage")
@@ -117,7 +131,9 @@ class MarquezLineageSinkHostTest(unittest.TestCase):
 
     def test_non_conventional_instance_id_survives_the_naming_rule(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            plan, compose = _plan_and_render(_profile_variant(tmpdir, new_marquez_id="lineage"))
+            plan, compose = _plan_and_render(
+                _profile_variant(tmpdir, new_marquez_id="lineage")
+            )
         lineage = next(m for m in plan["modules"] if m["id"] == "lineage")
         spec = lineage["provides"]["lineage-sink"]["spec"]
         self.assertEqual(spec["host"], "lineage-marquez-api")
@@ -129,7 +145,11 @@ class MarquezLineageSinkHostTest(unittest.TestCase):
             services["lineage-marquez-web"]["environment"]["MARQUEZ_HOST"],
             "lineage-marquez-api",
         )
-        for dagster_service in ("dagster-user-code", "dagster-webserver", "dagster-daemon"):
+        for dagster_service in (
+            "dagster-user-code",
+            "dagster-webserver",
+            "dagster-daemon",
+        ):
             self.assertEqual(
                 services[dagster_service]["environment"]["OPENLINEAGE_URL"],
                 "http://lineage-marquez-api:5000",

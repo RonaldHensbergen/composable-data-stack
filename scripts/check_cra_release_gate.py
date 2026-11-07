@@ -22,6 +22,7 @@ all present. Missing any of these fails the check (exit `1`) and lists
 exactly what's missing, so a conformity claim can never be made silently
 or by accident.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -79,7 +80,9 @@ def _check_repo_file(ref: object, label: str, repo_root: Path) -> list[str]:
     return []
 
 
-def check_manifest(manifest: dict[str, object], repo_root: Path = REPO_ROOT) -> list[str]:
+def check_manifest(
+    manifest: dict[str, object], repo_root: Path = REPO_ROOT
+) -> list[str]:
     """Return a list of human-readable problems; empty means the gate passes.
 
     Only called when the manifest has opted into strict checking (see
@@ -96,7 +99,9 @@ def check_manifest(manifest: dict[str, object], repo_root: Path = REPO_ROOT) -> 
         if not isinstance(entry, dict) or not entry.get("ref"):
             problems.append(f"evidence.{key}.ref is missing or empty")
         elif key in _REPO_FILE_EVIDENCE:
-            problems.extend(_check_repo_file(entry["ref"], f"evidence.{key}.ref", repo_root))
+            problems.extend(
+                _check_repo_file(entry["ref"], f"evidence.{key}.ref", repo_root)
+            )
 
     classification = manifest.get("classification")
     if not isinstance(classification, dict):
@@ -128,7 +133,9 @@ def check_manifest(manifest: dict[str, object], repo_root: Path = REPO_ROOT) -> 
         problems.append("declarationOfConformity.ref is missing or empty")
     else:
         problems.extend(
-            _check_repo_file(declaration["ref"], "declarationOfConformity.ref", repo_root)
+            _check_repo_file(
+                declaration["ref"], "declarationOfConformity.ref", repo_root
+            )
         )
 
     approvals = manifest.get("approvals")
@@ -147,7 +154,9 @@ def check_manifest(manifest: dict[str, object], repo_root: Path = REPO_ROOT) -> 
                 try:
                     datetime.date.fromisoformat(str(date))
                 except ValueError:
-                    problems.append(f"approvals[{index}].date must be an ISO date (YYYY-MM-DD)")
+                    problems.append(
+                        f"approvals[{index}].date must be an ISO date (YYYY-MM-DD)"
+                    )
 
     return problems
 
@@ -158,7 +167,9 @@ def gate_is_enabled(manifest: dict[str, object]) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("manifest", type=Path, help="Path to a CRA release-evidence manifest JSON file")
+    parser.add_argument(
+        "manifest", type=Path, help="Path to a CRA release-evidence manifest JSON file"
+    )
     args = parser.parse_args()
 
     if not args.manifest.is_file():
@@ -168,10 +179,14 @@ def main() -> int:
     try:
         manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        print(f"::error::could not read manifest {args.manifest}: {exc}", file=sys.stderr)
+        print(
+            f"::error::could not read manifest {args.manifest}: {exc}", file=sys.stderr
+        )
         return 1
     if not isinstance(manifest, dict):
-        print(f"::error::manifest {args.manifest} must be a JSON object", file=sys.stderr)
+        print(
+            f"::error::manifest {args.manifest} must be a JSON object", file=sys.stderr
+        )
         return 1
 
     if not gate_is_enabled(manifest):

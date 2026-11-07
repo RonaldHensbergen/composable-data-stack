@@ -52,24 +52,36 @@ class MainCLITest(unittest.TestCase):
         self.modules_root = self.repo_root / "modules"
 
     def test_resolve_profile_path_with_env_root_and_profile_name(self):
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False):
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ):
             resolved = resolve_profile_path("local-dagster-postgres-superset")
-            expected = str(self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml")
+            expected = str(
+                self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+            )
             self.assertEqual(resolved, expected)
 
     def test_resolve_profile_path_with_env_profile_file_and_no_arg(self):
-        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profile_file)}, clear=False):
+        profile_file = (
+            self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+        )
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(profile_file)}, clear=False
+        ):
             resolved = resolve_profile_path(None)
             self.assertEqual(resolved, str(profile_file))
 
     def test_list_profiles_uses_env_root(self):
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False):
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+        ):
             profiles = list_profiles()
             self.assertIn("local-dagster-postgres-superset", profiles)
 
     def test_list_modules_uses_env_root(self):
-        with patch.dict(os.environ, {"CDS_MODULE_PATH": str(self.modules_root)}, clear=False):
+        with patch.dict(
+            os.environ, {"CDS_MODULE_PATH": str(self.modules_root)}, clear=False
+        ):
             modules = list_modules()
             self.assertIn("bi/superset", modules)
             self.assertIn("orchestration/dagster", modules)
@@ -84,7 +96,9 @@ class MainCLITest(unittest.TestCase):
             self.repo_root, "CDS_PROFILE_PATH", "CDS_MODULE_PATH"
         ):
             resolved = resolve_profile_path("local-dagster-postgres-superset")
-        expected = str(self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml")
+        expected = str(
+            self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+        )
         self.assertEqual(resolved, expected)
 
     def test_list_modules_from_subdirectory_without_env_override(self):
@@ -101,14 +115,20 @@ class MainCLITest(unittest.TestCase):
             self.repo_root, "CDS_PROFILE_PATH", "CDS_MODULE_PATH"
         ):
             resolved = _resolve_profile_root(Path("local-dagster-postgres-superset"))
-        expected = str(self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml")
+        expected = str(
+            self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+        )
         self.assertEqual(resolved, expected)
 
     @patch("cli.main.collect_module_images")
     @patch("cli.main.check_image_update")
     def test_list_images_command_reports_status(self, mock_check, mock_collect):
         mock_collect.return_value = [
-            {"module": "orchestration/dagster", "service": "dagster", "image": "mock:1.0"}
+            {
+                "module": "orchestration/dagster",
+                "service": "dagster",
+                "image": "mock:1.0",
+            }
         ]
         mock_check.return_value = {
             "image": "mock:1.0",
@@ -125,10 +145,16 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.collect_module_images")
     @patch("cli.main.check_image_update")
-    def test_list_images_command_caches_duplicate_checks(self, mock_check, mock_collect):
+    def test_list_images_command_caches_duplicate_checks(
+        self, mock_check, mock_collect
+    ):
         mock_collect.return_value = [
             {"module": "orchestration/dagster", "service": "web", "image": "mock:1.0"},
-            {"module": "orchestration/dagster", "service": "daemon", "image": "mock:1.0"},
+            {
+                "module": "orchestration/dagster",
+                "service": "daemon",
+                "image": "mock:1.0",
+            },
         ]
         mock_check.return_value = {
             "image": "mock:1.0",
@@ -154,8 +180,14 @@ class MainCLITest(unittest.TestCase):
             )
 
             stdout = io.StringIO()
-            with patch.object(sys, "argv", ["cds", "list", "profiles", "--local", str(source_root)]), \
-                    contextlib.redirect_stdout(stdout):
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    ["cds", "list", "profiles", "--local", str(source_root)],
+                ),
+                contextlib.redirect_stdout(stdout),
+            ):
                 result = main()
 
         self.assertEqual(result, 0)
@@ -174,8 +206,12 @@ class MainCLITest(unittest.TestCase):
             )
 
             stdout = io.StringIO()
-            with patch.object(sys, "argv", ["cds", "list", "modules", "--local", str(source_root)]), \
-                    contextlib.redirect_stdout(stdout):
+            with (
+                patch.object(
+                    sys, "argv", ["cds", "list", "modules", "--local", str(source_root)]
+                ),
+                contextlib.redirect_stdout(stdout),
+            ):
                 result = main()
 
         self.assertEqual(result, 0)
@@ -189,7 +225,9 @@ class MainCLITest(unittest.TestCase):
             (source_root / "profiles").mkdir()
             (source_root / "modules").mkdir()
 
-            with patch.object(sys, "argv", ["cds", "list", "images", "--local", str(source_root)]):
+            with patch.object(
+                sys, "argv", ["cds", "list", "images", "--local", str(source_root)]
+            ):
                 result = main()
 
         self.assertEqual(result, 0)
@@ -198,11 +236,22 @@ class MainCLITest(unittest.TestCase):
     def test_list_rejects_remote_and_local_together(self):
         with tempfile.TemporaryDirectory() as source_dir:
             stderr = io.StringIO()
-            with patch.object(
-                sys,
-                "argv",
-                ["cds", "list", "profiles", "--local", source_dir, "--remote", "owner/repo"],
-            ), contextlib.redirect_stderr(stderr):
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "list",
+                        "profiles",
+                        "--local",
+                        source_dir,
+                        "--remote",
+                        "owner/repo",
+                    ],
+                ),
+                contextlib.redirect_stderr(stderr),
+            ):
                 result = main()
 
         self.assertEqual(result, 1)
@@ -210,9 +259,12 @@ class MainCLITest(unittest.TestCase):
 
     def test_list_local_rejects_missing_source_repository(self):
         stderr = io.StringIO()
-        with patch.object(
-            sys, "argv", ["cds", "list", "profiles", "--local", "/does/not/exist"]
-        ), contextlib.redirect_stderr(stderr):
+        with (
+            patch.object(
+                sys, "argv", ["cds", "list", "profiles", "--local", "/does/not/exist"]
+            ),
+            contextlib.redirect_stderr(stderr),
+        ):
             result = main()
 
         self.assertEqual(result, 1)
@@ -220,7 +272,9 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.update_tracked_assets")
     def test_update_command_selects_profile_categories_and_dry_run(self, mock_update):
-        mock_update.return_value.manifest_path = Path("/tmp/project/.cds/get-manifest.json")
+        mock_update.return_value.manifest_path = Path(
+            "/tmp/project/.cds/get-manifest.json"
+        )
         mock_update.return_value.updated = ["demo: modules/apps/demo/module.yaml"]
         mock_update.return_value.skipped = []
         mock_update.return_value.conflicts = []
@@ -228,14 +282,23 @@ class MainCLITest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as destination:
             stdout = io.StringIO()
-            with patch.object(
-                sys,
-                "argv",
-                [
-                    "cds", "update", "demo", "--modules", "--contracts",
-                    "--dry-run", "--into", destination,
-                ],
-            ), contextlib.redirect_stdout(stdout):
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "update",
+                        "demo",
+                        "--modules",
+                        "--contracts",
+                        "--dry-run",
+                        "--into",
+                        destination,
+                    ],
+                ),
+                contextlib.redirect_stdout(stdout),
+            ):
                 result = main()
 
         self.assertEqual(result, 0)
@@ -251,16 +314,20 @@ class MainCLITest(unittest.TestCase):
     def test_update_command_reports_conflicts_and_errors_with_exit_code(
         self, mock_update
     ):
-        mock_update.return_value.manifest_path = Path("/tmp/project/.cds/get-manifest.json")
+        mock_update.return_value.manifest_path = Path(
+            "/tmp/project/.cds/get-manifest.json"
+        )
         mock_update.return_value.updated = ["demo: modules/apps/demo/module.yaml"]
         mock_update.return_value.skipped = []
         mock_update.return_value.conflicts = ["demo: profiles/demo/profile.yaml"]
         mock_update.return_value.errors = ["other: tracking entry is not an object"]
 
         stdout, stderr = io.StringIO(), io.StringIO()
-        with patch.object(
-            sys, "argv", ["cds", "update", "--into", "/tmp/project"]
-        ), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with (
+            patch.object(sys, "argv", ["cds", "update", "--into", "/tmp/project"]),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
             result = main()
 
         self.assertEqual(result, 1)
@@ -274,20 +341,25 @@ class MainCLITest(unittest.TestCase):
     def test_update_command_prints_manifest_and_reports_nothing_matched(
         self, mock_update
     ):
-        mock_update.return_value.manifest_path = Path("/tmp/project/.cds/get-manifest.json")
+        mock_update.return_value.manifest_path = Path(
+            "/tmp/project/.cds/get-manifest.json"
+        )
         mock_update.return_value.updated = []
         mock_update.return_value.skipped = []
         mock_update.return_value.conflicts = []
         mock_update.return_value.errors = []
 
         stdout = io.StringIO()
-        with patch.object(
-            sys, "argv", ["cds", "update", "--into", "/tmp/project"]
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.object(sys, "argv", ["cds", "update", "--into", "/tmp/project"]),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 0)
-        self.assertIn("No tracked assets matched the requested update.", stdout.getvalue())
+        self.assertIn(
+            "No tracked assets matched the requested update.", stdout.getvalue()
+        )
         self.assertIn("Tracking metadata:", stdout.getvalue())
 
     @patch("cli.main.update_tracked_assets")
@@ -297,9 +369,11 @@ class MainCLITest(unittest.TestCase):
         mock_update.side_effect = GetError("No fetched-asset tracking manifest found")
 
         stdout, stderr = io.StringIO(), io.StringIO()
-        with patch.object(
-            sys, "argv", ["cds", "update", "--into", "/tmp/project"]
-        ), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with (
+            patch.object(sys, "argv", ["cds", "update", "--into", "/tmp/project"]),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
             result = main()
 
         self.assertEqual(result, 1)
@@ -308,24 +382,37 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
-    def test_security_command_resolves_profile_and_runs_validation(self, mock_validate, mock_run_security):
-        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+    def test_security_command_resolves_profile_and_runs_validation(
+        self, mock_validate, mock_run_security
+    ):
+        profile_file = (
+            self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+        )
         mock_validate.return_value = []
         mock_run_security.return_value = ([], [])
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "security", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys, "argv", ["cds", "security", "local-dagster-postgres-superset"]
+            ),
         ):
             result = main()
 
         self.assertEqual(result, 0)
         mock_validate.assert_called_once_with(str(profile_file), environment=None)
         mock_run_security.assert_called_once()
-        self.assertEqual(mock_run_security.call_args.kwargs["profile_path"], Path(str(profile_file)))
+        self.assertEqual(
+            mock_run_security.call_args.kwargs["profile_path"], Path(str(profile_file))
+        )
 
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
-    def test_security_command_category_filters_findings(self, mock_validate, mock_run_security):
+    def test_security_command_category_filters_findings(
+        self, mock_validate, mock_run_security
+    ):
         mock_validate.return_value = []
         mock_run_security.return_value = (
             [
@@ -354,14 +441,23 @@ class MainCLITest(unittest.TestCase):
         )
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds", "security", "local-dagster-postgres-superset",
-                "--category", "access-control",
-            ],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "security",
+                    "local-dagster-postgres-superset",
+                    "--category",
+                    "access-control",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         output = stdout.getvalue()
@@ -402,18 +498,30 @@ class MainCLITest(unittest.TestCase):
         )
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys,
-            "argv",
-            ["cds", "security", "local-dagster-postgres-superset", "--group-by-category"],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "security",
+                    "local-dagster-postgres-superset",
+                    "--group-by-category",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         output = stdout.getvalue()
         self.assertEqual(result, 1)
         # "access-control" sorts before "secrets-management".
         self.assertLess(
-            output.index("== Access control (access-control) =="), output.index("CDS-SEC-010")
+            output.index("== Access control (access-control) =="),
+            output.index("CDS-SEC-010"),
         )
         self.assertLess(
             output.index("== Secrets management (secrets-management) =="),
@@ -453,11 +561,23 @@ class MainCLITest(unittest.TestCase):
         )
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys,
-            "argv",
-            ["cds", "security", "local-dagster-postgres-superset", "--report", "nis2"],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "security",
+                    "local-dagster-postgres-superset",
+                    "--report",
+                    "nis2",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         output = stdout.getvalue()
@@ -481,14 +601,24 @@ class MainCLITest(unittest.TestCase):
         self, mock_validate, mock_run_security
     ):
         stdout = io.StringIO()
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds", "security", "local-dagster-postgres-superset",
-                "--report", "nis2", "--group-by-category",
-            ],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "security",
+                    "local-dagster-postgres-superset",
+                    "--report",
+                    "nis2",
+                    "--group-by-category",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 2)
@@ -526,18 +656,29 @@ class MainCLITest(unittest.TestCase):
         )
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds", "security", "local-dagster-postgres-superset",
-                "--category", "patching",
-            ],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "security",
+                    "local-dagster-postgres-superset",
+                    "--category",
+                    "patching",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         output = stdout.getvalue()
-        self.assertEqual(result, 1, "a real high-severity finding must still fail the scan")
+        self.assertEqual(
+            result, 1, "a real high-severity finding must still fail the scan"
+        )
         self.assertIn("No security findings in category", output)
         self.assertNotIn("CDS-SEC-001", output)
 
@@ -564,14 +705,23 @@ class MainCLITest(unittest.TestCase):
         )
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds", "security", "local-dagster-postgres-superset",
-                "--category", "patching",
-            ],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "security",
+                    "local-dagster-postgres-superset",
+                    "--category",
+                    "patching",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 0)
@@ -597,12 +747,21 @@ class MainCLITest(unittest.TestCase):
         mock_run_security.return_value = ([], [])
         mock_scan_k8s_security.return_value = []
 
-        with patch.dict(
-            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-        ), patch.object(
-            sys,
-            "argv",
-            ["cds", "security", "local-dagster-postgres-superset", "--target", "helm"],
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "security",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                ],
+            ),
         ):
             result = main()
 
@@ -621,15 +780,28 @@ class MainCLITest(unittest.TestCase):
         mock_build_plan.return_value = (plan, [])
         mock_render_helm.return_value = (
             {},
-            [Diagnostic("error", "E084", "provider has no service", "contractBindings.0")],
+            [
+                Diagnostic(
+                    "error", "E084", "provider has no service", "contractBindings.0"
+                )
+            ],
         )
 
-        with patch.dict(
-            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-        ), patch.object(
-            sys,
-            "argv",
-            ["cds", "validate", "local-dagster-postgres-superset", "--target", "helm"],
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "validate",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                ],
+            ),
         ):
             result = main()
 
@@ -660,11 +832,18 @@ class MainCLITest(unittest.TestCase):
 
         stdout = io.StringIO()
         with (
-            patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False),
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
             patch.object(
                 sys,
                 "argv",
-                ["cds", "security", "local-dagster-postgres-superset", "--verify-images"],
+                [
+                    "cds",
+                    "security",
+                    "local-dagster-postgres-superset",
+                    "--verify-images",
+                ],
             ),
             contextlib.redirect_stdout(stdout),
         ):
@@ -702,8 +881,20 @@ class MainCLITest(unittest.TestCase):
         mock_main_render.return_value = (canned_compose, [])
         mock_verify_images.return_value = []
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "security", "local-dagster-postgres-superset", "--verify-images"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "security",
+                    "local-dagster-postgres-superset",
+                    "--verify-images",
+                ],
+            ),
         ):
             result = main()
 
@@ -723,7 +914,9 @@ class MainCLITest(unittest.TestCase):
 
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
-    def test_security_command_fails_closed_when_render_scan_skipped(self, mock_validate, mock_run_security):
+    def test_security_command_fails_closed_when_render_scan_skipped(
+        self, mock_validate, mock_run_security
+    ):
         """GHSA-mx5p-cv63-6829: a W096 warning means rendered-compose-scoped
         rules (e.g. CDS-SEC-070) were silently skipped. Even when the
         remaining findings are only medium/low severity (or there are none
@@ -753,8 +946,13 @@ class MainCLITest(unittest.TestCase):
             ],
         )
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "security", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys, "argv", ["cds", "security", "local-dagster-postgres-superset"]
+            ),
         ):
             result = main()
 
@@ -765,34 +963,51 @@ class MainCLITest(unittest.TestCase):
     def test_plan_saves_to_file_with_output_flag(self, mock_validate, mock_build_plan):
         """Test that plan --output saves the plan to a file."""
         import tempfile
-        
-        profile_file = self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+
+        profile_file = (
+            self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+        )
         test_plan = {
             "apiVersion": "cds/v1alpha1",
             "kind": "Plan",
             "metadata": {"name": "test"},
             "modules": [],
         }
-        
+
         mock_validate.return_value = []
         mock_build_plan.return_value = (test_plan, [])
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             output_file = f.name
-        
+
         try:
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys, "argv", ["cds", "plan", "local-dagster-postgres-superset", "--output", output_file]
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "plan",
+                        "local-dagster-postgres-superset",
+                        "--output",
+                        output_file,
+                    ],
+                ),
             ):
                 result = main()
-            
+
             self.assertEqual(result, 0)
             mock_validate.assert_called_once_with(str(profile_file), environment=None)
             mock_build_plan.assert_called_once()
             called_args, called_kwargs = mock_build_plan.call_args
             self.assertEqual(called_args[0], str(profile_file))
             self.assertIn("env_file", called_kwargs)
-            
+
             # Verify file was written
             saved_plan = json.loads(Path(output_file).read_text())
             self.assertEqual(saved_plan["apiVersion"], "cds/v1alpha1")
@@ -818,17 +1033,33 @@ class MainCLITest(unittest.TestCase):
                     {
                         "apiVersion": "cds/v1alpha1",
                         "kind": "Module",
-                        "metadata": {"name": "demo", "category": "test", "version": "0.1.0"},
+                        "metadata": {
+                            "name": "demo",
+                            "category": "test",
+                            "version": "0.1.0",
+                        },
                         "spec": {
                             "runtime": {
                                 "type": "container",
                                 "service": {
                                     "name": "demo",
-                                    "ports": [{"name": "http", "containerPort": 8080, "protocol": "TCP"}],
+                                    "ports": [
+                                        {
+                                            "name": "http",
+                                            "containerPort": 8080,
+                                            "protocol": "TCP",
+                                        }
+                                    ],
                                 },
                             },
-                            "configSchema": {"type": "object", "additionalProperties": False},
-                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                            "configSchema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                            },
+                            "implementation": {
+                                "kind": "docker-compose",
+                                "compose": {"services": {}},
+                            },
                         },
                     }
                 ),
@@ -843,7 +1074,12 @@ class MainCLITest(unittest.TestCase):
                     "runtime": {"type": "docker-compose"},
                     "modules": [
                         # "source" is omitted entirely -- required by profile.schema.json.
-                        {"id": "demo", "version": "0.1.0", "enabled": True, "config": {}}
+                        {
+                            "id": "demo",
+                            "version": "0.1.0",
+                            "enabled": True,
+                            "config": {},
+                        }
                     ],
                     "secrets": {"provider": {"type": "env"}, "values": {}},
                 },
@@ -852,8 +1088,9 @@ class MainCLITest(unittest.TestCase):
             profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
 
             stdout = io.StringIO()
-            with patch.object(sys, "argv", ["cds", "validate", str(profile_file)]), contextlib.redirect_stdout(
-                stdout
+            with (
+                patch.object(sys, "argv", ["cds", "validate", str(profile_file)]),
+                contextlib.redirect_stdout(stdout),
             ):
                 result = main()
 
@@ -881,13 +1118,23 @@ class MainCLITest(unittest.TestCase):
                     {
                         "apiVersion": "cds/v1alpha1",
                         "kind": "Module",
-                        "metadata": {"name": "consumer", "category": "test", "version": "0.1.0"},
+                        "metadata": {
+                            "name": "consumer",
+                            "category": "test",
+                            "version": "0.1.0",
+                        },
                         "spec": {
                             "runtime": {
                                 "type": "container",
                                 "service": {
                                     "name": "consumer",
-                                    "ports": [{"name": "http", "containerPort": 8080, "protocol": "TCP"}],
+                                    "ports": [
+                                        {
+                                            "name": "http",
+                                            "containerPort": 8080,
+                                            "protocol": "TCP",
+                                        }
+                                    ],
                                 },
                             },
                             "configSchema": {
@@ -903,7 +1150,10 @@ class MainCLITest(unittest.TestCase):
                                     "required": True,
                                 }
                             ],
-                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                            "implementation": {
+                                "kind": "docker-compose",
+                                "compose": {"services": {}},
+                            },
                         },
                     }
                 ),
@@ -922,7 +1172,9 @@ class MainCLITest(unittest.TestCase):
                             "source": "modules/consumer",
                             "version": "0.1.0",
                             "enabled": True,
-                            "config": {"db": {"contractRef": "unknown-module.sql-database"}},
+                            "config": {
+                                "db": {"contractRef": "unknown-module.sql-database"}
+                            },
                         }
                     ],
                     "secrets": {"provider": {"type": "env"}, "values": {}},
@@ -932,8 +1184,9 @@ class MainCLITest(unittest.TestCase):
             profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
 
             stdout = io.StringIO()
-            with patch.object(sys, "argv", ["cds", "validate", str(profile_file)]), contextlib.redirect_stdout(
-                stdout
+            with (
+                patch.object(sys, "argv", ["cds", "validate", str(profile_file)]),
+                contextlib.redirect_stdout(stdout),
             ):
                 result = main()
 
@@ -963,17 +1216,33 @@ class MainCLITest(unittest.TestCase):
                     {
                         "apiVersion": "cds/v1alpha1",
                         "kind": "Module",
-                        "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                        "metadata": {
+                            "name": "postgres",
+                            "category": "warehouse",
+                            "version": "0.1.0",
+                        },
                         "spec": {
                             "runtime": {
                                 "type": "container",
                                 "service": {
                                     "name": "postgres",
-                                    "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                    "ports": [
+                                        {
+                                            "name": "db",
+                                            "containerPort": 5432,
+                                            "protocol": "TCP",
+                                        }
+                                    ],
                                 },
                             },
-                            "configSchema": {"type": "object", "additionalProperties": False},
-                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                            "configSchema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                            },
+                            "implementation": {
+                                "kind": "docker-compose",
+                                "compose": {"services": {}},
+                            },
                         },
                     }
                 ),
@@ -1002,14 +1271,18 @@ class MainCLITest(unittest.TestCase):
             profiles_root = root / "profiles"
             with patch.dict(
                 os.environ,
-                {"CDS_PROFILE_PATH": str(profiles_root), "CDS_MODULE_PATH": str(modules_root)},
+                {
+                    "CDS_PROFILE_PATH": str(profiles_root),
+                    "CDS_MODULE_PATH": str(modules_root),
+                },
                 clear=False,
             ):
                 profile_path, generate_diags = generate_profile(generated_profile)
 
                 self.assertEqual(generate_diags, [])
                 self.assertEqual(
-                    Path(profile_path), (profiles_root / "runtime-generated" / "profile.yaml").resolve()
+                    Path(profile_path),
+                    (profiles_root / "runtime-generated" / "profile.yaml").resolve(),
                 )
 
                 # Regenerating without force must fail closed rather than
@@ -1019,7 +1292,9 @@ class MainCLITest(unittest.TestCase):
                 self.assertEqual(refuse_diags[0].code, "E116")
 
                 validation_diags = validate_profile(profile_path)
-                self.assertEqual([d for d in validation_diags if d.level == "error"], [])
+                self.assertEqual(
+                    [d for d in validation_diags if d.level == "error"], []
+                )
 
                 plan, plan_diags = build_plan(profile_path)
 
@@ -1047,21 +1322,36 @@ class MainCLITest(unittest.TestCase):
                     {
                         "apiVersion": "cds/v1alpha1",
                         "kind": "Module",
-                        "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                        "metadata": {
+                            "name": "postgres",
+                            "category": "warehouse",
+                            "version": "0.1.0",
+                        },
                         "spec": {
                             "runtime": {
                                 "type": "container",
                                 "service": {
                                     "name": "postgres",
-                                    "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                    "ports": [
+                                        {
+                                            "name": "db",
+                                            "containerPort": 5432,
+                                            "protocol": "TCP",
+                                        }
+                                    ],
                                 },
                             },
                             "configSchema": {
                                 "type": "object",
                                 "additionalProperties": False,
-                                "properties": {"logLevel": {"type": "string", "default": "info"}},
+                                "properties": {
+                                    "logLevel": {"type": "string", "default": "info"}
+                                },
                             },
-                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                            "implementation": {
+                                "kind": "docker-compose",
+                                "compose": {"services": {}},
+                            },
                         },
                     }
                 ),
@@ -1071,7 +1361,10 @@ class MainCLITest(unittest.TestCase):
             generated_profile = {
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
-                "metadata": {"name": "runtime-generated-overlay", "environment": "local"},
+                "metadata": {
+                    "name": "runtime-generated-overlay",
+                    "environment": "local",
+                },
                 "spec": {
                     "runtime": {"type": "docker-compose"},
                     "modules": [
@@ -1090,7 +1383,10 @@ class MainCLITest(unittest.TestCase):
             profiles_root = root / "profiles"
             with patch.dict(
                 os.environ,
-                {"CDS_PROFILE_PATH": str(profiles_root), "CDS_MODULE_PATH": str(modules_root)},
+                {
+                    "CDS_PROFILE_PATH": str(profiles_root),
+                    "CDS_MODULE_PATH": str(modules_root),
+                },
                 clear=False,
             ):
                 profile_path, generate_diags = generate_profile(generated_profile)
@@ -1104,7 +1400,11 @@ class MainCLITest(unittest.TestCase):
                     yaml.safe_dump(
                         {
                             "metadata": {"environment": "development"},
-                            "spec": {"modules": [{"id": "postgres", "config": {"logLevel": "debug"}}]},
+                            "spec": {
+                                "modules": [
+                                    {"id": "postgres", "config": {"logLevel": "debug"}}
+                                ]
+                            },
                         }
                     ),
                     encoding="utf-8",
@@ -1114,7 +1414,9 @@ class MainCLITest(unittest.TestCase):
 
                 self.assertEqual(plan_diags, [])
                 self.assertIsNotNone(plan)
-                postgres_module = next(m for m in plan["modules"] if m["id"] == "postgres")
+                postgres_module = next(
+                    m for m in plan["modules"] if m["id"] == "postgres"
+                )
                 self.assertEqual(postgres_module["config"]["logLevel"], "debug")
 
     def test_generate_profile_command_writes_file_from_input_path(self):
@@ -1139,9 +1441,13 @@ class MainCLITest(unittest.TestCase):
             )
 
             stdout = io.StringIO()
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False), patch.object(
-                sys, "argv", ["cds", "generate-profile", str(input_file)]
-            ), contextlib.redirect_stdout(stdout):
+            with (
+                patch.dict(
+                    os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False
+                ),
+                patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]),
+                contextlib.redirect_stdout(stdout),
+            ):
                 result = main()
 
             expected_path = (profiles_root / "cli-generated" / "profile.yaml").resolve()
@@ -1165,9 +1471,18 @@ class MainCLITest(unittest.TestCase):
             )
 
             stdout = io.StringIO()
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False), patch.object(
-                sys, "argv", ["cds", "generate-profile", "-", "--name", "stdin-profile"]
-            ), patch.object(sys, "stdin", io.StringIO(raw)), contextlib.redirect_stdout(stdout):
+            with (
+                patch.dict(
+                    os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    ["cds", "generate-profile", "-", "--name", "stdin-profile"],
+                ),
+                patch.object(sys, "stdin", io.StringIO(raw)),
+                contextlib.redirect_stdout(stdout),
+            ):
                 result = main()
 
             expected_path = (profiles_root / "stdin-profile" / "profile.yaml").resolve()
@@ -1194,14 +1509,21 @@ class MainCLITest(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False):
-                with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]):
+            with patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(profiles_root)}, clear=False
+            ):
+                with patch.object(
+                    sys, "argv", ["cds", "generate-profile", str(input_file)]
+                ):
                     first_result = main()
                 self.assertEqual(first_result, 0)
 
                 stdout = io.StringIO()
-                with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]), contextlib.redirect_stdout(
-                    stdout
+                with (
+                    patch.object(
+                        sys, "argv", ["cds", "generate-profile", str(input_file)]
+                    ),
+                    contextlib.redirect_stdout(stdout),
                 ):
                     second_result = main()
 
@@ -1215,8 +1537,9 @@ class MainCLITest(unittest.TestCase):
             input_file.write_text("key: [unterminated", encoding="utf-8")
 
             stdout = io.StringIO()
-            with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]), contextlib.redirect_stdout(
-                stdout
+            with (
+                patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]),
+                contextlib.redirect_stdout(stdout),
             ):
                 result = main()
 
@@ -1233,8 +1556,9 @@ class MainCLITest(unittest.TestCase):
             input_file.write_bytes(b"\xff\xfe\x00key: value")
 
             stdout = io.StringIO()
-            with patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]), contextlib.redirect_stdout(
-                stdout
+            with (
+                patch.object(sys, "argv", ["cds", "generate-profile", str(input_file)]),
+                contextlib.redirect_stdout(stdout),
             ):
                 result = main()
 
@@ -1251,16 +1575,22 @@ class MainCLITest(unittest.TestCase):
             root = Path(tmpdir)
 
             stdout = io.StringIO()
-            with patch.object(
-                sys, "argv", ["cds", "generate-profile", str(root / "does-not-exist.yaml")]
-            ), contextlib.redirect_stdout(stdout):
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    ["cds", "generate-profile", str(root / "does-not-exist.yaml")],
+                ),
+                contextlib.redirect_stdout(stdout),
+            ):
                 missing_result = main()
             self.assertEqual(missing_result, 1)
             self.assertIn("ERROR", stdout.getvalue())
 
             stdout = io.StringIO()
-            with patch.object(sys, "argv", ["cds", "generate-profile", str(root)]), contextlib.redirect_stdout(
-                stdout
+            with (
+                patch.object(sys, "argv", ["cds", "generate-profile", str(root)]),
+                contextlib.redirect_stdout(stdout),
             ):
                 directory_result = main()
             self.assertEqual(directory_result, 1)
@@ -1277,10 +1607,15 @@ class MainCLITest(unittest.TestCase):
         mock_render,
     ):
         mock_validate.return_value = []
-        mock_build_plan.return_value = ({"metadata": {"name": "cds-test"}, "modules": []}, [])
+        mock_build_plan.return_value = (
+            {"metadata": {"name": "cds-test"}, "modules": []},
+            [],
+        )
         mock_render.return_value = ("name: cds-test\nservices: {}\n", [])
 
-        with patch.object(sys, "argv", ["cds", "render", "local-dagster-postgres-superset"]):
+        with patch.object(
+            sys, "argv", ["cds", "render", "local-dagster-postgres-superset"]
+        ):
             result = main()
 
         self.assertEqual(result, 0)
@@ -1293,30 +1628,32 @@ class MainCLITest(unittest.TestCase):
     def test_render_from_plan_file(self):
         """Test rendering from a saved plan file."""
         import tempfile
-        
+
         # Create a minimal valid plan
         plan = {
             "apiVersion": "cds/v1alpha1",
             "kind": "Plan",
             "metadata": {"name": "test-plan"},
-            "sourceProfile": str(self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"),
+            "sourceProfile": str(
+                self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+            ),
             "runtime": {},
             "secrets": {},
             "outputs": {},
             "modules": [],
         }
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(plan, f)
             plan_file = f.name
-        
+
         try:
             with patch("cli.main.render_compose") as mock_render:
                 mock_render.return_value = ("name: test\nservices: {}\n", [])
-                
+
                 with patch.object(sys, "argv", ["cds", "render", plan_file]):
                     result = main()
-                
+
                 self.assertEqual(result, 0)
                 # Verify render was called with the plan from file
                 mock_render.assert_called_once()
@@ -1335,10 +1672,10 @@ class MainCLITest(unittest.TestCase):
             # The temp dir does not have .git or pyproject.toml
             profile_path = Path(td) / "profile.yaml"
             profile_path.touch()
-            
+
             with patch.object(Path, "cwd", return_value=Path("/mock/cwd")):
                 resolved = resolve_project_root(str(profile_path))
-                
+
                 self.assertEqual(resolved, Path("/mock/cwd").resolve())
 
     def test_find_project_root_prefers_nearby_cds_over_ancestor_git(self):
@@ -1408,7 +1745,13 @@ class MainCLITest(unittest.TestCase):
             with patch.object(
                 sys,
                 "argv",
-                ["cds", "init", "local-dagster-postgres-superset", "--output", str(output_file)],
+                [
+                    "cds",
+                    "init",
+                    "local-dagster-postgres-superset",
+                    "--output",
+                    str(output_file),
+                ],
             ):
                 result = main()
 
@@ -1447,16 +1790,22 @@ class MainCLITest(unittest.TestCase):
         )
 
         try:
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(profile_path)}, clear=False
-            ), patch.object(
-                sys, "argv", ["cds", "init", "--output", str(output_file)]
-            ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            with (
+                patch.dict(
+                    os.environ, {"CDS_PROFILE_PATH": str(profile_path)}, clear=False
+                ),
+                patch.object(
+                    sys, "argv", ["cds", "init", "--output", str(output_file)]
+                ),
+                contextlib.redirect_stdout(io.StringIO()) as stdout,
+            ):
                 result = main()
 
             self.assertEqual(result, 0)
             message = stdout.getvalue()
-            self.assertIn("Initialized environment for local-dagster-postgres-superset.", message)
+            self.assertIn(
+                "Initialized environment for local-dagster-postgres-superset.", message
+            )
             self.assertIn("cds preflight local-dagster-postgres-superset", message)
             self.assertNotIn("None", message)
         finally:
@@ -1493,7 +1842,9 @@ class MainCLITest(unittest.TestCase):
                 "spec: {}\n"
             )
 
-            env_vars, secret_env_vars = _collect_profile_env_vars(str(child_path), environment=None)
+            env_vars, secret_env_vars = _collect_profile_env_vars(
+                str(child_path), environment=None
+            )
 
             self.assertIn("CDS_DB_PASSWORD", env_vars)
             self.assertIn("CDS_DB_PASSWORD", secret_env_vars)
@@ -1505,7 +1856,10 @@ class MainCLITest(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
 
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             write(
@@ -1539,25 +1893,30 @@ spec:
             )
 
             stdout = io.StringIO()
-            with patch.object(
-                sys,
-                "argv",
-                [
-                    "cds",
-                    "get",
-                    "demo",
-                    "--local",
-                    str(source_root),
-                    "--into",
-                    str(destination_root),
-                    "--dry-run",
-                ],
-            ), contextlib.redirect_stdout(stdout):
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "get",
+                        "demo",
+                        "--local",
+                        str(source_root),
+                        "--into",
+                        str(destination_root),
+                        "--dry-run",
+                    ],
+                ),
+                contextlib.redirect_stdout(stdout),
+            ):
                 result = main()
 
             self.assertEqual(result, 0)
             self.assertIn("Planned", stdout.getvalue())
-            self.assertFalse((destination_root / "profiles" / "demo" / "profile.yaml").exists())
+            self.assertFalse(
+                (destination_root / "profiles" / "demo" / "profile.yaml").exists()
+            )
             self.assertFalse((destination_root / ".cds" / "get-manifest.json").exists())
 
     def test_get_command_dry_run_reports_conflicts(self):
@@ -1567,7 +1926,10 @@ spec:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
 
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             profile_source = """apiVersion: cds/v1alpha1
@@ -1601,20 +1963,23 @@ spec:
             write(destination_root / "profiles" / "demo" / "profile.yaml", "changed\n")
 
             stdout = io.StringIO()
-            with patch.object(
-                sys,
-                "argv",
-                [
-                    "cds",
-                    "get",
-                    "demo",
-                    "--local",
-                    str(source_root),
-                    "--into",
-                    str(destination_root),
-                    "--dry-run",
-                ],
-            ), contextlib.redirect_stdout(stdout):
+            with (
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "get",
+                        "demo",
+                        "--local",
+                        str(source_root),
+                        "--into",
+                        str(destination_root),
+                        "--dry-run",
+                    ],
+                ),
+                contextlib.redirect_stdout(stdout),
+            ):
                 result = main()
 
             output = stdout.getvalue()
@@ -1623,7 +1988,9 @@ spec:
             self.assertIn("profiles/demo/profile.yaml", output)
             self.assertIn("would need --force to overwrite", output)
             self.assertEqual(
-                (destination_root / "profiles" / "demo" / "profile.yaml").read_text(encoding="utf-8"),
+                (destination_root / "profiles" / "demo" / "profile.yaml").read_text(
+                    encoding="utf-8"
+                ),
                 "changed\n",
             )
             self.assertFalse((destination_root / ".cds" / "get-manifest.json").exists())
@@ -1632,17 +1999,21 @@ spec:
         stdout = io.StringIO()
         stderr = io.StringIO()
 
-        with patch.object(
-            sys,
-            "argv",
-            [
-                "cds",
-                "get",
-                "missing-profile",
-                "--local",
-                str(Path(tempfile.gettempdir()) / "cds-missing-source-repo"),
-            ],
-        ), contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with (
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "get",
+                    "missing-profile",
+                    "--local",
+                    str(Path(tempfile.gettempdir()) / "cds-missing-source-repo"),
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+        ):
             result = main()
 
         self.assertEqual(result, 1)
@@ -1691,7 +2062,14 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_builds_then_starts_live_view_and_polls(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -1705,10 +2083,23 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -1733,7 +2124,14 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_starts_log_tail_only_after_up_finishes(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -1758,10 +2156,23 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -1775,7 +2186,13 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_detach_flag_skips_poll_loop(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_tail,
+        mock_poll,
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -1784,10 +2201,24 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--detach", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--detach",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -1804,7 +2235,13 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_short_detach_flag_skips_poll_loop(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_tail, mock_poll
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_tail,
+        mock_poll,
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -1813,10 +2250,24 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "-d", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "-d",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -1829,7 +2280,9 @@ spec:
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_stops_when_build_fails(self, mock_validate, mock_plan, mock_render, mock_run_streamed):
+    def test_up_command_stops_when_build_fails(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+    ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
@@ -1837,10 +2290,23 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -1863,10 +2329,23 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -1880,7 +2359,14 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_interrupt_during_up_exits_130_cleanly(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -1894,10 +2380,23 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -1911,10 +2410,15 @@ spec:
     def test_up_command_stops_on_validation_failure_without_calling_docker(
         self, mock_validate, mock_run_streamed
     ):
-        mock_validate.return_value = [Diagnostic("error", "E001", "bad profile", "spec")]
+        mock_validate.return_value = [
+            Diagnostic("error", "E001", "bad profile", "spec")
+        ]
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]),
         ):
             result = main()
 
@@ -1928,10 +2432,16 @@ spec:
         self, mock_validate, mock_plan, mock_run_streamed
     ):
         mock_validate.return_value = []
-        mock_plan.return_value = (None, [Diagnostic("error", "E041", "bad binding", "spec")])
+        mock_plan.return_value = (
+            None,
+            [Diagnostic("error", "E041", "bad binding", "spec")],
+        )
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]),
         ):
             result = main()
 
@@ -1947,10 +2457,16 @@ spec:
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
-        mock_render.return_value = (None, [Diagnostic("error", "E060", "bad render", "spec")])
+        mock_render.return_value = (
+            None,
+            [Diagnostic("error", "E060", "bad render", "spec")],
+        )
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]),
         ):
             result = main()
 
@@ -1973,10 +2489,23 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -1990,7 +2519,14 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_propagates_docker_compose_up_exit_code(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -2009,10 +2545,23 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -2020,7 +2569,9 @@ spec:
         # `up_done_fn` must be wired to the background `up` process's own
         # poll(), so poll_state_until_settled can bail out as soon as `up`
         # fails instead of waiting out the full poll timeout.
-        self.assertEqual(mock_poll.call_args.kwargs.get("up_done_fn"), mock_up_process.poll)
+        self.assertEqual(
+            mock_poll.call_args.kwargs.get("up_done_fn"), mock_up_process.poll
+        )
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
@@ -2030,7 +2581,14 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_returns_1_when_stack_does_not_settle(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -2044,10 +2602,23 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -2057,7 +2628,9 @@ spec:
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
-    def test_up_command_no_build_skips_build_step(self, mock_validate, mock_plan, mock_render, mock_run_streamed):
+    def test_up_command_no_build_skips_build_step(
+        self, mock_validate, mock_plan, mock_render, mock_run_streamed
+    ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
@@ -2065,10 +2638,25 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--no-build", "--detach", "--log-file", log_path],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--no-build",
+                        "--detach",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -2092,18 +2680,25 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                [
-                    "cds",
-                    "up",
-                    "local-dagster-postgres-superset",
-                    "--no-build",
-                    "--detach",
-                    "--log-file",
-                    log_path,
-                ],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--no-build",
+                        "--detach",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
             ):
                 result = main()
 
@@ -2146,8 +2741,15 @@ spec:
             fake_log_path = Path(tmpdir) / "up-fake.log"
             mock_default_log_path.return_value = fake_log_path
 
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+                ),
             ):
                 result = main()
 
@@ -2187,8 +2789,11 @@ spec:
             mock_default_log_path.return_value = Path(tmpdir) / "up-fake.log"
             profile_dir = self.profiles_root / "local-dagster-postgres-superset"
 
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(profile_dir)}, clear=False), patch.object(
-                sys, "argv", ["cds", "up"]
+            with (
+                patch.dict(
+                    os.environ, {"CDS_PROFILE_PATH": str(profile_dir)}, clear=False
+                ),
+                patch.object(sys, "argv", ["cds", "up"]),
             ):
                 result = main()
 
@@ -2203,7 +2808,14 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_no_color_flag_disables_color_in_live_view(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -2217,11 +2829,26 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--no-color", "--log-file", log_path],
-            ), patch("sys.stdout.isatty", return_value=True):
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--no-color",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
+                patch("sys.stdout.isatty", return_value=True),
+            ):
                 result = main()
 
         self.assertEqual(result, 0)
@@ -2235,7 +2862,14 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_no_color_env_disables_color_in_live_view(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -2249,15 +2883,25 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(
-                os.environ,
-                {"CDS_PROFILE_PATH": str(self.profiles_root), "NO_COLOR": "1"},
-                clear=False,
-            ), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
-            ), patch("sys.stdout.isatty", return_value=True):
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root), "NO_COLOR": "1"},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
+                patch("sys.stdout.isatty", return_value=True),
+            ):
                 result = main()
 
         self.assertEqual(result, 0)
@@ -2271,7 +2915,14 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
     def test_up_command_uses_color_on_a_tty_without_no_color_flag(
-        self, mock_validate, mock_plan, mock_render, mock_run_streamed, mock_start_up, mock_start_tail, mock_poll
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
     ):
         mock_validate.return_value = []
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
@@ -2285,11 +2936,25 @@ spec:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             log_path = os.path.join(tmpdir, "up.log")
-            with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--log-file", log_path],
-            ), patch("sys.stdout.isatty", return_value=True):
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--log-file",
+                        log_path,
+                    ],
+                ),
+                patch("sys.stdout.isatty", return_value=True),
+            ):
                 # keep the ambient environment from flipping color off
                 os.environ.pop("NO_COLOR", None)
                 result = main()
@@ -2309,8 +2974,13 @@ spec:
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+            ),
         ):
             result = main()
 
@@ -2326,10 +2996,17 @@ spec:
     def test_test_command_skips_downstream_stages_on_validate_failure(
         self, mock_validate, mock_security, mock_plan, mock_render
     ):
-        mock_validate.return_value = [Diagnostic("error", "E001", "bad profile", "spec")]
+        mock_validate.return_value = [
+            Diagnostic("error", "E001", "bad profile", "spec")
+        ]
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+            ),
         ):
             result = main()
 
@@ -2347,14 +3024,29 @@ spec:
     ):
         mock_validate.return_value = []
         mock_security.return_value = (
-            [{"severity": "high", "rule_id": "CDS-SEC-001", "message": "bad", "path": "x", "module": "x", "value": None, "recommendation": []}],
+            [
+                {
+                    "severity": "high",
+                    "rule_id": "CDS-SEC-001",
+                    "message": "bad",
+                    "path": "x",
+                    "module": "x",
+                    "value": None,
+                    "recommendation": [],
+                }
+            ],
             [],
         )
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+            ),
         ):
             result = main()
 
@@ -2371,14 +3063,29 @@ spec:
     ):
         mock_validate.return_value = []
         mock_security.return_value = (
-            [{"severity": "medium", "rule_id": "CDS-SEC-033", "message": "meh", "path": "x", "module": "x", "value": None, "recommendation": []}],
+            [
+                {
+                    "severity": "medium",
+                    "rule_id": "CDS-SEC-033",
+                    "message": "meh",
+                    "path": "x",
+                    "module": "x",
+                    "value": None,
+                    "recommendation": [],
+                }
+            ],
             [],
         )
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+            ),
         ):
             result = main()
 
@@ -2399,37 +3106,49 @@ spec:
         """
         mock_validate.return_value = []
         mock_security.return_value = (
-            [{
-                "severity": "high",
-                "rule_id": "CDS-SEC-001",
-                "message": "Hardcoded secret",
-                "path": "x",
-                "module": "x",
-                "value": None,
-                "recommendation": [],
-                "category": "secrets-management",
-            }],
+            [
+                {
+                    "severity": "high",
+                    "rule_id": "CDS-SEC-001",
+                    "message": "Hardcoded secret",
+                    "path": "x",
+                    "module": "x",
+                    "value": None,
+                    "recommendation": [],
+                    "category": "secrets-management",
+                }
+            ],
             [],
         )
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds", "test", "local-dagster-postgres-superset",
-                "--category", "patching",
-            ],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "test",
+                    "local-dagster-postgres-superset",
+                    "--category",
+                    "patching",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         output = stdout.getvalue()
-        self.assertEqual(result, 1, "a real high-severity finding must still fail cds test")
+        self.assertEqual(
+            result, 1, "a real high-severity finding must still fail cds test"
+        )
         self.assertIn("[FAIL] security", output)
         self.assertNotIn("CDS-SEC-001", output)
-
 
         plan = {"metadata": {"name": "cds-test"}, "modules": []}
         k8s_finding = {
@@ -2441,27 +3160,33 @@ spec:
             "value": None,
             "recommendation": [],
         }
-        with patch("cli.main.validate_profile", return_value=[]), patch(
-            "cli.main.build_plan", return_value=(plan, [])
-        ), patch("cli.main.render_helm", return_value=({"Chart.yaml": "chart"}, [])) as mock_helm, patch(
-            "cli.main.render_compose"
-        ) as mock_compose, patch(
-            "cli.main.run_security_validation", return_value=([], [])
-        ), patch(
-            "cli.main.scan_k8s_security", return_value=[k8s_finding]
-        ) as mock_k8s_security, patch.dict(
-            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-        ), patch.object(
-            sys,
-            "argv",
-            [
-                "cds",
-                "test",
-                "local-dagster-postgres-superset",
-                "--target",
-                "helm",
-            ],
-        ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+        with (
+            patch("cli.main.validate_profile", return_value=[]),
+            patch("cli.main.build_plan", return_value=(plan, [])),
+            patch(
+                "cli.main.render_helm", return_value=({"Chart.yaml": "chart"}, [])
+            ) as mock_helm,
+            patch("cli.main.render_compose") as mock_compose,
+            patch("cli.main.run_security_validation", return_value=([], [])),
+            patch(
+                "cli.main.scan_k8s_security", return_value=[k8s_finding]
+            ) as mock_k8s_security,
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "test",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                ],
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
             result = main()
 
         self.assertEqual(result, 1)
@@ -2475,13 +3200,23 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.run_security_validation")
     @patch("cli.main.validate_profile")
-    def test_test_command_skips_render_when_plan_fails(self, mock_validate, mock_security, mock_plan, mock_render):
+    def test_test_command_skips_render_when_plan_fails(
+        self, mock_validate, mock_security, mock_plan, mock_render
+    ):
         mock_validate.return_value = []
         mock_security.return_value = ([], [])
-        mock_plan.return_value = (None, [Diagnostic("error", "E041", "bad binding", "spec")])
+        mock_plan.return_value = (
+            None,
+            [Diagnostic("error", "E041", "bad binding", "spec")],
+        )
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+            ),
         ):
             result = main()
 
@@ -2524,14 +3259,21 @@ spec:
         mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
         mock_render.return_value = ("services: {}", [])
 
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False), patch.object(
-            sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys, "argv", ["cds", "test", "local-dagster-postgres-superset"]
+            ),
         ):
             result = main()
 
         self.assertEqual(result, 1)
 
-    def test_test_command_fails_closed_end_to_end_on_typed_substitution_injection_poc(self):
+    def test_test_command_fails_closed_end_to_end_on_typed_substitution_injection_poc(
+        self,
+    ):
         """End-to-end regression for GHSA-gmc4-jw3j-mqcf / E072: a profile
         that drives a module's `command` field via a pure `${config.*}`
         substitution resolving to a list must fail `cds test` overall, not
@@ -2607,11 +3349,18 @@ spec:
 """,
             )
 
-            with patch.dict(
-                os.environ,
-                {"CDS_PROFILE_PATH": str(profiles_root), "CDS_MODULE_PATH": str(modules_root)},
-                clear=False,
-            ), patch.object(sys, "argv", ["cds", "test", "poc"]), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "CDS_PROFILE_PATH": str(profiles_root),
+                        "CDS_MODULE_PATH": str(modules_root),
+                    },
+                    clear=False,
+                ),
+                patch.object(sys, "argv", ["cds", "test", "poc"]),
+                contextlib.redirect_stdout(io.StringIO()) as stdout,
+            ):
                 result = main()
 
         self.assertEqual(result, 1)
@@ -2626,7 +3375,13 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile", return_value=[])
     def test_up_helm_dispatches_to_bounded_helm_runner(
-        self, _mock_validate, mock_plan, mock_render, mock_helm_up, mock_log_path, _mock_ensure
+        self,
+        _mock_validate,
+        mock_plan,
+        mock_render,
+        mock_helm_up,
+        mock_log_path,
+        _mock_ensure,
     ):
         plan = {
             "metadata": {"name": "demo"},
@@ -2636,22 +3391,27 @@ spec:
         mock_plan.return_value = (plan, [])
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_log_path.return_value = Path(tmpdir) / "up.log"
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(
-                sys,
-                "argv",
-                [
-                    "cds",
-                    "up",
-                    "local-dagster-postgres-superset",
-                    "--target",
-                    "helm",
-                    "--kube-context",
-                    "k3d-test",
-                    "--timeout",
-                    "45",
-                ],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--target",
+                        "helm",
+                        "--kube-context",
+                        "k3d-test",
+                        "--timeout",
+                        "45",
+                    ],
+                ),
             ):
                 result = main()
 
@@ -2668,7 +3428,13 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile", return_value=[])
     def test_up_helm_resolves_a_relative_chart_dir(
-        self, _mock_validate, mock_plan, mock_render, mock_helm_up, mock_log_path, _mock_ensure
+        self,
+        _mock_validate,
+        mock_plan,
+        mock_render,
+        mock_helm_up,
+        mock_log_path,
+        _mock_ensure,
     ):
         """
         `--chart-dir` is user-controlled and, before this, was passed
@@ -2689,20 +3455,25 @@ spec:
             previous_cwd = os.getcwd()
             os.chdir(tmpdir)
             try:
-                with patch.dict(
-                    os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-                ), patch.object(
-                    sys,
-                    "argv",
-                    [
-                        "cds",
-                        "up",
-                        "local-dagster-postgres-superset",
-                        "--target",
-                        "helm",
-                        "--chart-dir",
-                        "relative-chart",
-                    ],
+                with (
+                    patch.dict(
+                        os.environ,
+                        {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                        clear=False,
+                    ),
+                    patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "cds",
+                            "up",
+                            "local-dagster-postgres-superset",
+                            "--target",
+                            "helm",
+                            "--chart-dir",
+                            "relative-chart",
+                        ],
+                    ),
                 ):
                     result = main()
             finally:
@@ -2711,7 +3482,9 @@ spec:
         self.assertEqual(result, 0)
         rendered_chart_dir = mock_render.call_args.args[1]
         self.assertTrue(Path(rendered_chart_dir).is_absolute())
-        self.assertEqual(Path(rendered_chart_dir), Path(tmpdir).resolve() / "relative-chart")
+        self.assertEqual(
+            Path(rendered_chart_dir), Path(tmpdir).resolve() / "relative-chart"
+        )
 
     @patch("cli.main.ensure_k8s_cluster", return_value=0)
     @patch("cli.main.default_log_path")
@@ -2720,25 +3493,40 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile", return_value=[])
     def test_up_helm_wires_no_color_through_to_helm_up(
-        self, _mock_validate, mock_plan, _mock_render, mock_helm_up, mock_log_path, _mock_ensure
+        self,
+        _mock_validate,
+        mock_plan,
+        _mock_render,
+        mock_helm_up,
+        mock_log_path,
+        _mock_ensure,
     ):
-        plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
+        plan = {
+            "metadata": {"name": "demo"},
+            "runtime": {"namespace": "demo-ns"},
+            "modules": [],
+        }
         mock_plan.return_value = (plan, [])
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_log_path.return_value = Path(tmpdir) / "up.log"
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(
-                sys,
-                "argv",
-                [
-                    "cds",
-                    "up",
-                    "local-dagster-postgres-superset",
-                    "--target",
-                    "helm",
-                    "--no-color",
-                ],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--target",
+                        "helm",
+                        "--no-color",
+                    ],
+                ),
             ):
                 result = main()
 
@@ -2768,25 +3556,37 @@ spec:
     ):
         from cli.k8s_provision import LocalImageBuild
 
-        plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
+        plan = {
+            "metadata": {"name": "demo"},
+            "runtime": {"namespace": "demo-ns"},
+            "modules": [],
+        }
         mock_plan.return_value = (plan, [])
-        mock_collect.return_value = [LocalImageBuild(image="local/x:custom", context="/repo")]
+        mock_collect.return_value = [
+            LocalImageBuild(image="local/x:custom", context="/repo")
+        ]
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_log_path.return_value = Path(tmpdir) / "up.log"
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(
-                sys,
-                "argv",
-                [
-                    "cds",
-                    "up",
-                    "local-dagster-postgres-superset",
-                    "--target",
-                    "helm",
-                    "--no-build",
-                ],
-            ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--target",
+                        "helm",
+                        "--no-build",
+                    ],
+                ),
+                contextlib.redirect_stdout(io.StringIO()) as stdout,
+            ):
                 result = main()
 
         self.assertEqual(result, 0)
@@ -2819,27 +3619,36 @@ spec:
     ):
         from cli.k8s_provision import LocalImageBuild
 
-        plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
+        plan = {
+            "metadata": {"name": "demo"},
+            "runtime": {"namespace": "demo-ns"},
+            "modules": [],
+        }
         mock_plan.return_value = (plan, [])
         builds = [LocalImageBuild(image="local/x:custom", context="/repo")]
         mock_collect.return_value = builds
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_log_path.return_value = Path(tmpdir) / "up.log"
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(
-                sys,
-                "argv",
-                [
-                    "cds",
-                    "up",
-                    "local-dagster-postgres-superset",
-                    "--target",
-                    "helm",
-                    "--kube-context",
-                    "k3d-test",
-                    "--create-cluster",
-                ],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--target",
+                        "helm",
+                        "--kube-context",
+                        "k3d-test",
+                        "--create-cluster",
+                    ],
+                ),
             ):
                 result = main()
 
@@ -2861,19 +3670,41 @@ spec:
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile", return_value=[])
     def test_up_helm_stops_before_install_when_cluster_prep_fails(
-        self, _mock_validate, mock_plan, _mock_render, mock_helm_up, mock_log_path, mock_ensure
+        self,
+        _mock_validate,
+        mock_plan,
+        _mock_render,
+        mock_helm_up,
+        mock_log_path,
+        mock_ensure,
     ):
-        plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
+        plan = {
+            "metadata": {"name": "demo"},
+            "runtime": {"namespace": "demo-ns"},
+            "modules": [],
+        }
         mock_plan.return_value = (plan, [])
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_log_path.return_value = Path(tmpdir) / "up.log"
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--target", "helm"],
-            ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--target",
+                        "helm",
+                    ],
+                ),
+                contextlib.redirect_stdout(io.StringIO()) as stdout,
+            ):
                 result = main()
 
         self.assertEqual(result, 2)
@@ -2901,18 +3732,36 @@ spec:
     ):
         from cli.k8s_provision import LocalImageBuild
 
-        plan = {"metadata": {"name": "demo"}, "runtime": {"namespace": "demo-ns"}, "modules": []}
+        plan = {
+            "metadata": {"name": "demo"},
+            "runtime": {"namespace": "demo-ns"},
+            "modules": [],
+        }
         mock_plan.return_value = (plan, [])
-        mock_collect.return_value = [LocalImageBuild(image="local/x:custom", context="/repo")]
+        mock_collect.return_value = [
+            LocalImageBuild(image="local/x:custom", context="/repo")
+        ]
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_log_path.return_value = Path(tmpdir) / "up.log"
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(
-                sys,
-                "argv",
-                ["cds", "up", "local-dagster-postgres-superset", "--target", "helm"],
-            ), contextlib.redirect_stdout(io.StringIO()) as stdout:
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "up",
+                        "local-dagster-postgres-superset",
+                        "--target",
+                        "helm",
+                    ],
+                ),
+                contextlib.redirect_stdout(io.StringIO()) as stdout,
+            ):
                 result = main()
 
         self.assertEqual(result, 9)
@@ -2924,20 +3773,25 @@ spec:
     def test_down_helm_retains_pvcs_by_default(self, mock_helm_down, mock_log_path):
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_log_path.return_value = Path(tmpdir) / "down.log"
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(
-                sys,
-                "argv",
-                [
-                    "cds",
-                    "down",
-                    "local-dagster-postgres-superset",
-                    "--target",
-                    "helm",
-                    "--release",
-                    "cds",
-                ],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "down",
+                        "local-dagster-postgres-superset",
+                        "--target",
+                        "helm",
+                        "--release",
+                        "cds",
+                    ],
+                ),
             ):
                 result = main()
 
@@ -2946,22 +3800,37 @@ spec:
 
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_down", return_value=0)
-    def test_down_uses_down_prefixed_default_log_path(self, mock_helm_down, mock_log_path):
+    def test_down_uses_down_prefixed_default_log_path(
+        self, mock_helm_down, mock_log_path
+    ):
         # Regression test for #1123: the `down` lifecycle log must be named
         # `down-<profile>-<ts>.log`, not `up-down-<profile>-<ts>.log`.
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_log_path.return_value = Path(tmpdir) / "down.log"
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(
-                sys,
-                "argv",
-                ["cds", "down", "local-dagster-postgres-superset", "--target", "helm"],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "down",
+                        "local-dagster-postgres-superset",
+                        "--target",
+                        "helm",
+                    ],
+                ),
             ):
                 result = main()
 
         self.assertEqual(result, 0)
-        mock_log_path.assert_called_once_with("local-dagster-postgres-superset", prefix="down")
+        mock_log_path.assert_called_once_with(
+            "local-dagster-postgres-superset", prefix="down"
+        )
 
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_down", return_value=0)
@@ -3001,25 +3870,32 @@ spec:
             )
 
             mock_log_path.return_value = Path(tmpdir) / "down.log"
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(profile_dir.parent)}, clear=False
-            ), patch.object(
-                sys,
-                "argv",
-                [
-                    "cds",
-                    "down",
-                    "overlay-demo",
-                    "--target",
-                    "helm",
-                    "--environment",
-                    "prod",
-                ],
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(profile_dir.parent)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys,
+                    "argv",
+                    [
+                        "cds",
+                        "down",
+                        "overlay-demo",
+                        "--target",
+                        "helm",
+                        "--environment",
+                        "prod",
+                    ],
+                ),
             ):
                 result = main()
 
         self.assertEqual(result, 0)
-        self.assertEqual(mock_helm_down.call_args.kwargs["release"], "overlay-demo-prod")
+        self.assertEqual(
+            mock_helm_down.call_args.kwargs["release"], "overlay-demo-prod"
+        )
         self.assertEqual(mock_helm_down.call_args.kwargs["namespace"], "prod-ns")
 
 
@@ -3126,27 +4002,34 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
         )
 
     def _env(self):
-        return {"CDS_PROFILE_PATH": str(self.profiles_root), "CDS_MODULE_PATH": str(self.modules_root)}
+        return {
+            "CDS_PROFILE_PATH": str(self.profiles_root),
+            "CDS_MODULE_PATH": str(self.modules_root),
+        }
 
     def test_prints_merged_profile_to_stdout_by_default(self):
         import yaml
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, self._env(), clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds",
-                "compose-profile",
-                "demo",
-                "--add-module",
-                "identity/keycloak",
-                "--bind",
-                "metadata-database=postgres.sql-database",
-                "--secret",
-                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
-            ],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(os.environ, self._env(), clear=False),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "compose-profile",
+                    "demo",
+                    "--add-module",
+                    "identity/keycloak",
+                    "--bind",
+                    "metadata-database=postgres.sql-database",
+                    "--secret",
+                    "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 0)
@@ -3154,10 +4037,14 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
         ids = [m["id"] for m in printed["spec"]["modules"]]
         self.assertEqual(ids, ["postgres", "keycloak"])
         # Stdout preview must not mutate the on-disk profile.
-        on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
+        on_disk = yaml.safe_load(
+            (self.profile_dir / "profile.yaml").read_text(encoding="utf-8")
+        )
         self.assertEqual([m["id"] for m in on_disk["spec"]["modules"]], ["postgres"])
 
-    def test_add_module_source_resolves_relative_to_profile_directory_without_module_path(self):
+    def test_add_module_source_resolves_relative_to_profile_directory_without_module_path(
+        self,
+    ):
         """Without CDS_MODULE_PATH, --add-module must be written the same way
         as existing spec.modules[].source entries: relative to the profile's
         own directory (e.g. "../../modules/identity/keycloak" for a profile
@@ -3172,23 +4059,27 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
         profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
 
         stdout = io.StringIO()
-        with patch.dict(
-            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-        ), patch.object(
-            sys,
-            "argv",
-            [
-                "cds",
-                "compose-profile",
-                "demo",
-                "--add-module",
-                "../../modules/identity/keycloak",
-                "--bind",
-                "metadata-database=postgres.sql-database",
-                "--secret",
-                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
-            ],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "compose-profile",
+                    "demo",
+                    "--add-module",
+                    "../../modules/identity/keycloak",
+                    "--bind",
+                    "metadata-database=postgres.sql-database",
+                    "--secret",
+                    "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 0, stdout.getvalue())
@@ -3199,28 +4090,34 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
     def test_write_persists_merged_profile_back_to_profile_yaml(self):
         import yaml
 
-        with patch.dict(os.environ, self._env(), clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds",
-                "compose-profile",
-                "demo",
-                "--add-module",
-                "identity/keycloak",
-                "--bind",
-                "metadata-database=postgres.sql-database",
-                "--set",
-                "adminUser.passwordFrom=secrets.keycloak_admin_password",
-                "--secret",
-                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
-                "--write",
-            ],
-        ), contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.dict(os.environ, self._env(), clear=False),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "compose-profile",
+                    "demo",
+                    "--add-module",
+                    "identity/keycloak",
+                    "--bind",
+                    "metadata-database=postgres.sql-database",
+                    "--set",
+                    "adminUser.passwordFrom=secrets.keycloak_admin_password",
+                    "--secret",
+                    "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                    "--write",
+                ],
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             result = main()
 
         self.assertEqual(result, 0)
-        on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
+        on_disk = yaml.safe_load(
+            (self.profile_dir / "profile.yaml").read_text(encoding="utf-8")
+        )
         ids = [m["id"] for m in on_disk["spec"]["modules"]]
         self.assertEqual(ids, ["postgres", "keycloak"])
 
@@ -3259,22 +4156,26 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
         before = profile_file.read_text(encoding="utf-8")
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, self._env(), clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds",
-                "compose-profile",
-                "demo",
-                "--add-module",
-                "identity/keycloak",
-                "--bind",
-                "metadata-database=postgres.sql-database",
-                "--secret",
-                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
-                "--write",
-            ],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(os.environ, self._env(), clear=False),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "compose-profile",
+                    "demo",
+                    "--add-module",
+                    "identity/keycloak",
+                    "--bind",
+                    "metadata-database=postgres.sql-database",
+                    "--secret",
+                    "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                    "--write",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 1)
@@ -3311,56 +4212,70 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
         profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
 
         output_path = self.root / "composed.yaml"
-        with patch.dict(os.environ, self._env(), clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds",
-                "compose-profile",
-                "demo",
-                "--add-module",
-                "identity/keycloak",
-                "--bind",
-                "metadata-database=postgres.sql-database",
-                "--secret",
-                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
-                "--output",
-                str(output_path),
-            ],
-        ), contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.dict(os.environ, self._env(), clear=False),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "compose-profile",
+                    "demo",
+                    "--add-module",
+                    "identity/keycloak",
+                    "--bind",
+                    "metadata-database=postgres.sql-database",
+                    "--secret",
+                    "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                    "--output",
+                    str(output_path),
+                ],
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             result = main()
 
         self.assertEqual(result, 0)
         self.assertTrue(output_path.is_file())
         written = yaml.safe_load(output_path.read_text(encoding="utf-8"))
-        self.assertEqual([m["id"] for m in written["spec"]["modules"]], ["postgres", "keycloak"])
+        self.assertEqual(
+            [m["id"] for m in written["spec"]["modules"]], ["postgres", "keycloak"]
+        )
 
     def test_output_flag_writes_to_given_path_instead_of_stdout_or_source(self):
         import yaml
 
         output_path = self.root / "composed.yaml"
-        with patch.dict(os.environ, self._env(), clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds",
-                "compose-profile",
-                "demo",
-                "--add-module",
-                "identity/keycloak",
-                "--bind",
-                "metadata-database=postgres.sql-database",
-                "--output",
-                str(output_path),
-            ],
-        ), contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.dict(os.environ, self._env(), clear=False),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "compose-profile",
+                    "demo",
+                    "--add-module",
+                    "identity/keycloak",
+                    "--bind",
+                    "metadata-database=postgres.sql-database",
+                    "--output",
+                    str(output_path),
+                ],
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             result = main()
 
         self.assertEqual(result, 0)
         self.assertTrue(output_path.is_file())
         written = yaml.safe_load(output_path.read_text(encoding="utf-8"))
-        self.assertEqual([m["id"] for m in written["spec"]["modules"]], ["postgres", "keycloak"])
-        on_disk = yaml.safe_load((self.profile_dir / "profile.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(
+            [m["id"] for m in written["spec"]["modules"]], ["postgres", "keycloak"]
+        )
+        on_disk = yaml.safe_load(
+            (self.profile_dir / "profile.yaml").read_text(encoding="utf-8")
+        )
         self.assertEqual([m["id"] for m in on_disk["spec"]["modules"]], ["postgres"])
 
     def test_no_provider_for_required_consume_fails_without_writing(self):
@@ -3375,11 +4290,15 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
         profile_file.write_text(yaml.safe_dump(profile_doc), encoding="utf-8")
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, self._env(), clear=False), patch.object(
-            sys,
-            "argv",
-            ["cds", "compose-profile", "demo", "--add-module", "identity/keycloak"],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(os.environ, self._env(), clear=False),
+            patch.object(
+                sys,
+                "argv",
+                ["cds", "compose-profile", "demo", "--add-module", "identity/keycloak"],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 1)
@@ -3390,25 +4309,29 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
         import yaml
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, self._env(), clear=False), patch.object(
-            sys,
-            "argv",
-            [
-                "cds",
-                "compose-profile",
-                "demo",
-                "--add-module",
-                "identity/keycloak",
-                "--bind",
-                "metadata-database=postgres.sql-database",
-                "--secret",
-                "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
-                "--set",
-                "httpPort=8081",
-                "--set",
-                "adminUser.username=admin",
-            ],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(os.environ, self._env(), clear=False),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "compose-profile",
+                    "demo",
+                    "--add-module",
+                    "identity/keycloak",
+                    "--bind",
+                    "metadata-database=postgres.sql-database",
+                    "--secret",
+                    "keycloak_admin_password=CDS_KEYCLOAK_ADMIN_PASSWORD",
+                    "--set",
+                    "httpPort=8081",
+                    "--set",
+                    "adminUser.username=admin",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 0)
@@ -3419,7 +4342,6 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
 
 
 class CollectModuleImagesTest(unittest.TestCase):
-
     _ROOT = Path(__file__).parent.parent
     _MODULES = _ROOT / "modules"
     _DOCKERFILE = _ROOT / "images" / "dagster" / "base" / "Dockerfile"
@@ -3458,18 +4380,23 @@ class CollectModuleImagesTest(unittest.TestCase):
 
         # All locally built dagster images must use the :custom tag
         image = entry["image"]
-        self.assertTrue(image.startswith("local/"), f"Expected local image, got: {image}")
-        self.assertTrue(image.endswith(":custom"), f"Expected :custom tag, got: {image}")
+        self.assertTrue(
+            image.startswith("local/"), f"Expected local image, got: {image}"
+        )
+        self.assertTrue(
+            image.endswith(":custom"), f"Expected :custom tag, got: {image}"
+        )
         from cli.image_updates import extract_base_image
+
         base = extract_base_image(Path(entry["dockerfile"]))
-        
+
         content = self._DOCKERFILE.read_text()
         from_line = next(
-            line for line in content.splitlines()
-            if line.strip().startswith("FROM")
+            line for line in content.splitlines() if line.strip().startswith("FROM")
         )
         declared_image = from_line.split()[1]
         self.assertEqual(base, declared_image)
+
 
 class StateCLITest(unittest.TestCase):
     def setUp(self):
@@ -3490,9 +4417,16 @@ class StateCLITest(unittest.TestCase):
                 stderr="",
             )
 
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]):
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]
+                ),
+            ):
                 result = main()
 
         self.assertEqual(result, 0)
@@ -3509,9 +4443,16 @@ class StateCLITest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_root.return_value = Path(tmpdir)
 
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]):
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]
+                ),
+            ):
                 result = main()
 
         self.assertEqual(result, 1)
@@ -3526,9 +4467,16 @@ class StateCLITest(unittest.TestCase):
             mock_root.return_value = project_root
             mock_run.side_effect = FileNotFoundError()
 
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]):
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]
+                ),
+            ):
                 result = main()
 
         self.assertEqual(result, 1)
@@ -3544,9 +4492,16 @@ class StateCLITest(unittest.TestCase):
                 args=[], returncode=17, stdout="", stderr="boom"
             )
 
-            with patch.dict(
-                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-            ), patch.object(sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]):
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(
+                    sys, "argv", ["cds", "state", "local-dagster-postgres-superset"]
+                ),
+            ):
                 result = main()
 
         self.assertEqual(result, 17)
@@ -3560,20 +4515,24 @@ class StateCLITest(unittest.TestCase):
             env = {"CDS_PROFILE_PATH": str(self.profiles_root)}
             env.update(env_extra or {})
 
-            with patch("cli.main.resolve_project_root", return_value=project_root), patch(
-                "cli.main.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    args=[],
-                    returncode=0,
-                    stdout='{"Service": "svc-a", "Health": "healthy"}\n',
-                    stderr="",
+            with (
+                patch("cli.main.resolve_project_root", return_value=project_root),
+                patch(
+                    "cli.main.subprocess.run",
+                    return_value=subprocess.CompletedProcess(
+                        args=[],
+                        returncode=0,
+                        stdout='{"Service": "svc-a", "Health": "healthy"}\n',
+                        stderr="",
+                    ),
                 ),
-            ), patch.dict(
-                os.environ, env, clear=False
-            ), patch.object(
-                sys, "argv", ["cds", "state", "local-dagster-postgres-superset"] + argv_extra
-            ), contextlib.redirect_stdout(
-                captured
+                patch.dict(os.environ, env, clear=False),
+                patch.object(
+                    sys,
+                    "argv",
+                    ["cds", "state", "local-dagster-postgres-superset"] + argv_extra,
+                ),
+                contextlib.redirect_stdout(captured),
             ):
                 if "NO_COLOR" not in env:
                     # keep the ambient environment from flipping color on/off
@@ -3588,12 +4547,16 @@ class StateCLITest(unittest.TestCase):
         self.assertNotIn("\033", output)
 
     def test_no_color_env_suppresses_ansi_even_on_a_tty(self):
-        result, output = self._run_state_with_tty([], isatty_return=True, env_extra={"NO_COLOR": "1"})
+        result, output = self._run_state_with_tty(
+            [], isatty_return=True, env_extra={"NO_COLOR": "1"}
+        )
         self.assertEqual(result, 0)
         self.assertNotIn("\033", output)
 
     def test_empty_no_color_env_keeps_color_on_a_tty(self):
-        result, output = self._run_state_with_tty([], isatty_return=True, env_extra={"NO_COLOR": ""})
+        result, output = self._run_state_with_tty(
+            [], isatty_return=True, env_extra={"NO_COLOR": ""}
+        )
         self.assertEqual(result, 0)
         self.assertIn("\033", output)
 
@@ -3613,21 +4576,25 @@ class StateCLITest(unittest.TestCase):
             {"Service": "cds-web", "Health": "HEALTHY", "State": "running"}
         ]
         stdout = io.StringIO()
-        with patch.dict(
-            os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
-        ), patch.object(
-            sys,
-            "argv",
-            [
-                "cds",
-                "state",
-                "local-dagster-postgres-superset",
-                "--target",
-                "helm",
-                "--kube-context",
-                "k3d-test",
-            ],
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": str(self.profiles_root)}, clear=False
+            ),
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "state",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "helm",
+                    "--kube-context",
+                    "k3d-test",
+                ],
+            ),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 0)
@@ -3645,7 +4612,10 @@ class UseCommandCLITest(unittest.TestCase):
         self.config_path = Path(self.tmpdir.name) / "config.json"
         self.env_patch = patch.dict(
             os.environ,
-            {"CDS_PROFILE_PATH": str(self.profiles_root), "CDS_CONFIG_PATH": str(self.config_path)},
+            {
+                "CDS_PROFILE_PATH": str(self.profiles_root),
+                "CDS_CONFIG_PATH": str(self.config_path),
+            },
             clear=False,
         )
         self.env_patch.start()
@@ -3656,7 +4626,10 @@ class UseCommandCLITest(unittest.TestCase):
 
     def _run(self, argv_extra):
         captured = io.StringIO()
-        with patch.object(sys, "argv", ["cds", "use"] + argv_extra), contextlib.redirect_stdout(captured):
+        with (
+            patch.object(sys, "argv", ["cds", "use"] + argv_extra),
+            contextlib.redirect_stdout(captured),
+        ):
             result = main()
         return result, captured.getvalue()
 
@@ -3668,9 +4641,17 @@ class UseCommandCLITest(unittest.TestCase):
     def test_use_saves_and_shows_default_profile(self):
         save_result, save_output = self._run(["local-dagster-postgres-superset"])
         self.assertEqual(save_result, 0)
-        self.assertIn("Saved default profile: local-dagster-postgres-superset", save_output)
-        expected_resolved = str((self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml").resolve())
-        self.assertEqual(json.loads(self.config_path.read_text())["profile"], expected_resolved)
+        self.assertIn(
+            "Saved default profile: local-dagster-postgres-superset", save_output
+        )
+        expected_resolved = str(
+            (
+                self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+            ).resolve()
+        )
+        self.assertEqual(
+            json.loads(self.config_path.read_text())["profile"], expected_resolved
+        )
 
         show_result, show_output = self._run([])
         self.assertEqual(show_result, 0)
@@ -3709,7 +4690,11 @@ class UseCommandCLITest(unittest.TestCase):
         self.assertEqual(save_result, 0)
 
         # Simulate the saved profile having been renamed/deleted since `cds use`.
-        stale_config = {"profile": str(self.profiles_root / "does-not-exist-anymore" / "profile.yaml")}
+        stale_config = {
+            "profile": str(
+                self.profiles_root / "does-not-exist-anymore" / "profile.yaml"
+            )
+        }
         self.config_path.write_text(json.dumps(stale_config))
 
         with self.assertRaises(ValueError) as ctx:
@@ -3726,7 +4711,9 @@ class UseCommandCLITest(unittest.TestCase):
         # different single profile should win over the persisted default,
         # matching common CLI precedence (env var overrides persisted config).
         other_profile_dir = self.profiles_root / "local-dagster-postgres-superset-vault"
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(other_profile_dir)}, clear=False):
+        with patch.dict(
+            os.environ, {"CDS_PROFILE_PATH": str(other_profile_dir)}, clear=False
+        ):
             resolved = resolve_profile_path(None)
         self.assertEqual(resolved, str((other_profile_dir / "profile.yaml").resolve()))
 
@@ -3735,11 +4722,18 @@ class UseCommandCLITest(unittest.TestCase):
         # emit a warning and fall back to the saved default.
         self._run(["local-dagster-postgres-superset"])
         captured_err = io.StringIO()
-        with patch.dict(
-            os.environ, {"CDS_PROFILE_PATH": "nonexistent-path"}, clear=False
-        ), patch.object(sys, "stderr", captured_err):
+        with (
+            patch.dict(
+                os.environ, {"CDS_PROFILE_PATH": "nonexistent-path"}, clear=False
+            ),
+            patch.object(sys, "stderr", captured_err),
+        ):
             resolved = resolve_profile_path(None)
-        expected = str((self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml").resolve())
+        expected = str(
+            (
+                self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+            ).resolve()
+        )
         self.assertEqual(resolved, expected)
         self.assertIn("WARNING", captured_err.getvalue())
         self.assertIn("CDS_PROFILE_PATH", captured_err.getvalue())
@@ -3758,7 +4752,10 @@ class UseCommandCLITest(unittest.TestCase):
     def test_saved_profile_used_by_other_commands_without_argument(self):
         self._run(["local-dagster-postgres-superset"])
         captured = io.StringIO()
-        with patch.object(sys, "argv", ["cds", "validate"]), contextlib.redirect_stdout(captured):
+        with (
+            patch.object(sys, "argv", ["cds", "validate"]),
+            contextlib.redirect_stdout(captured),
+        ):
             result = main()
         self.assertEqual(result, 0)
         self.assertIn("Profile is valid", captured.getvalue())
@@ -3772,7 +4769,10 @@ class ConfigCommandCLITest(unittest.TestCase):
         self.config_path = Path(self.tmpdir.name) / "config.json"
         self.env_patch = patch.dict(
             os.environ,
-            {"CDS_PROFILE_PATH": str(self.profiles_root), "CDS_CONFIG_PATH": str(self.config_path)},
+            {
+                "CDS_PROFILE_PATH": str(self.profiles_root),
+                "CDS_CONFIG_PATH": str(self.config_path),
+            },
             clear=False,
         )
         self.env_patch.start()
@@ -3783,14 +4783,23 @@ class ConfigCommandCLITest(unittest.TestCase):
 
     def _run(self, argv_extra):
         captured = io.StringIO()
-        with patch.object(sys, "argv", ["cds", "config"] + argv_extra), contextlib.redirect_stdout(captured):
+        with (
+            patch.object(sys, "argv", ["cds", "config"] + argv_extra),
+            contextlib.redirect_stdout(captured),
+        ):
             result = main()
         return result, captured.getvalue()
 
     def test_config_sets_gets_and_unsets_profile(self):
-        result, output = self._run(["set", "profile", "local-dagster-postgres-superset"])
+        result, output = self._run(
+            ["set", "profile", "local-dagster-postgres-superset"]
+        )
         self.assertEqual(result, 0, output)
-        expected = str((self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml").resolve())
+        expected = str(
+            (
+                self.profiles_root / "local-dagster-postgres-superset" / "profile.yaml"
+            ).resolve()
+        )
         self.assertEqual(json.loads(self.config_path.read_text())["profile"], expected)
 
         result, output = self._run(["get", "profile"])
@@ -3831,7 +4840,9 @@ class ConfigCommandCLITest(unittest.TestCase):
     def test_config_sets_gets_and_unsets_image_source(self):
         result, output = self._run(["set", "image.source", "registry"])
         self.assertEqual(result, 0, output)
-        self.assertEqual(json.loads(self.config_path.read_text())["image"]["source"], "registry")
+        self.assertEqual(
+            json.loads(self.config_path.read_text())["image"]["source"], "registry"
+        )
 
         result, output = self._run(["get", "image.source"])
         self.assertEqual(result, 0, output)
@@ -3889,7 +4900,8 @@ class ConfigCommandCLITest(unittest.TestCase):
         result, output = self._run(["set", "get.allowedSources", "owner,owner/repo"])
         self.assertEqual(result, 0, output)
         self.assertEqual(
-            json.loads(self.config_path.read_text())["get"]["allowedSources"], "owner,owner/repo"
+            json.loads(self.config_path.read_text())["get"]["allowedSources"],
+            "owner,owner/repo",
         )
         with patch.dict(os.environ):
             os.environ.pop("CDS_GET_ALLOWED_SOURCES", None)
@@ -3902,7 +4914,10 @@ class ConfigCommandCLITest(unittest.TestCase):
             self.assertEqual(load_allowed_get_sources(), ["*"])
 
         for blank in ("", "  , "):
-            with self.subTest(blank=blank), patch.dict(os.environ, {"CDS_GET_ALLOWED_SOURCES": blank}):
+            with (
+                self.subTest(blank=blank),
+                patch.dict(os.environ, {"CDS_GET_ALLOWED_SOURCES": blank}),
+            ):
                 self.assertEqual(load_allowed_get_sources(), ["owner", "owner/repo"])
 
         result, output = self._run(["unset", "get.allowedSources"])
@@ -3928,15 +4943,17 @@ class ConfigCommandCLITest(unittest.TestCase):
     ):
         self._run(["set", "security.strict", "true"])
         captured = io.StringIO()
-        with patch.object(
-            sys, "argv", ["cds", "security", "local-dagster-postgres-superset"]
-        ), contextlib.redirect_stdout(captured):
+        with (
+            patch.object(
+                sys, "argv", ["cds", "security", "local-dagster-postgres-superset"]
+            ),
+            contextlib.redirect_stdout(captured),
+        ):
             result = main()
 
         self.assertEqual(result, 0, captured.getvalue())
         mock_validate.assert_called_once()
         self.assertTrue(mock_run_security.call_args.kwargs["strict"])
-
 
     @patch("cli.main.render_helm")
     @patch("cli.main.build_plan")
@@ -3950,9 +4967,12 @@ class ConfigCommandCLITest(unittest.TestCase):
         self._run(["set", "target", "helm"])
 
         captured = io.StringIO()
-        with patch.object(
-            sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
-        ), contextlib.redirect_stdout(captured):
+        with (
+            patch.object(
+                sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
+            ),
+            contextlib.redirect_stdout(captured),
+        ):
             result = main()
 
         self.assertEqual(result, 0, captured.getvalue())
@@ -3967,11 +4987,20 @@ class ConfigCommandCLITest(unittest.TestCase):
         self._run(["set", "target", "helm"])
 
         captured = io.StringIO()
-        with patch.object(
-            sys,
-            "argv",
-            ["cds", "validate", "local-dagster-postgres-superset", "--target", "compose"],
-        ), contextlib.redirect_stdout(captured):
+        with (
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "cds",
+                    "validate",
+                    "local-dagster-postgres-superset",
+                    "--target",
+                    "compose",
+                ],
+            ),
+            contextlib.redirect_stdout(captured),
+        ):
             result = main()
 
         self.assertEqual(result, 0, captured.getvalue())
@@ -4041,7 +5070,9 @@ spec:
         self.checkout = Path(self.tmpdir.name) / "profiles-checkout"
         module_dir = self.checkout / "modules" / "warehouse" / "postgres"
         module_dir.mkdir(parents=True)
-        (self.checkout / "pyproject.toml").write_text('[project]\nname = "profiles-checkout"\n', encoding="utf-8")
+        (self.checkout / "pyproject.toml").write_text(
+            '[project]\nname = "profiles-checkout"\n', encoding="utf-8"
+        )
         (module_dir / "module.yaml").write_text(self._MODULE_YAML, encoding="utf-8")
         profile_dir = self.checkout / "profiles" / "demo"
         profile_dir.mkdir(parents=True)
@@ -4076,10 +5107,16 @@ spec:
         log_path = (root or self.checkout) / ".cds" / "audit-log.jsonl"
         if not log_path.exists():
             return []
-        return [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+        return [
+            json.loads(line)
+            for line in log_path.read_text(encoding="utf-8").splitlines()
+        ]
 
     def _run_cli(self, *argv):
-        with patch.object(sys, "argv", ["cds", *argv]), contextlib.redirect_stdout(io.StringIO()):
+        with (
+            patch.object(sys, "argv", ["cds", *argv]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
             return main()
 
     def test_validate_command_appends_audit_entry(self):
@@ -4124,7 +5161,10 @@ spec:
         # details.output comes from resolve_project_root(), which resolves
         # symlinks/short names (e.g. /var -> /private/var on macOS, 8.3 names
         # on Windows), so compare against the resolved checkout path.
-        self.assertEqual(entries[0]["details"]["output"], str(self.checkout.resolve() / "docker-compose.yml"))
+        self.assertEqual(
+            entries[0]["details"]["output"],
+            str(self.checkout.resolve() / "docker-compose.yml"),
+        )
         self.assertTrue((self.checkout / "docker-compose.yml").exists())
         self.assertFalse((self.foreign_cwd / ".cds" / "audit-log.jsonl").exists())
 
@@ -4156,7 +5196,10 @@ spec:
 class CompletionCommandCLITest(unittest.TestCase):
     def _run(self, shell):
         captured = io.StringIO()
-        with patch.object(sys, "argv", ["cds", "completion", shell]), contextlib.redirect_stdout(captured):
+        with (
+            patch.object(sys, "argv", ["cds", "completion", shell]),
+            contextlib.redirect_stdout(captured),
+        ):
             result = main()
         return result, captured.getvalue()
 
@@ -4185,7 +5228,10 @@ class CompletionCommandCLITest(unittest.TestCase):
         self.assertIn("does not modify your shell config automatically", output)
 
     def test_completion_rejects_unsupported_shell(self):
-        with patch.object(sys, "argv", ["cds", "completion", "fish"]), self.assertRaises(SystemExit) as ctx:
+        with (
+            patch.object(sys, "argv", ["cds", "completion", "fish"]),
+            self.assertRaises(SystemExit) as ctx,
+        ):
             main()
         self.assertEqual(ctx.exception.code, 2)
 
@@ -4210,7 +5256,9 @@ class LoadEnvFileTest(unittest.TestCase):
     def test_ignores_trust_settings_in_env_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
-            env_file.write_text("CDS_GET_ALLOWED_SOURCES=*\nCDS_TOKEN=ok\n", encoding="utf-8")
+            env_file.write_text(
+                "CDS_GET_ALLOWED_SOURCES=*\nCDS_TOKEN=ok\n", encoding="utf-8"
+            )
             with patch.dict(os.environ, {}, clear=True):
                 load_env_file(str(env_file))
                 self.assertNotIn("CDS_GET_ALLOWED_SOURCES", os.environ)
@@ -4281,7 +5329,9 @@ class RunImageVerificationTest(unittest.TestCase):
         self.assertIn("E095", stderr.getvalue())
 
     @patch("cli.main.resolve_profile")
-    def test_unexpected_error_during_plan_render_reports_e095(self, mock_resolve_profile):
+    def test_unexpected_error_during_plan_render_reports_e095(
+        self, mock_resolve_profile
+    ):
         """The outer plan/render/verify try-block must also fail closed:
         an unexpected exception anywhere in that best-effort path (here,
         profile resolution itself) must not propagate uncaught."""
@@ -4304,7 +5354,9 @@ class K8sRuntimeDefaultsTest(unittest.TestCase):
     have used for the same profile/--environment combination, without
     requiring the profile to currently pass full validation."""
 
-    def _write_profile(self, profile_dir: Path, name: str = "demo", namespace: str | None = None) -> None:
+    def _write_profile(
+        self, profile_dir: Path, name: str = "demo", namespace: str | None = None
+    ) -> None:
         (profile_dir).mkdir(parents=True, exist_ok=True)
         runtime_lines = "    type: docker-compose\n"
         if namespace:
@@ -4328,12 +5380,16 @@ spec:
             profile_dir = Path(tmpdir) / "demo"
             self._write_profile(profile_dir, name="demo", namespace="demo-ns")
 
-            release, namespace = _k8s_runtime_defaults(str(profile_dir / "profile.yaml"))
+            release, namespace = _k8s_runtime_defaults(
+                str(profile_dir / "profile.yaml")
+            )
 
         self.assertEqual(release, "demo")
         self.assertEqual(namespace, "demo-ns")
 
-    def test_environment_overlay_changes_release_and_namespace_like_the_plan_would(self):
+    def test_environment_overlay_changes_release_and_namespace_like_the_plan_would(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_dir = Path(tmpdir) / "demo"
             self._write_profile(profile_dir, name="demo", namespace="demo-ns")
@@ -4387,7 +5443,9 @@ spec:
                 encoding="utf-8",
             )
 
-            release, namespace = _k8s_runtime_defaults(str(profile_dir / "profile.yaml"))
+            release, namespace = _k8s_runtime_defaults(
+                str(profile_dir / "profile.yaml")
+            )
 
         self.assertEqual(release, "demo")
         self.assertEqual(namespace, "demo-ns")

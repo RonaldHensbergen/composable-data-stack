@@ -163,7 +163,7 @@ def render_helm(
                     f'Module "{module_id}" renders resources for operator '
                     f'"{operator["name"]}" (CRD {operator["crd"]}), which CDS does not '
                     "install itself. Install it on the cluster out of band before "
-                    f'applying this chart: {operator["install"]}{docs}'
+                    f"applying this chart: {operator['install']}{docs}"
                 ),
                 path=f"module:{module_id}.implementation.kubernetes.operators",
             )
@@ -195,7 +195,9 @@ def render_helm(
     # is parsed here for the same reason: a gate whose host:port a declared
     # entry covers is allowed.
     rbac_rules_by_module: dict[str, list[dict[str, Any]]] = {}
-    network_policy_passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] = {}
+    network_policy_passthrough: dict[
+        str, tuple[list[dict[str, Any]], list[dict[str, Any]]]
+    ] = {}
     external_egress: dict[str, list[dict[str, Any]]] = {}
     workload_egress: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for module in renderable:
@@ -233,14 +235,16 @@ def render_helm(
 
     diagnostics.extend(_check_binding_services(renderable, service_names))
     diagnostics.extend(_check_provided_contract_services(renderable, service_names))
-    diagnostics.extend(_check_wait_gate_hosts(
-        renderable,
-        service_names,
-        secrets,
-        network_policy_passthrough,
-        external_egress,
-        workload_egress,
-    ))
+    diagnostics.extend(
+        _check_wait_gate_hosts(
+            renderable,
+            service_names,
+            secrets,
+            network_policy_passthrough,
+            external_egress,
+            workload_egress,
+        )
+    )
 
     # The built-in backup capability (config.backup.enabled, issue #665) is
     # only implemented for the compose target: there is no Kubernetes
@@ -326,31 +330,35 @@ def render_helm(
         # no pods of its own, so it gets no ServiceAccount and no
         # NetworkPolicy: both would select nothing.
         if k8s.get("workloads"):
-            manifests.append((
-                f"{module_id}-service-account.yaml",
-                _service_account_manifest(
-                    module_id, release, rbac_rules_by_module.get(module_id, [])
-                ),
-            ))
+            manifests.append(
+                (
+                    f"{module_id}-service-account.yaml",
+                    _service_account_manifest(
+                        module_id, release, rbac_rules_by_module.get(module_id, [])
+                    ),
+                )
+            )
 
     workload_modules = [
         module
         for module in renderable
         if (module.get("implementation", {}).get("kubernetes") or {}).get("workloads")
     ]
-    manifests.extend(_network_policy_manifests(
-        workload_modules,
-        module_surfaces,
-        release,
-        diagnostics,
-        network_policy_passthrough,
-        # Route targets are resolved against the whole plan, not just the
-        # workload modules: a route naming a pod-less module must be told
-        # apart from a route naming a module the plan does not contain.
-        {module["id"]: module for module in renderable},
-        external_egress,
-        workload_egress,
-    ))
+    manifests.extend(
+        _network_policy_manifests(
+            workload_modules,
+            module_surfaces,
+            release,
+            diagnostics,
+            network_policy_passthrough,
+            # Route targets are resolved against the whole plan, not just the
+            # workload modules: a route naming a pod-less module must be told
+            # apart from a route naming a module the plan does not contain.
+            {module["id"]: module for module in renderable},
+            external_egress,
+            workload_egress,
+        )
+    )
 
     if secret_keys:
         manifests.append(
@@ -372,9 +380,11 @@ def render_helm(
     diagnostics.extend(_check_secret_references(files, secret_keys))
     secret_values = resolved_secret_values(declared_secret_env_names(plan), env_file)
     for relative_path, content in files.items():
-        diagnostics.extend(check_generated_text(
-            content, f"{output_dir or 'chart'}/{relative_path}", secret_values
-        ))
+        diagnostics.extend(
+            check_generated_text(
+                content, f"{output_dir or 'chart'}/{relative_path}", secret_values
+            )
+        )
 
     if output_dir and not any(
         diagnostic.level == "error" for diagnostic in diagnostics
@@ -620,7 +630,9 @@ def _translate_manifest_secret_refs(obj: Any, secret_keys: set[str]) -> Any:
     produce invalid YAML.
     """
     if isinstance(obj, dict):
-        return {k: _translate_manifest_secret_refs(v, secret_keys) for k, v in obj.items()}
+        return {
+            k: _translate_manifest_secret_refs(v, secret_keys) for k, v in obj.items()
+        }
     if isinstance(obj, list):
         return [_translate_manifest_secret_refs(v, secret_keys) for v in obj]
     if isinstance(obj, str):
@@ -675,7 +687,9 @@ def _render_manifests(
     """
     rendered: list[tuple[str, dict[str, Any]]] = []
     for manifest_name, raw in (k8s.get("manifests") or {}).items():
-        entry_path = f"module:{module_id}.implementation.kubernetes.manifests.{manifest_name}"
+        entry_path = (
+            f"module:{module_id}.implementation.kubernetes.manifests.{manifest_name}"
+        )
         if not isinstance(raw, dict):
             diagnostics.append(
                 Diagnostic(
@@ -1463,7 +1477,7 @@ def _read_bind_file(
         try:
             resolved = candidate.resolve()
             resolved.relative_to(project_root.resolve())
-        except (OSError, ValueError):
+        except OSError, ValueError:
             escaped_root = True
             continue
         if resolved.is_file():
@@ -1481,9 +1495,7 @@ def _read_bind_file(
     )
 
 
-def _unsafe_bind_diagnostic(
-    from_bind: str, module_id: str, name: str
-) -> Diagnostic:
+def _unsafe_bind_diagnostic(from_bind: str, module_id: str, name: str) -> Diagnostic:
     return Diagnostic(
         level="error",
         code="E085",
@@ -1720,17 +1732,19 @@ def _rbac_rules(
     if not isinstance(service_account, dict):
         # A plan loaded from a file bypasses the module schema; a
         # non-mapping block must fail closed, not crash on `.get`.
-        return [], [Diagnostic(
-            level="error",
-            code="E148",
-            message=(
-                f'The "serviceAccount" block of module "{module_id}" must be a '
-                'mapping with an optional "rbac" rules list. Kubernetes would '
-                "reject anything else at install time, so the renderer fails "
-                "closed instead of shipping a broken Role."
-            ),
-            path=f"module:{module_id}.implementation.kubernetes.serviceAccount",
-        )]
+        return [], [
+            Diagnostic(
+                level="error",
+                code="E148",
+                message=(
+                    f'The "serviceAccount" block of module "{module_id}" must be a '
+                    'mapping with an optional "rbac" rules list. Kubernetes would '
+                    "reject anything else at install time, so the renderer fails "
+                    "closed instead of shipping a broken Role."
+                ),
+                path=f"module:{module_id}.implementation.kubernetes.serviceAccount",
+            )
+        ]
     declared = service_account.get("rbac")
     if not declared:
         return [], diagnostics
@@ -1739,12 +1753,9 @@ def _rbac_rules(
 
     rules: list[dict[str, Any]] = []
     for index, rule in enumerate(declared):
-        well_formed = (
-            isinstance(rule, dict)
-            and all(
-                isinstance(rule.get(field), list) and rule[field]
-                for field in ("apiGroups", "resources", "verbs")
-            )
+        well_formed = isinstance(rule, dict) and all(
+            isinstance(rule.get(field), list) and rule[field]
+            for field in ("apiGroups", "resources", "verbs")
         )
         if not well_formed:
             diagnostics.append(_rbac_shape_diagnostic(module_id, f"rbac[{index}]"))
@@ -1787,9 +1798,7 @@ def _network_policy_passthrough(
     if network_policy is None:
         return empty, diagnostics
     if not isinstance(network_policy, dict):
-        return empty, [
-            _network_policy_shape_diagnostic(module_id, "networkPolicy")
-        ]
+        return empty, [_network_policy_shape_diagnostic(module_id, "networkPolicy")]
 
     rules: dict[str, list[dict[str, Any]]] = {}
     for direction in ("ingress", "egress"):
@@ -1801,7 +1810,9 @@ def _network_policy_passthrough(
             isinstance(rule, dict) for rule in declared
         ):
             return empty, [
-                _network_policy_shape_diagnostic(module_id, f"networkPolicy.{direction}")
+                _network_policy_shape_diagnostic(
+                    module_id, f"networkPolicy.{direction}"
+                )
             ]
         rules[direction] = declared
     return (rules["ingress"], rules["egress"]), diagnostics
@@ -1860,9 +1871,11 @@ def _external_egress_entries(
     if declared is None:
         return [], diagnostics
     if not isinstance(declared, list):
-        return [], [_egress_diagnostic(
-            module_id, path, "must be a list of egress entries (mappings)"
-        )]
+        return [], [
+            _egress_diagnostic(
+                module_id, path, "must be a list of egress entries (mappings)"
+            )
+        ]
     entries: list[dict[str, Any]] = []
     for index, raw in enumerate(declared):
         entry_path = f"{path}[{index}]"
@@ -1884,8 +1897,9 @@ def _parse_egress_entry(
     unknown = sorted(set(entry) - _EGRESS_ENTRY_KEYS)
     if unknown:
         return {}, _egress_diagnostic(
-            module_id, path,
-            f'must declare only {sorted(_EGRESS_ENTRY_KEYS)}; unknown key(s): '
+            module_id,
+            path,
+            f"must declare only {sorted(_EGRESS_ENTRY_KEYS)}; unknown key(s): "
             + ", ".join(unknown),
         )
 
@@ -1893,20 +1907,25 @@ def _parse_egress_entry(
     cidr = entry.get("cidr")
     if (host is None) == (cidr is None):
         return {}, _egress_diagnostic(
-            module_id, path, 'must declare exactly one of "host" (IP literal) or "cidr" (CIDR block)'
+            module_id,
+            path,
+            'must declare exactly one of "host" (IP literal) or "cidr" (CIDR block)',
         )
 
     if host is not None:
         host_text = str(host).strip()
         if _UNRESOLVED_EXPR.match(host_text):
             return {}, _egress_diagnostic(
-                module_id, path, f'"host" expression "{host_text}" does not resolve against the plan'
+                module_id,
+                path,
+                f'"host" expression "{host_text}" does not resolve against the plan',
             )
         try:
             address = ipaddress.ip_address(host_text)
         except ValueError:
             return {}, _egress_diagnostic(
-                module_id, path,
+                module_id,
+                path,
                 f'"host" must be an IP literal (IPv4 or IPv6), got "{host_text}". A DNS '
                 "name cannot be expressed in a NetworkPolicy ipBlock and resolving it at "
                 "render time would be non-deterministic; declare the destination's IP "
@@ -1917,13 +1936,16 @@ def _parse_egress_entry(
         cidr_text = str(cidr).strip()
         if _UNRESOLVED_EXPR.match(cidr_text):
             return {}, _egress_diagnostic(
-                module_id, path, f'"cidr" expression "{cidr_text}" does not resolve against the plan'
+                module_id,
+                path,
+                f'"cidr" expression "{cidr_text}" does not resolve against the plan',
             )
         try:
             network = ipaddress.ip_network(cidr_text, strict=True)
         except ValueError:
             return {}, _egress_diagnostic(
-                module_id, path,
+                module_id,
+                path,
                 f'"cidr" must be a CIDR block in network form (e.g. "10.20.0.0/16"; host '
                 f'bits set are rejected), got "{cidr_text}".',
             )
@@ -1942,17 +1964,25 @@ def _parse_egress_entry(
             text = item.strip()
             if _UNRESOLVED_EXPR.match(text):
                 return {}, _egress_diagnostic(
-                    module_id, path, f'"except" expression "{text}" does not resolve against the plan'
+                    module_id,
+                    path,
+                    f'"except" expression "{text}" does not resolve against the plan',
                 )
             try:
                 except_network = ipaddress.ip_network(text, strict=True)
             except ValueError:
                 return {}, _egress_diagnostic(
-                    module_id, path, f'"except" entry "{text}" is not a valid CIDR block'
+                    module_id,
+                    path,
+                    f'"except" entry "{text}" is not a valid CIDR block',
                 )
-            if except_network.version != network.version or not except_network.subnet_of(network):
+            if (
+                except_network.version != network.version
+                or not except_network.subnet_of(network)
+            ):
                 return {}, _egress_diagnostic(
-                    module_id, path,
+                    module_id,
+                    path,
                     f'"except" entry "{text}" must be a subnet of the declared cidr '
                     f'"{cidr_normalized}".',
                 )
@@ -1961,7 +1991,8 @@ def _parse_egress_entry(
     protocol = entry.get("protocol", "TCP")
     if not isinstance(protocol, str) or protocol.upper() not in _EGRESS_PROTOCOLS:
         return {}, _egress_diagnostic(
-            module_id, path,
+            module_id,
+            path,
             f'"protocol" must be one of {list(_EGRESS_PROTOCOLS)}, got {protocol!r}',
         )
     protocol = protocol.upper()
@@ -1972,7 +2003,8 @@ def _parse_egress_entry(
         number = _int_or_none(single)
         if number is None or not 1 <= number <= 65535:
             return {}, _egress_diagnostic(
-                module_id, path,
+                module_id,
+                path,
                 f'"port" must be an integer between 1 and 65535, got {single!r}',
             )
         port_numbers.add(number)
@@ -1980,14 +2012,16 @@ def _parse_egress_entry(
     if many is not None:
         if not isinstance(many, list) or not many:
             return {}, _egress_diagnostic(
-                module_id, path,
+                module_id,
+                path,
                 '"ports" must be a non-empty list of integers between 1 and 65535',
             )
         for item in many:
             number = _int_or_none(item)
             if number is None or not 1 <= number <= 65535:
                 return {}, _egress_diagnostic(
-                    module_id, path,
+                    module_id,
+                    path,
                     f'"ports" entries must be integers between 1 and 65535, got {item!r}',
                 )
             port_numbers.add(number)
@@ -2131,13 +2165,15 @@ def _workload_surfaces(
                 ports.add(target_port)
             if service_port is not None and target_port is not None:
                 port_map.setdefault(service_port, set()).add(target_port)
-        surfaces.append({
-            "type": service.get("type") or "ClusterIP",
-            "ports": sorted(ports),
-            "port_map": {
-                number: sorted(targets) for number, targets in port_map.items()
-            },
-        })
+        surfaces.append(
+            {
+                "type": service.get("type") or "ClusterIP",
+                "ports": sorted(ports),
+                "port_map": {
+                    number: sorted(targets) for number, targets in port_map.items()
+                },
+            }
+        )
     return surfaces
 
 
@@ -2150,7 +2186,7 @@ def _int_or_none(value: Any) -> int | None:
         return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 
@@ -2222,9 +2258,7 @@ def _network_policy_manifests(
     manifests: list[tuple[str, dict[str, Any]]] = []
     for module in modules:
         module_id = module["id"]
-        ingress: list[dict[str, Any]] = [
-            {"from": [_module_peer(module_id)]}
-        ]
+        ingress: list[dict[str, Any]] = [{"from": [_module_peer(module_id)]}]
         for consumer_id, ports in _sorted_edges(ingress_edges.get(module_id)):
             rule: dict[str, Any] = {"from": [_module_peer(consumer_id)]}
             if ports is not None:
@@ -2261,61 +2295,70 @@ def _network_policy_manifests(
         for entry in (external_egress or {}).get(module_id, []):
             egress.append(_egress_rule(entry))
 
-        manifests.append((
-            f"{module_id}-network-policy.yaml",
-            {
-                "apiVersion": "networking.k8s.io/v1",
-                "kind": "NetworkPolicy",
-                "metadata": {
-                    "name": "{{ .Release.Name }}-" + module_id + "-network-policy",
-                    "labels": _labels(release, module_id),
+        manifests.append(
+            (
+                f"{module_id}-network-policy.yaml",
+                {
+                    "apiVersion": "networking.k8s.io/v1",
+                    "kind": "NetworkPolicy",
+                    "metadata": {
+                        "name": "{{ .Release.Name }}-" + module_id + "-network-policy",
+                        "labels": _labels(release, module_id),
+                    },
+                    "spec": {
+                        "podSelector": {
+                            "matchLabels": {
+                                "cds.dev/module": module_id,
+                                "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                            }
+                        },
+                        "policyTypes": ["Ingress", "Egress"],
+                        "ingress": ingress,
+                        "egress": egress,
+                    },
                 },
-                "spec": {
-                    "podSelector": {"matchLabels": {
-                        "cds.dev/module": module_id,
-                        "app.kubernetes.io/instance": "{{ .Release.Name }}",
-                    }},
-                    "policyTypes": ["Ingress", "Egress"],
-                    "ingress": ingress,
-                    "egress": egress,
-                },
-            },
-        ))
+            )
+        )
 
     # Workload-scoped egress declarations get their own release-scoped
     # NetworkPolicy selecting only that workload's pods (by the
     # app.kubernetes.io/name label the workload manifest carries). The
     # policy carries Egress only: the module policy above still applies to
     # the same pods and keeps everything undeclared denied.
-    for (module_id, workload_name), entries in sorted(
-        (workload_egress or {}).items()
-    ):
+    for (module_id, workload_name), entries in sorted((workload_egress or {}).items()):
         if not entries:
             continue
         full_name = _compose_service_name(module_id, str(workload_name))
-        manifests.append((
-            f"{module_id}-{workload_name}-egress-network-policy.yaml",
-            {
-                "apiVersion": "networking.k8s.io/v1",
-                "kind": "NetworkPolicy",
-                "metadata": {
-                    "name": (
-                        "{{ .Release.Name }}-" + module_id + "-" + str(workload_name)
-                        + "-egress-network-policy"
-                    ),
-                    "labels": _labels(release, module_id),
+        manifests.append(
+            (
+                f"{module_id}-{workload_name}-egress-network-policy.yaml",
+                {
+                    "apiVersion": "networking.k8s.io/v1",
+                    "kind": "NetworkPolicy",
+                    "metadata": {
+                        "name": (
+                            "{{ .Release.Name }}-"
+                            + module_id
+                            + "-"
+                            + str(workload_name)
+                            + "-egress-network-policy"
+                        ),
+                        "labels": _labels(release, module_id),
+                    },
+                    "spec": {
+                        "podSelector": {
+                            "matchLabels": {
+                                "cds.dev/module": module_id,
+                                "app.kubernetes.io/name": full_name,
+                                "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                            }
+                        },
+                        "policyTypes": ["Egress"],
+                        "egress": [_egress_rule(entry) for entry in entries],
+                    },
                 },
-                "spec": {
-                    "podSelector": {"matchLabels": {
-                        "cds.dev/module": module_id,
-                        "app.kubernetes.io/name": full_name,
-                        "app.kubernetes.io/instance": "{{ .Release.Name }}",
-                    }},
-                    "policyTypes": ["Egress"],
-                    "egress": [_egress_rule(entry) for entry in entries],
-                },
-            },
-        ))
+            )
+        )
     return manifests
 
 
@@ -2335,17 +2378,19 @@ def _binding_ports(
     spec = (consume.get("contract") or {}).get("spec") or {}
     ports = _port_scope(spec, provider_id, surfaces)
     if ports is None:
-        diagnostics.append(Diagnostic(
-            level="warning",
-            code="W128",
-            message=(
-                f'Contract "{consumer_id}.{consume_name}" carries no numeric port and '
-                f'provider module "{provider_id}" advertises no service ports, so the '
-                "generated NetworkPolicy allows egress to it on all ports. Declare the "
-                "port in the contract to keep the rule port-scoped."
-            ),
-            path=f"module:{consumer_id}.consumes.{consume_name}",
-        ))
+        diagnostics.append(
+            Diagnostic(
+                level="warning",
+                code="W128",
+                message=(
+                    f'Contract "{consumer_id}.{consume_name}" carries no numeric port and '
+                    f'provider module "{provider_id}" advertises no service ports, so the '
+                    "generated NetworkPolicy allows egress to it on all ports. Declare the "
+                    "port in the contract to keep the rule port-scoped."
+                ),
+                path=f"module:{consumer_id}.consumes.{consume_name}",
+            )
+        )
     return ports
 
 
@@ -2373,11 +2418,15 @@ def _port_scope(
         if mapped:
             return tuple(sorted(mapped))
         return (port,)
-    advertised = tuple(sorted({
-        number
-        for surface in surfaces.get(provider_id, [])
-        for number in surface["ports"]
-    }))
+    advertised = tuple(
+        sorted(
+            {
+                number
+                for surface in surfaces.get(provider_id, [])
+                for number in surface["ports"]
+            }
+        )
+    )
     if advertised:
         return advertised
     return None
@@ -2416,18 +2465,20 @@ def _reverse_proxy_route_edges(
         if target_id == proxy_id or (problem is None and target_id not in module_ids):
             continue
         if problem is not None:
-            diagnostics.append(Diagnostic(
-                level="warning",
-                code="W129",
-                message=(
-                    f'Reverse-proxy route "{path}" cannot be derived as a '
-                    f"NetworkPolicy edge ({problem}), so the default-deny policy "
-                    f'of proxy "{proxy_id}" keeps the target unreachable. Fix the '
-                    "route's contractRef and its http-service contract port, or add a "
-                    "custom networkPolicy.egress rule."
-                ),
-                path=path,
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="warning",
+                    code="W129",
+                    message=(
+                        f'Reverse-proxy route "{path}" cannot be derived as a '
+                        f"NetworkPolicy edge ({problem}), so the default-deny policy "
+                        f'of proxy "{proxy_id}" keeps the target unreachable. Fix the '
+                        "route's contractRef and its http-service contract port, or add a "
+                        "custom networkPolicy.egress rule."
+                    ),
+                    path=path,
+                )
+            )
             continue
         spec = dict((http_entry or {}).get("spec") or {})
         # The compose route check (E136) rejects backend ports outside
@@ -2439,19 +2490,21 @@ def _reverse_proxy_route_edges(
             spec.pop("port")
         ports = _port_scope(spec, target_id, surfaces)
         if ports is None:
-            diagnostics.append(Diagnostic(
-                level="warning",
-                code="W129",
-                message=(
-                    f'Reverse-proxy route "{path}" targets module "{target_id}", whose '
-                    "http-service contract carries no numeric port and which advertises "
-                    "no service ports, so no port-scoped NetworkPolicy edge can be "
-                    f'derived and the default-deny policy of proxy "{proxy_id}" keeps '
-                    "the target unreachable. Declare the port in the contract, or add "
-                    "a custom networkPolicy.egress rule."
-                ),
-                path=path,
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="warning",
+                    code="W129",
+                    message=(
+                        f'Reverse-proxy route "{path}" targets module "{target_id}", whose '
+                        "http-service contract carries no numeric port and which advertises "
+                        "no service ports, so no port-scoped NetworkPolicy edge can be "
+                        f'derived and the default-deny policy of proxy "{proxy_id}" keeps '
+                        "the target unreachable. Declare the port in the contract, or add "
+                        "a custom networkPolicy.egress rule."
+                    ),
+                    path=path,
+                )
+            )
             continue
         edges.append((target_id, ports))
     return edges
@@ -2490,7 +2543,9 @@ def _resolve_proxy_routes(
         if not isinstance(route, dict):
             continue
         contract_ref = route.get("contractRef")
-        parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+        parsed = (
+            parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+        )
         if parsed is None:
             resolved.append((route_index, "", None, "names no valid contractRef"))
             continue
@@ -2503,12 +2558,14 @@ def _resolve_proxy_routes(
             continue
         http_entry = _http_service_entry(target_module, provide_name)
         if http_entry is None:
-            resolved.append((
-                route_index,
-                target_module_id,
-                None,
-                "provides no matching http-service contract",
-            ))
+            resolved.append(
+                (
+                    route_index,
+                    target_module_id,
+                    None,
+                    "provides no matching http-service contract",
+                )
+            )
         else:
             resolved.append((route_index, target_module_id, http_entry, None))
     return resolved
@@ -2759,9 +2816,7 @@ def _module_context(
     Service) plus the `${k8s.service.*}` DNS names.
     """
     context = deepcopy(_build_context(module, secrets))
-    context["k8s"] = {
-        "service": _service_context(module, service_names)
-    }
+    context["k8s"] = {"service": _service_context(module, service_names)}
     _release_scope_binding_hosts(context, service_names)
     return context
 
@@ -2825,7 +2880,8 @@ def _check_wait_gate_hosts(
     modules: list[dict[str, Any]],
     service_names: dict[str, str],
     secrets: dict[str, str],
-    passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]] | None = None,
+    passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]]
+    | None = None,
     external_egress: dict[str, list[dict[str, Any]]] | None = None,
     workload_egress: dict[tuple[str, str], list[dict[str, Any]]] | None = None,
 ) -> list[Diagnostic]:
@@ -2916,8 +2972,7 @@ def _check_wait_gate_hosts(
         )
         for workload_name, workload in enabled_workloads.items():
             if not any(
-                name in compose_services
-                for name in (workload.get("containers") or [])
+                name in compose_services for name in (workload.get("containers") or [])
             ):
                 # The workload renders no container, so its gates never run.
                 continue
@@ -2983,14 +3038,20 @@ def _check_binding_services(
     for module in modules:
         # List-valued consume entries (issue #883: reverse-proxy routes) are
         # flattened; each route binding is checked like a single binding.
-        for consume_name, item_index, consume in iter_consume_bindings(module.get("consumes")):
+        for consume_name, item_index, consume in iter_consume_bindings(
+            module.get("consumes")
+        ):
             contract_ref = str(consume.get("contractRef", ""))
             provider_id = contract_ref.split(".", 1)[0]
             if provider_id not in module_ids:
                 continue
             host = ((consume.get("contract") or {}).get("spec") or {}).get("host")
             if host not in available_services:
-                entry = f"{consume_name}[{item_index}]" if item_index is not None else consume_name
+                entry = (
+                    f"{consume_name}[{item_index}]"
+                    if item_index is not None
+                    else consume_name
+                )
                 diagnostics.append(
                     Diagnostic(
                         level="error",
@@ -3032,7 +3093,8 @@ def _check_provided_contract_services(
         rendered = {
             service_names[full]
             for workload_name in workloads
-            if (full := _compose_service_name(module_id, workload_name)) in service_names
+            if (full := _compose_service_name(module_id, workload_name))
+            in service_names
         }
         # Declared services (implementation.kubernetes.services) are not
         # rendered by CDS but exist once the module's manifests are applied,
@@ -3040,7 +3102,8 @@ def _check_provided_contract_services(
         rendered.update(
             service_names[full]
             for service_key in (k8s.get("services") or {})
-            if (full := _compose_service_name(module_id, str(service_key))) in service_names
+            if (full := _compose_service_name(module_id, str(service_key)))
+            in service_names
         )
         if rendered:
             rendered_by_module[module_id] = sorted(rendered)

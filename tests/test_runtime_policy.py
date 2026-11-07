@@ -1,4 +1,5 @@
 """Tests for CDS-SEC-090/091 (#207): production runtime policy and unconfined runtimes."""
+
 import json
 import shutil
 import tempfile
@@ -17,8 +18,14 @@ _RULES = {"CDS-SEC-090", "CDS-SEC-091"}
 
 
 class RuntimePolicyTest(unittest.TestCase):
-    def _profile(self, environment="production", security=None, hardened=False, confinement=None,
-                 service_extra=None):
+    def _profile(
+        self,
+        environment="production",
+        security=None,
+        hardened=False,
+        confinement=None,
+        service_extra=None,
+    ):
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, tmp, True)
         modules = tmp / "modules"
@@ -26,13 +33,17 @@ class RuntimePolicyTest(unittest.TestCase):
         if hardened:
             module_file = modules / "secrets" / "fake-literal" / "module.yaml"
             data = yaml.safe_load(module_file.read_text())
-            service = data["spec"]["implementation"]["compose"]["services"]["fake-literal"]
-            service.update({
-                "user": "1000:1000",
-                "read_only": True,
-                "cap_drop": ["ALL"],
-                "security_opt": ["no-new-privileges:true"],
-            })
+            service = data["spec"]["implementation"]["compose"]["services"][
+                "fake-literal"
+            ]
+            service.update(
+                {
+                    "user": "1000:1000",
+                    "read_only": True,
+                    "cap_drop": ["ALL"],
+                    "security_opt": ["no-new-privileges:true"],
+                }
+            )
             service.update(service_extra or {})
             module_file.write_text(yaml.safe_dump(data))
         profile_dir = tmp / "profile"
@@ -43,7 +54,9 @@ class RuntimePolicyTest(unittest.TestCase):
         if security:
             data["spec"]["security"] = security
         if confinement:
-            data["spec"].setdefault("security", {})["runtime"] = {"confinement": confinement}
+            data["spec"].setdefault("security", {})["runtime"] = {
+                "confinement": confinement
+            }
         path = profile_dir / "profile.yaml"
         path.write_text(yaml.safe_dump(data))
         return path
@@ -65,20 +78,32 @@ class RuntimePolicyTest(unittest.TestCase):
         self.assertEqual(self._findings(self._profile(environment="local")), [])
 
     def test_waiver_removes_only_listed_checks(self):
-        waiver = {"waivers": {"runtimePolicy": {
-            "reason": "image sets USER", "checks": ["nonRootUser"],
-        }}}
+        waiver = {
+            "waivers": {
+                "runtimePolicy": {
+                    "reason": "image sets USER",
+                    "checks": ["nonRootUser"],
+                }
+            }
+        }
         path = self._profile(security=waiver)
-        self.assertEqual([d for d in validate_profile(str(path)) if d.level == "error"], [])
+        self.assertEqual(
+            [d for d in validate_profile(str(path)) if d.level == "error"], []
+        )
         message = self._findings(path)[0]["message"]
         self.assertNotIn("non-root", message)
         self.assertIn("cap_drop", message)
 
     def test_scoped_waiver_only_suppresses_services_in_listed_modules(self):
-        waiver = {"waivers": {"runtimePolicy": {
-            "reason": "image sets USER", "checks": ["nonRootUser"],
-            "modules": ["fake-literal"],
-        }}}
+        waiver = {
+            "waivers": {
+                "runtimePolicy": {
+                    "reason": "image sets USER",
+                    "checks": ["nonRootUser"],
+                    "modules": ["fake-literal"],
+                }
+            }
+        }
         path = self._profile(security=waiver)
         profile = yaml.safe_load(path.read_text())
         second_module = dict(profile["spec"]["modules"][0])
@@ -93,34 +118,48 @@ class RuntimePolicyTest(unittest.TestCase):
         self.assertIn("cap_drop", by_module["fake-literal"])
         self.assertIn("non-root", by_module["other"])
         warnings = [
-            d.message for d in run_security_validation(
-                path, env_file=str(path.parent / ".env")
-            )[1] if d.code == "W103"
+            d.message
+            for d in run_security_validation(path, env_file=str(path.parent / ".env"))[
+                1
+            ]
+            if d.code == "W103"
         ]
         self.assertEqual(len(warnings), 1)
         self.assertIn("modules: fake-literal", warnings[0])
 
     def test_unscoped_waiver_keeps_profile_wide_behavior(self):
-        waiver = {"waivers": {"runtimePolicy": {
-            "reason": "image sets USER", "checks": ["nonRootUser"],
-        }}}
+        waiver = {
+            "waivers": {
+                "runtimePolicy": {
+                    "reason": "image sets USER",
+                    "checks": ["nonRootUser"],
+                }
+            }
+        }
         path = self._profile(security=waiver)
         findings = self._findings(path)
         self.assertEqual(len(findings), 1)
         self.assertNotIn("non-root", findings[0]["message"])
         warnings = [
-            d.message for d in run_security_validation(
-                path, env_file=str(path.parent / ".env")
-            )[1] if d.code == "W103"
+            d.message
+            for d in run_security_validation(path, env_file=str(path.parent / ".env"))[
+                1
+            ]
+            if d.code == "W103"
         ]
         self.assertEqual(len(warnings), 1)
         self.assertNotIn("modules:", warnings[0])
 
     def test_scoped_waiver_rejects_unknown_module_ids(self):
-        waiver = {"waivers": {"runtimePolicy": {
-            "reason": "image sets USER", "checks": ["nonRootUser"],
-            "modules": ["missing-module"],
-        }}}
+        waiver = {
+            "waivers": {
+                "runtimePolicy": {
+                    "reason": "image sets USER",
+                    "checks": ["nonRootUser"],
+                    "modules": ["missing-module"],
+                }
+            }
+        }
         path = self._profile(security=waiver)
         diagnostics = [d for d in validate_profile(str(path)) if d.level == "error"]
         self.assertEqual(len(diagnostics), 1)
@@ -135,28 +174,50 @@ class RuntimePolicyTest(unittest.TestCase):
         return [d.code for d in diags]
 
     def test_applied_waiver_emits_warning_with_checks(self):
-        waiver = {"waivers": {"runtimePolicy": {
-            "reason": "image sets USER", "checks": ["nonRootUser"],
-        }}}
+        waiver = {
+            "waivers": {
+                "runtimePolicy": {
+                    "reason": "image sets USER",
+                    "checks": ["nonRootUser"],
+                }
+            }
+        }
         self.assertIn("W103", self._codes(self._profile(security=waiver)))
 
     def test_unused_waiver_on_hardened_service_does_not_warn(self):
-        waiver = {"waivers": {"runtimePolicy": {
-            "reason": "image sets USER", "checks": ["nonRootUser"],
-        }}}
-        self.assertNotIn("W103", self._codes(self._profile(security=waiver, hardened=True)))
+        waiver = {
+            "waivers": {
+                "runtimePolicy": {
+                    "reason": "image sets USER",
+                    "checks": ["nonRootUser"],
+                }
+            }
+        }
+        self.assertNotIn(
+            "W103", self._codes(self._profile(security=waiver, hardened=True))
+        )
 
     def test_waiver_on_non_production_profile_warns_it_has_no_effect(self):
-        waiver = {"waivers": {"runtimePolicy": {
-            "reason": "image sets USER", "checks": ["nonRootUser"],
-        }}}
+        waiver = {
+            "waivers": {
+                "runtimePolicy": {
+                    "reason": "image sets USER",
+                    "checks": ["nonRootUser"],
+                }
+            }
+        }
         path = self._profile(environment="local", security=waiver)
         self.assertIn("W104", self._codes(path))
 
     def test_dangerous_cap_add_is_flagged_and_cannot_be_waived(self):
-        waiver = {"waivers": {"runtimePolicy": {
-            "reason": "x", "checks": ["capDrop", "nonRootUser"],
-        }}}
+        waiver = {
+            "waivers": {
+                "runtimePolicy": {
+                    "reason": "x",
+                    "checks": ["capDrop", "nonRootUser"],
+                }
+            }
+        }
         path = self._profile(
             security=waiver, hardened=True, service_extra={"cap_add": ["SYS_ADMIN"]}
         )
@@ -165,13 +226,20 @@ class RuntimePolicyTest(unittest.TestCase):
         self.assertIn("cap_add grants SYS_ADMIN", findings[0]["message"])
 
     def test_benign_cap_add_is_allowed(self):
-        path = self._profile(hardened=True, service_extra={"cap_add": ["NET_BIND_SERVICE"]})
+        path = self._profile(
+            hardened=True, service_extra={"cap_add": ["NET_BIND_SERVICE"]}
+        )
         self.assertEqual(self._findings(path), [])
 
     def test_kernel_escape_cap_add_is_flagged_and_cannot_be_waived(self):
-        waiver = {"waivers": {"runtimePolicy": {
-            "reason": "x", "checks": ["capDrop", "nonRootUser"],
-        }}}
+        waiver = {
+            "waivers": {
+                "runtimePolicy": {
+                    "reason": "x",
+                    "checks": ["capDrop", "nonRootUser"],
+                }
+            }
+        }
         for cap in ("SYS_MODULE", "SYS_PTRACE", "SYS_RAWIO", "DAC_READ_SEARCH"):
             with self.subTest(cap=cap):
                 path = self._profile(
@@ -189,12 +257,18 @@ class RuntimePolicyTest(unittest.TestCase):
         ):
             with self.subTest(waiver=waiver):
                 path = self._profile(security={"waivers": {"runtimePolicy": waiver}})
-                self.assertTrue([d for d in validate_profile(str(path)) if d.level == "error"])
+                self.assertTrue(
+                    [d for d in validate_profile(str(path)) if d.level == "error"]
+                )
 
     def test_unconfined_runtime_is_flagged(self):
         path = self._profile(
             hardened=True,
-            confinement={"seccomp": "unconfined", "apparmor": "unconfined", "selinux": "disable"},
+            confinement={
+                "seccomp": "unconfined",
+                "apparmor": "unconfined",
+                "selinux": "disable",
+            },
         )
         findings = self._findings(path)
         self.assertEqual([f["rule_id"] for f in findings], ["CDS-SEC-091"])
@@ -225,7 +299,16 @@ class RuntimePolicyTest(unittest.TestCase):
 
     def test_user_root_variants_are_flagged(self):
         """Test that user: root, 0, root:root, 0:0 are all flagged as running as root."""
-        for user_value in ("root", "0", "root:root", "0:0", "  root  ", "0:1000", "0000", "00"):
+        for user_value in (
+            "root",
+            "0",
+            "root:root",
+            "0:0",
+            "  root  ",
+            "0:1000",
+            "0000",
+            "00",
+        ):
             with self.subTest(user=user_value):
                 path = self._profile(hardened=True, service_extra={"user": user_value})
                 findings = self._findings(path)

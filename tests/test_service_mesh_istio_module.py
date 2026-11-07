@@ -17,6 +17,7 @@ Covers the acceptance criteria of #776 and the promotion in #1171:
   render_helm emits the PeerAuthentication (plus the gated
   AuthorizationPolicy) as chart templates with a W130 operator warning.
 """
+
 import json
 import tempfile
 import unittest
@@ -226,9 +227,7 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
             [{"name": "warehouse", "port": 5432}, {"name": "cache", "port": 6379}],
         )
         # Defaults applied at plan time: authorization policy present but off.
-        self.assertEqual(
-            spec["authorizationPolicy"], {"enabled": False, "rules": []}
-        )
+        self.assertEqual(spec["authorizationPolicy"], {"enabled": False, "rules": []})
 
     def test_enrollment_needs_no_consumer_side_changes(self) -> None:
         plan = self._build_plan(dict(ISTIO_CONFIG))
@@ -237,7 +236,9 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
         # entry pointing at the mesh: the binding lives only in the istio
         # module's config.services, naming their instance ids.
         for module_id in ("warehouse", "cache"):
-            self.assertNotIn("service-mesh", yaml.safe_dump(by_id[module_id].get("consumes", {})))
+            self.assertNotIn(
+                "service-mesh", yaml.safe_dump(by_id[module_id].get("consumes", {}))
+            )
         mesh_config = by_id["mesh"]["config"]
         self.assertEqual(
             [s["name"] for s in mesh_config["services"]], ["warehouse", "cache"]
@@ -246,9 +247,7 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
     def test_maturity_counts_the_service_mesh(self) -> None:
         plan = self._build_plan(dict(ISTIO_CONFIG))
         report = build_maturity_report(plan)
-        mesh_cap = next(
-            c for c in report["capabilities"] if c["id"] == "service-mesh"
-        )
+        mesh_cap = next(c for c in report["capabilities"] if c["id"] == "service-mesh")
         self.assertTrue(mesh_cap["bound"])
         self.assertEqual(mesh_cap["providerInstances"], ["mesh"])
 
@@ -264,9 +263,7 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
         # AuthorizationPolicy is gated off by default: no fanned-out
         # per-service copies either.
         self.assertNotIn("templates/mesh-manifest-authorization-policy.yaml", files)
-        self.assertEqual(
-            [name for name in files if "authorization-policy" in name], []
-        )
+        self.assertEqual([name for name in files if "authorization-policy" in name], [])
 
         peer_auth = yaml.safe_load(
             files["templates/mesh-manifest-peer-authentication.yaml"]
@@ -289,7 +286,13 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
             {
                 "to": [{"operation": {"ports": ["5432"]}}],
                 "from": [
-                    {"source": {"principals": ["cluster.local/ns/cds-local/sa/orchestration"]}}
+                    {
+                        "source": {
+                            "principals": [
+                                "cluster.local/ns/cds-local/sa/orchestration"
+                            ]
+                        }
+                    }
                 ],
             }
         ]
@@ -308,7 +311,8 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
             self.assertEqual(policy["apiVersion"], "security.istio.io/v1")
             self.assertEqual(policy["kind"], "AuthorizationPolicy")
             self.assertEqual(
-                policy["metadata"]["name"], f"{{{{ .Release.Name }}}}-mesh-allow-{service}"
+                policy["metadata"]["name"],
+                f"{{{{ .Release.Name }}}}-mesh-allow-{service}",
             )
             self.assertEqual(policy["metadata"]["labels"]["cds.dev/module"], "mesh")
             self.assertEqual(policy["spec"]["action"], "ALLOW")
@@ -321,7 +325,9 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
             self.assertNotIn("enabledFrom", policy)
             self.assertNotIn("forEach", policy)
 
-    def test_manifest_only_module_gets_no_service_account_or_network_policy(self) -> None:
+    def test_manifest_only_module_gets_no_service_account_or_network_policy(
+        self,
+    ) -> None:
         files, _ = self._render(dict(ISTIO_CONFIG))
         self.assertNotIn("templates/mesh-service-account.yaml", files)
         self.assertNotIn("templates/mesh-network-policy.yaml", files)

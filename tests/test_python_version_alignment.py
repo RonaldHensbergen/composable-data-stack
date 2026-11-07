@@ -31,14 +31,24 @@ class PythonVersionAlignmentTest(unittest.TestCase):
 
     def _docker_python_version(self) -> str:
         content = self.dockerfile.read_text(encoding="utf-8")
-        match = re.search(r"^FROM\s+python:(\d+\.\d+)(?:[.-].*)?$", content, flags=re.MULTILINE)
-        self.assertIsNotNone(match, "Could not parse Python version from images/dagster/base/Dockerfile")
+        match = re.search(
+            r"^FROM\s+python:(\d+\.\d+)(?:[.-].*)?$", content, flags=re.MULTILINE
+        )
+        self.assertIsNotNone(
+            match, "Could not parse Python version from images/dagster/base/Dockerfile"
+        )
         return match.group(1)
 
     def _pyproject_min_python_version(self) -> str:
         content = self.pyproject.read_text(encoding="utf-8")
-        match = re.search(r'^requires-python\s*=\s*"\s*>=\s*(\d+\.\d+)\s*"\s*$', content, flags=re.MULTILINE)
-        self.assertIsNotNone(match, "Could not parse requires-python from pyproject.toml")
+        match = re.search(
+            r'^requires-python\s*=\s*"\s*>=\s*(\d+\.\d+)\s*"\s*$',
+            content,
+            flags=re.MULTILINE,
+        )
+        self.assertIsNotNone(
+            match, "Could not parse requires-python from pyproject.toml"
+        )
         return match.group(1)
 
     def _ci_python_versions(self) -> set[str]:

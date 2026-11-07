@@ -1,5 +1,6 @@
 """Regression tests for CDS-SEC-006/030/071 (#356): resolved-secret scanning of
 rendered output, generated files and CLI output."""
+
 import contextlib
 import io
 import os
@@ -23,7 +24,9 @@ _SECRET = "fixture-secret-value"  # noqa: S105
 
 
 def _plan(profile_path: Path) -> dict:
-    plan, diagnostics = build_plan(str(profile_path), env_file=str(profile_path.parent / ".env"))
+    plan, diagnostics = build_plan(
+        str(profile_path), env_file=str(profile_path.parent / ".env")
+    )
     assert plan is not None and not [d for d in diagnostics if d.level == "error"]
     return plan
 
@@ -52,8 +55,13 @@ class SecretLeakHelpersTest(unittest.TestCase):
             "CDS_REGION_NAME": "a-long-region-name",
             "CDS_API_TOKEN": "a-long-token-value",
         }
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, env, clear=True):
-            values = secret_leak.resolved_secret_values(env_file=str(Path(tmp) / ".env"))
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(os.environ, env, clear=True),
+        ):
+            values = secret_leak.resolved_secret_values(
+                env_file=str(Path(tmp) / ".env")
+            )
             self.assertEqual(values, {"CDS_API_TOKEN": "a-long-token-value"})
             declared = secret_leak.resolved_secret_values(
                 {"CDS_REGION_NAME"}, str(Path(tmp) / ".env")
@@ -61,8 +69,11 @@ class SecretLeakHelpersTest(unittest.TestCase):
             self.assertIn("CDS_REGION_NAME", declared)
 
     def test_environment_secrets_survive_unreadable_env_file(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {"CDS_API_TOKEN": "a-long-token-value"}, clear=True
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(
+                os.environ, {"CDS_API_TOKEN": "a-long-token-value"}, clear=True
+            ),
         ):
             unreadable = Path(tmp) / "env-dir"
             unreadable.mkdir()
@@ -133,7 +144,9 @@ class GeneratedFileScanTest(unittest.TestCase):
             self.assertNotIn(_SECRET, output.read_text())
 
     def test_helm_chart_not_written_when_a_file_contains_secret(self):
-        profile = _REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+        profile = (
+            _REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+        )
         secret = "sentinel-postgres-password"  # noqa: S105
         env = {
             "CDS_ANALYTICS_DB_NAME": "analytics",
@@ -155,8 +168,12 @@ class GeneratedFileScanTest(unittest.TestCase):
             plan, _ = build_plan(str(profile), env_file=str(env_file))
             plan["metadata"]["description"] = f"deployed with {secret}"
             chart_dir = Path(tmp) / "chart"
-            _, diagnostics = render_helm(plan, output_dir=str(chart_dir), env_file=str(env_file))
-            self.assertEqual([d.code for d in diagnostics if d.code == "E096"], ["E096"])
+            _, diagnostics = render_helm(
+                plan, output_dir=str(chart_dir), env_file=str(env_file)
+            )
+            self.assertEqual(
+                [d.code for d in diagnostics if d.code == "E096"], ["E096"]
+            )
             self.assertFalse(chart_dir.exists())
 
 
@@ -171,7 +188,9 @@ class RenderedOutputScanTest(unittest.TestCase):
 
     def test_flags_literal_secret_in_rendered_compose(self):
         hits = self._hits(_LEAKING)
-        self.assertEqual([h["path"] for h in hits], ["services.fake-literal.environment.SETTING"])
+        self.assertEqual(
+            [h["path"] for h in hits], ["services.fake-literal.environment.SETTING"]
+        )
         self.assertEqual(hits[0]["module"], "fake-literal")
         self.assertNotIn(_SECRET, str(hits[0]))
 
@@ -240,7 +259,9 @@ class RuleDeclarationTest(unittest.TestCase):
         import json
 
         rule_set = json.loads(
-            (_REPO_ROOT / "cli" / "resources" / "rule-set.json").read_text(encoding="utf-8")
+            (_REPO_ROOT / "cli" / "resources" / "rule-set.json").read_text(
+                encoding="utf-8"
+            )
         )
         rules = {r["id"]: r for r in rule_set["rules"]}
         for rule_id in ("CDS-SEC-006", "CDS-SEC-030", "CDS-SEC-071"):

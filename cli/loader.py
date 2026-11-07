@@ -236,7 +236,11 @@ def save_generated_profile(
         ]
 
     if name is None:
-        name = profile.get("metadata", {}).get("name") if isinstance(profile.get("metadata"), dict) else None
+        name = (
+            profile.get("metadata", {}).get("name")
+            if isinstance(profile.get("metadata"), dict)
+            else None
+        )
 
     if not isinstance(name, str) or not name.strip():
         return None, [

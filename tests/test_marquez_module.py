@@ -7,6 +7,7 @@ JSON Schema, and the provided `lineage-sink` contract plus the consumed
 the multi-service host wiring is covered by
 tests/test_marquez_lineage_sink_host.py (#1029).
 """
+
 import json
 import unittest
 from pathlib import Path

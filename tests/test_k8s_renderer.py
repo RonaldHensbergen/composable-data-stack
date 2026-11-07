@@ -210,9 +210,7 @@ class RealProfileHelmRendererTest(unittest.TestCase):
         # templates, so the kubernetes section overrides them with single-$
         # commands; see modules/cache/keydb/module.yaml, issue #206).
         self.assertIn('keydb-cli -a "$KEYDB_PASSWORD" ping', keydb)
-        self.assertIn(
-            'exec keydb-server --requirepass "$KEYDB_PASSWORD"', keydb
-        )
+        self.assertIn('exec keydb-server --requirepass "$KEYDB_PASSWORD"', keydb)
         self.assertIn(
             "timed out waiting for {{ .Release.Name }}-postgres:5432", superset
         )
@@ -506,9 +504,7 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
 
         self.assertFalse(any(diag.level == "error" for diag in diagnostics))
         service = yaml.safe_load(files["templates/demo-app-service.yaml"])
-        self.assertEqual(
-            service["metadata"]["name"], "{{ .Release.Name }}-demo-app"
-        )
+        self.assertEqual(service["metadata"]["name"], "{{ .Release.Name }}-demo-app")
         self.assertIn(
             "serviceName: '{{ .Release.Name }}-demo-app'",
             files["templates/demo-app-statefulset.yaml"],
@@ -586,9 +582,7 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
         matching = [d for d in diagnostics if d.code == "E150"]
         self.assertEqual(len(matching), 1)
         self.assertEqual(matching[0].level, "error")
-        self.assertEqual(
-            matching[0].path, "module:demo.provides.http.spec.host"
-        )
+        self.assertEqual(matching[0].path, "module:demo.provides.http.spec.host")
         self.assertIn("not a Kubernetes Service", matching[0].message)
 
     def test_provided_contract_matching_a_rendered_service_passes(self) -> None:
@@ -635,9 +629,7 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
         self.assertEqual(files, {})
         matching = [d for d in diagnostics if d.code == "E150"]
         self.assertEqual(len(matching), 1)
-        self.assertEqual(
-            matching[0].path, "module:demo.provides.http.spec.serviceName"
-        )
+        self.assertEqual(matching[0].path, "module:demo.provides.http.spec.serviceName")
 
     def test_provided_sql_database_and_object_storage_hosts_are_checked(self) -> None:
         plan = self.minimal_plan()
@@ -680,7 +672,9 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
         self.assertFalse(any(d.level == "error" for d in diagnostics))
         self.assertTrue(files)
 
-    def test_provided_contract_module_without_rendered_services_is_skipped(self) -> None:
+    def test_provided_contract_module_without_rendered_services_is_skipped(
+        self,
+    ) -> None:
         # Mirrors the compose check: a module whose workloads render no
         # Service at all is left to its own diagnostics.
         plan = self.minimal_plan()
@@ -698,7 +692,9 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
         self.assertNotIn("E150", {diagnostic.code for diagnostic in diagnostics})
         self.assertFalse(any(d.level == "error" for d in diagnostics))
 
-    def test_provided_contract_host_resolves_workload_service_name_override(self) -> None:
+    def test_provided_contract_host_resolves_workload_service_name_override(
+        self,
+    ) -> None:
         # A workload-level serviceName renames the rendered Service, so the
         # advertised host must be the Service name, and a serviceName
         # advertisement resolves through the override.
@@ -833,16 +829,16 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
             self.assertFalse(
                 any(diagnostic.level == "error" for diagnostic in diagnostics)
             )
-            self.assertTrue(
-                (Path(tmpdir) / "relative-chart" / "Chart.yaml").is_file()
-            )
+            self.assertTrue((Path(tmpdir) / "relative-chart" / "Chart.yaml").is_file())
 
     def test_plan_file_with_marker_shape_violation_fails_closed(self) -> None:
         # Plans can be loaded from files, so the helm renderer re-checks
         # marker shapes: an unhonorable marker would leak on the compose
         # target and silently diverge here.
         plan = self.minimal_plan()
-        plan["modules"][0]["implementation"]["compose"]["services"]["app"]["volumes"] = [
+        plan["modules"][0]["implementation"]["compose"]["services"]["app"][
+            "volumes"
+        ] = [
             {
                 "type": "volume",
                 "source": "data",
@@ -864,7 +860,9 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
         # untyped TypeError and is not honored here either; the plan
         # re-check fails closed on both targets.
         plan = self.minimal_plan()
-        plan["modules"][0]["implementation"]["compose"]["services"]["app"]["enabledFrom"] = True
+        plan["modules"][0]["implementation"]["compose"]["services"]["app"][
+            "enabledFrom"
+        ] = True
         files, diagnostics = render_helm(plan)
         e145 = [d for d in diagnostics if d.code == "E145"]
         self.assertEqual(len(e145), 1)
@@ -879,7 +877,9 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
         # shape crashed the helm renderer with an untyped TypeError; the
         # plan re-check fails closed instead.
         plan = self.minimal_plan()
-        plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]["enabledFrom"] = True
+        plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"][
+            "enabledFrom"
+        ] = True
         files, diagnostics = render_helm(plan)
         e145 = [d for d in diagnostics if d.code == "E145"]
         self.assertEqual(len(e145), 1)
@@ -975,17 +975,21 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         ]
         self.assertEqual(
             consumer_rules,
-            [{
-                "from": [{
-                    "podSelector": {
-                        "matchLabels": {
-                            "cds.dev/module": "consumer",
-                            "app.kubernetes.io/instance": "{{ .Release.Name }}",
+            [
+                {
+                    "from": [
+                        {
+                            "podSelector": {
+                                "matchLabels": {
+                                    "cds.dev/module": "consumer",
+                                    "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                                }
+                            }
                         }
-                    }
-                }],
-                "ports": [{"protocol": "TCP", "port": 8080}],
-            }],
+                    ],
+                    "ports": [{"protocol": "TCP", "port": 8080}],
+                }
+            ],
         )
 
         consumer = self.policy(files, "consumer")
@@ -1003,14 +1007,16 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertEqual(
             egress[2],
             {
-                "to": [{
-                    "podSelector": {
-                        "matchLabels": {
-                            "cds.dev/module": "demo",
-                            "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                "to": [
+                    {
+                        "podSelector": {
+                            "matchLabels": {
+                                "cds.dev/module": "demo",
+                                "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                            }
                         }
                     }
-                }],
+                ],
                 "ports": [{"protocol": "TCP", "port": 8080}],
             },
         )
@@ -1052,9 +1058,7 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         files, _ = self.render(self.nodeport_plan())
 
         demo = self.policy(files, "demo")
-        open_rules = [
-            rule for rule in demo["spec"]["ingress"] if "from" not in rule
-        ]
+        open_rules = [rule for rule in demo["spec"]["ingress"] if "from" not in rule]
         self.assertEqual(
             open_rules,
             [{"ports": [{"protocol": "TCP", "port": 8080}]}],
@@ -1065,9 +1069,11 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
 
         for module_id in ("demo", "consumer", "isolated"):
             with self.subTest(module=module_id):
-                documents = list(yaml.safe_load_all(
-                    files[f"templates/{module_id}-service-account.yaml"]
-                ))
+                documents = list(
+                    yaml.safe_load_all(
+                        files[f"templates/{module_id}-service-account.yaml"]
+                    )
+                )
                 self.assertEqual(len(documents), 1)
                 service_account = documents[0]
                 self.assertEqual(service_account["kind"], "ServiceAccount")
@@ -1076,9 +1082,7 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
                     f"{{{{ .Release.Name }}}}-{module_id}",
                 )
                 # Least privilege without RBAC rules: no API token at all.
-                self.assertFalse(
-                    service_account["automountServiceAccountToken"]
-                )
+                self.assertFalse(service_account["automountServiceAccountToken"])
                 # The deployment carries Helm's `toYaml` expansion for
                 # resources, so it is checked textually rather than parsed.
                 workload = files[f"templates/{module_id}-app-deployment.yaml"]
@@ -1100,9 +1104,9 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
 
         files, _ = self.render(plan)
 
-        documents = list(yaml.safe_load_all(
-            files["templates/demo-service-account.yaml"]
-        ))
+        documents = list(
+            yaml.safe_load_all(files["templates/demo-service-account.yaml"])
+        )
         self.assertEqual(
             [document["kind"] for document in documents],
             ["ServiceAccount", "Role", "RoleBinding"],
@@ -1164,8 +1168,12 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         # description uses it as the example); `minLength` on the items
         # would reject exactly that spelling.
         schema = json.loads(
-            (Path(__file__).resolve().parent.parent / "cli" / "resources"
-             / "module.schema.json").read_text(encoding="utf-8")
+            (
+                Path(__file__).resolve().parent.parent
+                / "cli"
+                / "resources"
+                / "module.schema.json"
+            ).read_text(encoding="utf-8")
         )
         validator = Draft202012Validator(schema["$defs"]["kubernetesRbacRule"])
         rule = {
@@ -1189,7 +1197,9 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             [{"protocol": "TCP", "port": 8080}],
         )
 
-    def test_binding_without_any_port_evidence_warns_and_stays_module_scoped(self) -> None:
+    def test_binding_without_any_port_evidence_warns_and_stays_module_scoped(
+        self,
+    ) -> None:
         # E084 requires the binding host to be an exposed Service, but that
         # Service can belong to a different module than the contractRef
         # names; when the provider itself advertises no ports, the egress
@@ -1210,14 +1220,16 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertEqual(
             consumer["spec"]["egress"][2],
             {
-                "to": [{
-                    "podSelector": {
-                        "matchLabels": {
-                            "cds.dev/module": "demo",
-                            "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                "to": [
+                    {
+                        "podSelector": {
+                            "matchLabels": {
+                                "cds.dev/module": "demo",
+                                "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                            }
                         }
                     }
-                }]
+                ]
             },
         )
 
@@ -1227,18 +1239,26 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         # rules so both can coexist.
         plan = self.bound_plan()
         plan["modules"][1]["implementation"]["kubernetes"]["networkPolicy"] = {
-            "egress": [{
-                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
-                "ports": [{"protocol": "TCP", "port": 443}],
-            }],
-            "ingress": [{
-                "from": [{
-                    "namespaceSelector": {
-                        "matchLabels": {"kubernetes.io/metadata.name": "ingress"}
-                    }
-                }],
-                "ports": [{"protocol": "TCP", "port": 8080}],
-            }],
+            "egress": [
+                {
+                    "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                    "ports": [{"protocol": "TCP", "port": 443}],
+                }
+            ],
+            "ingress": [
+                {
+                    "from": [
+                        {
+                            "namespaceSelector": {
+                                "matchLabels": {
+                                    "kubernetes.io/metadata.name": "ingress"
+                                }
+                            }
+                        }
+                    ],
+                    "ports": [{"protocol": "TCP", "port": 8080}],
+                }
+            ],
         }
 
         files, _ = self.render(plan)
@@ -1254,11 +1274,13 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertEqual(
             consumer["spec"]["ingress"][-1],
             {
-                "from": [{
-                    "namespaceSelector": {
-                        "matchLabels": {"kubernetes.io/metadata.name": "ingress"}
+                "from": [
+                    {
+                        "namespaceSelector": {
+                            "matchLabels": {"kubernetes.io/metadata.name": "ingress"}
+                        }
                     }
-                }],
+                ],
                 "ports": [{"protocol": "TCP", "port": 8080}],
             },
         )
@@ -1268,7 +1290,9 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         # passthrough block must fail closed as E149, not crash or render a
         # broken NetworkPolicy.
         plan = self.bound_plan()
-        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = "allow-all"
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = (
+            "allow-all"
+        )
 
         files, diagnostics = render_helm(plan)
 
@@ -1301,7 +1325,9 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         # match the destination pod port: a `port: 80, targetPort: 8080`
         # remap must generate rules for 8080, not 80.
         plan = self.bound_plan()
-        plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]["service"] = {
+        plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"][
+            "service"
+        ] = {
             "type": "ClusterIP",
             "ports": [{"name": "http", "port": 80, "targetPort": 8080}],
         }
@@ -1416,9 +1442,7 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
                 "ports": [{"name": "http", "port": 9090}],
             },
         }
-        workloads["app"]["waitFor"] = [
-            {"host": "${k8s.service.sidecar}", "port": 9090}
-        ]
+        workloads["app"]["waitFor"] = [{"host": "${k8s.service.sidecar}", "port": 9090}]
 
         files, diagnostics = render_helm(plan)
 
@@ -1439,10 +1463,12 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         plan = self.bound_plan()
         consumer = plan["modules"][1]
         consumer["implementation"]["kubernetes"]["networkPolicy"] = {
-            "egress": [{
-                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
-                "ports": [{"protocol": "TCP", "port": 443}],
-            }],
+            "egress": [
+                {
+                    "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                    "ports": [{"protocol": "TCP", "port": 443}],
+                }
+            ],
         }
         workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
         workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
@@ -1463,10 +1489,12 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         plan = self.bound_plan()
         consumer = plan["modules"][1]
         consumer["implementation"]["kubernetes"]["networkPolicy"] = {
-            "egress": [{
-                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
-                "ports": [{"protocol": "TCP", "port": 443}],
-            }],
+            "egress": [
+                {
+                    "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                    "ports": [{"protocol": "TCP", "port": 443}],
+                }
+            ],
         }
         workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
 
@@ -1481,17 +1509,20 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
                 self.assertEqual(len(e152), 1)
                 self.assertIn(f'"{host}"', e152[0].message)
 
-
     def test_wait_gate_with_excepted_passthrough_address_fails_closed(self) -> None:
         # An `except` CIDR inside the ipBlock stays denied, so a gate on an
         # excepted address is not lifted by the passthrough rule.
         plan = self.bound_plan()
         consumer = plan["modules"][1]
         consumer["implementation"]["kubernetes"]["networkPolicy"] = {
-            "egress": [{
-                "to": [{"ipBlock": {"cidr": "10.8.0.0/16", "except": ["10.8.1.0/24"]}}],
-                "ports": [{"protocol": "TCP", "port": 443}],
-            }],
+            "egress": [
+                {
+                    "to": [
+                        {"ipBlock": {"cidr": "10.8.0.0/16", "except": ["10.8.1.0/24"]}}
+                    ],
+                    "ports": [{"protocol": "TCP", "port": 443}],
+                }
+            ],
         }
         workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
         workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
@@ -1511,10 +1542,14 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         plan = self.bound_plan()
         consumer = plan["modules"][1]
         consumer["implementation"]["kubernetes"]["networkPolicy"] = {
-            "egress": [{
-                "to": [{"ipBlock": {"cidr": "10.8.0.0/16", "except": ["not-a-cidr"]}}],
-                "ports": [{"protocol": "TCP", "port": 443}],
-            }],
+            "egress": [
+                {
+                    "to": [
+                        {"ipBlock": {"cidr": "10.8.0.0/16", "except": ["not-a-cidr"]}}
+                    ],
+                    "ports": [{"protocol": "TCP", "port": 443}],
+                }
+            ],
         }
         workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
         workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
@@ -1553,7 +1588,10 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             "ports": [{"name": "http", "port": 9090}],
         }
         other["provides"] = {
-            "http": {"kind": "http-service", "spec": {"host": "other-app", "port": 9090}}
+            "http": {
+                "kind": "http-service",
+                "spec": {"host": "other-app", "port": 9090},
+            }
         }
         isolated = self.module("isolated")
         return {
@@ -1571,8 +1609,11 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             to = rule.get("to")
             if not to:
                 continue
-            peer = to[0].get("podSelector", {}).get("matchLabels", {}).get(
-                "cds.dev/module"
+            peer = (
+                to[0]
+                .get("podSelector", {})
+                .get("matchLabels", {})
+                .get("cds.dev/module")
             )
             if peer and peer != module_id:
                 edges[peer] = rule
@@ -1586,8 +1627,11 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             frm = rule.get("from")
             if not frm:
                 continue
-            peer = frm[0].get("podSelector", {}).get("matchLabels", {}).get(
-                "cds.dev/module"
+            peer = (
+                frm[0]
+                .get("podSelector", {})
+                .get("matchLabels", {})
+                .get("cds.dev/module")
             )
             if peer and peer != module_id:
                 edges[peer] = rule
@@ -1606,14 +1650,16 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertEqual(
             proxy_edges["demo"],
             {
-                "to": [{
-                    "podSelector": {
-                        "matchLabels": {
-                            "cds.dev/module": "demo",
-                            "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                "to": [
+                    {
+                        "podSelector": {
+                            "matchLabels": {
+                                "cds.dev/module": "demo",
+                                "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                            }
                         }
                     }
-                }],
+                ],
                 "ports": [{"protocol": "TCP", "port": 8080}],
             },
         )
@@ -1643,7 +1689,9 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         # it gets no ingress edge from the proxy.
         files, _ = self.render(self.proxy_plan())
 
-        self.assertNotIn("isolated", yaml.safe_dump(self.proxy_egress_edges(files, "proxy")))
+        self.assertNotIn(
+            "isolated", yaml.safe_dump(self.proxy_egress_edges(files, "proxy"))
+        )
         isolated = self.policy(files, "isolated")
         self.assertNotIn("proxy", yaml.safe_dump(isolated["spec"]))
         self.assertEqual(len(isolated["spec"]["ingress"]), 1)
@@ -1689,7 +1737,9 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertIn("unknown module", w129[0].message)
         self.assertNotIn("ghost", yaml.safe_dump(self.policy(files, "proxy")["spec"]))
         # The valid routes still produced their edges.
-        self.assertEqual(set(self.proxy_egress_edges(files, "proxy")), {"demo", "other"})
+        self.assertEqual(
+            set(self.proxy_egress_edges(files, "proxy")), {"demo", "other"}
+        )
 
     def test_route_target_without_port_evidence_warns_and_stays_denied(self) -> None:
         # No numeric port on the target's http-service and no advertised
@@ -1715,7 +1765,9 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         # target's Service, so E152 must not fire for it (#1033); a gate on
         # a Service no route names still fails closed.
         plan = self.proxy_plan()
-        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
         workload["waitFor"] = [
             {"host": "${k8s.service.demo-app}", "port": 8080},
             {"host": "${k8s.service.isolated-app}", "port": 8080},
@@ -1735,7 +1787,9 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         deployment = files["templates/proxy-app-deployment.yaml"]
         self.assertIn("until nc -z {{ .Release.Name }}-demo-app 8080", deployment)
 
-    def test_route_with_out_of_range_backend_port_falls_back_to_advertised(self) -> None:
+    def test_route_with_out_of_range_backend_port_falls_back_to_advertised(
+        self,
+    ) -> None:
         # The compose route check (E136) rejects backend ports outside
         # 1-65535, but a plan loaded from a file can bypass it; such a port
         # must not render into the NetworkPolicy. The rule falls back to the
@@ -1802,12 +1856,14 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertEqual(
             consumer["spec"]["egress"][-1],
             {
-                "to": [{
-                    "ipBlock": {
-                        "cidr": "10.20.0.0/16",
-                        "except": ["10.20.0.13/32"],
+                "to": [
+                    {
+                        "ipBlock": {
+                            "cidr": "10.20.0.0/16",
+                            "except": ["10.20.0.13/32"],
+                        }
                     }
-                }],
+                ],
                 "ports": [
                     {"protocol": "UDP", "port": 443},
                     {"protocol": "UDP", "port": 8443},
@@ -1881,10 +1937,12 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertEqual(workload_policy["spec"]["policyTypes"], ["Egress"])
         self.assertEqual(
             workload_policy["spec"]["egress"],
-            [{
-                "to": [{"ipBlock": {"cidr": "198.51.100.7/32"}}],
-                "ports": [{"protocol": "TCP", "port": 443}],
-            }],
+            [
+                {
+                    "to": [{"ipBlock": {"cidr": "198.51.100.7/32"}}],
+                    "ports": [{"protocol": "TCP", "port": 443}],
+                }
+            ],
         )
 
     def test_egress_destinations_support_config_substitution(self) -> None:
@@ -1924,13 +1982,19 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             ([{"host": "api.example.com", "port": 443}], "DNS"),
             ([{"cidr": "10.20.0.5/24"}], "CIDR block in network form"),
             ([{"cidr": "not-a-cidr"}], "CIDR block in network form"),
-            ([{"cidr": "10.20.0.0/16", "except": ["10.30.0.0/16"]}], "subnet of the declared cidr"),
+            (
+                [{"cidr": "10.20.0.0/16", "except": ["10.30.0.0/16"]}],
+                "subnet of the declared cidr",
+            ),
             ([{"cidr": "10.20.0.0/16", "except": ["nope/32"]}], "not a valid CIDR"),
             ([{"host": "203.0.113.10", "port": 0}], "between 1 and 65535"),
             ([{"host": "203.0.113.10", "port": 70000}], "between 1 and 65535"),
             ([{"host": "203.0.113.10", "ports": [443, "abc"]}], "between 1 and 65535"),
             ([{"host": "203.0.113.10", "ports": []}], "non-empty list"),
-            ([{"host": "203.0.113.10", "protocol": "ICMP"}], '"protocol" must be one of'),
+            (
+                [{"host": "203.0.113.10", "protocol": "ICMP"}],
+                '"protocol" must be one of',
+            ),
             ([{"host": "203.0.113.10", "to": []}], "unknown key"),
             (["not-a-mapping"], "must be a mapping"),
             ([{"cidr": "${config.missing}", "port": 443}], "does not resolve"),
@@ -2033,6 +2097,7 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertEqual(len(e152), 1)
         self.assertIn("api.example.com", e152[0].message)
         self.assertIn("DNS-name host cannot be expressed", e152[0].message)
+
     def test_workload_scoped_egress_covers_only_that_workloads_gates(self) -> None:
         # The worker's declaration opens its destination for the worker's
         # pods only: the app workload's gate on the same host still fails
@@ -2079,10 +2144,15 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         e152 = [d for d in diagnostics if d.code == "E152"]
         self.assertEqual(len(e152), 1)
         self.assertIn("203.0.113.13", e152[0].message)
+
     def test_module_schema_accepts_declared_external_egress(self) -> None:
         schema = json.loads(
-            (Path(__file__).resolve().parent.parent / "cli" / "resources"
-             / "module.schema.json").read_text(encoding="utf-8")
+            (
+                Path(__file__).resolve().parent.parent
+                / "cli"
+                / "resources"
+                / "module.schema.json"
+            ).read_text(encoding="utf-8")
         )
         validator = Draft202012Validator(
             {"$ref": "#/$defs/kubernetesImplementation", "$defs": schema["$defs"]}

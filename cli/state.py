@@ -4,6 +4,7 @@ Groups `docker compose ps -a --format json` output by health state for
 itself emits (Service/Name, Health, State), no module- or
 service-specific knowledge.
 """
+
 from __future__ import annotations
 
 import json
@@ -104,7 +105,7 @@ def _bucket_for(service: dict[str, Any]) -> str:
         exit_code_raw = service.get("ExitCode")
         try:
             exit_code = int(exit_code_raw)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return "UNKNOWN"
         return "HEALTHY EXIT" if exit_code == 0 else "UNHEALTHY EXIT"
     if state == "running":

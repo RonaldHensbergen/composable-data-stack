@@ -20,6 +20,7 @@ are skipped when `gh` is unavailable or unauthenticated), and
 `python scripts/check_practices_audit.py --pin` re-pins the rules hash after
 the change has been read and handled.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -51,7 +52,7 @@ def _run(cmd: list[str]) -> str | None:
             cmd, capture_output=True, text=True, check=True
         )
         return result.stdout
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return None
 
 
@@ -86,9 +87,11 @@ def _commit_mix() -> tuple[list[tuple[str, int]], int]:
             counts[prefix] += 1
         else:
             other += 1
-    rows = [(p, c) for p, c in counts.items() if c] + [("other (unconventional)", other)] if other else [
-        (p, c) for p, c in counts.items() if c
-    ]
+    rows = (
+        [(p, c) for p, c in counts.items() if c] + [("other (unconventional)", other)]
+        if other
+        else [(p, c) for p, c in counts.items() if c]
+    )
     return rows, len(subjects)
 
 
@@ -116,13 +119,18 @@ def _sanitize_markdown_text(text: object) -> str:
 
 
 def _automerge_section() -> list[str]:
-    data = _gh_json(["pr", "list", "--state", "open", "--label", "automerge", "--limit", "50"], ["number", "title"])
+    data = _gh_json(
+        ["pr", "list", "--state", "open", "--label", "automerge", "--limit", "50"],
+        ["number", "title"],
+    )
     if data is None:
         return ["_gh CLI unavailable or unauthenticated; skipping GitHub sections._"]
     prs = data if isinstance(data, list) else []
     lines = [f"{len(prs)} open PR(s) labeled `automerge`:"]
     for pr in prs:
-        lines.append(f"- #{pr.get('number')} {_sanitize_markdown_text(pr.get('title', ''))}")
+        lines.append(
+            f"- #{pr.get('number')} {_sanitize_markdown_text(pr.get('title', ''))}"
+        )
     if not prs:
         lines.append("- none")
     return lines
@@ -157,7 +165,9 @@ def _fetch_rules() -> str | None:
 
 
 def _rules_hash(text: str) -> str:
-    normalized = "\n".join(line.rstrip() for line in text.replace("\r\n", "\n").split("\n"))
+    normalized = "\n".join(
+        line.rstrip() for line in text.replace("\r\n", "\n").split("\n")
+    )
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
@@ -174,7 +184,9 @@ def pin_rules_hash() -> int:
         print(f"Could not fetch {RULES_URL}", file=sys.stderr)
         return 1
     digest = _rules_hash(text)
-    RULES_HASH_FILE.write_text(f"{digest}  impatientprogramming.org/rules/\n", encoding="utf-8")
+    RULES_HASH_FILE.write_text(
+        f"{digest}  impatientprogramming.org/rules/\n", encoding="utf-8"
+    )
     print(f"Pinned {RULES_HASH_FILE.relative_to(REPO_ROOT)} = {digest}")
     return 0
 
@@ -186,14 +198,18 @@ def _rules_section() -> list[str]:
     current = _rules_hash(text)
     pinned = _pinned_rules_hash()
     if pinned is None:
-        return ["_No pinned hash yet; run `make practices-audit-pin` to start tracking._"]
+        return [
+            "_No pinned hash yet; run `make practices-audit-pin` to start tracking._"
+        ]
     if current == pinned:
-        return [f"IMP rules unchanged (sha256 `{current[:12]}…` matches `scripts/imp-rules.sha256`)."]
+        return [
+            f"IMP rules unchanged (sha256 `{current[:12]}…` matches `scripts/imp-rules.sha256`)."
+        ]
     return [
         f"**{RULES_CHANGED_MARKER}**: pinned sha256 `{pinned[:12]}…`, live page hashes to `{current[:12]}…`.",
         f"- Rules page: {RULES_URL}",
         "- `practices-audit.yml` files a tracking issue to re-read the rules and re-assess",
-        "  the adoption (CONTRIBUTING.md \"How We Work\" and the implemented mechanisms).",
+        '  the adoption (CONTRIBUTING.md "How We Work" and the implemented mechanisms).',
         "- After handling it, re-pin with `make practices-audit-pin`; the next audit run",
         "  closes the tracking issue once the hashes match again.",
     ]
@@ -205,7 +221,9 @@ def render_report() -> str:
     fix = dict(rows).get("fix", 0)
     refine = dict(rows).get("refine", 0)
     labeled = fix + refine
-    refine_share = f" ({round(100 * refine / labeled)}% of fix+refine)" if labeled else ""
+    refine_share = (
+        f" ({round(100 * refine / labeled)}% of fix+refine)" if labeled else ""
+    )
     lines = [
         f"# Impatient Programming practices audit — {now}",
         "",

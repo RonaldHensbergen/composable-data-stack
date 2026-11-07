@@ -1,9 +1,10 @@
-#cli/security.py
+# cli/security.py
 """
 Security validation of composition profiles against a rule set.
 Scans both the profile config values and .env secrets for vulnerabilities.
 ${secrets.*} interpolation references in the profile are intentional and skipped.
 """
+
 from __future__ import annotations
 
 import json
@@ -81,6 +82,7 @@ _LEAK_PRONE_SERVICE_KEYS = ("command", "entrypoint", "healthcheck", "logging")
 # File I/O
 # ---------------------------------------------------------------------------
 
+
 def _load_json(path: Path | Traversable) -> Any:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
@@ -89,6 +91,7 @@ def _load_json(path: Path | Traversable) -> Any:
 # ---------------------------------------------------------------------------
 # Rule set loading
 # ---------------------------------------------------------------------------
+
 
 def _validate_rule_set(
     rule_schema_path: Path | Traversable | None = None,
@@ -103,7 +106,7 @@ def _validate_rule_set(
     errors = sorted(validator.iter_errors(rule_set), key=lambda e: list(e.path))
     if errors:
         msgs = [
-            f'{".".join(str(x) for x in err.path) or "<root>"}: {err.message}'
+            f"{'.'.join(str(x) for x in err.path) or '<root>'}: {err.message}"
             for err in errors
         ]
         raise ValueError("Rule-set validation failed:\n  - " + "\n  - ".join(msgs))
@@ -113,6 +116,7 @@ def _validate_rule_set(
 # ---------------------------------------------------------------------------
 # Flattening
 # ---------------------------------------------------------------------------
+
 
 def _flatten(obj: Any, prefix: str = "") -> list[tuple[str, Any]]:
     """Recursively flatten a nested dict/list into (path, value) pairs."""
@@ -261,7 +265,13 @@ def _flatten_file_permissions(
         mode = stat.S_IMODE(env_path.stat().st_mode)
     except OSError:
         return []
-    return [("<env>", f"{_normalize_scan_path(env_path, project_root)}.permissions", f"{mode:04o}")]
+    return [
+        (
+            "<env>",
+            f"{_normalize_scan_path(env_path, project_root)}.permissions",
+            f"{mode:04o}",
+        )
+    ]
 
 
 def _permission_mode(value: str) -> int | None:
@@ -337,9 +347,10 @@ def _flatten_rendered_leak_surfaces(
 # ---------------------------------------------------------------------------
 
 _SECRET_REF_RE = re.compile(
-    r"^\$\{secrets\.[^}]+\}$"   # ${secrets.KEY}
+    r"^\$\{secrets\.[^}]+\}$"  # ${secrets.KEY}
     r"|^secrets\.[A-Za-z0-9_.]+$"  # secrets.KEY
 )
+
 
 def _is_secret_reference(value: Any) -> bool:
     """
@@ -362,6 +373,7 @@ _RENDERER_REF_RE = re.compile(
     r"^\$\{(?:secrets|certificates|config|bindings|service)\.[^}]+\}$"  # ${config.x}
     r"|^(?:secrets|certificates|config|bindings|service)\.[A-Za-z0-9_.]+$"  # config.x
 )
+
 
 def _is_renderer_reference(value: Any) -> bool:
     """
@@ -445,6 +457,8 @@ _NON_SECRET_PATH_PATTERNS = (
     "spec.security.waivers.*.reason",
     "security.waivers.*.reason",
 )
+
+
 def _eval_condition(
     path: str,
     key: str,
@@ -461,7 +475,7 @@ def _eval_condition(
         or _path_matches_any(path, _NON_SECRET_PATH_PATTERNS)
     ):
         return False
-    
+
     if "pathPatterns" in cond and not _path_matches_any(path, cond["pathPatterns"]):
         return False
     if "keyRegex" in cond and not re.search(cond["keyRegex"], key or ""):
@@ -486,7 +500,10 @@ def _eval_condition(
         return False
     if "permissions" in cond and not _permissions_match(cond["permissions"], sval):
         return False
-    if "serviceTypes" in cond and _service_type_for_path(path) not in cond["serviceTypes"]:
+    if (
+        "serviceTypes" in cond
+        and _service_type_for_path(path) not in cond["serviceTypes"]
+    ):
         return False
 
     if "portExposure" in cond:
@@ -496,7 +513,9 @@ def _eval_condition(
             return False
         if exposure == "host-published" and ":" not in sval:
             return False
-        if exposure == "localhost-only" and not _LOOPBACK_HOST_PORT_PREFIX_RE.match(sval):
+        if exposure == "localhost-only" and not _LOOPBACK_HOST_PORT_PREFIX_RE.match(
+            sval
+        ):
             return False
 
     if "imageTagPolicy" in cond:
@@ -508,7 +527,9 @@ def _eval_condition(
         if policy == "require-tag" and (":" in sval or "@sha256:" in sval):
             return False
 
-    if "runtimeFlags" in cond and not any(flag in sval for flag in cond["runtimeFlags"]):
+    if "runtimeFlags" in cond and not any(
+        flag in sval for flag in cond["runtimeFlags"]
+    ):
         return False
     if "fallbackPattern" in cond and not re.search(cond["fallbackPattern"], sval):
         return False
@@ -528,9 +549,11 @@ def _eval_condition(
 
     return True
 
+
 # ---------------------------------------------------------------------------
 # Cross-item checks (cannot be expressed as per-item rules)
 # ---------------------------------------------------------------------------
+
 
 def _check_secret_reuse(
     flat_items: list[tuple[str, str, Any]],
@@ -560,24 +583,28 @@ def _check_secret_reuse(
         if len(locations) < 2:
             continue
         for module_id, path in locations:
-            findings.append({
-                "rule_id": "CDS-SEC-013",
-                "severity": "medium",
-                "module": module_id,
-                "message": "The same secret appears reused across multiple services",
-                "path": path,
-                "value": _redact(value),  # always redact reuse findings
-                "recommendation": [
-                    "Use separate credentials or secrets per service.",
-                    "Generate scoped secrets rather than sharing one across components.",
-                ],
-            })
+            findings.append(
+                {
+                    "rule_id": "CDS-SEC-013",
+                    "severity": "medium",
+                    "module": module_id,
+                    "message": "The same secret appears reused across multiple services",
+                    "path": path,
+                    "value": _redact(value),  # always redact reuse findings
+                    "recommendation": [
+                        "Use separate credentials or secrets per service.",
+                        "Generate scoped secrets rather than sharing one across components.",
+                    ],
+                }
+            )
 
     return findings
+
 
 # ---------------------------------------------------------------------------
 # Rule matching
 # ---------------------------------------------------------------------------
+
 
 def _rule_matches(
     rule: dict[str, Any],
@@ -617,16 +644,20 @@ def _rule_matches(
             )
 
         if ok:
-            findings.append({
-                "rule_id": rule["id"],
-                "severity": rule["severity"],
-                "module": module_id,
-                "message": rule["message"],
-                "path": path,
-                # A file mode is not sensitive and is the whole point of the finding.
-                "value": _redact(value) if redact_values and "file-permissions" not in rule.get("scope", []) else value,
-                "recommendation": rule["recommendation"],
-            })
+            findings.append(
+                {
+                    "rule_id": rule["id"],
+                    "severity": rule["severity"],
+                    "module": module_id,
+                    "message": rule["message"],
+                    "path": path,
+                    # A file mode is not sensitive and is the whole point of the finding.
+                    "value": _redact(value)
+                    if redact_values and "file-permissions" not in rule.get("scope", [])
+                    else value,
+                    "recommendation": rule["recommendation"],
+                }
+            )
 
     return findings
 
@@ -695,7 +726,9 @@ def _module_provides_tls_reverse_proxy(module: dict[str, Any]) -> bool:
     return False
 
 
-def _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan: dict[str, Any] | None) -> set[str]:
+def _plaintext_module_ids_fronted_by_tls_reverse_proxy(
+    plan: dict[str, Any] | None,
+) -> set[str]:
     """Return the ids of plan modules whose plaintext http-service contract is
     actually consumed (per the plan's contract wiring) by another module that
     itself provides a TLS (https) reverse-proxy contract.
@@ -711,13 +744,21 @@ def _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan: dict[str, Any] | No
 
     fronted: set[str] = set()
     for module in plan.get("modules", []):
-        if not isinstance(module, dict) or not _module_provides_tls_reverse_proxy(module):
+        if not isinstance(module, dict) or not _module_provides_tls_reverse_proxy(
+            module
+        ):
             continue
         # List-valued consume entries (issue #883: reverse-proxy routes) are
         # flattened so route-bound plaintext services count as fronted too.
-        for _consume_name, _item_index, consumed in iter_consume_bindings(module.get("consumes")):
+        for _consume_name, _item_index, consumed in iter_consume_bindings(
+            module.get("consumes")
+        ):
             contract_ref = consumed.get("contractRef")
-            parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+            parsed = (
+                parse_contract_ref(contract_ref)
+                if isinstance(contract_ref, str)
+                else None
+            )
             if parsed is None:
                 continue
             producer_id, _ = parsed
@@ -725,7 +766,10 @@ def _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan: dict[str, Any] | No
             if not isinstance(contract, dict) or contract.get("kind") != "http-service":
                 continue
             spec = contract.get("spec", {})
-            if isinstance(spec, dict) and str(spec.get("protocol", "")).lower() == "http":
+            if (
+                isinstance(spec, dict)
+                and str(spec.get("protocol", "")).lower() == "http"
+            ):
                 fronted.add(producer_id)
     return fronted
 
@@ -769,7 +813,9 @@ def _plaintext_exposure_waiver_reason(profile: dict[str, Any]) -> str | None:
     return reason or None
 
 
-def _rule_enabled(rule_set: dict[str, Any], rule_id: str, key: str = "enabled", default: bool = True) -> bool:
+def _rule_enabled(
+    rule_set: dict[str, Any], rule_id: str, key: str = "enabled", default: bool = True
+) -> bool:
     """Return whether the rule with the given id has `key` set truthy.
 
     Falls back to `default` if the rule set doesn't declare that rule id at
@@ -809,7 +855,12 @@ def _check_rendered_secret_values(
     rendered document -- keys or values -- means it was copied in from
     config rather than referenced.
     """
-    if not rule_enabled or rule is None or not isinstance(rendered_compose, dict) or not secret_values:
+    if (
+        not rule_enabled
+        or rule is None
+        or not isinstance(rendered_compose, dict)
+        or not secret_values
+    ):
         return []
 
     findings: list[dict[str, Any]] = []
@@ -820,16 +871,22 @@ def _check_rendered_secret_values(
         if not leaked:
             continue
         parts = path.split(".")
-        module_id = service_to_module.get(parts[1], parts[1]) if parts[0] == "services" and len(parts) > 1 else "<rendered>"
-        findings.append({
-            "rule_id": rule["id"],
-            "severity": rule["severity"],
-            "module": module_id,
-            "message": f"{rule['message']} ({', '.join(leaked)})",
-            "path": path,
-            "value": _redact(value) if redact_values else value,
-            "recommendation": rule["recommendation"],
-        })
+        module_id = (
+            service_to_module.get(parts[1], parts[1])
+            if parts[0] == "services" and len(parts) > 1
+            else "<rendered>"
+        )
+        findings.append(
+            {
+                "rule_id": rule["id"],
+                "severity": rule["severity"],
+                "module": module_id,
+                "message": f"{rule['message']} ({', '.join(leaked)})",
+                "path": path,
+                "value": _redact(value) if redact_values else value,
+                "recommendation": rule["recommendation"],
+            }
+        )
     return findings
 
 
@@ -841,7 +898,11 @@ _UNCONFINED_OPTS = {
     "label=disable": "selinux",
     "label:disable": "selinux",
 }
-_NO_NEW_PRIVILEGES = {"no-new-privileges", "no-new-privileges:true", "no-new-privileges=true"}
+_NO_NEW_PRIVILEGES = {
+    "no-new-privileges",
+    "no-new-privileges:true",
+    "no-new-privileges=true",
+}
 
 
 def _runs_as_root(user: Any) -> bool:
@@ -854,12 +915,21 @@ def _runs_as_root(user: Any) -> bool:
 def _runtime_policy_waiver(
     profile: dict[str, Any],
 ) -> tuple[set[str], set[str] | None]:
-    waiver = profile.get("spec", {}).get("security", {}).get("waivers", {}).get("runtimePolicy")
+    waiver = (
+        profile.get("spec", {})
+        .get("security", {})
+        .get("waivers", {})
+        .get("runtimePolicy")
+    )
     if not isinstance(waiver, dict):
         return set(), None
     reason = waiver.get("reason")
     checks = waiver.get("checks")
-    if not isinstance(reason, str) or not reason.strip() or not isinstance(checks, list):
+    if (
+        not isinstance(reason, str)
+        or not reason.strip()
+        or not isinstance(checks, list)
+    ):
         return set(), None
     modules = waiver.get("modules")
     module_scope = (
@@ -907,7 +977,11 @@ def _runtime_policy_violations(
             not options & _NO_NEW_PRIVILEGES,
             "no-new-privileges is not set in security_opt",
         ),
-        ("nonRootUser", _runs_as_root(service.get("user")), "no explicit non-root user"),
+        (
+            "nonRootUser",
+            _runs_as_root(service.get("user")),
+            "no explicit non-root user",
+        ),
         (
             "readOnlyRootFilesystem",
             service.get("read_only") is not True,
@@ -939,16 +1013,18 @@ def _check_runtime_policy(
     waiver_path = "spec.security.waivers.runtimePolicy"
     if profile_class != "prod":
         if waived and policy_rule is not None:
-            return [], [Diagnostic(
-                level="warning",
-                code="W104",
-                message=(
-                    f"{waiver_path} is set but has no effect for profile class "
-                    f"{profile_class!r}: CDS-SEC-090 and its waiver only apply to "
-                    "prod-class profiles."
-                ),
-                path=waiver_path,
-            )]
+            return [], [
+                Diagnostic(
+                    level="warning",
+                    code="W104",
+                    message=(
+                        f"{waiver_path} is set but has no effect for profile class "
+                        f"{profile_class!r}: CDS-SEC-090 and its waiver only apply to "
+                        "prod-class profiles."
+                    ),
+                    path=waiver_path,
+                )
+            ]
         return [], []
     if not isinstance(rendered_compose, dict):
         return [], []
@@ -964,53 +1040,66 @@ def _check_runtime_policy(
             service_waivers = waived or set()
             if waived_modules is not None and module_id not in waived_modules:
                 service_waivers = set()
-            violations, suppressed = _runtime_policy_violations(service, service_waivers)
+            violations, suppressed = _runtime_policy_violations(
+                service, service_waivers
+            )
             suppressed_checks |= suppressed
             if suppressed:
                 suppressed_modules.add(module_id)
             if violations:
-                findings.append({
-                    "rule_id": policy_rule["id"],
-                    "severity": policy_rule["severity"],
-                    "module": module_id,
-                    "message": f"{policy_rule['message']}: {'; '.join(violations)}",
-                    "path": path,
-                    "value": None,
-                    "recommendation": policy_rule["recommendation"],
-                })
+                findings.append(
+                    {
+                        "rule_id": policy_rule["id"],
+                        "severity": policy_rule["severity"],
+                        "module": module_id,
+                        "message": f"{policy_rule['message']}: {'; '.join(violations)}",
+                        "path": path,
+                        "value": None,
+                        "recommendation": policy_rule["recommendation"],
+                    }
+                )
         if confinement_rule is not None:
-            disabled = sorted({
-                _UNCONFINED_OPTS[opt]
-                for opt in (str(o).replace(" ", "") for o in service.get("security_opt") or [])
-                if opt in _UNCONFINED_OPTS
-            })
+            disabled = sorted(
+                {
+                    _UNCONFINED_OPTS[opt]
+                    for opt in (
+                        str(o).replace(" ", "")
+                        for o in service.get("security_opt") or []
+                    )
+                    if opt in _UNCONFINED_OPTS
+                }
+            )
             if disabled:
-                findings.append({
-                    "rule_id": confinement_rule["id"],
-                    "severity": confinement_rule["severity"],
-                    "module": module_id,
-                    "message": f"{confinement_rule['message']} ({', '.join(disabled)})",
-                    "path": f"{path}.security_opt",
-                    "value": None,
-                    "recommendation": confinement_rule["recommendation"],
-                })
+                findings.append(
+                    {
+                        "rule_id": confinement_rule["id"],
+                        "severity": confinement_rule["severity"],
+                        "module": module_id,
+                        "message": f"{confinement_rule['message']} ({', '.join(disabled)})",
+                        "path": f"{path}.security_opt",
+                        "value": None,
+                        "recommendation": confinement_rule["recommendation"],
+                    }
+                )
     diagnostics = []
     if suppressed_checks:
-        diagnostics.append(Diagnostic(
-            level="warning",
-            code="W103",
-            message=(
-                "Applied runtime policy waiver for production profile (checks: "
-                f"{', '.join(sorted(suppressed_checks))}"
-                + (
-                    f"; modules: {', '.join(sorted(suppressed_modules))}"
-                    if waived_modules is not None and suppressed_modules
-                    else ""
-                )
-                + f"). See {waiver_path}.reason."
-            ),
-            path=waiver_path,
-        ))
+        diagnostics.append(
+            Diagnostic(
+                level="warning",
+                code="W103",
+                message=(
+                    "Applied runtime policy waiver for production profile (checks: "
+                    f"{', '.join(sorted(suppressed_checks))}"
+                    + (
+                        f"; modules: {', '.join(sorted(suppressed_modules))}"
+                        if waived_modules is not None and suppressed_modules
+                        else ""
+                    )
+                    + f"). See {waiver_path}.reason."
+                ),
+                path=waiver_path,
+            )
+        )
     return findings, diagnostics
 
 
@@ -1039,16 +1128,18 @@ def _check_production_plaintext_exposure(
         # staying silent about a waiver that "sleeps" until the profile is
         # promoted to prod.
         if _plaintext_exposure_waiver_reason(profile) is not None:
-            return [], [Diagnostic(
-                level="warning",
-                code="W099",
-                message=(
-                    "spec.security.waivers.plaintextEndpointExposure is set but has no "
-                    f"effect for profile class {profile_class!r}: CDS-SEC-074 and its waiver "
-                    "only apply to prod-class profiles."
-                ),
-                path="spec.security.waivers.plaintextEndpointExposure",
-            )]
+            return [], [
+                Diagnostic(
+                    level="warning",
+                    code="W099",
+                    message=(
+                        "spec.security.waivers.plaintextEndpointExposure is set but has no "
+                        f"effect for profile class {profile_class!r}: CDS-SEC-074 and its waiver "
+                        "only apply to prod-class profiles."
+                    ),
+                    path="spec.security.waivers.plaintextEndpointExposure",
+                )
+            ]
         return [], []
 
     if not isinstance(plan, dict) or not isinstance(rendered_compose, dict):
@@ -1080,11 +1171,13 @@ def _check_production_plaintext_exposure(
             ports = [ports]
         for index, port in enumerate(ports):
             if _port_is_non_local_host_exposure(port):
-                exposures.append({
-                    "module": module_id,
-                    "path": f"services.{service_name}.ports[{index}]",
-                    "value": port,
-                })
+                exposures.append(
+                    {
+                        "module": module_id,
+                        "path": f"services.{service_name}.ports[{index}]",
+                        "value": port,
+                    }
+                )
 
     if not exposures:
         return [], []
@@ -1100,16 +1193,18 @@ def _check_production_plaintext_exposure(
     waiver_reason = _plaintext_exposure_waiver_reason(profile)
     if waiver_reason is not None:
         modules = ", ".join(sorted({entry["module"] for entry in exposures}))
-        return [], [Diagnostic(
-            level="warning",
-            code="W098",
-            message=(
-                "Applied plaintext endpoint exposure waiver for production profile "
-                f"(modules: {modules}). See "
-                "spec.security.waivers.plaintextEndpointExposure.reason."
-            ),
-            path="spec.security.waivers.plaintextEndpointExposure",
-        )]
+        return [], [
+            Diagnostic(
+                level="warning",
+                code="W098",
+                message=(
+                    "Applied plaintext endpoint exposure waiver for production profile "
+                    f"(modules: {modules}). See "
+                    "spec.security.waivers.plaintextEndpointExposure.reason."
+                ),
+                path="spec.security.waivers.plaintextEndpointExposure",
+            )
+        ]
 
     findings = [
         {
@@ -1179,7 +1274,10 @@ def _check_backup_target_binding(
         if not isinstance(module, dict):
             continue
         for contract in module.get("provides", {}).values():
-            if isinstance(contract, dict) and contract.get("kind") in _STATEFUL_CONTRACT_KINDS:
+            if (
+                isinstance(contract, dict)
+                and contract.get("kind") in _STATEFUL_CONTRACT_KINDS
+            ):
                 has_stateful_provider = True
         for consumed in module.get("consumes", {}).values():
             if not isinstance(consumed, dict):
@@ -1190,28 +1288,32 @@ def _check_backup_target_binding(
     if not has_stateful_provider or has_backup_target_consumer:
         return []
 
-    return [{
-        "rule_id": "CDS-SEC-080",
-        "severity": "medium",
-        "module": "profile",
-        "message": (
-            "Profile has a module with durable state (sql-database or "
-            "file-database) but no module consumes a backup-target contract"
-        ),
-        "path": "spec.modules",
-        "value": None,
-        "recommendation": [
-            "Wire a backup/restore-capable module into this profile: bind the "
-            "restic file backup module (#668) to the stateful modules' "
-            "backup-source contracts, or the postgres module's built-in "
-            "backup-target provider (#665) via spec.backup.target.",
-            "Until then, document and operate an out-of-band backup process "
-            "for this profile's stateful modules.",
-        ],
-    }]
+    return [
+        {
+            "rule_id": "CDS-SEC-080",
+            "severity": "medium",
+            "module": "profile",
+            "message": (
+                "Profile has a module with durable state (sql-database or "
+                "file-database) but no module consumes a backup-target contract"
+            ),
+            "path": "spec.modules",
+            "value": None,
+            "recommendation": [
+                "Wire a backup/restore-capable module into this profile: bind the "
+                "restic file backup module (#668) to the stateful modules' "
+                "backup-source contracts, or the postgres module's built-in "
+                "backup-target provider (#665) via spec.backup.target.",
+                "Until then, document and operate an out-of-band backup process "
+                "for this profile's stateful modules.",
+            ],
+        }
+    ]
 
 
-_IDENTITY_SOURCE_SEGMENT_RE = re.compile(r"(?:^|/)(?:modules|modules-experimental)/identity(?:/|$)")
+_IDENTITY_SOURCE_SEGMENT_RE = re.compile(
+    r"(?:^|/)(?:modules|modules-experimental)/identity(?:/|$)"
+)
 
 
 def _check_admin_service_identity_binding(
@@ -1230,7 +1332,11 @@ def _check_admin_service_identity_binding(
     confirm the identity module actually protects that specific service.
     See rule-set.json's $comment on CDS-SEC-081 for the full rationale.
     """
-    if not rule_enabled or not isinstance(plan, dict) or not isinstance(rendered_compose, dict):
+    if (
+        not rule_enabled
+        or not isinstance(plan, dict)
+        or not isinstance(rendered_compose, dict)
+    ):
         return []
 
     services = rendered_compose.get("services", {})
@@ -1238,7 +1344,8 @@ def _check_admin_service_identity_binding(
         return []
 
     admin_services = sorted(
-        service_name for service_name in services
+        service_name
+        for service_name in services
         if _service_type_for_path(f"services.{service_name}") == "admin-ui"
     )
     if not admin_services:
@@ -1302,7 +1409,9 @@ def _try_render_compose_for_scan(
     env_file: str | None,
     environment: str | None,
     precomputed: PrecomputedRender | None = None,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
+) -> tuple[
+    dict[str, Any] | None, dict[str, Any] | None, dict[str, str], list[Diagnostic]
+]:
     """
     Resolve the rendered Compose document (and its service->module map) used
     by "rendered-compose"-scoped rules.
@@ -1339,24 +1448,30 @@ def _try_render_compose_for_scan(
         if rendered_compose_yaml is None:
             if plan is None:
                 plan, plan_diags = build_plan(
-                    str(profile_path), env_file=env_file, environment=environment,
+                    str(profile_path),
+                    env_file=env_file,
+                    environment=environment,
                 )
                 plan_errors = [d for d in plan_diags if d.level == "error"]
                 if plan is None or plan_errors:
                     first_code = plan_errors[0].code if plan_errors else "unknown"
-                    diagnostics.append(Diagnostic(
-                        level="warning",
-                        code="W096",
-                        message=(
-                            "Rendered-compose security checks (e.g. CDS-SEC-070) "
-                            "were skipped because the profile could not be "
-                            f"planned ({first_code}); run 'cds plan' for details."
-                        ),
-                        path="spec.modules",
-                    ))
+                    diagnostics.append(
+                        Diagnostic(
+                            level="warning",
+                            code="W096",
+                            message=(
+                                "Rendered-compose security checks (e.g. CDS-SEC-070) "
+                                "were skipped because the profile could not be "
+                                f"planned ({first_code}); run 'cds plan' for details."
+                            ),
+                            path="spec.modules",
+                        )
+                    )
                     return None, None, {}, diagnostics
 
-            rendered_compose_yaml, render_diags = render_compose(plan, env_file=env_file)
+            rendered_compose_yaml, render_diags = render_compose(
+                plan, env_file=env_file
+            )
             render_errors = [d for d in render_diags if d.level == "error"]
             if render_errors:
                 first_code = render_errors[0].code
@@ -1370,37 +1485,47 @@ def _try_render_compose_for_scan(
                 # error still warns.
                 if all(d.code == "E070" for d in render_errors):
                     return None, plan, {}, diagnostics
-                diagnostics.append(Diagnostic(
-                    level="warning",
-                    code="W096",
-                    message=(
-                        "Rendered-compose security checks (e.g. CDS-SEC-070) "
-                        "were skipped because the profile could not be "
-                        f"rendered ({first_code}); run 'cds render' for details."
-                    ),
-                    path="spec.modules",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="warning",
+                        code="W096",
+                        message=(
+                            "Rendered-compose security checks (e.g. CDS-SEC-070) "
+                            "were skipped because the profile could not be "
+                            f"rendered ({first_code}); run 'cds render' for details."
+                        ),
+                        path="spec.modules",
+                    )
+                )
                 return None, plan, {}, diagnostics
 
         rendered = yaml.safe_load(rendered_compose_yaml)
         service_to_module = _map_service_to_module(plan)
-        return (rendered if isinstance(rendered, dict) else None), plan, service_to_module, diagnostics
+        return (
+            (rendered if isinstance(rendered, dict) else None),
+            plan,
+            service_to_module,
+            diagnostics,
+        )
     except Exception as exc:
-        diagnostics.append(Diagnostic(
-            level="warning",
-            code="W096",
-            message=(
-                "Rendered-compose security checks (e.g. CDS-SEC-070) were "
-                f"skipped due to an unexpected error: {exc!r}"
-            ),
-            path="spec.modules",
-        ))
+        diagnostics.append(
+            Diagnostic(
+                level="warning",
+                code="W096",
+                message=(
+                    "Rendered-compose security checks (e.g. CDS-SEC-070) were "
+                    f"skipped due to an unexpected error: {exc!r}"
+                ),
+                path="spec.modules",
+            )
+        )
         return None, plan, {}, diagnostics
 
 
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def run_security_validation(
     profile_path: Path,
@@ -1478,7 +1603,9 @@ def run_security_validation(
     # (e.g. when CDS_PROFILE_PATH points at a profile while cwd is elsewhere).
     scan_project_root = resolve_project_root(str(profile_path))
     flat_env = _flatten_env_inputs(secrets, env_file, project_root=scan_project_root)
-    flat_permissions = _flatten_file_permissions(env_file, project_root=scan_project_root)
+    flat_permissions = _flatten_file_permissions(
+        env_file, project_root=scan_project_root
+    )
 
     # Planning and rendering the profile is only useful when some enabled
     # rule actually declares the "rendered-compose" scope -- e.g. a custom
@@ -1487,16 +1614,27 @@ def run_security_validation(
     # code-enforced CDS-SEC-074 check is scoped separately (it isn't scope-
     # tagged for the declarative engine), so it only forces the same work
     # when it is itself enabled for this rule set.
-    plaintext_exposure_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-074", key="codeEnforced")
-    backup_target_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-080", key="codeEnforced")
-    admin_identity_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-081", key="codeEnforced")
-    rendered_secret_rule_enabled = _rule_enabled(rule_set, "CDS-SEC-006", key="codeEnforced")
+    plaintext_exposure_rule_enabled = _rule_enabled(
+        rule_set, "CDS-SEC-074", key="codeEnforced"
+    )
+    backup_target_rule_enabled = _rule_enabled(
+        rule_set, "CDS-SEC-080", key="codeEnforced"
+    )
+    admin_identity_rule_enabled = _rule_enabled(
+        rule_set, "CDS-SEC-081", key="codeEnforced"
+    )
+    rendered_secret_rule_enabled = _rule_enabled(
+        rule_set, "CDS-SEC-006", key="codeEnforced"
+    )
     runtime_policy_rules = {
         rule_id: next((r for r in rule_set["rules"] if r.get("id") == rule_id), None)
-        if _rule_enabled(rule_set, rule_id, key="codeEnforced") else None
+        if _rule_enabled(rule_set, rule_id, key="codeEnforced")
+        else None
         for rule_id in ("CDS-SEC-090", "CDS-SEC-091")
     }
-    runtime_policy_enabled = profile_class == "prod" and any(runtime_policy_rules.values())
+    runtime_policy_enabled = profile_class == "prod" and any(
+        runtime_policy_rules.values()
+    )
     needs_rendered_compose = (
         (profile_class == "prod" and plaintext_exposure_rule_enabled)
         or rendered_secret_rule_enabled
@@ -1504,15 +1642,20 @@ def run_security_validation(
         or backup_target_rule_enabled
         or admin_identity_rule_enabled
         or any(
-            rule.get("enabled", True) and set(rule.get("scope", [])) & _RENDERED_COMPOSE_SCOPES
+            rule.get("enabled", True)
+            and set(rule.get("scope", [])) & _RENDERED_COMPOSE_SCOPES
             for rule in rule_set["rules"]
         )
     )
     rendered_plan = precomputed_render.plan if precomputed_render is not None else None
     if needs_rendered_compose:
-        rendered_compose, rendered_plan, service_to_module, render_scan_diags = _try_render_compose_for_scan(
-            profile_path, env_file, environment,
-            precomputed=precomputed_render,
+        rendered_compose, rendered_plan, service_to_module, render_scan_diags = (
+            _try_render_compose_for_scan(
+                profile_path,
+                env_file,
+                environment,
+                precomputed=precomputed_render,
+            )
         )
     else:
         rendered_compose, service_to_module, render_scan_diags = None, {}, []
@@ -1525,28 +1668,44 @@ def run_security_validation(
 
         rule_scopes = set(rule.get("scope", []))
         if rule_scopes & _PROFILE_SCOPES:
-            findings.extend(_rule_matches(
-                rule, flat_profile, profile_class,
-                redact_values=redact_values,
-            ))
+            findings.extend(
+                _rule_matches(
+                    rule,
+                    flat_profile,
+                    profile_class,
+                    redact_values=redact_values,
+                )
+            )
 
         if rule_scopes & _ENV_SCOPES:
-            findings.extend(_rule_matches(
-                rule, flat_env, profile_class,
-                redact_values=redact_values,
-            ))
+            findings.extend(
+                _rule_matches(
+                    rule,
+                    flat_env,
+                    profile_class,
+                    redact_values=redact_values,
+                )
+            )
 
         if rule_scopes & _FILE_PERMISSION_SCOPES:
-            findings.extend(_rule_matches(
-                rule, flat_permissions, profile_class,
-                redact_values=redact_values,
-            ))
+            findings.extend(
+                _rule_matches(
+                    rule,
+                    flat_permissions,
+                    profile_class,
+                    redact_values=redact_values,
+                )
+            )
 
         if rule_scopes & _RENDERED_COMPOSE_SCOPES:
-            findings.extend(_rule_matches(
-                rule, flat_rendered, profile_class,
-                redact_values=redact_values,
-            ))
+            findings.extend(
+                _rule_matches(
+                    rule,
+                    flat_rendered,
+                    profile_class,
+                    redact_values=redact_values,
+                )
+            )
 
     findings.extend(_check_secret_reuse(flat_profile + flat_env))
     plaintext_findings, plaintext_diags = _check_production_plaintext_exposure(
@@ -1563,33 +1722,43 @@ def run_security_validation(
     rendered_secret_rule = next(
         (rule for rule in rule_set["rules"] if rule.get("id") == "CDS-SEC-006"), None
     )
-    findings.extend(_check_rendered_secret_values(
-        rendered_compose=rendered_compose,
-        service_to_module=service_to_module,
-        secret_values=resolved_secret_values(
-            _profile_declared_secret_env_names(profile) | declared_secret_env_names(rendered_plan),
-            env_file,
-        ),
-        rule=rendered_secret_rule,
-        redact_values=redact_values,
-        rule_enabled=rendered_secret_rule_enabled,
-    ))
+    findings.extend(
+        _check_rendered_secret_values(
+            rendered_compose=rendered_compose,
+            service_to_module=service_to_module,
+            secret_values=resolved_secret_values(
+                _profile_declared_secret_env_names(profile)
+                | declared_secret_env_names(rendered_plan),
+                env_file,
+            ),
+            rule=rendered_secret_rule,
+            redact_values=redact_values,
+            rule_enabled=rendered_secret_rule_enabled,
+        )
+    )
 
     runtime_findings, runtime_diags = _check_runtime_policy(
-        rendered_compose, service_to_module, runtime_policy_rules, profile_class,
+        rendered_compose,
+        service_to_module,
+        runtime_policy_rules,
+        profile_class,
         *_runtime_policy_waiver(profile),
     )
     findings.extend(runtime_findings)
 
-    findings.extend(_check_backup_target_binding(
-        plan=rendered_plan,
-        rule_enabled=backup_target_rule_enabled,
-    ))
-    findings.extend(_check_admin_service_identity_binding(
-        plan=rendered_plan,
-        rendered_compose=rendered_compose,
-        rule_enabled=admin_identity_rule_enabled,
-    ))
+    findings.extend(
+        _check_backup_target_binding(
+            plan=rendered_plan,
+            rule_enabled=backup_target_rule_enabled,
+        )
+    )
+    findings.extend(
+        _check_admin_service_identity_binding(
+            plan=rendered_plan,
+            rendered_compose=rendered_compose,
+            rule_enabled=admin_identity_rule_enabled,
+        )
+    )
 
     # Attach each finding's informational compliance control category by
     # looking it up on the matching rule, rather than threading it through
@@ -1607,11 +1776,20 @@ def run_security_validation(
     for finding in findings:
         finding["category"] = rule_categories.get(finding["rule_id"])
 
-    findings.sort(key=lambda x: (
-        SEVERITY_ORDER.get(x["severity"], 99),
-        x["rule_id"],
-        x["module"],
-        x["path"],
-    ))
+    findings.sort(
+        key=lambda x: (
+            SEVERITY_ORDER.get(x["severity"], 99),
+            x["rule_id"],
+            x["module"],
+            x["path"],
+        )
+    )
 
-    return findings, overlay_diags + secret_diags + render_scan_diags + plaintext_diags + runtime_diags
+    return (
+        findings,
+        overlay_diags
+        + secret_diags
+        + render_scan_diags
+        + plaintext_diags
+        + runtime_diags,
+    )

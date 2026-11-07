@@ -86,7 +86,9 @@ class GarageModuleTest(unittest.TestCase):
         self.module = yaml.safe_load(MODULE_PATH.read_text(encoding="utf-8"))
         self.contract = yaml.safe_load(CONTRACT_PATH.read_text(encoding="utf-8"))
         self.config_schema = self.module["spec"]["configSchema"]
-        self.service = self.module["spec"]["implementation"]["compose"]["services"]["garage"]
+        self.service = self.module["spec"]["implementation"]["compose"]["services"][
+            "garage"
+        ]
 
     def test_module_config_is_valid_json_schema(self) -> None:
         Draft202012Validator.check_schema(self.config_schema)
@@ -102,8 +104,12 @@ class GarageModuleTest(unittest.TestCase):
         self.assertRegex("cds-data", properties["bucket"]["pattern"])
         self.assertNotRegex("CDS_Data", properties["bucket"]["pattern"])
         self.assertNotRegex("../private", properties["bucket"]["pattern"])
-        self.assertRegex("secrets.object_storage_access_key", properties["accessKeyFrom"]["pattern"])
-        self.assertRegex("secrets.garage_rpc_secret", properties["rpcSecretFrom"]["pattern"])
+        self.assertRegex(
+            "secrets.object_storage_access_key", properties["accessKeyFrom"]["pattern"]
+        )
+        self.assertRegex(
+            "secrets.garage_rpc_secret", properties["rpcSecretFrom"]["pattern"]
+        )
 
     def test_provides_complete_object_storage_contract(self) -> None:
         provided = next(
@@ -151,13 +157,13 @@ class GarageModuleTest(unittest.TestCase):
             self.service["healthcheck"]["test"],
             ["CMD", "/garage", "status"],
         )
-        config_text = (
-            MODULE_PATH.parent / "garage.toml"
-        ).read_text(encoding="utf-8")
+        config_text = (MODULE_PATH.parent / "garage.toml").read_text(encoding="utf-8")
         self.assertIn('api_bind_addr = "127.0.0.1:3903"', config_text)
         self.assertNotIn("3903:", "\n".join(self.service["ports"]))
 
-    def test_profile_validation_and_render_keep_credentials_as_placeholders(self) -> None:
+    def test_profile_validation_and_render_keep_credentials_as_placeholders(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             profile_path = _write_profile(tmp, _garage_profile())
             with patch.dict(
@@ -171,13 +177,21 @@ class GarageModuleTest(unittest.TestCase):
             ):
                 diagnostics = validate_profile(str(profile_path))
                 self.assertEqual(
-                    [diagnostic.format() for diagnostic in diagnostics if diagnostic.level == "error"],
+                    [
+                        diagnostic.format()
+                        for diagnostic in diagnostics
+                        if diagnostic.level == "error"
+                    ],
                     [],
                 )
                 plan, plan_diagnostics = build_plan(str(profile_path))
                 self.assertIsNotNone(plan)
                 self.assertEqual(
-                    [diagnostic.format() for diagnostic in plan_diagnostics if diagnostic.level == "error"],
+                    [
+                        diagnostic.format()
+                        for diagnostic in plan_diagnostics
+                        if diagnostic.level == "error"
+                    ],
                     [],
                 )
                 assert plan is not None
@@ -195,7 +209,11 @@ class GarageModuleTest(unittest.TestCase):
                 compose_text, render_diagnostics = render_compose(plan)
 
         self.assertEqual(
-            [diagnostic.format() for diagnostic in render_diagnostics if diagnostic.level == "error"],
+            [
+                diagnostic.format()
+                for diagnostic in render_diagnostics
+                if diagnostic.level == "error"
+            ],
             [],
         )
         compose = yaml.safe_load(compose_text)
@@ -220,7 +238,9 @@ class GarageModuleTest(unittest.TestCase):
         self.assertNotIn("a" * 64, compose_text)
         self.assertNotIn("b" * 64, compose_text)
 
-    def test_contract_endpoint_keeps_container_port_when_host_port_is_overridden(self) -> None:
+    def test_contract_endpoint_keeps_container_port_when_host_port_is_overridden(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             profile_path = _write_profile(
                 tmp,
@@ -246,13 +266,21 @@ class GarageModuleTest(unittest.TestCase):
                 plan, plan_diagnostics = build_plan(str(profile_path))
                 assert plan is not None
                 self.assertEqual(
-                    [diagnostic.format() for diagnostic in plan_diagnostics if diagnostic.level == "error"],
+                    [
+                        diagnostic.format()
+                        for diagnostic in plan_diagnostics
+                        if diagnostic.level == "error"
+                    ],
                     [],
                 )
                 compose_text, render_diagnostics = render_compose(plan)
 
         self.assertEqual(
-            [diagnostic.format() for diagnostic in render_diagnostics if diagnostic.level == "error"],
+            [
+                diagnostic.format()
+                for diagnostic in render_diagnostics
+                if diagnostic.level == "error"
+            ],
             [],
         )
         provided_contract = plan["modules"][0]["provides"]["object-storage"]
@@ -260,9 +288,13 @@ class GarageModuleTest(unittest.TestCase):
         # the S3 API keeps listening on the fixed container port.
         self.assertEqual(provided_contract["spec"]["endpoint"], "http://garage:3900")
         compose = yaml.safe_load(compose_text)
-        self.assertEqual(compose["services"]["garage"]["ports"], ["127.0.0.1:8901:3900"])
+        self.assertEqual(
+            compose["services"]["garage"]["ports"], ["127.0.0.1:8901:3900"]
+        )
 
-    def test_consumed_object_storage_contract_stays_placeholder_for_consumers(self) -> None:
+    def test_consumed_object_storage_contract_stays_placeholder_for_consumers(
+        self,
+    ) -> None:
         provider = {
             "id": "garage",
             "config": {
@@ -299,7 +331,11 @@ class GarageModuleTest(unittest.TestCase):
             _TEST_SECRETS,
         )
         self.assertEqual(
-            [diagnostic.format() for diagnostic in diagnostics if diagnostic.level == "error"],
+            [
+                diagnostic.format()
+                for diagnostic in diagnostics
+                if diagnostic.level == "error"
+            ],
             [],
         )
         spec = consumed["object-storage"]["contract"]["spec"]
@@ -312,10 +348,16 @@ class GarageModuleTest(unittest.TestCase):
         self.assertEqual(spec["tls"], False)
 
     def test_non_local_profile_using_garage_is_flagged_by_security_rules(self) -> None:
-        for environment, expected in (("local", []), ("staging", ["garage"]), ("production", ["garage"])):
+        for environment, expected in (
+            ("local", []),
+            ("staging", ["garage"]),
+            ("production", ["garage"]),
+        ):
             with self.subTest(environment=environment):
                 with tempfile.TemporaryDirectory() as tmp:
-                    profile_path = _write_profile(tmp, _garage_profile(environment=environment))
+                    profile_path = _write_profile(
+                        tmp, _garage_profile(environment=environment)
+                    )
                     env_path = Path(tmp) / ".env"
                     env_path.write_text(
                         "CDS_OBJECT_STORAGE_ACCESS_KEY=GK0123456789abcdef0123456789abcdef\n"
@@ -323,7 +365,9 @@ class GarageModuleTest(unittest.TestCase):
                         "CDS_GARAGE_RPC_SECRET=" + "d" * 64 + "\n",
                         encoding="utf-8",
                     )
-                    with patch.dict(os.environ, {"CDS_MODULE_PATH": str(REPO_ROOT / "modules")}):
+                    with patch.dict(
+                        os.environ, {"CDS_MODULE_PATH": str(REPO_ROOT / "modules")}
+                    ):
                         findings, _diagnostics = run_security_validation(
                             profile_path,
                             RULE_SCHEMA_PATH,

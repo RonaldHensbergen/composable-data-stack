@@ -613,6 +613,15 @@ The format is based on Keep a Changelog.
   before the #1056 bump, so `uv lock --check` failed on main and any plain
   `uv run`/`uv sync` silently rewrote the lock as a side effect. The lock now
   records ruff 0.17.3 (specifier `==0.17.3`) and `uv lock --check` passes.
+- Lint drift cleanup (issue #1177): `yamllint .` no longer warns about the
+  multi-line `enum` flow sequence in the `kubernetesVolume.medium` property of
+  `cli/resources/module.schema.json` (now single-line, matching the other
+  inline enums), and `ruff format` (pinned `==0.17.3` in `pyproject.toml`) has
+  been applied repo-wide, so `ruff format --check .` is clean alongside the
+  already-gated `ruff check .`. One suppression comment in
+  `tests/test_security.py` moved back onto the line containing the
+  `"0.0.0.0"` literal so `# noqa: S104` keeps covering it after the
+  reformatting.
 
 ## [0.15.0] - 2026-11-02
 

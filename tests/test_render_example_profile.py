@@ -14,8 +14,12 @@ from cli.validator import validate_profile
 class RenderExampleProfileTest(unittest.TestCase):
     def test_example_profile_validates_plans_and_renders_compose(self):
         repo_root = Path(__file__).resolve().parent.parent
-        profile_path = repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
-        self.assertTrue(profile_path.exists(), f"Example profile not found at {profile_path}")
+        profile_path = (
+            repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+        )
+        self.assertTrue(
+            profile_path.exists(), f"Example profile not found at {profile_path}"
+        )
 
         diagnostics = validate_profile(str(profile_path))
         self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
@@ -34,21 +38,23 @@ class RenderExampleProfileTest(unittest.TestCase):
 
             plan, plan_diags = build_plan(str(profile_path), env_file=str(env_file))
             self.assertIsNotNone(plan)
-            
+
             error_diags = [d for d in plan_diags if d.level == "error"]
             # Add debugging output for errors
             if error_diags:
-                print("\n" + "="*60)
+                print("\n" + "=" * 60)
                 print(f"FOUND {len(error_diags)} VALIDATION ERRORS:")
-                print("="*60)
+                print("=" * 60)
                 for i, diag in enumerate(error_diags, 1):
                     print(f"\n[Error {i}]")
                     print(f"  Diagnostic object: {diag}")
-                    print(f"  Dir: {[attr for attr in dir(diag) if not attr.startswith('_')]}")
+                    print(
+                        f"  Dir: {[attr for attr in dir(diag) if not attr.startswith('_')]}"
+                    )
                     print(f"  Repr: {repr(diag)}")
                     print(f"  Str: {diag!s}")
-                print("="*60 + "\n")
-            
+                print("=" * 60 + "\n")
+
             self.assertEqual(len(error_diags), 0)
 
             output, render_diags = render_compose(plan, env_file=str(env_file))
@@ -58,7 +64,9 @@ class RenderExampleProfileTest(unittest.TestCase):
             self.assertIsInstance(compose, dict)
             self.assertIn("services", compose)
             self.assertGreater(len(compose["services"]), 0)
-            self.assertIn("dagster-dagster-io-manager-storage", compose.get("volumes", {}))
+            self.assertIn(
+                "dagster-dagster-io-manager-storage", compose.get("volumes", {})
+            )
             self.assertIn("name", compose)
             self.assertIn("dagster-user-code", compose["services"])
             self.assertEqual(
@@ -66,7 +74,9 @@ class RenderExampleProfileTest(unittest.TestCase):
                 "images/dagster/base/Dockerfile",
             )
             self.assertEqual(
-                compose["services"]["dagster-webserver"]["depends_on"]["dagster-user-code"]["condition"],
+                compose["services"]["dagster-webserver"]["depends_on"][
+                    "dagster-user-code"
+                ]["condition"],
                 "service_healthy",
             )
             self.assertEqual(
@@ -84,7 +94,9 @@ class RenderExampleProfileTest(unittest.TestCase):
             self.assertIn("ANALYTICS_DB_NAME", analytics_env)
             self.assertIn("ANALYTICS_DB_CONNECTION_URI", analytics_env)
             self.assertIn("postgresql://", analytics_env["ANALYTICS_DB_CONNECTION_URI"])
-            dagster_volumes = compose["services"]["dagster-user-code"].get("volumes", [])
+            dagster_volumes = compose["services"]["dagster-user-code"].get(
+                "volumes", []
+            )
             shared_data_mount = next(
                 (
                     item
@@ -107,13 +119,22 @@ class RenderExampleProfileTest(unittest.TestCase):
                 None,
             )
             self.assertIsNotNone(definitions_mount)
-            self.assertEqual(definitions_mount["source"], "workdirs/dagster/definitions.py")
+            self.assertEqual(
+                definitions_mount["source"], "workdirs/dagster/definitions.py"
+            )
             self.assertTrue(definitions_mount["read_only"])
 
     def test_vault_profile_validates_plans_and_renders_vault_service(self):
         repo_root = Path(__file__).resolve().parent.parent
-        profile_path = repo_root / "profiles" / "local-dagster-postgres-superset-vault" / "profile.yaml"
-        self.assertTrue(profile_path.exists(), f"Vault profile not found at {profile_path}")
+        profile_path = (
+            repo_root
+            / "profiles"
+            / "local-dagster-postgres-superset-vault"
+            / "profile.yaml"
+        )
+        self.assertTrue(
+            profile_path.exists(), f"Vault profile not found at {profile_path}"
+        )
 
         diagnostics = validate_profile(str(profile_path))
         self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
@@ -133,21 +154,23 @@ class RenderExampleProfileTest(unittest.TestCase):
 
             plan, plan_diags = build_plan(str(profile_path), env_file=str(env_file))
             self.assertIsNotNone(plan)
-            
+
             error_diags = [d for d in plan_diags if d.level == "error"]
             # Add debugging output for errors
             if error_diags:
-                print("\n" + "="*60)
+                print("\n" + "=" * 60)
                 print(f"FOUND {len(error_diags)} VALIDATION ERRORS:")
-                print("="*60)
+                print("=" * 60)
                 for i, diag in enumerate(error_diags, 1):
                     print(f"\n[Error {i}]")
                     print(f"  Diagnostic object: {diag}")
-                    print(f"  Dir: {[attr for attr in dir(diag) if not attr.startswith('_')]}")
+                    print(
+                        f"  Dir: {[attr for attr in dir(diag) if not attr.startswith('_')]}"
+                    )
                     print(f"  Repr: {repr(diag)}")
                     print(f"  Str: {diag!s}")
-                print("="*60 + "\n")
-            
+                print("=" * 60 + "\n")
+
             self.assertEqual(len(error_diags), 0)
 
             output, render_diags = render_compose(plan, env_file=str(env_file))
@@ -167,7 +190,9 @@ class RenderExampleProfileTest(unittest.TestCase):
 class RenderGuardRegressionTest(unittest.TestCase):
     def _build_example_plan(self):
         repo_root = Path(__file__).resolve().parent.parent
-        profile_path = repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+        profile_path = (
+            repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
@@ -188,7 +213,9 @@ class RenderGuardRegressionTest(unittest.TestCase):
 
     def test_render_compose_skips_service_when_enabled_from_config_is_false(self):
         plan = self._build_example_plan()
-        dagster = next(module for module in plan["modules"] if module["id"] == "dagster")
+        dagster = next(
+            module for module in plan["modules"] if module["id"] == "dagster"
+        )
         dagster["config"]["daemon"]["enabled"] = False
 
         output, diagnostics = render_compose(plan)
@@ -199,7 +226,9 @@ class RenderGuardRegressionTest(unittest.TestCase):
 
     def test_render_compose_skips_volume_when_enabled_from_config_is_false(self):
         plan = self._build_example_plan()
-        postgres = next(module for module in plan["modules"] if module["id"] == "postgres")
+        postgres = next(
+            module for module in plan["modules"] if module["id"] == "postgres"
+        )
         postgres["config"]["storage"]["enabled"] = False
 
         output, diagnostics = render_compose(plan)
@@ -210,7 +239,9 @@ class RenderGuardRegressionTest(unittest.TestCase):
 
     def test_render_compose_drops_healthcheck_when_condition_is_false(self):
         plan = self._build_example_plan()
-        postgres = next(module for module in plan["modules"] if module["id"] == "postgres")
+        postgres = next(
+            module for module in plan["modules"] if module["id"] == "postgres"
+        )
         postgres["config"]["healthcheck"]["enabled"] = False
 
         output, diagnostics = render_compose(plan)
@@ -227,7 +258,9 @@ class MaterializedDefaultsRenderTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
+            (root / "pyproject.toml").write_text(
+                "[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8"
+            )
 
             profile_dir = root / "profiles" / "local"
             profile_dir.mkdir(parents=True)
@@ -310,14 +343,18 @@ spec:
                 encoding="utf-8",
             )
 
-            with mock.patch.dict("os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False):
+            with mock.patch.dict(
+                "os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False
+            ):
                 plan, plan_diags = build_plan(str(profile_file), env_file=str(env_file))
 
             self.assertIsNotNone(plan)
             error_diags = [d for d in plan_diags if d.level == "error"]
             self.assertEqual(error_diags, [], f"plan errors: {error_diags}")
 
-            dagster = next(module for module in plan["modules"] if module["id"] == "dagster")
+            dagster = next(
+                module for module in plan["modules"] if module["id"] == "dagster"
+            )
             self.assertIsInstance(dagster["config"].get("sharedData"), dict)
             self.assertIn("hostPath", dagster["config"]["sharedData"])
             self.assertIn("containerPath", dagster["config"]["sharedData"])
@@ -329,7 +366,10 @@ spec:
 
             self.assertEqual(
                 dagster["config"]["sharedData"],
-                {"hostPath": "./workdirs/shared-data", "containerPath": "/app/data/cds"},
+                {
+                    "hostPath": "./workdirs/shared-data",
+                    "containerPath": "/app/data/cds",
+                },
             )
             self.assertEqual(
                 dagster["config"]["definitionsFile"],
@@ -365,16 +405,22 @@ spec:
                 if isinstance(item, dict)
                 and item.get("target") == "/app/workdirs/dagster/definitions.py"
             )
-            self.assertEqual(definitions_mount["source"], "workdirs/dagster/definitions.py")
+            self.assertEqual(
+                definitions_mount["source"], "workdirs/dagster/definitions.py"
+            )
             self.assertTrue(definitions_mount["read_only"])
 
-    def test_prod_overlay_renders_authenticated_cache_and_database_without_resolved_secrets(self):
+    def test_prod_overlay_renders_authenticated_cache_and_database_without_resolved_secrets(
+        self,
+    ):
         """Issue #206: with the prod overlay applied, the cache requires a
         password and the relational database advertises scram-sha-256, while
         rendered connection contracts carry ${CDS_*} runtime placeholders
         (never resolved secret values) into orchestration/BI consumers."""
         repo_root = Path(__file__).resolve().parent.parent
-        profile_path = repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+        profile_path = (
+            repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
+        )
 
         diagnostics = validate_profile(str(profile_path), "prod")
         self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
@@ -413,7 +459,9 @@ spec:
 
             compose = yaml.safe_load(output)
             keydb = compose["services"]["keydb"]
-            self.assertEqual(keydb["environment"]["KEYDB_PASSWORD"], "${CDS_CACHE_PASSWORD}")
+            self.assertEqual(
+                keydb["environment"]["KEYDB_PASSWORD"], "${CDS_CACHE_PASSWORD}"
+            )
             self.assertIn("--requirepass", " ".join(str(x) for x in keydb["command"]))
 
             superset = compose["services"]["superset"]
@@ -431,6 +479,7 @@ spec:
                 if not value.startswith("sentinel-"):
                     continue
                 self.assertNotIn(value, output)
+
 
 if __name__ == "__main__":
     unittest.main()

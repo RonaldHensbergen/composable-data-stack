@@ -3,6 +3,7 @@
 Never calls a real LLM or requires `openai`/`azure-identity` to be
 installed: the lazy client builders are monkeypatched.
 """
+
 from __future__ import annotations
 
 import sys
@@ -51,7 +52,9 @@ class CompleteDispatchTest(unittest.TestCase):
     def test_complete_dispatches_to_ollama_backend(self) -> None:
         with (
             mock.patch.dict("os.environ", {"LLM_PROVIDER": "ollama"}, clear=True),
-            mock.patch.object(llm_client, "_complete_ollama", return_value="ok") as mock_ollama,
+            mock.patch.object(
+                llm_client, "_complete_ollama", return_value="ok"
+            ) as mock_ollama,
         ):
             result = llm_client.complete("hello", system="sys")
         mock_ollama.assert_called_once()
@@ -60,7 +63,9 @@ class CompleteDispatchTest(unittest.TestCase):
     def test_complete_dispatches_to_copilot_cli_backend_by_default(self) -> None:
         with (
             mock.patch.dict("os.environ", {}, clear=True),
-            mock.patch.object(llm_client, "_complete_copilot_cli", return_value="ok") as mock_copilot,
+            mock.patch.object(
+                llm_client, "_complete_copilot_cli", return_value="ok"
+            ) as mock_copilot,
         ):
             result = llm_client.complete("hello")
         mock_copilot.assert_called_once()
@@ -77,7 +82,9 @@ class CompleteDispatchTest(unittest.TestCase):
     def test_preflight_provider_is_a_noop_for_azure_openai(self) -> None:
         with (
             mock.patch.dict("os.environ", {"LLM_PROVIDER": "azure_openai"}, clear=True),
-            mock.patch.object(llm_client, "_copilot_preflight") as mock_copilot_preflight,
+            mock.patch.object(
+                llm_client, "_copilot_preflight"
+            ) as mock_copilot_preflight,
             mock.patch.object(llm_client, "_ollama_preflight") as mock_ollama_preflight,
         ):
             llm_client.preflight_provider()

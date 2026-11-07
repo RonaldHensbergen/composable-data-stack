@@ -9,15 +9,17 @@ class DuckdbHardeningTest(unittest.TestCase):
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parent.parent
         module = yaml.safe_load(
-            (self.repo_root / "modules" / "warehouse" / "duckdb" / "module.yaml").read_text(
-                encoding="utf-8"
-            )
+            (
+                self.repo_root / "modules" / "warehouse" / "duckdb" / "module.yaml"
+            ).read_text(encoding="utf-8")
         )
         self.module = module
         self.config_schema = module["spec"]["configSchema"]
         self.services = module["spec"]["implementation"]["compose"]["services"]
         self.contract = yaml.safe_load(
-            (self.repo_root / "shared" / "contracts" / "file-database.yaml").read_text(encoding="utf-8")
+            (self.repo_root / "shared" / "contracts" / "file-database.yaml").read_text(
+                encoding="utf-8"
+            )
         )
 
     def test_module_is_production_suitable(self) -> None:
@@ -49,7 +51,9 @@ class DuckdbHardeningTest(unittest.TestCase):
 
     def test_provides_file_database_contract_with_all_documented_fields(self) -> None:
         provided = self.module["spec"]["provides"]
-        file_database = next(entry for entry in provided if entry["name"] == "file-database")
+        file_database = next(
+            entry for entry in provided if entry["name"] == "file-database"
+        )
         self.assertEqual(file_database["contract"]["kind"], "file-database")
 
         contract_fields = set(self.contract["spec"]["fields"])
@@ -77,7 +81,9 @@ class DuckdbHardeningTest(unittest.TestCase):
         image = self.services["duckdb-init"]["image"]
         self.assertRegex(image, r"^[^@]+@sha256:[0-9a-f]{64}$")
 
-    def test_shared_directory_bind_mount_matches_configured_host_directory(self) -> None:
+    def test_shared_directory_bind_mount_matches_configured_host_directory(
+        self,
+    ) -> None:
         volumes = self.services["duckdb-init"]["volumes"]
         bind_mount = next(
             volume
@@ -104,7 +110,9 @@ class FileDatabaseContractTest(unittest.TestCase):
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parent.parent
         self.contract = yaml.safe_load(
-            (self.repo_root / "shared" / "contracts" / "file-database.yaml").read_text(encoding="utf-8")
+            (self.repo_root / "shared" / "contracts" / "file-database.yaml").read_text(
+                encoding="utf-8"
+            )
         )
 
     def test_contract_has_no_network_fields(self) -> None:

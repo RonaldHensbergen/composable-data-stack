@@ -11,6 +11,7 @@ script never runs in CI (no assertions). Run it against a live PostgreSQL:
 
 Produces the numbers documented in docs/runtime-api.md (Limitations).
 """
+
 import statistics
 import sys
 import time
@@ -121,7 +122,9 @@ def benchmark_registry_race():
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-    print(f"cold-registry thundering herd (16 threads x fetch): {len(created)} engine(s) created")
+    print(
+        f"cold-registry thundering herd (16 threads x fetch): {len(created)} engine(s) created"
+    )
     return len(created)
 
 

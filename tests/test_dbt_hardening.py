@@ -8,10 +8,16 @@ import yaml
 class DbtHardeningTest(unittest.TestCase):
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parent.parent
-        self.dockerfile = (self.repo_root / "images" / "dbt" / "Dockerfile").read_text(encoding="utf-8")
-        self.entrypoint = (self.repo_root / "images" / "dbt" / "entrypoint.sh").read_text(encoding="utf-8")
+        self.dockerfile = (self.repo_root / "images" / "dbt" / "Dockerfile").read_text(
+            encoding="utf-8"
+        )
+        self.entrypoint = (
+            self.repo_root / "images" / "dbt" / "entrypoint.sh"
+        ).read_text(encoding="utf-8")
         module = yaml.safe_load(
-            (self.repo_root / "modules" / "transformation" / "dbt" / "module.yaml").read_text(encoding="utf-8")
+            (
+                self.repo_root / "modules" / "transformation" / "dbt" / "module.yaml"
+            ).read_text(encoding="utf-8")
         )
         self.module = module
         self.config_schema = module["spec"]["configSchema"]
@@ -43,7 +49,8 @@ class DbtHardeningTest(unittest.TestCase):
         # base-image site-packages, matching images/dagster's CVE/SBOM-noise
         # avoidance pattern.
         uninstall_lines = [
-            line.strip() for line in self.dockerfile.splitlines()
+            line.strip()
+            for line in self.dockerfile.splitlines()
             if "pip" in line and "uninstall" in line
         ]
         self.assertGreaterEqual(len(uninstall_lines), 2)
@@ -56,7 +63,9 @@ class DbtHardeningTest(unittest.TestCase):
         self.assertEqual(service["cap_drop"], ["ALL"])
         self.assertEqual(service["security_opt"], ["no-new-privileges:true"])
         self.assertTrue(service["healthcheck"]["disable"])
-        self.assertIn("/tmp:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=1777", service["tmpfs"])
+        self.assertIn(
+            "/tmp:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=1777", service["tmpfs"]
+        )
         self.assertIn(
             "/home/dbt/.dbt:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700",
             service["tmpfs"],
@@ -67,7 +76,8 @@ class DbtHardeningTest(unittest.TestCase):
         project_mount = next(
             volume
             for volume in volumes
-            if isinstance(volume, dict) and volume.get("target") == "${config.project.containerPath}"
+            if isinstance(volume, dict)
+            and volume.get("target") == "${config.project.containerPath}"
         )
         self.assertTrue(project_mount["read_only"])
 
@@ -88,7 +98,9 @@ class DbtHardeningTest(unittest.TestCase):
         )
         self.assertNotEqual(shared_mount["target"], "/usr/share/nginx/html")
 
-        nginx_conf = (self.repo_root / "images" / "dbt" / "nginx.conf").read_text(encoding="utf-8")
+        nginx_conf = (self.repo_root / "images" / "dbt" / "nginx.conf").read_text(
+            encoding="utf-8"
+        )
         root_match = re.search(r"root\s+(\S+);", nginx_conf)
         self.assertIsNotNone(root_match, "expected an nginx root directive")
         self.assertEqual(root_match.group(1), shared_mount["target"])
@@ -112,14 +124,25 @@ class DbtHardeningTest(unittest.TestCase):
         consumes = {c["name"]: c for c in self.module["spec"]["consumes"]}
         target_database_consume = consumes["target-database"]
         self.assertFalse(target_database_consume["required"])
-        self.assertEqual(target_database_consume["requiredIf"], "config.warehouseType==postgres")
-        self.assertEqual(target_database_consume["mappedFrom"], "spec.config.targetDatabase")
+        self.assertEqual(
+            target_database_consume["requiredIf"], "config.warehouseType==postgres"
+        )
+        self.assertEqual(
+            target_database_consume["mappedFrom"], "spec.config.targetDatabase"
+        )
 
         target_database = self.config_schema["properties"]["targetDatabase"]
         self.assertIn("contractRef", target_database["properties"])
 
     def test_entrypoint_requires_connection_env_vars(self) -> None:
-        for var in ("DBT_HOST", "DBT_PORT", "DBT_DBNAME", "DBT_USER", "DBT_PASSWORD", "DBT_SCHEMA"):
+        for var in (
+            "DBT_HOST",
+            "DBT_PORT",
+            "DBT_DBNAME",
+            "DBT_USER",
+            "DBT_PASSWORD",
+            "DBT_SCHEMA",
+        ):
             with self.subTest(var=var):
                 self.assertIn(f'"${{{var}:?', self.entrypoint)
 

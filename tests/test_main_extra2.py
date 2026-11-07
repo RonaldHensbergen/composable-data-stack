@@ -60,7 +60,11 @@ class ComplianceReportTextTest(unittest.TestCase):
                         "sbomAttested": True,
                     },
                 },
-                {"service": "s2", "image": "i2", "evidence": {"status": "x", "reason": "offline"}},
+                {
+                    "service": "s2",
+                    "image": "i2",
+                    "evidence": {"status": "x", "reason": "offline"},
+                },
             ],
             "topology": [
                 {
@@ -70,13 +74,20 @@ class ComplianceReportTextTest(unittest.TestCase):
                     "consumes": [{"name": "w", "kind": "k", "provider": "b.w"}],
                 },
             ],
-            "secretLeakCheck": {"status": "fail", "checkedSecretCount": 2, "leakedSecretNames": ["CDS_X"]},
+            "secretLeakCheck": {
+                "status": "fail",
+                "checkedSecretCount": 2,
+                "leakedSecretNames": ["CDS_X"],
+            },
             "disclaimer": "not legal advice",
         }
         text = cli_main._format_compliance_report_text(report)
         self.assertIn("Environment: prod", text)
         self.assertIn("a: source=s version=1 (dependsOn: b)", text)
-        self.assertIn("[digest-pinned] evidence: signed=True provenanceAttested=False sbomAttested=True", text)
+        self.assertIn(
+            "[digest-pinned] evidence: signed=True provenanceAttested=False sbomAttested=True",
+            text,
+        )
         self.assertIn("[NOT digest-pinned] evidence: NOT AVAILABLE (offline)", text)
         self.assertIn("provides: db (sql)", text)
         self.assertIn("consumes: w (k) from b.w", text)
@@ -91,55 +102,89 @@ class ResolveDocumentBestEffortTest(TmpDirCase):
         return path
 
     def test_errors_return_empty(self):
-        with patch.object(cli_main, "resolve_extends", return_value=(None, {}, [_err()])):
-            self.assertEqual(cli_main._resolve_profile_document_best_effort("p.yaml", "dev"), {})
+        with patch.object(
+            cli_main, "resolve_extends", return_value=(None, {}, [_err()])
+        ):
+            self.assertEqual(
+                cli_main._resolve_profile_document_best_effort("p.yaml", "dev"), {}
+            )
 
     def test_no_environment_returns_document(self):
         doc = {"a": 1}
         with patch.object(cli_main, "resolve_extends", return_value=(doc, {}, [])):
-            self.assertEqual(cli_main._resolve_profile_document_best_effort("p.yaml"), doc)
+            self.assertEqual(
+                cli_main._resolve_profile_document_best_effort("p.yaml"), doc
+            )
 
     def test_missing_overlay_returns_document(self):
         path = self._profile()
         doc = {"a": 1}
         with patch.object(cli_main, "resolve_extends", return_value=(doc, {}, [])):
-            self.assertEqual(cli_main._resolve_profile_document_best_effort(str(path), "dev"), doc)
+            self.assertEqual(
+                cli_main._resolve_profile_document_best_effort(str(path), "dev"), doc
+            )
 
     def test_invalid_overlay_returns_document(self):
         path = self._profile()
         (self.root / "environments").mkdir()
-        (self.root / "environments" / "dev.yaml").write_text("a: [unclosed", encoding="utf-8")
+        (self.root / "environments" / "dev.yaml").write_text(
+            "a: [unclosed", encoding="utf-8"
+        )
         doc = {"a": 1}
         with patch.object(cli_main, "resolve_extends", return_value=(doc, {}, [])):
-            self.assertEqual(cli_main._resolve_profile_document_best_effort(str(path), "dev"), doc)
+            self.assertEqual(
+                cli_main._resolve_profile_document_best_effort(str(path), "dev"), doc
+            )
 
     def test_merge_diagnostics_return_document(self):
         path = self._profile()
         (self.root / "environments").mkdir()
         (self.root / "environments" / "dev.yaml").write_text("a: 2\n", encoding="utf-8")
         doc = {"a": 1}
-        with patch.object(cli_main, "resolve_extends", return_value=(doc, {}, [])), \
-                patch.object(cli_main, "_merge_profile_docs", return_value=({"a": 2}, [_err()])):
-            self.assertEqual(cli_main._resolve_profile_document_best_effort(str(path), "dev"), doc)
+        with (
+            patch.object(cli_main, "resolve_extends", return_value=(doc, {}, [])),
+            patch.object(
+                cli_main, "_merge_profile_docs", return_value=({"a": 2}, [_err()])
+            ),
+        ):
+            self.assertEqual(
+                cli_main._resolve_profile_document_best_effort(str(path), "dev"), doc
+            )
 
     def test_merged_returned_on_success(self):
         path = self._profile()
         (self.root / "environments").mkdir()
         (self.root / "environments" / "dev.yaml").write_text("a: 2\n", encoding="utf-8")
-        with patch.object(cli_main, "resolve_extends", return_value=({"a": 1}, {}, [])), \
-                patch.object(cli_main, "_merge_profile_docs", return_value=({"a": 2}, [])):
-            self.assertEqual(cli_main._resolve_profile_document_best_effort(str(path), "dev"), {"a": 2})
+        with (
+            patch.object(cli_main, "resolve_extends", return_value=({"a": 1}, {}, [])),
+            patch.object(cli_main, "_merge_profile_docs", return_value=({"a": 2}, [])),
+        ):
+            self.assertEqual(
+                cli_main._resolve_profile_document_best_effort(str(path), "dev"),
+                {"a": 2},
+            )
 
     def test_k8s_runtime_defaults_delegates(self):
-        with patch.object(cli_main, "_resolve_profile_document_best_effort",
-                          return_value={"metadata": {"name": "m"}, "spec": {"runtime": {}}}), \
-                patch.object(cli_main, "_helm_identity", return_value=("r", "n")) as helm:
-            self.assertEqual(cli_main._k8s_runtime_defaults("p.yaml", "dev"), ("r", "n"))
+        with (
+            patch.object(
+                cli_main,
+                "_resolve_profile_document_best_effort",
+                return_value={"metadata": {"name": "m"}, "spec": {"runtime": {}}},
+            ),
+            patch.object(cli_main, "_helm_identity", return_value=("r", "n")) as helm,
+        ):
+            self.assertEqual(
+                cli_main._k8s_runtime_defaults("p.yaml", "dev"), ("r", "n")
+            )
         helm.assert_called_once_with({"name": "m"}, {}, "p.yaml")
 
     def test_profile_completer_filters_by_prefix(self):
-        with patch.object(cli_main, "list_profiles", return_value=["alpha", "beta", "alpine"]):
-            self.assertEqual(cli_main.profile_completer("al", None), ["alpha", "alpine"])
+        with patch.object(
+            cli_main, "list_profiles", return_value=["alpha", "beta", "alpine"]
+        ):
+            self.assertEqual(
+                cli_main.profile_completer("al", None), ["alpha", "alpine"]
+            )
 
 
 class ConfigIOTest(TmpDirCase):
@@ -185,29 +230,45 @@ class ValidateEnvironmentSettingTest(unittest.TestCase):
                 cli_main._validate_environment_setting("dev")
 
     def test_unresolvable_saved_profile(self):
-        with patch.object(cli_main, "load_saved_profile", return_value="x"), \
-                patch.object(cli_main, "resolve_profile_path", side_effect=ValueError("nope")):
+        with (
+            patch.object(cli_main, "load_saved_profile", return_value="x"),
+            patch.object(
+                cli_main, "resolve_profile_path", side_effect=ValueError("nope")
+            ),
+        ):
             with self.assertRaisesRegex(ValueError, "could not be resolved"):
                 cli_main._validate_environment_setting("dev")
 
     def test_environment_resolution_failure_details(self):
-        with patch.object(cli_main, "load_saved_profile", return_value="x"), \
-                patch.object(cli_main, "resolve_profile_path", return_value="p.yaml"), \
-                patch.object(cli_main, "resolve_profile", return_value=(None, None, [_err()])):
+        with (
+            patch.object(cli_main, "load_saved_profile", return_value="x"),
+            patch.object(cli_main, "resolve_profile_path", return_value="p.yaml"),
+            patch.object(
+                cli_main, "resolve_profile", return_value=(None, None, [_err()])
+            ),
+        ):
             with self.assertRaisesRegex(ValueError, "boom"):
                 cli_main._validate_environment_setting("dev")
 
     def test_environment_resolution_failure_generic(self):
-        with patch.object(cli_main, "load_saved_profile", return_value="x"), \
-                patch.object(cli_main, "resolve_profile_path", return_value="p.yaml"), \
-                patch.object(cli_main, "resolve_profile", return_value=(None, None, [])):
-            with self.assertRaisesRegex(ValueError, "could not be resolved for the saved profile"):
+        with (
+            patch.object(cli_main, "load_saved_profile", return_value="x"),
+            patch.object(cli_main, "resolve_profile_path", return_value="p.yaml"),
+            patch.object(cli_main, "resolve_profile", return_value=(None, None, [])),
+        ):
+            with self.assertRaisesRegex(
+                ValueError, "could not be resolved for the saved profile"
+            ):
                 cli_main._validate_environment_setting("dev")
 
     def test_success(self):
-        with patch.object(cli_main, "load_saved_profile", return_value="x"), \
-                patch.object(cli_main, "resolve_profile_path", return_value="p.yaml"), \
-                patch.object(cli_main, "resolve_profile", return_value=({"a": 1}, None, [])):
+        with (
+            patch.object(cli_main, "load_saved_profile", return_value="x"),
+            patch.object(cli_main, "resolve_profile_path", return_value="p.yaml"),
+            patch.object(
+                cli_main, "resolve_profile", return_value=({"a": 1}, None, [])
+            ),
+        ):
             self.assertIsNone(cli_main._validate_environment_setting("dev"))
 
 
@@ -220,18 +281,24 @@ class ProfileResolutionTest(TmpDirCase):
 
     def test_resolve_root_single_subdir(self):
         profile = self._mk("only/profile.yaml")
-        self.assertEqual(cli_main._resolve_profile_root(self.root), str(profile.resolve()))
+        self.assertEqual(
+            cli_main._resolve_profile_root(self.root), str(profile.resolve())
+        )
 
     def test_resolve_root_ambiguous_subdirs_is_none(self):
         self._mk("a/profile.yaml")
         self._mk("b/profile.yaml")
-        with patch.object(cli_main, "find_project_root", return_value=self.root / "nowhere"):
+        with patch.object(
+            cli_main, "find_project_root", return_value=self.root / "nowhere"
+        ):
             self.assertIsNone(cli_main._resolve_profile_root(self.root))
 
     def test_explicit_directory_with_single_subdir(self):
         profile = self._mk("only/profile.yaml")
         with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.root / "empty")}):
-            self.assertEqual(cli_main.resolve_profile_path(str(self.root)), str(profile.resolve()))
+            self.assertEqual(
+                cli_main.resolve_profile_path(str(self.root)), str(profile.resolve())
+            )
 
     def test_name_falls_back_to_default_root(self):
         default_root = self.root / "profiles"
@@ -239,24 +306,36 @@ class ProfileResolutionTest(TmpDirCase):
         by_file = self._mk("profiles/flat.yaml")
         other = self.root / "other"
         other.mkdir()
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(other)}), \
-                patch.object(cli_main, "find_project_root", return_value=self.root):
-            self.assertEqual(cli_main.resolve_profile_path("byname"), str(by_dir.resolve()))
-            self.assertEqual(cli_main.resolve_profile_path("flat"), str(by_file.resolve()))
+        with (
+            patch.dict(os.environ, {"CDS_PROFILE_PATH": str(other)}),
+            patch.object(cli_main, "find_project_root", return_value=self.root),
+        ):
+            self.assertEqual(
+                cli_main.resolve_profile_path("byname"), str(by_dir.resolve())
+            )
+            self.assertEqual(
+                cli_main.resolve_profile_path("flat"), str(by_file.resolve())
+            )
         self.assertTrue(default_root.is_dir())
 
     def test_no_profile_uses_ambient_root(self):
         profile = self._mk("amb/profile.yaml")
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.root)}), \
-                patch.object(cli_main, "load_saved_profile", return_value=None):
-            self.assertEqual(cli_main.resolve_profile_path(None), str(profile.resolve()))
+        with (
+            patch.dict(os.environ, {"CDS_PROFILE_PATH": str(self.root)}),
+            patch.object(cli_main, "load_saved_profile", return_value=None),
+        ):
+            self.assertEqual(
+                cli_main.resolve_profile_path(None), str(profile.resolve())
+            )
 
     def test_no_profile_and_nothing_raises(self):
         empty = self.root / "empty"
         empty.mkdir()
-        with patch.dict(os.environ, {"CDS_PROFILE_PATH": str(empty)}), \
-                patch.object(cli_main, "load_saved_profile", return_value=None), \
-                patch.object(cli_main, "find_project_root", return_value=self.root):
+        with (
+            patch.dict(os.environ, {"CDS_PROFILE_PATH": str(empty)}),
+            patch.object(cli_main, "load_saved_profile", return_value=None),
+            patch.object(cli_main, "find_project_root", return_value=self.root),
+        ):
             with self.assertRaisesRegex(ValueError, "No profile specified"):
                 cli_main.resolve_profile_path(None)
 
@@ -282,8 +361,12 @@ class ProfileResolutionTest(TmpDirCase):
 
 class CollectEnvVarsTest(unittest.TestCase):
     def test_profile_load_failure(self):
-        with patch.object(cli_main, "resolve_extends", return_value=(None, {}, [_err()])):
-            with self.assertRaisesRegex(ValueError, r"(?s)Could not load profile: .*boom"):
+        with patch.object(
+            cli_main, "resolve_extends", return_value=(None, {}, [_err()])
+        ):
+            with self.assertRaisesRegex(
+                ValueError, r"(?s)Could not load profile: .*boom"
+            ):
                 cli_main._collect_profile_env_vars("p.yaml")
 
     def test_profile_load_failure_unknown_with_environment(self):
@@ -298,7 +381,9 @@ class CollectEnvVarsTest(unittest.TestCase):
                 cli_main._collect_profile_env_vars("p.yaml")
 
     def test_collects_secret_env_vars_and_skips_non_dicts(self):
-        profile = {"spec": {"secrets": {"values": {"pw": {"env": "CDS_PW"}, "junk": "str"}}}}
+        profile = {
+            "spec": {"secrets": {"values": {"pw": {"env": "CDS_PW"}, "junk": "str"}}}
+        }
         with patch.object(cli_main, "resolve_extends", return_value=(profile, {}, [])):
             names, secrets = cli_main._collect_profile_env_vars("p.yaml")
         self.assertIn("CDS_PW", names)
@@ -323,7 +408,9 @@ class WriteEnvFileTest(TmpDirCase):
         cli_main._write_env_file(out, ["CDS_PW"], {"CDS_PW"}, "p.yaml", True)
 
     def test_cds_version_unknown_when_not_installed(self):
-        with patch.object(cli_main, "_package_version", side_effect=cli_main.PackageNotFoundError):
+        with patch.object(
+            cli_main, "_package_version", side_effect=cli_main.PackageNotFoundError
+        ):
             self.assertEqual(cli_main._cds_version(), "unknown")
 
 
@@ -337,7 +424,11 @@ class DiffValuesTest(unittest.TestCase):
         changes = self._diff({"a": 1, "b": 2, "c": 3}, {"a": 1, "c": 4, "d": 5})
         self.assertEqual(
             changes,
-            [("b", "removed", 2, None), ("c", "changed", 3, 4), ("d", "added", None, 5)],
+            [
+                ("b", "removed", 2, None),
+                ("c", "changed", 3, 4),
+                ("d", "added", None, 5),
+            ],
         )
 
     def test_id_keyed_lists_ignore_order_and_report_changes(self):
@@ -362,45 +453,79 @@ class ImageDigestAndVerificationTest(unittest.TestCase):
     def test_digest_check_skipped_when_disabled_or_errors(self):
         diags = [_err()]
         with patch.object(cli_main, "image_digest_check_enabled", return_value=False):
-            self.assertIs(cli_main._maybe_check_pinned_image_digests(diags, "p", None, False), diags)
+            self.assertIs(
+                cli_main._maybe_check_pinned_image_digests(diags, "p", None, False),
+                diags,
+            )
         with patch.object(cli_main, "image_digest_check_enabled", return_value=True):
-            self.assertIs(cli_main._maybe_check_pinned_image_digests(diags, "p", None, True), diags)
+            self.assertIs(
+                cli_main._maybe_check_pinned_image_digests(diags, "p", None, True),
+                diags,
+            )
 
     def test_digest_check_resolution_and_load_failures(self):
         with patch.object(cli_main, "image_digest_check_enabled", return_value=True):
-            with patch.object(cli_main, "resolve_profile", return_value=(None, None, [])):
-                self.assertEqual(cli_main._maybe_check_pinned_image_digests([], "p", None, True), [])
-            with patch.object(cli_main, "resolve_profile", return_value=({}, None, [])), \
-                    patch.object(cli_main, "load_module_instances", return_value=([], [_err()])):
-                self.assertEqual(cli_main._maybe_check_pinned_image_digests([], "p", None, True), [])
+            with patch.object(
+                cli_main, "resolve_profile", return_value=(None, None, [])
+            ):
+                self.assertEqual(
+                    cli_main._maybe_check_pinned_image_digests([], "p", None, True), []
+                )
+            with (
+                patch.object(cli_main, "resolve_profile", return_value=({}, None, [])),
+                patch.object(
+                    cli_main, "load_module_instances", return_value=([], [_err()])
+                ),
+            ):
+                self.assertEqual(
+                    cli_main._maybe_check_pinned_image_digests([], "p", None, True), []
+                )
 
     def test_digest_check_appends_warnings(self):
         warn = Diagnostic(level="warning", code="W100", message="stale", path="x")
-        with patch.object(cli_main, "image_digest_check_enabled", return_value=True), \
-                patch.object(cli_main, "resolve_profile", return_value=({}, None, [])), \
-                patch.object(cli_main, "load_module_instances", return_value=(["m"], [])), \
-                patch.object(cli_main, "validate_pinned_image_digests", return_value=[warn]):
+        with (
+            patch.object(cli_main, "image_digest_check_enabled", return_value=True),
+            patch.object(cli_main, "resolve_profile", return_value=({}, None, [])),
+            patch.object(cli_main, "load_module_instances", return_value=(["m"], [])),
+            patch.object(
+                cli_main, "validate_pinned_image_digests", return_value=[warn]
+            ),
+        ):
             result = cli_main._maybe_check_pinned_image_digests([], "p", None, True)
         self.assertEqual(result, [warn])
 
     def test_verification_render_failed(self):
         findings = cli_main._run_image_verification("p", None, render_failed=True)
         self.assertEqual(findings[0]["rule_id"], "CDS-VER-004")
-        self.assertIn("rendering failed", findings[0]["message"] if "message" in findings[0] else str(findings[0]))
+        self.assertIn(
+            "rendering failed",
+            findings[0]["message"] if "message" in findings[0] else str(findings[0]),
+        )
 
     def test_verification_with_compose_uses_policy(self):
         policy = MagicMock()
         with patch.object(cli_main, "verify_images", return_value=["ok"]) as verify:
             self.assertEqual(
-                cli_main._run_image_verification("p", None, compose_yaml="y", policy=policy), ["ok"]
+                cli_main._run_image_verification(
+                    "p", None, compose_yaml="y", policy=policy
+                ),
+                ["ok"],
             )
         self.assertIs(verify.call_args.args[1], policy)
 
     def test_verification_with_compose_default_policy_and_failure(self):
-        with patch.object(cli_main, "load_policy_from_env", return_value=MagicMock()) as load, \
-                patch.object(cli_main, "verify_images", side_effect=RuntimeError("kaboom")):
+        with (
+            patch.object(
+                cli_main, "load_policy_from_env", return_value=MagicMock()
+            ) as load,
+            patch.object(cli_main, "verify_images", side_effect=RuntimeError("kaboom")),
+        ):
             result, _, err = _capture(
-                cli_main._run_image_verification, "p", None, compose_yaml="y", profile_class="prod"
+                cli_main._run_image_verification,
+                "p",
+                None,
+                compose_yaml="y",
+                profile_class="prod",
             )
         load.assert_called_once_with("prod", mode_override="full")
         self.assertIn("E095", err)
@@ -440,8 +565,10 @@ class ImageDigestAndVerificationTest(unittest.TestCase):
         self.assertEqual(result[0]["rule_id"], "CDS-VER-004")
 
     def test_verification_unexpected_exception(self):
-        with self._patch_pipeline(verify_images=None), \
-                patch.object(cli_main, "verify_images", side_effect=RuntimeError("bang")):
+        with (
+            self._patch_pipeline(verify_images=None),
+            patch.object(cli_main, "verify_images", side_effect=RuntimeError("bang")),
+        ):
             result, _, err = _capture(cli_main._run_image_verification, "p", None)
         self.assertIn("E095", err)
         self.assertIn("bang", str(result))
@@ -451,7 +578,9 @@ class RenderHelmChartTest(TmpDirCase):
     def test_output_path_is_file_without_force(self):
         target = self.root / "chart"
         target.write_text("x", encoding="utf-8")
-        (code, diags), out, _ = _capture(cli_main._render_helm_chart, {}, str(target), False)
+        (code, diags), out, _ = _capture(
+            cli_main._render_helm_chart, {}, str(target), False
+        )
         self.assertEqual((code, diags), (1, []))
         self.assertIn("is not a directory", out)
 
@@ -459,7 +588,9 @@ class RenderHelmChartTest(TmpDirCase):
         target = self.root / "chart"
         target.mkdir()
         (target / "other.txt").write_text("x", encoding="utf-8")
-        (code, diags), out, _ = _capture(cli_main._render_helm_chart, {}, str(target), False)
+        (code, diags), out, _ = _capture(
+            cli_main._render_helm_chart, {}, str(target), False
+        )
         self.assertEqual(code, 1)
         self.assertIn("does not look like a CDS-generated chart", out)
 
@@ -468,7 +599,9 @@ class RenderHelmChartTest(TmpDirCase):
         target.mkdir()
         (target / "Chart.yaml").write_text("x", encoding="utf-8")
         with patch.object(cli_main, "render_helm", return_value=([], ["d"])) as render:
-            code, diags = cli_main._render_helm_chart({"p": 1}, str(target), False, env_file="e")
+            code, diags = cli_main._render_helm_chart(
+                {"p": 1}, str(target), False, env_file="e"
+            )
         self.assertEqual((code, diags), (0, ["d"]))
         render.assert_called_once_with({"p": 1}, output_dir=str(target), env_file="e")
 
@@ -479,15 +612,21 @@ class UpdateNoticeAndRedactionTest(unittest.TestCase):
 
     def test_notice_suppressed_for_help_and_check_update(self):
         for argv in (["cds", "check-update"], ["cds", "validate", "--help"]):
-            with patch.object(sys, "argv", argv), \
-                    patch.object(cli_main.update_check, "maybe_notify") as notify:
+            with (
+                patch.object(sys, "argv", argv),
+                patch.object(cli_main.update_check, "maybe_notify") as notify,
+            ):
                 cli_main._maybe_notify_update()
             notify.assert_not_called()
 
     def test_notice_invoked_and_errors_swallowed(self):
-        with patch.object(sys, "argv", ["cds", "validate"]), \
-                patch.object(cli_main, "_cds_version", return_value="1.0"), \
-                patch.object(cli_main.update_check, "maybe_notify", side_effect=RuntimeError("x")) as notify:
+        with (
+            patch.object(sys, "argv", ["cds", "validate"]),
+            patch.object(cli_main, "_cds_version", return_value="1.0"),
+            patch.object(
+                cli_main.update_check, "maybe_notify", side_effect=RuntimeError("x")
+            ) as notify,
+        ):
             cli_main._maybe_notify_update()
         notify.assert_called_once_with("1.0")
 
@@ -501,18 +640,32 @@ class UpdateNoticeAndRedactionTest(unittest.TestCase):
 
     def test_install_without_secret_values_is_noop(self):
         args = argparse.Namespace(profile=None, command="validate", environment=None)
-        with patch.object(cli_main, "resolve_profile_path", side_effect=ValueError("none")), \
-                patch.object(cli_main, "resolved_secret_values", return_value=[]):
+        with (
+            patch.object(
+                cli_main, "resolve_profile_path", side_effect=ValueError("none")
+            ),
+            patch.object(cli_main, "resolved_secret_values", return_value=[]),
+        ):
             cli_main._install_output_redaction(args)
         self.assertIsNone(cli_main._output_redaction)
 
     def test_install_and_finish_redacts_and_warns(self):
         args = argparse.Namespace(profile=None, command="validate", environment=None)
         real_out, real_err = io.StringIO(), io.StringIO()
-        with patch.object(sys, "stdout", real_out), patch.object(sys, "stderr", real_err):
-            with patch.object(cli_main, "resolve_profile_path", side_effect=ValueError("none")), \
-                    patch.object(cli_main, "resolved_secret_values",
-                                 return_value={"CDS_PW": "hunter2hunter2"}):
+        with (
+            patch.object(sys, "stdout", real_out),
+            patch.object(sys, "stderr", real_err),
+        ):
+            with (
+                patch.object(
+                    cli_main, "resolve_profile_path", side_effect=ValueError("none")
+                ),
+                patch.object(
+                    cli_main,
+                    "resolved_secret_values",
+                    return_value={"CDS_PW": "hunter2hunter2"},
+                ),
+            ):
                 cli_main._install_output_redaction(args)
                 self.assertIsNotNone(cli_main._output_redaction)
                 print("value hunter2hunter2 here")

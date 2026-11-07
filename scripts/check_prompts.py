@@ -51,6 +51,7 @@ control. The policy enforced here (see .github/prompts/README.md):
 Runs in CI (lint job), pre-commit, and `make lint-prompts`. Exit 1 on any
 violation; the script never modifies files.
 """
+
 from __future__ import annotations
 
 import re
@@ -90,11 +91,15 @@ GH_CMD_RE = re.compile(
 GH_API_RE = re.compile(r"\bgh\s+api\b")
 GH_API_GRAPHQL_RE = re.compile(r"\bgh\s+api\s+graphql\b")
 # gh api endpoints whose responses contain user-authored free text by default.
-API_FREE_TEXT_RESOURCE_RE = re.compile(r"(?:^|/)(?:issues|pulls|comments|reviews|discussions)(?:/|$|\?)")
+API_FREE_TEXT_RESOURCE_RE = re.compile(
+    r"(?:^|/)(?:issues|pulls|comments|reviews|discussions)(?:/|$|\?)"
+)
 # Field-list extraction, quote-aware: --json=f, --json f, --json "f,g",
 # --json 'f, g' (github-advanced-security review on PR #1087: a regex over
 # raw text that does not account for quotes misses --json "number,title").
-GH_JSON_RE = re.compile(r"--json[=\s]*[\"']?\s*([A-Za-z0-9_]+(?:\s*,\s*[A-Za-z0-9_]+)*)")
+GH_JSON_RE = re.compile(
+    r"--json[=\s]*[\"']?\s*([A-Za-z0-9_]+(?:\s*,\s*[A-Za-z0-9_]+)*)"
+)
 # Dynamic (non-literal) --json/--jq arguments — --json "$FIELDS",
 # --json "$(cat fields.txt)", globs, or a missing value — cannot be verified
 # statically, so they fail closed via a sentinel that downstream checks treat
@@ -136,7 +141,7 @@ def _git_log_format_value(line: str) -> str | None:
         if tok == "--format" and i + 1 < len(tokens):
             return tokens[i + 1]
         if tok.startswith("--format="):
-            return tok[len("--format="):]
+            return tok[len("--format=") :]
     match = re.search(r"--format[=\s]+[\"']([^\"']+)[\"']|--format[=\s]+(\S+)", line)
     if match:
         return match.group(1) or match.group(2)
@@ -197,14 +202,18 @@ TEE_RE = re.compile(r"\btee\b((?:\s+-{1,2}[\w-]+)*)\s+(.+)$")
 # python open("path", "w"/"a"/...) and Path("path").write_text(...) — literal
 # paths, used as verifiable write targets.
 PY_OPEN_WRITE_RE = re.compile(r"\bopen\s*\(\s*[\"']([^\"']+)[\"']\s*,\s*[\"'][wa+]")
-PY_PATH_WRITE_RE = re.compile(r"\bPath\s*\(\s*[\"']([^\"']+)[\"']\s*\)\s*\.\s*write_text")
+PY_PATH_WRITE_RE = re.compile(
+    r"\bPath\s*\(\s*[\"']([^\"']+)[\"']\s*\)\s*\.\s*write_text"
+)
 # Fail-closed matchers for python write calls whose target path is NOT a
 # literal string (open(<expr>, ...) with any mode, Path(<expr>).write_text):
 # the target cannot be compared against file_input paths, so such writes
 # fail closed in feeding jobs (github-advanced-security on #1118).
 PY_OPEN_ANY_ARG_RE = re.compile(r"\bopen\s*\([^)]*,", re.IGNORECASE)
 PY_OPEN_LITERAL_RE = re.compile(r"\bopen\s*\(\s*[\"'][^\"']+[\"']\s*,", re.IGNORECASE)
-PY_PATH_ANY_WRITE_RE = re.compile(r"\bPath\s*\([^)]*\)\s*\.\s*write_text", re.IGNORECASE)
+PY_PATH_ANY_WRITE_RE = re.compile(
+    r"\bPath\s*\([^)]*\)\s*\.\s*write_text", re.IGNORECASE
+)
 PY_PATH_LITERAL_RE = re.compile(r"\bPath\s*\(\s*[\"'][^\"']+[\"']\s*\)", re.IGNORECASE)
 # Positional-destination tools: the last non-option argument is the written
 # file (cp/mv/install/rsync/truncate) — with directory-destination
@@ -241,7 +250,6 @@ OUTPUT_FLAG_PREFIXES = (
     "--dest=",
     "of=",
 )
-
 
 
 def _is_gh_collection_cmd(line: str) -> bool:
@@ -285,7 +293,7 @@ def _gh_json_fields(line: str) -> set[str]:
             i += 2
             continue
         if tok.startswith("--json="):
-            value = tok[len("--json="):]
+            value = tok[len("--json=") :]
             if not value or DYNAMIC_ARG_RE.search(value):
                 fields.add(DYNAMIC_ARG)
             else:
@@ -320,8 +328,10 @@ def _gh_jq_expressions(line: str) -> set[str]:
             i += 2
             continue
         if tok.startswith("--jq="):
-            value = tok[len("--jq="):]
-            exprs.add(DYNAMIC_ARG if not value or DYNAMIC_ARG_RE.search(value) else value)
+            value = tok[len("--jq=") :]
+            exprs.add(
+                DYNAMIC_ARG if not value or DYNAMIC_ARG_RE.search(value) else value
+            )
         i += 1
     for match in re.finditer(r"--jq[=\s]+[\"']([^\"']+)[\"']|--jq[=\s]+(\S+)", line):
         exprs.add(match.group(1) or match.group(2) or "")
@@ -345,10 +355,15 @@ def _gh_flag_hits(line: str) -> list[str]:
                     hits.append(f"--field {tokens[i + 1]}")
                 i += 2
                 continue
-            if tok.startswith("--field=") and tok.split("=", 1)[1].strip().lower() in FREE_TEXT_FIELDS:
+            if (
+                tok.startswith("--field=")
+                and tok.split("=", 1)[1].strip().lower() in FREE_TEXT_FIELDS
+            ):
                 hits.append(f"--field={tok.split('=', 1)[1]}")
             if tok in ("--template", "-t"):
-                hits.append("--template (computed output cannot be verified statically)")
+                hits.append(
+                    "--template (computed output cannot be verified statically)"
+                )
             i += 1
     else:
         # Unparseable line: conservative raw-text fallbacks.
@@ -379,13 +394,16 @@ def _gh_api_free_text_hits(line: str) -> list[str]:
         for i, tok in enumerate(tokens):
             if tok == "api" and i + 1 < len(tokens):
                 endpoint = tokens[i + 1]
-                if not endpoint.startswith("-") and API_FREE_TEXT_RESOURCE_RE.search(endpoint):
+                if not endpoint.startswith("-") and API_FREE_TEXT_RESOURCE_RE.search(
+                    endpoint
+                ):
                     hits.append(f"endpoint '{endpoint}' returns free text by default")
                 break
     elif API_FREE_TEXT_RESOURCE_RE.search(line):
         hits.append("gh api endpoint with free-text resource (raw match)")
     hits.extend(_gh_flag_hits(line))
     return hits
+
 
 REQUIRED_MARKERS = ["untrusted", "refuse", "credentials"]
 VAR_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
@@ -417,7 +435,9 @@ def lint_file(path: Path) -> list[str]:
                     f"protocol marker {marker!r} (see .github/prompts/README.md)"
                 )
 
-    message_texts = [str(m.get("content", "")) for m in doc["messages"] if isinstance(m, dict)]
+    message_texts = [
+        str(m.get("content", "")) for m in doc["messages"] if isinstance(m, dict)
+    ]
     all_text = "\n".join(message_texts)
     variables = sorted(set(VAR_RE.findall(all_text)))
     if variables and path.name not in ALLOWLIST:
@@ -442,7 +462,11 @@ def lint_file(path: Path) -> list[str]:
                     )
                     continue
                 block = text[begin:end].lower()
-                if "data-only" not in block and "do not follow" not in block and "do-not-follow" not in block:
+                if (
+                    "data-only" not in block
+                    and "do not follow" not in block
+                    and "do-not-follow" not in block
+                ):
                     errors.append(
                         f"{path.name}: fenced block around {match.group(0)} lacks "
                         f"explicit data-only / do-not-follow guard text"
@@ -521,7 +545,9 @@ def lint_workflow(path: Path) -> list[str]:
                 )
             errors.extend(_lint_minimization(path, job_name, run_scripts))
             errors.extend(
-                _lint_file_input_producers(path, job_name, run_scripts, file_input_targets)
+                _lint_file_input_producers(
+                    path, job_name, run_scripts, file_input_targets
+                )
             )
             errors.extend(_lint_non_gh_fetchers(path, job_name, run_scripts))
     return errors
@@ -594,12 +620,24 @@ def _lint_minimization(path: Path, job_name: str, run_scripts: list[str]) -> lis
 # containing only these is safe; any other unresolved shell expansion in a
 # write target is non-literal and fails closed in feeding jobs
 # (github-advanced-security on #1118).
-KNOWN_RUNNER_VARS = frozenset({
-    "GITHUB_OUTPUT", "GITHUB_ENV", "GITHUB_STEP_SUMMARY", "GITHUB_PATH",
-    "GITHUB_ACTIONS", "GITHUB_REPOSITORY", "GITHUB_WORKFLOW", "GITHUB_RUN_ID",
-    "GITHUB_SERVER_URL", "CI", "RUNNER_OS", "RUNNER_ARCH", "RUNNER_DEBUG",
-    "RUNNER_TOOL_CACHE",
-})
+KNOWN_RUNNER_VARS = frozenset(
+    {
+        "GITHUB_OUTPUT",
+        "GITHUB_ENV",
+        "GITHUB_STEP_SUMMARY",
+        "GITHUB_PATH",
+        "GITHUB_ACTIONS",
+        "GITHUB_REPOSITORY",
+        "GITHUB_WORKFLOW",
+        "GITHUB_RUN_ID",
+        "GITHUB_SERVER_URL",
+        "CI",
+        "RUNNER_OS",
+        "RUNNER_ARCH",
+        "RUNNER_DEBUG",
+        "RUNNER_TOOL_CACHE",
+    }
+)
 VAR_USE_RE = re.compile(r"\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)|\$\(|`")
 DYNAMIC_MARKER = "\x00dynamic\x00"
 ASSIGN_RE = re.compile(r"^([A-Za-z_]\w*)=(.*)$")
@@ -633,7 +671,9 @@ def _resolve_target(raw: str, script_vars: dict[str, str]) -> tuple[str, bool]:
     """(canon_path, is_dynamic_unsafe) for a raw write-target token: runner
     temp spellings and script-local literal vars are resolved; anything still
     containing shell expansion is non-literal and unsafe (fail closed)."""
-    tok = raw.replace("${{ runner.temp }}", "__TEMP__").replace("$RUNNER_TEMP", "__TEMP__")
+    tok = raw.replace("${{ runner.temp }}", "__TEMP__").replace(
+        "$RUNNER_TEMP", "__TEMP__"
+    )
 
     def repl(m: re.Match[str]) -> str:
         name = m.group(1) or m.group(2)
@@ -701,14 +741,22 @@ def _raw_write_targets(line: str) -> set[str]:
             sources = positional if target_dir is not None else positional[:-1]
             for src in sources:
                 targets.add(base.rstrip("/") + "/" + Path(src).name)
-    if tokens and tokens[0] == "sed" and any(SED_IN_PLACE_RE.match(t) for t in tokens[1:]):
+    if (
+        tokens
+        and tokens[0] == "sed"
+        and any(SED_IN_PLACE_RE.match(t) for t in tokens[1:])
+    ):
         # sed -i edits its file operands in place — every non-option token is
         # a potential write target (over-capture is harmless).
         targets.update(t for t in tokens[1:] if not t.startswith("-"))
     for i, tok in enumerate(tokens):
         if tok in OUTPUT_FLAG_TOKENS:
             # split form: -o FILE / --output FILE (skip option-like values)
-            if i + 1 < len(tokens) and tokens[i + 1] and not tokens[i + 1].startswith("-"):
+            if (
+                i + 1 < len(tokens)
+                and tokens[i + 1]
+                and not tokens[i + 1].startswith("-")
+            ):
                 targets.add(tokens[i + 1])
         elif tok.startswith(OUTPUT_FLAG_PREFIXES):
             # = form: --output=FILE, of=FILE
@@ -722,10 +770,14 @@ def _raw_write_targets(line: str) -> set[str]:
             cluster = tok[1:]
             idx = next((j for j, ch in enumerate(cluster) if ch in "oO"), None)
             if idx is not None:
-                attached = cluster[idx + 1:]
+                attached = cluster[idx + 1 :]
                 if attached:
                     targets.add(attached)
-                elif i + 1 < len(tokens) and tokens[i + 1] and not tokens[i + 1].startswith("-"):
+                elif (
+                    i + 1 < len(tokens)
+                    and tokens[i + 1]
+                    and not tokens[i + 1].startswith("-")
+                ):
                     targets.add(tokens[i + 1])
     return {t for t in targets if t and t != "/dev/null"}
 
@@ -806,7 +858,19 @@ def _producer_line_is_simple(line: str) -> bool:
 # invocation fails closed except the scripts/redact_secrets.py
 # transformation (github-advanced-security on #1118; residuals in #1120).
 OPAQUE_RUNNER_CMDS = frozenset(
-    {"python", "python3", "bash", "sh", "zsh", "node", "perl", "ruby", "pwsh", "powershell", "cmd"}
+    {
+        "python",
+        "python3",
+        "bash",
+        "sh",
+        "zsh",
+        "node",
+        "perl",
+        "ruby",
+        "pwsh",
+        "powershell",
+        "cmd",
+    }
 )
 # Wrapper commands that only prefix the real executable (e.g.
 # 'env python3 fetch.py', 'command node x.js') — skipped when locating the
@@ -922,11 +986,7 @@ def _lint_file_input_producers(
                 continue
             for target in sorted(targets):
                 entry = allowlist.get(target)
-                if (
-                    entry is not None
-                    and entry[0].search(line)
-                    and entry[1](line)
-                ):
+                if entry is not None and entry[0].search(line) and entry[1](line):
                     continue
                 errors.append(
                     f"{path.name} (job {job_name}): ai-inference file_input "
@@ -940,7 +1000,9 @@ def _lint_file_input_producers(
     return errors
 
 
-def _lint_non_gh_fetchers(path: Path, job_name: str, run_scripts: list[str]) -> list[str]:
+def _lint_non_gh_fetchers(
+    path: Path, job_name: str, run_scripts: list[str]
+) -> list[str]:
     """Rule 5b (issue #1090): in a job that feeds file_input to
     actions/ai-inference, any non-gh HTTP fetcher (curl/wget/httpie, python
     urllib/requests/httpx/..., node fetch, pwsh Invoke-*) whose arguments
@@ -967,7 +1029,9 @@ def _canon_path(raw: str) -> str:
     """Normalize a path token for exact comparison: strip quotes, unify temp
     dir spellings, POSIX separators, drop leading ./"""
     token = raw.strip().strip("\"'")
-    token = token.replace("${{ runner.temp }}", "__TEMP__").replace("$RUNNER_TEMP", "__TEMP__")
+    token = token.replace("${{ runner.temp }}", "__TEMP__").replace(
+        "$RUNNER_TEMP", "__TEMP__"
+    )
     token = token.replace("\\", "/")
     while token.startswith("./"):
         token = token[2:]
@@ -992,7 +1056,9 @@ def main() -> int:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    print(f"prompt lint OK ({len(list(PROMPTS_DIR.glob('*.prompt.yml')))} prompt files)")
+    print(
+        f"prompt lint OK ({len(list(PROMPTS_DIR.glob('*.prompt.yml')))} prompt files)"
+    )
     return 0
 
 

@@ -4,7 +4,9 @@ from __future__ import annotations
 from .diagnostics import Diagnostic
 
 
-def validate_dependency_graph(module_ids: set[str], depends_on_map: dict[str, list[str]]) -> list[Diagnostic]:
+def validate_dependency_graph(
+    module_ids: set[str], depends_on_map: dict[str, list[str]]
+) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
     for module_id, deps in depends_on_map.items():

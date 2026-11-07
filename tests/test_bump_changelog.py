@@ -81,7 +81,9 @@ class BumpChangelogTest(unittest.TestCase):
             script_copy_dir = Path(tmpdir) / "scripts"
             script_copy_dir.mkdir()
             script_copy = script_copy_dir / "bump_changelog.py"
-            script_copy.write_text(SCRIPT_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+            script_copy.write_text(
+                SCRIPT_PATH.read_text(encoding="utf-8"), encoding="utf-8"
+            )
 
             result = subprocess.run(
                 [sys.executable, str(script_copy), "1.2.3"],

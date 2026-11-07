@@ -182,12 +182,16 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if os.getenv("CDS_RUN_DOCKER_SMOKE") != "1":
-            raise unittest.SkipTest("Set CDS_RUN_DOCKER_SMOKE=1 to run Docker runtime proof tests")
+            raise unittest.SkipTest(
+                "Set CDS_RUN_DOCKER_SMOKE=1 to run Docker runtime proof tests"
+            )
 
         if shutil.which("docker") is None:
             raise unittest.SkipTest("Docker CLI not available")
 
-        docker_info = subprocess.run(["docker", "info"], capture_output=True, text=True, errors="replace")
+        docker_info = subprocess.run(
+            ["docker", "info"], capture_output=True, text=True, errors="replace"
+        )
         if docker_info.returncode != 0:
             raise unittest.SkipTest("Docker daemon is not available")
 
@@ -195,15 +199,31 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
         # Bind sources and build contexts resolve relative to the compose
         # file's directory, so it lives at the repo root like production.
         return [
-            "docker", "compose",
-            "--env-file", str(env_file),
-            "-f", str(COMPOSE_FILE),
-            "-p", project,
+            "docker",
+            "compose",
+            "--env-file",
+            str(env_file),
+            "-f",
+            str(COMPOSE_FILE),
+            "-p",
+            project,
         ]
 
-    def _run(self, command: list[str], env: dict[str, str], timeout: int = 1200,
-             allow_failure: bool = False) -> subprocess.CompletedProcess:
-        result = subprocess.run(command, env=env, capture_output=True, text=True, errors="replace", timeout=timeout)
+    def _run(
+        self,
+        command: list[str],
+        env: dict[str, str],
+        timeout: int = 1200,
+        allow_failure: bool = False,
+    ) -> subprocess.CompletedProcess:
+        result = subprocess.run(
+            command,
+            env=env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+        )
         if result.returncode != 0 and not allow_failure:
             self.fail(
                 "Command failed: {cmd}\nstdout:\n{stdout}\nstderr:\n{stderr}".format(
@@ -216,13 +236,28 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
 
     def _logs(self, project: str, env_file: Path, env: dict[str, str]) -> str:
         result = subprocess.run(
-            [*self._compose(project, env_file), "logs", "--tail", "150", BACKUP_SERVICE],
-            env=env, capture_output=True, text=True, errors="replace", timeout=120,
+            [
+                *self._compose(project, env_file),
+                "logs",
+                "--tail",
+                "150",
+                BACKUP_SERVICE,
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=120,
         )
         return result.stdout + result.stderr
 
-    def _wait_for_backup_pass(self, project: str, env_file: Path, env: dict[str, str],
-                              deadline_seconds: int = 300) -> None:
+    def _wait_for_backup_pass(
+        self,
+        project: str,
+        env_file: Path,
+        env: dict[str, str],
+        deadline_seconds: int = 300,
+    ) -> None:
         """Wait until the scheduler logs a completed backup pass of both
         source mounts (one restic snapshot per pass, issue #1014), and fail
         with the container logs otherwise."""
@@ -236,17 +271,35 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
             f"container logs follow.\n{self._logs(project, env_file, env)}"
         )
 
-    def _restic(self, project: str, env_file: Path, env: dict[str, str],
-                args: list[str], timeout: int = 600) -> subprocess.CompletedProcess:
+    def _restic(
+        self,
+        project: str,
+        env_file: Path,
+        env: dict[str, str],
+        args: list[str],
+        timeout: int = 600,
+    ) -> subprocess.CompletedProcess:
         # RESTIC_REPOSITORY is exported inside the scheduler's process, so a
         # plain `docker compose exec` does not see it; mirror the
         # cds-restic-env resolution the entrypoint performs.
         command = [
-            *self._compose(project, env_file), "exec", "-T", BACKUP_SERVICE,
-            "sh", "-c",
-            ". /usr/local/bin/cds-restic-env && restic_env_setup && restic " + " ".join(args),
+            *self._compose(project, env_file),
+            "exec",
+            "-T",
+            BACKUP_SERVICE,
+            "sh",
+            "-c",
+            ". /usr/local/bin/cds-restic-env && restic_env_setup && restic "
+            + " ".join(args),
         ]
-        result = subprocess.run(command, env=env, capture_output=True, text=True, errors="replace", timeout=timeout)
+        result = subprocess.run(
+            command,
+            env=env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+        )
         if result.returncode != 0:
             self.fail(
                 f"restic {' '.join(args)} failed (project {project})\n"
@@ -256,15 +309,34 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
             )
         return result
 
-    def _alpine(self, binds: list[str], command: str, env: dict[str, str],
-                user: str | None = None, timeout: int = 300) -> subprocess.CompletedProcess:
+    def _alpine(
+        self,
+        binds: list[str],
+        command: str,
+        env: dict[str, str],
+        user: str | None = None,
+        timeout: int = 300,
+    ) -> subprocess.CompletedProcess:
         """Runs a scratch Alpine container (digest-pinned) with the given
         volume binds; used for volume seeding, ownership setup, and reads."""
         return subprocess.run(
-            ["docker", "run", "--rm",
-             *(["--user", user] if user else []),
-             "--entrypoint", "/bin/sh", *binds, ALPINE_IMAGE, "-c", command],
-            env=env, capture_output=True, text=True, errors="replace", timeout=timeout,
+            [
+                "docker",
+                "run",
+                "--rm",
+                *(["--user", user] if user else []),
+                "--entrypoint",
+                "/bin/sh",
+                *binds,
+                ALPINE_IMAGE,
+                "-c",
+                command,
+            ],
+            env=env,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
         )
 
     @staticmethod
@@ -281,7 +353,9 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
         # --env-file` is executed by the Docker CLI, which on dev machines
         # may not share the test process's system temp dir, and bind paths
         # in the rendered Compose resolve relative to the compose file.
-        with tempfile.TemporaryDirectory(prefix="cds-restic-proof-", dir=REPO_ROOT) as tmpdir:
+        with tempfile.TemporaryDirectory(
+            prefix="cds-restic-proof-", dir=REPO_ROOT
+        ) as tmpdir:
             work = Path(tmpdir)
             env_file = work / ".env"
             env_file.write_text(
@@ -320,22 +394,27 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
             ):
                 diagnostics = validate_profile(str(profile_file))
                 self.assertEqual(
-                    [d for d in diagnostics if d.level == "error"], [],
+                    [d for d in diagnostics if d.level == "error"],
+                    [],
                     msg=f"unexpected validation errors: {diagnostics}",
                 )
 
                 plan, plan_diags = build_plan(str(profile_file), env_file=str(env_file))
                 self.assertIsNotNone(plan)
                 self.assertEqual(
-                    [d for d in plan_diags if d.level == "error"], [],
+                    [d for d in plan_diags if d.level == "error"],
+                    [],
                     msg=f"unexpected plan errors: {plan_diags}",
                 )
 
                 output, render_diags = render_compose(
-                    plan, output_path=str(COMPOSE_FILE), env_file=str(env_file),
+                    plan,
+                    output_path=str(COMPOSE_FILE),
+                    env_file=str(env_file),
                 )
             self.assertEqual(
-                [d for d in render_diags if d.level == "error"], [],
+                [d for d in render_diags if d.level == "error"],
+                [],
                 msg=f"unexpected render errors: {render_diags}",
             )
             COMPOSE_FILE.write_text(output, encoding="utf-8")
@@ -353,9 +432,19 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
             def teardown() -> None:
                 for project in (SOURCE_PROJECT, CLEAN_PROJECT):
                     subprocess.run(
-                        [*self._compose(project, env_file), "--profile", "cds-restore",
-                         "down", "-v", "--remove-orphans"],
-                        env=env, capture_output=True, text=True, errors="replace", timeout=300,
+                        [
+                            *self._compose(project, env_file),
+                            "--profile",
+                            "cds-restore",
+                            "down",
+                            "-v",
+                            "--remove-orphans",
+                        ],
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        errors="replace",
+                        timeout=300,
                     )
                 # Volumes pre-created before compose ever sees them carry no
                 # compose labels, so `down -v` skips them; remove them
@@ -367,13 +456,18 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                 ):
                     subprocess.run(
                         ["docker", "volume", "rm", "--force", volume],
-                        env=env, capture_output=True, text=True, errors="replace", timeout=60,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        errors="replace",
+                        timeout=60,
                     )
                 COMPOSE_FILE.unlink(missing_ok=True)
 
             try:
                 self._run(
-                    [*self._compose(SOURCE_PROJECT, env_file), "build", BACKUP_SERVICE], env,
+                    [*self._compose(SOURCE_PROJECT, env_file), "build", BACKUP_SERVICE],
+                    env,
                     timeout=1800,
                 )
 
@@ -393,12 +487,20 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                     env,
                 )
                 self.assertEqual(
-                    seed_b.returncode, 0,
+                    seed_b.returncode,
+                    0,
                     msg="seeding the dlt state volume failed:\n"
-                        + seed_b.stdout + seed_b.stderr,
+                    + seed_b.stdout
+                    + seed_b.stderr,
                 )
                 self._run(
-                    [*self._compose(SOURCE_PROJECT, env_file), "up", "-d", BACKUP_SERVICE], env,
+                    [
+                        *self._compose(SOURCE_PROJECT, env_file),
+                        "up",
+                        "-d",
+                        BACKUP_SERVICE,
+                    ],
+                    env,
                 )
                 self._wait_for_backup_pass(SOURCE_PROJECT, env_file, env)
 
@@ -419,7 +521,12 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                 # The source project's containers stop here; its volumes stay
                 # until the final teardown so failures keep evidence.
                 self._run(
-                    [*self._compose(SOURCE_PROJECT, env_file), "down", "--remove-orphans"], env,
+                    [
+                        *self._compose(SOURCE_PROJECT, env_file),
+                        "down",
+                        "--remove-orphans",
+                    ],
+                    env,
                 )
 
                 # Clean environment: a second compose project with a fresh,
@@ -440,19 +547,29 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                     env,
                 )
                 self.assertEqual(
-                    prepare_clean.returncode, 0,
+                    prepare_clean.returncode,
+                    0,
                     msg="preparing the clean dlt state volume failed:\n"
-                        + prepare_clean.stdout + prepare_clean.stderr,
+                    + prepare_clean.stdout
+                    + prepare_clean.stderr,
                 )
                 copy_output = self._alpine(
-                    ["-v", f"{source_repo_volume}:/from:ro",
-                     "-v", f"{clean_repo_volume}:/to"],
+                    [
+                        "-v",
+                        f"{source_repo_volume}:/from:ro",
+                        "-v",
+                        f"{clean_repo_volume}:/to",
+                    ],
                     "cp -a /from/. /to/ && chown -R 10000:10000 /to && chmod 700 /to",
-                    env, user="0:0",
+                    env,
+                    user="0:0",
                 )
                 self.assertEqual(
-                    copy_output.returncode, 0,
-                    msg="repository volume copy failed:\n" + copy_output.stdout + copy_output.stderr,
+                    copy_output.returncode,
+                    0,
+                    msg="repository volume copy failed:\n"
+                    + copy_output.stdout
+                    + copy_output.stderr,
                 )
 
                 # Empty the source directory: the clean environment restores
@@ -469,41 +586,64 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                     env,
                 )
                 self.assertEqual(
-                    grep.returncode, 0,
-                    msg="backup repository exposes the marker in plaintext:\n" + grep.stdout + grep.stderr,
+                    grep.returncode,
+                    0,
+                    msg="backup repository exposes the marker in plaintext:\n"
+                    + grep.stdout
+                    + grep.stderr,
                 )
 
                 # Encryption proof 2: restoring with the wrong key must fail.
                 wrong_key = self._run(
-                    [*self._compose(CLEAN_PROJECT, env_file), "--profile", "cds-restore",
-                     "run", "--rm", "-e", "RESTIC_PASSWORD=wrong-key-restore-proof",
-                     RESTORE_SERVICE],
-                    env, allow_failure=True,
+                    [
+                        *self._compose(CLEAN_PROJECT, env_file),
+                        "--profile",
+                        "cds-restore",
+                        "run",
+                        "--rm",
+                        "-e",
+                        "RESTIC_PASSWORD=wrong-key-restore-proof",
+                        RESTORE_SERVICE,
+                    ],
+                    env,
+                    allow_failure=True,
                 )
                 self.assertNotEqual(
-                    wrong_key.returncode, 0,
+                    wrong_key.returncode,
+                    0,
                     msg="restore with a wrong encryption key succeeded; artifacts are not "
-                        "encrypted or the key is ignored:\n" + wrong_key.stdout + wrong_key.stderr,
+                    "encrypted or the key is ignored:\n"
+                    + wrong_key.stdout
+                    + wrong_key.stderr,
                 )
 
                 # Restore the newest restore point with the correct key and
                 # measure the recovery time (policy rtoMinutes).
                 restore_started = time.monotonic()
                 self._run(
-                    [*self._compose(CLEAN_PROJECT, env_file), "--profile", "cds-restore",
-                     "run", "--rm", RESTORE_SERVICE],
+                    [
+                        *self._compose(CLEAN_PROJECT, env_file),
+                        "--profile",
+                        "cds-restore",
+                        "run",
+                        "--rm",
+                        RESTORE_SERVICE,
+                    ],
                     env,
                 )
                 elapsed_restore_seconds = time.monotonic() - restore_started
 
                 # The bind-kind marker must be back byte-for-byte.
-                self.assertTrue(marker_path.is_file(), "marker file missing after restore")
+                self.assertTrue(
+                    marker_path.is_file(), "marker file missing after restore"
+                )
                 restored = marker_path.read_text(encoding="utf-8")
                 self.assertEqual(
-                    self._marker_checksum(restored), expected_checksum,
+                    self._marker_checksum(restored),
+                    expected_checksum,
                     msg=f"marker data did not survive the clean-environment restore; "
-                        f"expected checksum {expected_checksum!r}, got "
-                        f"{self._marker_checksum(restored)!r}",
+                    f"expected checksum {expected_checksum!r}, got "
+                    f"{self._marker_checksum(restored)!r}",
                 )
 
                 # The volume-kind marker must be back byte-for-byte too
@@ -512,19 +652,23 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                 read_b = self._alpine(
                     ["-v", f"{clean_dlt_volume}:/data:ro"],
                     f"cat /data/{MARKER_FILE}",
-                    env, timeout=120,
+                    env,
+                    timeout=120,
                 )
                 self.assertEqual(
-                    read_b.returncode, 0,
+                    read_b.returncode,
+                    0,
                     msg="reading the restored dlt state volume failed:\n"
-                        + read_b.stdout + read_b.stderr,
+                    + read_b.stdout
+                    + read_b.stderr,
                 )
                 self.assertEqual(
-                    self._marker_checksum(read_b.stdout), expected_checksum_b,
+                    self._marker_checksum(read_b.stdout),
+                    expected_checksum_b,
                     msg=f"volume-kind marker data did not survive the "
-                        f"clean-environment restore; expected checksum "
-                        f"{expected_checksum_b!r}, got "
-                        f"{self._marker_checksum(read_b.stdout)!r}",
+                    f"clean-environment restore; expected checksum "
+                    f"{expected_checksum_b!r}, got "
+                    f"{self._marker_checksum(read_b.stdout)!r}",
                 )
 
                 # Recovery expectations: the measured restore time must stay
@@ -540,14 +684,16 @@ class ResticBackupRestoreRuntimeTest(unittest.TestCase):
                     flush=True,
                 )
                 self.assertLess(
-                    elapsed_restore_seconds, policy["rtoMinutes"] * 60,
+                    elapsed_restore_seconds,
+                    policy["rtoMinutes"] * 60,
                     msg=f"measured restore time {elapsed_restore_seconds:.0f}s exceeds the "
-                        f"profile's rtoMinutes={policy['rtoMinutes']}",
+                    f"profile's rtoMinutes={policy['rtoMinutes']}",
                 )
                 self.assertLess(
-                    restore_point_age_seconds, policy["rpoMinutes"] * 60,
+                    restore_point_age_seconds,
+                    policy["rpoMinutes"] * 60,
                     msg=f"restore point age {restore_point_age_seconds:.0f}s exceeds the "
-                        f"profile's rpoMinutes={policy['rpoMinutes']}",
+                    f"profile's rpoMinutes={policy['rpoMinutes']}",
                 )
             finally:
                 if os.getenv("CDS_KEEP_DOCKER_STACK") != "1":

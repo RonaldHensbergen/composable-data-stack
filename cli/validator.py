@@ -31,7 +31,9 @@ def _load_schema(name: str) -> dict[str, Any]:
     return json.loads(schema_path.read_text(encoding="utf-8"))
 
 
-def validate_profile(profile_path: str, environment: str | None = None) -> list[Diagnostic]:
+def validate_profile(
+    profile_path: str, environment: str | None = None
+) -> list[Diagnostic]:
     # Local import: cli.overlay imports validate_loaded_profile from this
     # module, so importing it back at module scope would be circular.
     # resolve_profile() is called unconditionally (not just when environment
@@ -43,7 +45,9 @@ def validate_profile(profile_path: str, environment: str | None = None) -> list[
     return diagnostics
 
 
-def validate_loaded_profile(profile: dict[str, Any], profile_file: Path) -> list[Diagnostic]:
+def validate_loaded_profile(
+    profile: dict[str, Any], profile_file: Path
+) -> list[Diagnostic]:
     """
     Runs the full validation pipeline (shape, module configs, dependencies,
     secret refs, contract bindings, outputs) against an already-loaded
@@ -120,7 +124,9 @@ def validate_web_serving_mode(
     return diagnostics
 
 
-def validate_confinement_config(profile: dict[str, Any], profile_file: Path) -> list[Diagnostic]:
+def validate_confinement_config(
+    profile: dict[str, Any], profile_file: Path
+) -> list[Diagnostic]:
     """Validate spec.security.runtime.confinement and per-module security.confinement."""
     spec = profile.get("spec", {})
     base_dir = profile_file.parent
@@ -132,9 +138,11 @@ def validate_confinement_config(profile: dict[str, Any], profile_file: Path) -> 
         if not isinstance(instance, dict):
             continue
         confinement = (instance.get("security") or {}).get("confinement")
-        diagnostics.extend(validate_confinement(
-            confinement, f"spec.modules[{index}].security.confinement", base_dir
-        ))
+        diagnostics.extend(
+            validate_confinement(
+                confinement, f"spec.modules[{index}].security.confinement", base_dir
+            )
+        )
     return diagnostics
 
 
@@ -226,7 +234,9 @@ def validate_contract_file(contract_path: str | Path) -> list[Diagnostic]:
     return diagnostics + validate_contract_document(contract)
 
 
-def load_module_instances(profile_file: Path, profile: dict[str, Any]) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
+def load_module_instances(
+    profile_file: Path, profile: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     diagnostics: list[Diagnostic] = []
     instances: list[dict[str, Any]] = []
 
@@ -311,12 +321,19 @@ def validate_module_configs(module_instances: list[dict[str, Any]]) -> list[Diag
         schema = inst["module"].get("spec", {}).get("configSchema")
         if not isinstance(schema, dict):
             diagnostics.append(
-                Diagnostic("error", "E021", "Module is missing spec.configSchema.", f"module:{inst['id']}.spec.configSchema")
+                Diagnostic(
+                    "error",
+                    "E021",
+                    "Module is missing spec.configSchema.",
+                    f"module:{inst['id']}.spec.configSchema",
+                )
             )
             continue
 
         validator = Draft202012Validator(schema)
-        errors = sorted(validator.iter_errors(inst["config"]), key=lambda e: list(e.path))
+        errors = sorted(
+            validator.iter_errors(inst["config"]), key=lambda e: list(e.path)
+        )
 
         for err in errors:
             subpath = ".".join(str(p) for p in err.path)
@@ -342,14 +359,12 @@ def validate_dependencies(module_instances: list[dict[str, Any]]) -> list[Diagno
     return validate_dependency_graph(module_ids, depends_on_map)
 
 
-def validate_secret_refs(profile: dict[str, Any], module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+def validate_secret_refs(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
-    secrets_values = (
-        profile.get("spec", {})
-        .get("secrets", {})
-        .get("values", {})
-    )
+    secrets_values = profile.get("spec", {}).get("secrets", {}).get("values", {})
 
     for inst in module_instances:
         walk_for_secret_refs(
@@ -362,7 +377,9 @@ def validate_secret_refs(profile: dict[str, Any], module_instances: list[dict[st
     return diagnostics
 
 
-def walk_for_secret_refs(obj: Any, current_path: str, known_secrets: set[str], diagnostics: list[Diagnostic]) -> None:
+def walk_for_secret_refs(
+    obj: Any, current_path: str, known_secrets: set[str], diagnostics: list[Diagnostic]
+) -> None:
     if isinstance(obj, dict):
         for k, v in obj.items():
             walk_for_secret_refs(v, f"{current_path}.{k}", known_secrets, diagnostics)
@@ -383,7 +400,9 @@ def walk_for_secret_refs(obj: Any, current_path: str, known_secrets: set[str], d
                 )
 
 
-def validate_certificate_refs(profile: dict[str, Any], module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+def validate_certificate_refs(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
     """
     Validates `certificates.<alias>.cert|.key` references in module instance
     config against the profile's spec.certificates.values aliases (issue #578).
@@ -394,9 +413,8 @@ def validate_certificate_refs(profile: dict[str, Any], module_instances: list[di
     """
     diagnostics: list[Diagnostic] = []
 
-    certificates_values = (
-        (profile.get("spec", {}).get("certificates") or {})
-        .get("values", {})
+    certificates_values = (profile.get("spec", {}).get("certificates") or {}).get(
+        "values", {}
     )
     known_aliases = set(certificates_values.keys())
 
@@ -411,13 +429,19 @@ def validate_certificate_refs(profile: dict[str, Any], module_instances: list[di
     return diagnostics
 
 
-def walk_for_certificate_refs(obj: Any, current_path: str, known_aliases: set[str], diagnostics: list[Diagnostic]) -> None:
+def walk_for_certificate_refs(
+    obj: Any, current_path: str, known_aliases: set[str], diagnostics: list[Diagnostic]
+) -> None:
     if isinstance(obj, dict):
         for k, v in obj.items():
-            walk_for_certificate_refs(v, f"{current_path}.{k}", known_aliases, diagnostics)
+            walk_for_certificate_refs(
+                v, f"{current_path}.{k}", known_aliases, diagnostics
+            )
     elif isinstance(obj, list):
         for i, v in enumerate(obj):
-            walk_for_certificate_refs(v, f"{current_path}[{i}]", known_aliases, diagnostics)
+            walk_for_certificate_refs(
+                v, f"{current_path}[{i}]", known_aliases, diagnostics
+            )
     else:
         if not is_certificate_ref(obj):
             return
@@ -490,7 +514,7 @@ def _load_compatibility_registry() -> dict[tuple[str, str, str], str]:
     errors = sorted(validator.iter_errors(registry), key=lambda e: list(e.path))
     if errors:
         msgs = [
-            f'{".".join(str(x) for x in err.path) or "<root>"}: {err.message}'
+            f"{'.'.join(str(x) for x in err.path) or '<root>'}: {err.message}"
             for err in errors
         ]
         raise CompatibilityRegistryError(
@@ -513,18 +537,25 @@ def _load_compatibility_registry() -> dict[tuple[str, str, str], str]:
 
 
 def _module_key(module_def: dict[str, Any]) -> str | None:
-    """"<category>/<name>" identity for a module, stable across profiles (unlike
+    """ "<category>/<name>" identity for a module, stable across profiles (unlike
     a profile-scoped instance id or a source path), used to look up
     tested/unsupported pairings in the compatibility registry."""
     metadata = module_def.get("metadata", {})
     category = metadata.get("category")
     name = metadata.get("name")
-    if not isinstance(category, str) or not isinstance(name, str) or not category or not name:
+    if (
+        not isinstance(category, str)
+        or not isinstance(name, str)
+        or not category
+        or not name
+    ):
         return None
     return f"{category}/{name}"
 
 
-def _provider_advertises_tls(provider_contract: dict[str, Any], producer_inst: dict[str, Any]) -> bool:
+def _provider_advertises_tls(
+    provider_contract: dict[str, Any], producer_inst: dict[str, Any]
+) -> bool:
     """
     Evaluate the provider's contract-spec `tls` advertisement for the
     tls:required consume check (issue #577).
@@ -570,14 +601,18 @@ def _provider_advertised_engine(
         return None
     if value.startswith("${config.") and value.endswith("}"):
         try:
-            resolved = resolve_path({"config": producer_inst.get("config")}, value[2:-1])
+            resolved = resolve_path(
+                {"config": producer_inst.get("config")}, value[2:-1]
+            )
         except KeyError:
             return None
         return resolved if isinstance(resolved, str) else None
     return value
 
 
-def _schema_default_at_config_path(module_def: dict[str, Any], config_path: str) -> tuple[bool, Any]:
+def _schema_default_at_config_path(
+    module_def: dict[str, Any], config_path: str
+) -> tuple[bool, Any]:
     """
     Walk the module's configSchema along a dotted config path (e.g.
     "metadataDatabase.driver") and return (True, default) when the leaf schema
@@ -598,7 +633,9 @@ def _schema_default_at_config_path(module_def: dict[str, Any], config_path: str)
     return False, None
 
 
-def _consumer_expected_engine(inst: dict[str, Any], engine_from: str) -> tuple[bool, Any]:
+def _consumer_expected_engine(
+    inst: dict[str, Any], engine_from: str
+) -> tuple[bool, Any]:
     """
     Resolve a consume entry's engineFrom path against the consumer instance's
     own config, falling back to the configSchema default at that path when the
@@ -612,16 +649,22 @@ def _consumer_expected_engine(inst: dict[str, Any], engine_from: str) -> tuple[b
     except KeyError:
         pass
     prefix = "spec.config."
-    config_path = engine_from[len(prefix):] if engine_from.startswith(prefix) else engine_from
+    config_path = (
+        engine_from[len(prefix) :] if engine_from.startswith(prefix) else engine_from
+    )
     return _schema_default_at_config_path(inst["module"], config_path)
 
 
-def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+def validate_contract_bindings(
+    module_instances: list[dict[str, Any]],
+) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
     by_id = {m["id"]: m for m in module_instances}
     try:
-        compatibility_registry: dict[tuple[str, str, str], str] | None = _load_compatibility_registry()
+        compatibility_registry: dict[tuple[str, str, str], str] | None = (
+            _load_compatibility_registry()
+        )
     except CompatibilityRegistryError as exc:
         diagnostics.append(
             Diagnostic(
@@ -646,7 +689,7 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                         level="error",
                         code="E021",
                         message=f'Consume entry in module "{inst["id"]}" is missing name, contract.kind, or mappedFrom.',
-                        path=f'module:{inst["id"]}.spec.consumes',
+                        path=f"module:{inst['id']}.spec.consumes",
                     )
                 )
                 continue
@@ -655,14 +698,16 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
             required_if = consume.get("requiredIf")
             if required_if:
                 try:
-                    conditionally_required = evaluate_required_if(required_if, inst["config"])
+                    conditionally_required = evaluate_required_if(
+                        required_if, inst["config"]
+                    )
                 except RequiredIfSyntaxError as err:
                     diagnostics.append(
                         Diagnostic(
                             level="error",
                             code="E021",
                             message=f'Consume entry "{name}" in module "{inst["id"]}" has a malformed requiredIf: {err}',
-                            path=f'module:{inst["id"]}.spec.consumes',
+                            path=f"module:{inst['id']}.spec.consumes",
                         )
                     )
                     conditionally_required = False
@@ -681,7 +726,11 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                         code="E041",
                         message=(
                             f'Path "{mapped_from}" could not be resolved in module instance config'
-                            + (f' (required because {required_if}).' if conditionally_required and not required else ".")
+                            + (
+                                f" (required because {required_if})."
+                                if conditionally_required and not required
+                                else "."
+                            )
                         ),
                         path=f"spec.modules[{inst['index']}].config",
                     )
@@ -700,7 +749,11 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
             ) -> None:
                 """Validate one contractRef binding; shared by single-object and
                 list-valued mappedFrom targets (issue #883)."""
-                parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+                parsed = (
+                    parse_contract_ref(contract_ref)
+                    if isinstance(contract_ref, str)
+                    else None
+                )
                 if parsed is None:
                     diagnostics.append(
                         Diagnostic(
@@ -726,7 +779,9 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                     return
 
                 provides = producer["module"].get("spec", {}).get("provides", [])
-                matched = next((p for p in provides if p.get("name") == provide_name), None)
+                matched = next(
+                    (p for p in provides if p.get("name") == provide_name), None
+                )
                 if matched is None:
                     diagnostics.append(
                         Diagnostic(
@@ -762,12 +817,12 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                             code="E128",
                             message=(
                                 f'Consume entry "{_name}" in module "{_inst["id"]}" requires a '
-                                f'TLS-protected endpoint (tls: required), but contract ref '
+                                f"TLS-protected endpoint (tls: required), but contract ref "
                                 f'"{contract_ref}" resolves to "{producer_id}", whose "{provide_name}" '
-                                'contract does not advertise one. Providers opt in by setting '
+                                "contract does not advertise one. Providers opt in by setting "
                                 '"tls: true" in the provide entry\'s contract spec (either a boolean '
                                 'literal or a "${config.<path>}" reference that resolves to true '
-                                'against the producer instance\'s profile config).'
+                                "against the producer instance's profile config)."
                             ),
                             path=ref_path,
                         )
@@ -779,12 +834,18 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                     # (same as requiredIf), not the internal "spec.config.<path>"
                     # engineFrom spelling.
                     engine_from_config = (
-                        "config." + engine_from[len("spec.config."):]
+                        "config." + engine_from[len("spec.config.") :]
                         if engine_from.startswith("spec.config.")
                         else engine_from
                     )
-                    has_expected, expected = _consumer_expected_engine(_inst, engine_from)
-                    if not has_expected or not isinstance(expected, str) or not expected.strip():
+                    has_expected, expected = _consumer_expected_engine(
+                        _inst, engine_from
+                    )
+                    if (
+                        not has_expected
+                        or not isinstance(expected, str)
+                        or not expected.strip()
+                    ):
                         diagnostics.append(
                             Diagnostic(
                                 level="error",
@@ -792,8 +853,8 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                                 message=(
                                     f'Consume entry "{_name}" in module "{_inst["id"]}" declares '
                                     f'engineFrom "{engine_from_config}", but that path resolves to no '
-                                    'usable string value (absent, non-string, or blank) in the '
-                                    'module instance config and declares no configSchema default.'
+                                    "usable string value (absent, non-string, or blank) in the "
+                                    "module instance config and declares no configSchema default."
                                 ),
                                 path=ref_path,
                             )
@@ -802,7 +863,9 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                         # Not a `continue`: the compatibility-registry check (E043)
                         # below must still run for this binding, like it does on the
                         # E128 and E154 paths.
-                        advertised = _provider_advertised_engine(matched.get("contract", {}), producer)
+                        advertised = _provider_advertised_engine(
+                            matched.get("contract", {}), producer
+                        )
                         if advertised is None:
                             diagnostics.append(
                                 Diagnostic(
@@ -815,9 +878,9 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                                         f'"{provide_name}" contract advertises no "engine" in its spec. '
                                         'Providers opt in by setting "engine" (a literal string, or a '
                                         '"${config.<path>}" reference resolving against the producer '
-                                        'instance\'s profile config); without an advertisement the '
-                                        'engine requirement fails closed so a wrong-vendor binding '
-                                        'cannot silently misconfigure the consumer.'
+                                        "instance's profile config); without an advertisement the "
+                                        "engine requirement fails closed so a wrong-vendor binding "
+                                        "cannot silently misconfigure the consumer."
                                     ),
                                     path=ref_path,
                                 )
@@ -832,7 +895,7 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                                         f'engine "{expected}" (engineFrom "{engine_from_config}"), but contract '
                                         f'ref "{contract_ref}" resolves to "{producer_id}", whose '
                                         f'"{provide_name}" contract advertises engine "{advertised}". The '
-                                        'consumer would speak the wrong wire protocol to the bound '
+                                        "consumer would speak the wrong wire protocol to the bound "
                                         f'provider; set "{engine_from_config}" to "{advertised}", or bind a '
                                         f'provider advertising "{expected}".'
                                     ),
@@ -843,7 +906,9 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                 provider_key = _module_key(producer["module"])
                 consumer_key = _module_key(_inst["module"])
                 if compatibility_registry is not None and provider_key and consumer_key:
-                    status = compatibility_registry.get((_kind, provider_key, consumer_key))
+                    status = compatibility_registry.get(
+                        (_kind, provider_key, consumer_key)
+                    )
                     if status == "unsupported":
                         diagnostics.append(
                             Diagnostic(
@@ -852,12 +917,13 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                                 message=(
                                     f'Contract ref "{contract_ref}" pairs "{consumer_key}" (consumer) with '
                                     f'"{provider_key}" (provider) for contract "{_kind}": this pairing '
-                                    'matches structurally but is recorded as unsupported in the compatibility '
-                                    'registry (cli/resources/compatibility-registry.json).'
+                                    "matches structurally but is recorded as unsupported in the compatibility "
+                                    "registry (cli/resources/compatibility-registry.json)."
                                 ),
                                 path=ref_path,
                             )
                         )
+
             if isinstance(value, list):
                 # List-valued binding (issue #883): the mappedFrom path
                 # resolves to a list of route-style entries, each carrying
@@ -866,7 +932,7 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                 # validated exactly like a single binding, at a per-entry
                 # path so the diagnostic points at the offending route.
                 mapped_suffix = (
-                    mapped_from[len("spec.config."):]
+                    mapped_from[len("spec.config.") :]
                     if mapped_from.startswith("spec.config.")
                     else None
                 )
@@ -915,7 +981,11 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                         code="E041",
                         message=(
                             f'Consume binding "{name}" must resolve to an object with "contractRef"'
-                            + (f' (required because {required_if}).' if conditionally_required and not required else ".")
+                            + (
+                                f" (required because {required_if})."
+                                if conditionally_required and not required
+                                else "."
+                            )
                         ),
                         path=config_path,
                     )
@@ -927,7 +997,9 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
     return diagnostics
 
 
-def validate_image_source_config(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+def validate_image_source_config(
+    module_instances: list[dict[str, Any]],
+) -> list[Diagnostic]:
     """
     Modules that support pulling a pre-built image (`config.image.source:
     registry`, e.g. modules/orchestration/dagster) need `config.image.tag`
@@ -945,7 +1017,10 @@ def validate_image_source_config(module_instances: list[dict[str, Any]]) -> list
         if not isinstance(config, dict):
             continue
         image_config = config.get("image")
-        if not isinstance(image_config, dict) or image_config.get("source") != "registry":
+        if (
+            not isinstance(image_config, dict)
+            or image_config.get("source") != "registry"
+        ):
             continue
 
         tag = image_config.get("tag")
@@ -955,7 +1030,7 @@ def validate_image_source_config(module_instances: list[dict[str, Any]]) -> list
                     level="error",
                     code="E103",
                     message=(
-                        'config.image.tag is required and must be a non-empty string '
+                        "config.image.tag is required and must be a non-empty string "
                         'when config.image.source is "registry".'
                     ),
                     path=f"spec.modules[{inst['index']}].config.image.tag",
@@ -979,7 +1054,9 @@ def validate_image_source_config(module_instances: list[dict[str, Any]]) -> list
     return diagnostics
 
 
-def validate_pinned_image_digests(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+def validate_pinned_image_digests(
+    module_instances: list[dict[str, Any]],
+) -> list[Diagnostic]:
     """
     Checks a profile's digest-pinned images (e.g. `postgres:18@sha256:...`
     in a module's compose template) against the digest the upstream
@@ -1029,7 +1106,9 @@ def validate_pinned_image_digests(module_instances: list[dict[str, Any]]) -> lis
     return diagnostics
 
 
-def validate_outputs(profile: dict[str, Any], module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+def validate_outputs(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
     by_id = {m["id"]: m for m in module_instances}
@@ -1091,7 +1170,9 @@ def validate_outputs(profile: dict[str, Any], module_instances: list[dict[str, A
     return diagnostics
 
 
-def validate_observability_config(profile: dict[str, Any], module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+def validate_observability_config(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
     """
     Validates the optional spec.observability block (see #174 / docs/observability.md).
 
@@ -1107,7 +1188,14 @@ def validate_observability_config(profile: dict[str, Any], module_instances: lis
         return diagnostics
 
     if not isinstance(observability, dict):
-        return [Diagnostic("error", "E100", "spec.observability must be an object.", "spec.observability")]
+        return [
+            Diagnostic(
+                "error",
+                "E100",
+                "spec.observability must be an object.",
+                "spec.observability",
+            )
+        ]
 
     log_shipping = observability.get("logShipping")
     if log_shipping is None:
@@ -1116,7 +1204,10 @@ def validate_observability_config(profile: dict[str, Any], module_instances: lis
     if not isinstance(log_shipping, dict):
         return [
             Diagnostic(
-                "error", "E100", "spec.observability.logShipping must be an object.", "spec.observability.logShipping"
+                "error",
+                "E100",
+                "spec.observability.logShipping must be an object.",
+                "spec.observability.logShipping",
             )
         ]
 
@@ -1155,9 +1246,14 @@ def validate_observability_config(profile: dict[str, Any], module_instances: lis
             structured_days = retention.get("structuredDays")
 
             def _is_positive_int(value: Any) -> bool:
-                return isinstance(value, int) and not isinstance(value, bool) and value > 0
+                return (
+                    isinstance(value, int) and not isinstance(value, bool) and value > 0
+                )
 
-            for field_name, value in (("rawDays", raw_days), ("structuredDays", structured_days)):
+            for field_name, value in (
+                ("rawDays", raw_days),
+                ("structuredDays", structured_days),
+            ):
                 if value is not None and not _is_positive_int(value):
                     diagnostics.append(
                         Diagnostic(
@@ -1168,7 +1264,11 @@ def validate_observability_config(profile: dict[str, Any], module_instances: lis
                         )
                     )
 
-            if _is_positive_int(raw_days) and _is_positive_int(structured_days) and structured_days < raw_days:
+            if (
+                _is_positive_int(raw_days)
+                and _is_positive_int(structured_days)
+                and structured_days < raw_days
+            ):
                 diagnostics.append(
                     Diagnostic(
                         "error",
@@ -1316,7 +1416,9 @@ _BACKUP_CATEGORY_WORKLOAD_CLASSES = {
 }
 
 
-def required_backup_workload_classes(module_instances: list[dict[str, Any]]) -> list[str]:
+def required_backup_workload_classes(
+    module_instances: list[dict[str, Any]],
+) -> list[str]:
     """
     Workload classes a production profile must cover: `configuration` always,
     plus one class per enabled module category that holds state worth backing
@@ -1336,7 +1438,9 @@ def required_backup_workload_classes(module_instances: list[dict[str, Any]]) -> 
     return sorted(required)
 
 
-def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+def validate_backup_config(
+    profile: dict[str, Any], module_instances: list[dict[str, Any]]
+) -> list[Diagnostic]:
     """
     Validates the optional spec.backup block (see #210 / docs/backup-restore.md).
 
@@ -1400,8 +1504,8 @@ def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[
     backup_target_contract: dict[str, Any] | None = None
     backup_target_producer: dict[str, Any] | None = None
     if isinstance(target, dict) and isinstance(target.get("contractRef"), str):
-        backup_target_contract, backup_target_producer, target_diags = _resolve_backup_target(
-            target["contractRef"], module_instances
+        backup_target_contract, backup_target_producer, target_diags = (
+            _resolve_backup_target(target["contractRef"], module_instances)
         )
         diagnostics.extend(target_diags)
 
@@ -1418,10 +1522,13 @@ def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[
             )
         elif (
             is_secret_ref(encryption.get("keyFrom"))
-            and secret_name_from_ref(encryption["keyFrom"]) in spec.get("secrets", {}).get("values", {})
-            and spec.get("secrets", {}).get("values", {})
+            and secret_name_from_ref(encryption["keyFrom"])
+            in spec.get("secrets", {}).get("values", {})
+            and spec.get("secrets", {})
+            .get("values", {})
             .get(secret_name_from_ref(encryption["keyFrom"]), {})
-            .get("required") is not True
+            .get("required")
+            is not True
         ):
             alias = secret_name_from_ref(encryption["keyFrom"])
             diagnostics.append(
@@ -1436,7 +1543,9 @@ def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[
         if backup_target_contract is not None and backup_target_producer is not None:
             target_spec = backup_target_contract.get("contract", {}).get("spec") or {}
             contract_ref = target["contractRef"]
-            if not _backup_capability_enabled(target_spec.get("encrypted"), backup_target_producer):
+            if not _backup_capability_enabled(
+                target_spec.get("encrypted"), backup_target_producer
+            ):
                 diagnostics.append(
                     Diagnostic(
                         "error",
@@ -1460,7 +1569,11 @@ def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[
                         "spec.backup.target.contractRef",
                     )
                 )
-        missing = [c for c in required_backup_workload_classes(module_instances) if c not in seen]
+        missing = [
+            c
+            for c in required_backup_workload_classes(module_instances)
+            if c not in seen
+        ]
         if missing:
             diagnostics.append(
                 Diagnostic(
@@ -1484,7 +1597,9 @@ def validate_backup_config(profile: dict[str, Any], module_instances: list[dict[
     return diagnostics
 
 
-def validate_module_marker_shapes(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
+def validate_module_marker_shapes(
+    module_instances: list[dict[str, Any]],
+) -> list[Diagnostic]:
     """
     Enforces the shape and position of the `production` and
     `enabledFrom` / `conditionallyEnabledFrom` markers in module templates
@@ -1526,12 +1641,16 @@ def validate_module_marker_shapes(module_instances: list[dict[str, Any]]) -> lis
             continue
         implementation = module.get("spec", {}).get("implementation", {})
         compose = implementation.get("compose", {})
-        base_path = f'module:{inst.get("id")}.spec.implementation.compose'
+        base_path = f"module:{inst.get('id')}.spec.implementation.compose"
         diagnostics.extend(_production_marker_diagnostics(compose, base_path=base_path))
-        diagnostics.extend(_enabledfrom_marker_diagnostics(compose, base_path=base_path))
+        diagnostics.extend(
+            _enabledfrom_marker_diagnostics(compose, base_path=base_path)
+        )
         kubernetes = implementation.get("kubernetes", {})
-        k8s_base = f'module:{inst.get("id")}.spec.implementation.kubernetes'
-        diagnostics.extend(_kubernetes_marker_diagnostics(kubernetes, base_path=k8s_base))
+        k8s_base = f"module:{inst.get('id')}.spec.implementation.kubernetes"
+        diagnostics.extend(
+            _kubernetes_marker_diagnostics(kubernetes, base_path=k8s_base)
+        )
     return diagnostics
 
 
@@ -1551,12 +1670,16 @@ def validate_plan_marker_shapes(modules: list[dict[str, Any]]) -> list[Diagnosti
             continue
         implementation = module.get("implementation", {}) or {}
         compose = implementation.get("compose", {})
-        base_path = f'module:{module.get("id")}.implementation.compose'
+        base_path = f"module:{module.get('id')}.implementation.compose"
         diagnostics.extend(_production_marker_diagnostics(compose, base_path=base_path))
-        diagnostics.extend(_enabledfrom_marker_diagnostics(compose, base_path=base_path))
+        diagnostics.extend(
+            _enabledfrom_marker_diagnostics(compose, base_path=base_path)
+        )
         kubernetes = implementation.get("kubernetes", {})
-        k8s_base = f'module:{module.get("id")}.implementation.kubernetes'
-        diagnostics.extend(_kubernetes_marker_diagnostics(kubernetes, base_path=k8s_base))
+        k8s_base = f"module:{module.get('id')}.implementation.kubernetes"
+        diagnostics.extend(
+            _kubernetes_marker_diagnostics(kubernetes, base_path=k8s_base)
+        )
     return diagnostics
 
 
@@ -1573,20 +1696,28 @@ def _production_marker_diagnostics(compose: Any, *, base_path: str) -> list[Diag
                 continue
             service_base = f"{base_path}.services.{service_name}"
             marker = service_def.get("production")
-            if marker is not None and not isinstance(marker, bool) and not isinstance(marker, dict):
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E144",
-                    message=(
-                        f'The `production` marker of service "{service_name}" must be a '
-                        "boolean (production: true|false) or a mapping (production: { ... }); "
-                        "other shapes are not implemented and would leak the marker key "
-                        "into the rendered output."
-                    ),
-                    path=f"{service_base}.production",
-                ))
+            if (
+                marker is not None
+                and not isinstance(marker, bool)
+                and not isinstance(marker, dict)
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E144",
+                        message=(
+                            f'The `production` marker of service "{service_name}" must be a '
+                            "boolean (production: true|false) or a mapping (production: { ... }); "
+                            "other shapes are not implemented and would leak the marker key "
+                            "into the rendered output."
+                        ),
+                        path=f"{service_base}.production",
+                    )
+                )
 
-            volume_lists: list[tuple[str, Any]] = [("volumes", service_def.get("volumes"))]
+            volume_lists: list[tuple[str, Any]] = [
+                ("volumes", service_def.get("volumes"))
+            ]
             if isinstance(marker, dict):
                 volume_lists.append(("production.volumes", marker.get("volumes")))
             for list_key, volumes in volume_lists:
@@ -1610,17 +1741,19 @@ def _production_marker_diagnostics(compose: Any, *, base_path: str) -> list[Diag
                         )
                     else:
                         message = (
-                            f'The `production` marker of volume-mount entry {index} of service '
+                            f"The `production` marker of volume-mount entry {index} of service "
                             f'"{service_name}" must be a boolean (production: true|false); '
                             "other shapes are not implemented and would leak the marker key "
                             "into the rendered output."
                         )
-                    diagnostics.append(Diagnostic(
-                        level="error",
-                        code="E144",
-                        message=message,
-                        path=f"{service_base}.{list_key}[{index}].production",
-                    ))
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E144",
+                            message=message,
+                            path=f"{service_base}.{list_key}[{index}].production",
+                        )
+                    )
 
             # Entries of any other list field carry no implemented marker:
             # scan the base fields and the production mapping alike.
@@ -1636,7 +1769,9 @@ def _production_marker_diagnostics(compose: Any, *, base_path: str) -> list[Diag
                     if key != "volumes"
                 )
             for field_path, field_value in scan_fields:
-                diagnostics.extend(_unsupported_entry_markers(field_value, path=field_path))
+                diagnostics.extend(
+                    _unsupported_entry_markers(field_value, path=field_path)
+                )
 
     volumes = compose.get("volumes", {})
     if isinstance(volumes, dict):
@@ -1646,21 +1781,25 @@ def _production_marker_diagnostics(compose: Any, *, base_path: str) -> list[Diag
             marker = volume_def.get("production")
             if marker is None or isinstance(marker, bool) or isinstance(marker, dict):
                 continue
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E144",
-                message=(
-                    f'The `production` marker of volume definition "{volume_name}" must be '
-                    "a boolean (production: true|false) or a mapping (production: { ... }); "
-                    "other shapes are not implemented and would leak the marker key into "
-                    "the rendered output."
-                ),
-                path=f"{base_path}.volumes.{volume_name}.production",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E144",
+                    message=(
+                        f'The `production` marker of volume definition "{volume_name}" must be '
+                        "a boolean (production: true|false) or a mapping (production: { ... }); "
+                        "other shapes are not implemented and would leak the marker key into "
+                        "the rendered output."
+                    ),
+                    path=f"{base_path}.volumes.{volume_name}.production",
+                )
+            )
     return diagnostics
 
 
-def _enabledfrom_marker_diagnostics(compose: Any, *, base_path: str) -> list[Diagnostic]:
+def _enabledfrom_marker_diagnostics(
+    compose: Any, *, base_path: str
+) -> list[Diagnostic]:
     """E145 findings for `enabledFrom` / `conditionallyEnabledFrom` markers."""
     diagnostics: list[Diagnostic] = []
     if not isinstance(compose, dict):
@@ -1668,16 +1807,18 @@ def _enabledfrom_marker_diagnostics(compose: Any, *, base_path: str) -> list[Dia
 
     def _condition_marker(value: Any, path: str) -> list[Diagnostic]:
         if value is not None and not (isinstance(value, str) and value.strip()):
-            return [Diagnostic(
-                level="error",
-                code="E145",
-                message=(
-                    "`enabledFrom` / `conditionallyEnabledFrom` must be a non-empty "
-                    "string holding a config path expression (e.g. `config.backup.enabled`); "
-                    "other shapes crash the renderer or silently misbehave at render time."
-                ),
-                path=path,
-            )]
+            return [
+                Diagnostic(
+                    level="error",
+                    code="E145",
+                    message=(
+                        "`enabledFrom` / `conditionallyEnabledFrom` must be a non-empty "
+                        "string holding a config path expression (e.g. `config.backup.enabled`); "
+                        "other shapes crash the renderer or silently misbehave at render time."
+                    ),
+                    path=path,
+                )
+            ]
         return []
 
     services = compose.get("services", {})
@@ -1691,20 +1832,27 @@ def _enabledfrom_marker_diagnostics(compose: Any, *, base_path: str) -> list[Dia
             if isinstance(marker, dict):
                 service_variants.append(("production.", marker))
             for prefix, variant in service_variants:
-                diagnostics.extend(_condition_marker(
-                    variant.get("enabledFrom"), f"{service_base}.{prefix}enabledFrom"
-                ))
+                diagnostics.extend(
+                    _condition_marker(
+                        variant.get("enabledFrom"),
+                        f"{service_base}.{prefix}enabledFrom",
+                    )
+                )
                 healthcheck = variant.get("healthcheck")
                 if isinstance(healthcheck, dict):
-                    diagnostics.extend(_condition_marker(
-                        healthcheck.get("conditionallyEnabledFrom"),
-                        f"{service_base}.{prefix}healthcheck.conditionallyEnabledFrom",
-                    ))
+                    diagnostics.extend(
+                        _condition_marker(
+                            healthcheck.get("conditionallyEnabledFrom"),
+                            f"{service_base}.{prefix}healthcheck.conditionallyEnabledFrom",
+                        )
+                    )
 
             # Mount entries carry a supported (string) marker; other list
             # fields do not implement any marker, so any key there is
             # rejected. Scan the base fields and the production mapping.
-            volume_lists: list[tuple[str, Any]] = [("volumes", service_def.get("volumes"))]
+            volume_lists: list[tuple[str, Any]] = [
+                ("volumes", service_def.get("volumes"))
+            ]
             if isinstance(marker, dict):
                 volume_lists.append(("production.volumes", marker.get("volumes")))
             for list_key, volumes in volume_lists:
@@ -1713,10 +1861,12 @@ def _enabledfrom_marker_diagnostics(compose: Any, *, base_path: str) -> list[Dia
                 for index, volume_item in enumerate(volumes):
                     if not isinstance(volume_item, dict):
                         continue
-                    diagnostics.extend(_condition_marker(
-                        volume_item.get("enabledFrom"),
-                        f"{service_base}.{list_key}[{index}].enabledFrom",
-                    ))
+                    diagnostics.extend(
+                        _condition_marker(
+                            volume_item.get("enabledFrom"),
+                            f"{service_base}.{list_key}[{index}].enabledFrom",
+                        )
+                    )
             scan_fields: list[tuple[str, Any]] = [
                 (f"{service_base}.{key}", value)
                 for key, value in service_def.items()
@@ -1729,34 +1879,42 @@ def _enabledfrom_marker_diagnostics(compose: Any, *, base_path: str) -> list[Dia
                     if key not in ("volumes", "healthcheck")
                 )
             for field_path, field_value in scan_fields:
-                for index, entry in enumerate(field_value) if isinstance(field_value, list) else []:
+                for index, entry in (
+                    enumerate(field_value) if isinstance(field_value, list) else []
+                ):
                     if isinstance(entry, dict) and "enabledFrom" in entry:
-                        diagnostics.append(Diagnostic(
-                            level="error",
-                            code="E145",
-                            message=(
-                                "The `enabledFrom` marker is only implemented on services, "
-                                "volume definitions, volume-mount entries, and healthchecks; "
-                                "on entries of other list fields the renderer would neither "
-                                "honor nor strip it, leaking the marker key into the "
-                                "rendered output."
-                            ),
-                            path=f"{field_path}[{index}].enabledFrom",
-                        ))
+                        diagnostics.append(
+                            Diagnostic(
+                                level="error",
+                                code="E145",
+                                message=(
+                                    "The `enabledFrom` marker is only implemented on services, "
+                                    "volume definitions, volume-mount entries, and healthchecks; "
+                                    "on entries of other list fields the renderer would neither "
+                                    "honor nor strip it, leaking the marker key into the "
+                                    "rendered output."
+                                ),
+                                path=f"{field_path}[{index}].enabledFrom",
+                            )
+                        )
 
     volumes = compose.get("volumes", {})
     if isinstance(volumes, dict):
         for volume_name, volume_def in volumes.items():
             if not isinstance(volume_def, dict):
                 continue
-            diagnostics.extend(_condition_marker(
-                volume_def.get("enabledFrom"),
-                f"{base_path}.volumes.{volume_name}.enabledFrom",
-            ))
+            diagnostics.extend(
+                _condition_marker(
+                    volume_def.get("enabledFrom"),
+                    f"{base_path}.volumes.{volume_name}.enabledFrom",
+                )
+            )
     return diagnostics
 
 
-def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[Diagnostic]:
+def _kubernetes_marker_diagnostics(
+    kubernetes: Any, *, base_path: str
+) -> list[Diagnostic]:
     """E144/E145 findings for the `implementation.kubernetes` block.
 
     The helm renderer applies `production` gates to the kubernetes volume
@@ -1770,31 +1928,39 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
         return diagnostics
 
     def _production_shape(value: Any, path: str) -> list[Diagnostic]:
-        if value is not None and not isinstance(value, bool) and not isinstance(value, dict):
-            return [Diagnostic(
-                level="error",
-                code="E144",
-                message=(
-                    "The `production` marker in the kubernetes block must be a "
-                    "boolean (production: true|false) or a mapping (production: { ... }); "
-                    "other shapes are not implemented and would silently misbehave."
-                ),
-                path=path,
-            )]
+        if (
+            value is not None
+            and not isinstance(value, bool)
+            and not isinstance(value, dict)
+        ):
+            return [
+                Diagnostic(
+                    level="error",
+                    code="E144",
+                    message=(
+                        "The `production` marker in the kubernetes block must be a "
+                        "boolean (production: true|false) or a mapping (production: { ... }); "
+                        "other shapes are not implemented and would silently misbehave."
+                    ),
+                    path=path,
+                )
+            ]
         return []
 
     def _condition_shape(value: Any, path: str) -> list[Diagnostic]:
         if value is not None and not (isinstance(value, str) and value.strip()):
-            return [Diagnostic(
-                level="error",
-                code="E145",
-                message=(
-                    "`enabledFrom` in the kubernetes block must be a non-empty string "
-                    "holding a config path expression (e.g. `config.storage.enabled`); "
-                    "other shapes crash the helm renderer or silently misbehave."
-                ),
-                path=path,
-            )]
+            return [
+                Diagnostic(
+                    level="error",
+                    code="E145",
+                    message=(
+                        "`enabledFrom` in the kubernetes block must be a non-empty string "
+                        "holding a config path expression (e.g. `config.storage.enabled`); "
+                        "other shapes crash the helm renderer or silently misbehave."
+                    ),
+                    path=path,
+                )
+            ]
         return []
 
     # Volume specs: both marker classes are implemented here.
@@ -1803,12 +1969,16 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
         for name, spec in volumes.items():
             if not isinstance(spec, dict):
                 continue
-            diagnostics.extend(_production_shape(
-                spec.get("production"), f"{base_path}.volumes.{name}.production"
-            ))
-            diagnostics.extend(_condition_shape(
-                spec.get("enabledFrom"), f"{base_path}.volumes.{name}.enabledFrom"
-            ))
+            diagnostics.extend(
+                _production_shape(
+                    spec.get("production"), f"{base_path}.volumes.{name}.production"
+                )
+            )
+            diagnostics.extend(
+                _condition_shape(
+                    spec.get("enabledFrom"), f"{base_path}.volumes.{name}.enabledFrom"
+                )
+            )
 
     # ConfigMap specs: both marker classes are implemented here (the helm
     # renderer resolves enabledFrom and drops the ConfigMap when it is False,
@@ -1818,12 +1988,17 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
         for name, spec in configmaps.items():
             if not isinstance(spec, dict):
                 continue
-            diagnostics.extend(_production_shape(
-                spec.get("production"), f"{base_path}.configMaps.{name}.production"
-            ))
-            diagnostics.extend(_condition_shape(
-                spec.get("enabledFrom"), f"{base_path}.configMaps.{name}.enabledFrom"
-            ))
+            diagnostics.extend(
+                _production_shape(
+                    spec.get("production"), f"{base_path}.configMaps.{name}.production"
+                )
+            )
+            diagnostics.extend(
+                _condition_shape(
+                    spec.get("enabledFrom"),
+                    f"{base_path}.configMaps.{name}.enabledFrom",
+                )
+            )
 
     # Workloads: enabledFrom is implemented (unguarded, so a bad shape
     # crashes), production gates are not.
@@ -1832,20 +2007,24 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
         for name, spec in workloads.items():
             if not isinstance(spec, dict):
                 continue
-            diagnostics.extend(_condition_shape(
-                spec.get("enabledFrom"), f"{base_path}.workloads.{name}.enabledFrom"
-            ))
+            diagnostics.extend(
+                _condition_shape(
+                    spec.get("enabledFrom"), f"{base_path}.workloads.{name}.enabledFrom"
+                )
+            )
             if "production" in spec:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E144",
-                    message=(
-                        "The `production` marker is not implemented on kubernetes "
-                        "workloads (only on volume and configMap entries); the helm "
-                        "renderer would silently ignore it."
-                    ),
-                    path=f"{base_path}.workloads.{name}.production",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E144",
+                        message=(
+                            "The `production` marker is not implemented on kubernetes "
+                            "workloads (only on volume and configMap entries); the helm "
+                            "renderer would silently ignore it."
+                        ),
+                        path=f"{base_path}.workloads.{name}.production",
+                    )
+                )
 
     # Raw manifests (issue #767): enabledFrom gates and forEach fan-out
     # (issue #1170) are implemented by the helm renderer, production gates
@@ -1855,33 +2034,41 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
         for name, spec in manifests.items():
             if not isinstance(spec, dict):
                 continue
-            diagnostics.extend(_condition_shape(
-                spec.get("enabledFrom"), f"{base_path}.manifests.{name}.enabledFrom"
-            ))
+            diagnostics.extend(
+                _condition_shape(
+                    spec.get("enabledFrom"), f"{base_path}.manifests.{name}.enabledFrom"
+                )
+            )
             for_each = spec.get("forEach")
-            if for_each is not None and not (isinstance(for_each, str) and for_each.strip()):
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E145",
-                    message=(
-                        "`forEach` on a kubernetes manifest entry must be a non-empty "
-                        "string holding a config path expression that resolves to a "
-                        "list (e.g. `config.services`); other shapes crash the helm "
-                        "renderer or silently misbehave."
-                    ),
-                    path=f"{base_path}.manifests.{name}.forEach",
-                ))
+            if for_each is not None and not (
+                isinstance(for_each, str) and for_each.strip()
+            ):
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E145",
+                        message=(
+                            "`forEach` on a kubernetes manifest entry must be a non-empty "
+                            "string holding a config path expression that resolves to a "
+                            "list (e.g. `config.services`); other shapes crash the helm "
+                            "renderer or silently misbehave."
+                        ),
+                        path=f"{base_path}.manifests.{name}.forEach",
+                    )
+                )
             if "production" in spec:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E144",
-                    message=(
-                        "The `production` marker is not implemented on kubernetes "
-                        "manifest entries (only on volume and configMap entries); the "
-                        "helm renderer would silently ignore it."
-                    ),
-                    path=f"{base_path}.manifests.{name}.production",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E144",
+                        message=(
+                            "The `production` marker is not implemented on kubernetes "
+                            "manifest entries (only on volume and configMap entries); the "
+                            "helm renderer would silently ignore it."
+                        ),
+                        path=f"{base_path}.manifests.{name}.production",
+                    )
+                )
     return diagnostics
 
 
@@ -1892,18 +2079,20 @@ def _unsupported_entry_markers(value: Any, *, path: str) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
     for index, entry in enumerate(value):
         if isinstance(entry, dict) and "production" in entry:
-            diagnostics.append(Diagnostic(
-                level="error",
-                code="E144",
-                message=(
-                    "The `production` marker is only implemented on services, volume "
-                    "definitions, and volume-mount entries; on entries of other list "
-                    "fields the renderer would neither honor nor strip it, leaking the "
-                    "marker key into the rendered output. Move the entry into the "
-                    "service's production mapping (or the mount into its volumes list)."
-                ),
-                path=f"{path}[{index}].production",
-            ))
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E144",
+                    message=(
+                        "The `production` marker is only implemented on services, volume "
+                        "definitions, and volume-mount entries; on entries of other list "
+                        "fields the renderer would neither honor nor strip it, leaking the "
+                        "marker key into the rendered output. Move the entry into the "
+                        "service's production mapping (or the mount into its volumes list)."
+                    ),
+                    path=f"{path}[{index}].production",
+                )
+            )
     return diagnostics
 
 
@@ -1973,7 +2162,7 @@ def validate_module_backup_config(
                     message=(
                         "The built-in backup capability is a production-only piece: the "
                         "backup sidecar and repository volume render only in production "
-                        "profiles. Set metadata.environment to \"production\", or disable "
+                        'profiles. Set metadata.environment to "production", or disable '
                         "config.backup.enabled."
                     ),
                     path=f"spec.modules[{inst['index']}].config.backup.enabled",
@@ -2015,7 +2204,9 @@ def _backup_capability_enabled(value: Any, producer_inst: dict[str, Any]) -> boo
         return value
     if isinstance(value, str) and value.startswith("${config.") and value.endswith("}"):
         try:
-            resolved = resolve_path({"config": producer_inst.get("config")}, value[2:-1])
+            resolved = resolve_path(
+                {"config": producer_inst.get("config")}, value[2:-1]
+            )
         except KeyError:
             return False
         if isinstance(resolved, bool):
@@ -2036,57 +2227,80 @@ def _resolve_backup_target(
     path = "spec.backup.target.contractRef"
     parsed = parse_contract_ref(contract_ref)
     if parsed is None:
-        return None, None, [
-            Diagnostic(
-                "error",
-                "E132",
-                f'Invalid backup target contractRef "{contract_ref}". Expected "<module-id>.<contract-name>".',
-                path,
-            )
-        ]
+        return (
+            None,
+            None,
+            [
+                Diagnostic(
+                    "error",
+                    "E132",
+                    f'Invalid backup target contractRef "{contract_ref}". Expected "<module-id>.<contract-name>".',
+                    path,
+                )
+            ],
+        )
 
     module_id, provide_name = parsed
     producer = next((m for m in module_instances if m["id"] == module_id), None)
     if producer is None:
-        return None, None, [
-            Diagnostic(
-                "error", "E132", f'Backup target contractRef "{contract_ref}" points to unknown module "{module_id}".', path
-            )
-        ]
+        return (
+            None,
+            None,
+            [
+                Diagnostic(
+                    "error",
+                    "E132",
+                    f'Backup target contractRef "{contract_ref}" points to unknown module "{module_id}".',
+                    path,
+                )
+            ],
+        )
 
     provides = producer["module"].get("spec", {}).get("provides", [])
     matched = next((p for p in provides if p.get("name") == provide_name), None)
     if matched is None:
-        return None, None, [
-            Diagnostic(
-                "error",
-                "E132",
-                f'Backup target contractRef "{contract_ref}" points to module "{module_id}", '
-                f'but it does not provide "{provide_name}".',
-                path,
-            )
-        ]
+        return (
+            None,
+            None,
+            [
+                Diagnostic(
+                    "error",
+                    "E132",
+                    f'Backup target contractRef "{contract_ref}" points to module "{module_id}", '
+                    f'but it does not provide "{provide_name}".',
+                    path,
+                )
+            ],
+        )
 
     actual_kind = matched.get("contract", {}).get("kind")
     if actual_kind != "backup-target":
-        return None, None, [
-            Diagnostic(
-                "error",
-                "E132",
-                f'Backup target contractRef "{contract_ref}" resolves to contract kind "{actual_kind}", '
-                'expected "backup-target".',
-                path,
-            )
-        ]
+        return (
+            None,
+            None,
+            [
+                Diagnostic(
+                    "error",
+                    "E132",
+                    f'Backup target contractRef "{contract_ref}" resolves to contract kind "{actual_kind}", '
+                    'expected "backup-target".',
+                    path,
+                )
+            ],
+        )
     return matched, producer, []
 
 
 _AUTHENTICATION_CONTRACT_KINDS = ("sql-database", "cache-service")
 _AUTH_UNAUTHENTICATED_VALUES = {"", "none", "false", "optional", "disabled", "trust"}
-_CREDENTIAL_FIELD_PATTERN = re.compile(r"(?i)(password|passwd|pwd|credential|secret|token)")
+_CREDENTIAL_FIELD_PATTERN = re.compile(
+    r"(?i)(password|passwd|pwd|credential|secret|token)"
+)
 
 
-def _resolve_authentication_advertisement(value: Any, producer_inst: dict[str, Any]) -> Any:
+def _resolve_authentication_advertisement(
+    value: Any, producer_inst: dict[str, Any]
+) -> Any:
     """
     Resolve a provide entry's `authentication` advertisement (issue #206)
     against the producer instance's profile config, mirroring how the TLS
@@ -2127,7 +2341,10 @@ def _advertisement_authenticated(resolved: Any) -> bool:
     outside the "no authentication" vocabulary above."""
     if resolved is True:
         return True
-    return isinstance(resolved, str) and resolved.strip().lower() not in _AUTH_UNAUTHENTICATED_VALUES
+    return (
+        isinstance(resolved, str)
+        and resolved.strip().lower() not in _AUTH_UNAUTHENTICATED_VALUES
+    )
 
 
 def validate_authentication_config(
@@ -2165,7 +2382,9 @@ def validate_authentication_config(
             provides_auth_scoped = True
             provide_name = provided.get("name") or "<unnamed>"
             path = f"spec.modules[{inst['index']}].config"
-            advertisement = ((provided.get("contract") or {}).get("spec") or {}).get("authentication")
+            advertisement = ((provided.get("contract") or {}).get("spec") or {}).get(
+                "authentication"
+            )
             resolved = _resolve_authentication_advertisement(advertisement, inst)
 
             if kind == "sql-database":

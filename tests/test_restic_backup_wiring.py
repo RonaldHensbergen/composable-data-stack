@@ -20,6 +20,7 @@ contract:
 - the production security rule pass raises no finding against the restic
   services.
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -40,7 +41,9 @@ _RULE_SET_PATH = _REPO_ROOT / "cli" / "resources" / "rule-set.json"
 class ResticBackupWiringTest(unittest.TestCase):
     """Wires the real duckdb, dlt, postgres, and restic modules together."""
 
-    def _write_profile(self, profile_dir: Path, environment: str = "production") -> Path:
+    def _write_profile(
+        self, profile_dir: Path, environment: str = "production"
+    ) -> Path:
         profile = {
             "apiVersion": "cds/v1alpha1",
             "kind": "Profile",
@@ -79,7 +82,9 @@ class ResticBackupWiringTest(unittest.TestCase):
                         "enabled": True,
                         "dependsOn": ["postgres"],
                         "config": {
-                            "destinationDatabase": {"contractRef": "postgres.sql-database"},
+                            "destinationDatabase": {
+                                "contractRef": "postgres.sql-database"
+                            },
                         },
                     },
                     {
@@ -195,7 +200,9 @@ class ResticBackupWiringTest(unittest.TestCase):
                 # Slot a: the duckdb bind-kind source, read-only for backup.
                 # The host path is rewritten relative to the rendered
                 # Compose file's directory, so assert by suffix.
-                slot_a = next(v for v in backup_volumes if v.get("target") == "/backup/a")
+                slot_a = next(
+                    v for v in backup_volumes if v.get("target") == "/backup/a"
+                )
                 self.assertEqual(slot_a["type"], "bind")
                 self.assertTrue(slot_a["source"].endswith("data/duckdb"))
                 self.assertTrue(slot_a["read_only"])
@@ -212,17 +219,27 @@ class ResticBackupWiringTest(unittest.TestCase):
                     backup_volumes,
                 )
                 # Unbound slot c leaves no mount behind.
-                self.assertFalse([v for v in backup_volumes if v.get("target") == "/backup/c"])
-                self.assertFalse([v for v in restore_volumes if v.get("target") == "/backup/c"])
+                self.assertFalse(
+                    [v for v in backup_volumes if v.get("target") == "/backup/c"]
+                )
+                self.assertFalse(
+                    [v for v in restore_volumes if v.get("target") == "/backup/c"]
+                )
 
                 # The restore service mounts the same slots (read-write) plus
                 # the encrypted repository, read-only.
-                restore_slot_a = next(v for v in restore_volumes if v.get("target") == "/backup/a")
+                restore_slot_a = next(
+                    v for v in restore_volumes if v.get("target") == "/backup/a"
+                )
                 self.assertEqual(restore_slot_a["type"], "bind")
                 self.assertTrue(restore_slot_a["source"].endswith("data/duckdb"))
                 self.assertNotIn("read_only", restore_slot_a)
                 self.assertIn(
-                    {"type": "volume", "source": "dlt-dlt-state", "target": "/backup/b"},
+                    {
+                        "type": "volume",
+                        "source": "dlt-dlt-state",
+                        "target": "/backup/b",
+                    },
                     restore_volumes,
                 )
                 # Read-write for the repository as well: restic writes (and
@@ -239,11 +256,15 @@ class ResticBackupWiringTest(unittest.TestCase):
 
                 # The repository encryption key stays a runtime placeholder.
                 self.assertEqual(
-                    compose["services"]["restic-backup"]["environment"]["RESTIC_PASSWORD"],
+                    compose["services"]["restic-backup"]["environment"][
+                        "RESTIC_PASSWORD"
+                    ],
                     "${CDS_BACKUP_ENCRYPTION_KEY}",
                 )
                 self.assertEqual(
-                    compose["services"]["restic-restore"]["environment"]["RESTIC_PASSWORD"],
+                    compose["services"]["restic-restore"]["environment"][
+                        "RESTIC_PASSWORD"
+                    ],
                     "${CDS_BACKUP_ENCRYPTION_KEY}",
                 )
 
@@ -268,9 +289,7 @@ class ResticBackupWiringTest(unittest.TestCase):
                         plan=plan, rendered_compose_yaml=output
                     ),
                 )
-                restic_findings = [
-                    f for f in findings if f.get("module") == "restic"
-                ]
+                restic_findings = [f for f in findings if f.get("module") == "restic"]
                 unexpected = [
                     f
                     for f in restic_findings

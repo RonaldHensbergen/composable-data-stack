@@ -29,52 +29,82 @@ class BuildScaffoldTest(unittest.TestCase):
                 }
             }
         }
-        scaffold = compose_to_module.build_scaffold(compose, ["postgres"], "postgres", "warehouse")
+        scaffold = compose_to_module.build_scaffold(
+            compose, ["postgres"], "postgres", "warehouse"
+        )
         module = scaffold.to_module_dict()
 
         props = module["spec"]["configSchema"]["properties"]
         self.assertEqual(props["postgresPort"]["default"], 5432)
         self.assertEqual(props["postgresDb"]["default"], "analytics")
-        self.assertIn("postgresPasswordFrom", module["spec"]["configSchema"]["required"])
-        self.assertEqual(props["postgresPasswordFrom"]["pattern"], "^secrets\\.[a-zA-Z0-9_-]+$")
+        self.assertIn(
+            "postgresPasswordFrom", module["spec"]["configSchema"]["required"]
+        )
+        self.assertEqual(
+            props["postgresPasswordFrom"]["pattern"], "^secrets\\.[a-zA-Z0-9_-]+$"
+        )
 
         service = module["spec"]["implementation"]["compose"]["services"]["postgres"]
         self.assertEqual(service["ports"], ["${config.postgresPort}:5432"])
-        self.assertEqual(service["environment"]["POSTGRES_PASSWORD"], "${config.postgresPasswordFrom}")
+        self.assertEqual(
+            service["environment"]["POSTGRES_PASSWORD"],
+            "${config.postgresPasswordFrom}",
+        )
         self.assertFalse(scaffold.todos)
 
-    def test_merged_services_with_same_secret_env_var_name_get_distinct_fields(self) -> None:
+    def test_merged_services_with_same_secret_env_var_name_get_distinct_fields(
+        self,
+    ) -> None:
         # Two merged services each defining their own same-named secret env
         # var must not collapse into one shared config field -- that would
         # silently discard the first service's distinct secret reference
         # and wire both services to whichever one was resolved last.
         compose = {
             "services": {
-                "svc1": {"image": "a:1", "environment": {"DB_PASSWORD": "${CDS_SVC1_DB_PASSWORD}"}},
-                "svc2": {"image": "b:1", "environment": {"DB_PASSWORD": "${CDS_SVC2_DB_PASSWORD}"}},
+                "svc1": {
+                    "image": "a:1",
+                    "environment": {"DB_PASSWORD": "${CDS_SVC1_DB_PASSWORD}"},
+                },
+                "svc2": {
+                    "image": "b:1",
+                    "environment": {"DB_PASSWORD": "${CDS_SVC2_DB_PASSWORD}"},
+                },
             }
         }
-        scaffold = compose_to_module.build_scaffold(compose, ["svc1", "svc2"], "merged", "bi")
+        scaffold = compose_to_module.build_scaffold(
+            compose, ["svc1", "svc2"], "merged", "bi"
+        )
         module = scaffold.to_module_dict()
 
         props = module["spec"]["configSchema"]["properties"]
         self.assertEqual(set(props), {"dbPasswordFrom", "dbPasswordFrom2"})
         self.assertIn("svc1", props["dbPasswordFrom"]["description"])
         self.assertIn("svc2", props["dbPasswordFrom2"]["description"])
-        self.assertEqual(set(module["spec"]["configSchema"]["required"]), {"dbPasswordFrom", "dbPasswordFrom2"})
+        self.assertEqual(
+            set(module["spec"]["configSchema"]["required"]),
+            {"dbPasswordFrom", "dbPasswordFrom2"},
+        )
 
         services = module["spec"]["implementation"]["compose"]["services"]
-        self.assertEqual(services["svc1"]["environment"]["DB_PASSWORD"], "${config.dbPasswordFrom}")
-        self.assertEqual(services["svc2"]["environment"]["DB_PASSWORD"], "${config.dbPasswordFrom2}")
+        self.assertEqual(
+            services["svc1"]["environment"]["DB_PASSWORD"], "${config.dbPasswordFrom}"
+        )
+        self.assertEqual(
+            services["svc2"]["environment"]["DB_PASSWORD"], "${config.dbPasswordFrom2}"
+        )
 
-    def test_merged_services_with_same_literal_env_var_name_get_distinct_fields(self) -> None:
+    def test_merged_services_with_same_literal_env_var_name_get_distinct_fields(
+        self,
+    ) -> None:
         compose = {
             "services": {
                 "svc1": {"image": "a:1", "environment": {"DB_HOST": "foo"}},
                 "svc2": {"image": "b:1", "environment": {"DB_HOST": "bar"}},
             }
         }
-        scaffold = compose_to_module.build_scaffold(compose, ["svc1", "svc2"], "merged", "bi")
+        scaffold = compose_to_module.build_scaffold(
+            compose, ["svc1", "svc2"], "merged", "bi"
+        )
         module = scaffold.to_module_dict()
 
         props = module["spec"]["configSchema"]["properties"]
@@ -83,7 +113,9 @@ class BuildScaffoldTest(unittest.TestCase):
 
         services = module["spec"]["implementation"]["compose"]["services"]
         self.assertEqual(services["svc1"]["environment"]["DB_HOST"], "${config.dbHost}")
-        self.assertEqual(services["svc2"]["environment"]["DB_HOST"], "${config.dbHost2}")
+        self.assertEqual(
+            services["svc2"]["environment"]["DB_HOST"], "${config.dbHost2}"
+        )
 
     def test_bare_var_referencing_another_service_is_flagged_as_todo(self) -> None:
         compose = {
@@ -100,7 +132,9 @@ class BuildScaffoldTest(unittest.TestCase):
         service = module["spec"]["implementation"]["compose"]["services"]["app"]
         # Left untouched (not turned into a config property) and flagged.
         self.assertEqual(service["environment"]["DATABASE_HOST"], "${POSTGRES_HOST}")
-        self.assertTrue(any("consumes contract binding" in todo for todo in scaffold.todos))
+        self.assertTrue(
+            any("consumes contract binding" in todo for todo in scaffold.todos)
+        )
 
     def test_hardcoded_connection_string_is_flagged_not_defaulted(self) -> None:
         compose = {
@@ -115,7 +149,9 @@ class BuildScaffoldTest(unittest.TestCase):
                 }
             }
         }
-        scaffold = compose_to_module.build_scaffold(compose, ["superset"], "superset", "bi")
+        scaffold = compose_to_module.build_scaffold(
+            compose, ["superset"], "superset", "bi"
+        )
         module = scaffold.to_module_dict()
 
         props = module["spec"]["configSchema"]["properties"]
@@ -125,19 +161,28 @@ class BuildScaffoldTest(unittest.TestCase):
             service["environment"]["SUPERSET_DATABASE_URI"],
             "postgresql://superset:${CDS_SUPERSET_POSTGRES_PASSWORD}@postgres:5432/superset",
         )
-        self.assertTrue(any("hardcoded connection string" in todo for todo in scaffold.todos))
+        self.assertTrue(
+            any("hardcoded connection string" in todo for todo in scaffold.todos)
+        )
 
     def test_external_depends_on_is_flagged_as_todo(self) -> None:
         compose = {
             "services": {
-                "worker": {"image": "example/worker:1.0", "depends_on": {"postgres": {"condition": "service_started"}}},
+                "worker": {
+                    "image": "example/worker:1.0",
+                    "depends_on": {"postgres": {"condition": "service_started"}},
+                },
                 "postgres": {"image": "example/custom-thing:1.0"},
             }
         }
-        scaffold = compose_to_module.build_scaffold(compose, ["worker"], "worker", "orchestration")
+        scaffold = compose_to_module.build_scaffold(
+            compose, ["worker"], "worker", "orchestration"
+        )
         module = scaffold.to_module_dict()
 
-        self.assertTrue(any("depends_on external service" in todo for todo in scaffold.todos))
+        self.assertTrue(
+            any("depends_on external service" in todo for todo in scaffold.todos)
+        )
         # The flagged target isn't defined anywhere in this module's own
         # compose.services, so leaving it in depends_on would be a dangling
         # reference -- it must be stripped, not just flagged.
@@ -172,14 +217,18 @@ class BuildScaffoldTest(unittest.TestCase):
         self.assertIn("Don't scaffold this as a new module", todo)
         self.assertIn("warehouse/postgres", todo)
 
-    def test_known_infra_dependency_without_existing_provider_names_contract_file(self) -> None:
+    def test_known_infra_dependency_without_existing_provider_names_contract_file(
+        self,
+    ) -> None:
         compose = {
             "services": {
                 "app": {"image": "example/app:1.0", "depends_on": ["cache"]},
                 "cache": {"image": "valkey/valkey:8"},
             }
         }
-        with unittest.mock.patch.object(compose_to_module, "_find_existing_contract_providers", return_value=[]):
+        with unittest.mock.patch.object(
+            compose_to_module, "_find_existing_contract_providers", return_value=[]
+        ):
             scaffold = compose_to_module.build_scaffold(compose, ["app"], "app", "bi")
             scaffold.to_module_dict()
 
@@ -190,17 +239,25 @@ class BuildScaffoldTest(unittest.TestCase):
     def test_multi_service_merge_keeps_internal_depends_on_untouched(self) -> None:
         compose = {
             "services": {
-                "daemon": {"image": "dagster:1.0", "depends_on": {"user-code": {"condition": "service_healthy"}}},
+                "daemon": {
+                    "image": "dagster:1.0",
+                    "depends_on": {"user-code": {"condition": "service_healthy"}},
+                },
                 "user-code": {"image": "dagster-user-code:1.0"},
             }
         }
-        scaffold = compose_to_module.build_scaffold(compose, ["daemon", "user-code"], "dagster", "orchestration")
+        scaffold = compose_to_module.build_scaffold(
+            compose, ["daemon", "user-code"], "dagster", "orchestration"
+        )
         module = scaffold.to_module_dict()
 
         services = module["spec"]["implementation"]["compose"]["services"]
         self.assertIn("user-code", services)
         self.assertIn("daemon", services)
-        self.assertEqual(services["daemon"]["depends_on"], {"user-code": {"condition": "service_healthy"}})
+        self.assertEqual(
+            services["daemon"]["depends_on"],
+            {"user-code": {"condition": "service_healthy"}},
+        )
         self.assertFalse(scaffold.todos)
 
     def test_mixed_internal_and_external_depends_on_keeps_only_internal(self) -> None:
@@ -217,11 +274,15 @@ class BuildScaffoldTest(unittest.TestCase):
                 "db": {"image": "postgres:16"},
             }
         }
-        scaffold = compose_to_module.build_scaffold(compose, ["daemon", "user-code"], "dagster", "orchestration")
+        scaffold = compose_to_module.build_scaffold(
+            compose, ["daemon", "user-code"], "dagster", "orchestration"
+        )
         module = scaffold.to_module_dict()
 
         service = module["spec"]["implementation"]["compose"]["services"]["daemon"]
-        self.assertEqual(service["depends_on"], {"user-code": {"condition": "service_healthy"}})
+        self.assertEqual(
+            service["depends_on"], {"user-code": {"condition": "service_healthy"}}
+        )
         self.assertTrue(any("'db'" in todo for todo in scaffold.todos))
 
     def test_missing_service_raises_scaffold_error(self) -> None:
@@ -232,7 +293,9 @@ class BuildScaffoldTest(unittest.TestCase):
     def test_malformed_yaml_raises_scaffold_error(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             bad = Path(tmp) / "docker-compose.yml"
-            bad.write_text("services:\n\tpostgres:\n    image: postgres:16\n", encoding="utf-8")
+            bad.write_text(
+                "services:\n\tpostgres:\n    image: postgres:16\n", encoding="utf-8"
+            )
             with self.assertRaises(SystemExit) as ctx:
                 compose_to_module._load_compose(bad)
         message = str(ctx.exception)
@@ -245,31 +308,46 @@ class BuildScaffoldTest(unittest.TestCase):
                 "postgres": {
                     "image": "postgres:16",
                     "ports": ["5432:5432"],
-                    "environment": {"POSTGRES_PASSWORD": "${CDS_ANALYTICS_POSTGRES_PASSWORD}"},
+                    "environment": {
+                        "POSTGRES_PASSWORD": "${CDS_ANALYTICS_POSTGRES_PASSWORD}"
+                    },
                 }
             }
         }
-        scaffold = compose_to_module.build_scaffold(compose, ["postgres"], "postgres", "warehouse")
+        scaffold = compose_to_module.build_scaffold(
+            compose, ["postgres"], "postgres", "warehouse"
+        )
         module = scaffold.to_module_dict()
         self.assertEqual(compose_to_module._self_check(module), [])
 
 
 class PortParsingTest(unittest.TestCase):
     def test_short_form_host_and_container(self) -> None:
-        self.assertEqual(compose_to_module._parse_port_entry("5432:5432"), (5432, 5432, "TCP"))
+        self.assertEqual(
+            compose_to_module._parse_port_entry("5432:5432"), (5432, 5432, "TCP")
+        )
 
     def test_container_only(self) -> None:
-        self.assertEqual(compose_to_module._parse_port_entry("5432"), (None, 5432, "TCP"))
+        self.assertEqual(
+            compose_to_module._parse_port_entry("5432"), (None, 5432, "TCP")
+        )
 
     def test_host_ip_host_port_container_port(self) -> None:
-        self.assertEqual(compose_to_module._parse_port_entry("127.0.0.1:5432:5432"), (5432, 5432, "TCP"))
+        self.assertEqual(
+            compose_to_module._parse_port_entry("127.0.0.1:5432:5432"),
+            (5432, 5432, "TCP"),
+        )
 
     def test_udp_suffix(self) -> None:
-        self.assertEqual(compose_to_module._parse_port_entry("53:53/udp"), (53, 53, "UDP"))
+        self.assertEqual(
+            compose_to_module._parse_port_entry("53:53/udp"), (53, 53, "UDP")
+        )
 
     def test_long_form_mapping(self) -> None:
         entry = {"target": 5432, "published": 5433, "protocol": "tcp"}
-        self.assertEqual(compose_to_module._parse_port_entry(entry), (5433, 5432, "TCP"))
+        self.assertEqual(
+            compose_to_module._parse_port_entry(entry), (5433, 5432, "TCP")
+        )
 
 
 class PortFieldNameDedupTest(unittest.TestCase):
@@ -278,24 +356,34 @@ class PortFieldNameDedupTest(unittest.TestCase):
     names waiting to land on one that's already taken."""
 
     def test_no_collision_returns_base_name(self) -> None:
-        self.assertEqual(compose_to_module._dedupe_field_name(set(), "dbHost"), "dbHost")
+        self.assertEqual(
+            compose_to_module._dedupe_field_name(set(), "dbHost"), "dbHost"
+        )
 
     def test_single_collision_returns_suffixed_name(self) -> None:
-        self.assertEqual(compose_to_module._dedupe_field_name({"dbHost"}, "dbHost"), "dbHost2")
+        self.assertEqual(
+            compose_to_module._dedupe_field_name({"dbHost"}, "dbHost"), "dbHost2"
+        )
 
     def test_multiple_collisions_returns_next_free_suffix(self) -> None:
         existing = {"dbHost", "dbHost2", "dbHost3"}
-        self.assertEqual(compose_to_module._dedupe_field_name(existing, "dbHost"), "dbHost4")
+        self.assertEqual(
+            compose_to_module._dedupe_field_name(existing, "dbHost"), "dbHost4"
+        )
 
     def test_port_field_name_no_collision_returns_base_name(self) -> None:
         self.assertEqual(compose_to_module._port_field_name(set(), 8080), "httpPort")
 
     def test_port_field_name_single_collision_returns_suffixed_name(self) -> None:
-        self.assertEqual(compose_to_module._port_field_name({"httpPort"}, 3000), "httpPort2")
+        self.assertEqual(
+            compose_to_module._port_field_name({"httpPort"}, 3000), "httpPort2"
+        )
 
     def test_port_field_name_multiple_collisions_returns_next_free_suffix(self) -> None:
         existing = {"httpPort", "httpPort2", "httpPort3"}
-        self.assertEqual(compose_to_module._port_field_name(existing, 3000), "httpPort4")
+        self.assertEqual(
+            compose_to_module._port_field_name(existing, 3000), "httpPort4"
+        )
 
     def test_merging_two_services_with_same_known_port_name_terminates(self) -> None:
         # 3000 and 8080 both map to "http" in _KNOWN_PORT_NAMES; merging two
@@ -308,7 +396,9 @@ class PortFieldNameDedupTest(unittest.TestCase):
                 "admin": {"image": "example/admin:1.0", "ports": ["8080:8080"]},
             }
         }
-        scaffold = compose_to_module.build_scaffold(compose, ["webserver", "admin"], "app", "bi")
+        scaffold = compose_to_module.build_scaffold(
+            compose, ["webserver", "admin"], "app", "bi"
+        )
         module = scaffold.to_module_dict()
 
         props = module["spec"]["configSchema"]["properties"]
@@ -320,56 +410,88 @@ class PortFieldNameDedupTest(unittest.TestCase):
 class MainArgValidationTest(unittest.TestCase):
     def _compose_file(self, tmpdir: str) -> str:
         compose = Path(tmpdir) / "docker-compose.yml"
-        compose.write_text("services:\n  db:\n    image: postgres:16\n", encoding="utf-8")
+        compose.write_text(
+            "services:\n  db:\n    image: postgres:16\n", encoding="utf-8"
+        )
         return str(compose)
 
     def test_main_rejects_invalid_name_before_writing(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             output = str(Path(tmpdir) / "module.yaml")
             with self.assertRaises(SystemExit) as ctx:
-                compose_to_module.main([
-                    "--compose", self._compose_file(tmpdir),
-                    "--service", "db",
-                    "--name", "Bad Name!",
-                    "--category", "warehouse",
-                    "--output", output,
-                ])
+                compose_to_module.main(
+                    [
+                        "--compose",
+                        self._compose_file(tmpdir),
+                        "--service",
+                        "db",
+                        "--name",
+                        "Bad Name!",
+                        "--category",
+                        "warehouse",
+                        "--output",
+                        output,
+                    ]
+                )
             self.assertIn("--name", str(ctx.exception))
             self.assertFalse(Path(output).exists())
 
     def test_main_rejects_traversal_category(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaises(SystemExit) as ctx:
-                compose_to_module.main([
-                    "--compose", self._compose_file(tmpdir),
-                    "--service", "db",
-                    "--name", "passwd",
-                    "--category", "../../etc",
-                ])
+                compose_to_module.main(
+                    [
+                        "--compose",
+                        self._compose_file(tmpdir),
+                        "--service",
+                        "db",
+                        "--name",
+                        "passwd",
+                        "--category",
+                        "../../etc",
+                    ]
+                )
             self.assertIn("--category", str(ctx.exception))
 
     def test_default_output_path_stays_under_modules(self) -> None:
         expected = (
-            compose_to_module.REPO_ROOT / "modules" / "warehouse" / "postgres" / "module.yaml"
+            compose_to_module.REPO_ROOT
+            / "modules"
+            / "warehouse"
+            / "postgres"
+            / "module.yaml"
         )
-        self.assertEqual(compose_to_module._default_output_path("warehouse", "postgres"), expected)
+        self.assertEqual(
+            compose_to_module._default_output_path("warehouse", "postgres"), expected
+        )
 
     def test_main_rejects_name_with_trailing_newline(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             with self.assertRaises(SystemExit) as ctx:
-                compose_to_module.main([
-                    "--compose", self._compose_file(tmpdir),
-                    "--service", "db",
-                    "--name", "postgres\n",
-                    "--category", "warehouse",
-                    "--output", "-",
-                ])
+                compose_to_module.main(
+                    [
+                        "--compose",
+                        self._compose_file(tmpdir),
+                        "--service",
+                        "db",
+                        "--name",
+                        "postgres\n",
+                        "--category",
+                        "warehouse",
+                        "--output",
+                        "-",
+                    ]
+                )
             self.assertIn("--name", str(ctx.exception))
 
-    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
     def test_main_symlink_escape_writes_nothing_outside(self) -> None:
-        with tempfile.TemporaryDirectory() as tmpdir, unittest.mock.patch.object(
-            compose_to_module, "REPO_ROOT", Path(tmpdir)
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            unittest.mock.patch.object(compose_to_module, "REPO_ROOT", Path(tmpdir)),
         ):
             outside = Path(tmpdir) / "outside"
             outside.mkdir()
@@ -377,12 +499,18 @@ class MainArgValidationTest(unittest.TestCase):
             modules_root.mkdir()
             (modules_root / "warehouse").symlink_to(outside, target_is_directory=True)
             with self.assertRaises(SystemExit) as ctx:
-                compose_to_module.main([
-                    "--compose", self._compose_file(tmpdir),
-                    "--service", "db",
-                    "--name", "postgres",
-                    "--category", "warehouse",
-                ])
+                compose_to_module.main(
+                    [
+                        "--compose",
+                        self._compose_file(tmpdir),
+                        "--service",
+                        "db",
+                        "--name",
+                        "postgres",
+                        "--category",
+                        "warehouse",
+                    ]
+                )
             self.assertIn("modules", str(ctx.exception))
             self.assertFalse((outside / "postgres" / "module.yaml").exists())
 

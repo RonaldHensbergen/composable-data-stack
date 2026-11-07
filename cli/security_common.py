@@ -38,6 +38,7 @@ def resolve_project_root(profile_path: str) -> Path:
     found = find_project_root_dir(Path(profile_path).resolve().parent)
     return found if found is not None else Path.cwd().resolve()
 
+
 # Closed set of informational compliance control categories a rule-set.json
 # rule can be tagged with (rule-schema.json's $defs.complianceCategory),
 # each mapped to a short display label plus the rationale documented in
@@ -116,39 +117,65 @@ COMPLIANCE_CATEGORIES = {
 # sees the full Article 21(2) checklist, not just the parts CDS covers.
 NIS2_ARTICLE_21_MEASURES = (
     (
-        "a", "Policies on risk analysis and information system security",
+        "a",
+        "Policies on risk analysis and information system security",
         (),
         "Every `cds security` finding, across all categories below, is "
         "machine-checked input to this policy -- see the full finding list "
         "and docs/security-compliance-categories.md.",
     ),
     (
-        "b", "Incident handling", (),
+        "b",
+        "Incident handling",
+        (),
         "Out of CDS's product scope (an operator incident-handling "
         "procedure, not a rendered-artifact property). See SECURITY.md and "
         "docs/security-support-policy.md for CDS's own process.",
     ),
-    ("c", "Business continuity (backup management, disaster recovery, crisis management)", ("business-continuity",), None),
+    (
+        "c",
+        "Business continuity (backup management, disaster recovery, crisis management)",
+        ("business-continuity",),
+        None,
+    ),
     ("d", "Supply chain security", ("patching",), None),
     (
-        "e", "Security in acquisition, development and maintenance, incl. vulnerability handling", (),
+        "e",
+        "Security in acquisition, development and maintenance, incl. vulnerability handling",
+        (),
         "Out of CDS's product scope. See SECURITY.md and "
         "docs/security-support-policy.md for CDS's own secure-maintenance practice.",
     ),
     (
-        "f", "Policies/procedures to assess the effectiveness of risk-management measures", (),
+        "f",
+        "Policies/procedures to assess the effectiveness of risk-management measures",
+        (),
         "Re-running `cds security`/`cds test` gives a repeatable, "
         "versionable check of whether a profile's measures still pass.",
     ),
     (
-        "g", "Basic cyber hygiene practices and cybersecurity training", (),
+        "g",
+        "Basic cyber hygiene practices and cybersecurity training",
+        (),
         "Out of CDS's product scope (an operator organisational practice, "
         "not a rendered-artifact property).",
     ),
-    ("h", "Policies/procedures on cryptography and encryption", ("encryption-in-transit", "secrets-management"), None),
-    ("i", "Human resources security, access control policies, asset management", ("access-control",), None),
     (
-        "j", "MFA/continuous authentication, secured communications", ("access-control",),
+        "h",
+        "Policies/procedures on cryptography and encryption",
+        ("encryption-in-transit", "secrets-management"),
+        None,
+    ),
+    (
+        "i",
+        "Human resources security, access control policies, asset management",
+        ("access-control",),
+        None,
+    ),
+    (
+        "j",
+        "MFA/continuous authentication, secured communications",
+        ("access-control",),
         "modules/identity/keycloak can provide MFA-capable authentication "
         "to a profile; this is opt-in, not a default.",
     ),

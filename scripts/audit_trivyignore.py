@@ -51,9 +51,7 @@ def parse_entries(text: str) -> list[Entry]:
             continue
         match = ENTRY_RE.match(line)
         if match:
-            entries.append(
-                Entry(match["id"], date.fromisoformat(match["exp"]), number)
-            )
+            entries.append(Entry(match["id"], date.fromisoformat(match["exp"]), number))
     return entries
 
 

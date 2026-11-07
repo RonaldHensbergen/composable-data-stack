@@ -131,8 +131,7 @@ class CraTraceabilityTest(unittest.TestCase):
                 if is_tracked_gap:
                     related = cells[-2] if len(cells) >= 2 else ""
                     self.assertTrue(
-                        _ISSUE_REF.search(disposition)
-                        or _ISSUE_REF.search(related),
+                        _ISSUE_REF.search(disposition) or _ISSUE_REF.search(related),
                         f"{item_id} is a tracked gap and must cite a "
                         "'#<issue number>' reference (in the disposition or "
                         "related-issue(s) cell)",
