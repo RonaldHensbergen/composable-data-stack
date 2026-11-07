@@ -136,7 +136,7 @@ def _check_daemon() -> tuple[PreflightCheck, dict[str, Any] | None]:
             text=True,
             timeout=15,
         )
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):
         result = None
 
     if result is None or result.returncode != 0:
@@ -161,7 +161,7 @@ def _check_daemon() -> tuple[PreflightCheck, dict[str, Any] | None]:
     info: dict[str, Any] | None = None
     try:
         parsed = json.loads(result.stdout or "")
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         parsed = None
     if isinstance(parsed, dict):
         info = parsed
@@ -257,7 +257,7 @@ def _uses_non_default_context() -> bool:
             config = json.loads(
                 (config_dir / "config.json").read_text(encoding="utf-8")
             )
-        except OSError, ValueError:
+        except (OSError, ValueError):
             return False
         context = (
             str(config.get("currentContext", "")).strip()
@@ -326,7 +326,7 @@ def _run_runtime_command(
             text=True,
             timeout=15,
         )
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):
         return PreflightCheck("FAIL", name, failure_message, reference=reference)
 
     if result.returncode != 0:
@@ -649,6 +649,6 @@ def _port_is_available(host: str, port: int, protocol: str) -> bool | None:
     try:
         with socket.socket(family, socket_type) as listener:
             listener.bind((host, port))
-    except OSError, OverflowError:
+    except (OSError, OverflowError):
         return False
     return True

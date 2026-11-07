@@ -411,7 +411,7 @@ def check_operator_crds(
                 timeout=30,
                 check=False,
             )
-        except OSError, subprocess.TimeoutExpired:
+        except (OSError, subprocess.TimeoutExpired):
             check_ok = False
             continue
         if result.returncode == 0:

@@ -268,7 +268,7 @@ def fetch_dockerhub_tags(
             # constant or the scheme-validated pagination url below.
             with urlopen(req, timeout=10) as response:  # nosec B310  # noqa: S310
                 data = json.loads(response.read().decode())
-        except HTTPError, URLError, ValueError:
+        except (HTTPError, URLError, ValueError):
             return None
 
         pages_read += 1

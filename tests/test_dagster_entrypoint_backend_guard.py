@@ -68,7 +68,7 @@ def find_posix_shell() -> list[str]:
                     capture_output=True,
                     timeout=15,
                 )
-            except OSError, subprocess.TimeoutExpired:
+            except (OSError, subprocess.TimeoutExpired):
                 return []
             if probe.returncode == 0:
                 return [wsl, "-e", "sh"]

@@ -39,6 +39,12 @@ The format is based on Keep a Changelog.
   otherwise select zero pods via the `cds.dev/module` label (a silent no-op
   allow policy). Documented in the README troubleshooting table (E159),
   `modules/security/istio/README.md`, and `docs/kubernetes.md`.
+- Helm rendering now warns with W131 when a known service-mesh enrollment
+  names a module that produces no workload pods, including manifest-only
+  modules and modules whose workloads are all disabled by `enabledFrom`
+  (issue #1198). The check uses the workloads actually rendered for the Helm
+  chart and points to the enrollment; documented in the README troubleshooting
+  table, `modules/security/istio/README.md`, and `docs/kubernetes.md`.
 - Promoted the Istio service-mesh provider to `modules/security/istio/` with
   `productionSuitable: true`, and enrolled Postgres, Dagster, and Superset in
   the production-style and local Kubernetes example profiles. The k3d E2E
@@ -482,6 +488,8 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Corrected malformed Python exception handlers across the CLI that prevented
+  modules from compiling or importing (issue #1198).
 - `cds get` no longer follows a symlinked `.cds` tracking directory, update
   notifications parse bounded PEP 440 versions, and image digest pins use
   deterministic validation instead of potentially super-linear regular

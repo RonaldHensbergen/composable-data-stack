@@ -283,6 +283,7 @@ def render_helm(
     manifests: list[tuple[str, dict[str, Any]]] = []
     secret_keys: set[str] = set()
     module_surfaces: dict[str, list[dict[str, Any]]] = {}
+    rendered_pod_modules: set[str] = set()
 
     for module in renderable:
         module_id = module["id"]
@@ -321,10 +322,15 @@ def render_helm(
             "config": _values_config(module.get("config", {})),
             "workloads": module_values,
         }
-        manifests.extend(module_manifests)
+        manifests.extend(module_manifests        )
         files.update(module_files)
         secret_keys.update(module_secret_keys)
         diagnostics.extend(module_diags)
+        if any(
+            _manifest_renders_module_pods(manifest, module_id)
+            for _, manifest in module_manifests
+        ):
+            rendered_pod_modules.add(module_id)
         # A manifest-only module (e.g. a GitOps bootstrap, issue #767) runs
         # no pods of its own, so it gets no ServiceAccount and no
         # NetworkPolicy: both would select nothing.
@@ -337,6 +343,8 @@ def render_helm(
                     ),
                 )
             )
+
+    diagnostics.extend(_check_service_mesh_enrollments(renderable, rendered_pod_modules))
 
     workload_modules = [
         module
@@ -391,6 +399,101 @@ def render_helm(
         _write_chart(Path(output_dir), files)
 
     return files, diagnostics
+
+
+def _check_service_mesh_enrollments(
+    modules: list[dict[str, Any]], rendered_pod_modules: set[str]
+) -> list[Diagnostic]:
+    """Warn when a service-mesh enrollment selects no rendered workload pods."""
+    module_ids = {module["id"] for module in modules if module.get("id")}
+    diagnostics: list[Diagnostic] = []
+    for module in modules:
+        provides = module.get("provides")
+        if not isinstance(provides, dict) or not any(
+            isinstance(provided, dict) and provided.get("kind") == "service-mesh"
+            for provided in provides.values()
+        ):
+            continue
+        services = (module.get("config") or {}).get("services")
+        if not isinstance(services, list):
+            continue
+        for index, service in enumerate(services):
+            if not isinstance(service, dict):
+                continue
+            name = service.get("name")
+            if not isinstance(name, str) or name not in module_ids:
+                continue
+            if name in rendered_pod_modules:
+                continue
+            diagnostics.append(
+                Diagnostic(
+                    level="warning",
+                    code="W131",
+                    message=(
+                        f'Module "{module["id"]}" enrolls service "{name}" in its '
+                        "service-mesh config, but the module renders no Kubernetes "
+                        "workload pods. If enabled, the per-service "
+                        "AuthorizationPolicy selector would select zero pods via the "
+                        "cds.dev/module label."
+                    ),
+                    path=f"module:{module['id']}.config.services[{index}].name",
+                )
+            )
+    return diagnostics
+
+
+def _manifest_renders_module_pods(manifest: dict[str, Any], module_id: str) -> bool:
+    """Return whether a rendered manifest can create pods bearing this module label."""
+    kind = manifest.get("kind")
+    spec = manifest.get("spec")
+    job_spec = None
+    if kind == "Pod":
+        pod_metadata = manifest.get("metadata")
+    elif kind in {
+        "CronJob",
+        "DaemonSet",
+        "Deployment",
+        "Job",
+        "ReplicaSet",
+        "ReplicationController",
+        "StatefulSet",
+    } and isinstance(spec, dict):
+        if kind == "CronJob":
+            job_template = spec.get("jobTemplate")
+            job_spec = job_template.get("spec") if isinstance(job_template, dict) else None
+            pod_template = job_spec.get("template") if isinstance(job_spec, dict) else None
+        else:
+            pod_template = spec.get("template")
+            if kind == "Job":
+                job_spec = spec
+        pod_metadata = (
+            pod_template.get("metadata") if isinstance(pod_template, dict) else None
+        )
+    else:
+        return False
+
+    pod_labels = pod_metadata.get("labels") if isinstance(pod_metadata, dict) else None
+    if not isinstance(pod_labels, dict) or pod_labels.get("cds.dev/module") != module_id:
+        return False
+    if kind == "Pod":
+        return True
+    if kind == "Job":
+        return _job_spec_renders_pods(job_spec)
+    if kind == "CronJob":
+        return spec.get("suspend") is not True and _job_spec_renders_pods(job_spec)
+    if kind == "DaemonSet":
+        return True
+    replicas = spec.get("replicas", 1)
+    return isinstance(replicas, int) and not isinstance(replicas, bool) and replicas > 0
+
+
+def _job_spec_renders_pods(spec: dict[str, Any] | None) -> bool:
+    return (
+        isinstance(spec, dict)
+        and spec.get("suspend") is not True
+        and spec.get("parallelism") != 0
+        and spec.get("completions") != 0
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1097,7 +1200,7 @@ def _compose_port_target(entry: Any) -> int | None:
     if isinstance(entry, dict):
         try:
             return int(entry.get("target"))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return None
     text = str(entry).split("/")[0]
     parts = text.split(":")
@@ -1482,7 +1585,7 @@ def _read_bind_file(
         try:
             resolved = candidate.resolve()
             resolved.relative_to(project_root.resolve())
-        except OSError, ValueError:
+        except (OSError, ValueError):
             escaped_root = True
             continue
         if resolved.is_file():
@@ -2180,7 +2283,7 @@ def _int_or_none(value: Any) -> int | None:
         return None
     try:
         return int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 

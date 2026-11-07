@@ -20,6 +20,8 @@ Covers the acceptance criteria of #776 and the promotion in #1171:
   against the profile's module instance ids (issue #1179): an unknown id
   (typo or disabled module) fails closed with E159, because the rendered
   per-service AuthorizationPolicy would select zero pods.
+- Helm rendering warns with W131 when a known enrollment has no rendered
+  workload pods, including modules whose workloads are gated off (issue #1198).
 """
 
 import json
@@ -31,7 +33,7 @@ from pathlib import Path
 import yaml
 from jsonschema import Draft202012Validator
 
-from cli.k8s_renderer import render_helm
+from cli.k8s_renderer import _manifest_renders_module_pods, render_helm
 from cli.maturity import build_maturity_report
 from cli.planner import build_plan, validate_service_mesh_enrollments
 from cli.renderer import render_compose
@@ -374,6 +376,81 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
     def test_valid_enrollments_emit_no_e159(self) -> None:
         _, diagnostics = self._build_plan_diags(dict(ISTIO_CONFIG))
         self.assertEqual([d for d in diagnostics if d.code == "E159"], [])
+
+    def test_manifest_only_enrollment_warns_with_w131(self) -> None:
+        config = dict(ISTIO_CONFIG)
+        config["services"] = [*config["services"], {"name": "mesh", "port": 8080}]
+        files, diagnostics = self._render(config)
+        warnings = [d for d in diagnostics if d.code == "W131"]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0].level, "warning")
+        self.assertEqual(warnings[0].path, "module:mesh.config.services[2].name")
+        self.assertIn('"mesh"', warnings[0].message)
+        self.assertIn("no Kubernetes workload pods", warnings[0].message)
+        self.assertIn("zero pods", warnings[0].message)
+        self.assertIn("templates/mesh-manifest-peer-authentication.yaml", files)
+
+    def test_enrollment_warns_when_all_workloads_are_gated_off(self) -> None:
+        plan = self._build_plan(dict(ISTIO_CONFIG))
+        warehouse = next(m for m in plan["modules"] if m["id"] == "warehouse")
+        warehouse["config"]["workloadEnabled"] = False
+        warehouse["implementation"]["kubernetes"]["workloads"]["postgres"][
+            "enabledFrom"
+        ] = "config.workloadEnabled"
+        files, diagnostics = render_helm(plan)
+        self.assertEqual(
+            yaml.safe_load(files["values.yaml"])["modules"]["warehouse"]["workloads"],
+            {},
+        )
+        warnings = [d for d in diagnostics if d.code == "W131"]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0].path, "module:mesh.config.services[0].name")
+        self.assertIn('"warehouse"', warnings[0].message)
+
+    def test_enrollment_warns_when_all_workloads_have_zero_replicas(self) -> None:
+        plan = self._build_plan(dict(ISTIO_CONFIG))
+        warehouse = next(m for m in plan["modules"] if m["id"] == "warehouse")
+        warehouse["implementation"]["kubernetes"]["workloads"]["postgres"][
+            "replicas"
+        ] = 0
+        _, diagnostics = render_helm(plan)
+        warnings = [d for d in diagnostics if d.code == "W131"]
+        self.assertEqual(len(warnings), 1)
+        self.assertEqual(warnings[0].path, "module:mesh.config.services[0].name")
+
+    def test_raw_pod_manifest_counts_as_a_rendered_workload(self) -> None:
+        plan = self._build_plan(dict(ISTIO_CONFIG))
+        warehouse = next(m for m in plan["modules"] if m["id"] == "warehouse")
+        kubernetes = warehouse["implementation"]["kubernetes"]
+        kubernetes["workloads"] = {}
+        kubernetes["manifests"] = {
+            "pod": {
+                "apiVersion": "v1",
+                "kind": "Pod",
+                "metadata": {"name": "warehouse-pod"},
+                "spec": {"containers": [{"name": "warehouse", "image": "example"}]},
+            }
+        }
+        _, diagnostics = render_helm(plan)
+        self.assertEqual([d for d in diagnostics if d.code == "W131"], [])
+
+    def test_job_manifests_with_no_completions_do_not_count_as_workloads(self) -> None:
+        pod_labels = {"cds.dev/module": "warehouse"}
+        pod_template = {"metadata": {"labels": pod_labels}}
+        job = {
+            "kind": "Job",
+            "spec": {"completions": 0, "template": pod_template},
+        }
+        cron_job = {
+            "kind": "CronJob",
+            "spec": {
+                "jobTemplate": {
+                    "spec": {"completions": 0, "template": pod_template}
+                }
+            },
+        }
+        self.assertFalse(_manifest_renders_module_pods(job, "warehouse"))
+        self.assertFalse(_manifest_renders_module_pods(cron_job, "warehouse"))
 
     def test_enrollment_of_a_disabled_module_fails_with_e159(self) -> None:
         # A disabled module instance is not in the plan, so enrolling its id
