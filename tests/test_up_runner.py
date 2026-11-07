@@ -18,7 +18,9 @@ from cli.up_runner import (
 
 
 def _ps(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
+    return subprocess.CompletedProcess(
+        args=[], returncode=returncode, stdout=stdout, stderr=""
+    )
 
 
 class DefaultLogPathTest(unittest.TestCase):
@@ -48,7 +50,9 @@ class DefaultLogPathTest(unittest.TestCase):
         self.assertTrue(path.name.endswith(".log"))
 
     def test_prefix_is_sanitized_like_the_profile_name(self):
-        path = default_log_path("demo", logs_dir=Path("/tmp/cds-logs"), prefix="down/x y")
+        path = default_log_path(
+            "demo", logs_dir=Path("/tmp/cds-logs"), prefix="down/x y"
+        )
         self.assertNotIn("/", path.name)
         self.assertNotIn(" ", path.name)
         self.assertTrue(path.name.startswith("down-x-y-demo-"))
@@ -102,7 +106,9 @@ class RunStreamedTest(unittest.TestCase):
         process.wait.return_value = 9
         mock_popen.return_value = process
 
-        returncode = run_streamed(["docker", "compose", "build"], io.StringIO(), echo=False)
+        returncode = run_streamed(
+            ["docker", "compose", "build"], io.StringIO(), echo=False
+        )
 
         self.assertEqual(returncode, 9)
 
@@ -111,22 +117,30 @@ class RunStreamedTest(unittest.TestCase):
     def test_group_by_image_emits_section_headers(self, mock_popen, mock_stdout):
         process = MagicMock()
         process.stdout = MagicMock()
-        process.stdout.__iter__.return_value = iter([
-            "web: Building 0.5s\n",
-            "#1 [web 1/2] FROM node:18-alpine\n",
-            "#1 DONE 0.5s\n",
-            "db: Building 0.3s\n",
-            "#2 [db 1/1] FROM nginx:alpine\n",
-            "#2 DONE 0.3s\n",
-        ])
+        process.stdout.__iter__.return_value = iter(
+            [
+                "web: Building 0.5s\n",
+                "#1 [web 1/2] FROM node:18-alpine\n",
+                "#1 DONE 0.5s\n",
+                "db: Building 0.3s\n",
+                "#2 [db 1/1] FROM nginx:alpine\n",
+                "#2 DONE 0.3s\n",
+            ]
+        )
         process.wait.return_value = 0
         mock_popen.return_value = process
 
         log_file = io.StringIO()
-        returncode = run_streamed(["docker", "compose", "build"], log_file, echo=True, group_by_image=True)
+        returncode = run_streamed(
+            ["docker", "compose", "build"], log_file, echo=True, group_by_image=True
+        )
 
         self.assertEqual(returncode, 0)
-        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list if "Building" in call.args[0])
+        written = "".join(
+            call.args[0]
+            for call in mock_stdout.write.call_args_list
+            if "Building" in call.args[0]
+        )
         self.assertIn("── Building web ", written)
         self.assertIn("── Building db ", written)
         self.assertIn("web: Building 0.5s\n", log_file.getvalue())
@@ -134,7 +148,9 @@ class RunStreamedTest(unittest.TestCase):
 
     @patch("cli.up_runner.sys.stdout")
     @patch("cli.up_runner.subprocess.Popen")
-    def test_group_by_image_omits_ansi_codes_on_a_non_tty(self, mock_popen, mock_stdout):
+    def test_group_by_image_omits_ansi_codes_on_a_non_tty(
+        self, mock_popen, mock_stdout
+    ):
         mock_stdout.isatty.return_value = False
         process = MagicMock()
         process.stdout = MagicMock()
@@ -143,7 +159,9 @@ class RunStreamedTest(unittest.TestCase):
         mock_popen.return_value = process
 
         log_file = io.StringIO()
-        run_streamed(["docker", "compose", "build"], log_file, echo=True, group_by_image=True)
+        run_streamed(
+            ["docker", "compose", "build"], log_file, echo=True, group_by_image=True
+        )
 
         written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
         self.assertIn("── Building web ", written)
@@ -151,7 +169,9 @@ class RunStreamedTest(unittest.TestCase):
 
     @patch("cli.up_runner.sys.stdout")
     @patch("cli.up_runner.subprocess.Popen")
-    def test_group_by_image_omits_ansi_codes_when_color_disabled(self, mock_popen, mock_stdout):
+    def test_group_by_image_omits_ansi_codes_when_color_disabled(
+        self, mock_popen, mock_stdout
+    ):
         mock_stdout.isatty.return_value = True
         process = MagicMock()
         process.stdout = MagicMock()
@@ -161,7 +181,11 @@ class RunStreamedTest(unittest.TestCase):
 
         log_file = io.StringIO()
         run_streamed(
-            ["docker", "compose", "build"], log_file, echo=True, group_by_image=True, use_color=False
+            ["docker", "compose", "build"],
+            log_file,
+            echo=True,
+            group_by_image=True,
+            use_color=False,
         )
 
         written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
@@ -170,7 +194,9 @@ class RunStreamedTest(unittest.TestCase):
 
     @patch("cli.up_runner.sys.stdout")
     @patch("cli.up_runner.subprocess.Popen")
-    def test_group_by_image_keeps_ansi_codes_on_a_tty_with_color(self, mock_popen, mock_stdout):
+    def test_group_by_image_keeps_ansi_codes_on_a_tty_with_color(
+        self, mock_popen, mock_stdout
+    ):
         mock_stdout.isatty.return_value = True
         process = MagicMock()
         process.stdout = MagicMock()
@@ -181,14 +207,18 @@ class RunStreamedTest(unittest.TestCase):
         log_file = io.StringIO()
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("NO_COLOR", None)
-            run_streamed(["docker", "compose", "build"], log_file, echo=True, group_by_image=True)
+            run_streamed(
+                ["docker", "compose", "build"], log_file, echo=True, group_by_image=True
+            )
 
         written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
         self.assertIn("\033[36m── Building web ", written)
 
     @patch("cli.up_runner.sys.stdout")
     @patch("cli.up_runner.subprocess.Popen")
-    def test_group_by_image_omits_ansi_codes_when_no_color_env_set(self, mock_popen, mock_stdout):
+    def test_group_by_image_omits_ansi_codes_when_no_color_env_set(
+        self, mock_popen, mock_stdout
+    ):
         mock_stdout.isatty.return_value = True
         process = MagicMock()
         process.stdout = MagicMock()
@@ -198,7 +228,9 @@ class RunStreamedTest(unittest.TestCase):
 
         log_file = io.StringIO()
         with patch.dict(os.environ, {"NO_COLOR": "1"}, clear=False):
-            run_streamed(["docker", "compose", "build"], log_file, echo=True, group_by_image=True)
+            run_streamed(
+                ["docker", "compose", "build"], log_file, echo=True, group_by_image=True
+            )
 
         written = "".join(call.args[0] for call in mock_stdout.write.call_args_list)
         self.assertIn("── Building web ", written)
@@ -206,21 +238,31 @@ class RunStreamedTest(unittest.TestCase):
 
     @patch("cli.up_runner.sys.stdout")
     @patch("cli.up_runner.subprocess.Popen")
-    def test_group_by_image_skips_headers_when_echo_is_off(self, mock_popen, mock_stdout):
+    def test_group_by_image_skips_headers_when_echo_is_off(
+        self, mock_popen, mock_stdout
+    ):
         process = MagicMock()
         process.stdout = MagicMock()
-        process.stdout.__iter__.return_value = iter([
-            "web: Building 0.5s\n",
-            "#1 [web 1/2] FROM node:18-alpine\n",
-        ])
+        process.stdout.__iter__.return_value = iter(
+            [
+                "web: Building 0.5s\n",
+                "#1 [web 1/2] FROM node:18-alpine\n",
+            ]
+        )
         process.wait.return_value = 0
         mock_popen.return_value = process
 
         log_file = io.StringIO()
-        returncode = run_streamed(["docker", "compose", "build"], log_file, echo=False, group_by_image=True)
+        returncode = run_streamed(
+            ["docker", "compose", "build"], log_file, echo=False, group_by_image=True
+        )
 
         self.assertEqual(returncode, 0)
-        written = "".join(call.args[0] for call in mock_stdout.write.call_args_list) if mock_stdout.write.call_args_list else ""
+        written = (
+            "".join(call.args[0] for call in mock_stdout.write.call_args_list)
+            if mock_stdout.write.call_args_list
+            else ""
+        )
         self.assertNotIn("── Building", written)
         self.assertIn("web: Building 0.5s\n", log_file.getvalue())
 
@@ -439,7 +481,9 @@ class PollStateUntilSettledTest(unittest.TestCase):
         self.assertIn("RUNNING", redraw_fn.call_args[0][0])
 
     @patch("cli.up_runner.sys.stdout")
-    def test_default_redraw_uses_ansi_clear_codes_on_a_tty_when_color_enabled(self, mock_stdout):
+    def test_default_redraw_uses_ansi_clear_codes_on_a_tty_when_color_enabled(
+        self, mock_stdout
+    ):
         mock_stdout.isatty.return_value = True
         ps_fn = MagicMock(return_value=_ps('{"Service": "web", "State": "running"}'))
 

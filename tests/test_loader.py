@@ -36,7 +36,9 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             expected = (profiles_root / "generated-demo" / "profile.yaml").resolve()
             self.assertEqual(result_path, expected)
             self.assertTrue(expected.is_file())
-            self.assertEqual(yaml.safe_load(expected.read_text(encoding="utf-8")), profile)
+            self.assertEqual(
+                yaml.safe_load(expected.read_text(encoding="utf-8")), profile
+            )
 
     def test_defaults_name_from_profile_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -46,7 +48,10 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             result_path, diagnostics = save_generated_profile(profile, profiles_root)
 
             self.assertEqual(diagnostics, [])
-            self.assertEqual(result_path, (profiles_root / "from-metadata" / "profile.yaml").resolve())
+            self.assertEqual(
+                result_path,
+                (profiles_root / "from-metadata" / "profile.yaml").resolve(),
+            )
 
     def test_rejects_missing_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -64,7 +69,9 @@ class SaveGeneratedProfileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             profiles_root = Path(tmpdir) / "profiles"
 
-            result_path, diagnostics = save_generated_profile("not-a-dict", profiles_root)  # type: ignore[arg-type]
+            result_path, diagnostics = save_generated_profile(
+                "not-a-dict", profiles_root
+            )  # type: ignore[arg-type]
 
             self.assertIsNone(result_path)
             self.assertEqual(diagnostics[0].code, "E114")
@@ -86,7 +93,9 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             profiles_root = Path(tmpdir) / "profiles"
             profile = self._profile()
 
-            result_path, diagnostics = save_generated_profile(profile, profiles_root, name="/etc/evil")
+            result_path, diagnostics = save_generated_profile(
+                profile, profiles_root, name="/etc/evil"
+            )
 
             self.assertIsNone(result_path)
             self.assertEqual(diagnostics[0].code, "E115")
@@ -118,7 +127,9 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             self.assertEqual(len(second_diags), 1)
             self.assertEqual(second_diags[0].code, "E116")
             # The original file must be untouched by the rejected rewrite attempt.
-            self.assertEqual(yaml.safe_load(first_path.read_text(encoding="utf-8")), profile)
+            self.assertEqual(
+                yaml.safe_load(first_path.read_text(encoding="utf-8")), profile
+            )
 
     def test_overwrites_existing_profile_when_forced(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -155,7 +166,9 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             self.assertIsNone(path)
             self.assertEqual(len(diagnostics), 1)
             self.assertEqual(diagnostics[0].code, "E117")
-            self.assertFalse((profiles_root / "generated-demo" / "profile.yaml").exists())
+            self.assertFalse(
+                (profiles_root / "generated-demo" / "profile.yaml").exists()
+            )
 
     def test_reports_diagnostic_for_write_failure(self):
         """A filesystem write failure (e.g. permission denied) must surface
@@ -173,7 +186,9 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             self.assertIsNone(path)
             self.assertEqual(len(diagnostics), 1)
             self.assertEqual(diagnostics[0].code, "E117")
-            self.assertFalse((profiles_root / "generated-demo" / "profile.yaml").exists())
+            self.assertFalse(
+                (profiles_root / "generated-demo" / "profile.yaml").exists()
+            )
 
     def test_rejects_a_profiles_root_that_is_a_file(self):
         """CDS_PROFILE_PATH (passed in here as profiles_root) may be set to
@@ -212,12 +227,18 @@ class SaveGeneratedProfileTest(unittest.TestCase):
             def racing_atomic_write(path, content, encoding="utf-8", overwrite=True):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("winner-of-the-race: true\n", encoding="utf-8")
-                return real_atomic_write(path, content, encoding=encoding, overwrite=overwrite)
+                return real_atomic_write(
+                    path, content, encoding=encoding, overwrite=overwrite
+                )
 
-            with unittest.mock.patch("cli.loader._atomic_write", side_effect=racing_atomic_write):
+            with unittest.mock.patch(
+                "cli.loader._atomic_write", side_effect=racing_atomic_write
+            ):
                 path, diagnostics = save_generated_profile(profile, profiles_root)
 
             self.assertIsNone(path)
             self.assertEqual(len(diagnostics), 1)
             self.assertEqual(diagnostics[0].code, "E116")
-            self.assertEqual(target.read_text(encoding="utf-8"), "winner-of-the-race: true\n")
+            self.assertEqual(
+                target.read_text(encoding="utf-8"), "winner-of-the-race: true\n"
+            )

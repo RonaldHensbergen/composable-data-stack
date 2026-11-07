@@ -18,10 +18,7 @@ class K3dE2eProfileTest(unittest.TestCase):
 
     def test_nodeports_are_removed_from_isolated_profile(self) -> None:
         original_path = (
-            self.repo_root
-            / "profiles"
-            / "local-kubernetes-example"
-            / "profile.yaml"
+            self.repo_root / "profiles" / "local-kubernetes-example" / "profile.yaml"
         )
         original = original_path.read_text(encoding="utf-8")
 
@@ -50,7 +47,9 @@ class K3dE2eProfileTest(unittest.TestCase):
         from cli.k8s_renderer import render_helm
         from cli.planner import build_plan
 
-        source = self.repo_root / "profiles" / "local-kubernetes-example" / "profile.yaml"
+        source = (
+            self.repo_root / "profiles" / "local-kubernetes-example" / "profile.yaml"
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
             env_file.write_text(
@@ -79,7 +78,8 @@ class K3dE2eProfileTest(unittest.TestCase):
                 self.helper.write_clusterip_profile(source, target)
                 plan, plan_diags = build_plan(str(target), env_file=str(env_file))
                 self.assertEqual(
-                    [d for d in plan_diags if d.level == "error"], [],
+                    [d for d in plan_diags if d.level == "error"],
+                    [],
                     msg=str(plan_diags),
                 )
                 files, render_diags = render_helm(plan, env_file=str(env_file))
@@ -91,7 +91,8 @@ class K3dE2eProfileTest(unittest.TestCase):
         services = [
             yaml.safe_load(content)
             for path, content in files.items()
-            if path.startswith("templates/") and "service" in path
+            if path.startswith("templates/")
+            and "service" in path
             and yaml.safe_load(content).get("kind") == "Service"
         ]
         self.assertGreater(len(services), 0)
@@ -107,9 +108,9 @@ class K3dE2eProfileTest(unittest.TestCase):
 
         self.assertIn('clusterip_profile.py" "$PROFILE" "$E2E_PROFILE"', script)
         self.assertIn('install.sh" "$E2E_PROFILE"', script)
-        self.assertIn('profiles/local-kubernetes-example/profile.yaml', script)
-        self.assertIn('istio/base', script)
-        self.assertIn('istio/istiod', script)
+        self.assertIn("profiles/local-kubernetes-example/profile.yaml", script)
+        self.assertIn("istio/base", script)
+        self.assertIn("istio/istiod", script)
         self.assertIn('ISTIO_VERSION="${ISTIO_VERSION:-1.30.8}"', script)
         self.assertIn('peerauthentication "${CDS_RELEASE}-mesh-mtls"', script)
 

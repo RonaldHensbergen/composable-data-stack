@@ -73,9 +73,11 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         # string match, so this survives the gate's `if:` growing a `${{ }}`
         # wrapper (as the issue-filing step's `if:` already has).
         gate_step = self._find_step(
-            lambda s: "steps.scan.outcome" in str(s.get("if", ""))
-            and "failure" in str(s.get("if", ""))
-            and "exit 1" in str(s.get("run", "")),
+            lambda s: (
+                "steps.scan.outcome" in str(s.get("if", ""))
+                and "failure" in str(s.get("if", ""))
+                and "exit 1" in str(s.get("run", ""))
+            ),
             "the scan-outcome gate step",
         )
         self.assertIn("exit 1", gate_step["run"])
@@ -87,9 +89,11 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         steps = self._scan_steps()
         gate_index = steps.index(
             self._find_step(
-                lambda s: "steps.scan.outcome" in str(s.get("if", ""))
-                and "failure" in str(s.get("if", ""))
-                and "exit 1" in str(s.get("run", "")),
+                lambda s: (
+                    "steps.scan.outcome" in str(s.get("if", ""))
+                    and "failure" in str(s.get("if", ""))
+                    and "exit 1" in str(s.get("run", ""))
+                ),
                 "the scan-outcome gate step",
             )
         )

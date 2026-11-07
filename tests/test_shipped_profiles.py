@@ -5,6 +5,7 @@ exercises the stable profile (mvp-proof.yml / CDS Test (Stable Profile)).
 These tests run the real validator against every shipped profile and
 every environment overlay so that class of breakage fails the suite.
 """
+
 import unittest
 from pathlib import Path
 
@@ -19,7 +20,9 @@ class ShippedProfileValidationTest(unittest.TestCase):
         self.assertGreaterEqual(len(profiles), 5)
         for profile in profiles:
             with self.subTest(profile=profile.parent.name):
-                errors = [d for d in validate_profile(str(profile)) if d.level == "error"]
+                errors = [
+                    d for d in validate_profile(str(profile)) if d.level == "error"
+                ]
                 self.assertEqual(errors, [])
 
     def test_all_shipped_environment_overlays_validate(self):
@@ -28,9 +31,14 @@ class ShippedProfileValidationTest(unittest.TestCase):
         for overlay in overlays:
             environment = overlay.stem
             profile_file = overlay.parent.parent / "profile.yaml"
-            with self.subTest(profile=profile_file.parent.name, environment=environment):
+            with self.subTest(
+                profile=profile_file.parent.name, environment=environment
+            ):
                 errors = [
-                    d for d in validate_profile(str(profile_file), environment=environment)
+                    d
+                    for d in validate_profile(
+                        str(profile_file), environment=environment
+                    )
                     if d.level == "error"
                 ]
                 self.assertEqual(errors, [])

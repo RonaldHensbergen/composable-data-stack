@@ -33,7 +33,9 @@ class MVPProofWorkflowTest(unittest.TestCase):
 
         self.assertIn("cds validate local-dagster-postgres-superset", commands)
         self.assertIn("cds plan local-dagster-postgres-superset", commands)
-        self.assertEqual(commands.count("cds render local-dagster-postgres-superset"), 2)
+        self.assertEqual(
+            commands.count("cds render local-dagster-postgres-superset"), 2
+        )
         self.assertIn("cmp /tmp/mvp-compile-proof/render-1.yml", commands)
         self.assertIn("config --quiet", commands)
 

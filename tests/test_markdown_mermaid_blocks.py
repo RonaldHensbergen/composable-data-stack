@@ -27,11 +27,7 @@ def _tracked_markdown_files():
         text=True,
         check=True,
     )
-    return [
-        _REPO_ROOT / line
-        for line in result.stdout.splitlines()
-        if line.strip()
-    ]
+    return [_REPO_ROOT / line for line in result.stdout.splitlines() if line.strip()]
 
 
 class MermaidCodeBlockTest(unittest.TestCase):

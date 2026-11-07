@@ -13,12 +13,15 @@ Uses the vendored `llm` completion seam (scripts/_vendor/llm), so no cloud
 account is required by default -- the local GitHub Copilot CLI (`copilot`)
 is used unless LLM_PROVIDER is set to `azure_openai` or `ollama` (the latter
 works with any local OpenAI-compatible server: Ollama, LM Studio, vLLM, ...).
+`azure_openai` is a remote backend and additionally requires the explicit
+opt-in `LLM_ALLOW_REMOTE_PROMPTS=1` before any prompt content is sent to it.
 
 Usage:
     python scripts/ai_profile_review.py <profile> [--environment NAME] [--json] [--dry-run]
 
 Exit codes: 0 clean (or --dry-run), 1 findings reported or validation failed.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -87,7 +90,7 @@ STATUS: clean
 STATUS: findings
 """
 
-_STATUS_RE = re.compile(r"^STATUS:\s*(clean|findings)\s*$", re.IGNORECASE | re.MULTILINE)
+_STATUS_RE = re.compile(r"^STATUS:\s*(clean|findings)\s*$", re.IGNORECASE)
 
 
 def build_user_prompt(profile_path: Path, profile_text: str, plan: dict) -> str:
@@ -100,9 +103,21 @@ def build_user_prompt(profile_path: Path, profile_text: str, plan: dict) -> str:
 
 
 def parse_status(report: str) -> str | None:
-    """Extract the STATUS line's value ('clean' or 'findings'), or None if missing."""
-    match = _STATUS_RE.search(report)
-    return match.group(1).lower() if match else None
+    """Extract the authoritative status from a model report.
+
+    Strict and structural: the report must contain exactly one STATUS line
+    and it must be the last non-empty line, so an injected or echoed
+    `STATUS: ...` line earlier in the output (e.g. quoted from untrusted
+    profile content) can never be mistaken for the final verdict. Returns
+    'clean' or 'findings', or None when the shape is wrong.
+    """
+    non_empty = [line.strip() for line in report.splitlines() if line.strip()]
+    if not non_empty:
+        return None
+    status_lines = [line for line in non_empty if _STATUS_RE.match(line)]
+    if len(status_lines) != 1 or non_empty[-1] != status_lines[0]:
+        return None
+    return _STATUS_RE.match(status_lines[0]).group(1).lower()
 
 
 def _declared_secret_env_names(profile_text: str) -> set[str]:
@@ -114,7 +129,9 @@ def _declared_secret_env_names(profile_text: str) -> set[str]:
     return {
         secret_def["env"]
         for secret_def in values.values()
-        if isinstance(secret_def, dict) and isinstance(secret_def.get("env"), str) and secret_def["env"]
+        if isinstance(secret_def, dict)
+        and isinstance(secret_def.get("env"), str)
+        and secret_def["env"]
     }
 
 
@@ -181,14 +198,25 @@ def review_profile(profile: str, *, environment: str | None, dry_run: bool) -> d
     preflight_provider()
     report = complete(user_prompt, system=SYSTEM_PROMPT, temperature=0.1)
     status = parse_status(report) or "unparsed"
-    return {"profile_path": str(profile_path), "status": status, "report": report, "error": None}
+    return {
+        "profile_path": str(profile_path),
+        "status": status,
+        "report": report,
+        "error": None,
+    }
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("profile", help="Profile name or path (same resolution as `cds validate`)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "profile", help="Profile name or path (same resolution as `cds validate`)"
+    )
     parser.add_argument("--environment", help="Environment overlay name, e.g. dev/prod")
-    parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON instead of text")
+    parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON instead of text"
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -196,7 +224,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    result = review_profile(args.profile, environment=args.environment, dry_run=args.dry_run)
+    result = review_profile(
+        args.profile, environment=args.environment, dry_run=args.dry_run
+    )
 
     if args.json:
         print(json.dumps(result, indent=2))

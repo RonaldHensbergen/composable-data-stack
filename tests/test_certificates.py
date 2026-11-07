@@ -4,6 +4,7 @@ Certificate/key aliases map to externally managed material only: CDS plans
 and renders environment variable NAMES (${CDS_*} runtime placeholders) and
 never generates, reads, or embeds certificate or private key material.
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -38,12 +39,14 @@ def _profile(certificates=None, tls_config=None):
 
 
 def _instances(config):
-    return [{
-        "index": 0,
-        "id": "proxy",
-        "config": config,
-        "module": {"spec": {}},
-    }]
+    return [
+        {
+            "index": 0,
+            "id": "proxy",
+            "config": config,
+            "module": {"spec": {}},
+        }
+    ]
 
 
 def _cert_values():
@@ -62,14 +65,18 @@ class CertificateSchemaTest(unittest.TestCase):
     def test_missing_key_env_is_rejected(self):
         bad = _cert_values()
         del bad["values"]["tls"]["keyEnv"]
-        errors = [d for d in validate_profile_shape(_profile(bad)) if d.level == "error"]
+        errors = [
+            d for d in validate_profile_shape(_profile(bad)) if d.level == "error"
+        ]
         self.assertTrue(errors)
         self.assertIn("keyEnv", errors[0].message)
 
     def test_lowercase_env_name_is_rejected(self):
         bad = _cert_values()
         bad["values"]["tls"]["certEnv"] = "cds_tls_cert"
-        errors = [d for d in validate_profile_shape(_profile(bad)) if d.level == "error"]
+        errors = [
+            d for d in validate_profile_shape(_profile(bad)) if d.level == "error"
+        ]
         self.assertTrue(errors)
 
 
@@ -120,16 +127,29 @@ class CertificatePlanningTest(unittest.TestCase):
                 {
                     "apiVersion": "cds/v1alpha1",
                     "kind": "Module",
-                    "metadata": {"name": "proxy", "category": "integration", "version": "0.1.0"},
+                    "metadata": {
+                        "name": "proxy",
+                        "category": "integration",
+                        "version": "0.1.0",
+                    },
                     "spec": {
                         "runtime": {
                             "type": "container",
                             "service": {
                                 "name": "proxy",
-                                "ports": [{"name": "web", "containerPort": 443, "protocol": "TCP"}],
+                                "ports": [
+                                    {
+                                        "name": "web",
+                                        "containerPort": 443,
+                                        "protocol": "TCP",
+                                    }
+                                ],
                             },
                         },
-                        "configSchema": {"type": "object", "additionalProperties": True},
+                        "configSchema": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
                         "implementation": {
                             "kind": "docker-compose",
                             "compose": {
@@ -156,10 +176,13 @@ class CertificatePlanningTest(unittest.TestCase):
         return profile
 
     def test_plan_carries_env_names_only(self):
-        profile = self._profile(_cert_values(), {
-            "certRef": "certificates.tls.cert",
-            "keyRef": "certificates.tls.key",
-        })
+        profile = self._profile(
+            _cert_values(),
+            {
+                "certRef": "certificates.tls.cert",
+                "keyRef": "certificates.tls.key",
+            },
+        )
         plan, diagnostics = planner.build_plan_from_profile(profile, self.profile_dir)
 
         self.assertFalse([d for d in diagnostics if d.level == "error"], diagnostics)
@@ -179,10 +202,13 @@ class CertificatePlanningTest(unittest.TestCase):
         self.assertEqual([d.code for d in errors], ["E129"])
 
     def test_render_emits_runtime_placeholders_never_material(self):
-        profile = self._profile(_cert_values(), {
-            "certRef": "certificates.tls.cert",
-            "keyRef": "certificates.tls.key",
-        })
+        profile = self._profile(
+            _cert_values(),
+            {
+                "certRef": "certificates.tls.cert",
+                "keyRef": "certificates.tls.key",
+            },
+        )
         plan, _ = planner.build_plan_from_profile(profile, self.profile_dir)
         compose_yaml, diagnostics = render_compose(plan)
 
@@ -198,9 +224,15 @@ class CertificatePlanningTest(unittest.TestCase):
 
 class CertificateSubstitutionUnitTest(unittest.TestCase):
     def test_direct_expression_resolves_cert_and_key(self):
-        context = _build_context({"id": "m"}, {}, {"tls": {"cert": "CDS_TLS_CERT", "key": "CDS_TLS_KEY"}})
-        self.assertEqual(_resolve_expr("certificates.tls.cert", context), "${CDS_TLS_CERT}")
-        self.assertEqual(_resolve_expr("certificates.tls.key", context), "${CDS_TLS_KEY}")
+        context = _build_context(
+            {"id": "m"}, {}, {"tls": {"cert": "CDS_TLS_CERT", "key": "CDS_TLS_KEY"}}
+        )
+        self.assertEqual(
+            _resolve_expr("certificates.tls.cert", context), "${CDS_TLS_CERT}"
+        )
+        self.assertEqual(
+            _resolve_expr("certificates.tls.key", context), "${CDS_TLS_KEY}"
+        )
 
     def test_walked_config_value_resolves(self):
         context = _build_context(
@@ -215,7 +247,9 @@ class CertificateSubstitutionUnitTest(unittest.TestCase):
         self.assertIsNone(_resolve_expr("certificates.ghost.cert", context))
 
     def test_malformed_ref_stays_unresolved(self):
-        context = _build_context({"id": "m"}, {}, {"tls": {"cert": "CDS_TLS_CERT", "key": "CDS_TLS_KEY"}})
+        context = _build_context(
+            {"id": "m"}, {}, {"tls": {"cert": "CDS_TLS_CERT", "key": "CDS_TLS_KEY"}}
+        )
         self.assertIsNone(_resolve_expr("certificates.tls", context))
         self.assertIsNone(_resolve_expr("certificates.tls.chain", context))
 

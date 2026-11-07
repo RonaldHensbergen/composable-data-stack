@@ -41,7 +41,9 @@ class BuildManifestTest(unittest.TestCase):
         manifest = self._manifest()
         evidence = manifest["evidence"]
         self.assertEqual(evidence["scopeDecision"]["ref"], "docs/cra-scope-decision.md")
-        self.assertEqual(evidence["riskAssessment"]["ref"], "docs/cra-risk-assessment.md")
+        self.assertEqual(
+            evidence["riskAssessment"]["ref"], "docs/cra-risk-assessment.md"
+        )
         self.assertEqual(
             evidence["technicalDocumentation"]["ref"],
             "docs/cra-technical-documentation.md",
@@ -63,7 +65,9 @@ class BuildManifestTest(unittest.TestCase):
         ):
             with self.subTest(key=key):
                 self.assertTrue(
-                    evidence[key]["url"].endswith(f"/blob/abc123/{evidence[key]['ref']}")
+                    evidence[key]["url"].endswith(
+                        f"/blob/abc123/{evidence[key]['ref']}"
+                    )
                 )
 
     def test_classification_defaults_to_default_category(self) -> None:
@@ -73,12 +77,16 @@ class BuildManifestTest(unittest.TestCase):
 
     def test_declaration_of_conformity_not_applicable_by_default(self) -> None:
         manifest = self._manifest()
-        self.assertEqual(manifest["declarationOfConformity"]["status"], "not-applicable")
+        self.assertEqual(
+            manifest["declarationOfConformity"]["status"], "not-applicable"
+        )
         self.assertIsNone(manifest["declarationOfConformity"]["ref"])
 
     def test_product_identity_and_commit_recorded(self) -> None:
         manifest = self._manifest()
-        self.assertEqual(manifest["product"], {"name": "composable-data-stack", "version": "0.9.1"})
+        self.assertEqual(
+            manifest["product"], {"name": "composable-data-stack", "version": "0.9.1"}
+        )
         self.assertEqual(manifest["sourceCommit"], "abc123")
         self.assertEqual(manifest["sourceRef"], "v0.9.1")
 

@@ -13,7 +13,9 @@ from cli.security import PrecomputedRender, run_security_validation
 from cli.validator import validate_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MODULE_PATH = REPO_ROOT / "modules-experimental" / "backup" / "object-storage" / "module.yaml"
+MODULE_PATH = (
+    REPO_ROOT / "modules-experimental" / "backup" / "object-storage" / "module.yaml"
+)
 _RULE_SCHEMA_PATH = REPO_ROOT / "cli" / "resources" / "rule-schema.json"
 _RULE_SET_PATH = REPO_ROOT / "cli" / "resources" / "rule-set.json"
 
@@ -104,21 +106,27 @@ def _profile() -> dict:
 class ObjectStorageBackupModuleTest(unittest.TestCase):
     def setUp(self) -> None:
         self.module = yaml.safe_load(MODULE_PATH.read_text(encoding="utf-8"))
-        self.service = self.module["spec"]["implementation"]["compose"]["services"]["rclone"]
+        self.service = self.module["spec"]["implementation"]["compose"]["services"][
+            "rclone"
+        ]
 
     def test_module_config_is_valid_json_schema(self) -> None:
         Draft202012Validator.check_schema(self.module["spec"]["configSchema"])
 
     def test_snapshot_copy_is_timestamped_immutable_and_non_deleting(self) -> None:
         command = "\n".join(self.service["command"])
-        self.assertIn("Source and destination must not be the same endpoint and bucket", command)
-        self.assertIn('date -u +%Y%m%dT%H%M%SZ', command)
+        self.assertIn(
+            "Source and destination must not be the same endpoint and bucket", command
+        )
+        self.assertIn("date -u +%Y%m%dT%H%M%SZ", command)
         self.assertIn("rclone --config /dev/null copy", command)
         self.assertIn("--immutable", command)
         self.assertNotIn("rclone sync", command)
         self.assertEqual(self.service["restart"], "unless-stopped")
 
-    def test_snapshot_pass_writes_completion_marker_and_retries_after_delay(self) -> None:
+    def test_snapshot_pass_writes_completion_marker_and_retries_after_delay(
+        self,
+    ) -> None:
         command = "\n".join(self.service["command"])
         # A failed pass must not exit the service: it retries with a fresh
         # timestamp after the configured delay, leaving its partial prefix
@@ -129,7 +137,9 @@ class ObjectStorageBackupModuleTest(unittest.TestCase):
         self.assertIn('sleep "$${SNAPSHOT_RETRY_SECONDS}"', command)
         self.assertIn('sleep "$$(($${SNAPSHOT_INTERVAL_HOURS} * 3600))"', command)
         self.assertNotIn('}h"', command)
-        retry_schema = self.module["spec"]["configSchema"]["properties"]["retryDelaySeconds"]
+        retry_schema = self.module["spec"]["configSchema"]["properties"][
+            "retryDelaySeconds"
+        ]
         self.assertEqual(retry_schema["default"], 300)
 
     def test_image_is_digest_pinned_and_service_is_hardened(self) -> None:
@@ -143,7 +153,9 @@ class ObjectStorageBackupModuleTest(unittest.TestCase):
         self.assertIn("no-new-privileges:true", self.service["security_opt"])
         self.assertFalse(self.module["metadata"]["productionSuitable"])
 
-    def test_profile_validation_and_render_keep_both_credentials_as_placeholders(self) -> None:
+    def test_profile_validation_and_render_keep_both_credentials_as_placeholders(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory(dir=REPO_ROOT / "tests") as tmp:
             profile_path = Path(tmp) / "profile.yaml"
             profile_path.write_text(yaml.safe_dump(_profile()), encoding="utf-8")
@@ -194,7 +206,9 @@ class ObjectStorageBackupModuleTest(unittest.TestCase):
         # expression the container shell evaluates at runtime. The dumped
         # compose wraps long lines, so check the parsed command string.
         rendered_command = "\n".join(service["command"])
-        self.assertIn('sleep "$$(($${SNAPSHOT_INTERVAL_HOURS} * 3600))"', rendered_command)
+        self.assertIn(
+            'sleep "$$(($${SNAPSHOT_INTERVAL_HOURS} * 3600))"', rendered_command
+        )
         self.assertIn("$${snapshot_dest}/.cds-snapshot-complete", rendered_command)
         self.assertEqual(service["environment"]["SNAPSHOT_RETRY_SECONDS"], 300)
         self.assertNotIn("destination-secret", compose_text)
@@ -240,13 +254,11 @@ class ObjectStorageBackupModuleTest(unittest.TestCase):
                     profile["spec"]["modules"][1]["config"]["destination"][
                         "endpoint"
                     ] = endpoint
-                    profile["spec"]["modules"][1]["config"]["destination"][
-                        "bucket"
-                    ] = "cds-data"
-                    profile_path = Path(tmp) / "profile.yaml"
-                    profile_path.write_text(
-                        yaml.safe_dump(profile), encoding="utf-8"
+                    profile["spec"]["modules"][1]["config"]["destination"]["bucket"] = (
+                        "cds-data"
                     )
+                    profile_path = Path(tmp) / "profile.yaml"
+                    profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
                     with patch.dict(os.environ, _ENV):
                         plan, plan_diagnostics = build_plan(str(profile_path))
                     self.assertTrue(
@@ -264,9 +276,9 @@ class ObjectStorageBackupModuleTest(unittest.TestCase):
         # different host stays documentation.
         with tempfile.TemporaryDirectory(dir=REPO_ROOT / "tests") as tmp:
             profile = _profile()
-            profile["spec"]["modules"][1]["config"]["destination"][
-                "endpoint"
-            ] = "http://garage:3900"
+            profile["spec"]["modules"][1]["config"]["destination"]["endpoint"] = (
+                "http://garage:3900"
+            )
             profile_path = Path(tmp) / "profile.yaml"
             profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
             with patch.dict(os.environ, _ENV):
@@ -277,7 +289,9 @@ class ObjectStorageBackupModuleTest(unittest.TestCase):
                 [],
             )
 
-    def test_production_security_pass_raises_no_finding_against_the_module(self) -> None:
+    def test_production_security_pass_raises_no_finding_against_the_module(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory(dir=REPO_ROOT / "tests") as tmp:
             profile_path = Path(tmp) / "profile.yaml"
             profile_path.write_text(yaml.safe_dump(_profile()), encoding="utf-8")

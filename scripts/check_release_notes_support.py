@@ -7,6 +7,7 @@ published without the machine-generated support notice described in
 communication"). This guards against future template or workflow changes
 silently dropping the notice.
 """
+
 from __future__ import annotations
 
 import sys
@@ -34,7 +35,10 @@ def check(notes_path: Path) -> str | None:
 def main() -> int:
     args = sys.argv[1:]
     if len(args) != 1:
-        print("Usage: check_release_notes_support.py <release-notes-path>", file=sys.stderr)
+        print(
+            "Usage: check_release_notes_support.py <release-notes-path>",
+            file=sys.stderr,
+        )
         return 2
 
     error = check(Path(args[0]))

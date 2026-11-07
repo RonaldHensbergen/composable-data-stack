@@ -34,7 +34,9 @@ _VERSION_TAG_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$")
 _BARE_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+].*)?$")
 
 
-def _warn_if_ref_newer_than_cli(owner: str, repo: str, ref: str, cli_version: str | None) -> None:
+def _warn_if_ref_newer_than_cli(
+    owner: str, repo: str, ref: str, cli_version: str | None
+) -> None:
     """Warn when `ref` is a release tag newer than the installed CLI.
 
     Assets fetched at a newer tag may use module.schema.json features the
@@ -73,6 +75,7 @@ def cli_version_ref(cli_version: str | None) -> str | None:
     if not _RELEASE_VERSION_PATTERN.match(version):
         return None
     return f"v{version}"
+
 
 _GITHUB_URL_PATTERN = re.compile(
     r"^(?:https?://|git@)?(?:www\.)?github\.com[/:](?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$"
@@ -114,7 +117,9 @@ def parse_allowed_sources(raw: str | None) -> list[str]:
     return [entry.strip().lower() for entry in raw.split(",") if entry.strip()]
 
 
-def _check_source_allowed(owner: str, repo: str, allowed_sources: Sequence[str] | None) -> None:
+def _check_source_allowed(
+    owner: str, repo: str, allowed_sources: Sequence[str] | None
+) -> None:
     """Fail closed when an allowlist is configured and the source is not on it.
 
     `None`/empty means no allowlist (unrestricted). An entry is either an
@@ -175,7 +180,12 @@ def fetch_profile(
     target_root = (destination_root or Path.cwd()).expanduser().resolve()
 
     with _prepare_source(
-        remote, ref, local, allowed_sources=allowed_sources, commit=commit, cli_version=cli_version
+        remote,
+        ref,
+        local,
+        allowed_sources=allowed_sources,
+        commit=commit,
+        cli_version=cli_version,
     ) as (source_repo, resolved_commit, resolved_ref):
         profile_path = _resolve_source_profile_path(source_repo, profile)
         asset_roots = _collect_asset_roots(source_repo, profile_path)
@@ -229,14 +239,20 @@ def update_tracked_assets(
     target_root = (destination_root or Path.cwd()).expanduser().resolve()
     manifest_path = target_root / _TRACKING_FILE
     if manifest_path.parent.is_symlink() or manifest_path.is_symlink():
-        raise GetError(f"Refusing to update through symlinked tracking metadata: {manifest_path}")
+        raise GetError(
+            f"Refusing to update through symlinked tracking metadata: {manifest_path}"
+        )
     if not manifest_path.is_file():
-        raise GetError(f"No fetched-asset tracking manifest found at {manifest_path}; run `cds get` first.")
+        raise GetError(
+            f"No fetched-asset tracking manifest found at {manifest_path}; run `cds get` first."
+        )
 
     manifest = _read_tracking_manifest(manifest_path)
     profiles = manifest.get("profiles")
     if not isinstance(profiles, dict) or not profiles:
-        raise GetError(f"No tracked profiles found in {manifest_path}; run `cds get` first.")
+        raise GetError(
+            f"No tracked profiles found in {manifest_path}; run `cds get` first."
+        )
 
     selected_categories = set(categories) if categories else None
     supported_categories = {"profiles", "modules", "contracts"}
@@ -378,20 +394,30 @@ def _update_tracked_profile(
             try:
                 source_hash = _sha256_file(action.source)
             except OSError as exc:
-                raise GetError(f"Could not read source asset {action.source}: {exc}") from exc
+                raise GetError(
+                    f"Could not read source asset {action.source}: {exc}"
+                ) from exc
             destination = action.destination
             if _has_symlinked_parent(destination, destination_root):
-                result.conflicts.append(f"{profile_name}: {rel_path} (symlinked parent directory)")
+                result.conflicts.append(
+                    f"{profile_name}: {rel_path} (symlinked parent directory)"
+                )
                 continue
             if destination.is_symlink():
-                result.conflicts.append(f"{profile_name}: {rel_path} (destination is a symlink)")
+                result.conflicts.append(
+                    f"{profile_name}: {rel_path} (destination is a symlink)"
+                )
                 continue
             if destination.is_dir():
-                result.conflicts.append(f"{profile_name}: {rel_path} (destination is a directory)")
+                result.conflicts.append(
+                    f"{profile_name}: {rel_path} (destination is a directory)"
+                )
                 continue
             if not destination.exists():
                 if rel_path in hashes:
-                    result.conflicts.append(f"{profile_name}: {rel_path} (tracked file was deleted locally)")
+                    result.conflicts.append(
+                        f"{profile_name}: {rel_path} (tracked file was deleted locally)"
+                    )
                 else:
                     updates.append(action)
                     latest_hashes[rel_path] = source_hash
@@ -400,15 +426,23 @@ def _update_tracked_profile(
             try:
                 local_hash = _sha256_file(destination)
             except OSError as exc:
-                raise GetError(f"Could not read local asset {destination}: {exc}") from exc
+                raise GetError(
+                    f"Could not read local asset {destination}: {exc}"
+                ) from exc
             if local_hash == source_hash:
                 result.skipped.append(f"{profile_name}: {rel_path} (already current)")
                 latest_hashes[rel_path] = source_hash
-            elif rel_path in hashes and isinstance(hashes[rel_path], str) and local_hash == hashes[rel_path]:
+            elif (
+                rel_path in hashes
+                and isinstance(hashes[rel_path], str)
+                and local_hash == hashes[rel_path]
+            ):
                 updates.append(action)
                 latest_hashes[rel_path] = source_hash
             else:
-                result.conflicts.append(f"{profile_name}: {rel_path} (modified locally)")
+                result.conflicts.append(
+                    f"{profile_name}: {rel_path} (modified locally)"
+                )
 
         _report_removed_source_files(
             profile_name=profile_name,
@@ -433,9 +467,12 @@ def _update_tracked_profile(
         tracked_files = entry.get("files")
         if not isinstance(tracked_files, list):
             tracked_files = []
-        entry["files"] = sorted(set(
-            [path for path in tracked_files if isinstance(path, str)] + list(latest_hashes)
-        ))
+        entry["files"] = sorted(
+            set(
+                [path for path in tracked_files if isinstance(path, str)]
+                + list(latest_hashes)
+            )
+        )
         entry["fileHashes"] = hashes
         entry["sourceProfile"] = profile_path.relative_to(source_repo).as_posix()
         entry["assetRoots"] = [
@@ -466,9 +503,7 @@ def _select_update_roots(
     return sorted(selected)
 
 
-def _selected_asset_source_paths(
-    assets: Any, categories: set[str] | None
-) -> set[str]:
+def _selected_asset_source_paths(assets: Any, categories: set[str] | None) -> set[str]:
     if not isinstance(assets, list):
         return set()
     selected: set[str] = set()
@@ -485,7 +520,10 @@ def _selected_asset_source_paths(
             or (
                 asset_type == "contract"
                 and "contracts" in categories
-                and (source_path == "shared/contracts" or source_path.startswith("shared/contracts/"))
+                and (
+                    source_path == "shared/contracts"
+                    or source_path.startswith("shared/contracts/")
+                )
             )
         )
         if not include:
@@ -533,14 +571,21 @@ def _report_removed_source_files(
             continue
         destination = destination_root / Path(*relative.parts)
         label = f"{profile_name}: {rel_path}"
-        if _has_symlinked_parent(destination, destination_root) or destination.is_symlink():
-            result.conflicts.append(f"{label} (removed upstream; symlinked destination)")
+        if (
+            _has_symlinked_parent(destination, destination_root)
+            or destination.is_symlink()
+        ):
+            result.conflicts.append(
+                f"{label} (removed upstream; symlinked destination)"
+            )
             continue
         if not destination.exists() and not destination.is_symlink():
             result.skipped.append(f"{label} (already absent locally)")
             continue
         if destination.is_dir():
-            result.conflicts.append(f"{label} (removed upstream; destination is a directory)")
+            result.conflicts.append(
+                f"{label} (removed upstream; destination is a directory)"
+            )
             continue
         try:
             local_hash = _sha256_file(destination)
@@ -620,7 +665,12 @@ def _prepare_source_repository(
     yields only the repository path.
     """
     with _prepare_source(
-        remote, ref, local, allowed_sources=allowed_sources, commit=commit, cli_version=cli_version
+        remote,
+        ref,
+        local,
+        allowed_sources=allowed_sources,
+        commit=commit,
+        cli_version=cli_version,
     ) as (source_repo, _resolved_commit, _resolved_ref):
         yield source_repo
 
@@ -662,9 +712,13 @@ def _prepare_source(
         if remote is not None:
             raise GetError("Specify only one of --remote and --local")
         if ref is not None and ref != DEFAULT_REF:
-            raise GetError(f"--ref {ref!r} is ignored with --local: specify only one of --local and --ref")
+            raise GetError(
+                f"--ref {ref!r} is ignored with --local: specify only one of --local and --ref"
+            )
         if pin is not None:
-            raise GetError("--commit applies only to GitHub sources: specify only one of --local and --commit")
+            raise GetError(
+                "--commit applies only to GitHub sources: specify only one of --local and --commit"
+            )
         yield _validate_source_repository(Path(local).expanduser()), None, None
         return
 
@@ -673,7 +727,7 @@ def _prepare_source(
     if parsed is None:
         raise GetError(
             f'Could not resolve remote "{candidate}": expected an "owner/repo" '
-            'GitHub reference or a github.com URL. Use --local for an existing '
+            "GitHub reference or a github.com URL. Use --local for an existing "
             "local directory instead."
         )
     owner, repo = parsed
@@ -724,7 +778,9 @@ def _prepare_source(
                     f"refusing to fetch because --commit {pin} could not be verified"
                 )
             if len(resolved_commit) < len(pin):
-                resolved_commit = _expand_abbreviated_commit(owner, repo, ref, resolved_commit)
+                resolved_commit = _expand_abbreviated_commit(
+                    owner, repo, ref, resolved_commit
+                )
             if not resolved_commit.startswith(pin):
                 raise GetError(
                     f"{owner}/{repo}@{ref} resolved to commit {resolved_commit}, "
@@ -744,7 +800,9 @@ def _parse_github_remote(remote: str) -> tuple[str, str] | None:
     return None
 
 
-def _expand_abbreviated_commit(owner: str, repo: str, ref: str, abbreviated: str) -> str:
+def _expand_abbreviated_commit(
+    owner: str, repo: str, ref: str, abbreviated: str
+) -> str:
     """Resolve `ref` to its full SHA via the GitHub API, checked against the archive.
 
     Used only when an archive lacks the full-SHA pax header, so a pin longer
@@ -897,13 +955,17 @@ def _collect_extends_profile_dirs(
     profile_dir = profile_path.parent.resolve()
     profiles_root = _derive_profiles_root(profile_dir)
     if profiles_root is None:
-        raise GetError(f'Could not derive a profiles root for extends in {profile_path}')
+        raise GetError(
+            f"Could not derive a profiles root for extends in {profile_path}"
+        )
 
     dirs: set[Path] = set()
     for ref in extends:
         parent_path = _resolve_extends_ref(ref, profile_dir, profiles_root)
         if not parent_path.is_file():
-            raise GetError(f'Could not resolve extends parent "{ref}" for {profile_path}')
+            raise GetError(
+                f'Could not resolve extends parent "{ref}" for {profile_path}'
+            )
         _require_within_repo(parent_path, source_repo, f'extends parent "{ref}"')
         dirs.add(parent_path.parent)
         dirs.update(_collect_extends_profile_dirs(source_repo, parent_path, _visited))
@@ -937,11 +999,15 @@ def _collect_asset_roots(source_repo: Path, profile_path: Path) -> list[Path]:
             raise GetError(f"Profile module at index {index} must be a mapping")
         source = module.get("source")
         if not isinstance(source, str) or not source:
-            raise GetError(f'Profile module "{module.get("id", index)}" is missing a source')
+            raise GetError(
+                f'Profile module "{module.get("id", index)}" is missing a source'
+            )
 
         module_dir = resolve_module_dir(source, profile_dir, module_root=None)
         if module_dir is None or not module_dir.exists():
-            raise GetError(f'Could not resolve module source "{source}" from {profile_dir}')
+            raise GetError(
+                f'Could not resolve module source "{source}" from {profile_dir}'
+            )
         _require_within_repo(module_dir, source_repo, f'module source "{source}"')
         asset_roots.add(module_dir.resolve())
         asset_roots.update(
@@ -967,11 +1033,7 @@ def _collect_module_runtime_assets(
     if module_diags or module_doc is None:
         raise GetError(f"Could not load module {module_dir / 'module.yaml'}")
 
-    compose = (
-        module_doc.get("spec", {})
-        .get("implementation", {})
-        .get("compose", {})
-    )
+    compose = module_doc.get("spec", {}).get("implementation", {}).get("compose", {})
     if not isinstance(compose, dict):
         return set()
 
@@ -1040,7 +1102,9 @@ def _collect_build_assets(
     ):
         return set()
     if isinstance(dockerfile_name, str):
-        dockerfile_name = _resolve_template_value(dockerfile_name, interpolation_context)
+        dockerfile_name = _resolve_template_value(
+            dockerfile_name, interpolation_context
+        )
     if (
         not isinstance(dockerfile_name, str)
         or not dockerfile_name
@@ -1048,7 +1112,9 @@ def _collect_build_assets(
     ):
         return set()
 
-    context_path = _resolve_existing_local_path(context_value, [module_dir, source_repo])
+    context_path = _resolve_existing_local_path(
+        context_value, [module_dir, source_repo]
+    )
     if context_path is None:
         return set()
     _require_within_repo(context_path, source_repo, f'build context "{context_value}"')
@@ -1058,7 +1124,9 @@ def _collect_build_assets(
         if Path(dockerfile_name).is_absolute()
         else (context_path / dockerfile_name).resolve()
     )
-    _require_within_repo(dockerfile_path, source_repo, f'build.dockerfile "{dockerfile_name}"')
+    _require_within_repo(
+        dockerfile_path, source_repo, f'build.dockerfile "{dockerfile_name}"'
+    )
     if not dockerfile_path.exists():
         return {context_path}
 
@@ -1109,7 +1177,9 @@ def _extract_dockerfile_instruction_sources(
     line: str,
 ) -> set[Path]:
     instruction, remainder = line.split(None, 1)
-    remainder, copy_from_stage = _strip_dockerfile_instruction_options(remainder.strip())
+    remainder, copy_from_stage = _strip_dockerfile_instruction_options(
+        remainder.strip()
+    )
     if copy_from_stage or not remainder:
         return set()
 
@@ -1148,7 +1218,12 @@ def _extract_dockerfile_instruction_sources(
         if Path(source).is_absolute() or source.startswith(("/", "\\")):
             continue
         matches = list(context_path.glob(source))
-        if not matches and "*" not in source and "?" not in source and "[" not in source:
+        if (
+            not matches
+            and "*" not in source
+            and "?" not in source
+            and "[" not in source
+        ):
             matches = [context_path / source]
         for match in matches:
             if match.exists():
@@ -1302,7 +1377,9 @@ def _build_copy_plan(
                     actions_by_destination=actions_by_destination,
                 )
 
-    return sorted(actions_by_destination.values(), key=lambda action: action.repo_relative_path)
+    return sorted(
+        actions_by_destination.values(), key=lambda action: action.repo_relative_path
+    )
 
 
 def _add_copy_action(
@@ -1409,8 +1486,7 @@ def _write_tracking_manifest(
     manifest = _read_tracking_manifest(manifest_path)
 
     relative_files = {
-        action.repo_relative_path: _sha256_file(action.source)
-        for action in actions
+        action.repo_relative_path: _sha256_file(action.source) for action in actions
     }
     entry = {
         "requestedProfile": requested_profile,
@@ -1421,7 +1497,8 @@ def _write_tracking_manifest(
         "pinnedCommit": pinned_commit,
         "fetchedAt": datetime.now(UTC).isoformat(),
         "assetRoots": [
-            _asset_root_relative_path(asset_root, source_repo) for asset_root in asset_roots
+            _asset_root_relative_path(asset_root, source_repo)
+            for asset_root in asset_roots
         ],
         "files": [action.repo_relative_path for action in actions],
         "fileHashes": relative_files,
@@ -1498,7 +1575,9 @@ def _build_tracking_assets(
 
         module_dir = resolve_module_dir(source, profile_path.parent, module_root=None)
         if module_dir is None or not module_dir.is_dir():
-            raise GetError(f'Could not resolve module source "{source}" from {profile_path.parent}')
+            raise GetError(
+                f'Could not resolve module source "{source}" from {profile_path.parent}'
+            )
         _require_within_repo(module_dir, source_repo, f'module source "{source}"')
         module_dir = module_dir.resolve()
         module_dirs[module_id] = module_dir
@@ -1538,7 +1617,9 @@ def _build_tracking_assets(
         assets.append(
             {
                 "type": "profile",
-                "id": requested_profile if profile_root == primary_profile_root else relative,
+                "id": requested_profile
+                if profile_root == primary_profile_root
+                else relative,
                 "sourcePath": relative,
                 "destinationPath": relative,
                 "dependencies": (
@@ -1609,7 +1690,8 @@ def _build_tracking_assets(
                 # paths nested inside it.
                 "type": (
                     "contract"
-                    if relative == "shared/contracts" or relative.startswith("shared/contracts/")
+                    if relative == "shared/contracts"
+                    or relative.startswith("shared/contracts/")
                     else "runtime"
                 ),
                 "id": relative,

@@ -67,7 +67,13 @@ class RendererRegressionTest(unittest.TestCase):
                             "services": {
                                 "app": {
                                     "image": "producer:latest",
-                                    "volumes": [{"type": "volume", "source": "io-data", "target": "/data"}],
+                                    "volumes": [
+                                        {
+                                            "type": "volume",
+                                            "source": "io-data",
+                                            "target": "/data",
+                                        }
+                                    ],
                                 }
                             },
                             "volumes": {"io-data": {}},
@@ -81,7 +87,10 @@ class RendererRegressionTest(unittest.TestCase):
                             "contractRef": "producer.backup-source",
                             "contract": {
                                 "kind": "backup-source",
-                                "spec": {"kind": "volume", "volumeName": "producer-io-data"},
+                                "spec": {
+                                    "kind": "volume",
+                                    "volumeName": "producer-io-data",
+                                },
                             },
                         }
                     },
@@ -220,7 +229,9 @@ class RendererRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             env_file = root / ".env"
-            env_file.write_text("CDS_REAL_DB_PASSWORD=my_actual_secret\n", encoding="utf-8")
+            env_file.write_text(
+                "CDS_REAL_DB_PASSWORD=my_actual_secret\n", encoding="utf-8"
+            )
 
             plan = {
                 "metadata": {"name": "cds-alias-test"},
@@ -260,11 +271,15 @@ class RendererRegressionTest(unittest.TestCase):
     def test_render_compose_rewrites_build_contexts_for_output_location(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
+            (root / "pyproject.toml").write_text(
+                "[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8"
+            )
             (root / "profiles" / "local").mkdir(parents=True)
             (root / "modules" / "orchestration" / "dagster").mkdir(parents=True)
             (root / "images" / "dagster").mkdir(parents=True)
-            (root / "images" / "dagster" / "Dockerfile").write_text("FROM python:3.11\n", encoding="utf-8")
+            (root / "images" / "dagster" / "Dockerfile").write_text(
+                "FROM python:3.11\n", encoding="utf-8"
+            )
 
             plan = {
                 "metadata": {"name": "cds-test"},
@@ -296,21 +311,32 @@ class RendererRegressionTest(unittest.TestCase):
                 ],
             }
 
-            output, diagnostics = render_compose(plan, output_path=str(root / "docker-compose.yml"))
+            output, diagnostics = render_compose(
+                plan, output_path=str(root / "docker-compose.yml")
+            )
 
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
             compose = yaml.safe_load(output)
-            self.assertEqual(compose["services"]["dagster-web"]["build"]["context"], "images/dagster")
-            self.assertEqual(compose["services"]["dagster-daemon"]["build"]["context"], "images/dagster")
+            self.assertEqual(
+                compose["services"]["dagster-web"]["build"]["context"], "images/dagster"
+            )
+            self.assertEqual(
+                compose["services"]["dagster-daemon"]["build"]["context"],
+                "images/dagster",
+            )
 
     def test_render_compose_rewrites_build_contexts_for_nested_output_path(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
+            (root / "pyproject.toml").write_text(
+                "[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8"
+            )
             (root / "profiles" / "local").mkdir(parents=True)
             (root / "modules" / "orchestration" / "dagster").mkdir(parents=True)
             (root / "images" / "dagster").mkdir(parents=True)
-            (root / "images" / "dagster" / "Dockerfile").write_text("FROM python:3.11\n", encoding="utf-8")
+            (root / "images" / "dagster" / "Dockerfile").write_text(
+                "FROM python:3.11\n", encoding="utf-8"
+            )
 
             nested_output = root / "build" / "output" / "docker-compose.yml"
 
@@ -348,19 +374,36 @@ class RendererRegressionTest(unittest.TestCase):
 
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
             compose = yaml.safe_load(output)
-            self.assertEqual(compose["services"]["dagster-web"]["build"]["context"], "../../images/dagster")
-            self.assertEqual(compose["services"]["dagster-daemon"]["build"]["context"], "../../images/dagster")
+            self.assertEqual(
+                compose["services"]["dagster-web"]["build"]["context"],
+                "../../images/dagster",
+            )
+            self.assertEqual(
+                compose["services"]["dagster-daemon"]["build"]["context"],
+                "../../images/dagster",
+            )
 
-    def test_render_compose_preserves_repo_relative_paths_for_external_output_path(self):
-        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as output_tmpdir:
+    def test_render_compose_preserves_repo_relative_paths_for_external_output_path(
+        self,
+    ):
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            tempfile.TemporaryDirectory() as output_tmpdir,
+        ):
             root = Path(tmpdir)
             external_output = Path(output_tmpdir) / "docker-compose.yml"
-            (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
+            (root / "pyproject.toml").write_text(
+                "[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8"
+            )
             (root / "profiles" / "local").mkdir(parents=True)
             (root / "modules" / "orchestration" / "dagster").mkdir(parents=True)
             (root / "images" / "dagster").mkdir(parents=True)
-            (root / "images" / "dagster" / "Dockerfile").write_text("FROM python:3.11\n", encoding="utf-8")
-            (root / "profiles" / "local" / "data.txt").write_text("data\n", encoding="utf-8")
+            (root / "images" / "dagster" / "Dockerfile").write_text(
+                "FROM python:3.11\n", encoding="utf-8"
+            )
+            (root / "profiles" / "local" / "data.txt").write_text(
+                "data\n", encoding="utf-8"
+            )
 
             plan = {
                 "metadata": {"name": "cds-test"},
@@ -397,8 +440,13 @@ class RendererRegressionTest(unittest.TestCase):
 
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
             compose = yaml.safe_load(output)
-            self.assertEqual(compose["services"]["dagster-web"]["build"]["context"], "images/dagster")
-            self.assertEqual(compose["services"]["dagster-web"]["volumes"][0]["source"], "profiles/local/data.txt")
+            self.assertEqual(
+                compose["services"]["dagster-web"]["build"]["context"], "images/dagster"
+            )
+            self.assertEqual(
+                compose["services"]["dagster-web"]["volumes"][0]["source"],
+                "profiles/local/data.txt",
+            )
 
     def test_render_compose_falls_back_to_absolute_context_on_cross_drive_relpath(self):
         """Regression test for a Windows-only bug: os.path.relpath raises
@@ -412,11 +460,15 @@ class RendererRegressionTest(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
+            (root / "pyproject.toml").write_text(
+                "[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8"
+            )
             (root / "profiles" / "local").mkdir(parents=True)
             (root / "modules" / "orchestration" / "dagster").mkdir(parents=True)
             (root / "images" / "dagster").mkdir(parents=True)
-            (root / "images" / "dagster" / "Dockerfile").write_text("FROM python:3.11\n", encoding="utf-8")
+            (root / "images" / "dagster" / "Dockerfile").write_text(
+                "FROM python:3.11\n", encoding="utf-8"
+            )
 
             nested_output = root / "build" / "output" / "docker-compose.yml"
 
@@ -451,8 +503,12 @@ class RendererRegressionTest(unittest.TestCase):
                     raise ValueError("path is on mount 'D:', start on mount 'C:'")
                 return real_relpath(path, start)
 
-            with mock.patch("os.path.relpath", side_effect=_relpath_simulating_cross_drive):
-                output, diagnostics = render_compose(plan, output_path=str(nested_output))
+            with mock.patch(
+                "os.path.relpath", side_effect=_relpath_simulating_cross_drive
+            ):
+                output, diagnostics = render_compose(
+                    plan, output_path=str(nested_output)
+                )
 
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
             compose = yaml.safe_load(output)
@@ -499,7 +555,9 @@ class RendererRegressionTest(unittest.TestCase):
             output_path = str(root / "out.yml")
             compose_yaml, diagnostics = render_compose(plan, output_path=output_path)
             compose = yaml.safe_load(compose_yaml)
-            rewritten_source = compose["services"]["evil-svc"]["volumes"][0].split(":")[0]
+            rewritten_source = compose["services"]["evil-svc"]["volumes"][0].split(":")[
+                0
+            ]
 
             resolved = (root / rewritten_source).resolve()
             self.assertFalse(str(resolved).startswith(str(outside_zone.resolve())))
@@ -511,7 +569,9 @@ class RendererRegressionTest(unittest.TestCase):
             outside_zone = root / "outside_zone"
             profile_dir.mkdir(parents=True)
             (outside_zone / "buildctx").mkdir(parents=True)
-            (outside_zone / "buildctx" / "Dockerfile").write_text("FROM scratch", encoding="utf-8")
+            (outside_zone / "buildctx" / "Dockerfile").write_text(
+                "FROM scratch", encoding="utf-8"
+            )
             profile_file = profile_dir / "profile.yaml"
             profile_file.write_text("placeholder", encoding="utf-8")
 
@@ -574,7 +634,9 @@ class RendererRegressionTest(unittest.TestCase):
                                 "services": {
                                     "postgres-db": {
                                         "image": "postgres",
-                                        "volumes": ["./init-db.sql:/docker-entrypoint-initdb.d/init.sql"],
+                                        "volumes": [
+                                            "./init-db.sql:/docker-entrypoint-initdb.d/init.sql"
+                                        ],
                                     }
                                 }
                             },
@@ -584,15 +646,23 @@ class RendererRegressionTest(unittest.TestCase):
             }
 
             output_path = str(root / "out.yml")
-            with mock.patch.dict("os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False):
-                compose_yaml, diagnostics = render_compose(plan, output_path=output_path)
+            with mock.patch.dict(
+                "os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False
+            ):
+                compose_yaml, diagnostics = render_compose(
+                    plan, output_path=output_path
+                )
 
             compose = yaml.safe_load(compose_yaml)
-            rewritten_source = compose["services"]["postgres-db"]["volumes"][0].split(":")[0]
+            rewritten_source = compose["services"]["postgres-db"]["volumes"][0].split(
+                ":"
+            )[0]
             resolved = (root / rewritten_source).resolve()
             self.assertEqual(resolved, (module_dir / "init-db.sql").resolve())
 
-    def test_render_compose_keeps_dot_slash_prefix_for_short_form_nested_bind_mount(self):
+    def test_render_compose_keeps_dot_slash_prefix_for_short_form_nested_bind_mount(
+        self,
+    ):
         """Regression test: a short-form string volume ("./a/b:/target")
         whose source does not resolve to an existing path on any local-path
         base falls back to a project-root-relative candidate; relative_to()
@@ -604,7 +674,9 @@ class RendererRegressionTest(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
+            (root / "pyproject.toml").write_text(
+                "[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8"
+            )
 
             plan = {
                 "metadata": {"name": "cds-test"},
@@ -642,7 +714,9 @@ class RendererRegressionTest(unittest.TestCase):
                 f"expected a short-form bind source to keep its './' prefix, got {source!r}",
             )
 
-    def test_render_compose_falls_back_to_absolute_volume_source_on_cross_drive_relpath(self):
+    def test_render_compose_falls_back_to_absolute_volume_source_on_cross_drive_relpath(
+        self,
+    ):
         """Regression test for the same Windows-only cross-drive bug as
         above, but in _rewrite_local_path (used for bind-mount volume
         sources like init-db.sql), a separate function from
@@ -651,7 +725,9 @@ class RendererRegressionTest(unittest.TestCase):
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "pyproject.toml").write_text("[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8")
+            (root / "pyproject.toml").write_text(
+                "[project]\nname='tmp'\nversion='0.0.0'\n", encoding="utf-8"
+            )
             (root / "profiles" / "local").mkdir(parents=True)
             (root / "modules" / "warehouse" / "postgres").mkdir(parents=True)
             (root / "modules" / "warehouse" / "postgres" / "init-db.sql").write_text(
@@ -695,8 +771,12 @@ class RendererRegressionTest(unittest.TestCase):
                     raise ValueError("path is on mount 'D:', start on mount 'C:'")
                 return real_relpath(path, start)
 
-            with mock.patch("os.path.relpath", side_effect=_relpath_simulating_cross_drive):
-                output, diagnostics = render_compose(plan, output_path=str(nested_output))
+            with mock.patch(
+                "os.path.relpath", side_effect=_relpath_simulating_cross_drive
+            ):
+                output, diagnostics = render_compose(
+                    plan, output_path=str(nested_output)
+                )
 
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
             compose = yaml.safe_load(output)
@@ -756,7 +836,11 @@ class RendererRegressionTest(unittest.TestCase):
                 {
                     "id": "evil2",
                     "config": {
-                        "cmd": ["/bin/sh", "-c", "cat /etc/shadow > /host/tmp/shadow.txt"],
+                        "cmd": [
+                            "/bin/sh",
+                            "-c",
+                            "cat /etc/shadow > /host/tmp/shadow.txt",
+                        ],
                     },
                     "implementation": {
                         "kind": "docker-compose",
@@ -785,7 +869,9 @@ class RendererRegressionTest(unittest.TestCase):
         # the attacker payload is absent from the raw render.
         self.assertTrue(has_errors(diagnostics))
 
-    def test_render_compose_rejects_typed_pure_substitution_in_environment_and_volumes(self):
+    def test_render_compose_rejects_typed_pure_substitution_in_environment_and_volumes(
+        self,
+    ):
         """Same as above for `environment` (dict injection) and `volumes`
         (host bind mount injection) field positions."""
         plan = {
@@ -822,7 +908,9 @@ class RendererRegressionTest(unittest.TestCase):
         self.assertTrue(any("volumes" in m for m in error_messages))
         self.assertTrue(has_errors(diagnostics))
 
-    def test_render_compose_rejects_typed_pure_substitution_for_scalar_escalation_fields(self):
+    def test_render_compose_rejects_typed_pure_substitution_for_scalar_escalation_fields(
+        self,
+    ):
         """`privileged`, `network_mode`, and `pid` are already scalar fields,
         so a dict/list check alone would miss a profile-supplied scalar that
         resolves to a host-escalating value (privileged: true, or
@@ -859,9 +947,9 @@ class RendererRegressionTest(unittest.TestCase):
         error_messages = [d.message for d in diagnostics if d.code == "E072"]
         self.assertTrue(any("privileged" in m for m in error_messages))
         self.assertTrue(any("network_mode" in m for m in error_messages))
-        self.assertTrue(any(
-            "pid" in m and "network_mode" not in m for m in error_messages
-        ))
+        self.assertTrue(
+            any("pid" in m and "network_mode" not in m for m in error_messages)
+        )
         self.assertTrue(has_errors(diagnostics))
 
     def test_render_compose_allows_safe_scalar_values_for_escalation_fields(self):
@@ -924,7 +1012,9 @@ class RendererRegressionTest(unittest.TestCase):
         self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
         self.assertIn("run --log-level=debug", output)
 
-    def test_render_compose_does_not_flag_typed_pure_substitution_outside_unsafe_fields(self):
+    def test_render_compose_does_not_flag_typed_pure_substitution_outside_unsafe_fields(
+        self,
+    ):
         """Pure substitution to a dict/list value in a field position that
         isn't compose-dangerous (e.g. a custom `labels`-adjacent field this
         module happens to name `metadata`) must not be flagged; only the
@@ -990,7 +1080,9 @@ class RendererRegressionTest(unittest.TestCase):
         self.assertIn("${TAG:-latest}", output)
         self.assertIn("${CDS_DB_PASSWORD}", output)
 
-    def test_render_compose_reports_diagnostic_for_deeply_nested_service_definition(self):
+    def test_render_compose_reports_diagnostic_for_deeply_nested_service_definition(
+        self,
+    ):
         """A pathologically deeply nested service field (e.g. a malformed or
         malicious module template) must be reported as an E094 diagnostic
         instead of raising an unhandled RecursionError inside
@@ -1302,7 +1394,9 @@ class ImageSourceRenderingTest(unittest.TestCase):
         self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:1.8.0")
 
     def test_source_registry_with_variant_prefixed_tag(self):
-        plan = self._plan({"variant": "hardened", "source": "registry", "tag": "hardened-1.8.0"})
+        plan = self._plan(
+            {"variant": "hardened", "source": "registry", "tag": "hardened-1.8.0"}
+        )
 
         output, diagnostics = render_compose(plan)
 
@@ -1310,7 +1404,9 @@ class ImageSourceRenderingTest(unittest.TestCase):
         compose = yaml.safe_load(output)
         service = compose["services"]["dagster-user-code"]
         self.assertNotIn("build", service)
-        self.assertEqual(service["image"], "docker.io/ronaldsoeverein/dagster:hardened-1.8.0")
+        self.assertEqual(
+            service["image"], "docker.io/ronaldsoeverein/dagster:hardened-1.8.0"
+        )
 
     def test_source_registry_defaults_to_dockerhub(self):
         plan = self._plan({"variant": "base", "source": "registry", "tag": "1.8.0"})
@@ -1325,7 +1421,12 @@ class ImageSourceRenderingTest(unittest.TestCase):
 
     def test_source_registry_ghcr_rewrites_image(self):
         plan = self._plan(
-            {"variant": "base", "source": "registry", "registry": "ghcr", "tag": "sha-abcdef123456"}
+            {
+                "variant": "base",
+                "source": "registry",
+                "registry": "ghcr",
+                "tag": "sha-abcdef123456",
+            }
         )
 
         output, diagnostics = render_compose(plan)
@@ -1366,7 +1467,12 @@ class ImageSourceRenderingTest(unittest.TestCase):
         (build: block intact) rather than silently defaulting to Docker
         Hub, matching the existing missing-tag behavior."""
         plan = self._plan(
-            {"variant": "base", "source": "registry", "registry": "quay", "tag": "1.8.0"}
+            {
+                "variant": "base",
+                "source": "registry",
+                "registry": "quay",
+                "tag": "1.8.0",
+            }
         )
 
         output, diagnostics = render_compose(plan)
@@ -1459,7 +1565,9 @@ class SupersetImageSourceRenderingTest(unittest.TestCase):
         self.assertEqual(service["image"], "docker.io/ronaldsoeverein/superset:3.1.0")
 
     def test_source_registry_ghcr_rewrites_image(self):
-        plan = self._plan({"source": "registry", "registry": "ghcr", "tag": "sha-abcdef123456"})
+        plan = self._plan(
+            {"source": "registry", "registry": "ghcr", "tag": "sha-abcdef123456"}
+        )
 
         output, diagnostics = render_compose(plan)
 
@@ -1597,7 +1705,10 @@ class ProductionGateTest(unittest.TestCase):
             "config": {"backup": {"enabled": True}},
         }
         module.update(module_overrides)
-        return {"metadata": {"name": "cds-test", "environment": environment}, "modules": [module]}
+        return {
+            "metadata": {"name": "cds-test", "environment": environment},
+            "modules": [module],
+        }
 
     def test_superset_learning_and_production_variants_keep_init_semantics(self):
         repo_root = Path(__file__).resolve().parent.parent
@@ -1613,7 +1724,9 @@ class ProductionGateTest(unittest.TestCase):
             "be6a6d4938aeb7888bd29cd4b84fa37c6d071c36ae19fef8b929024bf6d5ab8f",
         )
         self.assertNotIn("build", learning["superset"])
-        self.assertEqual(learning["superset-init"]["image"], learning["superset"]["image"])
+        self.assertEqual(
+            learning["superset-init"]["image"], learning["superset"]["image"]
+        )
         self.assertNotIn("build", learning["superset-init"])
         # The stock upstream image carries no CDS config; both learning
         # services bind-mount superset_config.py over the pythonpath entry.
@@ -1634,23 +1747,31 @@ class ProductionGateTest(unittest.TestCase):
         self.assertIn("superset fab create-admin", command[0])
         self.assertIn("superset init", command[0])
         self.assertNotRegex(command[0], r"(?<!\$)\$(?!\$)")
-        output, diagnostics = render_compose({
-            "metadata": {"name": "superset-test", "environment": "local"},
-            "modules": [{
-                "id": "superset",
-                "config": {},
-                "implementation": {
-                    "kind": "docker-compose",
-                    "compose": {"services": {
-                        "superset-init": {
-                            "image": learning["superset-init"]["image"],
-                            "entrypoint": learning["superset-init"]["entrypoint"],
-                            "command": command,
+        output, diagnostics = render_compose(
+            {
+                "metadata": {"name": "superset-test", "environment": "local"},
+                "modules": [
+                    {
+                        "id": "superset",
+                        "config": {},
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {
+                                "services": {
+                                    "superset-init": {
+                                        "image": learning["superset-init"]["image"],
+                                        "entrypoint": learning["superset-init"][
+                                            "entrypoint"
+                                        ],
+                                        "command": command,
+                                    },
+                                }
+                            },
                         },
-                    }},
-                },
-            }],
-        })
+                    }
+                ],
+            }
+        )
         self.assertEqual([d for d in diagnostics if d.level == "error"], [])
         rendered_init = yaml.safe_load(output)["services"]["superset-init"]
         self.assertEqual(rendered_init["command"], command)
@@ -1659,7 +1780,9 @@ class ProductionGateTest(unittest.TestCase):
         production = renderer.apply_production_gates(services, is_production=True)
         for service_name in ("superset", "superset-init"):
             with self.subTest(service=service_name):
-                self.assertEqual(production[service_name]["image"], "local/superset:custom")
+                self.assertEqual(
+                    production[service_name]["image"], "local/superset:custom"
+                )
                 self.assertEqual(
                     production[service_name]["build"]["dockerfile"],
                     "images/superset/base/Dockerfile",
@@ -1681,7 +1804,9 @@ class ProductionGateTest(unittest.TestCase):
         # CDS-SEC-074 (#981): in production the dagster-webserver must not
         # publish on the host; learning keeps the direct publish.
         repo_root = Path(__file__).resolve().parent.parent
-        module_path = repo_root / "modules" / "orchestration" / "dagster" / "module.yaml"
+        module_path = (
+            repo_root / "modules" / "orchestration" / "dagster" / "module.yaml"
+        )
         with module_path.open(encoding="utf-8") as module_file:
             module = yaml.safe_load(module_file)
         services = module["spec"]["implementation"]["compose"]["services"]
@@ -1718,7 +1843,9 @@ class ProductionGateTest(unittest.TestCase):
         # Override replaces scalars/lists, merges mappings (environment).
         self.assertEqual(postgres["image"], "local/pg:custom")
         self.assertEqual(postgres["command"], ["postgres", "-c", "archive_mode=on"])
-        self.assertEqual(postgres["build"], {"context": ".", "dockerfile": "Dockerfile"})
+        self.assertEqual(
+            postgres["build"], {"context": ".", "dockerfile": "Dockerfile"}
+        )
         self.assertEqual(
             postgres["environment"], {"BASE_ENV": "keep", "EXTRA_ENV": "prod-only"}
         )
@@ -1741,9 +1868,9 @@ class ProductionGateTest(unittest.TestCase):
         # Plans can be loaded from files (possibly hand-edited), so the
         # renderer re-checks marker shapes instead of leaking them.
         plan = self._plan()
-        plan["modules"][0]["implementation"]["compose"]["services"]["postgres"]["volumes"][0][
-            "production"
-        ] = {"read_only": True}
+        plan["modules"][0]["implementation"]["compose"]["services"]["postgres"][
+            "volumes"
+        ][0]["production"] = {"read_only": True}
         output, diagnostics = render_compose(plan)
         e144 = [d for d in diagnostics if d.code == "E144"]
         self.assertEqual(len(e144), 1)
@@ -1760,7 +1887,9 @@ class ProductionGateTest(unittest.TestCase):
         # untyped TypeError (`production: true` is a boolean gate, so the
         # shape mistake is plausible); the plan re-check fails closed.
         plan = self._plan()
-        plan["modules"][0]["implementation"]["compose"]["services"]["pg-mock"]["enabledFrom"] = True
+        plan["modules"][0]["implementation"]["compose"]["services"]["pg-mock"][
+            "enabledFrom"
+        ] = True
         output, diagnostics = render_compose(plan)
         e145 = [d for d in diagnostics if d.code == "E145"]
         self.assertEqual(len(e145), 1)

@@ -9,6 +9,7 @@ docs/runtime-api.md maps every helper function to its cds-runtime
 equivalent. Remove this file together with the last image that bakes
 `shared/python` in for compatibility.
 """
+
 import importlib
 import json
 import os
@@ -24,7 +25,9 @@ DEFAULT_PORTS = {
 }
 
 
-def get_connection_uri(prefix: str = "ANALYTICS_DB", env: Mapping[str, str] | None = None) -> str:
+def get_connection_uri(
+    prefix: str = "ANALYTICS_DB", env: Mapping[str, str] | None = None
+) -> str:
     """Build a SQLAlchemy connection URI from environment variables.
 
     Preferred input is ``<PREFIX>_CONNECTION_URI``. If that is not present,
@@ -47,7 +50,9 @@ def get_connection_uri(prefix: str = "ANALYTICS_DB", env: Mapping[str, str] | No
     raise RuntimeError(f"Unsupported database backend for {prefix}: {backend}")
 
 
-def _build_network_connection_uri(prefix: str, backend: str, values: Mapping[str, str]) -> str:
+def _build_network_connection_uri(
+    prefix: str, backend: str, values: Mapping[str, str]
+) -> str:
     host = values.get(f"{prefix}_HOST")
     port = values.get(f"{prefix}_PORT", DEFAULT_PORTS[backend])
     database = values.get(f"{prefix}_NAME")
@@ -122,7 +127,9 @@ def insert_incoming_file_event(
     values = os.environ if env is None else env
     _write_local_event_snapshot(payload, asset_key, values)
 
-    if not values.get(f"{prefix}_CONNECTION_URI") and not _has_backend_settings(prefix, values):
+    if not values.get(f"{prefix}_CONNECTION_URI") and not _has_backend_settings(
+        prefix, values
+    ):
         return
 
     engine = get_engine(prefix=prefix, env=env)
@@ -131,7 +138,9 @@ def insert_incoming_file_event(
     metadata_type = "JSONB" if backend == "postgresql" else "JSON"
     id_type = "BIGSERIAL" if backend == "postgresql" else "INTEGER"
     timestamp_sql = "NOW()" if backend == "postgresql" else "CURRENT_TIMESTAMP"
-    primary_key_suffix = " PRIMARY KEY" if backend == "postgresql" else " PRIMARY KEY AUTOINCREMENT"
+    primary_key_suffix = (
+        " PRIMARY KEY" if backend == "postgresql" else " PRIMARY KEY AUTOINCREMENT"
+    )
 
     with engine.begin() as connection:
         connection.execute(

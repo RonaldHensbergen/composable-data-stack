@@ -42,7 +42,12 @@ def _merge_value(
             child_path = f"{path}.{key}" if path else key
             if key in result:
                 result[key] = _merge_value(
-                    result[key], value, base_source, overlay_source, child_path, provenance
+                    result[key],
+                    value,
+                    base_source,
+                    overlay_source,
+                    child_path,
+                    provenance,
                 )
             else:
                 result[key] = value
@@ -132,25 +137,39 @@ def _merge_profile_docs(
     base_spec = base.get("spec", {})
     base_modules = base_spec.get("modules", []) if isinstance(base_spec, dict) else []
     overlay_spec = overlay.get("spec", {})
-    overlay_modules = overlay_spec.get("modules", []) if isinstance(overlay_spec, dict) else []
+    overlay_modules = (
+        overlay_spec.get("modules", []) if isinstance(overlay_spec, dict) else []
+    )
 
-    for label, modules in ((base_source, base_modules), (overlay_source, overlay_modules)):
+    for label, modules in (
+        (base_source, base_modules),
+        (overlay_source, overlay_modules),
+    ):
         diagnostics += _validate_modules_shape(label, modules)
     if any(d.level == "error" for d in diagnostics):
         return {}, diagnostics
 
     base_without_modules = dict(base)
     base_spec_without_modules = (
-        {k: v for k, v in base_spec.items() if k != "modules"} if isinstance(base_spec, dict) else {}
+        {k: v for k, v in base_spec.items() if k != "modules"}
+        if isinstance(base_spec, dict)
+        else {}
     )
     base_without_modules["spec"] = base_spec_without_modules
 
     overlay_without_modules = dict(overlay)
     if isinstance(overlay.get("spec"), dict):
-        overlay_without_modules["spec"] = {k: v for k, v in overlay["spec"].items() if k != "modules"}
+        overlay_without_modules["spec"] = {
+            k: v for k, v in overlay["spec"].items() if k != "modules"
+        }
 
     merged = _merge_value(
-        base_without_modules, overlay_without_modules, base_source, overlay_source, "", provenance
+        base_without_modules,
+        overlay_without_modules,
+        base_source,
+        overlay_source,
+        "",
+        provenance,
     )
     merged.setdefault("spec", {})
     if not isinstance(merged["spec"], dict):
@@ -182,7 +201,11 @@ def _derive_profiles_root(profile_dir: Path) -> Path | None:
 
 def _resolve_extends_ref(ref: str, profile_dir: Path, profiles_root: Path) -> Path:
     ref_path = Path(ref)
-    if ref_path.suffix in (".yaml", ".yml") or ".." in ref_path.parts or ref_path.is_absolute():
+    if (
+        ref_path.suffix in (".yaml", ".yml")
+        or ".." in ref_path.parts
+        or ref_path.is_absolute()
+    ):
         return (profile_dir / ref_path).resolve()
     if len(ref_path.parts) > 1:
         return (profile_dir / ref_path / "profile.yaml").resolve()
@@ -203,14 +226,18 @@ def _compose_extends(
     resolved_file = profile_file.resolve()
     if resolved_file in stack:
         chain = " -> ".join(str(p) for p in (*stack, resolved_file))
-        return None, {}, [
-            Diagnostic(
-                level="error",
-                code="E113",
-                message=f"Cycle detected in profile extends chain: {chain}.",
-                path="extends",
-            )
-        ]
+        return (
+            None,
+            {},
+            [
+                Diagnostic(
+                    level="error",
+                    code="E113",
+                    message=f"Cycle detected in profile extends chain: {chain}.",
+                    path="extends",
+                )
+            ],
+        )
 
     doc, diagnostics = load_yaml_file(profile_file)
     if doc is None:
@@ -266,8 +293,10 @@ def _resolve_and_merge_extends(
     if extends is None:
         return doc, {}, diagnostics
 
-    if not isinstance(extends, list) or not extends or not all(
-        isinstance(ref, str) and ref.strip() for ref in extends
+    if (
+        not isinstance(extends, list)
+        or not extends
+        or not all(isinstance(ref, str) and ref.strip() for ref in extends)
     ):
         diagnostics.append(
             Diagnostic(
@@ -323,7 +352,9 @@ def _resolve_and_merge_extends(
             )
             return None, {}, diagnostics
 
-        parent_doc, parent_provenance, parent_diagnostics = _compose_extends(parent_path, stack)
+        parent_doc, parent_provenance, parent_diagnostics = _compose_extends(
+            parent_path, stack
+        )
         diagnostics += parent_diagnostics
         if parent_doc is None:
             return None, {}, diagnostics
@@ -372,7 +403,12 @@ def _merge_modules(
         mid = module["id"]
         if mid in by_id:
             by_id[mid] = _merge_value(
-                by_id[mid], module, base_source, overlay_source, f"spec.modules[{mid}]", provenance
+                by_id[mid],
+                module,
+                base_source,
+                overlay_source,
+                f"spec.modules[{mid}]",
+                provenance,
             )
         else:
             by_id[mid] = module
@@ -436,7 +472,13 @@ def resolve_profile(
         return None, {}, diagnostics
 
     resolved, out_provenance = _resolve_environment_overlay_and_validate(
-        base, provenance, profile_file.parent, str(profile_file), environment, profile_file, diagnostics
+        base,
+        provenance,
+        profile_file.parent,
+        str(profile_file),
+        environment,
+        profile_file,
+        diagnostics,
     )
     return resolved, out_provenance, diagnostics
 
@@ -458,13 +500,21 @@ def resolve_profile_from_profile(
     profile.yaml of its own. `source_label` stands in for a real file path
     in diagnostics and merge provenance.
     """
-    base, provenance, diagnostics = _compose_extends_from_doc(profile, profile_dir, source_label)
+    base, provenance, diagnostics = _compose_extends_from_doc(
+        profile, profile_dir, source_label
+    )
     if base is None:
         return None, {}, diagnostics
 
     anchor_file = profile_dir / "profile.yaml"
     resolved, out_provenance = _resolve_environment_overlay_and_validate(
-        base, provenance, profile_dir, source_label, environment, anchor_file, diagnostics
+        base,
+        provenance,
+        profile_dir,
+        source_label,
+        environment,
+        anchor_file,
+        diagnostics,
     )
     return resolved, out_provenance, diagnostics
 
@@ -530,7 +580,9 @@ def _resolve_environment_overlay_and_validate(
     if overlay is None:
         return None, {}
 
-    merged, merge_diagnostics = _merge_profile_docs(base, overlay, source_label, str(overlay_file), provenance)
+    merged, merge_diagnostics = _merge_profile_docs(
+        base, overlay, source_label, str(overlay_file), provenance
+    )
     diagnostics.extend(merge_diagnostics)
     if merge_diagnostics:
         return None, {}

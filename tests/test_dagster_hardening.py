@@ -14,14 +14,24 @@ MIN_SAFE_DAGSTER_IMAGE_DEPENDENCIES = {
 class DagsterHardeningTest(unittest.TestCase):
     def setUp(self) -> None:
         self.repo_root = Path(__file__).resolve().parent.parent
-        self.dockerfile = (self.repo_root / "images" / "dagster" / "base" / "Dockerfile").read_text(encoding="utf-8")
-        self.entrypoint = (self.repo_root / "images" / "dagster" / "entrypoint.sh").read_text(encoding="utf-8")
-        self.requirements = (self.repo_root / "images" / "dagster" / "requirements.txt").read_text(encoding="utf-8")
+        self.dockerfile = (
+            self.repo_root / "images" / "dagster" / "base" / "Dockerfile"
+        ).read_text(encoding="utf-8")
+        self.entrypoint = (
+            self.repo_root / "images" / "dagster" / "entrypoint.sh"
+        ).read_text(encoding="utf-8")
+        self.requirements = (
+            self.repo_root / "images" / "dagster" / "requirements.txt"
+        ).read_text(encoding="utf-8")
         self.workspace = yaml.safe_load(
-            (self.repo_root / "images" / "dagster" / "workspace.yaml").read_text(encoding="utf-8")
+            (self.repo_root / "images" / "dagster" / "workspace.yaml").read_text(
+                encoding="utf-8"
+            )
         )
         module = yaml.safe_load(
-            (self.repo_root / "modules" / "orchestration" / "dagster" / "module.yaml").read_text(encoding="utf-8")
+            (
+                self.repo_root / "modules" / "orchestration" / "dagster" / "module.yaml"
+            ).read_text(encoding="utf-8")
         )
         self.config_schema = module["spec"]["configSchema"]
         self.services = module["spec"]["implementation"]["compose"]["services"]
@@ -37,24 +47,35 @@ class DagsterHardeningTest(unittest.TestCase):
         self.assertNotIn("pip install", self.entrypoint)
         self.assertNotIn("dagster-docker", self.requirements)
         self.assertNotIn("dagster-postgres", self.requirements)
-        self.assertIn("MySQL storage is not supported by this Dagster image", self.entrypoint)
+        self.assertIn(
+            "MySQL storage is not supported by this Dagster image", self.entrypoint
+        )
         self.assertIn("HOME=/opt/dagster/dagster_home", self.dockerfile)
 
     def test_backend_controls_build_and_runtime(self) -> None:
         for name in ("user-code", "dagster-webserver", "dagster-daemon"):
             with self.subTest(service=name):
                 service = self.services[name]
-                self.assertEqual(service["build"]["args"]["DB_BACKEND"], "${config.storage.backend}")
-                self.assertEqual(service["environment"]["DB_BACKEND"], "${config.storage.backend}")
+                self.assertEqual(
+                    service["build"]["args"]["DB_BACKEND"], "${config.storage.backend}"
+                )
+                self.assertEqual(
+                    service["environment"]["DB_BACKEND"], "${config.storage.backend}"
+                )
 
     def test_dockerfiles_install_hash_locked_requirements(self) -> None:
         for variant in ("base", "hardened"):
             with self.subTest(variant=variant):
-                dockerfile = (self.repo_root / "images" / "dagster" / variant / "Dockerfile").read_text(
-                    encoding="utf-8"
+                dockerfile = (
+                    self.repo_root / "images" / "dagster" / variant / "Dockerfile"
+                ).read_text(encoding="utf-8")
+                self.assertNotRegex(
+                    dockerfile,
+                    r"pip install (?!.*--require-hashes)[^\n]*-r requirements",
                 )
-                self.assertNotRegex(dockerfile, r"pip install (?!.*--require-hashes)[^\n]*-r requirements")
-                self.assertIn("--require-hashes -r requirements-postgres.txt", dockerfile)
+                self.assertIn(
+                    "--require-hashes -r requirements-postgres.txt", dockerfile
+                )
                 self.assertIn("--require-hashes -r requirements.txt", dockerfile)
 
     def test_vulnerable_python_packages_are_patched(self) -> None:
@@ -63,7 +84,9 @@ class DagsterHardeningTest(unittest.TestCase):
             line = line.split("#", 1)[0].strip()
             if not line:
                 continue
-            match = re.match(r"^([A-Za-z0-9._-]+)\s*(>=|==)\s*([0-9]+(?:\.[0-9]+)*)", line)
+            match = re.match(
+                r"^([A-Za-z0-9._-]+)\s*(>=|==)\s*([0-9]+(?:\.[0-9]+)*)", line
+            )
             if match:
                 pkg, _, ver = match.groups()
                 normalized_pkg = re.sub(r"[-_.]+", "-", pkg.lower())
@@ -72,7 +95,11 @@ class DagsterHardeningTest(unittest.TestCase):
 
         for pkg, min_ver in MIN_SAFE_DAGSTER_IMAGE_DEPENDENCIES.items():
             with self.subTest(package=pkg):
-                self.assertIn(pkg, pinned, msg=f"{pkg} must be pinned in images/dagster/requirements.txt")
+                self.assertIn(
+                    pkg,
+                    pinned,
+                    msg=f"{pkg} must be pinned in images/dagster/requirements.txt",
+                )
                 self.assertGreaterEqual(
                     pinned[pkg],
                     min_ver,
@@ -89,7 +116,9 @@ class DagsterHardeningTest(unittest.TestCase):
                 self.assertTrue(service["read_only"])
                 self.assertEqual(service["cap_drop"], ["ALL"])
                 self.assertEqual(service["security_opt"], ["no-new-privileges:true"])
-                self.assertFalse(any("/var/run/docker.sock" in str(volume) for volume in volumes))
+                self.assertFalse(
+                    any("/var/run/docker.sock" in str(volume) for volume in volumes)
+                )
                 self.assertIn("/tmp:rw,noexec,nosuid,nodev,mode=1777", service["tmpfs"])
                 self.assertIn(
                     "/opt/dagster/dagster_home:rw,noexec,nosuid,nodev,uid=999,gid=999,mode=0700",
@@ -106,7 +135,9 @@ class DagsterHardeningTest(unittest.TestCase):
                     )
                 )
                 if name == "user-code":
-                    self.assertEqual(socket_mount, "dagster-grpc-socket:/var/run/dagster")
+                    self.assertEqual(
+                        socket_mount, "dagster-grpc-socket:/var/run/dagster"
+                    )
                 else:
                     self.assertTrue(socket_mount["read_only"])
 
@@ -120,11 +151,15 @@ class DagsterHardeningTest(unittest.TestCase):
         self.assertTrue(definitions_mount["read_only"])
 
     def test_definitions_mount_target_must_be_absolute(self) -> None:
-        target_schema = self.config_schema["properties"]["definitionsFile"]["properties"]["containerPath"]
+        target_schema = self.config_schema["properties"]["definitionsFile"][
+            "properties"
+        ]["containerPath"]
         validator = Draft202012Validator(target_schema)
 
         relative_errors = list(validator.iter_errors("workdirs/dagster/definitions.py"))
-        absolute_errors = list(validator.iter_errors("/app/workdirs/dagster/definitions.py"))
+        absolute_errors = list(
+            validator.iter_errors("/app/workdirs/dagster/definitions.py")
+        )
 
         self.assertEqual(len(relative_errors), 1)
         self.assertEqual(absolute_errors, [])
@@ -148,7 +183,9 @@ class DagsterHardenedVariantTest(unittest.TestCase):
 
     def setUp(self) -> None:
         repo_root = Path(__file__).resolve().parent.parent
-        self.dockerfile = (repo_root / "images" / "dagster" / "hardened" / "Dockerfile").read_text(encoding="utf-8")
+        self.dockerfile = (
+            repo_root / "images" / "dagster" / "hardened" / "Dockerfile"
+        ).read_text(encoding="utf-8")
 
     def test_base_image_is_digest_pinned(self) -> None:
         from_lines = re.findall(r"^FROM\s+(\S+)", self.dockerfile, flags=re.MULTILINE)
@@ -173,7 +210,8 @@ class DagsterHardenedVariantTest(unittest.TestCase):
         # pip — not each vendored package individually — to keep them out of
         # the Trivy vulnerability scan.
         uninstall_lines = [
-            line.strip() for line in self.dockerfile.splitlines()
+            line.strip()
+            for line in self.dockerfile.splitlines()
             if "pip" in line and "uninstall" in line
         ]
         full_uninstall = " ".join(uninstall_lines)
@@ -182,7 +220,6 @@ class DagsterHardenedVariantTest(unittest.TestCase):
             full_uninstall,
             msg="'pip' must be uninstalled in the runtime stage to remove its vendored msgpack/setuptools copies",
         )
-
 
 
 if __name__ == "__main__":

@@ -177,7 +177,8 @@ class ComposeProfileTest(unittest.TestCase):
         self.assertEqual(new_instance["id"], "keycloak")
         self.assertEqual(new_instance["dependsOn"], ["sqlite"])
         self.assertEqual(
-            new_instance["config"]["metadataDatabase"]["contractRef"], "sqlite.sql-database"
+            new_instance["config"]["metadataDatabase"]["contractRef"],
+            "sqlite.sql-database",
         )
         # Original profile must be untouched.
         self.assertEqual(profile["spec"]["modules"], [profile["spec"]["modules"][0]])
@@ -230,7 +231,8 @@ class ComposeProfileTest(unittest.TestCase):
         self.assertEqual(diagnostics, [])
         new_instance = merged["spec"]["modules"][-1]
         self.assertEqual(
-            new_instance["config"]["metadataDatabase"]["contractRef"], "postgres.dagster-database"
+            new_instance["config"]["metadataDatabase"]["contractRef"],
+            "postgres.dagster-database",
         )
 
     def test_bind_with_wrong_contract_kind_is_rejected(self):
@@ -301,7 +303,9 @@ class ComposeProfileTest(unittest.TestCase):
             self.profile_dir,
             "identity/keycloak",
             bindings={"metadata-database": "postgres.sql-database"},
-            config_settings=[("adminUser.passwordFrom", "secrets.keycloak_admin_password")],
+            config_settings=[
+                ("adminUser.passwordFrom", "secrets.keycloak_admin_password")
+            ],
             modules_root=self.modules_root,
         )
 
@@ -318,7 +322,9 @@ class ComposeProfileTest(unittest.TestCase):
                     "config": {},
                 }
             ],
-            secrets={"keycloak_admin_password": {"env": "CDS_EXISTING", "required": True}},
+            secrets={
+                "keycloak_admin_password": {"env": "CDS_EXISTING", "required": True}
+            },
         )
 
         merged, diagnostics = compose_profile(
@@ -326,7 +332,9 @@ class ComposeProfileTest(unittest.TestCase):
             self.profile_dir,
             "identity/keycloak",
             bindings={"metadata-database": "postgres.sql-database"},
-            config_settings=[("adminUser.passwordFrom", "secrets.keycloak_admin_password")],
+            config_settings=[
+                ("adminUser.passwordFrom", "secrets.keycloak_admin_password")
+            ],
             modules_root=self.modules_root,
         )
 
@@ -343,7 +351,9 @@ class ComposeProfileTest(unittest.TestCase):
                     "id": "keycloak",
                     "source": "identity/keycloak",
                     "enabled": True,
-                    "config": {"metadataDatabase": {"contractRef": "postgres.sql-database"}},
+                    "config": {
+                        "metadataDatabase": {"contractRef": "postgres.sql-database"}
+                    },
                 }
             ]
         )
@@ -376,7 +386,10 @@ class ComposeProfileTest(unittest.TestCase):
             "identity/keycloak",
             instance_id="keycloak",
             bindings={"metadata-database": "postgres.sql-database"},
-            config_settings=[("metadataDatabase.driver", "postgres"), ("httpPort", 8081)],
+            config_settings=[
+                ("metadataDatabase.driver", "postgres"),
+                ("httpPort", 8081),
+            ],
             modules_root=self.modules_root,
         )
 
@@ -384,7 +397,9 @@ class ComposeProfileTest(unittest.TestCase):
         config = merged["spec"]["modules"][-1]["config"]
         self.assertEqual(config["httpPort"], 8081)
         self.assertEqual(config["metadataDatabase"]["driver"], "postgres")
-        self.assertEqual(config["metadataDatabase"]["contractRef"], "postgres.sql-database")
+        self.assertEqual(
+            config["metadataDatabase"]["contractRef"], "postgres.sql-database"
+        )
 
     def test_explicit_depends_on_is_preserved_alongside_resolved_dependency(self):
         profile = self._profile(
@@ -414,7 +429,9 @@ class ComposeProfileTest(unittest.TestCase):
         )
 
         self.assertEqual(diagnostics, [])
-        self.assertEqual(sorted(merged["spec"]["modules"][-1]["dependsOn"]), ["keydb", "postgres"])
+        self.assertEqual(
+            sorted(merged["spec"]["modules"][-1]["dependsOn"]), ["keydb", "postgres"]
+        )
 
     def test_disabled_module_is_not_considered_a_provider(self):
         profile = self._profile(

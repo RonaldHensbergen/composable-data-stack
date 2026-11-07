@@ -17,6 +17,7 @@ variable. Any lookup failure (offline, auth failure, unknown tag, ...) is
 reported as "skipped", never as an error, per the issue's acceptance
 criteria.
 """
+
 from __future__ import annotations
 
 import json
@@ -79,7 +80,9 @@ def _fetch_bearer_token(www_authenticate: str) -> str | None:
     realm = params.get("realm")
     if not realm:
         return None
-    query = "&".join(f"{key}={value}" for key, value in params.items() if key != "realm")
+    query = "&".join(
+        f"{key}={value}" for key, value in params.items() if key != "realm"
+    )
     url = f"{realm}?{query}" if query else realm
     if not url.startswith(("http://", "https://")):
         return None
@@ -96,7 +99,7 @@ def _fetch_bearer_token(www_authenticate: str) -> str | None:
         # registry-controlled URL rather than to full SSRF.
         with urlopen(req, timeout=_TIMEOUT) as response:  # nosec B310  # noqa: S310
             data = json.loads(response.read().decode())
-    except (HTTPError, URLError, ValueError):
+    except HTTPError, URLError, ValueError:
         return None
     token = data.get("token") or data.get("access_token")
     return token if isinstance(token, str) else None
@@ -122,7 +125,9 @@ def fetch_registry_digest(registry: str, repository: str, tag: str) -> str | Non
                 return digest if isinstance(digest, str) and digest else None
         except HTTPError as exc:
             if exc.code == 401 and attempt == 0:
-                www_auth = exc.headers.get("WWW-Authenticate", "") if exc.headers else ""
+                www_auth = (
+                    exc.headers.get("WWW-Authenticate", "") if exc.headers else ""
+                )
                 token = _fetch_bearer_token(www_auth)
                 if token:
                     headers["Authorization"] = "Bearer " + token
@@ -161,7 +166,9 @@ def check_digest_staleness(image: str) -> dict[str, Any]:
     return {"image": image, "status": "stale", "latest_digest": latest_digest}
 
 
-def collect_pinned_images_for_module(module_def: dict[str, Any]) -> list[dict[str, str]]:
+def collect_pinned_images_for_module(
+    module_def: dict[str, Any],
+) -> list[dict[str, str]]:
     """Return {service, image} entries for a module's digest-pinned images."""
     compose = module_def.get("spec", {}).get("implementation", {}).get("compose", {})
     entries: list[dict[str, str]] = []

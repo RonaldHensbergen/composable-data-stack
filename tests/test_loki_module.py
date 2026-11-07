@@ -12,11 +12,7 @@ from cli.validator import validate_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MODULE_PATH = (
-    REPO_ROOT
-    / "modules-experimental"
-    / "observability"
-    / "loki"
-    / "module.yaml"
+    REPO_ROOT / "modules-experimental" / "observability" / "loki" / "module.yaml"
 )
 
 
@@ -269,10 +265,8 @@ class LokiModuleTest(unittest.TestCase):
                 )
             )
 
-        vector_config = (MODULE_PATH.parent / "vector.yaml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn('path: /logs', vector_config)
+        vector_config = (MODULE_PATH.parent / "vector.yaml").read_text(encoding="utf-8")
+        self.assertIn("path: /logs", vector_config)
         self.assertIn('.tier = "structured"', vector_config)
         self.assertIn('.tier = "raw"', vector_config)
 

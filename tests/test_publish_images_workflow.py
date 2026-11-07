@@ -131,7 +131,9 @@ class PublishImagesWorkflowTest(unittest.TestCase):
     def test_dockerhub_job_verifies_signature_and_attestations(self) -> None:
         job = self.jobs["publish-dockerhub"]
         verify_step = next(
-            s for s in job["steps"] if s.get("name") == "Verify signed image (self-check)"
+            s
+            for s in job["steps"]
+            if s.get("name") == "Verify signed image (self-check)"
         )
         verify_run = verify_step["run"]
         self.assertIn("cosign verify \\", verify_run)
@@ -294,7 +296,10 @@ class PublishImagesWorkflowTest(unittest.TestCase):
                 published.append(f"cds-{entry.name}")
                 continue
             for variant_dir in entry.iterdir():
-                if not variant_dir.is_dir() or not (variant_dir / "Dockerfile").is_file():
+                if (
+                    not variant_dir.is_dir()
+                    or not (variant_dir / "Dockerfile").is_file()
+                ):
                     continue
                 suffix = "" if variant_dir.name == "base" else f"-{variant_dir.name}"
                 published.append(f"cds-{entry.name}{suffix}")
@@ -309,7 +314,9 @@ class PublishImagesWorkflowTest(unittest.TestCase):
     def test_signed_images_fixture_covers_every_dockerhub_published_image(self) -> None:
         repo_root = Path(__file__).resolve().parent.parent
         fixture = json.loads(
-            (repo_root / "tests" / "fixtures" / "signed-images.json").read_text(encoding="utf-8")
+            (repo_root / "tests" / "fixtures" / "signed-images.json").read_text(
+                encoding="utf-8"
+            )
         )
         entries = {
             (entry["repository"], entry.get("tagPrefix", "")): entry
@@ -322,12 +329,16 @@ class PublishImagesWorkflowTest(unittest.TestCase):
                 continue
             for variant_dir in sorted(image_dir.iterdir()):
                 if variant_dir.is_dir() and (variant_dir / "Dockerfile").is_file():
-                    prefix = "" if variant_dir.name == "base" else f"{variant_dir.name}-"
+                    prefix = (
+                        "" if variant_dir.name == "base" else f"{variant_dir.name}-"
+                    )
                     expected.append((image_dir.name, prefix))
         self.assertTrue(expected)
         for name, prefix in expected:
             key = (f"docker.io/ronaldsoeverein/{name}", prefix)
-            self.assertIn(key, entries, f"signed-images fixture is missing Docker Hub entry {key}")
+            self.assertIn(
+                key, entries, f"signed-images fixture is missing Docker Hub entry {key}"
+            )
             entry = entries[key]
             for flag in ("signed", "provenanceAttested", "sbomAttested"):
                 self.assertTrue(entry[flag], f"{key} {flag} must be true")
@@ -340,7 +351,9 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         # regex-scanning module.yaml's documentation text.
         repo_root = Path(__file__).resolve().parent.parent
         fixture = json.loads(
-            (repo_root / "tests" / "fixtures" / "signed-images.json").read_text(encoding="utf-8")
+            (repo_root / "tests" / "fixtures" / "signed-images.json").read_text(
+                encoding="utf-8"
+            )
         )
         repositories = {entry["repository"] for entry in fixture["images"].values()}
 
@@ -360,19 +373,36 @@ class PublishImagesWorkflowTest(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            profile_path = repo_root / "profiles" / "local-dagster-postgres-superset" / "profile.yaml"
-            plan, plan_diags = build_plan(str(profile_path), env_file=str(env_file), image_source="registry")
+            profile_path = (
+                repo_root
+                / "profiles"
+                / "local-dagster-postgres-superset"
+                / "profile.yaml"
+            )
+            plan, plan_diags = build_plan(
+                str(profile_path), env_file=str(env_file), image_source="registry"
+            )
             self.assertIsNotNone(plan)
             self.assertEqual([d for d in plan_diags if d.level == "error"], [])
             compose_yaml, render_diags = render_compose(plan, env_file=str(env_file))
             self.assertEqual([d for d in render_diags if d.level == "error"], [])
 
-        rendered_images = set(re.findall(r"docker\.io/ronaldsoeverein/[a-z0-9-]+(?=:)", compose_yaml))
-        self.assertTrue(rendered_images, "expected at least one rendered Docker Hub image reference")
+        rendered_images = set(
+            re.findall(r"docker\.io/ronaldsoeverein/[a-z0-9-]+(?=:)", compose_yaml)
+        )
+        self.assertTrue(
+            rendered_images, "expected at least one rendered Docker Hub image reference"
+        )
         for repo in rendered_images:
-            self.assertIn(repo, repositories, f"rendered default registry image {repo} has no fixture entry")
+            self.assertIn(
+                repo,
+                repositories,
+                f"rendered default registry image {repo} has no fixture entry",
+            )
 
-    def test_update_fixture_waits_for_both_registries_and_logs_into_dockerhub(self) -> None:
+    def test_update_fixture_waits_for_both_registries_and_logs_into_dockerhub(
+        self,
+    ) -> None:
         job = self.jobs["update-fixture"]
         self.assertIn("publish-dockerhub", job["needs"])
         self.assertIn("needs.publish-dockerhub.result == 'success'", job["if"])
@@ -392,12 +422,21 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         # either silently drop the alias or tag it onto every variant, and
         # a manual trace of the workflow YAML wouldn't catch it in review.
         build_step = next(
-            s for s in self.publish_steps if s.get("name") == "Build image for publication"
+            s
+            for s in self.publish_steps
+            if s.get("name") == "Build image for publication"
         )
         run = build_step["run"]
         self.assertIn('if [ "$variant" = "hardened" ]; then', run)
-        self.assertIn('extra_tags=(-t "$ref:alpine-sha-${GITHUB_SHA::12}" -t "$ref:alpine-latest")', run)
-        self.assertIn('"${extra_tags[@]}"', run, "build must actually apply extra_tags to docker build")
+        self.assertIn(
+            'extra_tags=(-t "$ref:alpine-sha-${GITHUB_SHA::12}" -t "$ref:alpine-latest")',
+            run,
+        )
+        self.assertIn(
+            '"${extra_tags[@]}"',
+            run,
+            "build must actually apply extra_tags to docker build",
+        )
 
     def test_ghcr_push_mirrors_the_alpine_alias_build_guard(self) -> None:
         # The push step's "hardened" guard must stay in lockstep with the
@@ -420,9 +459,17 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         version_step = next(s for s in job["steps"] if s.get("id") == "version")
         run = version_step["run"]
         self.assertIn('echo "alpine_tag=${alpine_tag}" >> "$GITHUB_OUTPUT"', run)
-        self.assertIn('echo "alpine_latest_tag=${alpine_latest_tag}" >> "$GITHUB_OUTPUT"', run)
-        self.assertIn('alpine_tag=""', run, "must default to empty for non-hardened variants")
-        self.assertIn('alpine_latest_tag=""', run, "must default to empty for non-hardened variants")
+        self.assertIn(
+            'echo "alpine_latest_tag=${alpine_latest_tag}" >> "$GITHUB_OUTPUT"', run
+        )
+        self.assertIn(
+            'alpine_tag=""', run, "must default to empty for non-hardened variants"
+        )
+        self.assertIn(
+            'alpine_latest_tag=""',
+            run,
+            "must default to empty for non-hardened variants",
+        )
         self.assertIn('if [ "$variant" = "hardened" ]; then', run)
         self.assertIn('alpine_tag="alpine-${base_version}"', run)
         self.assertIn('alpine_latest_tag="alpine-latest"', run)
@@ -433,7 +480,9 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         "ubuntu-latest publish-dockerhub job; Windows runners have no usable "
         "bash (System32 bash.exe is the WSL stub)",
     )
-    def test_dockerhub_version_step_resolves_a_base_version_for_every_image(self) -> None:
+    def test_dockerhub_version_step_resolves_a_base_version_for_every_image(
+        self,
+    ) -> None:
         # Regression test for the stalled publish behind #1100/#1101: the
         # restic case read `cut -d= -f3`, but `ARG RESTIC_VERSION=0.19.1` has
         # a single '=', so field 3 was empty and every publish-dockerhub run
@@ -463,7 +512,8 @@ class PublishImagesWorkflowTest(unittest.TestCase):
                     )
                     self.assertEqual(result.returncode, 0, result.stderr)
                     outputs = dict(
-                        line.split("=", 1) for line in github_output.read_text().splitlines()
+                        line.split("=", 1)
+                        for line in github_output.read_text().splitlines()
                     )
                 self.assertTrue(
                     outputs.get("tag"),
@@ -471,7 +521,9 @@ class PublishImagesWorkflowTest(unittest.TestCase):
                 )
                 self.assertTrue(outputs.get("latest_tag"))
 
-    def test_dockerhub_build_and_push_gate_alpine_extras_on_version_output(self) -> None:
+    def test_dockerhub_build_and_push_gate_alpine_extras_on_version_output(
+        self,
+    ) -> None:
         # Both the build and push steps must only add the alpine-aliased
         # tags when the version step actually populated alpine_tag (i.e.
         # only for the hardened variant); locking this down catches any of
@@ -484,15 +536,27 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         )
         build_run = build_step["run"]
         self.assertIn('alpine_tag="${{ steps.version.outputs.alpine_tag }}"', build_run)
-        self.assertIn('alpine_latest_tag="${{ steps.version.outputs.alpine_latest_tag }}"', build_run)
+        self.assertIn(
+            'alpine_latest_tag="${{ steps.version.outputs.alpine_latest_tag }}"',
+            build_run,
+        )
         self.assertIn('if [ -n "$alpine_tag" ]; then', build_run)
-        self.assertIn('extra_tags=(-t "$ref:$alpine_tag" -t "$ref:$alpine_latest_tag")', build_run)
-        self.assertIn('"${extra_tags[@]}"', build_run, "build must actually apply extra_tags to docker build")
+        self.assertIn(
+            'extra_tags=(-t "$ref:$alpine_tag" -t "$ref:$alpine_latest_tag")', build_run
+        )
+        self.assertIn(
+            '"${extra_tags[@]}"',
+            build_run,
+            "build must actually apply extra_tags to docker build",
+        )
 
         push_step = next(s for s in job["steps"] if s.get("name") == "Push image")
         push_run = push_step["run"]
         self.assertIn('alpine_tag="${{ steps.version.outputs.alpine_tag }}"', push_run)
-        self.assertIn('alpine_latest_tag="${{ steps.version.outputs.alpine_latest_tag }}"', push_run)
+        self.assertIn(
+            'alpine_latest_tag="${{ steps.version.outputs.alpine_latest_tag }}"',
+            push_run,
+        )
         self.assertIn('if [ -n "$alpine_tag" ]; then', push_run)
         self.assertIn('docker push "$ref:$alpine_tag"', push_run)
         self.assertIn('docker push "$ref:$alpine_latest_tag"', push_run)

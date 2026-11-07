@@ -92,9 +92,7 @@ class SupersetOidcWiringTest(unittest.TestCase):
                 "version": "0.1.0",
                 "enabled": True,
                 "dependsOn": (
-                    ["postgres", "keycloak", "keydb"]
-                    if oidc
-                    else ["postgres", "keydb"]
+                    ["postgres", "keycloak", "keydb"] if oidc else ["postgres", "keydb"]
                 ),
                 "config": superset_config,
             },
@@ -220,21 +218,24 @@ class SupersetOidcWiringTest(unittest.TestCase):
         appbuilder = types.ModuleType("flask_appbuilder")
         appbuilder.security = security
 
-        with mock.patch.dict(
-            sys.modules,
-            {
-                "flask_appbuilder": appbuilder,
-                "flask_appbuilder.security": security,
-                "flask_appbuilder.security.manager": manager,
-            },
-        ), mock.patch.dict(
-            "os.environ",
-            {
-                "CDS_OIDC_ISSUER_URL": "https://identity.example.test/realms/analytics",
-                "CDS_OIDC_CLIENT_ID": "superset",
-                "CDS_OIDC_CLIENT_SECRET": "${CDS_SUPERSET_OIDC_CREDENTIAL}",
-            },
-            clear=False,
+        with (
+            mock.patch.dict(
+                sys.modules,
+                {
+                    "flask_appbuilder": appbuilder,
+                    "flask_appbuilder.security": security,
+                    "flask_appbuilder.security.manager": manager,
+                },
+            ),
+            mock.patch.dict(
+                "os.environ",
+                {
+                    "CDS_OIDC_ISSUER_URL": "https://identity.example.test/realms/analytics",
+                    "CDS_OIDC_CLIENT_ID": "superset",
+                    "CDS_OIDC_CLIENT_SECRET": "${CDS_SUPERSET_OIDC_CREDENTIAL}",
+                },
+                clear=False,
+            ),
         ):
             config = runpy.run_path(str(config_path))
 

@@ -1,5 +1,6 @@
 """Tests for ${service.host}/${service.dns}/${service.services.*} resolution and
 provided-contract host checks (#1010, #1029)."""
+
 import os
 import tempfile
 import unittest
@@ -92,14 +93,19 @@ class ModuleDnsHostTest(unittest.TestCase):
         self.assertEqual(module_dns_host("postgres", {"postgres": {}}), "postgres")
 
     def test_single_service_with_other_name_is_prefixed(self):
-        self.assertEqual(module_dns_host("object-storage", {"garage": {}}), "object-storage-garage")
+        self.assertEqual(
+            module_dns_host("object-storage", {"garage": {}}), "object-storage-garage"
+        )
 
     def test_single_service_already_prefixed_is_not_duplicated(self):
         self.assertEqual(module_dns_host("api", {"api-gateway": {}}), "api-gateway")
 
     def test_multi_service_module_keeps_the_instance_id(self):
         self.assertEqual(
-            module_dns_host("dagster", {"user-code": {}, "dagster-webserver": {}, "dagster-daemon": {}}),
+            module_dns_host(
+                "dagster",
+                {"user-code": {}, "dagster-webserver": {}, "dagster-daemon": {}},
+            ),
             "dagster",
         )
 
@@ -116,7 +122,9 @@ class ModuleDnsHostTest(unittest.TestCase):
 
     def test_namesake_service_matching_id_stays_the_id(self):
         self.assertEqual(
-            module_dns_host("postgres", {"postgres": {}, "postgres-backup": {}}, "postgres"),
+            module_dns_host(
+                "postgres", {"postgres": {}, "postgres-backup": {}}, "postgres"
+            ),
             "postgres",
         )
 
@@ -143,7 +151,10 @@ class ModuleServiceDnsNamesTest(unittest.TestCase):
     def test_each_service_maps_through_the_naming_rule(self):
         self.assertEqual(
             module_service_dns_names("lineage", {"marquez-api": {}, "marquez-web": {}}),
-            {"marquez-api": "lineage-marquez-api", "marquez-web": "lineage-marquez-web"},
+            {
+                "marquez-api": "lineage-marquez-api",
+                "marquez-web": "lineage-marquez-web",
+            },
         )
 
     def test_already_prefixed_service_is_not_duplicated(self):
@@ -166,7 +177,10 @@ class ResolveProvidedContractsHostTest(unittest.TestCase):
             _object_storage_provide("http://${service.dns}:3900"),
         )
         resolved = resolve_provided_contracts(inst)
-        self.assertEqual(resolved["object-storage"]["spec"]["endpoint"], "http://object-storage-garage:3900")
+        self.assertEqual(
+            resolved["object-storage"]["spec"]["endpoint"],
+            "http://object-storage-garage:3900",
+        )
 
     def test_service_host_stays_the_instance_id(self):
         # ${service.host} keeps the id semantics name prefixes rely on
@@ -179,7 +193,10 @@ class ResolveProvidedContractsHostTest(unittest.TestCase):
                     "name": "object-storage",
                     "contract": {
                         "kind": "object-storage",
-                        "spec": {"endpoint": "http://${service.dns}:3900", "region": "${service.host}"},
+                        "spec": {
+                            "endpoint": "http://${service.dns}:3900",
+                            "region": "${service.host}",
+                        },
                     },
                 }
             ],
@@ -194,7 +211,9 @@ class ResolveProvidedContractsHostTest(unittest.TestCase):
             _object_storage_provide("http://${service.dns}:3900"),
         )
         resolved = resolve_provided_contracts(inst)
-        self.assertEqual(resolved["object-storage"]["spec"]["endpoint"], "http://garage:3900")
+        self.assertEqual(
+            resolved["object-storage"]["spec"]["endpoint"], "http://garage:3900"
+        )
 
     def test_namesake_module_instance_resolves_the_serving_service(self):
         # postgres-style module: serving service matches the module name,
@@ -217,7 +236,9 @@ class ResolveProvidedContractsHostTest(unittest.TestCase):
             module_name="postgres",
         )
         resolved = resolve_provided_contracts(inst)
-        self.assertEqual(resolved["sql-database"]["spec"]["host"], "analytics-db-postgres")
+        self.assertEqual(
+            resolved["sql-database"]["spec"]["host"], "analytics-db-postgres"
+        )
         self.assertEqual(
             resolved["sql-database"]["spec"]["connectionUri"],
             "postgresql://u:p@analytics-db-postgres:5432/db",
@@ -265,16 +286,25 @@ class ResolveProvidedContractsHostTest(unittest.TestCase):
         ]
         services = {"marquez-api": {}, "marquez-web": {}}
 
-        resolved = resolve_provided_contracts(_instance("marquez", services, provides, module_name="marquez") | {"config": {"apiPort": 5000}})
+        resolved = resolve_provided_contracts(
+            _instance("marquez", services, provides, module_name="marquez")
+            | {"config": {"apiPort": 5000}}
+        )
         self.assertEqual(resolved["lineage-sink"]["spec"]["host"], "marquez-api")
         self.assertEqual(
             resolved["lineage-sink"]["spec"]["connectionUri"], "http://marquez-api:5000"
         )
 
-        resolved = resolve_provided_contracts(_instance("lineage", services, provides, module_name="marquez") | {"config": {"apiPort": 5000}})
-        self.assertEqual(resolved["lineage-sink"]["spec"]["host"], "lineage-marquez-api")
+        resolved = resolve_provided_contracts(
+            _instance("lineage", services, provides, module_name="marquez")
+            | {"config": {"apiPort": 5000}}
+        )
         self.assertEqual(
-            resolved["lineage-sink"]["spec"]["connectionUri"], "http://lineage-marquez-api:5000"
+            resolved["lineage-sink"]["spec"]["host"], "lineage-marquez-api"
+        )
+        self.assertEqual(
+            resolved["lineage-sink"]["spec"]["connectionUri"],
+            "http://lineage-marquez-api:5000",
         )
 
     def test_unknown_service_placeholder_stays_unresolved(self):
@@ -292,7 +322,9 @@ class ResolveProvidedContractsHostTest(unittest.TestCase):
             ],
         )
         resolved = resolve_provided_contracts(inst)
-        self.assertEqual(resolved["lineage-sink"]["spec"]["host"], "${service.services.marquez-web}")
+        self.assertEqual(
+            resolved["lineage-sink"]["spec"]["host"], "${service.services.marquez-web}"
+        )
 
 
 class ProvidedContractHostValidationTest(unittest.TestCase):
@@ -310,10 +342,14 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
                 }
             ]
         }
-        diagnostics = _validate_provided_contract_hosts(plan, {"superset": ["superset-init"]})
+        diagnostics = _validate_provided_contract_hosts(
+            plan, {"superset": ["superset-init"]}
+        )
         self.assertEqual([d.code for d in diagnostics], ["E150"])
         self.assertEqual(diagnostics[0].level, "error")
-        self.assertEqual(diagnostics[0].path, "module:superset.provides.http-service.spec.host")
+        self.assertEqual(
+            diagnostics[0].path, "module:superset.provides.http-service.spec.host"
+        )
         self.assertIn("not a compose service", diagnostics[0].message)
 
     def test_matching_host_passes(self):
@@ -330,7 +366,9 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
                 }
             ]
         }
-        self.assertEqual(_validate_provided_contract_hosts(plan, {"superset": ["superset"]}), [])
+        self.assertEqual(
+            _validate_provided_contract_hosts(plan, {"superset": ["superset"]}), []
+        )
 
     def test_service_name_maps_through_compose_naming_rule(self):
         plan = {
@@ -340,19 +378,26 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
                     "provides": {
                         "http-service": {
                             "kind": "http-service",
-                            "spec": {"host": "dagster", "serviceName": "dagster-webserver"},
+                            "spec": {
+                                "host": "dagster",
+                                "serviceName": "dagster-webserver",
+                            },
                         }
                     },
                 }
             ]
         }
-        rendered = {"dagster": ["dagster-user-code", "dagster-webserver", "dagster-daemon"]}
+        rendered = {
+            "dagster": ["dagster-user-code", "dagster-webserver", "dagster-daemon"]
+        }
         self.assertEqual(_validate_provided_contract_hosts(plan, rendered), [])
 
         broken = {"dagster": ["dagster-user-code", "dagster-daemon"]}
         diagnostics = _validate_provided_contract_hosts(plan, broken)
         self.assertEqual([d.code for d in diagnostics], ["E150"])
-        self.assertEqual(diagnostics[0].path, "module:dagster.provides.http-service.spec.serviceName")
+        self.assertEqual(
+            diagnostics[0].path, "module:dagster.provides.http-service.spec.serviceName"
+        )
 
     def test_sql_database_and_object_storage_hosts_are_checked(self):
         plan = {
@@ -372,7 +417,9 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
                 }
             ]
         }
-        diagnostics = _validate_provided_contract_hosts(plan, {"analytics-db": ["analytics-db-postgres"]})
+        diagnostics = _validate_provided_contract_hosts(
+            plan, {"analytics-db": ["analytics-db-postgres"]}
+        )
         self.assertEqual([d.code for d in diagnostics], ["E150", "E150"])
         self.assertEqual(
             [d.path for d in diagnostics],
@@ -402,7 +449,9 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
             ]
         }
         self.assertEqual(
-            _validate_provided_contract_hosts(plan, {"analytics-db": ["analytics-db-postgres"]}),
+            _validate_provided_contract_hosts(
+                plan, {"analytics-db": ["analytics-db-postgres"]}
+            ),
             [],
         )
 
@@ -427,7 +476,9 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
                 }
             ]
         }
-        self.assertEqual(_validate_provided_contract_hosts(plan, {"garage": ["garage"]}), [])
+        self.assertEqual(
+            _validate_provided_contract_hosts(plan, {"garage": ["garage"]}), []
+        )
         diagnostics = _validate_provided_contract_hosts(plan, {"garage": ["other"]})
         self.assertEqual([d.code for d in diagnostics], ["E150", "E150"])
         self.assertEqual(
@@ -456,7 +507,9 @@ class ProvidedContractHostValidationTest(unittest.TestCase):
                 }
             ]
         }
-        self.assertEqual(_validate_provided_contract_hosts(plan, {"garage": ["other"]}), [])
+        self.assertEqual(
+            _validate_provided_contract_hosts(plan, {"garage": ["other"]}), []
+        )
 
     def test_module_without_rendered_services_is_skipped(self):
         plan = {
@@ -507,10 +560,15 @@ class SinkContractHostValidationTest(unittest.TestCase):
         )
 
     def test_connection_uri_alone_can_fail(self):
-        plan = self._plan({"host": "marquez-api", "connectionUri": "http://marquez:5000"})
+        plan = self._plan(
+            {"host": "marquez-api", "connectionUri": "http://marquez:5000"}
+        )
         diagnostics = _validate_provided_contract_hosts(plan, self._RENDERED)
         self.assertEqual([d.code for d in diagnostics], ["E150"])
-        self.assertEqual(diagnostics[0].path, "module:marquez.provides.lineage-sink.spec.connectionUri")
+        self.assertEqual(
+            diagnostics[0].path,
+            "module:marquez.provides.lineage-sink.spec.connectionUri",
+        )
 
     def test_service_name_maps_through_compose_naming_rule(self):
         plan = self._plan(
@@ -523,7 +581,9 @@ class SinkContractHostValidationTest(unittest.TestCase):
         broken = self._plan({"host": "marquez-api", "serviceName": "marquez-web-extra"})
         diagnostics = _validate_provided_contract_hosts(broken, self._RENDERED)
         self.assertEqual([d.code for d in diagnostics], ["E150"])
-        self.assertEqual(diagnostics[0].path, "module:marquez.provides.lineage-sink.spec.serviceName")
+        self.assertEqual(
+            diagnostics[0].path, "module:marquez.provides.lineage-sink.spec.serviceName"
+        )
 
     def test_fixed_marquez_shape_passes(self):
         plan = self._plan(
@@ -537,12 +597,19 @@ class SinkContractHostValidationTest(unittest.TestCase):
         self.assertEqual(_validate_provided_contract_hosts(plan, self._RENDERED), [])
 
     def test_log_sink_kind_is_checked_too(self):
-        plan = self._plan({"host": "marquez", "connectionUri": "http://marquez:3100"}, kind="log-sink")
+        plan = self._plan(
+            {"host": "marquez", "connectionUri": "http://marquez:3100"}, kind="log-sink"
+        )
         diagnostics = _validate_provided_contract_hosts(plan, self._RENDERED)
         self.assertEqual([d.code for d in diagnostics], ["E150", "E150"])
 
     def test_external_sink_hosts_are_skipped(self):
-        plan = self._plan({"host": "loki.example.com", "connectionUri": "https://loki.example.com:3100"})
+        plan = self._plan(
+            {
+                "host": "loki.example.com",
+                "connectionUri": "https://loki.example.com:3100",
+            }
+        )
         self.assertEqual(_validate_provided_contract_hosts(plan, self._RENDERED), [])
 
     def test_scheme_less_sink_host_and_connection_uri_are_checked(self):
@@ -551,7 +618,10 @@ class SinkContractHostValidationTest(unittest.TestCase):
         plan = self._plan({"host": "marquez-api:5000", "connectionUri": "marquez:5000"})
         diagnostics = _validate_provided_contract_hosts(plan, self._RENDERED)
         self.assertEqual([d.code for d in diagnostics], ["E150"])
-        self.assertEqual(diagnostics[0].path, "module:marquez.provides.lineage-sink.spec.connectionUri")
+        self.assertEqual(
+            diagnostics[0].path,
+            "module:marquez.provides.lineage-sink.spec.connectionUri",
+        )
 
 
 class GarageCustomInstanceIdTest(unittest.TestCase):
@@ -596,7 +666,16 @@ class GarageCustomInstanceIdTest(unittest.TestCase):
         self.assertIn("object-storage-garage", compose["services"])
 
 
-_CHECKED_KINDS = {"http-service", "sql-database", "cache-service", "object-storage", "lineage-sink", "log-sink", "metrics-sink", "trace-sink"}
+_CHECKED_KINDS = {
+    "http-service",
+    "sql-database",
+    "cache-service",
+    "object-storage",
+    "lineage-sink",
+    "log-sink",
+    "metrics-sink",
+    "trace-sink",
+}
 _SINK_KINDS = {"lineage-sink", "log-sink", "metrics-sink", "trace-sink"}
 _HOST_FIELDS = ("host", "endpoint", "connectionUri")
 
@@ -622,7 +701,9 @@ class ModuleYamlDnsMigrationTest(unittest.TestCase):
                 doc = yaml.safe_load(path.read_text(encoding="utf-8"))
                 spec = doc.get("spec") or {}
                 module_name = str((doc.get("metadata") or {}).get("name") or "")
-                services = ((spec.get("implementation") or {}).get("compose") or {}).get("services") or {}
+                services = (
+                    (spec.get("implementation") or {}).get("compose") or {}
+                ).get("services") or {}
                 if isinstance(services, dict):
                     yield path, module_name, services, spec
 
@@ -645,7 +726,9 @@ class ModuleYamlDnsMigrationTest(unittest.TestCase):
                     if not isinstance(value, str) or "${service." not in value:
                         continue
                     if "${service.host}" in value:
-                        offenders.append(f"{path}:{provided.get('name')}.{field} uses ${{service.host}}")
+                        offenders.append(
+                            f"{path}:{provided.get('name')}.{field} uses ${{service.host}}"
+                        )
                     elif "${service.dns}" in value:
                         continue
                     elif _targets_advertised_service(value, fields):
@@ -656,7 +739,9 @@ class ModuleYamlDnsMigrationTest(unittest.TestCase):
                         # service (#1076).
                         continue
                     elif serving:
-                        offenders.append(f"{path}:{provided.get('name')}.{field} uses neither placeholder")
+                        offenders.append(
+                            f"{path}:{provided.get('name')}.{field} uses neither placeholder"
+                        )
         self.assertEqual(offenders, [])
 
     def test_multi_service_sink_providers_use_per_service_placeholder(self):
@@ -682,7 +767,9 @@ class ModuleYamlDnsMigrationTest(unittest.TestCase):
                             f"{path}:{provided.get('name')}.{field} uses instance id, not ${{service.services.<name>}}"
                         )
                     elif "${service.services." not in value:
-                        offenders.append(f"{path}:{provided.get('name')}.{field} uses neither placeholder")
+                        offenders.append(
+                            f"{path}:{provided.get('name')}.{field} uses neither placeholder"
+                        )
         self.assertEqual(offenders, [])
 
 

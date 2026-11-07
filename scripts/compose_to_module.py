@@ -45,7 +45,9 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MODULE_SCHEMA_PATH = REPO_ROOT / "cli" / "resources" / "module.schema.json"
 
-_SECRET_NAME_HINT = re.compile(r"(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|APIKEY|API_KEY)", re.IGNORECASE)
+_SECRET_NAME_HINT = re.compile(
+    r"(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|APIKEY|API_KEY)", re.IGNORECASE
+)
 _ENV_INTERPOLATION = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)(:-[^}]*)?\}$")
 _MODULE_ID_PATTERN = re.compile(r"^[a-z0-9-]+$")
 _KNOWN_PORT_NAMES = {
@@ -95,11 +97,17 @@ def _find_existing_contract_providers(contract_kind: str) -> list[str]:
             continue
         if not isinstance(data, dict):
             continue
-        provides = data.get("spec", {}).get("provides", []) if isinstance(data.get("spec"), dict) else []
+        provides = (
+            data.get("spec", {}).get("provides", [])
+            if isinstance(data.get("spec"), dict)
+            else []
+        )
         for entry in provides if isinstance(provides, list) else []:
             contract = entry.get("contract", {}) if isinstance(entry, dict) else {}
             if isinstance(contract, dict) and contract.get("kind") == contract_kind:
-                providers.append(f"{module_file.parent.parent.name}/{module_file.parent.name}")
+                providers.append(
+                    f"{module_file.parent.parent.name}/{module_file.parent.name}"
+                )
                 break
     return providers
 
@@ -246,20 +254,30 @@ class ModuleScaffold:
             else:
                 rewritten_ports.append(str(container_port))
             self.service_ports.append(
-                {"name": field_name.removesuffix("Port") or field_name, "containerPort": container_port, "protocol": protocol}
+                {
+                    "name": field_name.removesuffix("Port") or field_name,
+                    "containerPort": container_port,
+                    "protocol": protocol,
+                }
             )
         if rewritten_ports:
             service_def["ports"] = rewritten_ports
 
         rewritten_env: dict[str, Any] = {}
         for env_key, env_value in env.items():
-            rewritten_env[env_key] = self._resolve_env_value(service_key, env_key, env_value)
+            rewritten_env[env_key] = self._resolve_env_value(
+                service_key, env_key, env_value
+            )
         if rewritten_env:
             service_def["environment"] = rewritten_env
 
         depends_on = service_def.get("depends_on")
         if isinstance(depends_on, (dict, list)):
-            dep_names = list(depends_on.keys()) if isinstance(depends_on, dict) else list(depends_on)
+            dep_names = (
+                list(depends_on.keys())
+                if isinstance(depends_on, dict)
+                else list(depends_on)
+            )
             external = [d for d in dep_names if d not in self.service_keys]
             for dep_name in external:
                 self._flag_external_dependency(service_key, dep_name)
@@ -271,7 +289,9 @@ class ModuleScaffold:
             # binding; keep only dependencies on services included in this
             # same scaffold.
             if isinstance(depends_on, dict):
-                filtered_depends_on = {k: v for k, v in depends_on.items() if k in self.service_keys}
+                filtered_depends_on = {
+                    k: v for k, v in depends_on.items() if k in self.service_keys
+                }
             else:
                 filtered_depends_on = [d for d in depends_on if d in self.service_keys]
             if filtered_depends_on:
@@ -298,7 +318,14 @@ class ModuleScaffold:
         image = str(dep_def.get("image", "")) if isinstance(dep_def, dict) else ""
         image_name = image.split(":", 1)[0].rsplit("/", 1)[-1].lower()
 
-        contract_kind = next((kind for prefix, kind in _KNOWN_INFRA_CONTRACTS.items() if prefix in image_name), None)
+        contract_kind = next(
+            (
+                kind
+                for prefix, kind in _KNOWN_INFRA_CONTRACTS.items()
+                if prefix in image_name
+            ),
+            None,
+        )
         if contract_kind is None:
             self.add_todo(
                 f"Service '{service_key}' depends_on external service '{dep_name}' not included in this module "
@@ -311,9 +338,7 @@ class ModuleScaffold:
         if providers:
             provider_hint = f"an existing provider module already in this repo: {', '.join(providers)}"
         else:
-            provider_hint = (
-                f"shared/contracts/{contract_kind}.yaml (no provider module found yet -- check before adding one)"
-            )
+            provider_hint = f"shared/contracts/{contract_kind}.yaml (no provider module found yet -- check before adding one)"
         self.add_todo(
             f"Service '{service_key}' depends_on '{dep_name}' (image={image or 'unknown'!r}), which looks like a "
             f"plain, un-hardened '{contract_kind}' container -- likely on an old pinned tag from the original "
@@ -329,15 +354,23 @@ class ModuleScaffold:
             match = _ENV_INTERPOLATION.match(value.strip())
             if match:
                 var_name = match.group(1)
-                if _SECRET_NAME_HINT.search(var_name) or _SECRET_NAME_HINT.search(env_key):
-                    secret_field = field_name if field_name.endswith("From") else f"{field_name}From"
+                if _SECRET_NAME_HINT.search(var_name) or _SECRET_NAME_HINT.search(
+                    env_key
+                ):
+                    secret_field = (
+                        field_name
+                        if field_name.endswith("From")
+                        else f"{field_name}From"
+                    )
                     # Dedupe across merged services: without this, a second
                     # service defining its own same-named env var (e.g. both
                     # a webserver and a worker each with their own
                     # DB_PASSWORD) would silently overwrite the first
                     # service's config property and rewire both services'
                     # environments to whichever secret was seen last.
-                    secret_field = _dedupe_field_name(set(self.config_properties), secret_field)
+                    secret_field = _dedupe_field_name(
+                        set(self.config_properties), secret_field
+                    )
                     self.config_properties[secret_field] = {
                         "type": "string",
                         "pattern": "^secrets\\.[a-zA-Z0-9_-]+$",
@@ -377,7 +410,11 @@ class ModuleScaffold:
         if value is None:
             self.config_properties.setdefault(
                 field_name,
-                {"type": "string", "default": "", "description": f"Value for {service_key}'s {env_key} environment variable."},
+                {
+                    "type": "string",
+                    "default": "",
+                    "description": f"Value for {service_key}'s {env_key} environment variable.",
+                },
             )
             return f"${{config.{field_name}}}"
 
@@ -402,7 +439,9 @@ class ModuleScaffold:
         if self.config_required:
             # Stable order, no duplicates, required fields first for readability.
             seen: set[str] = set()
-            ordered_required = [r for r in self.config_required if not (r in seen or seen.add(r))]
+            ordered_required = [
+                r for r in self.config_required if not (r in seen or seen.add(r))
+            ]
             config_schema["required"] = ordered_required
         config_schema["properties"] = self.config_properties
 
@@ -447,7 +486,9 @@ def _default_output_path(category: str, name: str) -> Path:
     output_path = REPO_ROOT / "modules" / category / name / "module.yaml"
     modules_root = (REPO_ROOT / "modules").resolve()
     if not output_path.resolve().is_relative_to(modules_root):
-        raise ScaffoldError(f"derived output path escapes the modules tree: {output_path}")
+        raise ScaffoldError(
+            f"derived output path escapes the modules tree: {output_path}"
+        )
     return output_path
 
 
@@ -459,7 +500,9 @@ def _load_compose(compose_path: Path) -> dict[str, Any]:
     except yaml.YAMLError as exc:
         raise ScaffoldError(f"cannot parse {compose_path} as YAML: {exc}") from exc
     if not isinstance(data, dict) or "services" not in data:
-        raise ScaffoldError(f"{compose_path} does not look like a docker-compose file (no top-level 'services:')")
+        raise ScaffoldError(
+            f"{compose_path} does not look like a docker-compose file (no top-level 'services:')"
+        )
     return data
 
 
@@ -480,12 +523,16 @@ def _self_check(module: dict[str, Any]) -> list[str]:
     try:
         from jsonschema import Draft202012Validator
     except ImportError:
-        return ["jsonschema not installed -- skipped schema self-check (pip install -e .[dev])"]
+        return [
+            "jsonschema not installed -- skipped schema self-check (pip install -e .[dev])"
+        ]
 
     schema = json.loads(MODULE_SCHEMA_PATH.read_text(encoding="utf-8"))
     validator = Draft202012Validator(schema)
     errors = sorted(validator.iter_errors(module), key=lambda e: list(e.path))
-    return [f"{'/'.join(str(p) for p in e.path) or '<root>'}: {e.message}" for e in errors]
+    return [
+        f"{'/'.join(str(p) for p in e.path) or '<root>'}: {e.message}" for e in errors
+    ]
 
 
 def build_scaffold(
@@ -501,15 +548,24 @@ def build_scaffold(
             f"service(s) not found in compose file: {missing!r}. Available: {sorted(services)!r}"
         )
 
-    scaffold = ModuleScaffold(name=name, category=category, service_keys=service_keys, all_services=services)
+    scaffold = ModuleScaffold(
+        name=name, category=category, service_keys=service_keys, all_services=services
+    )
     for key in service_keys:
         scaffold.process_service(key, services[key])
     return scaffold
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--compose", required=True, type=Path, help="Path to the source docker-compose.yaml")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--compose",
+        required=True,
+        type=Path,
+        help="Path to the source docker-compose.yaml",
+    )
     parser.add_argument(
         "--service",
         action="append",
@@ -517,13 +573,23 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="Compose service key to include; repeat to merge several services into one module",
     )
-    parser.add_argument("--name", required=True, help="Module name (metadata.name / modules/<category>/<name>/)")
-    parser.add_argument("--category", required=True, help="Module category (metadata.category), e.g. warehouse, bi")
+    parser.add_argument(
+        "--name",
+        required=True,
+        help="Module name (metadata.name / modules/<category>/<name>/)",
+    )
+    parser.add_argument(
+        "--category",
+        required=True,
+        help="Module category (metadata.category), e.g. warehouse, bi",
+    )
     parser.add_argument(
         "--output",
         help="Output path for module.yaml (default: modules/<category>/<name>/module.yaml). Use '-' for stdout.",
     )
-    parser.add_argument("--force", action="store_true", help="Overwrite an existing output file")
+    parser.add_argument(
+        "--force", action="store_true", help="Overwrite an existing output file"
+    )
     args = parser.parse_args(argv)
 
     for flag, value in (("--name", args.name), ("--category", args.category)):
@@ -546,14 +612,19 @@ def main(argv: list[str] | None = None) -> int:
         else:
             output_path = _default_output_path(args.category, args.name)
         if output_path.exists() and not args.force:
-            raise ScaffoldError(f"{output_path} already exists (pass --force to overwrite)")
+            raise ScaffoldError(
+                f"{output_path} already exists (pass --force to overwrite)"
+            )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(rendered, encoding="utf-8")
         print(f"Wrote {output_path}", file=sys.stderr)
 
     schema_errors = _self_check(module)
     if schema_errors:
-        print("\nSchema self-check found issues (fix these before `cds validate`):", file=sys.stderr)
+        print(
+            "\nSchema self-check found issues (fix these before `cds validate`):",
+            file=sys.stderr,
+        )
         for err in schema_errors:
             print(f"  - {err}", file=sys.stderr)
 

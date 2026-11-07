@@ -16,7 +16,9 @@ def _load_definitions_module():
     sys.modules["psycopg2.sql"] = unittest.mock.MagicMock()
     sys.modules["psycopg2.extras"] = unittest.mock.MagicMock()
 
-    spec = importlib.util.spec_from_file_location("cds_dagster_definitions", DEFINITIONS_PATH)
+    spec = importlib.util.spec_from_file_location(
+        "cds_dagster_definitions", DEFINITIONS_PATH
+    )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

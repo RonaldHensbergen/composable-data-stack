@@ -15,9 +15,7 @@ class K8sE2eWorkflowTest(unittest.TestCase):
     def test_runs_on_pull_requests_and_pushes_with_same_path_filter(self) -> None:
         triggers = self.workflow.get("on", self.workflow.get(True))
 
-        self.assertEqual(
-            triggers["push"]["paths"], triggers["pull_request"]["paths"]
-        )
+        self.assertEqual(triggers["push"]["paths"], triggers["pull_request"]["paths"])
         paths = triggers["pull_request"]["paths"]
         for required in (
             "scripts/k8s/**",

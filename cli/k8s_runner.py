@@ -1,4 +1,5 @@
 """Bounded Helm lifecycle operations for the Kubernetes render target."""
+
 from __future__ import annotations
 
 import json
@@ -82,7 +83,11 @@ def _validate_timeout(value: float) -> int:
     Returns a newly constructed ``int`` (rather than the original tainted
     object) clamped to at least 1 second.
     """
-    if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+    ):
         raise ValueError(f"invalid timeout: {value!r} is not a finite number")
     return max(1, int(value))
 
@@ -145,7 +150,9 @@ def helm_up(
     ]
 
     try:
-        result = run_streamed(command, log_file, use_color=use_color, timeout=timeout + 30)
+        result = run_streamed(
+            command, log_file, use_color=use_color, timeout=timeout + 30
+        )
     finally:
         secret_path.unlink(missing_ok=True)
     if result != 0 or detach:
@@ -166,7 +173,11 @@ def helm_up(
         redraw_fn=redraw_fn,
     )
     if not settled:
-        unhealthy = [name for bucket in ("UNHEALTHY", "UNHEALTHY EXIT") for name in grouped.get(bucket, [])]
+        unhealthy = [
+            name
+            for bucket in ("UNHEALTHY", "UNHEALTHY EXIT")
+            for name in grouped.get(bucket, [])
+        ]
         log_file.write(
             f"helm release {release} did not settle within {timeout:.0f}s"
             + (f"; unhealthy: {', '.join(unhealthy)}" if unhealthy else "")
@@ -202,6 +213,7 @@ def poll_k8s_state_until_settled(
     `get_k8s_state(namespace, release, kube_context)` call.
     """
     if fetch_fn is None:
+
         def fetch_fn() -> list[dict[str, Any]]:
             return get_k8s_state(namespace, release, kube_context)
 
@@ -310,7 +322,9 @@ def _secret_values(plan: dict[str, Any]) -> dict[str, str]:
     )
     missing = [name for name in env_names if not os.environ.get(name)]
     if missing:
-        raise ValueError("missing required environment variables: " + ", ".join(missing))
+        raise ValueError(
+            "missing required environment variables: " + ", ".join(missing)
+        )
     return {name: os.environ[name] for name in env_names}
 
 
@@ -397,7 +411,7 @@ def check_operator_crds(
                 timeout=30,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired):
+        except OSError, subprocess.TimeoutExpired:
             check_ok = False
             continue
         if result.returncode == 0:

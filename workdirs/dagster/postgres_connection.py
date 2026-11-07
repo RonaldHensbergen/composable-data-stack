@@ -7,6 +7,7 @@ only the dagster-specific event persistence stayed behind in this
 workdir. The legacy helper remains available in the images for
 compatibility but is deprecated.
 """
+
 import json
 import sys
 from datetime import UTC, datetime

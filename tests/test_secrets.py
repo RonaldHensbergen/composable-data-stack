@@ -60,7 +60,9 @@ class LoadSecretsFromEnvRegressionTest(unittest.TestCase):
     def test_line_without_equals_sign_reports_w090_warning_and_is_skipped(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
-            env_file.write_text("CDS_OK=value\nthis-line-has-no-equals\n", encoding="utf-8")
+            env_file.write_text(
+                "CDS_OK=value\nthis-line-has-no-equals\n", encoding="utf-8"
+            )
 
             with mock.patch.dict("os.environ", {}, clear=True):
                 secrets, diagnostics = load_secrets_from_env(env_file)
@@ -74,7 +76,7 @@ class LoadSecretsFromEnvRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
             env_file.write_text(
-                'CDS_DOUBLE="double-quoted"\nCDS_SINGLE=\'single-quoted\'\n',
+                "CDS_DOUBLE=\"double-quoted\"\nCDS_SINGLE='single-quoted'\n",
                 encoding="utf-8",
             )
 
@@ -89,7 +91,9 @@ class LoadSecretsFromEnvRegressionTest(unittest.TestCase):
 
 class ResolveSecretTest(unittest.TestCase):
     def test_returns_value_when_key_present(self):
-        value, diagnostic = resolve_secret("CDS_DB_PASSWORD", {"CDS_DB_PASSWORD": "secret"})
+        value, diagnostic = resolve_secret(
+            "CDS_DB_PASSWORD", {"CDS_DB_PASSWORD": "secret"}
+        )
         self.assertEqual(value, "secret")
         self.assertIsNone(diagnostic)
 
@@ -135,7 +139,8 @@ class LoadProfileSecretsTest(unittest.TestCase):
             missing_env_file = Path(tmpdir) / ".env"
             with mock.patch.dict("os.environ", {}, clear=True):
                 secrets, diagnostics = load_profile_secrets(
-                    {"values": {"db_password": {"required": True}}}, env_file=missing_env_file
+                    {"values": {"db_password": {"required": True}}},
+                    env_file=missing_env_file,
                 )
 
         self.assertNotIn("db_password", secrets)

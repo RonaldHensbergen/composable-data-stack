@@ -5,6 +5,7 @@ dagster workdir's cds-runtime-based postgres_connection module, both
 against SQLite through cds-runtime's env mapping — the same
 application code that runs in the dagster and dlt containers.
 """
+
 import importlib.util
 import sys
 import tempfile
@@ -31,12 +32,16 @@ def _load_from_path(name: str, file_path: Path):
     return module
 
 
-@unittest.skipIf(not SQLALCHEMY_AVAILABLE, "SQLAlchemy is not installed in this environment")
+@unittest.skipIf(
+    not SQLALCHEMY_AVAILABLE, "SQLAlchemy is not installed in this environment"
+)
 class DbRoundtripExampleTest(unittest.TestCase):
     """The shared workload runs unchanged wherever a named connection exists."""
 
     def _roundtrip(self, marker: str) -> str:
-        module = _load_from_path("cds_db_roundtrip_test", REPO_ROOT / "workdirs" / "db_roundtrip.py")
+        module = _load_from_path(
+            "cds_db_roundtrip_test", REPO_ROOT / "workdirs" / "db_roundtrip.py"
+        )
         return module.roundtrip("example", marker)
 
     def test_roundtrip_writes_and_reads_back(self):
@@ -44,7 +49,9 @@ class DbRoundtripExampleTest(unittest.TestCase):
             import os
 
             old = os.environ.get("CDS_DB_EXAMPLE_SQLITE_PATH")
-            os.environ["CDS_DB_EXAMPLE_SQLITE_PATH"] = str(Path(tmpdir) / "roundtrip.db")
+            os.environ["CDS_DB_EXAMPLE_SQLITE_PATH"] = str(
+                Path(tmpdir) / "roundtrip.db"
+            )
             try:
                 marker = "hello-from-the-example-workload"
                 self.assertEqual(self._roundtrip(marker), marker)
@@ -74,7 +81,9 @@ class DbRoundtripExampleTest(unittest.TestCase):
         )
 
 
-@unittest.skipIf(not SQLALCHEMY_AVAILABLE, "SQLAlchemy is not installed in this environment")
+@unittest.skipIf(
+    not SQLALCHEMY_AVAILABLE, "SQLAlchemy is not installed in this environment"
+)
 class DagsterPostgresConnectionMigrationTest(unittest.TestCase):
     """The dagster workdir's cds-runtime module replaces the legacy helper."""
 
@@ -97,9 +106,13 @@ class DagsterPostgresConnectionMigrationTest(unittest.TestCase):
         saved = {key: os.environ.get(key) for key in self.env}
         os.environ.update(self.env)
         try:
-            db = self.module.connections.database("analytics", prefix="CDS_ANALYTICS_DB", env=self.env)
+            db = self.module.connections.database(
+                "analytics", prefix="CDS_ANALYTICS_DB", env=self.env
+            )
             self.assertTrue(db.connection_uri.startswith("sqlite:///"))
-            self.assertEqual(self.module.get_postgres_connection_uri(), db.connection_uri)
+            self.assertEqual(
+                self.module.get_postgres_connection_uri(), db.connection_uri
+            )
             db.close()
         finally:
             for key, value in saved.items():
@@ -111,22 +124,30 @@ class DagsterPostgresConnectionMigrationTest(unittest.TestCase):
     def test_insert_incoming_file_event_persists_and_snapshots(self):
         payload = {"event": "test-event", "file_name": "x.csv", "row_count": 3}
         self.module.insert_incoming_file_event(payload, "cds_ingestion", env=self.env)
-        db = self.module.connections.database("analytics", prefix="CDS_ANALYTICS_DB", env=self.env)
+        db = self.module.connections.database(
+            "analytics", prefix="CDS_ANALYTICS_DB", env=self.env
+        )
         rows = db.fetch_all("SELECT event_type, asset_key FROM incoming_file_events")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["event_type"], "test-event")
         self.assertEqual(rows[0]["asset_key"], "cds_ingestion")
-        snapshot = Path(self.env["CDS_LOCAL_EVENT_LOG_PATH"]).read_text(encoding="utf-8")
+        snapshot = Path(self.env["CDS_LOCAL_EVENT_LOG_PATH"]).read_text(
+            encoding="utf-8"
+        )
         self.assertIn("test-event", snapshot)
         db.close()
 
     def test_insert_incoming_file_event_without_configuration_only_snapshots(self):
         payload = {"event": "no-db", "file_name": "y.csv"}
-        self.module.insert_incoming_file_event(payload, "cds_ingestion", env={
-            **self.env,
-            "CDS_ANALYTICS_DB_SQLITE_PATH": "",
-            "CDS_ANALYTICS_DB_BACKEND": "",
-        })
+        self.module.insert_incoming_file_event(
+            payload,
+            "cds_ingestion",
+            env={
+                **self.env,
+                "CDS_ANALYTICS_DB_SQLITE_PATH": "",
+                "CDS_ANALYTICS_DB_BACKEND": "",
+            },
+        )
         self.assertTrue(Path(self.env["CDS_LOCAL_EVENT_LOG_PATH"]).exists())
 
     def test_postgres_dialect_detection_covers_every_driver_spelling(self):

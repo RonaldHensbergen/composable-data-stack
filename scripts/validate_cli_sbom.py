@@ -14,6 +14,7 @@ Validates, independently of any particular SBOM *generator*:
 - every directly-declared runtime dependency in `pyproject.toml` appears as
   a component somewhere in the SBOM.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -76,9 +77,7 @@ def validate_sbom(
     problems: list[str] = []
 
     if sbom.get("bomFormat") != "CycloneDX":
-        problems.append(
-            f"bomFormat is {sbom.get('bomFormat')!r}, expected 'CycloneDX'"
-        )
+        problems.append(f"bomFormat is {sbom.get('bomFormat')!r}, expected 'CycloneDX'")
 
     if not sbom.get("specVersion"):
         problems.append("specVersion is missing")
@@ -112,7 +111,8 @@ def validate_sbom(
     ]
     if missing:
         problems.append(
-            "direct runtime dependencies missing from SBOM components: " + ", ".join(sorted(missing))
+            "direct runtime dependencies missing from SBOM components: "
+            + ", ".join(sorted(missing))
         )
 
     return problems
@@ -120,7 +120,9 @@ def validate_sbom(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sbom", required=True, type=Path, help="Path to the CycloneDX SBOM JSON file")
+    parser.add_argument(
+        "--sbom", required=True, type=Path, help="Path to the CycloneDX SBOM JSON file"
+    )
     parser.add_argument(
         "--pyproject",
         type=Path,

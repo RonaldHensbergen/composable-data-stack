@@ -18,21 +18,20 @@ def _find_cds() -> list[str]:
     """
     # Try to find cds in virtual environment (cross-platform)
     venv_dir = _REPO_ROOT / ".venv"
-    
+
     # On Windows: .venv\Scripts\cds.exe
     if sys.platform == "win32":
         venv_cds = venv_dir / "Scripts" / "cds.exe"
     else:
         # On Unix-like systems: .venv/bin/cds
         venv_cds = venv_dir / "bin" / "cds"
-    
+
     if venv_cds.exists():
         return [str(venv_cds)]
     return [sys.executable, "-m", "cli.main"]
 
 
 class TestCDSWorkflow(unittest.TestCase):
-
     @classmethod
     def setUpClass(cls):
         cls.cds = _find_cds()
@@ -83,7 +82,8 @@ class TestCDSWorkflow(unittest.TestCase):
                 env = env_with_profile if not use_profile else None
                 result = self._run(cmd, *extra_args, extra_env=env)
                 self.assertEqual(
-                    result.returncode, 0,
+                    result.returncode,
+                    0,
                     f"cds {cmd} {' '.join(extra_args)} failed:\n"
                     f"stdout: {result.stdout}\nstderr: {result.stderr}",
                 )
@@ -107,7 +107,8 @@ class TestCDSWorkflow(unittest.TestCase):
                 env = env_with_profile if not use_profile_arg else None
                 result = self._run("test", *extra_args, extra_env=env)
                 self.assertEqual(
-                    result.returncode, 1,
+                    result.returncode,
+                    1,
                     f"cds test {' '.join(extra_args)} exited "
                     f"{result.returncode}, expected 1 (security stage is "
                     f"expected to fail against this profile's committed "
@@ -121,7 +122,8 @@ class TestCDSWorkflow(unittest.TestCase):
                     ("render", "PASS"),
                 ):
                     self.assertIn(
-                        f"[{status}] {stage}", result.stdout,
+                        f"[{status}] {stage}",
+                        result.stdout,
                         f"cds test {' '.join(extra_args)} did not report "
                         f"[{status}] {stage}:\nstdout: {result.stdout}",
                     )
@@ -158,17 +160,21 @@ class ProductionPlaintextExposureWorkflowTest(unittest.TestCase):
         with self.subTest(case="valid tls reverse proxy"):
             result = self._run_test("profile-with-tls")
             self.assertEqual(
-                result.returncode, 0,
+                result.returncode,
+                0,
                 f"expected pass with TLS reverse proxy:\nstdout: {result.stdout}\nstderr: {result.stderr}",
             )
             for stage in ("validate", "security", "plan", "render"):
                 self.assertIn(f"[PASS] {stage}", result.stdout)
             self.assertNotIn("CDS-SEC-074", result.stdout)
 
-        with self.subTest(case="wired tls reverse proxy but backend still publishes its own port"):
+        with self.subTest(
+            case="wired tls reverse proxy but backend still publishes its own port"
+        ):
             result = self._run_test("profile-with-tls-and-public-backend")
             self.assertEqual(
-                result.returncode, 1,
+                result.returncode,
+                1,
                 "a plaintext backend that keeps its own non-localhost host "
                 "publish is still directly reachable, bypassing the proxy, "
                 f"even when fronted by a wired TLS reverse-proxy:\nstdout: {result.stdout}\nstderr: {result.stderr}",
@@ -179,7 +185,8 @@ class ProductionPlaintextExposureWorkflowTest(unittest.TestCase):
         with self.subTest(case="missing tls reverse proxy"):
             result = self._run_test("profile-missing-tls")
             self.assertEqual(
-                result.returncode, 1,
+                result.returncode,
+                1,
                 f"expected failure without TLS reverse proxy:\nstdout: {result.stdout}\nstderr: {result.stderr}",
             )
             self.assertIn("[FAIL] security", result.stdout)
@@ -188,17 +195,21 @@ class ProductionPlaintextExposureWorkflowTest(unittest.TestCase):
         with self.subTest(case="waived plaintext exposure"):
             result = self._run_test("profile-waived-plaintext")
             self.assertEqual(
-                result.returncode, 0,
+                result.returncode,
+                0,
                 f"expected pass with explicit waiver:\nstdout: {result.stdout}\nstderr: {result.stderr}",
             )
             self.assertIn("[PASS] security", result.stdout)
             self.assertIn("W098", result.stderr)
             self.assertNotIn("CDS-SEC-074", result.stdout)
 
-        with self.subTest(case="unrelated tls reverse proxy does not front the plaintext module"):
+        with self.subTest(
+            case="unrelated tls reverse proxy does not front the plaintext module"
+        ):
             result = self._run_test("profile-unrelated-tls")
             self.assertEqual(
-                result.returncode, 1,
+                result.returncode,
+                1,
                 "an https reverse-proxy present in the plan but not wired "
                 "(via consumes/mappedFrom) to the plaintext module must not "
                 f"suppress the finding:\nstdout: {result.stdout}\nstderr: {result.stderr}",
@@ -206,10 +217,13 @@ class ProductionPlaintextExposureWorkflowTest(unittest.TestCase):
             self.assertIn("[FAIL] security", result.stdout)
             self.assertIn("CDS-SEC-074", result.stdout)
 
-        with self.subTest(case="waiver declared on a non-prod profile has no effect and is not silent"):
+        with self.subTest(
+            case="waiver declared on a non-prod profile has no effect and is not silent"
+        ):
             result = self._run_test("profile-waived-plaintext-non-prod")
             self.assertEqual(
-                result.returncode, 0,
+                result.returncode,
+                0,
                 f"non-prod profiles are not subject to CDS-SEC-074:\nstdout: {result.stdout}\nstderr: {result.stderr}",
             )
             self.assertIn("[PASS] security", result.stdout)

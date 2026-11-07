@@ -6,6 +6,7 @@ plans, and renders to docker-compose without errors, publishing the
 identity provider (OIDC), edge (reverse proxy), and database output
 contracts of the Haven-aligned reference shape.
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -97,17 +98,25 @@ class LocalHavenReferenceProfileTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output = Path(tmpdir) / "docker-compose.yml"
-            _, render_diags = render_compose(plan, output_path=str(output), env_file=str(self.env_file))
+            _, render_diags = render_compose(
+                plan, output_path=str(output), env_file=str(self.env_file)
+            )
             self.assertEqual([d for d in render_diags if d.level == "error"], [])
-            routes_file = Path(tmpdir) / "traefik" / "dynamic" / "cds-routes-traefik.yml"
-            self.assertTrue(routes_file.is_file(), f"missing generated routes file {routes_file}")
+            routes_file = (
+                Path(tmpdir) / "traefik" / "dynamic" / "cds-routes-traefik.yml"
+            )
+            self.assertTrue(
+                routes_file.is_file(), f"missing generated routes file {routes_file}"
+            )
             document = yaml.safe_load(routes_file.read_text(encoding="utf-8"))
             router = document["http"]["routers"]["cds-route-0-default"]
             self.assertEqual(router["rule"], "PathPrefix(`/`)")
             self.assertEqual(router["entryPoints"], ["websecure"])
             self.assertEqual(router["tls"], {})
             self.assertEqual(
-                document["http"]["services"]["cds-service-keycloak"]["loadBalancer"]["servers"],
+                document["http"]["services"]["cds-service-keycloak"]["loadBalancer"][
+                    "servers"
+                ],
                 [{"url": "http://keycloak:8080"}],
             )
 

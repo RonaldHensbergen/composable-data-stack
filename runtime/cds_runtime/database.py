@@ -1,4 +1,5 @@
 """The DatabaseConnection object: provider-neutral operations over one named connection."""
+
 from __future__ import annotations
 
 import importlib
@@ -106,12 +107,19 @@ class DatabaseConnection:
                 f"{self._redacted_message(exc)}."
             ) from exc
 
-    def fetch_all(self, statement: str, params: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
+    def fetch_all(
+        self, statement: str, params: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Run a query and return every row as a plain dict (provider-neutral)."""
         with self._begin() as connection:
-            return [dict(row) for row in self._execute(connection, statement, params).mappings().all()]
+            return [
+                dict(row)
+                for row in self._execute(connection, statement, params).mappings().all()
+            ]
 
-    def fetch_one(self, statement: str, params: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+    def fetch_one(
+        self, statement: str, params: Mapping[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         """Run a query and return the first row as a dict, or None."""
         with self._begin() as connection:
             row = self._execute(connection, statement, params).mappings().first()
@@ -124,7 +132,13 @@ class DatabaseConnection:
             rowcount = result.rowcount
             return rowcount if isinstance(rowcount, int) and rowcount >= 0 else -1
 
-    def insert_rows(self, table: str, rows: Sequence[Mapping[str, Any]], *, batch_size: int = _DEFAULT_BATCH_SIZE) -> int:
+    def insert_rows(
+        self,
+        table: str,
+        rows: Sequence[Mapping[str, Any]],
+        *,
+        batch_size: int = _DEFAULT_BATCH_SIZE,
+    ) -> int:
         """Bulk-insert homogeneous rows into a table, in batches.
 
         Column names are validated SQL identifiers, quoted through the
@@ -139,7 +153,9 @@ class DatabaseConnection:
         if not rows:
             return 0
         if batch_size < 1:
-            raise ValueError(f"batch_size must be a positive integer, got {batch_size}.")
+            raise ValueError(
+                f"batch_size must be a positive integer, got {batch_size}."
+            )
 
         columns = list(rows[0])
         if not columns:
@@ -277,11 +293,22 @@ class _BoundConnection:
         self._owner = owner
         self._connection = connection
 
-    def fetch_all(self, statement: str, params: Mapping[str, Any] | None = None) -> list[dict[str, Any]]:
-        return [dict(row) for row in self._owner._execute(self._connection, statement, params).mappings().all()]
+    def fetch_all(
+        self, statement: str, params: Mapping[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        return [
+            dict(row)
+            for row in self._owner._execute(self._connection, statement, params)
+            .mappings()
+            .all()
+        ]
 
-    def fetch_one(self, statement: str, params: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
-        row = self._owner._execute(self._connection, statement, params).mappings().first()
+    def fetch_one(
+        self, statement: str, params: Mapping[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        row = (
+            self._owner._execute(self._connection, statement, params).mappings().first()
+        )
         return dict(row) if row is not None else None
 
     def execute(self, statement: str, params: Mapping[str, Any] | None = None) -> int:

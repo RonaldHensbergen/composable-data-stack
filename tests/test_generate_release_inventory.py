@@ -8,7 +8,9 @@ from tempfile import TemporaryDirectory
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "generate_release_inventory.py"
 
-_spec = importlib.util.spec_from_file_location("generate_release_inventory", SCRIPT_PATH)
+_spec = importlib.util.spec_from_file_location(
+    "generate_release_inventory", SCRIPT_PATH
+)
 assert _spec is not None and _spec.loader is not None
 generate_release_inventory = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = generate_release_inventory
@@ -53,7 +55,9 @@ class ImageEvidenceReferenceTest(unittest.TestCase):
         self.fixture_path = Path(self._tmpdir.name) / "signed-images.json"
 
     def test_returns_none_when_fixture_absent(self) -> None:
-        self.assertIsNone(generate_release_inventory.image_evidence_reference(self.fixture_path))
+        self.assertIsNone(
+            generate_release_inventory.image_evidence_reference(self.fixture_path)
+        )
 
     def test_references_fixture_without_duplicating_image_list(self) -> None:
         self.fixture_path.write_text(
@@ -67,7 +71,9 @@ class ImageEvidenceReferenceTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        reference = generate_release_inventory.image_evidence_reference(self.fixture_path)
+        reference = generate_release_inventory.image_evidence_reference(
+            self.fixture_path
+        )
 
         assert reference is not None
         self.assertEqual(reference["source"], "https://example.invalid/workflow")
@@ -94,8 +100,13 @@ class BuildInventoryTest(unittest.TestCase):
         self.assertEqual(inventory["cli"]["name"], "composable-data-stack")
         self.assertEqual(inventory["cli"]["version"], "0.9.1")
         self.assertEqual(inventory["cli"]["sourceCommit"], "abc123")
-        self.assertEqual(inventory["cli"]["sbom"], {"file": "cli-sbom.cyclonedx.json", "format": "CycloneDX"})
-        self.assertEqual(inventory["images"], {"referenceFile": "tests/fixtures/signed-images.json"})
+        self.assertEqual(
+            inventory["cli"]["sbom"],
+            {"file": "cli-sbom.cyclonedx.json", "format": "CycloneDX"},
+        )
+        self.assertEqual(
+            inventory["images"], {"referenceFile": "tests/fixtures/signed-images.json"}
+        )
 
     def test_missing_image_evidence_falls_back_to_a_documented_gap(self) -> None:
         inventory = generate_release_inventory.build_inventory(

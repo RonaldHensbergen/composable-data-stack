@@ -47,11 +47,14 @@ class KubernetesRunnerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "secrets.yaml"
             descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-            with patch(
-                "cli.k8s_runner.tempfile.mkstemp",
-                return_value=(descriptor, str(path)),
-            ), patch(
-                "cli.k8s_runner.yaml.safe_dump", side_effect=ValueError("bad yaml")
+            with (
+                patch(
+                    "cli.k8s_runner.tempfile.mkstemp",
+                    return_value=(descriptor, str(path)),
+                ),
+                patch(
+                    "cli.k8s_runner.yaml.safe_dump", side_effect=ValueError("bad yaml")
+                ),
             ):
                 with self.assertRaisesRegex(ValueError, "bad yaml"):
                     _write_secret_values({"CDS_PASSWORD": "secret"})
@@ -110,7 +113,11 @@ class KubernetesRunnerTest(unittest.TestCase):
     ) -> None:
         plan: dict = {"secrets": {}}
         mock_workloads.return_value = [
-            {"kind": "Deployment", "metadata": {"name": "cds-web"}, "spec": {"replicas": 1}}
+            {
+                "kind": "Deployment",
+                "metadata": {"name": "cds-web"},
+                "spec": {"replicas": 1},
+            }
         ]
 
         result = helm_up(
@@ -143,7 +150,9 @@ class KubernetesRunnerTest(unittest.TestCase):
             "status": {"readyReplicas": 1},
         }
         mock_workloads.return_value = [workload]
-        mock_state.return_value = [{"Service": "cds-web", "Health": "HEALTHY", "State": "running"}]
+        mock_state.return_value = [
+            {"Service": "cds-web", "Health": "HEALTHY", "State": "running"}
+        ]
 
         result = helm_up(
             {"secrets": {}},

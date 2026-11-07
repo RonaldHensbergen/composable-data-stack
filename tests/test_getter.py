@@ -48,7 +48,10 @@ spec:
         sharedDataPath: ./workdirs/shared-data
 """,
     )
-    _write(root / "profiles" / "demo" / "workdirs" / "shared-data" / "README.txt", "profile data\n")
+    _write(
+        root / "profiles" / "demo" / "workdirs" / "shared-data" / "README.txt",
+        "profile data\n",
+    )
     _write(root / "profiles" / "demo" / ".env", "SHOULD_NOT_COPY=true\n")
     _write(
         root / "modules" / "apps" / "demo" / "module.yaml",
@@ -84,7 +87,10 @@ COPY images/demo/entrypoint.sh /entrypoint.sh
 
 class GetterTest(unittest.TestCase):
     def test_manifest_tracks_assets_dependencies_and_file_hashes(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -189,16 +195,25 @@ spec:
                 hashlib.sha256(local_profile.read_bytes()).hexdigest(),
             )
 
-    def test_update_refreshes_selected_modules_without_overwriting_local_edits(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+    def test_update_refreshes_selected_modules_without_overwriting_local_edits(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
 
             local_profile = destination_root / "profiles" / "demo" / "profile.yaml"
             original_profile = local_profile.read_text(encoding="utf-8")
-            local_module = destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            local_module = (
+                destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            )
             local_module.write_text("local customization\n", encoding="utf-8")
             source_module = source_root / "modules" / "apps" / "demo" / "module.yaml"
             source_module.write_text(
@@ -216,14 +231,27 @@ spec:
                 categories=["modules"],
             )
 
-            self.assertEqual(local_module.read_text(encoding="utf-8"), "local customization\n")
-            self.assertEqual(local_profile.read_text(encoding="utf-8"), original_profile)
-            self.assertTrue(any("modules/apps/demo/module.yaml" in item for item in result.conflicts))
-            self.assertFalse(any("profiles/demo/profile.yaml" in item for item in result.updated))
+            self.assertEqual(
+                local_module.read_text(encoding="utf-8"), "local customization\n"
+            )
+            self.assertEqual(
+                local_profile.read_text(encoding="utf-8"), original_profile
+            )
+            self.assertTrue(
+                any(
+                    "modules/apps/demo/module.yaml" in item for item in result.conflicts
+                )
+            )
+            self.assertFalse(
+                any("profiles/demo/profile.yaml" in item for item in result.updated)
+            )
             self.assertFalse(result.errors)
 
     def test_update_dry_run_does_not_change_files_or_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -235,7 +263,9 @@ spec:
                 module_path.read_text(encoding="utf-8") + "# new upstream module\n",
                 encoding="utf-8",
             )
-            local_module = destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            local_module = (
+                destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            )
             original_local = local_module.read_text(encoding="utf-8")
             original_manifest = manifest_path.read_bytes()
 
@@ -252,7 +282,10 @@ spec:
             self.assertFalse(result.errors)
 
     def test_update_contracts_refreshes_shared_contract_files_only(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -261,7 +294,9 @@ spec:
                 "FROM python:3.14-slim\nCOPY shared/contracts /app/contracts\n",
             )
             _write(source_root / "shared" / "contracts" / "demo.yaml", "version: old\n")
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
 
             _write(source_root / "shared" / "contracts" / "demo.yaml", "version: new\n")
             local_contract = destination_root / "shared" / "contracts" / "demo.yaml"
@@ -272,17 +307,26 @@ spec:
                 categories=["contracts"],
             )
 
-            self.assertEqual(local_contract.read_text(encoding="utf-8"), "version: new\n")
+            self.assertEqual(
+                local_contract.read_text(encoding="utf-8"), "version: new\n"
+            )
             self.assertEqual(local_profile.read_bytes(), profile_before)
-            self.assertTrue(any("shared/contracts/demo.yaml" in item for item in result.updated))
+            self.assertTrue(
+                any("shared/contracts/demo.yaml" in item for item in result.updated)
+            )
             self.assertFalse(result.errors)
 
     def test_update_reports_manifest_and_selection_errors(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
 
             with tempfile.TemporaryDirectory() as empty_dir:
                 empty_root = Path(empty_dir)
@@ -296,12 +340,16 @@ spec:
                 with self.assertRaisesRegex(GetError, "No tracked profiles found"):
                     update_tracked_assets(destination_root=empty_root)
 
-            with self.assertRaisesRegex(GetError, "Unsupported update category: images"):
+            with self.assertRaisesRegex(
+                GetError, "Unsupported update category: images"
+            ):
                 update_tracked_assets(
                     destination_root=destination_root, categories=["profiles", "images"]
                 )
 
-            with self.assertRaisesRegex(GetError, 'No fetched profile matching "missing"'):
+            with self.assertRaisesRegex(
+                GetError, 'No fetched profile matching "missing"'
+            ):
                 update_tracked_assets(
                     profile="missing", destination_root=destination_root
                 )
@@ -313,11 +361,16 @@ spec:
             self.assertFalse(result.errors)
 
     def test_update_surfaces_invalid_tracking_entries_as_profile_errors(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
             manifest_path = destination_root / ".cds" / "get-manifest.json"
 
             def _tamper(mutate) -> None:
@@ -346,11 +399,16 @@ spec:
             self.assertTrue(any("not an object" in item for item in result.errors))
 
     def test_update_rejects_unsafe_tracked_paths(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
             manifest_path = destination_root / ".cds" / "get-manifest.json"
 
             for source_path in ("../evil", "/etc/passwd"):
@@ -375,19 +433,28 @@ spec:
             result = update_tracked_assets(destination_root=destination_root)
             self.assertTrue(any("unsafe" in item.lower() for item in result.errors))
 
-    def test_update_reports_symlinked_and_directory_destinations_as_conflicts(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+    def test_update_reports_symlinked_and_directory_destinations_as_conflicts(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
             source_module = source_root / "modules" / "apps" / "demo" / "module.yaml"
             source_module.write_text(
                 source_module.read_text(encoding="utf-8") + "# upstream change\n",
                 encoding="utf-8",
             )
 
-            local_module = destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            local_module = (
+                destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            )
             local_module.unlink()
             local_module.mkdir()
             result = update_tracked_assets(destination_root=destination_root)
@@ -399,16 +466,19 @@ spec:
             if not sys.platform.startswith("win"):
                 # A symlink at the destination is a conflict, never a
                 # write-through.
-                outside = destination_root.parent / f"{destination_root.name}-outside.txt"
+                outside = (
+                    destination_root.parent / f"{destination_root.name}-outside.txt"
+                )
                 _write(outside, "do not touch\n")
                 local_module.symlink_to(outside)
                 result = update_tracked_assets(destination_root=destination_root)
                 self.assertTrue(
-                    any("(destination is a symlink)" in item for item in result.conflicts)
+                    any(
+                        "(destination is a symlink)" in item
+                        for item in result.conflicts
+                    )
                 )
-                self.assertEqual(
-                    outside.read_text(encoding="utf-8"), "do not touch\n"
-                )
+                self.assertEqual(outside.read_text(encoding="utf-8"), "do not touch\n")
                 local_module.unlink()
                 _write(local_module, "local customization\n")
 
@@ -417,7 +487,9 @@ spec:
                 real_profile = local_profile_dir / "profile.yaml"
                 content = real_profile.read_text(encoding="utf-8")
                 shutil.rmtree(local_profile_dir)
-                redirected = destination_root.parent / f"{destination_root.name}-redirected"
+                redirected = (
+                    destination_root.parent / f"{destination_root.name}-redirected"
+                )
                 redirected.mkdir()
                 (redirected / "profile.yaml").write_text(content, encoding="utf-8")
                 local_profile_dir.symlink_to(redirected)
@@ -439,11 +511,16 @@ spec:
                     update_tracked_assets(destination_root=destination_root)
 
     def test_update_reports_removed_upstream_files(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
 
             removed = "images/demo/entrypoint.sh"
             (source_root / removed).unlink()
@@ -491,18 +568,25 @@ spec:
             )
 
     def test_update_reports_locally_deleted_tracked_file_as_conflict(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
 
             source_module = source_root / "modules" / "apps" / "demo" / "module.yaml"
             source_module.write_text(
                 source_module.read_text(encoding="utf-8") + "# upstream change\n",
                 encoding="utf-8",
             )
-            local_module = destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            local_module = (
+                destination_root / "modules" / "apps" / "demo" / "module.yaml"
+            )
             local_module.unlink()
 
             result = update_tracked_assets(destination_root=destination_root)
@@ -518,7 +602,10 @@ spec:
         # The composed profile merges the parent's modules, so those must
         # appear as module assets, and the primary profile must record its
         # dependencies on the parent profile and every (composed) module.
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -576,7 +663,10 @@ spec: {}
         # Asset roots that are neither the (primary or parent) profiles nor
         # module directories are typed by location: shared/contracts/ is a
         # contract, everything else (build assets) is a runtime asset.
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -608,7 +698,10 @@ COPY images/demo/entrypoint.sh /entrypoint.sh
             self.assertIn(("runtime", "images/demo/entrypoint.sh"), assets)
 
     def test_fetch_profile_copies_profile_module_and_build_assets(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -621,13 +714,36 @@ COPY images/demo/entrypoint.sh /entrypoint.sh
 
             self.assertEqual(conflicts, [])
             self.assertGreater(len(actions), 0)
-            self.assertTrue((destination_root / "profiles" / "demo" / "profile.yaml").exists())
-            self.assertTrue((destination_root / "profiles" / "demo" / "workdirs" / "shared-data" / "README.txt").exists())
-            self.assertTrue((destination_root / "modules" / "apps" / "demo" / "module.yaml").exists())
-            self.assertTrue((destination_root / "images" / "demo" / "Dockerfile").exists())
-            self.assertTrue((destination_root / "images" / "demo" / "entrypoint.sh").exists())
-            self.assertTrue((destination_root / "shared" / "python" / "__init__.py").exists())
-            self.assertTrue((destination_root / "workdirs" / "demo" / "definitions.py").exists())
+            self.assertTrue(
+                (destination_root / "profiles" / "demo" / "profile.yaml").exists()
+            )
+            self.assertTrue(
+                (
+                    destination_root
+                    / "profiles"
+                    / "demo"
+                    / "workdirs"
+                    / "shared-data"
+                    / "README.txt"
+                ).exists()
+            )
+            self.assertTrue(
+                (
+                    destination_root / "modules" / "apps" / "demo" / "module.yaml"
+                ).exists()
+            )
+            self.assertTrue(
+                (destination_root / "images" / "demo" / "Dockerfile").exists()
+            )
+            self.assertTrue(
+                (destination_root / "images" / "demo" / "entrypoint.sh").exists()
+            )
+            self.assertTrue(
+                (destination_root / "shared" / "python" / "__init__.py").exists()
+            )
+            self.assertTrue(
+                (destination_root / "workdirs" / "demo" / "definitions.py").exists()
+            )
             self.assertFalse((destination_root / "profiles" / "demo" / ".env").exists())
 
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -641,7 +757,10 @@ COPY images/demo/entrypoint.sh /entrypoint.sh
         # Regression test: _collect_asset_roots() must resolve `extends` so
         # `cds get` fetches a parent profile's own modules even when the
         # child profile doesn't redeclare them.
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -679,9 +798,17 @@ spec: {}
             )
 
             self.assertGreater(len(actions), 0)
-            self.assertTrue((destination_root / "profiles" / "child" / "profile.yaml").exists())
-            self.assertTrue((destination_root / "profiles" / "base" / "profile.yaml").exists())
-            self.assertTrue((destination_root / "modules" / "apps" / "demo" / "module.yaml").exists())
+            self.assertTrue(
+                (destination_root / "profiles" / "child" / "profile.yaml").exists()
+            )
+            self.assertTrue(
+                (destination_root / "profiles" / "base" / "profile.yaml").exists()
+            )
+            self.assertTrue(
+                (
+                    destination_root / "modules" / "apps" / "demo" / "module.yaml"
+                ).exists()
+            )
 
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             entry = manifest["profiles"]["child"]
@@ -693,7 +820,10 @@ spec: {}
         # diamond-shaped extends graph (child extends left and right, both
         # of which extend the same shared-base) as a cycle -- the shared
         # parent is legitimately reached twice via two different paths.
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -754,24 +884,47 @@ spec: {}
             )
 
             self.assertGreater(len(actions), 0)
-            self.assertTrue((destination_root / "profiles" / "diamond-child" / "profile.yaml").exists())
-            self.assertTrue((destination_root / "profiles" / "left" / "profile.yaml").exists())
-            self.assertTrue((destination_root / "profiles" / "right" / "profile.yaml").exists())
-            self.assertTrue((destination_root / "profiles" / "shared-base" / "profile.yaml").exists())
-            self.assertTrue((destination_root / "modules" / "apps" / "demo" / "module.yaml").exists())
+            self.assertTrue(
+                (
+                    destination_root / "profiles" / "diamond-child" / "profile.yaml"
+                ).exists()
+            )
+            self.assertTrue(
+                (destination_root / "profiles" / "left" / "profile.yaml").exists()
+            )
+            self.assertTrue(
+                (destination_root / "profiles" / "right" / "profile.yaml").exists()
+            )
+            self.assertTrue(
+                (
+                    destination_root / "profiles" / "shared-base" / "profile.yaml"
+                ).exists()
+            )
+            self.assertTrue(
+                (
+                    destination_root / "modules" / "apps" / "demo" / "module.yaml"
+                ).exists()
+            )
 
     def test_fetch_profile_requires_force_for_conflicting_files(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
 
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
             profile_file = destination_root / "profiles" / "demo" / "profile.yaml"
             profile_file.write_text("changed\n", encoding="utf-8")
 
             with self.assertRaises(GetError):
-                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+                fetch_profile(
+                    "demo", local=str(source_root), destination_root=destination_root
+                )
 
             fetch_profile(
                 "demo",
@@ -781,13 +934,19 @@ spec: {}
             )
             self.assertIn("kind: Profile", profile_file.read_text(encoding="utf-8"))
 
-    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
     def test_fetch_profile_rejects_symlinked_destination_without_force(self) -> None:
         """A pre-planted symlink at a destination path (dangling or not) must be
         treated as a conflict -- Path.exists() follows symlinks and returns
         False for a dangling link, which would otherwise let it silently bypass
         the conflict check (#474)."""
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -799,18 +958,30 @@ spec: {}
             profile_dest.symlink_to(attack_target)
 
             with self.assertRaises(GetError):
-                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+                fetch_profile(
+                    "demo", local=str(source_root), destination_root=destination_root
+                )
 
             # The symlink and its target must be untouched by the rejected attempt.
             self.assertTrue(profile_dest.is_symlink())
-            self.assertEqual(attack_target.read_text(encoding="utf-8"), "do not overwrite me\n")
+            self.assertEqual(
+                attack_target.read_text(encoding="utf-8"), "do not overwrite me\n"
+            )
 
-    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
-    def test_fetch_profile_never_writes_through_symlinked_destination_even_with_force(self) -> None:
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
+    def test_fetch_profile_never_writes_through_symlinked_destination_even_with_force(
+        self,
+    ) -> None:
         """Even with --force, a symlinked destination must be replaced with a
         regular file rather than written-through, so a symlink can never be
         used to redirect fetched content onto an arbitrary path (#474)."""
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -832,13 +1003,21 @@ spec: {}
             # profile, and the symlink's former target is untouched.
             self.assertFalse(profile_dest.is_symlink())
             self.assertIn("kind: Profile", profile_dest.read_text(encoding="utf-8"))
-            self.assertEqual(attack_target.read_text(encoding="utf-8"), "do not overwrite me\n")
+            self.assertEqual(
+                attack_target.read_text(encoding="utf-8"), "do not overwrite me\n"
+            )
 
-    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
     def test_fetch_profile_never_writes_manifest_through_symlinked_path(self) -> None:
         """The tracking manifest must not be written through a pre-planted
         symlink at its path either (#474)."""
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -849,15 +1028,22 @@ spec: {}
             attack_target.write_text("do not overwrite me\n", encoding="utf-8")
             manifest_path.symlink_to(attack_target)
 
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
 
             self.assertFalse(manifest_path.is_symlink())
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.assertIn("demo", manifest["profiles"])
-            self.assertEqual(attack_target.read_text(encoding="utf-8"), "do not overwrite me\n")
+            self.assertEqual(
+                attack_target.read_text(encoding="utf-8"), "do not overwrite me\n"
+            )
 
     def test_fetch_profile_backs_up_and_warns_on_malformed_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -888,7 +1074,10 @@ spec: {}
             self.assertIn(backups[0].name, warning_output)
 
     def test_fetch_profile_backs_up_and_warns_on_non_dict_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -917,7 +1106,10 @@ spec: {}
             self.assertIn(backups[0].name, warning_output)
 
     def test_fetch_profile_warns_without_backup_when_manifest_unreadable(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -954,7 +1146,10 @@ spec: {}
             self.assertEqual(len(backups), 0)
 
     def test_fetch_profile_loads_valid_manifest_unchanged(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -990,12 +1185,17 @@ spec: {}
             self.assertEqual(len(backups), 0)
 
     def test_fetch_profile_dry_run_reports_conflicts_without_writing(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
 
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
             profile_file = destination_root / "profiles" / "demo" / "profile.yaml"
             profile_file.write_text("changed\n", encoding="utf-8")
 
@@ -1008,15 +1208,24 @@ spec: {}
 
             self.assertGreater(len(actions), 0)
             self.assertEqual(conflicts, ["profiles/demo/profile.yaml"])
-            self.assertEqual(manifest_path, destination_root.resolve() / ".cds" / "get-manifest.json")
+            self.assertEqual(
+                manifest_path, destination_root.resolve() / ".cds" / "get-manifest.json"
+            )
             self.assertEqual(profile_file.read_text(encoding="utf-8"), "changed\n")
 
-            rendered = format_get_plan(actions, destination_root=destination_root, conflicts=conflicts)
+            rendered = format_get_plan(
+                actions, destination_root=destination_root, conflicts=conflicts
+            )
             self.assertIn("Would conflict without --force (1):", rendered)
             self.assertIn("profiles/demo/profile.yaml", rendered)
 
-    def test_fetch_profile_resolves_templated_dockerfile_from_module_config_defaults(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+    def test_fetch_profile_resolves_templated_dockerfile_from_module_config_defaults(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _write(
@@ -1076,17 +1285,28 @@ COPY shared/python /app/shared/python
             _write(source_root / ".github" / "workflows" / "ci.yml", "name: CI\n")
             _write(source_root / ".env.example", "EXAMPLE=true\n")
 
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
 
             self.assertTrue(
-                (destination_root / "images" / "demo" / "hardened" / "Dockerfile").exists()
+                (
+                    destination_root / "images" / "demo" / "hardened" / "Dockerfile"
+                ).exists()
             )
-            self.assertTrue((destination_root / "shared" / "python" / "__init__.py").exists())
-            self.assertFalse((destination_root / ".github" / "workflows" / "ci.yml").exists())
+            self.assertTrue(
+                (destination_root / "shared" / "python" / "__init__.py").exists()
+            )
+            self.assertFalse(
+                (destination_root / ".github" / "workflows" / "ci.yml").exists()
+            )
             self.assertFalse((destination_root / ".env.example").exists())
 
     def test_fetch_profile_supports_single_file_profiles(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _write(
@@ -1127,10 +1347,17 @@ spec:
 
             self.assertTrue((destination_root / "profiles" / "demo.yaml").exists())
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            self.assertEqual(manifest["profiles"]["demo"]["sourceProfile"], "profiles/demo.yaml")
+            self.assertEqual(
+                manifest["profiles"]["demo"]["sourceProfile"], "profiles/demo.yaml"
+            )
 
-    def test_fetch_profile_reports_invalid_json_copy_instruction_as_get_error(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+    def test_fetch_profile_reports_invalid_json_copy_instruction_as_get_error(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _write(
@@ -1172,12 +1399,19 @@ COPY ["shared/python", dest]
             )
 
             with self.assertRaises(GetError) as ctx:
-                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+                fetch_profile(
+                    "demo", local=str(source_root), destination_root=destination_root
+                )
 
             self.assertIn("Could not parse COPY sources", str(ctx.exception))
 
-    def test_fetch_profile_reports_invalid_shell_copy_instruction_as_get_error(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+    def test_fetch_profile_reports_invalid_shell_copy_instruction_as_get_error(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _write(
@@ -1219,12 +1453,19 @@ COPY "shared/python /app/
             )
 
             with self.assertRaises(GetError) as ctx:
-                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+                fetch_profile(
+                    "demo", local=str(source_root), destination_root=destination_root
+                )
 
             self.assertIn("Could not parse COPY sources", str(ctx.exception))
 
-    def test_fetch_profile_preserves_hash_characters_inside_quoted_copy_sources(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+    def test_fetch_profile_preserves_hash_characters_inside_quoted_copy_sources(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _write(
@@ -1266,12 +1507,17 @@ COPY "shared/file#1.txt" /app/
             )
             _write(source_root / "shared" / "file#1.txt", "ok\n")
 
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
 
             self.assertTrue((destination_root / "shared" / "file#1.txt").exists())
 
     def test_fetch_profile_skips_copy_from_stage_sources(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _write(
@@ -1316,13 +1562,22 @@ COPY shared/python /app/shared/python
             )
             _write(source_root / "shared" / "python" / "__init__.py", "")
 
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
 
-            self.assertTrue((destination_root / "images" / "demo" / "Dockerfile").exists())
-            self.assertTrue((destination_root / "shared" / "python" / "__init__.py").exists())
+            self.assertTrue(
+                (destination_root / "images" / "demo" / "Dockerfile").exists()
+            )
+            self.assertTrue(
+                (destination_root / "shared" / "python" / "__init__.py").exists()
+            )
 
     def test_fetch_profile_rejects_profile_paths_outside_source_repo(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             outside_root = source_root.parent / "outside"
@@ -1348,10 +1603,18 @@ spec:
                     destination_root=destination_root,
                 )
 
-            self.assertIn('profile "../outside/evil.yaml" resolves outside the source repository', str(ctx.exception))
+            self.assertIn(
+                'profile "../outside/evil.yaml" resolves outside the source repository',
+                str(ctx.exception),
+            )
 
-    def test_fetch_profile_rejects_absolute_dockerfile_outside_source_repo(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+    def test_fetch_profile_rejects_absolute_dockerfile_outside_source_repo(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _write(
@@ -1387,17 +1650,29 @@ spec:
             )
 
             with self.assertRaises(GetError) as ctx:
-                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+                fetch_profile(
+                    "demo", local=str(source_root), destination_root=destination_root
+                )
 
-            self.assertIn('build.dockerfile "/etc/passwd" resolves outside the source repository', str(ctx.exception))
+            self.assertIn(
+                'build.dockerfile "/etc/passwd" resolves outside the source repository',
+                str(ctx.exception),
+            )
 
-    @unittest.skipIf(sys.platform.startswith("win"), "symlinks require elevated privileges on Windows")
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
     def test_fetch_profile_rejects_asset_symlink_escaping_source_repo(self) -> None:
         """A symlink planted *inside* an asset root (module/profile/build
         context) that resolves outside the source repository must be
         rejected as a stable GetError, not an unhandled ValueError from
         Path.relative_to() (#454)."""
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir, tempfile.TemporaryDirectory() as outside_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+            tempfile.TemporaryDirectory() as outside_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             outside_root = Path(outside_dir)
@@ -1409,17 +1684,26 @@ spec:
             escape_link.symlink_to(secret_file)
 
             with self.assertRaises(GetError) as ctx:
-                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+                fetch_profile(
+                    "demo", local=str(source_root), destination_root=destination_root
+                )
 
             self.assertIn("resolves outside the source repository", str(ctx.exception))
-            self.assertFalse((destination_root / "modules" / "apps" / "demo" / "escape.txt").exists())
+            self.assertFalse(
+                (destination_root / "modules" / "apps" / "demo" / "escape.txt").exists()
+            )
 
-    def test_fetch_profile_rejects_dockerfile_copy_traversal_escaping_source_repo(self) -> None:
+    def test_fetch_profile_rejects_dockerfile_copy_traversal_escaping_source_repo(
+        self,
+    ) -> None:
         """A Dockerfile COPY/ADD source containing ".." that Path.glob()
         matches outside the build context (and outside the source repo
         entirely) must be rejected as a stable GetError, not an unhandled
         ValueError from Path.relative_to() in _add_copy_action (#475)."""
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             outside_root = source_root.parent / "outside"
@@ -1439,33 +1723,49 @@ COPY ../outside/secret.txt /app/secret.txt
             )
 
             with self.assertRaises(GetError) as ctx:
-                fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+                fetch_profile(
+                    "demo", local=str(source_root), destination_root=destination_root
+                )
 
             self.assertIn("resolves outside the source repository", str(ctx.exception))
-            self.assertFalse((destination_root / "images" / "demo" / "secret.txt").exists())
+            self.assertFalse(
+                (destination_root / "images" / "demo" / "secret.txt").exists()
+            )
 
     def test_fetch_profile_reports_copy_failure_as_get_error(self) -> None:
         """A filesystem failure while writing a planned copy (permission
         denied, disk full, read-only destination, ...) must surface as a
         stable GetError, not a raw OSError, so callers get a predictable
         error path regardless of the underlying platform/errno (#454)."""
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
 
             with patch("cli.getter.shutil.copy2", side_effect=OSError("disk full")):
                 with self.assertRaises(GetError) as ctx:
-                    fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+                    fetch_profile(
+                        "demo",
+                        local=str(source_root),
+                        destination_root=destination_root,
+                    )
 
             self.assertIn("Could not write", str(ctx.exception))
             self.assertIn("disk full", str(ctx.exception))
             # No manifest should be left behind after a failed, partial write.
             self.assertFalse((destination_root / ".cds" / "get-manifest.json").exists())
 
-    @unittest.skipIf(sys.platform == "win32", "Windows does not preserve Unix executable permissions")
+    @unittest.skipIf(
+        sys.platform == "win32", "Windows does not preserve Unix executable permissions"
+    )
     def test_fetch_profile_preserves_executable_permissions(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -1473,9 +1773,13 @@ COPY ../outside/secret.txt /app/secret.txt
             entrypoint = source_root / "images" / "demo" / "entrypoint.sh"
             os.chmod(entrypoint, 0o755)
 
-            fetch_profile("demo", local=str(source_root), destination_root=destination_root)
+            fetch_profile(
+                "demo", local=str(source_root), destination_root=destination_root
+            )
 
-            destination_entrypoint = destination_root / "images" / "demo" / "entrypoint.sh"
+            destination_entrypoint = (
+                destination_root / "images" / "demo" / "entrypoint.sh"
+            )
             mode = stat.S_IMODE(destination_entrypoint.stat().st_mode)
             self.assertEqual(mode, 0o755)
 
@@ -1514,7 +1818,10 @@ class GitHubRemoteTest(unittest.TestCase):
         self.assertIsNone(_parse_github_remote("not a remote at all"))
 
     def test_fetch_profile_downloads_default_remote_when_no_remote_given(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -1547,7 +1854,9 @@ class GitHubRemoteTest(unittest.TestCase):
                 [f"https://api.github.com/repos/{DEFAULT_REMOTE}/tarball/main"],
             )
             self.assertGreater(len(actions), 0)
-            self.assertTrue((destination_root / "profiles" / "demo" / "profile.yaml").exists())
+            self.assertTrue(
+                (destination_root / "profiles" / "demo" / "profile.yaml").exists()
+            )
 
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             entry = manifest["profiles"]["demo"]
@@ -1555,7 +1864,10 @@ class GitHubRemoteTest(unittest.TestCase):
             self.assertEqual(entry["ref"], "main")
 
     def test_fetch_profile_downloads_explicit_owner_repo_and_ref(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -1583,7 +1895,11 @@ class GitHubRemoteTest(unittest.TestCase):
                 )
 
             self.assertGreater(len(actions), 0)
-            self.assertTrue((destination_root / "modules" / "apps" / "demo" / "module.yaml").exists())
+            self.assertTrue(
+                (
+                    destination_root / "modules" / "apps" / "demo" / "module.yaml"
+                ).exists()
+            )
 
     def test_fetch_profile_raises_get_error_on_download_failure(self) -> None:
         from urllib.error import URLError
@@ -1599,7 +1915,10 @@ class GitHubRemoteTest(unittest.TestCase):
             self.assertIn("Could not download", str(ctx.exception))
 
     def test_fetch_profile_reports_entries_on_unexpected_archive_layout(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             _make_source_repo(source_root)
             buffer = io.BytesIO()
@@ -1640,9 +1959,11 @@ class GitHubRemoteTest(unittest.TestCase):
                 )
             self.assertIn("Could not resolve remote", str(ctx.exception))
 
-
     def test_fetch_profile_rejects_both_remote_and_local(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -1654,10 +1975,15 @@ class GitHubRemoteTest(unittest.TestCase):
                     local=str(source_root),
                     destination_root=destination_root,
                 )
-            self.assertIn("Specify only one of --remote and --local", str(ctx.exception))
+            self.assertIn(
+                "Specify only one of --remote and --local", str(ctx.exception)
+            )
 
     def test_fetch_profile_rejects_local_with_explicit_ref(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -1709,7 +2035,10 @@ class CliVersionDefaultRefTest(unittest.TestCase):
     def test_fetch_defaults_to_cli_version_tag(self) -> None:
         from urllib.request import Request
 
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -1740,7 +2069,10 @@ class CliVersionDefaultRefTest(unittest.TestCase):
     def test_fetch_falls_back_to_main_when_version_tag_missing(self) -> None:
         from urllib.error import HTTPError
 
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -1775,7 +2107,10 @@ class CliVersionDefaultRefTest(unittest.TestCase):
             self.assertEqual(entry["ref"], DEFAULT_REF)
 
     def test_fetch_without_cli_version_uses_main(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -1788,17 +2123,24 @@ class CliVersionDefaultRefTest(unittest.TestCase):
                 return self._fake_response(archive_bytes)
 
             with patch("cli.getter.urlopen", side_effect=_fake_urlopen):
-                fetch_profile("demo", destination_root=destination_root, cli_version="unknown")
+                fetch_profile(
+                    "demo", destination_root=destination_root, cli_version="unknown"
+                )
 
             self.assertEqual(
                 captured_urls,
-                [f"https://api.github.com/repos/{DEFAULT_REMOTE}/tarball/{DEFAULT_REF}"],
+                [
+                    f"https://api.github.com/repos/{DEFAULT_REMOTE}/tarball/{DEFAULT_REF}"
+                ],
             )
 
     def test_explicit_ref_wins_over_cli_version_and_fails_closed_on_404(self) -> None:
         from urllib.error import HTTPError
 
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -1816,7 +2158,9 @@ class CliVersionDefaultRefTest(unittest.TestCase):
                     )
             self.assertIn("HTTP 404", str(ctx.exception))
 
-    def _fetch_with_stderr(self, dest_dir: Path, *, ref: str | None, cli_version: str | None):
+    def _fetch_with_stderr(
+        self, dest_dir: Path, *, ref: str | None, cli_version: str | None
+    ):
         source_root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, source_root, True)
         _make_source_repo(source_root)
@@ -1838,7 +2182,9 @@ class CliVersionDefaultRefTest(unittest.TestCase):
 
     def test_newer_version_tag_ref_warns(self) -> None:
         with tempfile.TemporaryDirectory() as dest_dir:
-            err = self._fetch_with_stderr(Path(dest_dir), ref="v0.16.0", cli_version="0.15.0")
+            err = self._fetch_with_stderr(
+                Path(dest_dir), ref="v0.16.0", cli_version="0.15.0"
+            )
             self.assertIn("Warning", err)
             self.assertIn("v0.16.0", err)
             self.assertIn("0.15.0", err)
@@ -1847,18 +2193,25 @@ class CliVersionDefaultRefTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dest_dir:
             for ref in ("v0.15.0", "v0.14.0", "main", "abcdef1234567"):
                 with self.subTest(ref=ref):
-                    err = self._fetch_with_stderr(Path(dest_dir), ref=ref, cli_version="0.15.0")
+                    err = self._fetch_with_stderr(
+                        Path(dest_dir), ref=ref, cli_version="0.15.0"
+                    )
                     self.assertNotIn("Warning", err)
 
     def test_newer_ref_without_cli_version_does_not_warn(self) -> None:
         with tempfile.TemporaryDirectory() as dest_dir:
-            err = self._fetch_with_stderr(Path(dest_dir), ref="v0.16.0", cli_version=None)
+            err = self._fetch_with_stderr(
+                Path(dest_dir), ref="v0.16.0", cli_version=None
+            )
             self.assertNotIn("Warning", err)
 
     def test_bare_version_ref_retries_with_v_tag(self) -> None:
         from urllib.error import HTTPError
 
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             source_root = Path(source_dir)
             destination_root = Path(dest_dir)
             _make_source_repo(source_root)
@@ -1894,6 +2247,7 @@ class CliVersionDefaultRefTest(unittest.TestCase):
         from urllib.error import HTTPError
 
         with tempfile.TemporaryDirectory() as dest_dir:
+
             def _fake_urlopen(request, timeout=30):
                 raise HTTPError(request.full_url, 404, "Not Found", {}, None)
 
@@ -1909,7 +2263,9 @@ class CliVersionDefaultRefTest(unittest.TestCase):
 
     def test_newer_bare_version_ref_warns(self) -> None:
         with tempfile.TemporaryDirectory() as dest_dir:
-            err = self._fetch_with_stderr(Path(dest_dir), ref="0.16.0", cli_version="0.15.0")
+            err = self._fetch_with_stderr(
+                Path(dest_dir), ref="0.16.0", cli_version="0.15.0"
+            )
             self.assertIn("Warning", err)
             self.assertIn("0.16.0", err)
 
@@ -1943,7 +2299,9 @@ class GetSourceTrustTest(unittest.TestCase):
             return fetch_profile("demo", destination_root=Path(dest_dir), **kwargs)
 
     def test_parse_allowed_sources_normalizes_entries(self) -> None:
-        self.assertEqual(parse_allowed_sources(" Owner , Owner/Repo,,"), ["owner", "owner/repo"])
+        self.assertEqual(
+            parse_allowed_sources(" Owner , Owner/Repo,,"), ["owner", "owner/repo"]
+        )
         self.assertEqual(parse_allowed_sources(None), [])
         self.assertEqual(parse_allowed_sources(""), [])
 
@@ -1962,9 +2320,11 @@ class GetSourceTrustTest(unittest.TestCase):
 
     def test_allowlist_accepts_owner_and_exact_repo_entries(self) -> None:
         for allowed in (["Owner"], ["owner/repo"]):
-            with self.subTest(allowed=allowed), tempfile.TemporaryDirectory() as source_dir, (
-                tempfile.TemporaryDirectory()
-            ) as dest_dir:
+            with (
+                self.subTest(allowed=allowed),
+                tempfile.TemporaryDirectory() as source_dir,
+                tempfile.TemporaryDirectory() as dest_dir,
+            ):
                 _make_source_repo(Path(source_dir))
                 actions, _, _ = self._fetch(
                     self._tarball(Path(source_dir)),
@@ -1978,11 +2338,16 @@ class GetSourceTrustTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as dest_dir:
             with self.assertRaises(GetError):
                 fetch_profile(
-                    "demo", destination_root=Path(dest_dir), allowed_sources=["someone-else"]
+                    "demo",
+                    destination_root=Path(dest_dir),
+                    allowed_sources=["someone-else"],
                 )
 
     def test_commit_pin_matches_and_is_recorded_in_manifest(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             _make_source_repo(Path(source_dir))
             _, manifest_path, _ = self._fetch(
                 self._tarball(Path(source_dir)),
@@ -1990,22 +2355,32 @@ class GetSourceTrustTest(unittest.TestCase):
                 remote="owner/repo",
                 commit=self.FULL_SHA[:12].upper(),
             )
-            entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"]["demo"]
+            entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"][
+                "demo"
+            ]
             self.assertEqual(entry["commit"], self.FULL_SHA)
             self.assertEqual(entry["pinnedCommit"], self.FULL_SHA[:12])
 
     def test_unpinned_fetch_still_records_resolved_commit(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             _make_source_repo(Path(source_dir))
             _, manifest_path, _ = self._fetch(
                 self._tarball(Path(source_dir)), dest_dir, remote="owner/repo"
             )
-            entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"]["demo"]
+            entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"][
+                "demo"
+            ]
             self.assertEqual(entry["commit"], self.FULL_SHA)
             self.assertIsNone(entry["pinnedCommit"])
 
     def test_commit_pin_mismatch_fails_closed_without_writing(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             _make_source_repo(Path(source_dir))
             with self.assertRaises(GetError) as ctx:
                 self._fetch(
@@ -2017,18 +2392,27 @@ class GetSourceTrustTest(unittest.TestCase):
             self.assertIn("does not match", str(ctx.exception))
             self.assertEqual(list(Path(dest_dir).iterdir()), [])
 
-    def test_unpinned_fetch_falls_back_to_directory_suffix_without_pax_header(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+    def test_unpinned_fetch_falls_back_to_directory_suffix_without_pax_header(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             _make_source_repo(Path(source_dir))
             _, manifest_path, _ = self._fetch(
                 self._tarball(Path(source_dir), with_comment=False),
                 dest_dir,
                 remote="owner/repo",
             )
-            entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"]["demo"]
+            entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"][
+                "demo"
+            ]
             self.assertEqual(entry["commit"], self.FULL_SHA[:7])
 
-    def _fetch_with_api(self, archive_bytes: bytes, dest_dir: str, api_body: bytes, **kwargs):
+    def _fetch_with_api(
+        self, archive_bytes: bytes, dest_dir: str, api_body: bytes, **kwargs
+    ):
         def fake_urlopen(request, timeout=None):
             body = api_body if "/commits/" in request.full_url else archive_bytes
 
@@ -2047,8 +2431,13 @@ class GetSourceTrustTest(unittest.TestCase):
         with patch("cli.getter.urlopen", side_effect=fake_urlopen):
             return fetch_profile("demo", destination_root=Path(dest_dir), **kwargs)
 
-    def test_commit_pin_verified_via_api_when_archive_has_only_abbreviated_sha(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+    def test_commit_pin_verified_via_api_when_archive_has_only_abbreviated_sha(
+        self,
+    ) -> None:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             _make_source_repo(Path(source_dir))
             _, manifest_path, _ = self._fetch_with_api(
                 self._tarball(Path(source_dir), with_comment=False),
@@ -2057,11 +2446,16 @@ class GetSourceTrustTest(unittest.TestCase):
                 remote="owner/repo",
                 commit=self.FULL_SHA,
             )
-            entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"]["demo"]
+            entry = json.loads(manifest_path.read_text(encoding="utf-8"))["profiles"][
+                "demo"
+            ]
             self.assertEqual(entry["commit"], self.FULL_SHA)
 
     def test_commit_pin_rejects_api_sha_that_disagrees_with_archive(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             _make_source_repo(Path(source_dir))
             with self.assertRaises(GetError):
                 self._fetch_with_api(
@@ -2074,7 +2468,10 @@ class GetSourceTrustTest(unittest.TestCase):
             self.assertEqual(list(Path(dest_dir).iterdir()), [])
 
     def test_allowlist_wildcard_allows_any_source(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             _make_source_repo(Path(source_dir))
             actions, _, _ = self._fetch(
                 self._tarball(Path(source_dir)),
@@ -2085,12 +2482,18 @@ class GetSourceTrustTest(unittest.TestCase):
             self.assertGreater(len(actions), 0)
 
     def test_commit_pin_rejects_invalid_values_and_local_sources(self) -> None:
-        with tempfile.TemporaryDirectory() as source_dir, tempfile.TemporaryDirectory() as dest_dir:
+        with (
+            tempfile.TemporaryDirectory() as source_dir,
+            tempfile.TemporaryDirectory() as dest_dir,
+        ):
             _make_source_repo(Path(source_dir))
             for bad in ("main", "abc", "zzzzzzzz", self.FULL_SHA[:7]):
                 with self.subTest(commit=bad), self.assertRaises(GetError):
                     fetch_profile(
-                        "demo", local=source_dir, destination_root=Path(dest_dir), commit=bad
+                        "demo",
+                        local=source_dir,
+                        destination_root=Path(dest_dir),
+                        commit=bad,
                     )
             with self.assertRaises(GetError) as ctx:
                 fetch_profile(

@@ -7,6 +7,7 @@ module's `http-service` contract resolved and the warehouse datasource
 provisioning mount present (the `sql-database` binding wired via
 `warehouseDatabase.contractRef`, issue #369).
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -82,8 +83,12 @@ class LocalPostgresGrafanaProfileTest(unittest.TestCase):
         self.assertEqual(env["CDS_GF_DS_WAREHOUSE_HOST"], "postgres")
         # The profile feeds database from ${CDS_ANALYTICS_DB_NAME}, which
         # stays a runtime placeholder in rendered compose.
-        self.assertEqual(env["CDS_GF_DS_WAREHOUSE_DATABASE"], "${CDS_ANALYTICS_DB_NAME}")
-        self.assertEqual(env["GF_SECURITY_ADMIN_PASSWORD"], "${CDS_GRAFANA_ADMIN_PASSWORD}")
+        self.assertEqual(
+            env["CDS_GF_DS_WAREHOUSE_DATABASE"], "${CDS_ANALYTICS_DB_NAME}"
+        )
+        self.assertEqual(
+            env["GF_SECURITY_ADMIN_PASSWORD"], "${CDS_GRAFANA_ADMIN_PASSWORD}"
+        )
 
 
 if __name__ == "__main__":

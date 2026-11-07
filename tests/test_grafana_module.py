@@ -18,6 +18,7 @@ Proves, via the real validate/plan/render pipeline, that the experimental
   capabilities, no-new-privileges, tmpfs, non-root uid, loopback-only host
   publish, no debug logging, no docker socket).
 """
+
 import shutil
 import tempfile
 import unittest
@@ -47,7 +48,9 @@ class GrafanaModuleTest(unittest.TestCase):
         Draft202012Validator.check_schema(self.config_schema)
         self.assertFalse(self.module["metadata"]["productionSuitable"])
         self.assertEqual(self.module["metadata"]["category"], "observability")
-        service = self.module["spec"]["implementation"]["compose"]["services"]["grafana"]
+        service = self.module["spec"]["implementation"]["compose"]["services"][
+            "grafana"
+        ]
         self.assertRegex(
             service["image"],
             r"^grafana/grafana:12\.4\.14@sha256:[0-9a-f]{64}$",
@@ -78,7 +81,9 @@ class GrafanaModuleTest(unittest.TestCase):
         self.assertEqual(metrics["mappedFrom"], "spec.config.metricsSink")
 
     def test_container_hardening_baseline(self) -> None:
-        service = self.module["spec"]["implementation"]["compose"]["services"]["grafana"]
+        service = self.module["spec"]["implementation"]["compose"]["services"][
+            "grafana"
+        ]
         self.assertEqual(service["user"], "472:472")
         self.assertTrue(service["read_only"])
         self.assertEqual(service["cap_drop"], ["ALL"])
@@ -106,14 +111,14 @@ class GrafanaModuleTest(unittest.TestCase):
             self.assertNotEqual(source, "/var/run/docker.sock")
 
     def test_provisioning_files_exist_for_the_gated_mounts(self) -> None:
-        service = self.module["spec"]["implementation"]["compose"]["services"]["grafana"]
+        service = self.module["spec"]["implementation"]["compose"]["services"][
+            "grafana"
+        ]
         bind_targets = {}
         for volume in service["volumes"]:
             if isinstance(volume, dict) and volume.get("type") == "bind":
                 bind_targets[volume["target"]] = volume
-        warehouse = bind_targets[
-            "/etc/grafana/provisioning/datasources/warehouse.yaml"
-        ]
+        warehouse = bind_targets["/etc/grafana/provisioning/datasources/warehouse.yaml"]
         self.assertEqual(warehouse["source"], "provisioning/datasources/warehouse.yaml")
         self.assertEqual(
             warehouse["enabledFrom"], "bindings.warehouse-database.engine==postgres"
@@ -265,12 +270,16 @@ class GrafanaWiringTest(unittest.TestCase):
             env = service["environment"]
             self.assertEqual(env["GF_SECURITY_ADMIN_USER"], "admin")
             # Secrets stay `${CDS_*}` runtime placeholders in rendered output.
-            self.assertEqual(env["GF_SECURITY_ADMIN_PASSWORD"], "${CDS_GRAFANA_ADMIN_PASSWORD}")
+            self.assertEqual(
+                env["GF_SECURITY_ADMIN_PASSWORD"], "${CDS_GRAFANA_ADMIN_PASSWORD}"
+            )
             self.assertEqual(env["CDS_GF_DS_WAREHOUSE_HOST"], "postgres")
             self.assertEqual(str(env["CDS_GF_DS_WAREHOUSE_PORT"]), "5432")
             self.assertEqual(env["CDS_GF_DS_WAREHOUSE_DATABASE"], "analytics")
             self.assertEqual(env["CDS_GF_DS_WAREHOUSE_USERNAME"], "analytics")
-            self.assertEqual(env["CDS_GF_DS_WAREHOUSE_PASSWORD"], "${CDS_ANALYTICS_DB_PASSWORD}")
+            self.assertEqual(
+                env["CDS_GF_DS_WAREHOUSE_PASSWORD"], "${CDS_ANALYTICS_DB_PASSWORD}"
+            )
             self.assertEqual(env["CDS_GF_DS_METRICS_URL"], "")
 
     def test_unbound_optional_contracts_render_no_datasource_mounts(self) -> None:

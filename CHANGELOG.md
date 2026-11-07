@@ -613,6 +613,41 @@ The format is based on Keep a Changelog.
   before the #1056 bump, so `uv lock --check` failed on main and any plain
   `uv run`/`uv sync` silently rewrote the lock as a side effect. The lock now
   records ruff 0.17.3 (specifier `==0.17.3`) and `uv lock --check` passes.
+- Lint drift cleanup (issue #1177): `yamllint .` no longer warns about the
+  multi-line `enum` flow sequence in the `kubernetesVolume.medium` property of
+  `cli/resources/module.schema.json` (now single-line, matching the other
+  inline enums), and `ruff format` (pinned `==0.17.3` in `pyproject.toml`) has
+  been applied repo-wide, so `ruff format --check .` is clean alongside the
+  already-gated `ruff check .`. Two suppression comments that the
+  reformatting detached from their flagged line were moved back:
+  `# noqa: S104` in `tests/test_security.py` (onto the `"0.0.0.0"` literal)
+  and `# NOSONAR` in `cli/renderer.py` (onto the `http://` backend URL, so
+  the S5332 false positive stays suppressed). The reformatting also
+  re-wrapped the line SonarCloud anchors its pre-existing S8707 finding on
+  in `cli/main.py`, which re-attributed that false positive (operator's own
+  CLI path argument) to this PR; the line now carries an explicit `# NOSONAR`
+  with the justification, so the PR quality gate stays green.
+- LLM seam hardening (github-advanced-security findings on this PR):
+  `scripts/_vendor/llm/client.py::complete()` now dispatches on an explicit
+  provider allowlist and raises `ValueError` for unknown providers instead of
+  falling through to Azure OpenAI (a misconfigured `LLM_PROVIDER` can no
+  longer off-box the prompt by accident), and wraps the caller's user prompt
+  in the repo's `BEGIN_UNTRUSTED_DATA` / `END_UNTRUSTED_DATA` fences with a
+  data-not-instructions preamble before dispatching to any provider, so
+  untrusted profile YAML/plan JSON embedded in `scripts/ai_profile_review.py`
+  prompts is structurally isolated (system prompt unchanged). The prompt is
+  additionally run through a deterministic sanitizer before fencing (control
+  chars stripped; fence markers, instruction-like patterns, and
+  secret-looking values replaced with `[REDACTED]`, mirroring
+  `scripts/redact_secrets.py`), and fence idempotence is strictly structural
+  (exact preamble+begin+payload+end shape), so embedded markers can neither
+  forge nor break the fences. As a deterministic trust-boundary gate,
+  `complete()` now refuses to send any prompt to the remote `azure_openai`
+  backend unless `LLM_ALLOW_REMOTE_PROMPTS=1` is explicitly set
+  (default-deny; local providers unaffected). `parse_status()` in
+  `scripts/ai_profile_review.py` is now strict/structural: exactly one
+  `STATUS:` line, required to be the last non-empty line of the model report,
+  so an injected or echoed status line cannot forge a clean verdict.
 
 ## [0.15.0] - 2026-11-02
 

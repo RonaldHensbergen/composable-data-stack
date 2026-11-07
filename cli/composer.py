@@ -186,12 +186,18 @@ def compose_profile(
         )
         return None, diagnostics
 
-    providers, existing_ids, provider_diags = _collect_provided_contracts(profile, profile_dir, modules_root)
+    providers, existing_ids, provider_diags = _collect_provided_contracts(
+        profile, profile_dir, modules_root
+    )
     diagnostics.extend(provider_diags)
     if any(d.level == "error" for d in diagnostics):
         return None, diagnostics
 
-    metadata = module_def.get("metadata") if isinstance(module_def.get("metadata"), dict) else {}
+    metadata = (
+        module_def.get("metadata")
+        if isinstance(module_def.get("metadata"), dict)
+        else {}
+    )
     resolved_id = instance_id or metadata.get("name")
     if not isinstance(resolved_id, str) or not resolved_id.strip():
         diagnostics.append(
@@ -275,7 +281,9 @@ def compose_profile(
                 )
                 continue
         else:
-            candidates = sorted(ref for ref, kind in providers.items() if kind == contract_kind)
+            candidates = sorted(
+                ref for ref, kind in providers.items() if kind == contract_kind
+            )
             if len(candidates) == 1:
                 chosen = candidates[0]
             elif not candidates:
@@ -321,7 +329,9 @@ def compose_profile(
     if any(d.level == "error" for d in diagnostics):
         return None, diagnostics
 
-    secret_values = deepcopy((profile.get("spec", {}).get("secrets") or {}).get("values") or {})
+    secret_values = deepcopy(
+        (profile.get("spec", {}).get("secrets") or {}).get("values") or {}
+    )
     for alias in sorted(set(_iter_secret_aliases(config))):
         if alias in secret_values:
             continue
@@ -359,7 +369,9 @@ def compose_profile(
     merged["spec"]["modules"].append(new_instance)
 
     if secret_values:
-        secrets_block = merged["spec"].setdefault("secrets", {"provider": {"type": "env"}})
+        secrets_block = merged["spec"].setdefault(
+            "secrets", {"provider": {"type": "env"}}
+        )
         secrets_block.setdefault("provider", {"type": "env"})
         secrets_block["values"] = secret_values
 

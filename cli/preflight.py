@@ -78,7 +78,9 @@ def preflight_passed(checks: list[PreflightCheck]) -> bool:
     return not any(check.status == "FAIL" for check in checks)
 
 
-def _check_runtime(runtime: dict[str, Any], plan: dict[str, Any] | None = None) -> list[PreflightCheck]:
+def _check_runtime(
+    runtime: dict[str, Any], plan: dict[str, Any] | None = None
+) -> list[PreflightCheck]:
     runtime_type = runtime.get("type")
     if runtime_type != "docker-compose":
         return [
@@ -116,7 +118,11 @@ def _check_runtime(runtime: dict[str, Any], plan: dict[str, Any] | None = None) 
     daemon_check, docker_info = _check_daemon()
     checks.append(daemon_check)
     if docker_info is not None:
-        checks.extend(_check_host_hardening(docker_info, production=infer_profile_class(plan or {}) == "prod"))
+        checks.extend(
+            _check_host_hardening(
+                docker_info, production=infer_profile_class(plan or {}) == "prod"
+            )
+        )
     return checks
 
 
@@ -130,12 +136,16 @@ def _check_daemon() -> tuple[PreflightCheck, dict[str, Any] | None]:
             text=True,
             timeout=15,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         result = None
 
     if result is None or result.returncode != 0:
         message = "Docker daemon is unreachable. Start Docker and verify access with `docker info`."
-        detail = ((result.stderr or "").strip().splitlines() or [""])[0][:200] if result else ""
+        detail = (
+            ((result.stderr or "").strip().splitlines() or [""])[0][:200]
+            if result
+            else ""
+        )
         if detail:
             message = f"{message} ({detail})"
         return (
@@ -151,14 +161,16 @@ def _check_daemon() -> tuple[PreflightCheck, dict[str, Any] | None]:
     info: dict[str, Any] | None = None
     try:
         parsed = json.loads(result.stdout or "")
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         parsed = None
     if isinstance(parsed, dict):
         info = parsed
     return PreflightCheck("PASS", "runtime.daemon", "Docker daemon is reachable."), info
 
 
-def _check_host_hardening(info: dict[str, Any], production: bool = True) -> list[PreflightCheck]:
+def _check_host_hardening(
+    info: dict[str, Any], production: bool = True
+) -> list[PreflightCheck]:
     """
     Inspect host/daemon settings from `docker info` without privileged access.
 
@@ -242,10 +254,16 @@ def _uses_non_default_context() -> bool:
     if not context:
         config_dir = Path(os.environ.get("DOCKER_CONFIG") or Path.home() / ".docker")
         try:
-            config = json.loads((config_dir / "config.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            config = json.loads(
+                (config_dir / "config.json").read_text(encoding="utf-8")
+            )
+        except OSError, ValueError:
             return False
-        context = str(config.get("currentContext", "")).strip() if isinstance(config, dict) else ""
+        context = (
+            str(config.get("currentContext", "")).strip()
+            if isinstance(config, dict)
+            else ""
+        )
     return context not in {"", "default"}
 
 
@@ -259,7 +277,9 @@ def _check_socket_exposure(rootless: bool = False) -> PreflightCheck | None:
         # Docker treats any non-empty DOCKER_TLS_VERIFY value as enabled.
         if os.environ.get("DOCKER_TLS_VERIFY", "").strip():
             return PreflightCheck(
-                "PASS", "host.socket", "Daemon is reached over TCP with TLS verification."
+                "PASS",
+                "host.socket",
+                "Daemon is reached over TCP with TLS verification.",
             )
         return PreflightCheck(
             "WARN",
@@ -306,7 +326,7 @@ def _run_runtime_command(
             text=True,
             timeout=15,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return PreflightCheck("FAIL", name, failure_message, reference=reference)
 
     if result.returncode != 0:
@@ -317,11 +337,13 @@ def _run_runtime_command(
 def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck]:
     matches = list(_ENV_REFERENCE.finditer(compose_yaml))
     required_names = {m.group(1) for m in matches if _reference_is_required(m.group(2))}
-    insecure_defaults = sorted({
-        m.group(1)
-        for m in matches
-        if _reference_has_insecure_default(m.group(1), m.group(2))
-    })
+    insecure_defaults = sorted(
+        {
+            m.group(1)
+            for m in matches
+            if _reference_has_insecure_default(m.group(1), m.group(2))
+        }
+    )
 
     if not required_names and not insecure_defaults:
         return [
@@ -355,7 +377,9 @@ def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck
                         "FAIL",
                         f"environment.{name}",
                         f'Required environment value "{name}" is missing or empty.',
-                        reference=_doc_ref("installation.md#5-initialize-configuration"),
+                        reference=_doc_ref(
+                            "installation.md#5-initialize-configuration"
+                        ),
                     )
                     for name in missing
                 )
@@ -381,7 +405,9 @@ def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck
                             "Replace placeholder values for: "  # noqa: S608
                             + ", ".join(placeholders)
                             + ".",
-                            reference=_doc_ref("installation.md#5-initialize-configuration"),
+                            reference=_doc_ref(
+                                "installation.md#5-initialize-configuration"
+                            ),
                         )
                     )
     else:
@@ -397,7 +423,9 @@ def _check_environment(compose_yaml: str, env_file: Path) -> list[PreflightCheck
             PreflightCheck(
                 "WARN",
                 "environment.insecure-defaults",
-                "Replace insecure hardcoded defaults for: " + ", ".join(insecure_defaults) + ".",
+                "Replace insecure hardcoded defaults for: "
+                + ", ".join(insecure_defaults)
+                + ".",
                 reference=_doc_ref("installation.md#5-initialize-configuration"),
             )
         )
@@ -425,7 +453,9 @@ def _reference_has_insecure_default(name: str, suffix: str) -> bool:
     return bool(SECRET_KEY_SEGMENT_RE.search(name))
 
 
-def _check_images(plan: dict[str, Any], compose_yaml: str, *, strict: bool = False) -> list[PreflightCheck]:
+def _check_images(
+    plan: dict[str, Any], compose_yaml: str, *, strict: bool = False
+) -> list[PreflightCheck]:
     """
     Enforce the CDS image policy (registry allowlist, digest pins, and, in
     full mode, cosign-verified signatures and provenance attestations).
@@ -473,11 +503,7 @@ def _load_env_values(env_file: Path) -> dict[str, str]:
                 key, value = stripped.split("=", 1)
                 key = key.strip()
                 value = value.strip()
-                if (
-                    len(value) >= 2
-                    and value[0] == value[-1]
-                    and value[0] in {'"', "'"}
-                ):
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
                     value = value[1:-1]
                 if key:
                     values[key] = value
@@ -500,14 +526,10 @@ def _check_ports(compose_yaml: str) -> list[PreflightCheck]:
                 continue
             for port_entry in ports:
                 for host, port, protocol in _published_ports(port_entry):
-                    declared_ports.append(
-                        (str(service_name), host, port, protocol)
-                    )
+                    declared_ports.append((str(service_name), host, port, protocol))
 
     if not declared_ports:
-        return [
-            PreflightCheck("PASS", "ports", "No host ports were declared.")
-        ]
+        return [PreflightCheck("PASS", "ports", "No host ports were declared.")]
 
     checks: list[PreflightCheck] = []
     seen: list[tuple[str, int, str, str]] = []
@@ -601,10 +623,7 @@ def _published_ports(port_entry: Any) -> list[tuple[str, int, str]]:
         host = parts[0].strip("[]") or _DOCKER_WILDCARD_IPV4
         published = parts[1]
 
-    return [
-        (host, port, protocol)
-        for port in _expand_port_range(published)
-    ]
+    return [(host, port, protocol) for port in _expand_port_range(published)]
 
 
 def _expand_port_range(value: str) -> list[int]:
@@ -630,6 +649,6 @@ def _port_is_available(host: str, port: int, protocol: str) -> bool | None:
     try:
         with socket.socket(family, socket_type) as listener:
             listener.bind((host, port))
-    except (OSError, OverflowError):
+    except OSError, OverflowError:
         return False
     return True

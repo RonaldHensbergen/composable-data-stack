@@ -14,6 +14,7 @@ dlt itself reads the DESTINATION__<NAME>__CREDENTIALS variable directly,
 this script only needs to read the destination type and pipeline/dataset
 names.
 """
+
 import os
 from pathlib import Path
 
@@ -33,7 +34,9 @@ def _postgres_roundtrip_check() -> str:
     roundtrip_path = Path(__file__).resolve().parents[1] / "db_roundtrip.py"
     spec = importlib.util.spec_from_file_location("cds_db_roundtrip", roundtrip_path)
     if spec is None or spec.loader is None:
-        raise ModuleNotFoundError(f"Unable to load module from {roundtrip_path}") from None
+        raise ModuleNotFoundError(
+            f"Unable to load module from {roundtrip_path}"
+        ) from None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.roundtrip("destination", "hello from the dlt runtime")

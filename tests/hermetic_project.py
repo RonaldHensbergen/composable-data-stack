@@ -17,8 +17,10 @@ _PROJECT_DIRS = ("modules", "shared", "images", "workdirs")
 
 
 def find_cds() -> list[str]:
-    venv_cds = REPO_ROOT / ".venv" / (
-        "Scripts/cds.exe" if sys.platform == "win32" else "bin/cds"
+    venv_cds = (
+        REPO_ROOT
+        / ".venv"
+        / ("Scripts/cds.exe" if sys.platform == "win32" else "bin/cds")
     )
     if venv_cds.exists():
         return [str(venv_cds)]
@@ -51,7 +53,9 @@ def make_project(root: Path, profile_name: str) -> Path:
     return root / "profiles" / profile_name / "profile.yaml"
 
 
-def init_env(cds: list[str], root: Path, profile_name: str, environment: str | None = None) -> None:
+def init_env(
+    cds: list[str], root: Path, profile_name: str, environment: str | None = None
+) -> None:
     """Generate `<root>/.env` for the profile with a sanitized environment.
 
     Pass `environment` to generate against an environment overlay (e.g.

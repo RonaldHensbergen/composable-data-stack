@@ -15,6 +15,7 @@ This report only aggregates readiness evidence CDS already computes for a
 *user's deployed stack* -- it is not itself a legal compliance/conformity
 certification (see REPORT_DISCLAIMER, always included in the output).
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -129,7 +130,9 @@ def _build_image_evidence(
     compose_yaml: str, fixture_path: Path | None
 ) -> tuple[list[dict[str, Any]], list[Diagnostic]]:
     diagnostics: list[Diagnostic] = []
-    resolved_fixture_path = fixture_path if fixture_path is not None else default_fixture_path()
+    resolved_fixture_path = (
+        fixture_path if fixture_path is not None else default_fixture_path()
+    )
 
     entries: list[dict[str, Any]] = []
     for service, image, is_local_build in collect_compose_images(compose_yaml):
@@ -160,18 +163,22 @@ def _build_image_evidence(
                     )
                 )
                 entry["evidence"] = {"status": "not-available", "reason": reason}
-                diagnostics.append(Diagnostic(
-                    level="warning",
-                    code="W101",
-                    message=f'No signature/SBOM/provenance evidence available for "{image}" (service "{service}").',
-                    path=f"services.{service}.image",
-                ))
+                diagnostics.append(
+                    Diagnostic(
+                        level="warning",
+                        code="W101",
+                        message=f'No signature/SBOM/provenance evidence available for "{image}" (service "{service}").',
+                        path=f"services.{service}.image",
+                    )
+                )
             else:
                 entry["evidence"] = {
                     "status": "available",
                     "digest": fixture_entry.get("digest"),
                     "signed": bool(fixture_entry.get("signed", False)),
-                    "provenanceAttested": bool(fixture_entry.get("provenanceAttested", False)),
+                    "provenanceAttested": bool(
+                        fixture_entry.get("provenanceAttested", False)
+                    ),
                     "sbomAttested": bool(fixture_entry.get("sbomAttested", False)),
                     "source": str(resolved_fixture_path),
                 }
@@ -191,18 +198,22 @@ def _build_topology_summary(plan: dict[str, Any]) -> list[dict[str, Any]]:
         # flattened into one topology entry per route binding.
         for name, item_index, consumed in iter_consume_bindings(module.get("consumes")):
             contract_ref = consumed.get("contractRef")
-            consumes.append({
-                "name": f"{name}[{item_index}]" if item_index is not None else name,
-                "kind": consumed.get("contract", {}).get("kind"),
-                "contractRef": contract_ref,
-                "provider": contract_ref.split(".", 1)[0] if contract_ref else None,
-            })
-        topology.append({
-            "id": module["id"],
-            "dependsOn": list(module.get("dependsOn", [])),
-            "provides": provides,
-            "consumes": consumes,
-        })
+            consumes.append(
+                {
+                    "name": f"{name}[{item_index}]" if item_index is not None else name,
+                    "kind": consumed.get("contract", {}).get("kind"),
+                    "contractRef": contract_ref,
+                    "provider": contract_ref.split(".", 1)[0] if contract_ref else None,
+                }
+            )
+        topology.append(
+            {
+                "id": module["id"],
+                "dependsOn": list(module.get("dependsOn", [])),
+                "provides": provides,
+                "consumes": consumes,
+            }
+        )
     return topology
 
 
@@ -240,7 +251,9 @@ def _build_data_sharing_summary(plan: dict[str, Any]) -> dict[str, Any]:
         if isinstance(module_ref, str):
             entry["module"] = module_ref
             kinds = provides_by_module.get(module_ref, {})
-            entry["moduleProvidesOpenDataProvider"] = "open-data-provider" in kinds.values()
+            entry["moduleProvidesOpenDataProvider"] = (
+                "open-data-provider" in kinds.values()
+            )
         datasets.append(entry)
 
     summary: dict[str, Any] = {"datasets": datasets, "note": DATA_SHARING_NOTE}
@@ -272,7 +285,9 @@ def _check_no_leaked_secrets(
     renders as a literal value and would otherwise false-positive here.
     """
     diagnostics: list[Diagnostic] = []
-    all_env_values, secret_diags = load_secrets_from_env(Path(env_file) if env_file else None)
+    all_env_values, secret_diags = load_secrets_from_env(
+        Path(env_file) if env_file else None
+    )
     diagnostics.extend(secret_diags)
 
     declared_env_names = {
@@ -292,15 +307,17 @@ def _check_no_leaked_secrets(
             leaked.append(name)
 
     if leaked:
-        diagnostics.append(Diagnostic(
-            level="error",
-            code="E119",
-            message=(
-                "Resolved secret value(s) found in rendered Compose output instead of "
-                f"${{CDS_*}} placeholders: {', '.join(sorted(leaked))}."
-            ),
-            path="services",
-        ))
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E119",
+                message=(
+                    "Resolved secret value(s) found in rendered Compose output instead of "
+                    f"${{CDS_*}} placeholders: {', '.join(sorted(leaked))}."
+                ),
+                path="services",
+            )
+        )
 
     return {
         "status": "fail" if leaked else "pass",

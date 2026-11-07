@@ -56,7 +56,9 @@ _TRANSIENT_REGISTRY_ERROR_MARKERS = (
 )
 
 
-def _http_json(url: str, payload: dict | None = None, timeout: int = 30) -> tuple[int, bytes]:
+def _http_json(
+    url: str, payload: dict | None = None, timeout: int = 30
+) -> tuple[int, bytes]:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     request = urllib.request.Request(
         url,
@@ -75,7 +77,9 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if os.getenv("CDS_RUN_DOCKER_SMOKE") != "1":
-            raise unittest.SkipTest("Set CDS_RUN_DOCKER_SMOKE=1 to run Docker runtime proof tests")
+            raise unittest.SkipTest(
+                "Set CDS_RUN_DOCKER_SMOKE=1 to run Docker runtime proof tests"
+            )
 
         if shutil.which("docker") is None:
             raise unittest.SkipTest("Docker CLI not available")
@@ -93,9 +97,16 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
         # it lives at the repo root like production (deleted afterwards).
         return ["docker", "compose", "-f", str(COMPOSE_FILE), "-p", PROJECT]
 
-    def _run(self, args: list[str], env: dict[str, str], timeout: int = 300) -> subprocess.CompletedProcess:
+    def _run(
+        self, args: list[str], env: dict[str, str], timeout: int = 300
+    ) -> subprocess.CompletedProcess:
         result = subprocess.run(
-            args, cwd=REPO_ROOT, env=env, capture_output=True, text=True, timeout=timeout
+            args,
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
         self.assertEqual(
             result.returncode,
@@ -104,7 +115,9 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
         )
         return result
 
-    def _logs(self, env: dict[str, str], service: str | None = None, tail: int = 200) -> str:
+    def _logs(
+        self, env: dict[str, str], service: str | None = None, tail: int = 200
+    ) -> str:
         args = [*self._compose(), "logs", "--tail", str(tail)]
         if service is not None:
             args.append(service)
@@ -127,7 +140,10 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
             if result.returncode == 0:
                 return
             last_output = result.stdout + result.stderr
-            if not any(m in last_output for m in _TRANSIENT_REGISTRY_ERROR_MARKERS) or attempt == 3:
+            if (
+                not any(m in last_output for m in _TRANSIENT_REGISTRY_ERROR_MARKERS)
+                or attempt == 3
+            ):
                 break
             time.sleep(15)
         self.fail(
@@ -135,7 +151,9 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
             f"container logs follow.\nup output:\n{last_output}\nlogs:\n{self._logs(env)}"
         )
 
-    def _wait_all_running(self, env: dict[str, str], deadline_seconds: int = 420) -> None:
+    def _wait_all_running(
+        self, env: dict[str, str], deadline_seconds: int = 420
+    ) -> None:
         # The loki/otel images render no container-side healthcheck (the otel
         # contrib image is distroless), so "healthy" is asserted afterwards
         # by probing the published health/ingest ports from the host.
@@ -228,7 +246,14 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
         )
         return json.loads(result.stdout)
 
-    def _wait_loki_contains(self, env: dict[str, str], query: str, marker: str, tier: str, deadline_seconds: int = 180) -> None:
+    def _wait_loki_contains(
+        self,
+        env: dict[str, str],
+        query: str,
+        marker: str,
+        tier: str,
+        deadline_seconds: int = 180,
+    ) -> None:
         started = time.monotonic()
         last_body = ""
         while time.monotonic() - started < deadline_seconds:
@@ -237,7 +262,9 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
             for stream in body.get("data", {}).get("result", []):
                 labels = stream.get("stream", {})
                 values = stream.get("values", [])
-                if labels.get("tier") == tier and any(marker in line for _ts, line in values):
+                if labels.get("tier") == tier and any(
+                    marker in line for _ts, line in values
+                ):
                     return
             time.sleep(5)
         self.fail(
@@ -249,19 +276,22 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
     def test_experimental_observability_modules_ingest_and_store(self) -> None:
         diagnostics = validate_profile(str(PROFILE))
         self.assertEqual(
-            [d for d in diagnostics if d.level == "error"], [],
+            [d for d in diagnostics if d.level == "error"],
+            [],
             msg=f"unexpected validation errors: {diagnostics}",
         )
 
         plan, plan_diags = build_plan(str(PROFILE))
         self.assertIsNotNone(plan)
         self.assertEqual(
-            [d for d in plan_diags if d.level == "error"], [],
+            [d for d in plan_diags if d.level == "error"],
+            [],
             msg=f"unexpected plan errors: {plan_diags}",
         )
         output, render_diags = render_compose(plan, output_path=str(COMPOSE_FILE))
         self.assertEqual(
-            [d for d in render_diags if d.level == "error"], [],
+            [d for d in render_diags if d.level == "error"],
+            [],
             msg=f"unexpected render errors: {render_diags}",
         )
 
@@ -269,7 +299,9 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
         self.assertEqual(
             sorted(compose["services"]), ["loki", "loki-storage", "otel-collector"]
         )
-        self.assertEqual(compose["services"]["loki"]["ports"], [f"127.0.0.1:{INGEST_PORT}:8686"])
+        self.assertEqual(
+            compose["services"]["loki"]["ports"], [f"127.0.0.1:{INGEST_PORT}:8686"]
+        )
         self.assertEqual(
             compose["services"]["loki"]["environment"]["LOKI_ENDPOINT"],
             "http://loki-storage:3100",
@@ -320,7 +352,9 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
             # OTLP/HTTP ingest + health endpoint on the collector (poll until
             # the collector process is actually serving, not just running).
             self._wait_http_ok(
-                env, f"http://127.0.0.1:{HEALTH_PORT}/", deadline_seconds=120,
+                env,
+                f"http://127.0.0.1:{HEALTH_PORT}/",
+                deadline_seconds=120,
                 what="collector health endpoint",
             )
             otlp_payload = {
@@ -351,9 +385,7 @@ class ObservabilityRuntimeSmokeTest(unittest.TestCase):
             )
 
             # The store must return both records under their retention tier.
-            self._wait_loki_contains(
-                env, '{tier="raw"}', raw_marker, "raw"
-            )
+            self._wait_loki_contains(env, '{tier="raw"}', raw_marker, "raw")
             self._wait_loki_contains(
                 env, '{tier="structured"}', structured_marker, "structured"
             )

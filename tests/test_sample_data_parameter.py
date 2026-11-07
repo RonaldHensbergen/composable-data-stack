@@ -54,9 +54,7 @@ def _enabled_plan(plan):
 
 def _compose_service(compose_doc, fragment):
     return next(
-        service
-        for name, service in compose_doc["services"].items()
-        if fragment in name
+        service for name, service in compose_doc["services"].items() if fragment in name
     )
 
 
@@ -65,7 +63,8 @@ def _sample_binds(compose_doc):
         name: [
             entry
             for entry in service.get("volumes", [])
-            if isinstance(entry, dict) and "offers-1000.csv" in str(entry.get("source", ""))
+            if isinstance(entry, dict)
+            and "offers-1000.csv" in str(entry.get("source", ""))
         ]
         for name, service in compose_doc["services"].items()
     }
@@ -131,7 +130,9 @@ class SampleDataParameterTest(unittest.TestCase):
     def test_helm_enabled_renders_configmap_and_mounts_on_all_workloads(self):
         files = self._render_helm(_enabled_plan(self.plan))
 
-        configmap = yaml.safe_load(files["templates/dagster-configmap-sample-data.yaml"])
+        configmap = yaml.safe_load(
+            files["templates/dagster-configmap-sample-data.yaml"]
+        )
         self.assertEqual(configmap["kind"], "ConfigMap")
         self.assertEqual(
             configmap["metadata"]["name"], "{{ .Release.Name }}-dagster-sample-data"
@@ -175,7 +176,11 @@ class SampleDataParameterTest(unittest.TestCase):
         for entries in binds.values():
             for entry in entries:
                 self.assertEqual(entry["type"], "bind")
-                self.assertTrue(entry["source"].endswith("workdirs/shared-data/incoming/offers-1000.csv"))
+                self.assertTrue(
+                    entry["source"].endswith(
+                        "workdirs/shared-data/incoming/offers-1000.csv"
+                    )
+                )
                 self.assertEqual(entry["target"], SAMPLE_CONTAINER_PATH)
                 self.assertIs(entry["read_only"], True)
         env = _compose_service(compose, "user-code")["environment"]

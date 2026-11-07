@@ -11,7 +11,9 @@ from cli.state import (
 class ParseComposePsJsonTest(unittest.TestCase):
     def test_parses_json_array_shape(self):
         # Compose pre-2.21.0 output.
-        raw = '[{"Service": "web", "Health": "healthy"}, {"Service": "db", "Health": ""}]'
+        raw = (
+            '[{"Service": "web", "Health": "healthy"}, {"Service": "db", "Health": ""}]'
+        )
         self.assertEqual(
             parse_compose_ps_json(raw),
             [{"Service": "web", "Health": "healthy"}, {"Service": "db", "Health": ""}],
@@ -19,8 +21,7 @@ class ParseComposePsJsonTest(unittest.TestCase):
 
     def test_parses_ndjson_shape(self):
         raw = (
-            '{"Service": "web", "Health": "healthy"}\n'
-            '{"Service": "db", "Health": ""}\n'
+            '{"Service": "web", "Health": "healthy"}\n{"Service": "db", "Health": ""}\n'
         )
         self.assertEqual(
             parse_compose_ps_json(raw),
@@ -29,7 +30,9 @@ class ParseComposePsJsonTest(unittest.TestCase):
 
     def test_single_service_ndjson_line_with_no_wrapper(self):
         raw = '{"Service": "web", "Health": "healthy"}'
-        self.assertEqual(parse_compose_ps_json(raw), [{"Service": "web", "Health": "healthy"}])
+        self.assertEqual(
+            parse_compose_ps_json(raw), [{"Service": "web", "Health": "healthy"}]
+        )
 
     def test_empty_output_returns_empty_list(self):
         self.assertEqual(parse_compose_ps_json(""), [])
@@ -112,19 +115,29 @@ class GroupServicesByHealthTest(unittest.TestCase):
         )
 
     def test_exited_with_zero_code_is_healthy_exit(self):
-        services = [{"Service": "svc-a", "Health": "", "State": "exited", "ExitCode": 0}]
-        self.assertEqual(group_services_by_health(services), {"HEALTHY EXIT": ["svc-a"]})
+        services = [
+            {"Service": "svc-a", "Health": "", "State": "exited", "ExitCode": 0}
+        ]
+        self.assertEqual(
+            group_services_by_health(services), {"HEALTHY EXIT": ["svc-a"]}
+        )
 
     def test_exited_with_nonzero_code_is_unhealthy_exit(self):
-        services = [{"Service": "svc-a", "Health": "", "State": "exited", "ExitCode": 137}]
-        self.assertEqual(group_services_by_health(services), {"UNHEALTHY EXIT": ["svc-a"]})
+        services = [
+            {"Service": "svc-a", "Health": "", "State": "exited", "ExitCode": 137}
+        ]
+        self.assertEqual(
+            group_services_by_health(services), {"UNHEALTHY EXIT": ["svc-a"]}
+        )
 
     def test_exited_without_exit_code_field_is_unknown_not_guessed(self):
         services = [{"Service": "svc-a", "Health": "", "State": "exited"}]
         self.assertEqual(group_services_by_health(services), {"UNKNOWN": ["svc-a"]})
 
     def test_exited_with_non_numeric_exit_code_is_unknown_not_a_crash(self):
-        services = [{"Service": "svc-a", "Health": "", "State": "exited", "ExitCode": "oops"}]
+        services = [
+            {"Service": "svc-a", "Health": "", "State": "exited", "ExitCode": "oops"}
+        ]
         self.assertEqual(group_services_by_health(services), {"UNKNOWN": ["svc-a"]})
 
     def test_running_state_falls_back_to_running_bucket(self):
@@ -140,7 +153,9 @@ class GroupServicesByHealthTest(unittest.TestCase):
             {"Service": "svc-a", "Health": "", "State": "paused"},
             {"Service": "svc-b", "Health": "", "State": "dead"},
         ]
-        self.assertEqual(group_services_by_health(services), {"UNKNOWN": ["svc-a", "svc-b"]})
+        self.assertEqual(
+            group_services_by_health(services), {"UNKNOWN": ["svc-a", "svc-b"]}
+        )
 
     def test_falls_back_to_unknown_when_both_health_and_state_are_missing(self):
         services = [{"Service": "svc-a"}]
@@ -148,7 +163,9 @@ class GroupServicesByHealthTest(unittest.TestCase):
 
     def test_prefers_name_when_service_field_absent(self):
         services = [{"Name": "project-svc-a-1", "Health": "healthy"}]
-        self.assertEqual(group_services_by_health(services), {"HEALTHY": ["project-svc-a-1"]})
+        self.assertEqual(
+            group_services_by_health(services), {"HEALTHY": ["project-svc-a-1"]}
+        )
 
     def test_output_is_deterministically_sorted_regardless_of_input_order(self):
         services = [

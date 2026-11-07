@@ -17,8 +17,9 @@ class CachePathTest(unittest.TestCase):
 
     def test_windows_localappdata_is_used(self):
         env = {"LOCALAPPDATA": "/local"}
-        with mock.patch.dict(os.environ, env), mock.patch.object(
-            update_check.sys, "platform", "win32"
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch.object(update_check.sys, "platform", "win32"),
         ):
             os.environ.pop("XDG_CACHE_HOME", None)
             self.assertEqual(
@@ -26,9 +27,11 @@ class CachePathTest(unittest.TestCase):
             )
 
     def test_home_cache_fallback(self):
-        with mock.patch.dict(os.environ, {}), mock.patch.object(
-            update_check.sys, "platform", "linux"
-        ), mock.patch.object(update_check.Path, "home", return_value=Path("/home/u")):
+        with (
+            mock.patch.dict(os.environ, {}),
+            mock.patch.object(update_check.sys, "platform", "linux"),
+            mock.patch.object(update_check.Path, "home", return_value=Path("/home/u")),
+        ):
             os.environ.pop("XDG_CACHE_HOME", None)
             self.assertEqual(
                 update_check._cache_path(),
@@ -64,35 +67,44 @@ class FetchLatestVersionTest(unittest.TestCase):
         with mock.patch.object(update_check, "urlopen", side_effect=OSError("down")):
             self.assertIsNone(update_check.fetch_latest_version())
         for body in (b"not json", b"{}", b"[]"):
-            with self.subTest(body=body), mock.patch.object(
-                update_check, "urlopen", return_value=self._response(body)
+            with (
+                self.subTest(body=body),
+                mock.patch.object(
+                    update_check, "urlopen", return_value=self._response(body)
+                ),
             ):
                 self.assertIsNone(update_check.fetch_latest_version())
 
 
 class CacheEdgeCasesTest(unittest.TestCase):
     def test_store_cache_swallows_oserror(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {"XDG_CACHE_HOME": tmp}
-        ), mock.patch.object(Path, "write_text", side_effect=OSError("ro")):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(os.environ, {"XDG_CACHE_HOME": tmp}),
+            mock.patch.object(Path, "write_text", side_effect=OSError("ro")),
+        ):
             self.assertIsNone(update_check._store_cache("1.0.0"))
             self.assertFalse(update_check._cache_path().exists())
             self.assertIsNone(update_check._cached_latest())
 
     def test_latest_version_without_cache_fetches_and_stores(self):
-        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(
-            os.environ, {"XDG_CACHE_HOME": tmp}
-        ), mock.patch.object(
-            update_check, "fetch_latest_version", return_value="2.0.0"
-        ) as fetch:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            mock.patch.dict(os.environ, {"XDG_CACHE_HOME": tmp}),
+            mock.patch.object(
+                update_check, "fetch_latest_version", return_value="2.0.0"
+            ) as fetch,
+        ):
             self.assertEqual(update_check.latest_version(use_cache=False), "2.0.0")
             self.assertEqual(fetch.call_count, 1)
             self.assertEqual(update_check._cached_latest(), "2.0.0")
 
     def test_maybe_notify_skips_unknown_current_version(self):
-        with mock.patch.dict(os.environ, {update_check.ENV_VAR: "1"}), mock.patch.object(
-            update_check, "latest_version"
-        ) as latest, mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+        with (
+            mock.patch.dict(os.environ, {update_check.ENV_VAR: "1"}),
+            mock.patch.object(update_check, "latest_version") as latest,
+            mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+        ):
             update_check.maybe_notify("unknown")
             latest.assert_not_called()
             self.assertEqual(err.getvalue(), "")

@@ -23,9 +23,12 @@ from cli.main import (
 def _run(argv, env=None):
     out, err = io.StringIO(), io.StringIO()
     code = 0
-    with patch.object(sys, "argv", ["cds", *argv]), \
-            patch.dict(os.environ, env or {}, clear=False), \
-            contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+    with (
+        patch.object(sys, "argv", ["cds", *argv]),
+        patch.dict(os.environ, env or {}, clear=False),
+        contextlib.redirect_stdout(out),
+        contextlib.redirect_stderr(err),
+    ):
         try:
             result = main()
             code = 0 if result is None else result
@@ -85,7 +88,12 @@ class ConfigMutationErrorTest(unittest.TestCase):
 
     def test_unset_missing_nested_returns_false(self):
         self._write({"security": "x", "image": [], "audit": 1, "get": None})
-        for key in ("security.strict", "image.source", "audit.enabled", "get.allowedSources"):
+        for key in (
+            "security.strict",
+            "image.source",
+            "audit.enabled",
+            "get.allowedSources",
+        ):
             with self.subTest(key=key):
                 self.assertFalse(unset_config_value(key))
 
@@ -129,7 +137,8 @@ class ResolveProfilePathTest(unittest.TestCase):
             (Path(tmp) / "flat.yaml").write_text("x: 1\n", encoding="utf-8")
             with patch.dict(os.environ, {"CDS_PROFILE_PATH": tmp}):
                 self.assertEqual(
-                    resolve_profile_path("flat"), str((Path(tmp) / "flat.yaml").resolve())
+                    resolve_profile_path("flat"),
+                    str((Path(tmp) / "flat.yaml").resolve()),
                 )
 
     def test_nonexistent_yaml_suffix_resolves(self):
@@ -150,7 +159,12 @@ class RenderErrorPathsTest(unittest.TestCase):
         self.addCleanup(patcher.stop)
         self.plan = self.tmp / "plan.json"
         self.plan.write_text(
-            json.dumps({"apiVersion": "cds/v1alpha1", "sourceProfile": str(self.tmp / "p.yaml")}),
+            json.dumps(
+                {
+                    "apiVersion": "cds/v1alpha1",
+                    "sourceProfile": str(self.tmp / "p.yaml"),
+                }
+            ),
             encoding="utf-8",
         )
 
@@ -160,42 +174,75 @@ class RenderErrorPathsTest(unittest.TestCase):
         self.assertIn("--environment is not supported", out)
 
     def test_plan_file_compose_render_errors(self):
-        with patch.object(cli_main, "render_compose", return_value=("", [_error()])), \
-                patch.object(cli_main, "_record_audit"):
-            code, out, _ = _run(["render", str(self.plan), "-o", str(self.tmp / "c.yml")])
+        with (
+            patch.object(cli_main, "render_compose", return_value=("", [_error()])),
+            patch.object(cli_main, "_record_audit"),
+        ):
+            code, out, _ = _run(
+                ["render", str(self.plan), "-o", str(self.tmp / "c.yml")]
+            )
         self.assertEqual(code, 1)
         self.assertIn("Render failed.", out)
 
     def test_plan_file_compose_render_success(self):
         out_file = self.tmp / "c.yml"
-        with patch.object(cli_main, "render_compose", return_value=("", [])), \
-                patch.object(cli_main, "_record_audit"):
+        with (
+            patch.object(cli_main, "render_compose", return_value=("", [])),
+            patch.object(cli_main, "_record_audit"),
+        ):
             code, out, _ = _run(["render", str(self.plan), "-o", str(out_file)])
         self.assertEqual(code, 0)
         self.assertIn("Rendered compose file written", out)
 
     def test_plan_file_helm_nonzero_code(self):
-        with patch.object(cli_main, "_render_helm_chart", return_value=(3, [])), \
-                patch.object(cli_main, "_record_audit"):
+        with (
+            patch.object(cli_main, "_render_helm_chart", return_value=(3, [])),
+            patch.object(cli_main, "_record_audit"),
+        ):
             code, _, _ = _run(
-                ["render", str(self.plan), "--target", "helm", "-o", str(self.tmp / "chart")]
+                [
+                    "render",
+                    str(self.plan),
+                    "--target",
+                    "helm",
+                    "-o",
+                    str(self.tmp / "chart"),
+                ]
             )
         self.assertEqual(code, 3)
 
     def test_plan_file_helm_diagnostic_errors(self):
-        with patch.object(cli_main, "_render_helm_chart", return_value=(0, [_error()])), \
-                patch.object(cli_main, "_record_audit"):
+        with (
+            patch.object(cli_main, "_render_helm_chart", return_value=(0, [_error()])),
+            patch.object(cli_main, "_record_audit"),
+        ):
             code, out, _ = _run(
-                ["render", str(self.plan), "--target", "helm", "-o", str(self.tmp / "chart")]
+                [
+                    "render",
+                    str(self.plan),
+                    "--target",
+                    "helm",
+                    "-o",
+                    str(self.tmp / "chart"),
+                ]
             )
         self.assertEqual(code, 1)
         self.assertIn("Render failed.", out)
 
     def test_plan_file_helm_success(self):
-        with patch.object(cli_main, "_render_helm_chart", return_value=(0, [])), \
-                patch.object(cli_main, "_record_audit"):
+        with (
+            patch.object(cli_main, "_render_helm_chart", return_value=(0, [])),
+            patch.object(cli_main, "_record_audit"),
+        ):
             code, out, _ = _run(
-                ["render", str(self.plan), "--target", "helm", "-o", str(self.tmp / "chart")]
+                [
+                    "render",
+                    str(self.plan),
+                    "--target",
+                    "helm",
+                    "-o",
+                    str(self.tmp / "chart"),
+                ]
             )
         self.assertEqual(code, 0)
         self.assertIn("Rendered Helm chart written", out)
@@ -204,14 +251,18 @@ class RenderErrorPathsTest(unittest.TestCase):
         profile = str(self.tmp / "profile.yaml")
         stack = contextlib.ExitStack()
         with stack:
-            stack.enter_context(patch.object(cli_main, "resolve_profile_path", return_value=profile))
+            stack.enter_context(
+                patch.object(cli_main, "resolve_profile_path", return_value=profile)
+            )
             stack.enter_context(patch.object(cli_main, "_record_audit"))
             for name, value in patches.items():
                 stack.enter_context(patch.object(cli_main, name, **value))
             return _run(["render", "prof", *extra])
 
     def test_profile_resolution_error(self):
-        with patch.object(cli_main, "resolve_profile_path", side_effect=ValueError("nope")):
+        with patch.object(
+            cli_main, "resolve_profile_path", side_effect=ValueError("nope")
+        ):
             code, out, _ = _run(["render", "prof"])
         self.assertEqual(code, 1)
         self.assertIn("ERROR nope", out)
@@ -287,19 +338,25 @@ class SecurityCommandErrorPathsTest(unittest.TestCase):
         stack = contextlib.ExitStack()
         with stack:
             stack.enter_context(
-                patch.object(cli_main, "resolve_profile_path", return_value=self.profile)
+                patch.object(
+                    cli_main, "resolve_profile_path", return_value=self.profile
+                )
             )
             for name, value in patches.items():
                 stack.enter_context(patch.object(cli_main, name, **value))
             return _run(["security", "prof", *extra])
 
     def test_report_and_group_by_category_conflict(self):
-        code, out, err = _run(["security", "prof", "--report", "nis2", "--group-by-category"])
+        code, out, err = _run(
+            ["security", "prof", "--report", "nis2", "--group-by-category"]
+        )
         self.assertEqual(code, 2)
         self.assertIn("mutually exclusive", out)
 
     def test_profile_resolution_error(self):
-        with patch.object(cli_main, "resolve_profile_path", side_effect=ValueError("bad")):
+        with patch.object(
+            cli_main, "resolve_profile_path", side_effect=ValueError("bad")
+        ):
             code, out, _ = _run(["security", "prof"])
         self.assertEqual(code, 1)
         self.assertIn("ERROR bad", out)
@@ -386,13 +443,19 @@ class ComposeProfileErrorPathsTest(unittest.TestCase):
         self.profile.write_text("spec: {}\n", encoding="utf-8")
 
     def _run(self, extra, resolved=({"spec": {}}, {}, []), composed=({"spec": {}}, [])):
-        with patch.object(cli_main, "resolve_profile_path", return_value=str(self.profile)), \
-                patch.object(cli_main, "resolve_extends", return_value=resolved), \
-                patch.object(cli_main, "compose_profile", return_value=composed):
+        with (
+            patch.object(
+                cli_main, "resolve_profile_path", return_value=str(self.profile)
+            ),
+            patch.object(cli_main, "resolve_extends", return_value=resolved),
+            patch.object(cli_main, "compose_profile", return_value=composed),
+        ):
             return _run(["compose-profile", "prof", "--add-module", "m", *extra])
 
     def test_resolve_profile_error(self):
-        with patch.object(cli_main, "resolve_profile_path", side_effect=ValueError("x")):
+        with patch.object(
+            cli_main, "resolve_profile_path", side_effect=ValueError("x")
+        ):
             code, out, _ = _run(["compose-profile", "prof", "--add-module", "m"])
         self.assertEqual(code, 1)
         self.assertIn("ERROR x", out)
@@ -407,7 +470,9 @@ class ComposeProfileErrorPathsTest(unittest.TestCase):
             with self.subTest(flag=flag):
                 code, out, _ = self._run([flag, "novalue"])
                 self.assertEqual(code, 1)
-                self.assertIn(f'{flag} value "novalue" must be in NAME=VALUE form.', out)
+                self.assertIn(
+                    f'{flag} value "novalue" must be in NAME=VALUE form.', out
+                )
 
     def test_compose_failure(self):
         code, out, _ = self._run([], composed=(None, [_error()]))
@@ -419,7 +484,9 @@ class ComposeProfileErrorPathsTest(unittest.TestCase):
         code, out, _ = self._run(["--write"])
         self.assertEqual(code, 1)
         self.assertIn('declares "extends"', out)
-        self.assertEqual(self.profile.read_text(encoding="utf-8"), "extends: base\nspec: {}\n")
+        self.assertEqual(
+            self.profile.read_text(encoding="utf-8"), "extends: base\nspec: {}\n"
+        )
 
     def test_write_and_output_and_stdout(self):
         code, out, _ = self._run(["--write"])
@@ -434,12 +501,24 @@ class ComposeProfileErrorPathsTest(unittest.TestCase):
         self.assertIn("spec", out)
 
     def test_yaml_set_value_falls_back_to_raw_string(self):
-        with patch.object(cli_main, "resolve_profile_path", return_value=str(self.profile)), \
-                patch.object(cli_main, "resolve_extends", return_value=({"spec": {}}, {}, [])), \
-                patch.object(cli_main, "compose_profile", return_value=({"spec": {}}, [])) as composer:
-            code, _, _ = _run(["compose-profile", "prof", "--add-module", "m", "--set", "a=[unclosed"])
+        with (
+            patch.object(
+                cli_main, "resolve_profile_path", return_value=str(self.profile)
+            ),
+            patch.object(
+                cli_main, "resolve_extends", return_value=({"spec": {}}, {}, [])
+            ),
+            patch.object(
+                cli_main, "compose_profile", return_value=({"spec": {}}, [])
+            ) as composer,
+        ):
+            code, _, _ = _run(
+                ["compose-profile", "prof", "--add-module", "m", "--set", "a=[unclosed"]
+            )
         self.assertEqual(code, 0)
-        self.assertEqual(composer.call_args.kwargs["config_settings"], [("a", "[unclosed")])
+        self.assertEqual(
+            composer.call_args.kwargs["config_settings"], [("a", "[unclosed")]
+        )
 
 
 if __name__ == "__main__":

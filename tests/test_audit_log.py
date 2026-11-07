@@ -52,26 +52,42 @@ class AuditLogTest(unittest.TestCase):
             self.assertEqual(entry["profile"], "demo")
             self.assertEqual(entry["outcome"], "success")
             self.assertEqual(entry["environment"], "prod")
-            self.assertEqual(entry["details"], {"target": "compose", "output": "docker-compose.yml"})
+            self.assertEqual(
+                entry["details"], {"target": "compose", "output": "docker-compose.yml"}
+            )
 
             # Secret entries must only ever surface as alias/env-var *names*,
             # never values -- the plan's "secrets" dict already only maps
             # names to names (see cli/secrets.py), so this also guards
             # against a future regression leaking an actual secret value.
-            self.assertEqual(sorted(entry["secretAliases"]), ["CDS_OTHER_TOKEN", "db_password"])
+            self.assertEqual(
+                sorted(entry["secretAliases"]), ["CDS_OTHER_TOKEN", "db_password"]
+            )
 
             module_ids = {m["id"] for m in entry["modules"]}
             self.assertEqual(module_ids, {"postgres", "keydb"})
             postgres_entry = next(m for m in entry["modules"] if m["id"] == "postgres")
-            self.assertEqual(postgres_entry["image"], {"tag": "16", "digest": "sha256:deadbeef"})
+            self.assertEqual(
+                postgres_entry["image"], {"tag": "16", "digest": "sha256:deadbeef"}
+            )
             keydb_entry = next(m for m in entry["modules"] if m["id"] == "keydb")
             self.assertNotIn("image", keydb_entry)
 
     def test_record_entry_appends_multiple_lines(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             project_root = Path(tmp_dir)
-            record_entry(command="validate", profile="demo", outcome="success", project_root=project_root)
-            log_path = record_entry(command="validate", profile="demo", outcome="failure", project_root=project_root)
+            record_entry(
+                command="validate",
+                profile="demo",
+                outcome="success",
+                project_root=project_root,
+            )
+            log_path = record_entry(
+                command="validate",
+                profile="demo",
+                outcome="failure",
+                project_root=project_root,
+            )
 
             lines = log_path.read_text(encoding="utf-8").strip().splitlines()
             self.assertEqual(len(lines), 2)
@@ -125,14 +141,22 @@ class AuditLogTest(unittest.TestCase):
             self.assertEqual(entry["secretAliases"], [])
 
     def test_record_entry_never_writes_through_symlink(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir, tempfile.TemporaryDirectory() as outside_dir:
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            tempfile.TemporaryDirectory() as outside_dir,
+        ):
             project_root = Path(tmp_dir)
             outside_target = Path(outside_dir) / "escaped.jsonl"
             log_path = audit_log_path(project_root)
             log_path.parent.mkdir(parents=True, exist_ok=True)
             log_path.symlink_to(outside_target)
 
-            record_entry(command="validate", profile="demo", outcome="success", project_root=project_root)
+            record_entry(
+                command="validate",
+                profile="demo",
+                outcome="success",
+                project_root=project_root,
+            )
 
             self.assertFalse(outside_target.exists())
             self.assertTrue(log_path.is_file())

@@ -129,7 +129,8 @@ class FetchBearerTokenTest(unittest.TestCase):
         service = "serv" + "ice"
         q = chr(34)
         challenge = self._challenge(
-            "https://auth.example/token", extra=service + "=" + q + "registry.example" + q
+            "https://auth.example/token",
+            extra=service + "=" + q + "registry.example" + q,
         )
         mock_urlopen.return_value = _FakeTokenResponse({"token": "abc123"})
         token = _fetch_bearer_token(challenge)
@@ -181,7 +182,9 @@ class FetchRegistryDigestTest(unittest.TestCase):
             + chr(34)
         )
         responses = [
-            HTTPError("url", 401, "auth required", {"WWW-Authenticate": auth_challenge}, None),
+            HTTPError(
+                "url", 401, "auth required", {"WWW-Authenticate": auth_challenge}, None
+            ),
             _FakeHeadResponse({"Docker-Content-Digest": "sha256:" + "d" * 64}),
         ]
         sent_requests = []

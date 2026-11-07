@@ -20,28 +20,36 @@ class MergeValueTest(unittest.TestCase):
         base = {"a": {"x": 1, "y": 2}, "b": 1}
         overlay = {"a": {"y": 20, "z": 30}}
         provenance = {}
-        result = _merge_value(base, overlay, "base.yaml", "overlay.yaml", "", provenance)
+        result = _merge_value(
+            base, overlay, "base.yaml", "overlay.yaml", "", provenance
+        )
         self.assertEqual(result, {"a": {"x": 1, "y": 20, "z": 30}, "b": 1})
 
     def test_overlay_only_key_added(self):
         base = {"a": 1}
         overlay = {"b": 2}
         provenance = {}
-        result = _merge_value(base, overlay, "base.yaml", "overlay.yaml", "", provenance)
+        result = _merge_value(
+            base, overlay, "base.yaml", "overlay.yaml", "", provenance
+        )
         self.assertEqual(result, {"a": 1, "b": 2})
 
     def test_non_mapping_arrays_are_replaced_wholesale_not_concatenated(self):
         base = {"tags": ["a", "b", "c"]}
         overlay = {"tags": ["z"]}
         provenance = {}
-        result = _merge_value(base, overlay, "base.yaml", "overlay.yaml", "", provenance)
+        result = _merge_value(
+            base, overlay, "base.yaml", "overlay.yaml", "", provenance
+        )
         self.assertEqual(result["tags"], ["z"])
 
     def test_scalar_overlay_replaces_base_scalar(self):
         base = {"replicas": 1}
         overlay = {"replicas": 3}
         provenance = {}
-        result = _merge_value(base, overlay, "base.yaml", "overlay.yaml", "", provenance)
+        result = _merge_value(
+            base, overlay, "base.yaml", "overlay.yaml", "", provenance
+        )
         self.assertEqual(result["replicas"], 3)
 
     def test_provenance_tracks_base_and_overlay_sources(self):
@@ -65,7 +73,9 @@ class MergeValueTest(unittest.TestCase):
         base = {"spec": {"timeout": {"retries": 3}}}
         overlay = {"spec": {"timeout": "5s"}}
         provenance = {}
-        result = _merge_value(base, overlay, "base.yaml", "overlay.yaml", "", provenance)
+        result = _merge_value(
+            base, overlay, "base.yaml", "overlay.yaml", "", provenance
+        )
         self.assertEqual(result["spec"]["timeout"], "5s")
         self.assertEqual(provenance["spec.timeout"], "overlay.yaml")
 
@@ -90,7 +100,9 @@ class MergeModulesTest(unittest.TestCase):
             {"id": "dagster", "config": {"image": "dagster:2.0"}},
         ]
         provenance = {}
-        result = _merge_modules(base_modules, overlay_modules, "base.yaml", "overlay.yaml", provenance)
+        result = _merge_modules(
+            base_modules, overlay_modules, "base.yaml", "overlay.yaml", provenance
+        )
         by_id = {m["id"]: m for m in result}
         self.assertEqual(by_id["dagster"]["config"]["image"], "dagster:2.0")
         self.assertEqual(by_id["superset"]["config"]["image"], "superset:1.0")
@@ -100,20 +112,26 @@ class MergeModulesTest(unittest.TestCase):
     def test_overlay_only_module_id_is_appended(self):
         base_modules = [{"id": "dagster", "config": {}}]
         overlay_modules = [{"id": "vault", "config": {}}]
-        result = _merge_modules(base_modules, overlay_modules, "base.yaml", "overlay.yaml", {})
+        result = _merge_modules(
+            base_modules, overlay_modules, "base.yaml", "overlay.yaml", {}
+        )
         self.assertEqual([m["id"] for m in result], ["dagster", "vault"])
 
     def test_enable_disable_via_overlay_is_preserved(self):
         base_modules = [{"id": "vault", "config": {}, "enabled": True}]
         overlay_modules = [{"id": "vault", "config": {}, "enabled": False}]
-        result = _merge_modules(base_modules, overlay_modules, "base.yaml", "overlay.yaml", {})
+        result = _merge_modules(
+            base_modules, overlay_modules, "base.yaml", "overlay.yaml", {}
+        )
         self.assertEqual(result[0]["enabled"], False)
 
     def test_module_level_provenance_reflects_overlay_when_touched(self):
         base_modules = [{"id": "dagster", "config": {"x": 1}}]
         overlay_modules = [{"id": "dagster", "config": {"x": 2}}]
         provenance = {}
-        _merge_modules(base_modules, overlay_modules, "base.yaml", "overlay.yaml", provenance)
+        _merge_modules(
+            base_modules, overlay_modules, "base.yaml", "overlay.yaml", provenance
+        )
         self.assertEqual(provenance["spec.modules[dagster]"], "overlay.yaml")
 
     def test_module_untouched_by_overlay_keeps_base_provenance(self):
@@ -140,17 +158,33 @@ class ResolveProfileFixtureTest(unittest.TestCase):
                 {
                     "apiVersion": "cds/v1alpha1",
                     "kind": "Module",
-                    "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                    "metadata": {
+                        "name": "postgres",
+                        "category": "warehouse",
+                        "version": "0.1.0",
+                    },
                     "spec": {
                         "runtime": {
                             "type": "container",
                             "service": {
                                 "name": "postgres",
-                                "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                "ports": [
+                                    {
+                                        "name": "db",
+                                        "containerPort": 5432,
+                                        "protocol": "TCP",
+                                    }
+                                ],
                             },
                         },
-                        "configSchema": {"type": "object", "additionalProperties": True},
-                        "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        "configSchema": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {"services": {}},
+                        },
                     },
                 }
             )
@@ -170,7 +204,7 @@ class ResolveProfileFixtureTest(unittest.TestCase):
                         "enabled": True,
                         "config": {"replicas": 1},
                     }
-                ]
+                ],
             },
         }
         self.profile_path = self.profile_dir / "profile.yaml"
@@ -182,26 +216,38 @@ class ResolveProfileFixtureTest(unittest.TestCase):
         (env_dir / f"{name}.yaml").write_text(yaml.safe_dump(content))
 
     def test_standalone_profile_unaffected_when_no_environment_selected(self):
-        resolved, provenance, diagnostics = resolve_profile(str(self.profile_path), environment=None)
+        resolved, provenance, diagnostics = resolve_profile(
+            str(self.profile_path), environment=None
+        )
         self.assertEqual(provenance, {})
         self.assertFalse(any(d.level == "error" for d in diagnostics))
         self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 1)
 
     def test_environment_only_resolves_when_explicitly_selected(self):
-        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
-        resolved, _prov, diags = resolve_profile(str(self.profile_path), environment=None)
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
+        resolved, _prov, diags = resolve_profile(
+            str(self.profile_path), environment=None
+        )
         self.assertFalse(any(d.level == "error" for d in diags))
         self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 1)
 
     def test_merges_overlay_when_environment_selected(self):
-        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
-        resolved, provenance, diagnostics = resolve_profile(str(self.profile_path), environment="prod")
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
+        resolved, provenance, diagnostics = resolve_profile(
+            str(self.profile_path), environment="prod"
+        )
         self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
         self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 3)
         self.assertIn("spec.modules[db]", provenance)
 
     def test_unknown_environment_is_rejected(self):
-        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="does-not-exist")
+        resolved, _prov, diagnostics = resolve_profile(
+            str(self.profile_path), environment="does-not-exist"
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.code == "E091" for d in diagnostics))
 
@@ -216,34 +262,48 @@ class ResolveProfileFixtureTest(unittest.TestCase):
         env_dir = self.profile_dir / "environments"
         env_dir.mkdir(exist_ok=True)
         (env_dir / "broken.yaml").write_text("- just\n- a\n- list\n")
-        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="broken")
+        resolved, _prov, diagnostics = resolve_profile(
+            str(self.profile_path), environment="broken"
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.level == "error" for d in diagnostics), diagnostics)
 
     def test_duplicate_module_ids_within_overlay_rejected(self):
         self._write_overlay(
             "dupes",
-            {"spec": {"modules": [{"id": "db", "config": {}}, {"id": "db", "config": {}}]}},
+            {
+                "spec": {
+                    "modules": [{"id": "db", "config": {}}, {"id": "db", "config": {}}]
+                }
+            },
         )
-        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="dupes")
+        resolved, _prov, diagnostics = resolve_profile(
+            str(self.profile_path), environment="dupes"
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.code == "E093" for d in diagnostics))
 
     def test_module_missing_id_in_overlay_rejected_cleanly_not_a_crash(self):
         self._write_overlay("noid", {"spec": {"modules": [{"config": {}}]}})
-        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="noid")
+        resolved, _prov, diagnostics = resolve_profile(
+            str(self.profile_path), environment="noid"
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.code == "E093" for d in diagnostics))
 
     def test_spec_modules_not_a_list_rejected_cleanly_not_a_crash(self):
         self._write_overlay("badshape", {"spec": {"modules": "not-a-list"}})
-        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="badshape")
+        resolved, _prov, diagnostics = resolve_profile(
+            str(self.profile_path), environment="badshape"
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.code == "E093" for d in diagnostics), diagnostics)
 
     def test_module_entry_not_a_dict_rejected_cleanly_not_a_crash(self):
         self._write_overlay("badentry", {"spec": {"modules": ["oops-a-string"]}})
-        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="badentry")
+        resolved, _prov, diagnostics = resolve_profile(
+            str(self.profile_path), environment="badentry"
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.code == "E093" for d in diagnostics), diagnostics)
 
@@ -259,24 +319,40 @@ class ResolveProfileFixtureTest(unittest.TestCase):
             )
         )
         self._write_overlay("anything", {"spec": {}})
-        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="anything")
+        resolved, _prov, diagnostics = resolve_profile(
+            str(self.profile_path), environment="anything"
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.code == "E093" for d in diagnostics), diagnostics)
 
     def test_fully_merged_profile_receives_normal_validation(self):
         self._write_overlay(
             "badref",
-            {"spec": {"modules": [{"id": "ghost", "source": "does/not/exist", "config": {}}]}},
+            {
+                "spec": {
+                    "modules": [
+                        {"id": "ghost", "source": "does/not/exist", "config": {}}
+                    ]
+                }
+            },
         )
-        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="badref")
+        resolved, _prov, diagnostics = resolve_profile(
+            str(self.profile_path), environment="badref"
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.level == "error" for d in diagnostics))
 
     def test_overlay_module_missing_source_gets_the_normal_diagnostic(self):
-        self._write_overlay("nosource", {"spec": {"modules": [{"id": "newmod", "config": {}}]}})
-        resolved, _prov, diagnostics = resolve_profile(str(self.profile_path), environment="nosource")
+        self._write_overlay(
+            "nosource", {"spec": {"modules": [{"id": "newmod", "config": {}}]}}
+        )
+        resolved, _prov, diagnostics = resolve_profile(
+            str(self.profile_path), environment="nosource"
+        )
         self.assertIsNone(resolved)
-        self.assertTrue(any("source" in d.message.lower() for d in diagnostics), diagnostics)
+        self.assertTrue(
+            any("source" in d.message.lower() for d in diagnostics), diagnostics
+        )
 
 
 class ExtendsCompositionTest(unittest.TestCase):
@@ -296,17 +372,33 @@ class ExtendsCompositionTest(unittest.TestCase):
                 {
                     "apiVersion": "cds/v1alpha1",
                     "kind": "Module",
-                    "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                    "metadata": {
+                        "name": "postgres",
+                        "category": "warehouse",
+                        "version": "0.1.0",
+                    },
                     "spec": {
                         "runtime": {
                             "type": "container",
                             "service": {
                                 "name": "postgres",
-                                "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                "ports": [
+                                    {
+                                        "name": "db",
+                                        "containerPort": 5432,
+                                        "protocol": "TCP",
+                                    }
+                                ],
                             },
                         },
-                        "configSchema": {"type": "object", "additionalProperties": True},
-                        "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        "configSchema": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {"services": {}},
+                        },
                     },
                 }
             )
@@ -334,7 +426,10 @@ class ExtendsCompositionTest(unittest.TestCase):
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
                 "metadata": {"name": "base", "environment": "local"},
-                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [self._base_module(1)],
+                },
             },
         )
         child = self._write_profile(
@@ -347,7 +442,9 @@ class ExtendsCompositionTest(unittest.TestCase):
                 "spec": {"modules": [{"id": "db", "config": {"replicas": 5}}]},
             },
         )
-        resolved, provenance, diagnostics = resolve_profile(str(child), environment=None)
+        resolved, provenance, diagnostics = resolve_profile(
+            str(child), environment=None
+        )
         self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
         self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 5)
         self.assertEqual(provenance["spec.modules[db]"], str(child))
@@ -359,7 +456,10 @@ class ExtendsCompositionTest(unittest.TestCase):
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
                 "metadata": {"name": "p1", "environment": "local"},
-                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [self._base_module(1)],
+                },
             },
         )
         self._write_profile(
@@ -392,7 +492,10 @@ class ExtendsCompositionTest(unittest.TestCase):
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
                 "metadata": {"name": "base", "environment": "local"},
-                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [self._base_module(1)],
+                },
             },
         )
         child = self._write_profile(
@@ -416,7 +519,10 @@ class ExtendsCompositionTest(unittest.TestCase):
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
                 "metadata": {"name": "grandparent", "environment": "local"},
-                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [self._base_module(1)],
+                },
             },
         )
         self._write_profile(
@@ -470,7 +576,9 @@ class ExtendsCompositionTest(unittest.TestCase):
                 }
             )
         )
-        resolved, _prov, diagnostics = resolve_profile(str(a / "profile.yaml"), environment=None)
+        resolved, _prov, diagnostics = resolve_profile(
+            str(a / "profile.yaml"), environment=None
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.code == "E113" for d in diagnostics), diagnostics)
 
@@ -538,7 +646,10 @@ class ExtendsCompositionTest(unittest.TestCase):
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
                 "metadata": {"name": "base", "environment": "local"},
-                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [self._base_module(1)],
+                },
             },
         )
         child_dir = self.profiles_dir / "child"
@@ -557,9 +668,13 @@ class ExtendsCompositionTest(unittest.TestCase):
         env_dir = child_dir / "environments"
         env_dir.mkdir()
         (env_dir / "prod.yaml").write_text(
-            yaml.safe_dump({"spec": {"modules": [{"id": "db", "config": {"replicas": 9}}]}})
+            yaml.safe_dump(
+                {"spec": {"modules": [{"id": "db", "config": {"replicas": 9}}]}}
+            )
         )
-        resolved, _prov, diagnostics = resolve_profile(str(child_dir / "profile.yaml"), environment="prod")
+        resolved, _prov, diagnostics = resolve_profile(
+            str(child_dir / "profile.yaml"), environment="prod"
+        )
         self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
         self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 9)
 
@@ -646,10 +761,15 @@ class ExtendsCompositionTest(unittest.TestCase):
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
                 "metadata": {"name": "child", "environment": "local"},
-                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [self._base_module(1)],
+                },
             },
         )
-        resolved, provenance, diagnostics = resolve_profile(str(child), environment=None)
+        resolved, provenance, diagnostics = resolve_profile(
+            str(child), environment=None
+        )
         self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
         self.assertEqual(provenance, {})
         self.assertEqual(resolved["spec"]["modules"][0]["config"]["replicas"], 1)
@@ -664,7 +784,10 @@ class ExtendsCompositionTest(unittest.TestCase):
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
                 "metadata": {"name": "shared-base", "environment": "local"},
-                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [self._base_module(1)],
+                },
             },
         )
         self._write_profile(
@@ -711,7 +834,10 @@ class ExtendsCompositionTest(unittest.TestCase):
                 "apiVersion": "cds/v1alpha1",
                 "kind": "Profile",
                 "metadata": {"name": "base-null-spec", "environment": "local"},
-                "spec": {"runtime": {"type": "docker-compose"}, "modules": [self._base_module(1)]},
+                "spec": {
+                    "runtime": {"type": "docker-compose"},
+                    "modules": [self._base_module(1)],
+                },
             },
         )
         child = self._write_profile(
@@ -751,17 +877,33 @@ class InMemoryExtendsCompositionTest(unittest.TestCase):
                 {
                     "apiVersion": "cds/v1alpha1",
                     "kind": "Module",
-                    "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                    "metadata": {
+                        "name": "postgres",
+                        "category": "warehouse",
+                        "version": "0.1.0",
+                    },
                     "spec": {
                         "runtime": {
                             "type": "container",
                             "service": {
                                 "name": "postgres",
-                                "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                "ports": [
+                                    {
+                                        "name": "db",
+                                        "containerPort": 5432,
+                                        "protocol": "TCP",
+                                    }
+                                ],
                             },
                         },
-                        "configSchema": {"type": "object", "additionalProperties": True},
-                        "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        "configSchema": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {"services": {}},
+                        },
                     },
                 }
             )
@@ -803,7 +945,9 @@ class InMemoryExtendsCompositionTest(unittest.TestCase):
             "metadata": {"name": "generated", "environment": "local"},
             "spec": {"runtime": {"type": "docker-compose"}, "modules": []},
         }
-        resolved, provenance, diagnostics = resolve_extends_from_profile(profile, self.profile_dir)
+        resolved, provenance, diagnostics = resolve_extends_from_profile(
+            profile, self.profile_dir
+        )
         self.assertEqual(resolved, profile)
         self.assertEqual(provenance, {})
         self.assertFalse(diagnostics)
@@ -830,7 +974,9 @@ class InMemoryExtendsCompositionTest(unittest.TestCase):
             "extends": ["does-not-exist"],
             "spec": {"modules": []},
         }
-        resolved, _prov, diagnostics = resolve_extends_from_profile(profile, self.profile_dir)
+        resolved, _prov, diagnostics = resolve_extends_from_profile(
+            profile, self.profile_dir
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.code == "E112" for d in diagnostics))
 
@@ -852,7 +998,9 @@ class InMemoryExtendsCompositionTest(unittest.TestCase):
                 ],
             },
         }
-        resolved, provenance, diagnostics = resolve_profile_from_profile(profile, self.profile_dir)
+        resolved, provenance, diagnostics = resolve_profile_from_profile(
+            profile, self.profile_dir
+        )
         self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
         self.assertEqual(resolved, profile)
         self.assertEqual(provenance, {})
@@ -861,7 +1009,9 @@ class InMemoryExtendsCompositionTest(unittest.TestCase):
         env_dir = self.profile_dir / "environments"
         env_dir.mkdir(parents=True)
         (env_dir / "prod.yaml").write_text(
-            yaml.safe_dump({"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
+            yaml.safe_dump(
+                {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+            )
         )
         profile = {
             "apiVersion": "cds/v1alpha1",
@@ -905,9 +1055,13 @@ class InMemoryExtendsCompositionTest(unittest.TestCase):
             "apiVersion": "cds/v1alpha1",
             "kind": "Profile",
             "metadata": {"name": "generated", "environment": "local"},
-            "spec": {"modules": [{"id": "ghost", "source": "does/not/exist", "config": {}}]},
+            "spec": {
+                "modules": [{"id": "ghost", "source": "does/not/exist", "config": {}}]
+            },
         }
-        resolved, _prov, diagnostics = resolve_profile_from_profile(profile, self.profile_dir)
+        resolved, _prov, diagnostics = resolve_profile_from_profile(
+            profile, self.profile_dir
+        )
         self.assertIsNone(resolved)
         self.assertTrue(any(d.level == "error" for d in diagnostics))
 

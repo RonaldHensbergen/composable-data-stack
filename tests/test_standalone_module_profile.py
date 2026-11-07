@@ -15,6 +15,7 @@ E011, E020, E021, E022, ...) indicates a genuine problem with the module's
 own definition -- e.g. invalid YAML, a schema violation in module.yaml
 itself, or a malformed consumes/provides entry -- and fails the test.
 """
+
 import tempfile
 import unittest
 import unittest.mock
@@ -92,7 +93,9 @@ class StandaloneModuleProfileTest(unittest.TestCase):
                         diagnostics = validate_profile(str(profile_path))
 
                 unexpected = [
-                    d for d in diagnostics if d.level == "error" and d.code not in _EXPECTED_UNBOUND_CODES
+                    d
+                    for d in diagnostics
+                    if d.level == "error" and d.code not in _EXPECTED_UNBOUND_CODES
                 ]
                 self.assertEqual(
                     unexpected,

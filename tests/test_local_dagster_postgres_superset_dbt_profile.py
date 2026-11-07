@@ -6,6 +6,7 @@ behavior: the profile validates, plans, and renders to docker-compose
 without errors, and the rendered compose contains the dbt transformation
 job bound to the postgres warehouse via the sql-database contract.
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,7 +18,9 @@ from cli.renderer import render_compose
 from cli.validator import validate_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-PROFILE_PATH = REPO_ROOT / "profiles" / "local-dagster-postgres-superset-dbt" / "profile.yaml"
+PROFILE_PATH = (
+    REPO_ROOT / "profiles" / "local-dagster-postgres-superset-dbt" / "profile.yaml"
+)
 
 # Non-secret config values and required secrets the profile resolves from
 # the environment (mirrors tests/test_k8s_renderer.py).
@@ -75,7 +78,14 @@ class LocalDagsterPostgresSupersetDbtProfileTest(unittest.TestCase):
 
         compose = yaml.safe_load(output)
         services = compose["services"]
-        for expected in ("postgres", "dagster-webserver", "keydb", "dbt-run", "dbt-docs", "superset"):
+        for expected in (
+            "postgres",
+            "dagster-webserver",
+            "keydb",
+            "dbt-run",
+            "dbt-docs",
+            "superset",
+        ):
             self.assertIn(expected, services)
         # The dbt job targets the analytics warehouse through the
         # postgres.sql-database contract binding.

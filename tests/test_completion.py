@@ -101,7 +101,9 @@ class ShellCompletionProtocolTest(unittest.TestCase):
             )
 
     def test_prefix_filter_matches_multiple_profiles_and_excludes_others(self):
-        candidates = _complete("cds validate foo-", profiles_root=_FIXTURE_PROFILES_ROOT)
+        candidates = _complete(
+            "cds validate foo-", profiles_root=_FIXTURE_PROFILES_ROOT
+        )
         self.assertEqual(set(candidates), {"foo-alpha", "foo-beta"})
 
     def test_prefix_filter_excludes_non_matching_profiles(self):
