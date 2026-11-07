@@ -95,7 +95,11 @@ class CompleteDispatchTest(unittest.TestCase):
 class FailClosedDispatchTest(unittest.TestCase):
     def test_complete_dispatches_to_azure_openai_backend(self) -> None:
         with (
-            mock.patch.dict("os.environ", {"LLM_PROVIDER": "azure_openai"}, clear=True),
+            mock.patch.dict(
+                "os.environ",
+                {"LLM_PROVIDER": "azure_openai", "LLM_ALLOW_REMOTE_PROMPTS": "1"},
+                clear=True,
+            ),
             mock.patch.object(
                 llm_client, "_complete_azure_openai", return_value="ok"
             ) as mock_azure,
@@ -103,6 +107,28 @@ class FailClosedDispatchTest(unittest.TestCase):
             result = llm_client.complete("hello")
         mock_azure.assert_called_once()
         self.assertEqual(result, "ok")
+
+    def test_complete_blocks_remote_provider_without_opt_in(self) -> None:
+        # Default-deny trust boundary: azure_openai must not receive prompt
+        # content unless LLM_ALLOW_REMOTE_PROMPTS is explicitly set.
+        with (
+            mock.patch.dict("os.environ", {"LLM_PROVIDER": "azure_openai"}, clear=True),
+            mock.patch.object(
+                llm_client, "_complete_azure_openai", return_value="leaked"
+            ) as mock_azure,
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                llm_client.complete("sensitive profile")
+        self.assertIn("LLM_ALLOW_REMOTE_PROMPTS", str(ctx.exception))
+        mock_azure.assert_not_called()
+
+    def test_remote_opt_in_flag_parsing(self) -> None:
+        with mock.patch.dict("os.environ", {}, clear=True):
+            self.assertFalse(llm_config.LLM_ALLOW_REMOTE_PROMPTS())
+        with mock.patch.dict(
+            "os.environ", {"LLM_ALLOW_REMOTE_PROMPTS": "true"}, clear=True
+        ):
+            self.assertTrue(llm_config.LLM_ALLOW_REMOTE_PROMPTS())
 
     def test_complete_fails_closed_for_unknown_provider(self) -> None:
         # config.LLM_PROVIDER() rejects unknown values itself; the dispatch

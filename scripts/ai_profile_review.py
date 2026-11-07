@@ -13,6 +13,8 @@ Uses the vendored `llm` completion seam (scripts/_vendor/llm), so no cloud
 account is required by default -- the local GitHub Copilot CLI (`copilot`)
 is used unless LLM_PROVIDER is set to `azure_openai` or `ollama` (the latter
 works with any local OpenAI-compatible server: Ollama, LM Studio, vLLM, ...).
+`azure_openai` is a remote backend and additionally requires the explicit
+opt-in `LLM_ALLOW_REMOTE_PROMPTS=1` before any prompt content is sent to it.
 
 Usage:
     python scripts/ai_profile_review.py <profile> [--environment NAME] [--json] [--dry-run]

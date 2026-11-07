@@ -6,7 +6,9 @@ this with a one-liner monkeypatch.
 `complete()` dispatches on `config.LLM_PROVIDER()` — an explicit allowlist
 switch with no fallback between providers. The selected provider is used
 as-is; an unknown provider raises a clear error rather than silently
-switching to another backend.
+switching to another backend. Remote providers (`azure_openai`) additionally
+require the explicit opt-in `LLM_ALLOW_REMOTE_PROMPTS=1` before any prompt
+content is sent off-box (default-deny trust-boundary gate).
 
 Before dispatch, the caller's user prompt is deterministically sanitized
 (control chars stripped, secret-looking and instruction-like patterns
@@ -106,6 +108,12 @@ def complete(
 ) -> str:
     """One-shot chat completion against the configured LLM provider."""
     provider = config.LLM_PROVIDER()
+    if provider == "azure_openai" and not config.LLM_ALLOW_REMOTE_PROMPTS():
+        raise ValueError(
+            "LLM_PROVIDER=azure_openai is a remote backend; refusing to send "
+            "prompt content unless LLM_ALLOW_REMOTE_PROMPTS=1 is set "
+            "(explicit opt-in for off-box prompt transfer)."
+        )
     prompt = _prepare_untrusted_prompt(prompt)
     if provider == "copilot_cli":
         return _complete_copilot_cli(prompt, system)
