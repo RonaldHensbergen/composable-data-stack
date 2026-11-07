@@ -78,6 +78,9 @@ jobs:
           # tolerates a missing file (FileNotFoundError), so drop unparseable or
           # incomplete meta files first, or export-cicd-stats crashes with a
           # JSONDecodeError and fails the whole job (#1175).
+          # Upstream fix: boxed/mutmut#630 makes load() also catch
+          # JSONDecodeError; once a mutmut release ships it, this sanitizer is
+          # redundant and can be dropped along with the mutmut==3.8.1 pin (#1181).
           python - <<'EOF'
           import json
           from pathlib import Path

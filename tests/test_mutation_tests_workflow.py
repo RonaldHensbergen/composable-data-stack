@@ -131,7 +131,8 @@ class MutationTestsWorkflowTest(unittest.TestCase):
             "cache sanitization must run before export-cicd-stats",
         )
         # Incomplete cache files (empty/truncated on a time-capped run, #1175)
-        # are dropped, not parsed: mutmut's load() only tolerates a missing file.
+        # are dropped, not parsed: mutmut's load() only tolerates a missing file
+        # (upstream fix pending in boxed/mutmut#630, tracked by #1181).
         self.assertIn("JSONDecodeError", run)
         self.assertIn("unlink", run)
 
