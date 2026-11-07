@@ -18,8 +18,8 @@
 # so no upstream image refresh can clear those findings (#1001). Building
 # the pinned release tag with the current Go toolchain and the fixed module
 # versions below does. The versions are the fixed versions from the Trivy
-# advisories (x/net v0.60.0 requires x/crypto >= v0.57.0 and x/text
-# >= v0.42.0); Renovate tracks them via the regex manager in renovate.json.
+# advisories (x/net v0.62.0 requires x/crypto >= v0.58.0 and x/text
+# >= v0.43.0); Renovate tracks them via the regex manager in renovate.json.
 
 FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS restic-build
 ARG RESTIC_VERSION=0.19.1
@@ -36,9 +36,9 @@ RUN wget -qO /tmp/restic.tar.gz "https://codeload.github.com/restic/restic/tar.g
     && rm /tmp/restic.tar.gz \
     && go get github.com/go-jose/go-jose/v4@v4.1.6 \
                github.com/klauspost/compress@v1.18.7 \
-               golang.org/x/crypto@v0.57.0 \
-               golang.org/x/net@v0.60.0 \
-               golang.org/x/text@v0.42.0 \
+               golang.org/x/crypto@v0.58.0 \
+               golang.org/x/net@v0.62.0 \
+               golang.org/x/text@v0.43.0 \
                google.golang.org/grpc@v1.83.2 \
     && go mod tidy \
     && CGO_ENABLED=0 go build -trimpath -o /restic ./cmd/restic
