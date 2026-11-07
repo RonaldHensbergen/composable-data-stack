@@ -6,6 +6,7 @@ connection into that URL, so a Dagster workload configured in Python can
 point its storage at a bound ``sql-database`` contract without knowing how
 the URI was assembled.
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping

@@ -21,6 +21,7 @@ Used by .github/workflows/contract-coverage.yml (fails CI on drift via
     python scripts/check_contract_coverage.py --check  # exit 1 if stale
     python scripts/check_contract_coverage.py --stdout # print, do not write
 """
+
 from __future__ import annotations
 
 import argparse
@@ -80,7 +81,9 @@ def _load_tests() -> tuple[list[str], list[str]]:
     return names, bodies
 
 
-def _is_covered(rel_path: str, name: str, test_names: list[str], test_bodies: list[str]) -> bool:
+def _is_covered(
+    rel_path: str, name: str, test_names: list[str], test_bodies: list[str]
+) -> bool:
     normalized = _norm(name)
     if any(normalized in test_name for test_name in test_names):
         return True
@@ -103,7 +106,9 @@ def _collect() -> dict[str, list[Item]]:
             doc = yaml.safe_load(module_yaml.read_text(encoding="utf-8")) or {}
             name = str(doc.get("metadata", {}).get("name") or module_yaml.parent.name)
             rel = str(module_yaml.parent.relative_to(REPO_ROOT))
-            modules.append(Item(rel, name, _is_covered(rel, name, test_names, test_bodies)))
+            modules.append(
+                Item(rel, name, _is_covered(rel, name, test_names, test_bodies))
+            )
     sections["Modules"] = modules
 
     profiles: list[Item] = []
@@ -111,7 +116,9 @@ def _collect() -> dict[str, list[Item]]:
         doc = yaml.safe_load(profile_yaml.read_text(encoding="utf-8")) or {}
         name = str(doc.get("metadata", {}).get("name") or profile_yaml.parent.name)
         rel = str(profile_yaml.parent.relative_to(REPO_ROOT))
-        profiles.append(Item(rel, name, _is_covered(rel, name, test_names, test_bodies)))
+        profiles.append(
+            Item(rel, name, _is_covered(rel, name, test_names, test_bodies))
+        )
     sections["Profiles"] = profiles
 
     contracts: list[Item] = []
@@ -120,7 +127,12 @@ def _collect() -> dict[str, list[Item]]:
     for contract_yaml in sorted(contracts_dir.glob("*.yaml")):
         rel = str(contract_yaml.relative_to(REPO_ROOT))
         contracts.append(
-            Item(rel, contract_yaml.stem, glob_covered or _is_covered(rel, contract_yaml.stem, test_names, test_bodies))
+            Item(
+                rel,
+                contract_yaml.stem,
+                glob_covered
+                or _is_covered(rel, contract_yaml.stem, test_names, test_bodies),
+            )
         )
     sections["Shared contracts"] = contracts
 
@@ -139,7 +151,10 @@ def _render(sections: dict[str, list[Item]]) -> str:
         f" ({round(100 * sum(1 for i in items if i.covered) / len(items)) if items else 0}%)"
         for title, items in sections.items()
     ]
-    lines.append(f"**Overall contract coverage: {covered} of {total} ({pct}%)** — " + ", ".join(summary_parts))
+    lines.append(
+        f"**Overall contract coverage: {covered} of {total} ({pct}%)** — "
+        + ", ".join(summary_parts)
+    )
     lines.append("")
 
     for title, items in sections.items():
@@ -148,7 +163,9 @@ def _render(sections: dict[str, list[Item]]) -> str:
         lines.append("| Path | Name | Covered by tests |")
         lines.append("| --- | --- | --- |")
         for item in items:
-            lines.append(f"| `{item.rel_path}` | {item.name} | {'yes' if item.covered else '**no**'} |")
+            lines.append(
+                f"| `{item.rel_path}` | {item.name} | {'yes' if item.covered else '**no**'} |"
+            )
         lines.append("")
 
     lines.append(
@@ -161,8 +178,14 @@ def _render(sections: dict[str, list[Item]]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--check", action="store_true", help="exit 1 if docs/contract-coverage.md is missing or stale")
-    parser.add_argument("--stdout", action="store_true", help="print the report instead of writing it")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="exit 1 if docs/contract-coverage.md is missing or stale",
+    )
+    parser.add_argument(
+        "--stdout", action="store_true", help="print the report instead of writing it"
+    )
     args = parser.parse_args(argv)
 
     report = _render(_collect())
@@ -172,9 +195,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.check:
-        current = REPORT_PATH.read_text(encoding="utf-8") if REPORT_PATH.exists() else ""
+        current = (
+            REPORT_PATH.read_text(encoding="utf-8") if REPORT_PATH.exists() else ""
+        )
         if current != report:
-            print(f"{REPORT_PATH.relative_to(REPO_ROOT)} is stale. Regenerate with `make contract-coverage`.", file=sys.stderr)
+            print(
+                f"{REPORT_PATH.relative_to(REPO_ROOT)} is stale. Regenerate with `make contract-coverage`.",
+                file=sys.stderr,
+            )
             return 1
         print(f"{REPORT_PATH.relative_to(REPO_ROOT)} is up to date")
         return 0

@@ -128,7 +128,9 @@ class PlannerRegressionTest(unittest.TestCase):
                 "sql-database",
             )
             self.assertEqual(
-                consumer_entry["consumes"]["database"]["contract"]["spec"]["connectionUri"],
+                consumer_entry["consumes"]["database"]["contract"]["spec"][
+                    "connectionUri"
+                ],
                 "postgres://localhost:5432/test",
             )
 
@@ -168,18 +170,29 @@ class PlannerRegressionTest(unittest.TestCase):
             "metadata": {"name": module_dir.name},
             "spec": {
                 "configSchema": config_schema,
-                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {"services": {}},
+                },
             },
         }
         module_dir.mkdir(parents=True)
-        (module_dir / "module.yaml").write_text(yaml.safe_dump(module_def), encoding="utf-8")
+        (module_dir / "module.yaml").write_text(
+            yaml.safe_dump(module_def), encoding="utf-8"
+        )
 
-    def test_build_plan_hardened_flag_overrides_image_variant_for_supporting_modules(self):
+    def test_build_plan_hardened_flag_overrides_image_variant_for_supporting_modules(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             profile_dir = root / "profiles" / "local"
-            self._write_module_with_image_variant(profile_dir / "modules" / "dagster", supports_variant=True)
-            self._write_module_with_image_variant(profile_dir / "modules" / "postgres", supports_variant=False)
+            self._write_module_with_image_variant(
+                profile_dir / "modules" / "dagster", supports_variant=True
+            )
+            self._write_module_with_image_variant(
+                profile_dir / "modules" / "postgres", supports_variant=False
+            )
 
             profile = {
                 "apiVersion": "cds/v1alpha1",
@@ -188,8 +201,18 @@ class PlannerRegressionTest(unittest.TestCase):
                 "spec": {
                     "runtime": {"type": "docker-compose"},
                     "modules": [
-                        {"id": "dagster", "source": "./modules/dagster", "enabled": True, "config": {}},
-                        {"id": "postgres", "source": "./modules/postgres", "enabled": True, "config": {}},
+                        {
+                            "id": "dagster",
+                            "source": "./modules/dagster",
+                            "enabled": True,
+                            "config": {},
+                        },
+                        {
+                            "id": "postgres",
+                            "source": "./modules/postgres",
+                            "enabled": True,
+                            "config": {},
+                        },
                     ],
                     "secrets": {"provider": {"type": "env"}, "values": {}},
                 },
@@ -214,7 +237,9 @@ class PlannerRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             profile_dir = root / "profiles" / "local"
-            self._write_module_with_image_variant(profile_dir / "modules" / "dagster", supports_variant=True)
+            self._write_module_with_image_variant(
+                profile_dir / "modules" / "dagster", supports_variant=True
+            )
 
             profile = {
                 "apiVersion": "cds/v1alpha1",
@@ -223,7 +248,12 @@ class PlannerRegressionTest(unittest.TestCase):
                 "spec": {
                     "runtime": {"type": "docker-compose"},
                     "modules": [
-                        {"id": "dagster", "source": "./modules/dagster", "enabled": True, "config": {}},
+                        {
+                            "id": "dagster",
+                            "source": "./modules/dagster",
+                            "enabled": True,
+                            "config": {},
+                        },
                     ],
                     "secrets": {"provider": {"type": "env"}, "values": {}},
                 },
@@ -240,7 +270,9 @@ class PlannerRegressionTest(unittest.TestCase):
             dagster_entry = next(m for m in plan["modules"] if m["id"] == "dagster")
             self.assertEqual(dagster_entry["config"]["image"]["variant"], "base")
 
-    def test_apply_defaults_selects_environment_default_and_preserves_explicit_value(self):
+    def test_apply_defaults_selects_environment_default_and_preserves_explicit_value(
+        self,
+    ):
         schema = {
             "type": "object",
             "properties": {
@@ -261,7 +293,9 @@ class PlannerRegressionTest(unittest.TestCase):
         }
 
         self.assertEqual(
-            planner.apply_defaults({}, schema, environment="production")["image"]["variant"],
+            planner.apply_defaults({}, schema, environment="production")["image"][
+                "variant"
+            ],
             "hardened",
         )
         self.assertEqual(
@@ -290,9 +324,9 @@ class PlannerRegressionTest(unittest.TestCase):
         config_schema = module["spec"]["configSchema"]
 
         self.assertEqual(
-            planner.apply_defaults({}, config_schema, environment="production")["image"][
-                "variant"
-            ],
+            planner.apply_defaults({}, config_schema, environment="production")[
+                "image"
+            ]["variant"],
             "hardened",
         )
         self.assertEqual(
@@ -354,11 +388,16 @@ class PlannerRegressionTest(unittest.TestCase):
             "metadata": {"name": module_dir.name},
             "spec": {
                 "configSchema": config_schema,
-                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {"services": {}},
+                },
             },
         }
         module_dir.mkdir(parents=True)
-        (module_dir / "module.yaml").write_text(yaml.safe_dump(module_def), encoding="utf-8")
+        (module_dir / "module.yaml").write_text(
+            yaml.safe_dump(module_def), encoding="utf-8"
+        )
 
     def _build_single_module_plan(
         self,
@@ -381,21 +420,30 @@ class PlannerRegressionTest(unittest.TestCase):
             "spec": {
                 "runtime": {"type": "docker-compose"},
                 "modules": [
-                    {"id": module_id, "source": f"./modules/{module_id}", "enabled": True, "config": config},
+                    {
+                        "id": module_id,
+                        "source": f"./modules/{module_id}",
+                        "enabled": True,
+                        "config": config,
+                    },
                 ],
                 "secrets": {"provider": {"type": "env"}, "values": {}},
             },
         }
         profile_file = profile_dir / "profile.yaml"
         profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
-        return planner.build_plan(str(profile_file), hardened=hardened, image_source=image_source)
+        return planner.build_plan(
+            str(profile_file), hardened=hardened, image_source=image_source
+        )
 
     def test_build_plan_image_source_flag_overrides_source_for_supporting_modules(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             profile_dir = root / "profiles" / "local"
             self._write_module_with_image_source(
-                profile_dir / "modules" / "superset", supports_source=True, default_tag="6.1.0"
+                profile_dir / "modules" / "superset",
+                supports_source=True,
+                default_tag="6.1.0",
             )
 
             plan, diagnostics = self._build_single_module_plan(
@@ -412,7 +460,9 @@ class PlannerRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             profile_dir = root / "profiles" / "local"
-            self._write_module_with_image_source(profile_dir / "modules" / "postgres", supports_source=False)
+            self._write_module_with_image_source(
+                profile_dir / "modules" / "postgres", supports_source=False
+            )
 
             plan, diagnostics = self._build_single_module_plan(
                 profile_dir, "postgres", config={}, image_source="registry"
@@ -427,7 +477,9 @@ class PlannerRegressionTest(unittest.TestCase):
             root = Path(tmpdir)
             profile_dir = root / "profiles" / "local"
             self._write_module_with_image_source(
-                profile_dir / "modules" / "superset", supports_source=True, default_tag="6.1.0"
+                profile_dir / "modules" / "superset",
+                supports_source=True,
+                default_tag="6.1.0",
             )
 
             plan, diagnostics = self._build_single_module_plan(
@@ -454,7 +506,11 @@ class PlannerRegressionTest(unittest.TestCase):
             )
 
             plan, diagnostics = self._build_single_module_plan(
-                profile_dir, "dagster", config={}, hardened=True, image_source="registry"
+                profile_dir,
+                "dagster",
+                config={},
+                hardened=True,
+                image_source="registry",
             )
 
             self.assertIsNotNone(plan)
@@ -463,7 +519,9 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertEqual(entry["config"]["image"]["source"], "registry")
             self.assertEqual(entry["config"]["image"]["tag"], "hardened-1.13.20")
 
-    def test_build_plan_production_default_selects_dagster_variant_and_registry_tag(self):
+    def test_build_plan_production_default_selects_dagster_variant_and_registry_tag(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_dir = Path(tmpdir) / "profiles" / "production"
             self._write_module_with_image_source(
@@ -518,7 +576,9 @@ class PlannerRegressionTest(unittest.TestCase):
             root = Path(tmpdir)
             profile_dir = root / "profiles" / "local"
             self._write_module_with_image_source(
-                profile_dir / "modules" / "superset", supports_source=True, default_tag="6.1.0"
+                profile_dir / "modules" / "superset",
+                supports_source=True,
+                default_tag="6.1.0",
             )
 
             plan, diagnostics = self._build_single_module_plan(
@@ -664,13 +724,17 @@ class PlannerRegressionTest(unittest.TestCase):
             profile_file = profile_dir / "profile.yaml"
             profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
 
-            plan, diagnostics = planner.build_plan(str(profile_file), env_file=str(env_file))
+            plan, diagnostics = planner.build_plan(
+                str(profile_file), env_file=str(env_file)
+            )
 
             self.assertIsNotNone(plan)
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
             consumer_entry = next(m for m in plan["modules"] if m["id"] == "consumer")
             self.assertEqual(
-                consumer_entry["consumes"]["database"]["contract"]["spec"]["connectionUri"],
+                consumer_entry["consumes"]["database"]["contract"]["spec"][
+                    "connectionUri"
+                ],
                 "postgresql://analytics:${CDS_DB_PASSWORD}@producer:5432/analytics",
             )
             self.assertEqual(
@@ -705,9 +769,7 @@ class PlannerRegressionTest(unittest.TestCase):
                     "configSchema": {
                         "type": "object",
                         "additionalProperties": False,
-                        "properties": {
-                            "passwordFrom": {"type": "string"}
-                        },
+                        "properties": {"passwordFrom": {"type": "string"}},
                     },
                     "implementation": {
                         "kind": "docker-compose",
@@ -727,9 +789,7 @@ class PlannerRegressionTest(unittest.TestCase):
                             "id": "database",
                             "source": "./modules/database",
                             "enabled": True,
-                            "config": {
-                                "passwordFrom": "secrets.postgres_password"
-                            },
+                            "config": {"passwordFrom": "secrets.postgres_password"},
                         }
                     ],
                     "secrets": {
@@ -739,13 +799,15 @@ class PlannerRegressionTest(unittest.TestCase):
                                 "env": "CDS_ANALYTICS_POSTGRES_PASSWORD",
                                 "required": True,
                             }
-                        }
+                        },
                     },
                 },
             }
 
             env_file = Path(root) / ".env"
-            env_file.write_text("CDS_ANALYTICS_POSTGRES_PASSWORD=supersecret\n", encoding="utf-8")
+            env_file.write_text(
+                "CDS_ANALYTICS_POSTGRES_PASSWORD=supersecret\n", encoding="utf-8"
+            )
 
             import yaml
 
@@ -755,14 +817,23 @@ class PlannerRegressionTest(unittest.TestCase):
             profile_file = profile_dir / "profile.yaml"
             profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
 
-            plan, diagnostics = planner.build_plan(str(profile_file), env_file=str(env_file))
+            plan, diagnostics = planner.build_plan(
+                str(profile_file), env_file=str(env_file)
+            )
 
             self.assertIsNotNone(plan)
             self.assertEqual(len([d for d in diagnostics if d.level == "error"]), 0)
-            self.assertEqual(plan["modules"][0]["config"]["passwordFrom"], "secrets.postgres_password")
-            self.assertEqual(plan["secrets"]["postgres_password"], "CDS_ANALYTICS_POSTGRES_PASSWORD")
+            self.assertEqual(
+                plan["modules"][0]["config"]["passwordFrom"],
+                "secrets.postgres_password",
+            )
+            self.assertEqual(
+                plan["secrets"]["postgres_password"], "CDS_ANALYTICS_POSTGRES_PASSWORD"
+            )
 
-    def test_build_plan_rejects_module_source_traversal_outside_configured_module_root(self):
+    def test_build_plan_rejects_module_source_traversal_outside_configured_module_root(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             profile_dir = root / "profiles" / "local"
@@ -781,8 +852,14 @@ class PlannerRegressionTest(unittest.TestCase):
                         "kind": "Module",
                         "metadata": {"name": "outside"},
                         "spec": {
-                            "configSchema": {"type": "object", "additionalProperties": False},
-                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                            "configSchema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                            },
+                            "implementation": {
+                                "kind": "docker-compose",
+                                "compose": {"services": {}},
+                            },
                         },
                     }
                 ),
@@ -810,7 +887,9 @@ class PlannerRegressionTest(unittest.TestCase):
             profile_file = profile_dir / "profile.yaml"
             profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
 
-            with patch.dict("os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False):
+            with patch.dict(
+                "os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False
+            ):
                 plan, diagnostics = planner.build_plan(str(profile_file))
 
             self.assertIsNotNone(diagnostics)
@@ -908,7 +987,9 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertEqual(errors[0].message, "Module source is required.")
             self.assertEqual(errors[0].path, "spec.modules[0].source")
 
-    def test_apply_defaults_recurses_into_object_typed_default_with_own_nested_defaults(self):
+    def test_apply_defaults_recurses_into_object_typed_default_with_own_nested_defaults(
+        self,
+    ):
         """A nested object property with both its own top-level 'default'
         (e.g. 'default: {}') and nested properties that have defaults of
         their own must have those nested defaults filled in too, instead of
@@ -924,7 +1005,9 @@ class PlannerRegressionTest(unittest.TestCase):
                         "timeout": {
                             "type": "object",
                             "default": {},
-                            "properties": {"seconds": {"type": "integer", "default": 30}},
+                            "properties": {
+                                "seconds": {"type": "integer", "default": 30}
+                            },
                         },
                     },
                 }
@@ -993,7 +1076,9 @@ class PlannerRegressionTest(unittest.TestCase):
 
         repo_root = Path(__file__).resolve().parent.parent
         module_path = repo_root / "modules" / "warehouse" / "postgres" / "module.yaml"
-        self.assertTrue(module_path.exists(), f"Real postgres module not found at {module_path}")
+        self.assertTrue(
+            module_path.exists(), f"Real postgres module not found at {module_path}"
+        )
 
         module_def = yaml.safe_load(module_path.read_text(encoding="utf-8"))
         config_schema = module_def["spec"]["configSchema"]
@@ -1109,7 +1194,6 @@ class PlannerRegressionTest(unittest.TestCase):
             {"enabled": False, "retries": 0, "path": "/health"},
         )
 
-
     def test_build_plan_reports_diagnostic_for_non_dict_module_entry(self):
         """build_plan() is a public entry point that may be called without
         prior validate_profile() shape-checking; a non-object module entry
@@ -1141,10 +1225,7 @@ class PlannerRegressionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_path = Path(tmpdir) / "profile.yaml"
             profile_path.write_text(
-                "apiVersion: cds/v1alpha1\n"
-                "kind: Profile\n"
-                "spec:\n"
-                "  modules: 42\n"
+                "apiVersion: cds/v1alpha1\nkind: Profile\nspec:\n  modules: 42\n"
             )
 
             plan, diagnostics = planner.build_plan(str(profile_path))
@@ -1186,11 +1267,19 @@ class PlannerRegressionTest(unittest.TestCase):
             module_dir.mkdir(parents=True)
             module_file = module_dir / "module.yaml"
             import yaml as _yaml
-            module_file.write_text(_yaml.safe_dump({
-                "apiVersion": "cds/v1alpha1",
-                "kind": "Module",
-                "spec": {"configSchema": schema, "implementation": {"kind": "docker-compose"}},
-            }))
+
+            module_file.write_text(
+                _yaml.safe_dump(
+                    {
+                        "apiVersion": "cds/v1alpha1",
+                        "kind": "Module",
+                        "spec": {
+                            "configSchema": schema,
+                            "implementation": {"kind": "docker-compose"},
+                        },
+                    }
+                )
+            )
 
             profile_dir = root / "profiles" / "local"
             profile_dir.mkdir(parents=True)
@@ -1266,6 +1355,7 @@ class PlannerRegressionTest(unittest.TestCase):
             self.assertIsNotNone(plan)
             module = next(m for m in plan["modules"] if m["id"] == "svc")
             self.assertEqual(module["config"]["replicas"], 5)
+
     def test_substitute_string_if_nonempty_omits_affix_for_empty_password(self):
         result = planner.substitute_string(
             "redis://${ifNonempty:config.password,:,@}${service.host}:${config.port}",
@@ -1317,7 +1407,13 @@ class RequiredIfConsumeTest(unittest.TestCase):
     config.warehouseType, mirroring modules/transformation/dbt.
     """
 
-    def _write_profile(self, tmpdir: str, warehouse_type: str, database_ref: str | None, warehouse_file_ref: str | None) -> str:
+    def _write_profile(
+        self,
+        tmpdir: str,
+        warehouse_type: str,
+        database_ref: str | None,
+        warehouse_file_ref: str | None,
+    ) -> str:
         import yaml
 
         root = Path(tmpdir)
@@ -1337,10 +1433,16 @@ class RequiredIfConsumeTest(unittest.TestCase):
                 "provides": [
                     {
                         "name": "sql-database",
-                        "contract": {"kind": "sql-database", "spec": {"host": "postgres"}},
+                        "contract": {
+                            "kind": "sql-database",
+                            "spec": {"host": "postgres"},
+                        },
                     }
                 ],
-                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {"services": {}},
+                },
             },
         }
         duckdb_module = {
@@ -1352,10 +1454,16 @@ class RequiredIfConsumeTest(unittest.TestCase):
                 "provides": [
                     {
                         "name": "file-database",
-                        "contract": {"kind": "file-database", "spec": {"hostDirectory": "./data/duckdb"}},
+                        "contract": {
+                            "kind": "file-database",
+                            "spec": {"hostDirectory": "./data/duckdb"},
+                        },
                     }
                 ],
-                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {"services": {}},
+                },
             },
         }
         consumer_module = {
@@ -1367,9 +1475,23 @@ class RequiredIfConsumeTest(unittest.TestCase):
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
-                        "warehouseType": {"type": "string", "enum": ["postgres", "duckdb"], "default": "postgres"},
-                        "targetDatabase": {"type": "object", "additionalProperties": False, "default": {}, "properties": {"contractRef": {"type": "string"}}},
-                        "targetWarehouseFile": {"type": "object", "additionalProperties": False, "default": {}, "properties": {"contractRef": {"type": "string"}}},
+                        "warehouseType": {
+                            "type": "string",
+                            "enum": ["postgres", "duckdb"],
+                            "default": "postgres",
+                        },
+                        "targetDatabase": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "default": {},
+                            "properties": {"contractRef": {"type": "string"}},
+                        },
+                        "targetWarehouseFile": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "default": {},
+                            "properties": {"contractRef": {"type": "string"}},
+                        },
                     },
                 },
                 "consumes": [
@@ -1388,13 +1510,22 @@ class RequiredIfConsumeTest(unittest.TestCase):
                         "mappedFrom": "spec.config.targetWarehouseFile",
                     },
                 ],
-                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {"services": {}},
+                },
             },
         }
 
-        (postgres_dir / "module.yaml").write_text(yaml.safe_dump(postgres_module), encoding="utf-8")
-        (duckdb_dir / "module.yaml").write_text(yaml.safe_dump(duckdb_module), encoding="utf-8")
-        (consumer_dir / "module.yaml").write_text(yaml.safe_dump(consumer_module), encoding="utf-8")
+        (postgres_dir / "module.yaml").write_text(
+            yaml.safe_dump(postgres_module), encoding="utf-8"
+        )
+        (duckdb_dir / "module.yaml").write_text(
+            yaml.safe_dump(duckdb_module), encoding="utf-8"
+        )
+        (consumer_dir / "module.yaml").write_text(
+            yaml.safe_dump(consumer_module), encoding="utf-8"
+        )
 
         consumer_config: dict = {"warehouseType": warehouse_type}
         if database_ref is not None:
@@ -1409,8 +1540,18 @@ class RequiredIfConsumeTest(unittest.TestCase):
             "spec": {
                 "runtime": {"type": "docker-compose"},
                 "modules": [
-                    {"id": "postgres", "source": "./modules/postgres", "enabled": True, "config": {}},
-                    {"id": "duckdb", "source": "./modules/duckdb", "enabled": True, "config": {}},
+                    {
+                        "id": "postgres",
+                        "source": "./modules/postgres",
+                        "enabled": True,
+                        "config": {},
+                    },
+                    {
+                        "id": "duckdb",
+                        "source": "./modules/duckdb",
+                        "enabled": True,
+                        "config": {},
+                    },
                     {
                         "id": "consumer",
                         "source": "./modules/consumer",
@@ -1428,7 +1569,9 @@ class RequiredIfConsumeTest(unittest.TestCase):
 
     def test_build_plan_resolves_target_database_when_warehouse_type_is_postgres(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            profile_file = self._write_profile(tmpdir, "postgres", "postgres.sql-database", None)
+            profile_file = self._write_profile(
+                tmpdir, "postgres", "postgres.sql-database", None
+            )
             plan, diagnostics = planner.build_plan(profile_file)
 
             self.assertEqual([d for d in diagnostics if d.level == "error"], [])
@@ -1436,9 +1579,13 @@ class RequiredIfConsumeTest(unittest.TestCase):
             self.assertIn("target-database", consumer_entry["consumes"])
             self.assertNotIn("target-warehouse-file", consumer_entry["consumes"])
 
-    def test_build_plan_resolves_target_warehouse_file_when_warehouse_type_is_duckdb(self):
+    def test_build_plan_resolves_target_warehouse_file_when_warehouse_type_is_duckdb(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmpdir:
-            profile_file = self._write_profile(tmpdir, "duckdb", None, "duckdb.file-database")
+            profile_file = self._write_profile(
+                tmpdir, "duckdb", None, "duckdb.file-database"
+            )
             plan, diagnostics = planner.build_plan(profile_file)
 
             self.assertEqual([d for d in diagnostics if d.level == "error"], [])
@@ -1452,7 +1599,9 @@ class RequiredIfConsumeTest(unittest.TestCase):
         requiredIf must fail this as E041 rather than silently planning
         without a target-database binding at all."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            profile_file = self._write_profile(tmpdir, "postgres", None, "duckdb.file-database")
+            profile_file = self._write_profile(
+                tmpdir, "postgres", None, "duckdb.file-database"
+            )
             plan, diagnostics = planner.build_plan(profile_file)
 
             errors = [d for d in diagnostics if d.level == "error"]
@@ -1495,8 +1644,6 @@ class RequiredIfMalformedGatePlannerTest(unittest.TestCase):
         self.assertIn("malformed requiredIf", errors[0].message)
 
 
-
-
 class ListValuedConsumeBindingPlannerTest(unittest.TestCase):
     """
     resolve_consumed_contracts with a list-valued mappedFrom target (issue
@@ -1527,7 +1674,13 @@ class ListValuedConsumeBindingPlannerTest(unittest.TestCase):
         web = {
             "id": "web",
             "config": {},
-            "module": {"spec": {"provides": [{"name": "http-service", "contract": {"kind": "http-service"}}]}},
+            "module": {
+                "spec": {
+                    "provides": [
+                        {"name": "http-service", "contract": {"kind": "http-service"}}
+                    ]
+                }
+            },
         }
         resolved = {
             "web": {
@@ -1541,23 +1694,34 @@ class ListValuedConsumeBindingPlannerTest(unittest.TestCase):
 
     def test_list_binding_resolves_each_entry_in_order(self):
         modules_by_id, resolved = self._modules()
-        inst = self._inst([{"contractRef": "web.http-service", "host": "a.example.local"}])
+        inst = self._inst(
+            [{"contractRef": "web.http-service", "host": "a.example.local"}]
+        )
         diagnostics: list = []
-        result = planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        result = planner.resolve_consumed_contracts(
+            inst, modules_by_id, resolved, diagnostics
+        )
         self.assertEqual([d for d in diagnostics if d.level == "error"], [])
         self.assertEqual(
             result["routes"],
-            [{
-                "contractRef": "web.http-service",
-                "contract": {"kind": "http-service", "spec": {"host": "web", "port": 3000}},
-            }],
+            [
+                {
+                    "contractRef": "web.http-service",
+                    "contract": {
+                        "kind": "http-service",
+                        "spec": {"host": "web", "port": 3000},
+                    },
+                }
+            ],
         )
 
     def test_empty_optional_list_binding_is_skipped(self):
         modules_by_id, resolved = self._modules()
         inst = self._inst([], required=False)
         diagnostics: list = []
-        result = planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        result = planner.resolve_consumed_contracts(
+            inst, modules_by_id, resolved, diagnostics
+        )
         self.assertEqual(diagnostics, [])
         self.assertNotIn("routes", result)
 
@@ -1565,7 +1729,9 @@ class ListValuedConsumeBindingPlannerTest(unittest.TestCase):
         modules_by_id, resolved = self._modules()
         inst = self._inst([], required=True)
         diagnostics: list = []
-        result = planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        result = planner.resolve_consumed_contracts(
+            inst, modules_by_id, resolved, diagnostics
+        )
         errors = [d for d in diagnostics if d.level == "error"]
         self.assertEqual([d.code for d in errors], ["E041"])
         self.assertIn("at least one", errors[0].message)
@@ -1573,9 +1739,13 @@ class ListValuedConsumeBindingPlannerTest(unittest.TestCase):
 
     def test_entry_with_unknown_producer_reports_e041_at_entry_path(self):
         modules_by_id, resolved = self._modules()
-        inst = self._inst([{"contractRef": "ghost.http-service", "host": "x.example.local"}])
+        inst = self._inst(
+            [{"contractRef": "ghost.http-service", "host": "x.example.local"}]
+        )
         diagnostics: list = []
-        result = planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        result = planner.resolve_consumed_contracts(
+            inst, modules_by_id, resolved, diagnostics
+        )
         errors = [d for d in diagnostics if d.level == "error"]
         self.assertEqual([d.code for d in errors], ["E041"])
         self.assertIn('Unknown producer module "ghost"', errors[0].message)
@@ -1603,16 +1773,22 @@ class ListValuedConsumeBindingPlannerTest(unittest.TestCase):
 
     def test_mixed_valid_and_invalid_entries_resolve_the_valid_ones(self):
         modules_by_id, resolved = self._modules()
-        inst = self._inst([
-            {"contractRef": "web.http-service"},
-            {"contractRef": "ghost.http-service"},
-        ])
+        inst = self._inst(
+            [
+                {"contractRef": "web.http-service"},
+                {"contractRef": "ghost.http-service"},
+            ]
+        )
         diagnostics: list = []
-        result = planner.resolve_consumed_contracts(inst, modules_by_id, resolved, diagnostics)
+        result = planner.resolve_consumed_contracts(
+            inst, modules_by_id, resolved, diagnostics
+        )
         errors = [d for d in diagnostics if d.level == "error"]
         self.assertEqual([d.code for d in errors], ["E041"])
         self.assertEqual(errors[0].path, "module:proxy.consumes.routes[1]")
-        self.assertEqual([b["contractRef"] for b in result["routes"]], ["web.http-service"])
+        self.assertEqual(
+            [b["contractRef"] for b in result["routes"]], ["web.http-service"]
+        )
 
 
 class InMemoryProfilePlanningTest(unittest.TestCase):
@@ -1638,17 +1814,33 @@ class InMemoryProfilePlanningTest(unittest.TestCase):
                 {
                     "apiVersion": "cds/v1alpha1",
                     "kind": "Module",
-                    "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                    "metadata": {
+                        "name": "postgres",
+                        "category": "warehouse",
+                        "version": "0.1.0",
+                    },
                     "spec": {
                         "runtime": {
                             "type": "container",
                             "service": {
                                 "name": "postgres",
-                                "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                "ports": [
+                                    {
+                                        "name": "db",
+                                        "containerPort": 5432,
+                                        "protocol": "TCP",
+                                    }
+                                ],
                             },
                         },
-                        "configSchema": {"type": "object", "additionalProperties": True},
-                        "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        "configSchema": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {"services": {}},
+                        },
                     },
                 }
             ),
@@ -1680,8 +1872,12 @@ class InMemoryProfilePlanningTest(unittest.TestCase):
             },
         }
 
-    def test_build_plan_from_profile_plans_an_in_memory_profile_with_no_file_on_disk(self):
-        plan, diagnostics = planner.build_plan_from_profile(self.profile, self.profile_dir)
+    def test_build_plan_from_profile_plans_an_in_memory_profile_with_no_file_on_disk(
+        self,
+    ):
+        plan, diagnostics = planner.build_plan_from_profile(
+            self.profile, self.profile_dir
+        )
 
         self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
         self.assertIsNotNone(plan)
@@ -1764,7 +1960,9 @@ class InMemoryProfilePlanningTest(unittest.TestCase):
             "spec": {"modules": [{"id": "db", "config": {"replicas": 5}}]},
         }
 
-        plan, diagnostics = planner.plan_generated_profile(child_profile, self.profile_dir)
+        plan, diagnostics = planner.plan_generated_profile(
+            child_profile, self.profile_dir
+        )
 
         self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
         self.assertIsNotNone(plan)
@@ -1777,7 +1975,9 @@ class InMemoryProfilePlanningTest(unittest.TestCase):
         env_dir = self.profile_dir / "environments"
         env_dir.mkdir(parents=True)
         (env_dir / "prod.yaml").write_text(
-            yaml.safe_dump({"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}),
+            yaml.safe_dump(
+                {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+            ),
             encoding="utf-8",
         )
 
@@ -1799,10 +1999,14 @@ class InMemoryProfilePlanningTest(unittest.TestCase):
             "apiVersion": "cds/v1alpha1",
             "kind": "Profile",
             "metadata": {"name": "generated", "environment": "local"},
-            "spec": {"modules": [{"id": "ghost", "source": "does/not/exist", "config": {}}]},
+            "spec": {
+                "modules": [{"id": "ghost", "source": "does/not/exist", "config": {}}]
+            },
         }
 
-        plan, diagnostics = planner.plan_generated_profile(bad_profile, self.profile_dir)
+        plan, diagnostics = planner.plan_generated_profile(
+            bad_profile, self.profile_dir
+        )
 
         self.assertIsNotNone(plan)
         self.assertEqual(plan["modules"], [])

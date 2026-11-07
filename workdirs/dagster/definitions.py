@@ -44,7 +44,9 @@ def _load_module_from_path(module_name: str, file_path: Path):
 # shared/python/db/connection.py helper is deprecated and only remains in
 # the images for externally supplied definitions files.
 local_connection_path = Path(__file__).resolve().with_name("postgres_connection.py")
-_db_connection = _load_module_from_path("cds_local_postgres_connection", local_connection_path)
+_db_connection = _load_module_from_path(
+    "cds_local_postgres_connection", local_connection_path
+)
 
 insert_incoming_file_event = _db_connection.insert_incoming_file_event
 _tender_analytics = _load_module_from_path(
@@ -55,7 +57,9 @@ tender_analytics = _tender_analytics.tender_analytics
 load_tender_analytics_job = _tender_analytics.load_tender_analytics_job
 
 INCOMING_DATA_DIR = Path(os.getenv("CDS_INCOMING_DATA_DIR", "/app/data/cds/incoming"))
-PROCESSED_DATA_DIR = Path(os.getenv("CDS_PROCESSED_DATA_DIR", "/app/data/cds/processed"))
+PROCESSED_DATA_DIR = Path(
+    os.getenv("CDS_PROCESSED_DATA_DIR", "/app/data/cds/processed")
+)
 OFFERS_FIXTURE_PATH = Path(
     os.getenv("CDS_OFFERS_FIXTURE_PATH", str(INCOMING_DATA_DIR / "offers-1000.csv"))
 )
@@ -106,8 +110,12 @@ def _resolve_target_db_uri() -> str:
     analytics_name = os.getenv("CDS_ANALYTICS_DB_NAME")
     analytics_user = os.getenv("CDS_ANALYTICS_DB_USER")
     analytics_password = os.getenv("CDS_ANALYTICS_DB_PASSWORD")
-    analytics_host = os.getenv("CDS_ANALYTICS_DB_HOST", os.getenv("DAGSTER_DB_HOST", "postgres"))
-    analytics_port = os.getenv("CDS_ANALYTICS_DB_PORT", os.getenv("DAGSTER_DB_PORT", "5432"))
+    analytics_host = os.getenv(
+        "CDS_ANALYTICS_DB_HOST", os.getenv("DAGSTER_DB_HOST", "postgres")
+    )
+    analytics_port = os.getenv(
+        "CDS_ANALYTICS_DB_PORT", os.getenv("DAGSTER_DB_PORT", "5432")
+    )
 
     if analytics_name and analytics_user and analytics_password:
         quoted_user = quote(analytics_user, safe="")
@@ -134,7 +142,9 @@ def _read_text_with_fallback(file_path: Path, logger=None) -> str:
     for encoding in TEXT_FILE_ENCODINGS:
         try:
             if logger is not None:
-                logger.debug("Attempting to decode %s with encoding %s", file_path.name, encoding)
+                logger.debug(
+                    "Attempting to decode %s with encoding %s", file_path.name, encoding
+                )
             return payload.decode(encoding)
         except UnicodeDecodeError as exc:
             decode_errors.append(f"{encoding}: {exc}")
@@ -166,7 +176,9 @@ def _ingest_csv_file(
     logger=None,
     replace_source: bool = False,
 ) -> int:
-    with io.StringIO(_read_text_with_fallback(file_path, logger=logger), newline="") as handle:
+    with io.StringIO(
+        _read_text_with_fallback(file_path, logger=logger), newline=""
+    ) as handle:
         reader = csv.DictReader(handle)
         if not reader.fieldnames:
             if logger is not None:
@@ -193,7 +205,11 @@ def _ingest_csv_file(
                 for col_name in column_names
             )
             if logger is not None:
-                logger.debug("CSV headers for %s normalized to columns: %s", source_file, column_names)
+                logger.debug(
+                    "CSV headers for %s normalized to columns: %s",
+                    source_file,
+                    column_names,
+                )
             create_query = sql.SQL(
                 "CREATE TABLE IF NOT EXISTS {} "
                 "(source_file text NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(), {})"
@@ -201,13 +217,23 @@ def _ingest_csv_file(
             cursor.execute(create_query)
             if replace_source:
                 cursor.execute(
-                    sql.SQL("DELETE FROM {} WHERE source_file = %s").format(table_ident),
+                    sql.SQL("DELETE FROM {} WHERE source_file = %s").format(
+                        table_ident
+                    ),
                     (source_file,),
                 )
 
             rows = []
             for row in reader:
-                rows.append([source_file, *[(row.get(raw) if row.get(raw) is not None else "") for raw in raw_headers]])
+                rows.append(
+                    [
+                        source_file,
+                        *[
+                            (row.get(raw) if row.get(raw) is not None else "")
+                            for raw in raw_headers
+                        ],
+                    ]
+                )
 
             if not rows:
                 if logger is not None:
@@ -216,15 +242,21 @@ def _ingest_csv_file(
                 return 0
 
             insert_cols = ["source_file", *column_names]
-            insert_ident_list = sql.SQL(", ").join(sql.Identifier(col_name) for col_name in insert_cols)
-            insert_query = sql.SQL("INSERT INTO {} ({}) VALUES %s").format(table_ident, insert_ident_list)
+            insert_ident_list = sql.SQL(", ").join(
+                sql.Identifier(col_name) for col_name in insert_cols
+            )
+            insert_query = sql.SQL("INSERT INTO {} ({}) VALUES %s").format(
+                table_ident, insert_ident_list
+            )
             execute_values(cursor, insert_query, rows)
 
     conn.commit()
     return len(rows)
 
 
-def _ingest_json_file(conn, file_path: Path, table_name: str, source_file: str, logger=None) -> int:
+def _ingest_json_file(
+    conn, file_path: Path, table_name: str, source_file: str, logger=None
+) -> int:
     content = _read_text_with_fallback(file_path, logger=logger).strip()
     if not content:
         if logger is not None:
@@ -261,7 +293,9 @@ def _ingest_json_file(conn, file_path: Path, table_name: str, source_file: str, 
             conn.commit()
             return 0
 
-        insert_query = sql.SQL("INSERT INTO {} (source_file, payload) VALUES %s").format(table_ident)
+        insert_query = sql.SQL(
+            "INSERT INTO {} (source_file, payload) VALUES %s"
+        ).format(table_ident)
         rows = [(source_file, json.dumps(record)) for record in records]
         execute_values(cursor, insert_query, rows)
 
@@ -273,11 +307,20 @@ def _ingest_file_into_db(conn, file_path: Path, logger=None) -> tuple[str, int]:
     table_name = _derive_target_table(file_path)
     suffix = file_path.suffix.lower()
     if logger is not None:
-        logger.debug("Preparing ingestion for file=%s suffix=%s target_table=%s", file_path.name, suffix, table_name)
+        logger.debug(
+            "Preparing ingestion for file=%s suffix=%s target_table=%s",
+            file_path.name,
+            suffix,
+            table_name,
+        )
     if suffix == ".csv":
-        return table_name, _ingest_csv_file(conn, file_path, table_name, file_path.name, logger=logger)
+        return table_name, _ingest_csv_file(
+            conn, file_path, table_name, file_path.name, logger=logger
+        )
     if suffix in {".json", ".ndjson"}:
-        return table_name, _ingest_json_file(conn, file_path, table_name, file_path.name, logger=logger)
+        return table_name, _ingest_json_file(
+            conn, file_path, table_name, file_path.name, logger=logger
+        )
     raise RuntimeError(
         f"Unsupported file extension '{suffix or '<none>'}'. "
         "Supported extensions are .csv, .json, and .ndjson"
@@ -299,7 +342,9 @@ def save_data_to_db(context, payload: dict, asset_key: str = "cds_ingestion") ->
     context.log_event(AssetObservation(asset_key=asset_key, metadata=metadata))
 
 
-def _move_files(context, incoming_dir: Path, processed_dir: Path, files: list[str]) -> tuple[int, int]:
+def _move_files(
+    context, incoming_dir: Path, processed_dir: Path, files: list[str]
+) -> tuple[int, int]:
     processed_dir.mkdir(parents=True, exist_ok=True)
     db_uri = _resolve_target_db_uri()
     context.log.debug(
@@ -320,7 +365,9 @@ def _move_files(context, incoming_dir: Path, processed_dir: Path, files: list[st
 
         try:
             with psycopg2.connect(db_uri) as conn:
-                table_name, row_count = _ingest_file_into_db(conn, source, logger=context.log)
+                table_name, row_count = _ingest_file_into_db(
+                    conn, source, logger=context.log
+                )
                 ingested_records += row_count
             context.log.info(
                 "Ingested %s row(s) from %s into table %s",
@@ -343,13 +390,19 @@ def _move_files(context, incoming_dir: Path, processed_dir: Path, files: list[st
                     destination = candidate
                     break
                 counter += 1
-            context.log.debug("Destination existed; using unique destination %s", destination)
+            context.log.debug(
+                "Destination existed; using unique destination %s", destination
+            )
 
         source.replace(destination)
         context.log.debug("Moved %s to %s", source, destination)
         moved_files += 1
 
-    context.log.debug("Completed move+ingest: moved_files=%s ingested_records=%s", moved_files, ingested_records)
+    context.log.debug(
+        "Completed move+ingest: moved_files=%s ingested_records=%s",
+        moved_files,
+        ingested_records,
+    )
     return moved_files, ingested_records
 
 
@@ -379,7 +432,9 @@ def pickup_incoming_files(context) -> None:
     processed_dir = Path(context.op_config["processed_dir"])
     files = context.op_config["files"]
 
-    moved_files, ingested_records = _move_files(context, incoming_dir, processed_dir, files)
+    moved_files, ingested_records = _move_files(
+        context, incoming_dir, processed_dir, files
+    )
 
     context.log.info(
         "Picked up %s file(s) from %s into %s after ingesting %s record(s)",
@@ -405,7 +460,11 @@ def pickup_incoming_files(context) -> None:
 def read_data(context) -> dict:
     incoming_dir = Path(context.op_config["incoming_dir"])
     configured_file_name = context.op_config.get("file_name")
-    context.log.debug("read_data start incoming_dir=%s configured_file_name=%s", incoming_dir, configured_file_name)
+    context.log.debug(
+        "read_data start incoming_dir=%s configured_file_name=%s",
+        incoming_dir,
+        configured_file_name,
+    )
 
     if configured_file_name:
         target = incoming_dir / configured_file_name
@@ -423,7 +482,11 @@ def read_data(context) -> dict:
         return {"status": "no_file", "incoming_dir": str(incoming_dir)}
 
     selected = candidates[0]
-    context.log.debug("read_data selected file %s from %s candidate(s)", selected.name, len(candidates))
+    context.log.debug(
+        "read_data selected file %s from %s candidate(s)",
+        selected.name,
+        len(candidates),
+    )
     content = selected.read_text(encoding="utf-8", errors="replace")
 
     result = {
@@ -450,7 +513,9 @@ def read_data(context) -> dict:
 
 @op(config_schema={"processed_dir": str})
 def process_incoming_file(context, read_result: dict) -> None:
-    context.log.debug("process_incoming_file received status=%s", read_result.get("status"))
+    context.log.debug(
+        "process_incoming_file received status=%s", read_result.get("status")
+    )
     if read_result.get("status") != "ok":
         context.log.info("Skipping processing because no file was read")
         return
@@ -459,7 +524,9 @@ def process_incoming_file(context, read_result: dict) -> None:
     processed_dir = Path(context.op_config["processed_dir"])
     file_name = read_result["file_name"]
 
-    moved_files, ingested_records = _move_files(context, incoming_dir, processed_dir, [file_name])
+    moved_files, ingested_records = _move_files(
+        context, incoming_dir, processed_dir, [file_name]
+    )
     preview = read_result.get("content", "")[:200]
     context.log.debug(
         "process_incoming_file finished move+ingest for %s: moved_files=%s ingested_records=%s",
@@ -563,7 +630,9 @@ sample_data_schedule = (
 
 @sensor(job=process_incoming_file_job, minimum_interval_seconds=30)
 def incoming_files_sensor(context: SensorEvaluationContext):
-    context.log.debug("Sensor evaluation started for incoming directory %s", INCOMING_DATA_DIR)
+    context.log.debug(
+        "Sensor evaluation started for incoming directory %s", INCOMING_DATA_DIR
+    )
     if not INCOMING_DATA_DIR.exists():
         return SkipReason(f"Incoming directory does not exist: {INCOMING_DATA_DIR}")
 
@@ -574,7 +643,11 @@ def incoming_files_sensor(context: SensorEvaluationContext):
     if not files:
         return SkipReason(f"No files found in {INCOMING_DATA_DIR}")
 
-    context.log.debug("Sensor found %s processable file(s): %s", len(files), [entry.name for entry in files])
+    context.log.debug(
+        "Sensor found %s processable file(s): %s",
+        len(files),
+        [entry.name for entry in files],
+    )
 
     state_parts: list[str] = []
     file_names: list[str] = []
@@ -590,7 +663,9 @@ def incoming_files_sensor(context: SensorEvaluationContext):
 
     context.update_cursor(state_signature)
     run_key = hashlib.sha256(state_signature.encode("utf-8")).hexdigest()
-    context.log.info("Launching run for incoming file %s with run_key=%s", file_names[0], run_key)
+    context.log.info(
+        "Launching run for incoming file %s with run_key=%s", file_names[0], run_key
+    )
 
     return RunRequest(
         run_key=run_key,
@@ -606,7 +681,7 @@ def incoming_files_sensor(context: SensorEvaluationContext):
                     "config": {
                         "processed_dir": str(PROCESSED_DATA_DIR),
                     }
-                }
+                },
             }
         },
         tags={"cds.sensor": "incoming-files"},

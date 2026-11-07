@@ -65,6 +65,21 @@ def LLM_PROVIDER() -> str:
     return value
 
 
+def LLM_ALLOW_REMOTE_PROMPTS() -> bool:
+    """Opt-in flag required before prompts may leave the machine.
+
+    Default-deny: `azure_openai` is a remote backend, so `complete()` refuses
+    to send it prompt content unless LLM_ALLOW_REMOTE_PROMPTS is explicitly
+    set to a truthy value (1/true/yes). Local providers (`copilot_cli`,
+    `ollama`) are unaffected.
+    """
+    return (os.environ.get("LLM_ALLOW_REMOTE_PROMPTS") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
 # --- GitHub Copilot CLI -----------------------------------------------------
 
 

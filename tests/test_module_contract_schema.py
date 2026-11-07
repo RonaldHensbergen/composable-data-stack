@@ -12,6 +12,7 @@ drifts from the Contract fails the suite instead of failing at render time.
 Contract coverage (how much of the system the Contract + tests cover) is
 published in docs/contract-coverage.md by scripts/check_contract_coverage.py.
 """
+
 import json
 import unittest
 from pathlib import Path
@@ -24,8 +25,12 @@ from cli.validator import validate_profile
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RESOURCES = REPO_ROOT / "cli" / "resources"
 
-MODULE_SCHEMA = json.loads((RESOURCES / "module.schema.json").read_text(encoding="utf-8"))
-PROFILE_SCHEMA = json.loads((RESOURCES / "profile.schema.json").read_text(encoding="utf-8"))
+MODULE_SCHEMA = json.loads(
+    (RESOURCES / "module.schema.json").read_text(encoding="utf-8")
+)
+PROFILE_SCHEMA = json.loads(
+    (RESOURCES / "profile.schema.json").read_text(encoding="utf-8")
+)
 
 
 def _module_files() -> list[Path]:
@@ -83,7 +88,8 @@ class ModuleContractSchemaTest(unittest.TestCase):
             if errors:
                 rel = path.relative_to(REPO_ROOT)
                 failures.append(
-                    f"{rel}:\n  " + "\n  ".join(f"{d.code} {d.path}: {d.message}" for d in errors[:5])
+                    f"{rel}:\n  "
+                    + "\n  ".join(f"{d.code} {d.path}: {d.message}" for d in errors[:5])
                 )
         self.assertEqual([], failures)
 

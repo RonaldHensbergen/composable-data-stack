@@ -65,7 +65,9 @@ class ParseImageReferenceRegressionTest(unittest.TestCase):
 
 class FetchDockerhubTagsRegressionTest(unittest.TestCase):
     @patch("cli.image_updates.urlopen")
-    def test_non_http_next_url_stops_pagination_instead_of_following_it(self, mock_urlopen):
+    def test_non_http_next_url_stops_pagination_instead_of_following_it(
+        self, mock_urlopen
+    ):
         first_page = {
             "results": [{"name": "1.0"}],
             "next": "file:///etc/passwd",
@@ -87,7 +89,10 @@ class FetchDockerhubTagsRegressionTest(unittest.TestCase):
             "results": [{"name": "1.1"}],
             "next": None,
         }
-        mock_urlopen.side_effect = [_FakeResponse(first_page), _FakeResponse(second_page)]
+        mock_urlopen.side_effect = [
+            _FakeResponse(first_page),
+            _FakeResponse(second_page),
+        ]
 
         tags = fetch_dockerhub_tags("library", "python")
 
@@ -121,7 +126,12 @@ class ParseImageReferenceTest(unittest.TestCase):
         info = parse_image_reference("postgres")
         self.assertEqual(
             info,
-            {"registry": "docker.io", "namespace": "library", "repository": "postgres", "tag": "latest"},
+            {
+                "registry": "docker.io",
+                "namespace": "library",
+                "repository": "postgres",
+                "tag": "latest",
+            },
         )
 
     def test_namespace_and_repository(self):
@@ -236,7 +246,9 @@ class ExtractBaseImageTest(unittest.TestCase):
 
     def test_multi_stage_first_stage_when_final_stage_false(self):
         self._write("FROM golang:1.22 AS builder\nFROM alpine:3.19\n")
-        self.assertEqual(extract_base_image(self.dockerfile, final_stage=False), "golang:1.22")
+        self.assertEqual(
+            extract_base_image(self.dockerfile, final_stage=False), "golang:1.22"
+        )
 
     def test_scratch_is_skipped(self):
         self._write("FROM scratch\nCOPY app /app\n")
@@ -278,9 +290,13 @@ class FindImagesInComposeTest(unittest.TestCase):
             module_dir = Path(tmp)
             build_dir = module_dir / "docker"
             build_dir.mkdir()
-            (build_dir / "Dockerfile").write_text("FROM alpine:3.19\n", encoding="utf-8")
+            (build_dir / "Dockerfile").write_text(
+                "FROM alpine:3.19\n", encoding="utf-8"
+            )
 
-            compose = {"services": {"app": {"image": "myapp:custom", "build": "docker"}}}
+            compose = {
+                "services": {"app": {"image": "myapp:custom", "build": "docker"}}
+            }
             result = find_images_in_compose(compose, module_dir=module_dir)
 
             self.assertEqual(len(result), 1)
@@ -294,7 +310,9 @@ class FindImagesInComposeTest(unittest.TestCase):
             module_dir = Path(tmp)
             build_dir = module_dir / "docker"
             build_dir.mkdir()
-            (build_dir / "Dockerfile.prod").write_text("FROM alpine:3.19\n", encoding="utf-8")
+            (build_dir / "Dockerfile.prod").write_text(
+                "FROM alpine:3.19\n", encoding="utf-8"
+            )
 
             compose = {
                 "services": {
@@ -311,17 +329,23 @@ class FindImagesInComposeTest(unittest.TestCase):
     def test_missing_dockerfile_yields_none(self):
         with tempfile.TemporaryDirectory() as tmp:
             module_dir = Path(tmp)
-            compose = {"services": {"app": {"image": "myapp:custom", "build": "docker"}}}
+            compose = {
+                "services": {"app": {"image": "myapp:custom", "build": "docker"}}
+            }
             result = find_images_in_compose(compose, module_dir=module_dir)
             self.assertIsNone(result[0][2])
 
     def test_does_not_recurse_into_build_block(self):
-        compose = {"services": {"app": {"image": "myapp:custom", "build": {"context": "."}}}}
+        compose = {
+            "services": {"app": {"image": "myapp:custom", "build": {"context": "."}}}
+        }
         result = find_images_in_compose(compose)
         self.assertEqual(len(result), 1)
 
     def test_handles_list_input(self):
-        result = find_images_in_compose([{"image": "postgres:16"}, {"image": "nginx:1.27"}])
+        result = find_images_in_compose(
+            [{"image": "postgres:16"}, {"image": "nginx:1.27"}]
+        )
         self.assertEqual(
             sorted(result),
             sorted([("<root>", "postgres:16", None), ("<root>", "nginx:1.27", None)]),
@@ -365,7 +389,9 @@ spec:
             module_root = Path(tmp)
             module_dir = module_root / "broken"
             module_dir.mkdir()
-            (module_dir / "module.yaml").write_text(": not valid yaml :::", encoding="utf-8")
+            (module_dir / "module.yaml").write_text(
+                ": not valid yaml :::", encoding="utf-8"
+            )
 
             self.assertEqual(collect_module_images(module_root), [])
 
@@ -376,9 +402,7 @@ spec:
             module_root = Path(tmp)
             module_dir = module_root / "orchestration" / "dagster"
             for variant in ("base", "hardened"):
-                dockerfile = (
-                    module_dir / "images" / "dagster" / variant / "Dockerfile"
-                )
+                dockerfile = module_dir / "images" / "dagster" / variant / "Dockerfile"
                 dockerfile.parent.mkdir(parents=True, exist_ok=True)
                 dockerfile.write_text("FROM scratch\n", encoding="utf-8")
             module = {
@@ -443,14 +467,18 @@ spec:
 class CheckImageUpdateTest(unittest.TestCase):
     def test_local_custom_tag_without_dockerfile(self):
         result = check_image_update("myapp:custom")
-        self.assertEqual(result, {"image": "myapp:custom", "status": "local", "latest": None})
+        self.assertEqual(
+            result, {"image": "myapp:custom", "status": "local", "latest": None}
+        )
 
     def test_local_image_with_dockerfile_recurses_on_base_image(self):
         with tempfile.TemporaryDirectory() as tmp:
             dockerfile = Path(tmp) / "Dockerfile"
             dockerfile.write_text("FROM postgres:16\n", encoding="utf-8")
 
-            with patch("cli.image_updates.fetch_dockerhub_tags", return_value=["16", "16.1"]):
+            with patch(
+                "cli.image_updates.fetch_dockerhub_tags", return_value=["16", "16.1"]
+            ):
                 result = check_image_update("myapp:custom", dockerfile=dockerfile)
 
             self.assertEqual(result["image"], "myapp:custom")
@@ -465,7 +493,10 @@ class CheckImageUpdateTest(unittest.TestCase):
 
             result = check_image_update("myapp:custom", dockerfile=dockerfile)
 
-            self.assertEqual(result, {"image": "myapp:custom", "status": "local-no-base", "latest": None})
+            self.assertEqual(
+                result,
+                {"image": "myapp:custom", "status": "local-no-base", "latest": None},
+            )
 
     def test_build_image_with_third_party_registry_recurses_on_base_image(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -473,7 +504,9 @@ class CheckImageUpdateTest(unittest.TestCase):
             dockerfile.write_text("FROM postgres:16\n", encoding="utf-8")
 
             with patch("cli.image_updates.fetch_dockerhub_tags", return_value=["16"]):
-                result = check_image_update("ghcr.io/acme/app:1.0", dockerfile=dockerfile)
+                result = check_image_update(
+                    "ghcr.io/acme/app:1.0", dockerfile=dockerfile
+                )
 
             self.assertEqual(result["image"], "ghcr.io/acme/app:1.0")
             self.assertEqual(result["base_image"], "postgres:16")
@@ -483,7 +516,11 @@ class CheckImageUpdateTest(unittest.TestCase):
         result = check_image_update("ghcr.io/acme/app:1.0")
         self.assertEqual(
             result,
-            {"image": "ghcr.io/acme/app:1.0", "status": "unsupported-registry", "latest": None},
+            {
+                "image": "ghcr.io/acme/app:1.0",
+                "status": "unsupported-registry",
+                "latest": None,
+            },
         )
 
     def test_registry_one_docker_io_uses_docker_hub_lookup(self):
@@ -498,7 +535,10 @@ class CheckImageUpdateTest(unittest.TestCase):
         self.assertEqual(result["status"], "lookup-failed")
 
     def test_update_available(self):
-        with patch("cli.image_updates.fetch_dockerhub_tags", return_value=["16", "16.1", "16.2"]):
+        with patch(
+            "cli.image_updates.fetch_dockerhub_tags",
+            return_value=["16", "16.1", "16.2"],
+        ):
             result = check_image_update("postgres:16")
         self.assertEqual(result["status"], "update-available")
         self.assertEqual(result["latest"], "16.2")

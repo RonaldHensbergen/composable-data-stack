@@ -57,8 +57,9 @@ class TestRunnerTimeoutTest(unittest.TestCase):
         suite = unittest.TestSuite()
         unsupported_signal = types.SimpleNamespace()
 
-        with mock.patch.object(_RUNNER, "signal", unsupported_signal), self.assertWarnsRegex(
-            RuntimeWarning, "Per-test timeouts are disabled"
+        with (
+            mock.patch.object(_RUNNER, "signal", unsupported_signal),
+            self.assertWarnsRegex(RuntimeWarning, "Per-test timeouts are disabled"),
         ):
             returned = _RUNNER.apply_test_timeouts(suite, 1)
 

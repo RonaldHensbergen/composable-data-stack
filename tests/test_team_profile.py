@@ -70,9 +70,17 @@ class TeamProfileWorkflowTest(unittest.TestCase):
         )
 
     def _compose_for(self, environment):
-        render_output = str(Path(self._render_tmp.name) / f"compose-{environment or 'base'}.yml")
-        render = self._run("render", _PROFILE_NAME, "--output", render_output, environment=environment)
-        self.assertEqual(render.returncode, 0, f"environment={environment}: {render.stdout}{render.stderr}")
+        render_output = str(
+            Path(self._render_tmp.name) / f"compose-{environment or 'base'}.yml"
+        )
+        render = self._run(
+            "render", _PROFILE_NAME, "--output", render_output, environment=environment
+        )
+        self.assertEqual(
+            render.returncode,
+            0,
+            f"environment={environment}: {render.stdout}{render.stderr}",
+        )
         rendered = Path(render_output).read_text(encoding="utf-8")
         return yaml.safe_load(rendered), rendered
 
@@ -89,7 +97,9 @@ class TeamProfileWorkflowTest(unittest.TestCase):
             subTest = f"environment={environment or 'base'}"
 
             validate = self._run("validate", _PROFILE_NAME, environment=environment)
-            self.assertEqual(validate.returncode, 0, f"{subTest}: {validate.stdout}{validate.stderr}")
+            self.assertEqual(
+                validate.returncode, 0, f"{subTest}: {validate.stdout}{validate.stderr}"
+            )
 
             compose, rendered = self._compose_for(environment)
             services = compose["services"]
@@ -101,7 +111,9 @@ class TeamProfileWorkflowTest(unittest.TestCase):
             self.assertIn(":443:443", traefik_ports)
 
             keydb = services["keydb"]
-            self.assertEqual(keydb["environment"]["KEYDB_PASSWORD"], "${CDS_CACHE_PASSWORD}")
+            self.assertEqual(
+                keydb["environment"]["KEYDB_PASSWORD"], "${CDS_CACHE_PASSWORD}"
+            )
             self.assertIn(
                 "--requirepass",
                 " ".join(str(part) for part in keydb["command"]),
@@ -121,7 +133,8 @@ class TeamProfileWorkflowTest(unittest.TestCase):
                     self.assertIn(backend, services)
                     ports = services[backend].get("ports", [])
                     self.assertEqual(
-                        ports, [],
+                        ports,
+                        [],
                         f"environment=prod: {backend} must not host-publish ports, got {ports}",
                     )
             else:

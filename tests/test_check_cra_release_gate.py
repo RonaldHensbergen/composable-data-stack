@@ -24,7 +24,10 @@ def _complete_manifest(**overrides) -> dict:
         },
         "classification": {"category": "default", "rationale": "not IAM/VPN/SIEM/etc."},
         "conformityAssessmentRoute": {"route": "Annex VIII Part I"},
-        "declarationOfConformity": {"status": "approved", "ref": "https://example.invalid/doc"},
+        "declarationOfConformity": {
+            "status": "approved",
+            "ref": "https://example.invalid/doc",
+        },
         "approvals": [{"name": "Jane Doe", "role": "Maintainer", "date": "2026-01-01"}],
     }
     manifest.update(overrides)
@@ -48,7 +51,9 @@ class GateIsEnabledTest(unittest.TestCase):
 
 class CheckManifestTest(unittest.TestCase):
     def test_complete_manifest_has_no_problems(self) -> None:
-        self.assertEqual(check_cra_release_gate.check_manifest(_complete_manifest()), [])
+        self.assertEqual(
+            check_cra_release_gate.check_manifest(_complete_manifest()), []
+        )
 
     def test_missing_evidence_ref_is_reported(self) -> None:
         manifest = _complete_manifest()
@@ -57,7 +62,9 @@ class CheckManifestTest(unittest.TestCase):
         self.assertTrue(any("evidence.sbom.ref" in p for p in problems))
 
     def test_invalid_classification_category_is_reported(self) -> None:
-        manifest = _complete_manifest(classification={"category": "bogus", "rationale": "x"})
+        manifest = _complete_manifest(
+            classification={"category": "bogus", "rationale": "x"}
+        )
         problems = check_cra_release_gate.check_manifest(manifest)
         self.assertTrue(any("classification.category" in p for p in problems))
 
@@ -74,7 +81,9 @@ class CheckManifestTest(unittest.TestCase):
         self.assertTrue(any("approvals" in p for p in problems))
 
     def test_approval_missing_field_is_reported(self) -> None:
-        manifest = _complete_manifest(approvals=[{"name": "Jane Doe", "role": "Maintainer"}])
+        manifest = _complete_manifest(
+            approvals=[{"name": "Jane Doe", "role": "Maintainer"}]
+        )
         problems = check_cra_release_gate.check_manifest(manifest)
         self.assertTrue(any("approvals[0].date" in p for p in problems))
 
@@ -116,7 +125,11 @@ class RepoFileEvidenceTest(unittest.TestCase):
 
     def test_url_refs_are_not_checked_against_the_checkout(self) -> None:
         self.assertEqual(
-            [p for p in self._problems("https://example.invalid/x") if "scopeDecision" in p],
+            [
+                p
+                for p in self._problems("https://example.invalid/x")
+                if "scopeDecision" in p
+            ],
             [],
         )
 
@@ -179,7 +192,10 @@ class MainTest(unittest.TestCase):
 
     def test_missing_manifest_file_fails(self) -> None:
         old_argv = sys.argv
-        sys.argv = ["check_cra_release_gate.py", str(self.manifest_path.with_suffix(".missing"))]
+        sys.argv = [
+            "check_cra_release_gate.py",
+            str(self.manifest_path.with_suffix(".missing")),
+        ]
         try:
             result = check_cra_release_gate.main()
         finally:

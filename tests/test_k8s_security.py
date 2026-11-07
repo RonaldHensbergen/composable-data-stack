@@ -30,7 +30,10 @@ class KubernetesSecurityTest(unittest.TestCase):
                                     },
                                     "resources": {
                                         "app": {
-                                            "requests": {"cpu": "10m", "memory": "16Mi"},
+                                            "requests": {
+                                                "cpu": "10m",
+                                                "memory": "16Mi",
+                                            },
                                             "limits": {"memory": "32Mi"},
                                         }
                                     },
@@ -49,7 +52,9 @@ class KubernetesSecurityTest(unittest.TestCase):
         plan = self.secure_plan()
         service = plan["modules"][0]["implementation"]["compose"]["services"]["app"]
         service.clear()
-        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
         workload["podSecurityContext"] = {"runAsUser": 0}
         workload["resources"] = {"app": {"requests": {"cpu": "10m"}}}
 
@@ -80,7 +85,9 @@ class KubernetesSecurityTest(unittest.TestCase):
         plan = self.secure_plan()
         service = plan["modules"][0]["implementation"]["compose"]["services"]["app"]
         service.clear()
-        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
         workload["podSecurityContext"] = {"runAsUser": 0}
         workload["resources"] = {"app": {"requests": {"cpu": "10m"}}}
 
@@ -97,7 +104,9 @@ class KubernetesSecurityTest(unittest.TestCase):
     def test_container_override_can_supply_security_context(self) -> None:
         plan = self.secure_plan()
         plan["modules"][0]["implementation"]["compose"]["services"]["app"].clear()
-        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
         workload["containerOverrides"] = {
             "app": {
                 "securityContext": {
@@ -112,7 +121,9 @@ class KubernetesSecurityTest(unittest.TestCase):
 
     def test_container_override_cannot_disable_non_root_constraint(self) -> None:
         plan = self.secure_plan()
-        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
         workload["containerOverrides"] = {
             "app": {"securityContext": {"runAsNonRoot": False}}
         }
@@ -127,25 +138,23 @@ class KubernetesSecurityTest(unittest.TestCase):
 
     def test_container_override_cannot_select_root_user(self) -> None:
         plan = self.secure_plan()
-        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
-        workload["containerOverrides"] = {
-            "app": {"securityContext": {"runAsUser": 0}}
-        }
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["containerOverrides"] = {"app": {"securityContext": {"runAsUser": 0}}}
 
         findings = scan_k8s_security(plan)
 
-        self.assertIn(
-            "CDS-K8S-001", {finding["rule_id"] for finding in findings}
-        )
+        self.assertIn("CDS-K8S-001", {finding["rule_id"] for finding in findings})
 
     def test_container_override_can_establish_non_root_constraint(self) -> None:
         plan = self.secure_plan()
-        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
         workload.pop("podSecurityContext")
         workload["containerOverrides"] = {
-            "app": {
-                "securityContext": {"runAsNonRoot": True, "runAsUser": 1000}
-            }
+            "app": {"securityContext": {"runAsNonRoot": True, "runAsUser": 1000}}
         }
 
         self.assertEqual(scan_k8s_security(plan), [])
@@ -265,18 +274,24 @@ class KubernetesSecurityTest(unittest.TestCase):
         # no finding.
         plan = self.secure_plan()
         plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
-            "egress": [{
-                "to": [{
-                    "namespaceSelector": {
-                        "matchLabels": {"kubernetes.io/metadata.name": "team"}
-                    }
-                }],
-                "ports": [{"protocol": "TCP", "port": 443}],
-            }],
-            "ingress": [{
-                "from": [{"namespaceSelector": {"matchLabels": {"a": "b"}}}],
-                "ports": [{"protocol": "TCP", "port": 8080}],
-            }],
+            "egress": [
+                {
+                    "to": [
+                        {
+                            "namespaceSelector": {
+                                "matchLabels": {"kubernetes.io/metadata.name": "team"}
+                            }
+                        }
+                    ],
+                    "ports": [{"protocol": "TCP", "port": 443}],
+                }
+            ],
+            "ingress": [
+                {
+                    "from": [{"namespaceSelector": {"matchLabels": {"a": "b"}}}],
+                    "ports": [{"protocol": "TCP", "port": 8080}],
+                }
+            ],
         }
 
         self.assertEqual(scan_k8s_security(plan), [])
@@ -288,15 +303,15 @@ class KubernetesSecurityTest(unittest.TestCase):
         # is to narrow it, not to silence it.
         plan = self.secure_plan()
         plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
-            "egress": [{
-                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
-                "ports": [{"protocol": "TCP", "port": 443}],
-            }],
+            "egress": [
+                {
+                    "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                    "ports": [{"protocol": "TCP", "port": 443}],
+                }
+            ],
         }
 
-        findings = [
-            f for f in scan_k8s_security(plan) if f["rule_id"] == "CDS-K8S-008"
-        ]
+        findings = [f for f in scan_k8s_security(plan) if f["rule_id"] == "CDS-K8S-008"]
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["severity"], "low")
 
@@ -313,17 +328,11 @@ class KubernetesSecurityTest(unittest.TestCase):
             ]
         }
 
-        findings = [
-            f for f in scan_k8s_security(plan) if f["rule_id"] == "CDS-K8S-010"
-        ]
+        findings = [f for f in scan_k8s_security(plan) if f["rule_id"] == "CDS-K8S-010"]
 
         self.assertEqual(len(findings), 2)
-        self.assertEqual(
-            {f["path"].rsplit(".", 1)[-1] for f in findings}, {"0", "1"}
-        )
-        self.assertEqual(
-            {f["severity"] for f in findings}, {"low"}
-        )
+        self.assertEqual({f["path"].rsplit(".", 1)[-1] for f in findings}, {"0", "1"})
+        self.assertEqual({f["severity"] for f in findings}, {"low"})
         self.assertEqual(
             {f["category"] for f in findings}, {"configuration-management"}
         )
@@ -334,15 +343,15 @@ class KubernetesSecurityTest(unittest.TestCase):
         # CDS-K8S-008 records raw ipBlock egress passthrough rules.
         plan = self.secure_plan()
         plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = {
-            "ingress": [{
-                "from": [{"ipBlock": {"cidr": "203.0.113.0/24"}}],
-                "ports": [{"protocol": "TCP", "port": 443}],
-            }],
+            "ingress": [
+                {
+                    "from": [{"ipBlock": {"cidr": "203.0.113.0/24"}}],
+                    "ports": [{"protocol": "TCP", "port": 443}],
+                }
+            ],
         }
 
-        findings = [
-            f for f in scan_k8s_security(plan) if f["rule_id"] == "CDS-K8S-010"
-        ]
+        findings = [f for f in scan_k8s_security(plan) if f["rule_id"] == "CDS-K8S-010"]
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["severity"], "low")
         self.assertEqual(
@@ -362,7 +371,9 @@ class KubernetesSecurityTest(unittest.TestCase):
 
     def test_malformed_network_policy_block_does_not_crash_the_scan(self) -> None:
         plan = self.secure_plan()
-        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = "allow-all"
+        plan["modules"][0]["implementation"]["kubernetes"]["networkPolicy"] = (
+            "allow-all"
+        )
 
         self.assertEqual(scan_k8s_security(plan), [])
 

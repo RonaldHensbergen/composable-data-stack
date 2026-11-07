@@ -22,6 +22,7 @@ Covers the acceptance criteria of #768:
   release-scoping, and whole-value `${CDS_*}` manifest values are rewritten
   to Helm lookups while embedded ones still fail closed with E078.
 """
+
 import json
 import tempfile
 import unittest
@@ -38,8 +39,16 @@ from cli.renderer import render_compose
 from cli.validator import validate_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MODULE_PATH = REPO_ROOT / "modules-experimental" / "warehouse" / "postgres-operator" / "module.yaml"
-PROFILE_PATH = REPO_ROOT / "profiles" / "local-kubernetes-postgres-operator" / "profile.yaml"
+MODULE_PATH = (
+    REPO_ROOT
+    / "modules-experimental"
+    / "warehouse"
+    / "postgres-operator"
+    / "module.yaml"
+)
+PROFILE_PATH = (
+    REPO_ROOT / "profiles" / "local-kubernetes-postgres-operator" / "profile.yaml"
+)
 MODULE_SCHEMA = json.loads(
     (REPO_ROOT / "cli" / "resources" / "module.schema.json").read_text(encoding="utf-8")
 )
@@ -178,7 +187,9 @@ class PostgresOperatorModuleShapeTest(unittest.TestCase):
         self.assertEqual(contract_spec["engine"], "postgres")
 
     def test_cluster_manifest_is_the_cloudnativepg_shape(self) -> None:
-        cluster = self.module["spec"]["implementation"]["kubernetes"]["manifests"]["cluster"]
+        cluster = self.module["spec"]["implementation"]["kubernetes"]["manifests"][
+            "cluster"
+        ]
         self.assertEqual(cluster["apiVersion"], "postgresql.cnpg.io/v1")
         self.assertEqual(cluster["kind"], "Cluster")
         self.assertEqual(cluster["spec"]["instances"], "${config.instances}")
@@ -232,7 +243,8 @@ class PostgresOperatorPlanRenderTest(_EnvFileMixin, unittest.TestCase):
             "{{ .Release.Name }}-warehouse-app",
         )
         self.assertEqual(
-            cluster["spec"]["inheritedMetadata"]["labels"]["cds.dev/module"], "warehouse"
+            cluster["spec"]["inheritedMetadata"]["labels"]["cds.dev/module"],
+            "warehouse",
         )
         self.assertIn("sha256:", cluster["spec"]["imageName"])
 
@@ -242,7 +254,9 @@ class PostgresOperatorPlanRenderTest(_EnvFileMixin, unittest.TestCase):
         self.assertNotIn("${CDS_", content)
         secret = yaml.safe_load(content)
         self.assertEqual(secret["kind"], "Secret")
-        self.assertEqual(secret["metadata"]["name"], "{{ .Release.Name }}-warehouse-app")
+        self.assertEqual(
+            secret["metadata"]["name"], "{{ .Release.Name }}-warehouse-app"
+        )
         password = secret["stringData"]["password"]
         self.assertIn('index .Values.secrets "CDS_ANALYTICS_DB_PASSWORD"', password)
         self.assertIn("required", password)
@@ -267,7 +281,9 @@ class PostgresOperatorPlanRenderTest(_EnvFileMixin, unittest.TestCase):
         self.assertIn('operator "CloudNativePG"', warnings[0].message)
         self.assertIn("clusters.postgresql.cnpg.io", warnings[0].message)
         self.assertIn("helm upgrade --install cnpg", warnings[0].message)
-        self.assertEqual(warnings[0].path, "module:warehouse.implementation.kubernetes.operators")
+        self.assertEqual(
+            warnings[0].path, "module:warehouse.implementation.kubernetes.operators"
+        )
         # No errors: the warning is informational.
         self.assertEqual([d for d in diagnostics if d.level == "error"], [])
         notes = files["templates/NOTES.txt"]
@@ -299,8 +315,12 @@ class ShippedDemoProfileTest(_EnvFileMixin, unittest.TestCase):
         # The consumer module binds to the operator's contract unchanged.
         superset = next(m for m in plan["modules"] if m["id"] == "superset")
         consumes = superset["consumes"]
-        self.assertEqual(consumes["metadata-database"]["contractRef"], "postgres.sql-database")
-        self.assertEqual(consumes["analytics-database"]["contractRef"], "postgres.sql-database")
+        self.assertEqual(
+            consumes["metadata-database"]["contractRef"], "postgres.sql-database"
+        )
+        self.assertEqual(
+            consumes["analytics-database"]["contractRef"], "postgres.sql-database"
+        )
         self.assertEqual(
             consumes["metadata-database"]["contract"]["spec"]["host"], "postgres-rw"
         )
@@ -398,9 +418,13 @@ def _plan_with_declared_services(provider_host: str, declared: dict) -> dict:
                         "containers": ["app"],
                         "service": {
                             "type": "ClusterIP",
-                            "ports": [{"name": "http", "port": 8080, "targetPort": 8080}],
+                            "ports": [
+                                {"name": "http", "port": 8080, "targetPort": 8080}
+                            ],
                         },
-                        "resources": {"app": {"requests": {"cpu": "50m", "memory": "64Mi"}}},
+                        "resources": {
+                            "app": {"requests": {"cpu": "50m", "memory": "64Mi"}}
+                        },
                     }
                 }
             },
@@ -434,7 +458,9 @@ class DeclaredServicesTest(unittest.TestCase):
     registry (issue #768)."""
 
     def test_binding_to_a_declared_service_passes_e084_and_release_scopes(self) -> None:
-        plan = _plan_with_declared_services("warehouse-rw", {"rw": {"description": "cnpg -rw"}})
+        plan = _plan_with_declared_services(
+            "warehouse-rw", {"rw": {"description": "cnpg -rw"}}
+        )
         files, diagnostics = render_helm(plan)
         errors = [d for d in diagnostics if d.level == "error"]
         self.assertEqual([d.format() for d in errors], [])
@@ -541,13 +567,21 @@ class OperatorCrdPreflightTest(_EnvFileMixin, unittest.TestCase):
         return _build_plan(_profile(dict(OPERATOR_CONFIG)), env_file=self.env_file)
 
     def _run(self, plan: dict, returncode: int, stdout: str = "", stderr: str = ""):
-        completed = unittest.mock.Mock(returncode=returncode, stdout=stdout, stderr=stderr)
-        with unittest.mock.patch("cli.k8s_runner.subprocess.run", return_value=completed) as run:
+        completed = unittest.mock.Mock(
+            returncode=returncode, stdout=stdout, stderr=stderr
+        )
+        with unittest.mock.patch(
+            "cli.k8s_runner.subprocess.run", return_value=completed
+        ) as run:
             result = check_operator_crds(plan, "k3d-cds")
         return result, run
 
     def test_crd_present_means_no_missing_operators(self) -> None:
-        (missing, ok), run = self._run(self._plan(), 0, stdout="customresourcedefinitions.../clusters.postgresql.cnpg.io\n")
+        (missing, ok), run = self._run(
+            self._plan(),
+            0,
+            stdout="customresourcedefinitions.../clusters.postgresql.cnpg.io\n",
+        )
         self.assertEqual(missing, [])
         self.assertTrue(ok)
         # CRDs are cluster-scoped: the kubectl call must not be namespace-scoped.
@@ -558,14 +592,19 @@ class OperatorCrdPreflightTest(_EnvFileMixin, unittest.TestCase):
 
     def test_crd_not_found_is_reported_missing(self) -> None:
         (missing, ok), _ = self._run(
-            self._plan(), 1,
+            self._plan(),
+            1,
             stderr='Error from server (NotFound): customresourcedefinitions.apiextensions.k8s.io "clusters.postgresql.cnpg.io" not found\n',
         )
         self.assertTrue(ok)
-        self.assertEqual([(mid, op["name"]) for mid, op in missing], [("warehouse", "CloudNativePG")])
+        self.assertEqual(
+            [(mid, op["name"]) for mid, op in missing], [("warehouse", "CloudNativePG")]
+        )
 
     def test_kubectl_rbac_error_means_uncheckable_not_missing(self) -> None:
-        (missing, ok), _ = self._run(self._plan(), 1, stderr="Error from server (Forbidden): ...\n")
+        (missing, ok), _ = self._run(
+            self._plan(), 1, stderr="Error from server (Forbidden): ...\n"
+        )
         self.assertEqual(missing, [])
         self.assertFalse(ok)
 

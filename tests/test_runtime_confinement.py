@@ -1,4 +1,5 @@
 """Tests for declarative runtime confinement (#207): seccomp/AppArmor/SELinux."""
+
 import os
 import shutil
 import subprocess
@@ -52,11 +53,15 @@ class _ProfileCase(unittest.TestCase):
 class ConfinementRenderTest(_ProfileCase):
     def test_profile_default_is_rendered_into_security_opt(self):
         path = self._profile(
-            {"runtime": {"confinement": {
-                "seccomp": "file:seccomp.json",
-                "apparmor": "runtime/default",
-                "selinux": ["type:container_t", "level:s0:c1,c2"],
-            }}},
+            {
+                "runtime": {
+                    "confinement": {
+                        "seccomp": "file:seccomp.json",
+                        "apparmor": "runtime/default",
+                        "selinux": ["type:container_t", "level:s0:c1,c2"],
+                    }
+                }
+            },
             seccomp_file=True,
         )
         opts = self._render(path)["security_opt"]
@@ -76,7 +81,9 @@ class ConfinementRenderTest(_ProfileCase):
 
     def test_no_confinement_leaves_services_untouched(self):
         path = self._profile()
-        self.assertNotIn("seccomp=unconfined", self._render(path).get("security_opt", []))
+        self.assertNotIn(
+            "seccomp=unconfined", self._render(path).get("security_opt", [])
+        )
 
     def test_unrelated_security_opt_is_kept_and_matching_keys_replaced(self):
         service = {
@@ -136,7 +143,9 @@ class ConfinementValidationTest(_ProfileCase):
         path = self._profile(
             {"runtime": {"confinement": {"seccomp": "default", "selinux": "disable"}}}
         )
-        self.assertEqual([d for d in validate_profile(str(path)) if d.level == "error"], [])
+        self.assertEqual(
+            [d for d in validate_profile(str(path)) if d.level == "error"], []
+        )
 
     def test_invalid_values_are_rejected_with_paths(self):
         cases = [
@@ -157,7 +166,9 @@ class ConfinementValidationTest(_ProfileCase):
             with self.subTest(block=block):
                 diags = validate_confinement(block, "c", base)
                 self.assertTrue(diags)
-                self.assertTrue(all(d.code == "E127" and d.path == f"c.{key}" for d in diags))
+                self.assertTrue(
+                    all(d.code == "E127" and d.path == f"c.{key}" for d in diags)
+                )
 
     def test_invalid_selinux_string_reports_e127_not_a_schema_error(self):
         path = self._profile({"runtime": {"confinement": {"selinux": "foo"}}})
@@ -183,14 +194,20 @@ class ConfinementHardeningTest(_ProfileCase):
         service = {}
         with mock.patch("cli.confinement.os.path.relpath", side_effect=ValueError):
             diags = apply_confinement(
-                service, {"seccomp": "file:s.json"}, Path("/c"), Path("/p"), "m.security"
+                service,
+                {"seccomp": "file:s.json"},
+                Path("/c"),
+                Path("/p"),
+                "m.security",
             )
         self.assertEqual([d.code for d in diags], ["E127"])
         self.assertNotIn("security_opt", service)
 
     def test_invalid_profile_default_is_reported_once(self):
-        path = self._profile({"runtime": {"confinement": {"seccomp": "file:seccomp.json"}}},
-                             seccomp_file=True)
+        path = self._profile(
+            {"runtime": {"confinement": {"seccomp": "file:seccomp.json"}}},
+            seccomp_file=True,
+        )
         plan, _ = build_plan(str(path), env_file=str(path.parent / ".env"))
         plan["security"]["runtime"]["confinement"]["seccomp"] = "bogus"
         plan["modules"] = plan["modules"] * 2
@@ -210,7 +227,8 @@ class ConfinementHardeningTest(_ProfileCase):
     )
     def test_rendered_seccomp_file_loads_in_docker_compose(self):
         path = self._profile(
-            {"runtime": {"confinement": {"seccomp": "file:seccomp.json"}}}, seccomp_file=True
+            {"runtime": {"confinement": {"seccomp": "file:seccomp.json"}}},
+            seccomp_file=True,
         )
         plan, _ = build_plan(str(path), env_file=str(path.parent / ".env"))
         compose_file = path.parent / "out" / "docker-compose.yml"
@@ -219,7 +237,9 @@ class ConfinementHardeningTest(_ProfileCase):
         compose_file.write_text(output)
         result = subprocess.run(
             ["docker", "compose", "-f", str(compose_file), "config", "--quiet"],
-            capture_output=True, text=True, check=False,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 

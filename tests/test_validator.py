@@ -20,7 +20,9 @@ _CONTRACTS_ROOT = _REPO_ROOT / "shared" / "contracts"
 
 
 class ValidatorRegressionTest(unittest.TestCase):
-    def test_validate_profile_rejects_module_source_traversal_outside_modules_tree(self):
+    def test_validate_profile_rejects_module_source_traversal_outside_modules_tree(
+        self,
+    ):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             profile_dir = root / "profiles" / "local"
@@ -35,8 +37,14 @@ class ValidatorRegressionTest(unittest.TestCase):
                         "kind": "Module",
                         "metadata": {"name": "outside"},
                         "spec": {
-                            "configSchema": {"type": "object", "additionalProperties": False},
-                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                            "configSchema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                            },
+                            "implementation": {
+                                "kind": "docker-compose",
+                                "compose": {"services": {}},
+                            },
                         },
                     }
                 ),
@@ -86,17 +94,33 @@ class ValidatorRegressionTest(unittest.TestCase):
                     {
                         "apiVersion": "cds/v1alpha1",
                         "kind": "Module",
-                        "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                        "metadata": {
+                            "name": "postgres",
+                            "category": "warehouse",
+                            "version": "0.1.0",
+                        },
                         "spec": {
                             "runtime": {
                                 "type": "container",
                                 "service": {
                                     "name": "postgres",
-                                    "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                    "ports": [
+                                        {
+                                            "name": "db",
+                                            "containerPort": 5432,
+                                            "protocol": "TCP",
+                                        }
+                                    ],
                                 },
                             },
-                            "configSchema": {"type": "object", "additionalProperties": False},
-                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                            "configSchema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                            },
+                            "implementation": {
+                                "kind": "docker-compose",
+                                "compose": {"services": {}},
+                            },
                         },
                     }
                 ),
@@ -125,7 +149,9 @@ class ValidatorRegressionTest(unittest.TestCase):
             profile_file = profile_dir / "profile.yaml"
             profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
 
-            with patch.dict("os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False):
+            with patch.dict(
+                "os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False
+            ):
                 diagnostics = validate_profile(str(profile_file))
 
             errors = [d for d in diagnostics if d.level == "error"]
@@ -196,7 +222,10 @@ class ObservabilityConfigValidationTest(unittest.TestCase):
         profile = {
             "spec": {
                 "observability": {
-                    "logShipping": {"enabled": True, "sink": {"contractRef": "not-a-valid-ref"}}
+                    "logShipping": {
+                        "enabled": True,
+                        "sink": {"contractRef": "not-a-valid-ref"},
+                    }
                 }
             }
         }
@@ -207,7 +236,10 @@ class ObservabilityConfigValidationTest(unittest.TestCase):
         profile = {
             "spec": {
                 "observability": {
-                    "logShipping": {"enabled": True, "sink": {"contractRef": "missing-module.log-sink"}}
+                    "logShipping": {
+                        "enabled": True,
+                        "sink": {"contractRef": "missing-module.log-sink"},
+                    }
                 }
             }
         }
@@ -219,7 +251,10 @@ class ObservabilityConfigValidationTest(unittest.TestCase):
         profile = {
             "spec": {
                 "observability": {
-                    "logShipping": {"enabled": True, "sink": {"contractRef": "collector.log-sink"}}
+                    "logShipping": {
+                        "enabled": True,
+                        "sink": {"contractRef": "collector.log-sink"},
+                    }
                 }
             }
         }
@@ -243,7 +278,10 @@ class ObservabilityConfigValidationTest(unittest.TestCase):
         profile = {
             "spec": {
                 "observability": {
-                    "logShipping": {"enabled": True, "sink": {"contractRef": "collector.log-sink"}}
+                    "logShipping": {
+                        "enabled": True,
+                        "sink": {"contractRef": "collector.log-sink"},
+                    }
                 }
             }
         }
@@ -284,6 +322,7 @@ class ImageSourceConfigValidationTest(unittest.TestCase):
         instances = [self._instance({"image": {"source": "registry", "tag": 123}})]
         diagnostics = validate_image_source_config(instances)
         self.assertEqual([d.code for d in diagnostics], ["E103"])
+
     def test_registry_source_with_empty_tag_is_rejected(self):
         instances = [self._instance({"image": {"source": "registry", "tag": ""}})]
         diagnostics = validate_image_source_config(instances)
@@ -314,20 +353,33 @@ class ImageSourceConfigValidationTest(unittest.TestCase):
                     {
                         "apiVersion": "cds/v1alpha1",
                         "kind": "Module",
-                        "metadata": {"name": "dagster", "category": "orchestration", "version": "0.1.0"},
+                        "metadata": {
+                            "name": "dagster",
+                            "category": "orchestration",
+                            "version": "0.1.0",
+                        },
                         "spec": {
                             "runtime": {
                                 "type": "container",
                                 "service": {
                                     "name": "dagster",
-                                    "ports": [{"name": "http", "containerPort": 3000, "protocol": "TCP"}],
+                                    "ports": [
+                                        {
+                                            "name": "http",
+                                            "containerPort": 3000,
+                                            "protocol": "TCP",
+                                        }
+                                    ],
                                 },
                             },
                             "configSchema": {
                                 "type": "object",
                                 "additionalProperties": True,
                             },
-                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                            "implementation": {
+                                "kind": "docker-compose",
+                                "compose": {"services": {}},
+                            },
                         },
                     }
                 ),
@@ -346,7 +398,9 @@ class ImageSourceConfigValidationTest(unittest.TestCase):
                             "source": "orchestration/dagster",
                             "version": "0.1.0",
                             "enabled": True,
-                            "config": {"image": {"source": "registry", "tag": "latest"}},
+                            "config": {
+                                "image": {"source": "registry", "tag": "latest"}
+                            },
                         }
                     ],
                     "secrets": {"provider": {"type": "env"}, "values": {}},
@@ -356,11 +410,15 @@ class ImageSourceConfigValidationTest(unittest.TestCase):
             profile_file = profile_dir / "profile.yaml"
             profile_file.write_text(yaml.safe_dump(profile), encoding="utf-8")
 
-            with patch.dict("os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False):
+            with patch.dict(
+                "os.environ", {"CDS_MODULE_PATH": str(modules_root)}, clear=False
+            ):
                 diagnostics = validate_profile(str(profile_file))
 
             self.assertEqual([d for d in diagnostics if d.level == "error"], [])
-            self.assertEqual([d.code for d in diagnostics if d.level == "warning"], ["W097"])
+            self.assertEqual(
+                [d.code for d in diagnostics if d.level == "warning"], ["W097"]
+            )
 
 
 class PinnedImageDigestValidationTest(unittest.TestCase):
@@ -586,17 +644,26 @@ class ModuleSchemaValidationTest(unittest.TestCase):
         return {
             "apiVersion": "cds/v1alpha1",
             "kind": "Module",
-            "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+            "metadata": {
+                "name": "postgres",
+                "category": "warehouse",
+                "version": "0.1.0",
+            },
             "spec": {
                 "runtime": {
                     "type": "container",
                     "service": {
                         "name": "postgres",
-                        "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                        "ports": [
+                            {"name": "db", "containerPort": 5432, "protocol": "TCP"}
+                        ],
                     },
                 },
                 "configSchema": {"type": "object", "additionalProperties": False},
-                "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                "implementation": {
+                    "kind": "docker-compose",
+                    "compose": {"services": {}},
+                },
             },
         }
 
@@ -625,7 +692,9 @@ class ModuleSchemaValidationTest(unittest.TestCase):
         profile_file = root / "profiles" / "local" / "profile.yaml"
         profile_file.parent.mkdir(parents=True)
         profile_file.write_text(yaml.safe_dump(self._valid_profile()), encoding="utf-8")
-        with patch.dict("os.environ", {"CDS_MODULE_PATH": str(root / "modules")}, clear=False):
+        with patch.dict(
+            "os.environ", {"CDS_MODULE_PATH": str(root / "modules")}, clear=False
+        ):
             return validate_profile(str(profile_file))
 
     def test_valid_module_passes_schema(self):
@@ -637,7 +706,9 @@ class ModuleSchemaValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             module = self._valid_module()
             del module["spec"]["runtime"]
-            errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
+            errors = [
+                d for d in self._validate(Path(tmpdir), module) if d.level == "error"
+            ]
             self.assertEqual([d.code for d in errors], ["E021"])
             self.assertIn("runtime", errors[0].message)
             self.assertIn("spec.modules[0]", errors[0].path)
@@ -646,7 +717,9 @@ class ModuleSchemaValidationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             module = self._valid_module()
             module["unexpectedKey"] = "value"
-            errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
+            errors = [
+                d for d in self._validate(Path(tmpdir), module) if d.level == "error"
+            ]
             self.assertEqual([d.code for d in errors], ["E021"])
             self.assertIn("unexpectedKey", errors[0].message)
 
@@ -656,7 +729,9 @@ class ModuleSchemaValidationTest(unittest.TestCase):
             module["spec"]["provides"] = [
                 {"name": "sql-database", "contract": {"kind": 42}},
             ]
-            errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
+            errors = [
+                d for d in self._validate(Path(tmpdir), module) if d.level == "error"
+            ]
             self.assertEqual([d.code for d in errors], ["E021"])
             self.assertIn("not of type", errors[0].message)
 
@@ -672,7 +747,9 @@ class ModuleSchemaValidationTest(unittest.TestCase):
                     "mappedFrom": "spec.config.targetDatabase",
                 }
             ]
-            errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
+            errors = [
+                d for d in self._validate(Path(tmpdir), module) if d.level == "error"
+            ]
             self.assertEqual([d.code for d in errors], ["E021"])
 
     def test_module_schema_rejects_invalid_tls_requirement(self):
@@ -690,7 +767,9 @@ class ModuleSchemaValidationTest(unittest.TestCase):
                     "tls": "prefer",
                 }
             ]
-            errors = [d for d in self._validate(Path(tmpdir), module) if d.level == "error"]
+            errors = [
+                d for d in self._validate(Path(tmpdir), module) if d.level == "error"
+            ]
             self.assertEqual([d.code for d in errors], ["E021"])
             self.assertIn("'prefer'", errors[0].message)
 
@@ -746,13 +825,17 @@ class RequiredIfMalformedGateTest(unittest.TestCase):
         }
 
     def test_missing_operator_reports_e021_instead_of_silently_skipping(self):
-        diagnostics = validate_contract_bindings([self._module_instance("config.warehouseType")])
+        diagnostics = validate_contract_bindings(
+            [self._module_instance("config.warehouseType")]
+        )
         errors = [d for d in diagnostics if d.level == "error"]
         self.assertEqual([d.code for d in errors], ["E021"])
         self.assertIn("malformed requiredIf", errors[0].message)
 
     def test_path_not_rooted_at_config_reports_e021(self):
-        diagnostics = validate_contract_bindings([self._module_instance("cofnig.warehouseType==duckdb")])
+        diagnostics = validate_contract_bindings(
+            [self._module_instance("cofnig.warehouseType==duckdb")]
+        )
         errors = [d for d in diagnostics if d.level == "error"]
         self.assertEqual([d.code for d in errors], ["E021"])
 
@@ -767,14 +850,23 @@ class CompatibilityRegistryTest(unittest.TestCase):
     profile -- only an explicit "unsupported" status does.
     """
 
-    def _instances(self, *, provider_category: str, provider_name: str, consumer_category: str, consumer_name: str) -> list[dict]:
+    def _instances(
+        self,
+        *,
+        provider_category: str,
+        provider_name: str,
+        consumer_category: str,
+        consumer_name: str,
+    ) -> list[dict]:
         provider = {
             "index": 0,
             "id": "provider",
             "config": {},
             "module": {
                 "metadata": {"category": provider_category, "name": provider_name},
-                "spec": {"provides": [{"name": "svc", "contract": {"kind": "sql-database"}}]},
+                "spec": {
+                    "provides": [{"name": "svc", "contract": {"kind": "sql-database"}}]
+                },
             },
         }
         consumer = {
@@ -799,8 +891,10 @@ class CompatibilityRegistryTest(unittest.TestCase):
 
     def test_pairing_with_no_registry_entry_is_not_blocked(self):
         instances = self._instances(
-            provider_category="warehouse", provider_name="not-a-real-module",
-            consumer_category="orchestration", consumer_name="also-not-real",
+            provider_category="warehouse",
+            provider_name="not-a-real-module",
+            consumer_category="orchestration",
+            consumer_name="also-not-real",
         )
         with patch("cli.validator._load_compatibility_registry", return_value={}):
             diagnostics = validate_contract_bindings(instances)
@@ -808,10 +902,18 @@ class CompatibilityRegistryTest(unittest.TestCase):
 
     def test_unsupported_pairing_reports_e043(self):
         instances = self._instances(
-            provider_category="warehouse", provider_name="postgres",
-            consumer_category="orchestration", consumer_name="dagster",
+            provider_category="warehouse",
+            provider_name="postgres",
+            consumer_category="orchestration",
+            consumer_name="dagster",
         )
-        registry = {("sql-database", "warehouse/postgres", "orchestration/dagster"): "unsupported"}
+        registry = {
+            (
+                "sql-database",
+                "warehouse/postgres",
+                "orchestration/dagster",
+            ): "unsupported"
+        }
         with patch("cli.validator._load_compatibility_registry", return_value=registry):
             diagnostics = validate_contract_bindings(instances)
         errors = [d for d in diagnostics if d.level == "error"]
@@ -822,10 +924,14 @@ class CompatibilityRegistryTest(unittest.TestCase):
 
     def test_tested_pairing_is_not_blocked(self):
         instances = self._instances(
-            provider_category="warehouse", provider_name="postgres",
-            consumer_category="orchestration", consumer_name="dagster",
+            provider_category="warehouse",
+            provider_name="postgres",
+            consumer_category="orchestration",
+            consumer_name="dagster",
         )
-        registry = {("sql-database", "warehouse/postgres", "orchestration/dagster"): "tested"}
+        registry = {
+            ("sql-database", "warehouse/postgres", "orchestration/dagster"): "tested"
+        }
         with patch("cli.validator._load_compatibility_registry", return_value=registry):
             diagnostics = validate_contract_bindings(instances)
         self.assertEqual([d for d in diagnostics if d.level == "error"], [])
@@ -839,11 +945,19 @@ class CompatibilityRegistryTest(unittest.TestCase):
         # invoke validate_contract_bindings directly (as these unit tests do)
         # with a module dict that skipped that upstream shape check.
         instances = self._instances(
-            provider_category="warehouse", provider_name="postgres",
-            consumer_category="orchestration", consumer_name="dagster",
+            provider_category="warehouse",
+            provider_name="postgres",
+            consumer_category="orchestration",
+            consumer_name="dagster",
         )
         del instances[0]["module"]["metadata"]
-        registry = {("sql-database", "warehouse/postgres", "orchestration/dagster"): "unsupported"}
+        registry = {
+            (
+                "sql-database",
+                "warehouse/postgres",
+                "orchestration/dagster",
+            ): "unsupported"
+        }
         with patch("cli.validator._load_compatibility_registry", return_value=registry):
             diagnostics = validate_contract_bindings(instances)
         self.assertEqual([d for d in diagnostics if d.level == "error"], [])
@@ -867,8 +981,10 @@ class CompatibilityRegistryTest(unittest.TestCase):
         # No mocking: postgres -> dagster (sql-database) is a real "tested"
         # entry in cli/resources/compatibility-registry.json.
         instances = self._instances(
-            provider_category="warehouse", provider_name="postgres",
-            consumer_category="orchestration", consumer_name="dagster",
+            provider_category="warehouse",
+            provider_name="postgres",
+            consumer_category="orchestration",
+            consumer_name="dagster",
         )
         diagnostics = validate_contract_bindings(instances)
         self.assertEqual([d for d in diagnostics if d.level == "error"], [])
@@ -879,8 +995,10 @@ class CompatibilityRegistryTest(unittest.TestCase):
         from cli.validator import CompatibilityRegistryError
 
         instances = self._instances(
-            provider_category="warehouse", provider_name="postgres",
-            consumer_category="orchestration", consumer_name="dagster",
+            provider_category="warehouse",
+            provider_name="postgres",
+            consumer_category="orchestration",
+            consumer_name="dagster",
         )
         with patch(
             "cli.validator._load_compatibility_registry",
@@ -901,7 +1019,9 @@ class CompatibilityRegistryTest(unittest.TestCase):
             _load_compatibility_registry,
         )
 
-        real_schema = validator_module._load_schema("compatibility-registry.schema.json")
+        real_schema = validator_module._load_schema(
+            "compatibility-registry.schema.json"
+        )
         duplicate_registry = {
             "version": "1.0.0",
             "metadata": {"name": "test-registry"},
@@ -922,7 +1042,11 @@ class CompatibilityRegistryTest(unittest.TestCase):
         }
 
         def fake_load_schema(name: str):
-            return duplicate_registry if name == "compatibility-registry.json" else real_schema
+            return (
+                duplicate_registry
+                if name == "compatibility-registry.json"
+                else real_schema
+            )
 
         with patch("cli.validator._load_schema", side_effect=fake_load_schema):
             with self.assertRaises(CompatibilityRegistryError):
@@ -1013,20 +1137,23 @@ class TlsRequirementTest(unittest.TestCase):
 
     def test_provider_tls_config_reference_true_passes(self):
         instances = self._instances(
-            provider_spec_tls="${config.tlsEnabled}", producer_config={"tlsEnabled": True}
+            provider_spec_tls="${config.tlsEnabled}",
+            producer_config={"tlsEnabled": True},
         )
         self.assertEqual(self._errors(instances), [])
 
     def test_provider_tls_config_reference_string_true_passes(self):
         instances = self._instances(
-            provider_spec_tls="${config.tlsEnabled}", producer_config={"tlsEnabled": "true"}
+            provider_spec_tls="${config.tlsEnabled}",
+            producer_config={"tlsEnabled": "true"},
         )
         self.assertEqual(self._errors(instances), [])
 
     def test_provider_tls_config_reference_false_reports_e128(self):
         errors = self._errors(
             self._instances(
-                provider_spec_tls="${config.tlsEnabled}", producer_config={"tlsEnabled": False}
+                provider_spec_tls="${config.tlsEnabled}",
+                producer_config={"tlsEnabled": False},
             )
         )
         self.assertEqual([d.code for d in errors], ["E128"])
@@ -1055,7 +1182,9 @@ class TlsRequirementTest(unittest.TestCase):
         # The TLS check only runs after the kind match: a kind mismatch is
         # reported on its own (E042), not compounded with E128.
         instances = self._instances(provider_spec_tls=False)
-        instances[1]["module"]["spec"]["consumes"][0]["contract"]["kind"] = "cache-service"
+        instances[1]["module"]["spec"]["consumes"][0]["contract"]["kind"] = (
+            "cache-service"
+        )
         errors = self._errors(instances)
         self.assertEqual([d.code for d in errors], ["E042"])
 
@@ -1150,14 +1279,18 @@ class EngineFromRequirementTest(unittest.TestCase):
         return [d for d in validate_contract_bindings(instances) if d.level == "error"]
 
     def test_matching_engine_passes(self):
-        self.assertEqual(self._errors(self._instances(provider_spec_engine="postgres")), [])
+        self.assertEqual(
+            self._errors(self._instances(provider_spec_engine="postgres")), []
+        )
 
     def test_mismatch_reports_e154(self):
         errors = self._errors(self._instances(provider_spec_engine="mysql"))
         self.assertEqual([d.code for d in errors], ["E154"])
         self.assertIn('"postgres"', errors[0].message)
         self.assertIn('"mysql"', errors[0].message)
-        self.assertIn('set "config.metadataDatabase.driver" to "mysql"', errors[0].message)
+        self.assertIn(
+            'set "config.metadataDatabase.driver" to "mysql"', errors[0].message
+        )
         self.assertIn("provider.sql-database", errors[0].message)
         # Messages show the profile-facing "config.<path>" spelling. The
         # leading quote anchors the assertion so the internal
@@ -1224,9 +1357,7 @@ class EngineFromRequirementTest(unittest.TestCase):
 
     def test_consumer_without_engine_from_is_backward_compatible(self):
         instances = self._instances(provider_spec_engine=..., engine_from=None)
-        self.assertNotIn(
-            "engineFrom", instances[1]["module"]["spec"]["consumes"][0]
-        )
+        self.assertNotIn("engineFrom", instances[1]["module"]["spec"]["consumes"][0])
         self.assertEqual(self._errors(instances), [])
 
     def test_engine_from_unresolvable_without_schema_default_reports_e041(self):
@@ -1255,7 +1386,9 @@ class EngineFromRequirementTest(unittest.TestCase):
         instances = self._instances(
             provider_spec_engine="postgres", driver_schema_default=...
         )
-        registry = {("sql-database", "warehouse/postgres", "identity/keycloak"): "unsupported"}
+        registry = {
+            ("sql-database", "warehouse/postgres", "identity/keycloak"): "unsupported"
+        }
         with patch("cli.validator._load_compatibility_registry", return_value=registry):
             errors = self._errors(instances)
         self.assertEqual(sorted(d.code for d in errors), ["E041", "E043"])
@@ -1264,7 +1397,9 @@ class EngineFromRequirementTest(unittest.TestCase):
         # The engine check only runs after the kind match: a kind mismatch is
         # reported on its own (E042), not compounded with E154.
         instances = self._instances(provider_spec_engine="mysql")
-        instances[1]["module"]["spec"]["consumes"][0]["contract"]["kind"] = "cache-service"
+        instances[1]["module"]["spec"]["consumes"][0]["contract"]["kind"] = (
+            "cache-service"
+        )
         errors = self._errors(instances)
         self.assertEqual([d.code for d in errors], ["E042"])
 
@@ -1283,7 +1418,11 @@ class ListValuedConsumeBindingValidatorTest(unittest.TestCase):
             "config": {},
             "module": {
                 "metadata": {"category": "apps", "name": "web"},
-                "spec": {"provides": [{"name": "http-service", "contract": {"kind": "http-service"}}]},
+                "spec": {
+                    "provides": [
+                        {"name": "http-service", "contract": {"kind": "http-service"}}
+                    ]
+                },
             },
         }
         consumer = {
@@ -1310,15 +1449,19 @@ class ListValuedConsumeBindingValidatorTest(unittest.TestCase):
         return [d for d in validate_contract_bindings(instances) if d.level == "error"]
 
     def test_valid_route_bindings_pass(self):
-        instances = self._instances([
-            {"host": "a.example.local", "contractRef": "web.http-service"},
-            {"pathPrefix": "/", "contractRef": "web.http-service"},
-        ])
+        instances = self._instances(
+            [
+                {"host": "a.example.local", "contractRef": "web.http-service"},
+                {"pathPrefix": "/", "contractRef": "web.http-service"},
+            ]
+        )
         with patch("cli.validator._load_compatibility_registry", return_value={}):
             self.assertEqual(self._errors(instances), [])
 
     def test_unknown_producer_in_route_reports_e041_at_route_path(self):
-        instances = self._instances([{"host": "x.example.local", "contractRef": "ghost.http-service"}])
+        instances = self._instances(
+            [{"host": "x.example.local", "contractRef": "ghost.http-service"}]
+        )
         with patch("cli.validator._load_compatibility_registry", return_value={}):
             errors = self._errors(instances)
         self.assertEqual([d.code for d in errors], ["E041"])
@@ -1326,7 +1469,9 @@ class ListValuedConsumeBindingValidatorTest(unittest.TestCase):
         self.assertEqual(errors[0].path, "spec.modules[1].config.routes[0]")
 
     def test_kind_mismatch_in_route_reports_e042(self):
-        provider, consumer = self._instances([{"host": "x.example.local", "contractRef": "web.db"}])
+        provider, consumer = self._instances(
+            [{"host": "x.example.local", "contractRef": "web.db"}]
+        )
         provider["module"]["spec"]["provides"].append(
             {"name": "db", "contract": {"kind": "sql-database"}}
         )
@@ -1354,7 +1499,6 @@ class ListValuedConsumeBindingValidatorTest(unittest.TestCase):
             errors = self._errors(instances)
         self.assertEqual([d.code for d in errors], ["E041"])
         self.assertIn("empty list", errors[0].message)
-
 
 
 if __name__ == "__main__":

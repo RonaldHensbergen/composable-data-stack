@@ -5,6 +5,7 @@ issue #1079) and exercises its contract behavior: the profile (which
 composes local-dagster-postgres-superset via `extends`) validates, plans,
 and renders to a Helm chart without errors.
 """
+
 import tempfile
 import unittest
 from pathlib import Path

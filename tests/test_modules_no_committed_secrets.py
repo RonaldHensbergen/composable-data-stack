@@ -14,11 +14,15 @@ class TestModulesNoCommittedSecrets(unittest.TestCase):
                 try:
                     text = p.read_text(encoding="utf-8")
                 except OSError as exc:
-                    warnings.warn(f"Skipping unreadable module template {p}: {exc}", stacklevel=2)
+                    warnings.warn(
+                        f"Skipping unreadable module template {p}: {exc}", stacklevel=2
+                    )
                     continue
                 if "secrets." in text:
                     offenders.append(str(p))
-        self.assertFalse(offenders, f"Module templates must not reference 'secrets.': {offenders}")
+        self.assertFalse(
+            offenders, f"Module templates must not reference 'secrets.': {offenders}"
+        )
 
 
 if __name__ == "__main__":

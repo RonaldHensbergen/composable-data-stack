@@ -10,6 +10,7 @@ unresolved `${bindings...}` expression, and the password stays an unresolved
 `${CDS_*}` placeholder for Docker Compose to fill in at runtime (per repo
 convention: secrets never resolve into plans or rendered Compose).
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -98,21 +99,23 @@ class DltPostgresWiringTest(unittest.TestCase):
             ):
                 diagnostics = validate_profile(str(profile_file))
                 self.assertEqual(
-                    [d for d in diagnostics if d.level == "error"], [],
+                    [d for d in diagnostics if d.level == "error"],
+                    [],
                     msg=f"unexpected validation errors: {diagnostics}",
                 )
 
                 plan, plan_diags = build_plan(str(profile_file), env_file=str(env_file))
                 self.assertIsNotNone(plan)
                 self.assertEqual(
-                    [d for d in plan_diags if d.level == "error"], [],
+                    [d for d in plan_diags if d.level == "error"],
+                    [],
                     msg=f"unexpected plan errors: {plan_diags}",
                 )
 
                 dlt_entry = next(m for m in plan["modules"] if m["id"] == "dlt")
-                bound_uri = dlt_entry["consumes"]["destination-database"]["contract"]["spec"][
-                    "connectionUri"
-                ]
+                bound_uri = dlt_entry["consumes"]["destination-database"]["contract"][
+                    "spec"
+                ]["connectionUri"]
                 # The binding must be fully resolved to the producer's
                 # rendered connection string (host/user/db from config,
                 # password still a runtime placeholder) -- not left as the
@@ -126,13 +129,16 @@ class DltPostgresWiringTest(unittest.TestCase):
 
                 output, render_diags = render_compose(plan, env_file=str(env_file))
                 self.assertEqual(
-                    [d for d in render_diags if d.level == "error"], [],
+                    [d for d in render_diags if d.level == "error"],
+                    [],
                     msg=f"unexpected render errors: {render_diags}",
                 )
 
                 compose = yaml.safe_load(output)
                 dlt_service = compose["services"]["dlt-run"]
-                credentials = dlt_service["environment"]["DESTINATION__POSTGRES__CREDENTIALS"]
+                credentials = dlt_service["environment"][
+                    "DESTINATION__POSTGRES__CREDENTIALS"
+                ]
 
                 self.assertNotIn("${bindings.", credentials)
                 self.assertEqual(

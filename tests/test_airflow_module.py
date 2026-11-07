@@ -7,6 +7,7 @@ metadata-db-client) plus the consumed bindings (sql-database / object-store /
 secrets-provider) are pinned. The module is a placeholder: it declares its
 runtime service but renders no compose services yet.
 """
+
 import json
 import unittest
 from pathlib import Path

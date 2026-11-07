@@ -6,6 +6,7 @@ the runtime's environment provides the `CDS_DB_<NAME>_*` variables the
 named connection resolves. The dagster workdir runs it as an asset; the
 dlt pipeline runs it as a pre-load destination check.
 """
+
 import importlib.util
 import sys
 from pathlib import Path
@@ -56,5 +57,7 @@ if __name__ == "__main__":
     import os
 
     connection_name = os.environ.get("CDS_ROUNDTRIP_CONNECTION", "analytics")
-    result = roundtrip(connection_name, os.environ.get("CDS_ROUNDTRIP_MARKER", "hello-cds"))
+    result = roundtrip(
+        connection_name, os.environ.get("CDS_ROUNDTRIP_MARKER", "hello-cds")
+    )
     print(f"cds-runtime roundtrip via {connection_name!r}: {result!r}")

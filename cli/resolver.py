@@ -24,7 +24,9 @@ def parse_contract_ref(value: str) -> tuple[str, str] | None:
     return parts[0], parts[1]
 
 
-def iter_consume_bindings(consumes: Any) -> Iterator[tuple[str, int | None, dict[str, Any]]]:
+def iter_consume_bindings(
+    consumes: Any,
+) -> Iterator[tuple[str, int | None, dict[str, Any]]]:
     """
     Yield (consume_name, item_index, binding) triples from a plan module's
     resolved `consumes` map. List-valued entries (issue #883: a reverse
@@ -54,7 +56,11 @@ def resolve_path(obj: dict[str, Any], path: str) -> Any:
 
 
 def is_secret_ref(value: Any) -> bool:
-    return isinstance(value, str) and value.startswith("secrets.") and len(value) > len("secrets.")
+    return (
+        isinstance(value, str)
+        and value.startswith("secrets.")
+        and len(value) > len("secrets.")
+    )
 
 
 def secret_name_from_ref(value: str) -> str:
@@ -62,7 +68,11 @@ def secret_name_from_ref(value: str) -> str:
 
 
 def is_certificate_ref(value: Any) -> bool:
-    return isinstance(value, str) and value.startswith("certificates.") and len(value) > len("certificates.")
+    return (
+        isinstance(value, str)
+        and value.startswith("certificates.")
+        and len(value) > len("certificates.")
+    )
 
 
 def parse_certificate_ref(value: str) -> tuple[str, str] | None:
@@ -102,7 +112,9 @@ def evaluate_required_if(expr: str, config: dict[str, Any]) -> bool:
     not malformed.
     """
     if not _REQUIRED_IF_PATTERN.match(expr):
-        raise RequiredIfSyntaxError(f'Malformed requiredIf expression "{expr}"; expected "config.<path>==<value>".')
+        raise RequiredIfSyntaxError(
+            f'Malformed requiredIf expression "{expr}"; expected "config.<path>==<value>".'
+        )
     path, _, expected = expr.partition("==")
     try:
         value = resolve_path({"config": config}, path.strip())

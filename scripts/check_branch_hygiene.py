@@ -21,6 +21,7 @@ branches and worktrees (CI runners only see remote refs).
 
 The script only reports; it never deletes anything.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -42,7 +43,9 @@ def _run(cmd: list[str]) -> tuple[int, str]:
 
 
 def _remote_branches() -> list[str]:
-    rc, out = _run(["git", "for-each-ref", "--format=%(refname)", "refs/remotes/origin/"])
+    rc, out = _run(
+        ["git", "for-each-ref", "--format=%(refname)", "refs/remotes/origin/"]
+    )
     refs = [r for r in out.splitlines() if r and not r.endswith("/HEAD")]
     return sorted(set(refs))
 
@@ -58,9 +61,21 @@ def _short_name(ref: str) -> str:
 
 def _open_pr_heads() -> dict[str, tuple[int, str]]:
     """Map head branch name -> (PR number, title) for open PRs, if gh works."""
-    rc, out = _run(["gh", "pr", "list", "--state", "open", "--limit", "200",
-                    "--json", "headRefName,number,title", "--jq",
-                    ".[] | [.headRefName, (.number | tostring), .title] | @tsv"])
+    rc, out = _run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--limit",
+            "200",
+            "--json",
+            "headRefName,number,title",
+            "--jq",
+            ".[] | [.headRefName, (.number | tostring), .title] | @tsv",
+        ]
+    )
     if rc != 0 or not out.strip():
         return {}
     prs: dict[str, tuple[int, str]] = {}
@@ -85,7 +100,10 @@ def classify(ref: str, prs: dict[str, tuple[int, str]]) -> tuple[str, str]:
     _, cherry = _run(["git", "cherry", MAIN, ref])
     unique = [line[1:] for line in cherry.splitlines() if line.startswith("+")]
     if not unique:
-        return ("merged-patch-equivalent", "all patches exist on origin/main (git cherry)")
+        return (
+            "merged-patch-equivalent",
+            "all patches exist on origin/main (git cherry)",
+        )
     _, log = _run(["git", "log", f"{MAIN}..{ref}", "--oneline"])
     subjects = "; ".join(log.splitlines()[:5])
     return ("open-work", f"{len(unique)} unique patch(es): {subjects}")
@@ -100,11 +118,11 @@ def _worktrees() -> list[tuple[str, str, str]]:
         if line.startswith("worktree "):
             if path:
                 entries.append((path, sha or "", branch or ""))
-            path, sha, branch = line[len("worktree "):], None, None
+            path, sha, branch = line[len("worktree ") :], None, None
         elif line.startswith("HEAD "):
-            sha = line[len("HEAD "):]
+            sha = line[len("HEAD ") :]
         elif line.startswith("branch "):
-            branch = _short_name(line[len("branch "):])
+            branch = _short_name(line[len("branch ") :])
         elif not line and path:
             entries.append((path, sha or "", branch or ""))
             path = None
@@ -148,25 +166,47 @@ def render_report(include_local: bool, fetch: bool = True) -> str:
         "",
     ]
     if stale:
-        lines += ["## Stale branches (merged into main)", "",
-                  "| Branch | Scope | Why stale | Delete with |", "| --- | --- | --- | --- |"]
+        lines += [
+            "## Stale branches (merged into main)",
+            "",
+            "| Branch | Scope | Why stale | Delete with |",
+            "| --- | --- | --- | --- |",
+        ]
         for name, cls, detail, scope in stale:
-            cmd = f"git push origin --delete {name}" if scope == "remote" else f"git branch -D {name}"
+            cmd = (
+                f"git push origin --delete {name}"
+                if scope == "remote"
+                else f"git branch -D {name}"
+            )
             lines.append(f"| `{name}` | {scope} | {cls}: {detail} | `{cmd}` |")
         lines.append("")
     if active:
-        lines += ["## Active PR branches (not stale)", "", "| Branch | PR |", "| --- | --- |"]
+        lines += [
+            "## Active PR branches (not stale)",
+            "",
+            "| Branch | PR |",
+            "| --- | --- |",
+        ]
         for name, _, detail, _ in active:
             lines.append(f"| `{name}` | {detail} |")
         lines.append("")
     if open_work:
-        lines += ["## Open work (unique patches not on main, no open PR)", "",
-                  "| Branch | Scope | Unique commits |", "| --- | --- | --- |"]
+        lines += [
+            "## Open work (unique patches not on main, no open PR)",
+            "",
+            "| Branch | Scope | Unique commits |",
+            "| --- | --- | --- |",
+        ]
         for name, _, detail, scope in open_work:
             lines.append(f"| `{name}` | {scope} | {detail} |")
         lines.append("")
     if include_local and not IN_CI:
-        lines += ["## Worktrees (local)", "", "| Worktree | Branch | Classification |", "| --- | --- | --- |"]
+        lines += [
+            "## Worktrees (local)",
+            "",
+            "| Worktree | Branch | Classification |",
+            "| --- | --- | --- |",
+        ]
         for path, _sha, branch in _worktrees():
             if not branch or branch == "main":
                 cls = "main worktree"
@@ -180,9 +220,14 @@ def render_report(include_local: bool, fetch: bool = True) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--local", action="store_true",
-                        help="also audit local-only branches and worktrees (default in CI: off)")
-    parser.add_argument("--no-fetch", action="store_true", help="skip git fetch (local runs)")
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="also audit local-only branches and worktrees (default in CI: off)",
+    )
+    parser.add_argument(
+        "--no-fetch", action="store_true", help="skip git fetch (local runs)"
+    )
     args = parser.parse_args()
     include_local = args.local or not IN_CI
     print(render_report(include_local, fetch=not args.no_fetch))

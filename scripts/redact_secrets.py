@@ -13,6 +13,7 @@ never touches JSON structure, only string values.
 Usage: python scripts/redact_secrets.py input.json [output.json]
 (default output: stdout). Stdlib only.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,7 +29,10 @@ PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
     re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL),
+    re.compile(
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+        re.DOTALL,
+    ),
     # Key/value style secrets in text, including quoted values
     # (password="x", token: 'y'). Matched via _redact_kv below.
     re.compile(
@@ -43,7 +47,9 @@ CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 # Instruction-like content that must never reach the model as text records.
 INJECTION_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"(?i)\b(ignore|disregard|forget)\s+(all\s+|any\s+|the\s+)?(previous|prior|above)\s+instructions?\b[^\n]*"),
+    re.compile(
+        r"(?i)\b(ignore|disregard|forget)\s+(all\s+|any\s+|the\s+)?(previous|prior|above)\s+instructions?\b[^\n]*"
+    ),
     re.compile(r"(?i)^\s*(system|assistant|user|developer)\s*:\s*[^\n]*", re.MULTILINE),
     re.compile(r"(?i)\b(system\s+prompt|tool[_-]?call|function[_-]?call)\b[^\n]*"),
     re.compile(r"(?i)</?\s*(instruction|prompt|system)\s*>"),
@@ -104,7 +110,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(out)
     if strict and hits:
-        print(f"strict mode: {len(hits)} injection-like pattern(s) detected and redacted", file=sys.stderr)
+        print(
+            f"strict mode: {len(hits)} injection-like pattern(s) detected and redacted",
+            file=sys.stderr,
+        )
         return 3
     return 0
 

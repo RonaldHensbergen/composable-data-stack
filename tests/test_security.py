@@ -163,12 +163,19 @@ class SecurityHelpersTest(unittest.TestCase):
                 "cli.security.render_compose",
                 return_value=(
                     None,
-                    [Diagnostic(level="error", code="E060", message="boom", path="spec")],
+                    [
+                        Diagnostic(
+                            level="error", code="E060", message="boom", path="spec"
+                        )
+                    ],
                 ),
             ),
         ):
             rendered, plan, service_map, diags = _try_render_compose_for_scan(
-                _REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml",
+                _REPO_ROOT
+                / "profiles"
+                / "local-dagster-postgres-superset"
+                / "profile.yaml",
                 env_file=None,
                 environment=None,
             )
@@ -392,7 +399,12 @@ class NonSecretReasonEntropyGuardTest(unittest.TestCase):
 class EnvFilePathRuleTest(unittest.TestCase):
     def test_flags_a_profile_scoped_env_file_path(self):
         profile_path = (
-            _REPO_ROOT / "tests" / "fixtures" / "security" / "profile-scoped-env" / "profile.yaml"
+            _REPO_ROOT
+            / "tests"
+            / "fixtures"
+            / "security"
+            / "profile-scoped-env"
+            / "profile.yaml"
         )
         env_path = profile_path.parent / ".env"
 
@@ -405,7 +417,9 @@ class EnvFilePathRuleTest(unittest.TestCase):
 
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
         self.assertEqual(len(hits), 1)
-        self.assertTrue(hits[0]["path"].endswith("tests/fixtures/security/profile-scoped-env/.env"))
+        self.assertTrue(
+            hits[0]["path"].endswith("tests/fixtures/security/profile-scoped-env/.env")
+        )
         self.assertEqual(hits[0]["module"], "<env>")
 
     def test_cds_sec_010_has_no_unguarded_equalsany_branch(self):
@@ -417,7 +431,9 @@ class EnvFilePathRuleTest(unittest.TestCase):
         ``equalsAny`` is exact whole-string equality, so the branch contributed
         no detections while implying coverage it did not provide.
         """
-        rule = next(r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-010")
+        rule = next(
+            r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-010"
+        )
         for branch in rule["match"]["any"]:
             if "equalsAny" in branch:
                 self.assertTrue(
@@ -427,12 +443,18 @@ class EnvFilePathRuleTest(unittest.TestCase):
 
     def test_cds_sec_010_still_flags_default_admin_password(self):
         """Removing the dead branch must not weaken the working detection."""
-        rule = next(r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-010")
+        rule = next(
+            r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-010"
+        )
         gated = next(b for b in rule["match"]["any"] if "pathPatterns" in b)
         path = "services.superset.environment.ADMIN_PASSWORD"
-        self.assertTrue(_eval_condition(path, "ADMIN_PASSWORD", "password", gated, "prod"))
+        self.assertTrue(
+            _eval_condition(path, "ADMIN_PASSWORD", "password", gated, "prod")
+        )
         self.assertFalse(
-            _eval_condition(path, "ADMIN_PASSWORD", "s3cr3t-unique-value", gated, "prod")
+            _eval_condition(
+                path, "ADMIN_PASSWORD", "s3cr3t-unique-value", gated, "prod"
+            )
         )
 
     def test_does_not_flag_the_conventional_project_root_env_file(self):
@@ -444,7 +466,12 @@ class EnvFilePathRuleTest(unittest.TestCase):
         be flagged; a bare root `.env` must not produce a finding.
         """
         profile_path = (
-            _REPO_ROOT / "tests" / "fixtures" / "security" / "profile-scoped-env" / "profile.yaml"
+            _REPO_ROOT
+            / "tests"
+            / "fixtures"
+            / "security"
+            / "profile-scoped-env"
+            / "profile.yaml"
         )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -472,7 +499,10 @@ class EnvFilePathRuleTest(unittest.TestCase):
         .env at `env_rel`), then run the scan from an unrelated cwd with the
         env file passed as an absolute path — the CDS_PROFILE_PATH scenario
         from #979. Returns the full findings list."""
-        with tempfile.TemporaryDirectory() as project_dir, tempfile.TemporaryDirectory() as other_dir:
+        with (
+            tempfile.TemporaryDirectory() as project_dir,
+            tempfile.TemporaryDirectory() as other_dir,
+        ):
             project_root = Path(project_dir)
             (project_root / ".git").mkdir()  # project-root marker
             profile_path = project_root / "profile.yaml"
@@ -506,7 +536,8 @@ class EnvFilePathRuleTest(unittest.TestCase):
         findings = self._scan_env_from_outside_project(".env")
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-031"]
         self.assertEqual(
-            hits, [],
+            hits,
+            [],
             "a project-root .env must not be flagged even when the CLI runs from another directory",
         )
 
@@ -558,9 +589,21 @@ class RendererReferenceSecretRuleTest(unittest.TestCase):
     def test_reference_flagged_rules_skip_renderer_references(self):
         items = [
             ("postgres", "initDbEnv.ANALYTICS_DB_PASSWORD", "config.passwordFrom"),
-            ("postgres", "initDbEnv.DAGSTER_DB_PASSWORD", "config.dagsterDatabase.passwordFrom"),
-            ("postgres", "initDbEnv.DAGSTER_DB_USER", "config.dagsterDatabase.username"),
-            ("postgres", "initDbEnv.SUPERSET_DB_USER", "config.supersetDatabase.username"),
+            (
+                "postgres",
+                "initDbEnv.DAGSTER_DB_PASSWORD",
+                "config.dagsterDatabase.passwordFrom",
+            ),
+            (
+                "postgres",
+                "initDbEnv.DAGSTER_DB_USER",
+                "config.dagsterDatabase.username",
+            ),
+            (
+                "postgres",
+                "initDbEnv.SUPERSET_DB_USER",
+                "config.supersetDatabase.username",
+            ),
             ("postgres", "passwordFrom", "secrets.analytics_db_password"),
             ("postgres", "secretKeyFrom", "${secrets.superset_secret_key}"),
         ]
@@ -568,18 +611,25 @@ class RendererReferenceSecretRuleTest(unittest.TestCase):
             rule = self._rule(rule_id)
             self.assertTrue(rule.get("ignoreRendererReferences"), rule_id)
             self.assertEqual(
-                _rule_matches(rule, items, "prod"), [],
+                _rule_matches(rule, items, "prod"),
+                [],
                 f"{rule_id} must not fire on renderer references",
             )
 
     def test_secret_value_rules_still_flag_literal_secrets(self):
         items = [
-            ("postgres", "initDbEnv.ANALYTICS_DB_PASSWORD", "Sup3r-Secret-Literal-2026!x"),
+            (
+                "postgres",
+                "initDbEnv.ANALYTICS_DB_PASSWORD",
+                "Sup3r-Secret-Literal-2026!x",
+            ),
             ("postgres", "passwordFrom", "hunter2-literal"),
         ]
         for rule_id in ("CDS-SEC-001", "CDS-SEC-003", "CDS-SEC-033"):
             findings = _rule_matches(self._rule(rule_id), items, "prod")
-            self.assertTrue(findings, f"{rule_id} must still fire on literal secret values")
+            self.assertTrue(
+                findings, f"{rule_id} must still fire on literal secret values"
+            )
 
     def test_rules_without_the_flag_do_not_skip_references(self):
         # The skip is an explicit per-rule opt-in: a rule that does not set
@@ -631,25 +681,28 @@ class ReferenceProfileRegressionTest(unittest.TestCase):
     references, waiver reason, and shared key references produce no
     CDS-SEC-001/003/013/033 findings."""
 
-    _ENV = "\n".join(
-        f"{k}={v}"
-        for k, v in {
-            "CDS_POSTGRES_SUPERUSER_PASSWORD": "Str0ng!Superuser#2026x",
-            "CDS_ANALYTICS_DB_PASSWORD": "An4lytics!Pass#2026x",
-            "CDS_DAGSTER_DB_PASSWORD": "D4gster!Pass#2026x",
-            "CDS_SUPERSET_DB_PASSWORD": "Sup3rset!Pass#2026x",
-            "CDS_SUPERSET_SECRET_KEY": "Sup3rsetSecretKey!2026x",
-            "CDS_SUPERSET_ADMIN_PASSWORD": "Adm1n!Pass#2026x",
-            "CDS_CACHE_PASSWORD": "C4che!Pass#2026x",
-            "CDS_BACKUP_ENCRYPTION_KEY": "B4ckup!Key#2026x",
-            "CDS_ANALYTICS_DB_NAME": "analytics",
-            "CDS_ANALYTICS_DB_USER": "analytics_user",
-            "CDS_DAGSTER_DB_NAME": "dagster",
-            "CDS_DAGSTER_DB_USER": "dagster_user",
-            "CDS_SUPERSET_DB_NAME": "superset",
-            "CDS_SUPERSET_DB_USER": "superset_user",
-        }.items()
-    ) + "\n"
+    _ENV = (
+        "\n".join(
+            f"{k}={v}"
+            for k, v in {
+                "CDS_POSTGRES_SUPERUSER_PASSWORD": "Str0ng!Superuser#2026x",
+                "CDS_ANALYTICS_DB_PASSWORD": "An4lytics!Pass#2026x",
+                "CDS_DAGSTER_DB_PASSWORD": "D4gster!Pass#2026x",
+                "CDS_SUPERSET_DB_PASSWORD": "Sup3rset!Pass#2026x",
+                "CDS_SUPERSET_SECRET_KEY": "Sup3rsetSecretKey!2026x",
+                "CDS_SUPERSET_ADMIN_PASSWORD": "Adm1n!Pass#2026x",
+                "CDS_CACHE_PASSWORD": "C4che!Pass#2026x",
+                "CDS_BACKUP_ENCRYPTION_KEY": "B4ckup!Key#2026x",
+                "CDS_ANALYTICS_DB_NAME": "analytics",
+                "CDS_ANALYTICS_DB_USER": "analytics_user",
+                "CDS_DAGSTER_DB_NAME": "dagster",
+                "CDS_DAGSTER_DB_USER": "dagster_user",
+                "CDS_SUPERSET_DB_NAME": "superset",
+                "CDS_SUPERSET_DB_USER": "superset_user",
+            }.items()
+        )
+        + "\n"
+    )
 
     def test_team_prod_profile_reference_false_positives_are_gone(self):
         profile_path = (
@@ -667,8 +720,10 @@ class ReferenceProfileRegressionTest(unittest.TestCase):
             )
 
         false_positives = [
-            f for f in findings
-            if f["rule_id"] in {"CDS-SEC-001", "CDS-SEC-003", "CDS-SEC-013", "CDS-SEC-033"}
+            f
+            for f in findings
+            if f["rule_id"]
+            in {"CDS-SEC-001", "CDS-SEC-003", "CDS-SEC-013", "CDS-SEC-033"}
             and (
                 "initDbEnv" in f["path"]
                 or "waivers" in f["path"]
@@ -741,7 +796,9 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
     through "environment:" instead (safe, post-#290 shape).
     """
 
-    _FIXTURE_ROOT = _REPO_ROOT / "tests" / "fixtures" / "security" / "rendered-command-secret"
+    _FIXTURE_ROOT = (
+        _REPO_ROOT / "tests" / "fixtures" / "security" / "rendered-command-secret"
+    )
 
     def test_flags_a_secret_passed_via_command_line_argument(self):
         profile_path = self._FIXTURE_ROOT / "profile" / "profile.yaml"
@@ -782,7 +839,9 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         # declarative match-engine ones -- CDS-SEC-070 is itself scoped to
         # "rendered-compose" (a declarative-engine scope), so this also
         # covers the ordinary _rule_matches() path.
-        self.assertTrue(all(f["category"] == "logging-monitoring" for f in hits.values()))
+        self.assertTrue(
+            all(f["category"] == "logging-monitoring" for f in hits.values())
+        )
 
     def test_does_not_flag_the_same_secret_passed_via_environment(self):
         profile_path = self._FIXTURE_ROOT / "profile-safe" / "profile.yaml"
@@ -796,10 +855,14 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         )
 
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-070"]
-        self.assertEqual(hits, [], "a secret passed via environment must not be flagged")
+        self.assertEqual(
+            hits, [], "a secret passed via environment must not be flagged"
+        )
 
     def test_cds_sec_070_scope_is_no_longer_none(self):
-        rule = next(r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-070")
+        rule = next(
+            r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-070"
+        )
         self.assertNotEqual(rule["scope"], ["none"])
         self.assertTrue(rule["enabled"])
 
@@ -817,14 +880,20 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         alternative in the valueRegex is equally dead. Only a single
         working branch should remain.
         """
-        rule = next(r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-070")
+        rule = next(
+            r for r in _validate_rule_set()["rules"] if r["id"] == "CDS-SEC-070"
+        )
         branches = rule["match"]["any"]
-        self.assertEqual(len(branches), 1, f"expected exactly one live branch, got {branches}")
+        self.assertEqual(
+            len(branches), 1, f"expected exactly one live branch, got {branches}"
+        )
         self.assertNotIn("keyRegex", branches[0])
         self.assertNotIn("config\\.", branches[0].get("valueRegex", ""))
         self.assertNotIn("secrets\\.", branches[0].get("valueRegex", ""))
 
-    def test_findings_are_attributed_to_the_module_id_not_the_compose_service_name(self):
+    def test_findings_are_attributed_to_the_module_id_not_the_compose_service_name(
+        self,
+    ):
         """
         Regression guard: _flatten_rendered_leak_surfaces() previously used
         the rendered Compose *service* name as the finding's "module",
@@ -851,7 +920,9 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
             {"vault-secrets-vault": "vault"},
         )
 
-    def test_reuses_a_caller_supplied_plan_and_rendered_compose_without_replanning(self):
+    def test_reuses_a_caller_supplied_plan_and_rendered_compose_without_replanning(
+        self,
+    ):
         """
         Callers such as `cds test` (cli/main.py) already run their own
         "plan" and "render" stages. run_security_validation() should reuse
@@ -867,7 +938,9 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
 
         plan, plan_diags = build_plan(str(profile_path), env_file=str(env_path))
         self.assertFalse(any(d.level == "error" for d in plan_diags))
-        rendered_compose_yaml, render_diags = render_compose(plan, env_file=str(env_path))
+        rendered_compose_yaml, render_diags = render_compose(
+            plan, env_file=str(env_path)
+        )
         self.assertFalse(any(d.level == "error" for d in render_diags))
 
         with (
@@ -894,7 +967,9 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-070"]
         self.assertEqual(len(hits), 3)
 
-    def test_unexpected_render_error_produces_a_warning_diagnostic_not_a_silent_failure(self):
+    def test_unexpected_render_error_produces_a_warning_diagnostic_not_a_silent_failure(
+        self,
+    ):
         """
         _try_render_compose_for_scan() previously swallowed *any* exception
         (including genuine bugs) with a bare `except Exception: return
@@ -923,7 +998,8 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         # The rendered-compose scoped rule can't fire without a rendered
         # document, but other scopes are unaffected.
         self.assertEqual(
-            [f for f in findings if f["rule_id"] == "CDS-SEC-070"], [],
+            [f for f in findings if f["rule_id"] == "CDS-SEC-070"],
+            [],
         )
 
     def test_skip_self_plan_render_avoids_replanning_a_profile_known_to_fail(self):
@@ -952,10 +1028,13 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
             )
 
         self.assertEqual(
-            [f for f in findings if f["rule_id"] == "CDS-SEC-070"], [],
+            [f for f in findings if f["rule_id"] == "CDS-SEC-070"],
+            [],
         )
 
-    def test_does_not_plan_or_render_when_no_enabled_rule_uses_rendered_compose_scope(self):
+    def test_does_not_plan_or_render_when_no_enabled_rule_uses_rendered_compose_scope(
+        self,
+    ):
         """
         Planning and rendering a profile is pure overhead when the active
         rule set has no enabled "rendered-compose"-scoped rule (e.g. a
@@ -971,7 +1050,9 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
                 rule["enabled"] = False
 
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False,
+            mode="w",
+            suffix=".json",
+            delete=False,
         ) as tmp_rule_set:
             json.dump(rule_set, tmp_rule_set)
             tmp_rule_set_path = Path(tmp_rule_set.name)
@@ -988,7 +1069,8 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
                     env_file=str(env_path),
                 )
             self.assertEqual(
-                [f for f in findings if f["rule_id"] == "CDS-SEC-070"], [],
+                [f for f in findings if f["rule_id"] == "CDS-SEC-070"],
+                [],
             )
         finally:
             tmp_rule_set_path.unlink()
@@ -1019,7 +1101,9 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
                 rule["codeEnforced"] = False
 
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False,
+            mode="w",
+            suffix=".json",
+            delete=False,
         ) as tmp_rule_set:
             json.dump(rule_set, tmp_rule_set)
             tmp_rule_set_path = Path(tmp_rule_set.name)
@@ -1036,7 +1120,8 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
                     env_file=str(env_path),
                 )
             self.assertEqual(
-                [f for f in findings if f["rule_id"] == "CDS-SEC-074"], [],
+                [f for f in findings if f["rule_id"] == "CDS-SEC-074"],
+                [],
             )
             self.assertEqual([d.code for d in diags if d.code == "W098"], [])
         finally:
@@ -1049,7 +1134,9 @@ class RenderedCommandSecretLeakRuleTest(unittest.TestCase):
         complianceCategory via run_security_validation()'s rule_id lookup
         (#735), the same as a declarative-engine finding.
         """
-        fixture_root = _REPO_ROOT / "tests" / "fixtures" / "security" / "plaintext-exposure"
+        fixture_root = (
+            _REPO_ROOT / "tests" / "fixtures" / "security" / "plaintext-exposure"
+        )
         profile_path = fixture_root / "profile-missing-tls" / "profile.yaml"
         env_path = profile_path.parent / ".env"
 
@@ -1087,21 +1174,30 @@ class ExtendsAwareSecurityScanTest(unittest.TestCase):
             / "profile.yaml"
         )
 
-        findings, diags = run_security_validation(profile_path, _RULE_SCHEMA_PATH, _RULE_SET_PATH)
+        findings, diags = run_security_validation(
+            profile_path, _RULE_SCHEMA_PATH, _RULE_SET_PATH
+        )
 
         self.assertFalse(any(d.level == "error" for d in diags), diags)
         hits = {f["path"] for f in findings if f["rule_id"] == "CDS-SEC-010"}
         self.assertIn("services.superset.environment.ADMIN_USERNAME", hits)
         self.assertIn("services.superset.environment.ADMIN_PASSWORD", hits)
 
-    def test_returns_overlay_diagnostics_when_environment_overlay_resolution_fails(self):
-        expected = [Diagnostic(level="error", code="E999", message="missing", path="spec")]
+    def test_returns_overlay_diagnostics_when_environment_overlay_resolution_fails(
+        self,
+    ):
+        expected = [
+            Diagnostic(level="error", code="E999", message="missing", path="spec")
+        ]
         with unittest.mock.patch(
             "cli.overlay.resolve_profile",
             return_value=(None, None, expected),
         ):
             findings, diags = run_security_validation(
-                _REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml",
+                _REPO_ROOT
+                / "profiles"
+                / "local-dagster-postgres-superset"
+                / "profile.yaml",
                 _RULE_SCHEMA_PATH,
                 _RULE_SET_PATH,
                 environment="missing",
@@ -1111,13 +1207,18 @@ class ExtendsAwareSecurityScanTest(unittest.TestCase):
         self.assertEqual(diags, expected)
 
     def test_returns_overlay_diagnostics_when_extends_resolution_fails(self):
-        expected = [Diagnostic(level="error", code="E998", message="broken", path="spec")]
+        expected = [
+            Diagnostic(level="error", code="E998", message="broken", path="spec")
+        ]
         with unittest.mock.patch(
             "cli.overlay.resolve_extends",
             return_value=(None, None, expected),
         ):
             findings, diags = run_security_validation(
-                _REPO_ROOT / "profiles" / "local-dagster-postgres-superset" / "profile.yaml",
+                _REPO_ROOT
+                / "profiles"
+                / "local-dagster-postgres-superset"
+                / "profile.yaml",
                 _RULE_SCHEMA_PATH,
                 _RULE_SET_PATH,
             )
@@ -1135,7 +1236,9 @@ class PlaintextExposureHelpersTest(unittest.TestCase):
     """
 
     def test_module_provides_plaintext_http_false_for_non_mapping_provides(self):
-        self.assertFalse(_module_provides_plaintext_http({"provides": ["not", "a", "dict"]}))
+        self.assertFalse(
+            _module_provides_plaintext_http({"provides": ["not", "a", "dict"]})
+        )
         self.assertFalse(_module_provides_plaintext_http({}))
 
     def test_module_provides_plaintext_http_true_for_http_protocol_contract(self):
@@ -1163,12 +1266,17 @@ class PlaintextExposureHelpersTest(unittest.TestCase):
     def test_module_provides_tls_reverse_proxy_false_for_non_mapping_provides(self):
         self.assertFalse(_module_provides_tls_reverse_proxy({"provides": None}))
 
-    def test_module_provides_tls_reverse_proxy_ignores_non_reverse_proxy_and_non_https(self):
+    def test_module_provides_tls_reverse_proxy_ignores_non_reverse_proxy_and_non_https(
+        self,
+    ):
         module = {
             "provides": {
                 "not-a-mapping": "oops",
                 "wrong-kind": {"kind": "http-service", "spec": {"protocol": "https"}},
-                "http-reverse-proxy": {"kind": "reverse-proxy", "spec": {"protocol": "http"}},
+                "http-reverse-proxy": {
+                    "kind": "reverse-proxy",
+                    "spec": {"protocol": "http"},
+                },
             }
         }
         self.assertFalse(_module_provides_tls_reverse_proxy(module))
@@ -1176,29 +1284,40 @@ class PlaintextExposureHelpersTest(unittest.TestCase):
     def test_module_provides_tls_reverse_proxy_true_for_https_reverse_proxy(self):
         module = {
             "provides": {
-                "reverse-proxy": {"kind": "reverse-proxy", "spec": {"protocol": "HTTPS"}},
+                "reverse-proxy": {
+                    "kind": "reverse-proxy",
+                    "spec": {"protocol": "HTTPS"},
+                },
             }
         }
         self.assertTrue(_module_provides_tls_reverse_proxy(module))
 
     def test_fronted_by_tls_reverse_proxy_returns_empty_set_for_non_mapping_plan(self):
-        self.assertEqual(_plaintext_module_ids_fronted_by_tls_reverse_proxy(None), set())
+        self.assertEqual(
+            _plaintext_module_ids_fronted_by_tls_reverse_proxy(None), set()
+        )
 
     def test_fronted_by_tls_reverse_proxy_skips_modules_without_tls_reverse_proxy(self):
         plan = {"modules": [{"id": "api", "provides": {}}]}
-        self.assertEqual(_plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), set())
+        self.assertEqual(
+            _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), set()
+        )
 
     def test_fronted_by_tls_reverse_proxy_skips_non_mapping_or_unwired_consumes(self):
         plan = {
             "modules": [
                 {
                     "id": "proxy-no-consumes",
-                    "provides": {"rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}},
+                    "provides": {
+                        "rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}
+                    },
                     "consumes": "not-a-dict",
                 },
                 {
                     "id": "proxy-bad-entries",
-                    "provides": {"rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}},
+                    "provides": {
+                        "rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}
+                    },
                     "consumes": {
                         "upstream": "not-a-dict",
                         "no-ref": {"contractRef": None},
@@ -1209,30 +1328,42 @@ class PlaintextExposureHelpersTest(unittest.TestCase):
                         },
                         "wrong-protocol": {
                             "contractRef": "api.http-service",
-                            "contract": {"kind": "http-service", "spec": {"protocol": "https"}},
+                            "contract": {
+                                "kind": "http-service",
+                                "spec": {"protocol": "https"},
+                            },
                         },
                     },
                 },
             ]
         }
-        self.assertEqual(_plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), set())
+        self.assertEqual(
+            _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), set()
+        )
 
     def test_fronted_by_tls_reverse_proxy_returns_wired_producer_id(self):
         plan = {
             "modules": [
                 {
                     "id": "proxy",
-                    "provides": {"rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}},
+                    "provides": {
+                        "rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}
+                    },
                     "consumes": {
                         "upstream": {
                             "contractRef": "api.http-service",
-                            "contract": {"kind": "http-service", "spec": {"protocol": "http"}},
+                            "contract": {
+                                "kind": "http-service",
+                                "spec": {"protocol": "http"},
+                            },
                         },
                     },
                 },
             ]
         }
-        self.assertEqual(_plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), {"api"})
+        self.assertEqual(
+            _plaintext_module_ids_fronted_by_tls_reverse_proxy(plan), {"api"}
+        )
 
     def test_fronted_by_tls_reverse_proxy_counts_list_valued_route_bindings(self):
         # issue #883: a reverse proxy's config.routes resolves to a LIST of
@@ -1242,17 +1373,25 @@ class PlaintextExposureHelpersTest(unittest.TestCase):
             "modules": [
                 {
                     "id": "proxy",
-                    "provides": {"rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}},
+                    "provides": {
+                        "rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}
+                    },
                     "consumes": {
                         "routes": [
                             {
                                 "contractRef": "api.http-service",
-                                "contract": {"kind": "http-service", "spec": {"protocol": "http"}},
+                                "contract": {
+                                    "kind": "http-service",
+                                    "spec": {"protocol": "http"},
+                                },
                             },
                             "not-a-dict",
                             {
                                 "contractRef": "other.http-service",
-                                "contract": {"kind": "http-service", "spec": {"protocol": "http"}},
+                                "contract": {
+                                    "kind": "http-service",
+                                    "spec": {"protocol": "http"},
+                                },
                             },
                         ],
                     },
@@ -1269,26 +1408,58 @@ class PlaintextExposureHelpersTest(unittest.TestCase):
         self.assertFalse(_port_is_non_local_host_exposure("localhost:8080"))
         self.assertFalse(_port_is_non_local_host_exposure("[::1]:8080"))
         self.assertTrue(_port_is_non_local_host_exposure("0.0.0.0:8080"))
-        self.assertFalse(_port_is_non_local_host_exposure({"host_ip": "127.0.0.1", "target": 8080}))
-        self.assertTrue(_port_is_non_local_host_exposure({"host_ip": "0.0.0.0", "target": 8080}))  # nosec B104  # noqa: S104
+        self.assertFalse(
+            _port_is_non_local_host_exposure({"host_ip": "127.0.0.1", "target": 8080})
+        )
+        self.assertTrue(
+            _port_is_non_local_host_exposure({"host_ip": "0.0.0.0", "target": 8080})  # noqa: S104  # nosec B104
+        )
         self.assertFalse(_port_is_non_local_host_exposure({"published": 8080}))
         self.assertFalse(_port_is_non_local_host_exposure(None))
 
     def test_waiver_reason_missing_or_malformed_returns_none(self):
         self.assertIsNone(_plaintext_exposure_waiver_reason({}))
-        self.assertIsNone(_plaintext_exposure_waiver_reason(
-            {"spec": {"security": {"waivers": {"plaintextEndpointExposure": "not-a-dict"}}}}
-        ))
-        self.assertIsNone(_plaintext_exposure_waiver_reason(
-            {"spec": {"security": {"waivers": {"plaintextEndpointExposure": {"reason": 123}}}}}
-        ))
-        self.assertIsNone(_plaintext_exposure_waiver_reason(
-            {"spec": {"security": {"waivers": {"plaintextEndpointExposure": {"reason": "   "}}}}}
-        ))
+        self.assertIsNone(
+            _plaintext_exposure_waiver_reason(
+                {
+                    "spec": {
+                        "security": {
+                            "waivers": {"plaintextEndpointExposure": "not-a-dict"}
+                        }
+                    }
+                }
+            )
+        )
+        self.assertIsNone(
+            _plaintext_exposure_waiver_reason(
+                {
+                    "spec": {
+                        "security": {
+                            "waivers": {"plaintextEndpointExposure": {"reason": 123}}
+                        }
+                    }
+                }
+            )
+        )
+        self.assertIsNone(
+            _plaintext_exposure_waiver_reason(
+                {
+                    "spec": {
+                        "security": {
+                            "waivers": {"plaintextEndpointExposure": {"reason": "   "}}
+                        }
+                    }
+                }
+            )
+        )
 
     def test_waiver_reason_returns_trimmed_string(self):
         profile = {
-            "spec": {"security": {"waivers": {"plaintextEndpointExposure": {"reason": "  approved  "}}}}
+            "spec": {
+                "security": {
+                    "waivers": {"plaintextEndpointExposure": {"reason": "  approved  "}}
+                }
+            }
         }
         self.assertEqual(_plaintext_exposure_waiver_reason(profile), "approved")
 
@@ -1316,17 +1487,27 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
 
     def test_non_prod_without_waiver_is_silent(self):
         findings, diags = _check_production_plaintext_exposure(
-            profile={}, profile_class="dev", plan=None, rendered_compose=None,
+            profile={},
+            profile_class="dev",
+            plan=None,
+            rendered_compose=None,
             service_to_module={},
         )
         self.assertEqual((findings, diags), ([], []))
 
     def test_non_prod_with_waiver_emits_w099(self):
         profile = {
-            "spec": {"security": {"waivers": {"plaintextEndpointExposure": {"reason": "not prod yet"}}}}
+            "spec": {
+                "security": {
+                    "waivers": {"plaintextEndpointExposure": {"reason": "not prod yet"}}
+                }
+            }
         }
         findings, diags = _check_production_plaintext_exposure(
-            profile=profile, profile_class="dev", plan=None, rendered_compose=None,
+            profile=profile,
+            profile_class="dev",
+            plan=None,
+            rendered_compose=None,
             service_to_module={},
         )
         self.assertEqual(findings, [])
@@ -1335,7 +1516,10 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
 
     def test_prod_without_a_plan_or_rendered_compose_is_silent(self):
         findings, diags = _check_production_plaintext_exposure(
-            profile={}, profile_class="prod", plan=None, rendered_compose=None,
+            profile={},
+            profile_class="prod",
+            plan=None,
+            rendered_compose=None,
             service_to_module={},
         )
         self.assertEqual((findings, diags), ([], []))
@@ -1343,21 +1527,29 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
     def test_prod_with_no_plaintext_modules_is_silent(self):
         plan = {"modules": [{"id": "db", "provides": {}}]}
         findings, diags = _check_production_plaintext_exposure(
-            profile={}, profile_class="prod", plan=plan,
-            rendered_compose={"services": {}}, service_to_module={},
+            profile={},
+            profile_class="prod",
+            plan=plan,
+            rendered_compose={"services": {}},
+            service_to_module={},
         )
         self.assertEqual((findings, diags), ([], []))
 
     def test_prod_with_non_mapping_services_is_silent(self):
         findings, diags = _check_production_plaintext_exposure(
-            profile={}, profile_class="prod", plan=self._plan(),
-            rendered_compose={"services": "not-a-dict"}, service_to_module={},
+            profile={},
+            profile_class="prod",
+            plan=self._plan(),
+            rendered_compose={"services": "not-a-dict"},
+            service_to_module={},
         )
         self.assertEqual((findings, diags), ([], []))
 
     def test_prod_with_only_localhost_ports_is_silent(self):
         findings, diags = _check_production_plaintext_exposure(
-            profile={}, profile_class="prod", plan=self._plan(),
+            profile={},
+            profile_class="prod",
+            plan=self._plan(),
             rendered_compose=self._rendered_compose(port="127.0.0.1:8080:8080"),
             service_to_module={"api": "api"},
         )
@@ -1368,18 +1560,27 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
         # independent host-published port -- an attacker can still reach it
         # directly and skip the proxy, so the finding must not be suppressed.
         plan = self._plan()
-        plan["modules"].append({
-            "id": "proxy",
-            "provides": {"rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}},
-            "consumes": {
-                "upstream": {
-                    "contractRef": "api.http",
-                    "contract": {"kind": "http-service", "spec": {"protocol": "http"}},
+        plan["modules"].append(
+            {
+                "id": "proxy",
+                "provides": {
+                    "rp": {"kind": "reverse-proxy", "spec": {"protocol": "https"}}
                 },
-            },
-        })
+                "consumes": {
+                    "upstream": {
+                        "contractRef": "api.http",
+                        "contract": {
+                            "kind": "http-service",
+                            "spec": {"protocol": "http"},
+                        },
+                    },
+                },
+            }
+        )
         findings, diags = _check_production_plaintext_exposure(
-            profile={}, profile_class="prod", plan=plan,
+            profile={},
+            profile_class="prod",
+            plan=plan,
             rendered_compose=self._rendered_compose(),
             service_to_module={"api": "api"},
         )
@@ -1391,25 +1592,36 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
 
     def test_prod_exposure_with_waiver_emits_w098_and_no_findings(self):
         profile = {
-            "spec": {"security": {"waivers": {"plaintextEndpointExposure": {"reason": "temporary"}}}}
+            "spec": {
+                "security": {
+                    "waivers": {"plaintextEndpointExposure": {"reason": "temporary"}}
+                }
+            }
         }
         findings, diags = _check_production_plaintext_exposure(
-            profile=profile, profile_class="prod", plan=self._plan(),
-            rendered_compose=self._rendered_compose(), service_to_module={"api": "api"},
+            profile=profile,
+            profile_class="prod",
+            plan=self._plan(),
+            rendered_compose=self._rendered_compose(),
+            service_to_module={"api": "api"},
         )
         self.assertEqual(findings, [])
         self.assertEqual([d.code for d in diags], ["W098"])
         self.assertIn("api", diags[0].message)
         self.assertNotIn(
-            "temporary", diags[0].message,
+            "temporary",
+            diags[0].message,
             "the waiver reason must not be echoed verbatim into a diagnostic "
             "that print_diagnostics sends to stderr/CI logs",
         )
 
     def test_prod_exposure_without_waiver_reports_cds_sec_074(self):
         findings, diags = _check_production_plaintext_exposure(
-            profile={}, profile_class="prod", plan=self._plan(),
-            rendered_compose=self._rendered_compose(), service_to_module={"api": "api"},
+            profile={},
+            profile_class="prod",
+            plan=self._plan(),
+            rendered_compose=self._rendered_compose(),
+            service_to_module={"api": "api"},
         )
         self.assertEqual(diags, [])
         self.assertEqual(len(findings), 1)
@@ -1422,14 +1634,18 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
 
     def test_prod_exposure_redacts_value_when_requested(self):
         findings, _ = _check_production_plaintext_exposure(
-            profile={}, profile_class="prod", plan=self._plan(),
-            rendered_compose=self._rendered_compose(), service_to_module={"api": "api"},
+            profile={},
+            profile_class="prod",
+            plan=self._plan(),
+            rendered_compose=self._rendered_compose(),
+            service_to_module={"api": "api"},
             redact_values=True,
         )
         self.assertEqual(findings[0]["value"], "80***REDACTED***80")
 
-
-    def test_prod_exposure_skips_non_module_services_and_normalizes_non_list_ports(self):
+    def test_prod_exposure_skips_non_module_services_and_normalizes_non_list_ports(
+        self,
+    ):
         plan = self._plan()
         rendered_compose = {
             "services": {
@@ -1439,7 +1655,9 @@ class ProductionPlaintextExposureCheckTest(unittest.TestCase):
             }
         }
         findings, diags = _check_production_plaintext_exposure(
-            profile={}, profile_class="prod", plan=plan,
+            profile={},
+            profile_class="prod",
+            plan=plan,
             rendered_compose=rendered_compose,
             service_to_module={"api": "api", "unrelated": "unrelated"},
         )
@@ -1455,7 +1673,8 @@ class BackupTargetBindingRuleTest(unittest.TestCase):
     def test_disabled_rule_returns_no_findings(self):
         plan = {"modules": [{"id": "db", "provides": {"db": {"kind": "sql-database"}}}]}
         self.assertEqual(
-            _check_backup_target_binding(plan=plan, rule_enabled=False), [],
+            _check_backup_target_binding(plan=plan, rule_enabled=False),
+            [],
         )
 
     def test_non_mapping_plan_returns_no_findings(self):
@@ -1463,14 +1682,21 @@ class BackupTargetBindingRuleTest(unittest.TestCase):
         self.assertEqual(_check_backup_target_binding(plan={"modules": "oops"}), [])
 
     def test_no_stateful_provider_returns_no_findings(self):
-        plan = {"modules": [{"id": "cache", "provides": {"cache": {"kind": "cache-service"}}}]}
+        plan = {
+            "modules": [
+                {"id": "cache", "provides": {"cache": {"kind": "cache-service"}}}
+            ]
+        }
         self.assertEqual(_check_backup_target_binding(plan=plan), [])
 
     def test_stateful_provider_without_backup_target_consumer_fires(self):
         plan = {
             "modules": [
                 {"id": "postgres", "provides": {"db": {"kind": "sql-database"}}},
-                {"id": "superset", "consumes": {"warehouse": {"contract": {"kind": "sql-database"}}}},
+                {
+                    "id": "superset",
+                    "consumes": {"warehouse": {"contract": {"kind": "sql-database"}}},
+                },
             ]
         }
         findings = _check_backup_target_binding(plan=plan)
@@ -1481,7 +1707,10 @@ class BackupTargetBindingRuleTest(unittest.TestCase):
         plan = {
             "modules": [
                 {"id": "postgres", "provides": {"db": {"kind": "sql-database"}}},
-                {"id": "backup", "consumes": {"source": {"contract": {"kind": "backup-target"}}}},
+                {
+                    "id": "backup",
+                    "consumes": {"source": {"contract": {"kind": "backup-target"}}},
+                },
             ]
         }
         self.assertEqual(_check_backup_target_binding(plan=plan), [])
@@ -1510,36 +1739,53 @@ class AdminServiceIdentityBindingRuleTest(unittest.TestCase):
         rendered_compose = {"services": {"superset": {}}}
         self.assertEqual(
             _check_admin_service_identity_binding(
-                plan=plan, rendered_compose=rendered_compose, rule_enabled=False,
-            ), [],
+                plan=plan,
+                rendered_compose=rendered_compose,
+                rule_enabled=False,
+            ),
+            [],
         )
 
     def test_non_mapping_inputs_return_no_findings(self):
         self.assertEqual(
-            _check_admin_service_identity_binding(plan=None, rendered_compose={"services": {}}), [],
+            _check_admin_service_identity_binding(
+                plan=None, rendered_compose={"services": {}}
+            ),
+            [],
         )
         self.assertEqual(
-            _check_admin_service_identity_binding(plan={"modules": []}, rendered_compose=None), [],
+            _check_admin_service_identity_binding(
+                plan={"modules": []}, rendered_compose=None
+            ),
+            [],
         )
 
     def test_no_admin_ui_service_returns_no_findings(self):
         plan = {"modules": []}
         rendered_compose = {"services": {"postgres": {}}}
         self.assertEqual(
-            _check_admin_service_identity_binding(plan=plan, rendered_compose=rendered_compose), [],
+            _check_admin_service_identity_binding(
+                plan=plan, rendered_compose=rendered_compose
+            ),
+            [],
         )
 
     def test_non_mapping_services_returns_no_findings(self):
         plan = {"modules": []}
         rendered_compose = {"services": "not-a-dict"}
         self.assertEqual(
-            _check_admin_service_identity_binding(plan=plan, rendered_compose=rendered_compose), [],
+            _check_admin_service_identity_binding(
+                plan=plan, rendered_compose=rendered_compose
+            ),
+            [],
         )
 
     def test_admin_ui_service_without_identity_module_fires(self):
         plan = {"modules": [{"id": "postgres", "source": "modules/warehouse/postgres"}]}
         rendered_compose = {"services": {"superset": {}}}
-        findings = _check_admin_service_identity_binding(plan=plan, rendered_compose=rendered_compose)
+        findings = _check_admin_service_identity_binding(
+            plan=plan, rendered_compose=rendered_compose
+        )
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["rule_id"], "CDS-SEC-081")
         self.assertEqual(findings[0]["path"], "services.superset")
@@ -1548,7 +1794,10 @@ class AdminServiceIdentityBindingRuleTest(unittest.TestCase):
         plan = {"modules": [{"id": "keycloak", "source": "modules/identity/keycloak"}]}
         rendered_compose = {"services": {"superset": {}}}
         self.assertEqual(
-            _check_admin_service_identity_binding(plan=plan, rendered_compose=rendered_compose), [],
+            _check_admin_service_identity_binding(
+                plan=plan, rendered_compose=rendered_compose
+            ),
+            [],
         )
 
 

@@ -20,7 +20,9 @@ from cli.renderer import render_compose
 from cli.validator import validate_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-VAULT_PROFILE = REPO_ROOT / "profiles" / "local-dagster-postgres-superset-vault" / "profile.yaml"
+VAULT_PROFILE = (
+    REPO_ROOT / "profiles" / "local-dagster-postgres-superset-vault" / "profile.yaml"
+)
 
 PROJECT = "cds-vault-initdb-proof"
 SERVICE = "postgres"
@@ -48,7 +50,9 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if os.getenv("CDS_RUN_DOCKER_SMOKE") != "1":
-            raise unittest.SkipTest("Set CDS_RUN_DOCKER_SMOKE=1 to run Docker runtime proof tests")
+            raise unittest.SkipTest(
+                "Set CDS_RUN_DOCKER_SMOKE=1 to run Docker runtime proof tests"
+            )
 
         if shutil.which("docker") is None:
             raise unittest.SkipTest("Docker CLI not available")
@@ -65,7 +69,9 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
     def _redact(value: str, env: dict[str, str]) -> str:
         redacted = value
         for key, secret in env.items():
-            if secret and any(marker in key.upper() for marker in ("PASSWORD", "SECRET", "TOKEN")):
+            if secret and any(
+                marker in key.upper() for marker in ("PASSWORD", "SECRET", "TOKEN")
+            ):
                 redacted = redacted.replace(secret, "<redacted>")
         return re.sub(
             r"(postgresql(?:\+[a-z0-9]+)?://[^:/\s]*:)[^@/\s]+",
@@ -77,9 +83,20 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
     def _compose(self, compose_file: Path, env_file: Path) -> list[str]:
         # Bind sources resolve relative to the compose file's directory, so
         # it lives at the repo root like production (deleted afterwards).
-        return ["docker", "compose", "--env-file", str(env_file), "-f", str(compose_file), "-p", PROJECT]
+        return [
+            "docker",
+            "compose",
+            "--env-file",
+            str(env_file),
+            "-f",
+            str(compose_file),
+            "-p",
+            PROJECT,
+        ]
 
-    def _up_postgres(self, compose_file: Path, env_file: Path, env: dict[str, str]) -> None:
+    def _up_postgres(
+        self, compose_file: Path, env_file: Path, env: dict[str, str]
+    ) -> None:
         last_output = ""
         for attempt in range(1, 4):
             result = subprocess.run(
@@ -92,7 +109,10 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
             if result.returncode == 0:
                 return
             last_output = result.stdout + result.stderr
-            if not any(m in last_output for m in _TRANSIENT_REGISTRY_ERROR_MARKERS) or attempt == 3:
+            if (
+                not any(m in last_output for m in _TRANSIENT_REGISTRY_ERROR_MARKERS)
+                or attempt == 3
+            ):
                 break
             time.sleep(15)
         self.fail(
@@ -111,12 +131,26 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
         )
         return result.stdout + result.stderr
 
-    def _wait_ready(self, compose_file: Path, env_file: Path, env: dict[str, str], deadline_seconds: int = 300) -> None:
+    def _wait_ready(
+        self,
+        compose_file: Path,
+        env_file: Path,
+        env: dict[str, str],
+        deadline_seconds: int = 300,
+    ) -> None:
         started = time.monotonic()
         last_error = ""
         while time.monotonic() - started < deadline_seconds:
             result = subprocess.run(
-                [*self._compose(compose_file, env_file), "exec", "-T", SERVICE, "pg_isready", "-U", "postgres"],
+                [
+                    *self._compose(compose_file, env_file),
+                    "exec",
+                    "-T",
+                    SERVICE,
+                    "pg_isready",
+                    "-U",
+                    "postgres",
+                ],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -139,8 +173,16 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
                 return line.split("=", 1)[1]
         raise AssertionError(f"{name} missing from proof env file")
 
-    def _psql(self, compose_file: Path, env_file: Path, env: dict[str, str], sql: str,
-              user: str = "postgres", dbname: str = "postgres", password: str | None = None) -> str:
+    def _psql(
+        self,
+        compose_file: Path,
+        env_file: Path,
+        env: dict[str, str],
+        sql: str,
+        user: str = "postgres",
+        dbname: str = "postgres",
+        password: str | None = None,
+    ) -> str:
         command = [*self._compose(compose_file, env_file), "exec", "-T"]
         run_env = dict(env)
         resolved = password
@@ -149,7 +191,9 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
         if resolved is not None:
             command += ["-e", f"PGPASSWORD={resolved}"]
         command += [SERVICE, "psql", "-U", user, "-d", dbname, "-tAc", sql]
-        result = subprocess.run(command, env=run_env, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(
+            command, env=run_env, capture_output=True, text=True, timeout=120
+        )
         if result.returncode != 0:
             self.fail(
                 f"psql failed: {sql}\n"
@@ -162,7 +206,8 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
     def test_vault_init_db_bootstraps_configured_roles_and_grants(self) -> None:
         diagnostics = validate_profile(str(VAULT_PROFILE))
         self.assertEqual(
-            [d for d in diagnostics if d.level == "error"], [],
+            [d for d in diagnostics if d.level == "error"],
+            [],
             msg=f"unexpected validation errors: {diagnostics}",
         )
 
@@ -186,13 +231,15 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
             plan, plan_diags = build_plan(str(VAULT_PROFILE), env_file=str(env_file))
             self.assertIsNotNone(plan)
             self.assertEqual(
-                [d for d in plan_diags if d.level == "error"], [],
+                [d for d in plan_diags if d.level == "error"],
+                [],
                 msg=f"unexpected plan errors: {plan_diags}",
             )
 
             output, render_diags = render_compose(plan, env_file=str(env_file))
             self.assertEqual(
-                [d for d in render_diags if d.level == "error"], [],
+                [d for d in render_diags if d.level == "error"],
+                [],
                 msg=f"unexpected render errors: {render_diags}",
             )
             compose_file = REPO_ROOT / "docker-compose.vault-proof.yml"
@@ -203,7 +250,12 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
 
             def cleanup() -> None:
                 subprocess.run(
-                    [*self._compose(compose_file, env_file), "down", "-v", "--remove-orphans"],
+                    [
+                        *self._compose(compose_file, env_file),
+                        "down",
+                        "-v",
+                        "--remove-orphans",
+                    ],
                     env=env,
                     capture_output=True,
                     text=True,
@@ -220,7 +272,9 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
                 users = sorted(username for _, username, _ in DBS.values())
 
                 roles = self._psql(
-                    compose_file, env_file, env,
+                    compose_file,
+                    env_file,
+                    env,
                     "SELECT rolname FROM pg_roles WHERE rolname IN ({}) ORDER BY 1;".format(  # noqa: S608 - test-only query over hardcoded DBS names
                         ",".join(f"'{u}'" for u in users)
                     ),
@@ -228,13 +282,17 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
                 self.assertEqual(roles, users)
 
                 stray = self._psql(
-                    compose_file, env_file, env,
+                    compose_file,
+                    env_file,
+                    env,
                     "SELECT rolname FROM pg_roles WHERE rolname IN ('analytics', 'dagster', 'superset');",
                 )
                 self.assertEqual(stray, "", f"stray hardcoded roles exist: {stray!r}")
 
                 databases = self._psql(
-                    compose_file, env_file, env,
+                    compose_file,
+                    env_file,
+                    env,
                     "SELECT datname FROM pg_database WHERE datname IN ({}) ORDER BY 1;".format(  # noqa: S608 - test-only query over hardcoded DBS names
                         ",".join(f"'{d}'" for d in names)
                     ),
@@ -245,7 +303,9 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
                 # default, so only datacl entries prove the GRANTs ran.
                 for _prefix, (dbname, username, _password) in DBS.items():
                     datacl = self._psql(
-                        compose_file, env_file, env,
+                        compose_file,
+                        env_file,
+                        env,
                         f"SELECT datacl::text FROM pg_database WHERE datname = '{dbname}';",  # noqa: S608 - test-only query over hardcoded DBS names
                     )
                     self.assertIn(
@@ -257,8 +317,13 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
                 for _prefix, (dbname, username, password) in DBS.items():
                     self.assertEqual(
                         self._psql(
-                            compose_file, env_file, env, "SELECT 1;",
-                            user=username, dbname=dbname, password=password,
+                            compose_file,
+                            env_file,
+                            env,
+                            "SELECT 1;",
+                            user=username,
+                            dbname=dbname,
+                            password=password,
                         ),
                         "1",
                     )
@@ -266,9 +331,13 @@ class VaultInitDbRuntimeTest(unittest.TestCase):
                 for _prefix, (dbname, username, password) in DBS.items():
                     self.assertEqual(
                         self._psql(
-                            compose_file, env_file, env,
+                            compose_file,
+                            env_file,
+                            env,
                             f"SELECT has_schema_privilege('{username}', 'public', 'CREATE');",  # noqa: S608 - test-only query over hardcoded DBS names
-                            user=username, dbname=dbname, password=password,
+                            user=username,
+                            dbname=dbname,
+                            password=password,
                         ),
                         "t",
                         f"{username} lacks CREATE on {dbname}.public",

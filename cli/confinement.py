@@ -4,6 +4,7 @@ A profile declares a default under `spec.security.runtime.confinement`; a
 module instance may override individual keys under `security.confinement`.
 The effective value is rendered into each service's `security_opt`.
 """
+
 from __future__ import annotations
 
 import os
@@ -49,7 +50,9 @@ def effective_confinement(
     defaults: dict[str, Any] | None, override: dict[str, Any] | None
 ) -> dict[str, Any]:
     """Profile defaults with the module instance's keys layered on top."""
-    merged = {key: value for key, value in (defaults or {}).items() if key in CONFINEMENT_KEYS}
+    merged = {
+        key: value for key, value in (defaults or {}).items() if key in CONFINEMENT_KEYS
+    }
     for key, value in (override or {}).items():
         if key in CONFINEMENT_KEYS:
             merged[key] = value
@@ -67,10 +70,12 @@ def validate_confinement(
     diagnostics: list[Diagnostic] = []
     for key in block:
         if key not in CONFINEMENT_KEYS:
-            diagnostics.append(_error(
-                f"Unknown confinement key '{key}'; supported keys: {', '.join(CONFINEMENT_KEYS)}.",
-                f"{path}.{key}",
-            ))
+            diagnostics.append(
+                _error(
+                    f"Unknown confinement key '{key}'; supported keys: {', '.join(CONFINEMENT_KEYS)}.",
+                    f"{path}.{key}",
+                )
+            )
 
     seccomp = block.get("seccomp")
     if seccomp is not None:
@@ -78,13 +83,18 @@ def validate_confinement(
     apparmor = block.get("apparmor")
     if apparmor is not None and not (
         isinstance(apparmor, str)
-        and (apparmor in {"runtime/default", "unconfined"} or _APPARMOR_NAME_RE.match(apparmor))
+        and (
+            apparmor in {"runtime/default", "unconfined"}
+            or _APPARMOR_NAME_RE.match(apparmor)
+        )
     ):
-        diagnostics.append(_error(
-            "apparmor must be 'runtime/default', 'unconfined' or the name of a profile "
-            "already loaded on the host (letters, digits, '.', '_', '-', '/').",
-            f"{path}.apparmor",
-        ))
+        diagnostics.append(
+            _error(
+                "apparmor must be 'runtime/default', 'unconfined' or the name of a profile "
+                "already loaded on the host (letters, digits, '.', '_', '-', '/').",
+                f"{path}.apparmor",
+            )
+        )
     selinux = block.get("selinux")
     if selinux is not None:
         diagnostics.extend(_validate_selinux(selinux, f"{path}.selinux"))
@@ -95,16 +105,21 @@ def _validate_seccomp(value: Any, path: str, base_dir: Path | None) -> list[Diag
     if value in {"default", "unconfined"}:
         return []
     if not isinstance(value, str) or not value.startswith("file:") or len(value) == 5:
-        return [_error(
-            "seccomp must be 'default', 'unconfined' or 'file:<path to a JSON profile "
-            "relative to the profile directory>'.",
-            path,
-        )]
+        return [
+            _error(
+                "seccomp must be 'default', 'unconfined' or 'file:<path to a JSON profile "
+                "relative to the profile directory>'.",
+                path,
+            )
+        ]
     relative = value[5:]
     if base_dir is None:
-        return [_error(
-            "seccomp file profiles need a known profile directory to resolve against.", path
-        )]
+        return [
+            _error(
+                "seccomp file profiles need a known profile directory to resolve against.",
+                path,
+            )
+        ]
     # Reject rooted and drive-qualified paths explicitly: they are not
     # "absolute" to pathlib on every platform (e.g. "/x" on Windows).
     if (
@@ -113,14 +128,17 @@ def _validate_seccomp(value: Any, path: str, base_dir: Path | None) -> list[Diag
         or _DRIVE_RE.match(relative)
         or ".." in Path(relative).parts
     ):
-        return [_error(
-            "seccomp file profiles must be relative paths inside the profile directory.", path
-        )]
+        return [
+            _error(
+                "seccomp file profiles must be relative paths inside the profile directory.",
+                path,
+            )
+        ]
     target = (base_dir / relative).resolve()
     if not target.is_relative_to(base_dir.resolve()):
-        return [_error(
-            "seccomp file profile resolves outside the profile directory.", path
-        )]
+        return [
+            _error("seccomp file profile resolves outside the profile directory.", path)
+        ]
     if not target.is_file():
         return [_error(f"seccomp profile '{relative}' does not exist.", path)]
     return []
@@ -129,26 +147,36 @@ def _validate_seccomp(value: Any, path: str, base_dir: Path | None) -> list[Diag
 def _validate_selinux(value: Any, path: str) -> list[Diagnostic]:
     if value == "disable":
         return []
-    if not isinstance(value, list) or not value or not all(isinstance(v, str) for v in value):
-        return [_error(
-            "selinux must be 'disable' or a non-empty list of labels such as "
-            "'type:container_t' or 'level:s0:c100,c200'.",
-            path,
-        )]
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(isinstance(v, str) for v in value)
+    ):
+        return [
+            _error(
+                "selinux must be 'disable' or a non-empty list of labels such as "
+                "'type:container_t' or 'level:s0:c100,c200'.",
+                path,
+            )
+        ]
     bad = [label for label in value if not _SELINUX_LABEL_RE.match(label)]
     if bad:
-        return [_error(
-            f"Invalid SELinux label(s): {', '.join(bad)}; expected user:, role:, type: or level: values.",
-            path,
-        )]
+        return [
+            _error(
+                f"Invalid SELinux label(s): {', '.join(bad)}; expected user:, role:, type: or level: values.",
+                path,
+            )
+        ]
     kinds = [label.split(":", 1)[0] for label in value]
     duplicates = sorted({k for k in kinds if kinds.count(k) > 1})
     if duplicates:
-        return [_error(
-            f"Duplicate SELinux label kind(s): {', '.join(duplicates)}; "
-            "each of user:, role:, type: and level: may appear at most once.",
-            path,
-        )]
+        return [
+            _error(
+                f"Duplicate SELinux label kind(s): {', '.join(duplicates)}; "
+                "each of user:, role:, type: and level: may appear at most once.",
+                path,
+            )
+        ]
     return []
 
 
@@ -193,11 +221,13 @@ def apply_confinement(
     try:
         new_opts = confinement_security_opts(confinement, compose_dir, base_dir)
     except ValueError:
-        return [_error(
-            "seccomp file profile cannot be referenced relative to the generated "
-            "docker-compose.yml (different drive); render into the profile's drive.",
-            f"{path}.seccomp",
-        )]
+        return [
+            _error(
+                "seccomp file profile cannot be referenced relative to the generated "
+                "docker-compose.yml (different drive); render into the profile's drive.",
+                f"{path}.seccomp",
+            )
+        ]
     existing = [str(opt) for opt in service.get("security_opt") or []]
     replaced = {
         "seccomp": ("seccomp=", "seccomp:"),
@@ -205,7 +235,11 @@ def apply_confinement(
         "selinux": ("label=", "label:"),
     }
     prefixes = tuple(p for key in confinement for p in replaced.get(key, ()))
-    kept = [opt for opt in existing if not opt.startswith(prefixes)] if prefixes else existing
+    kept = (
+        [opt for opt in existing if not opt.startswith(prefixes)]
+        if prefixes
+        else existing
+    )
     # `default` seccomp means "engine default", so it only clears module-set values.
     merged = kept + new_opts
     if merged:
@@ -216,4 +250,6 @@ def apply_confinement(
 
 
 def _error(message: str, path: str) -> Diagnostic:
-    return Diagnostic(level="error", code=INVALID_CONFINEMENT_CODE, message=message, path=path)
+    return Diagnostic(
+        level="error", code=INVALID_CONFINEMENT_CODE, message=message, path=path
+    )

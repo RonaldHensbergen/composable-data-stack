@@ -54,7 +54,12 @@ class FlattenModuleProductionSuitabilityTest(unittest.TestCase):
     """cli/security.py resolving each module's own module.yaml to check productionSuitable."""
 
     def test_exposes_production_suitable_false_from_the_real_vault_module(self):
-        profile_path = _REPO_ROOT / "profiles" / "local-dagster-postgres-superset-vault" / "profile.yaml"
+        profile_path = (
+            _REPO_ROOT
+            / "profiles"
+            / "local-dagster-postgres-superset-vault"
+            / "profile.yaml"
+        )
         import yaml
 
         profile = yaml.safe_load(profile_path.read_text())
@@ -67,7 +72,12 @@ class FlattenModuleProductionSuitabilityTest(unittest.TestCase):
         self.assertEqual(marker, [("vault", "_module.productionSuitable", False)])
 
     def test_no_marker_without_profile_dir(self):
-        profile_path = _REPO_ROOT / "profiles" / "local-dagster-postgres-superset-vault" / "profile.yaml"
+        profile_path = (
+            _REPO_ROOT
+            / "profiles"
+            / "local-dagster-postgres-superset-vault"
+            / "profile.yaml"
+        )
         import yaml
 
         profile = yaml.safe_load(profile_path.read_text())
@@ -102,8 +112,14 @@ class FlattenModuleProductionSuitabilityTest(unittest.TestCase):
                             "productionSuitable": False,
                         },
                         "spec": {
-                            "configSchema": {"type": "object", "additionalProperties": False},
-                            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                            "configSchema": {
+                                "type": "object",
+                                "additionalProperties": False,
+                            },
+                            "implementation": {
+                                "kind": "docker-compose",
+                                "compose": {"services": {}},
+                            },
                         },
                     }
                 ),
@@ -113,7 +129,12 @@ class FlattenModuleProductionSuitabilityTest(unittest.TestCase):
             profile = {
                 "spec": {
                     "modules": [
-                        {"id": "custom", "source": "secrets/custom", "enabled": True, "config": {}}
+                        {
+                            "id": "custom",
+                            "source": "secrets/custom",
+                            "enabled": True,
+                            "config": {},
+                        }
                     ]
                 }
             }
@@ -121,7 +142,9 @@ class FlattenModuleProductionSuitabilityTest(unittest.TestCase):
             with patch.dict(os.environ, {"CDS_MODULE_PATH": str(modules_root)}):
                 flat = _flatten_profile_by_module(profile, profile_dir=profile_dir)
 
-            markers = [(m, p, v) for m, p, v in flat if p == "_module.productionSuitable"]
+            markers = [
+                (m, p, v) for m, p, v in flat if p == "_module.productionSuitable"
+            ]
             self.assertEqual(markers, [("custom", "_module.productionSuitable", False)])
 
 
@@ -137,7 +160,9 @@ class ContradictoryProductionDeclarationRuleTest(unittest.TestCase):
         flat_items = [("vault", "_module.productionSuitable", False)]
         for profile_class in ("staging", "prod"):
             with self.subTest(profile_class=profile_class):
-                findings = _rule_matches(self.rule, flat_items, profile_class=profile_class)
+                findings = _rule_matches(
+                    self.rule, flat_items, profile_class=profile_class
+                )
                 self.assertEqual(len(findings), 1)
                 self.assertEqual(findings[0]["module"], "vault")
 
@@ -145,7 +170,9 @@ class ContradictoryProductionDeclarationRuleTest(unittest.TestCase):
         flat_items = [("vault", "_module.productionSuitable", False)]
         for profile_class in ("local", "dev"):
             with self.subTest(profile_class=profile_class):
-                findings = _rule_matches(self.rule, flat_items, profile_class=profile_class)
+                findings = _rule_matches(
+                    self.rule, flat_items, profile_class=profile_class
+                )
                 self.assertEqual(findings, [])
 
     def test_does_not_fire_when_no_module_is_flagged(self):
@@ -161,8 +188,15 @@ class RealVaultProfileEndToEndTest(unittest.TestCase):
     """
 
     def test_current_local_declaration_is_clean(self):
-        profile_path = _REPO_ROOT / "profiles" / "local-dagster-postgres-superset-vault" / "profile.yaml"
-        findings, _diags = run_security_validation(profile_path, _RULE_SCHEMA_PATH, _RULE_SET_PATH)
+        profile_path = (
+            _REPO_ROOT
+            / "profiles"
+            / "local-dagster-postgres-superset-vault"
+            / "profile.yaml"
+        )
+        findings, _diags = run_security_validation(
+            profile_path, _RULE_SCHEMA_PATH, _RULE_SET_PATH
+        )
         hits = [f for f in findings if f["rule_id"] == "CDS-SEC-073"]
         self.assertEqual(hits, [])
 
@@ -187,7 +221,12 @@ class RealVaultProfileEndToEndTest(unittest.TestCase):
         from cli.renderer import render_compose
         from cli.security import PrecomputedRender
 
-        profile_path = _REPO_ROOT / "profiles" / "local-dagster-postgres-superset-vault" / "profile.yaml"
+        profile_path = (
+            _REPO_ROOT
+            / "profiles"
+            / "local-dagster-postgres-superset-vault"
+            / "profile.yaml"
+        )
         profile = yaml.safe_load(profile_path.read_text())
         secret_values = profile["spec"]["secrets"]["values"]
 
@@ -206,7 +245,9 @@ class RealVaultProfileEndToEndTest(unittest.TestCase):
                 [d for d in plan_diags if d.level == "error"],
                 f"expected the real vault profile to plan cleanly, got: {plan_diags}",
             )
-            rendered_compose_yaml, render_diags = render_compose(plan, env_file=str(env_path))
+            rendered_compose_yaml, render_diags = render_compose(
+                plan, env_file=str(env_path)
+            )
             self.assertFalse(
                 [d for d in render_diags if d.level == "error"],
                 f"expected the real vault profile to render cleanly, got: {render_diags}",
@@ -218,11 +259,14 @@ class RealVaultProfileEndToEndTest(unittest.TestCase):
                 _RULE_SET_PATH,
                 env_file=str(env_path),
                 precomputed_render=PrecomputedRender(
-                    plan=plan, rendered_compose_yaml=rendered_compose_yaml,
+                    plan=plan,
+                    rendered_compose_yaml=rendered_compose_yaml,
                 ),
             )
             hits = [f for f in findings if f["rule_id"] == "CDS-SEC-070"]
-            self.assertEqual(hits, [], f"unexpected CDS-SEC-070 false positive(s): {hits}")
+            self.assertEqual(
+                hits, [], f"unexpected CDS-SEC-070 false positive(s): {hits}"
+            )
 
 
 if __name__ == "__main__":

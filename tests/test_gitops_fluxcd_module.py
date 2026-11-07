@@ -13,6 +13,7 @@ Covers the acceptance criteria of #767:
 - Raw kubernetes.manifests entries are shape-checked (E151) and gated by
   enabledFrom, and manifest-only modules get no ServiceAccount/NetworkPolicy.
 """
+
 import json
 import tempfile
 import unittest
@@ -161,16 +162,22 @@ class FluxcdRenderTest(unittest.TestCase):
 
         source = yaml.safe_load(files["templates/gitops-manifest-git-repository.yaml"])
         self.assertEqual(source["kind"], "GitRepository")
-        self.assertEqual(source["metadata"]["name"], "{{ .Release.Name }}-gitops-source")
+        self.assertEqual(
+            source["metadata"]["name"], "{{ .Release.Name }}-gitops-source"
+        )
         self.assertEqual(source["metadata"]["namespace"], "flux-system")
         self.assertEqual(source["spec"]["url"], FLUXCD_CONFIG["repositoryUrl"])
         self.assertEqual(source["spec"]["ref"]["branch"], "main")
         self.assertEqual(source["spec"]["interval"], "1m0s")
         self.assertEqual(source["metadata"]["labels"]["cds.dev/module"], "gitops")
 
-        kustomization = yaml.safe_load(files["templates/gitops-manifest-kustomization.yaml"])
+        kustomization = yaml.safe_load(
+            files["templates/gitops-manifest-kustomization.yaml"]
+        )
         self.assertEqual(kustomization["kind"], "Kustomization")
-        self.assertEqual(kustomization["metadata"]["name"], "{{ .Release.Name }}-gitops")
+        self.assertEqual(
+            kustomization["metadata"]["name"], "{{ .Release.Name }}-gitops"
+        )
         self.assertEqual(kustomization["spec"]["path"], "clusters/local/rendered")
         self.assertIs(kustomization["spec"]["prune"], True)
         self.assertEqual(kustomization["spec"]["targetNamespace"], "cds-local")
@@ -188,7 +195,9 @@ class FluxcdRenderTest(unittest.TestCase):
         self.assertIn("templates/gitops-manifest-helm-release.yaml", files)
         self.assertNotIn("templates/gitops-manifest-kustomization.yaml", files)
 
-        helm_release = yaml.safe_load(files["templates/gitops-manifest-helm-release.yaml"])
+        helm_release = yaml.safe_load(
+            files["templates/gitops-manifest-helm-release.yaml"]
+        )
         self.assertEqual(helm_release["kind"], "HelmRelease")
         self.assertEqual(helm_release["spec"]["releaseName"], "demo")
         self.assertEqual(helm_release["spec"]["targetNamespace"], "cds-local")
@@ -199,7 +208,9 @@ class FluxcdRenderTest(unittest.TestCase):
             {"kind": "GitRepository", "name": "{{ .Release.Name }}-gitops-source"},
         )
 
-    def test_manifest_only_module_gets_no_service_account_or_network_policy(self) -> None:
+    def test_manifest_only_module_gets_no_service_account_or_network_policy(
+        self,
+    ) -> None:
         files = self._render(dict(FLUXCD_CONFIG))
         self.assertNotIn("templates/gitops-service-account.yaml", files)
         self.assertNotIn("templates/gitops-network-policy.yaml", files)
@@ -296,9 +307,7 @@ class RawManifestDiagnosticsTest(unittest.TestCase):
                 },
             )
         )
-        self.assertEqual(
-            [d.format() for d in diagnostics if d.level == "error"], []
-        )
+        self.assertEqual([d.format() for d in diagnostics if d.level == "error"], [])
         self.assertNotIn("templates/gitops-manifest-policy.yaml", files)
         for name, port in (("warehouse", 5432), ("cache", 6379)):
             path = f"templates/gitops-manifest-policy-allow-{name}.yaml"
@@ -323,12 +332,8 @@ class RawManifestDiagnosticsTest(unittest.TestCase):
         files, diagnostics = render_helm(
             self._plan({"policy": self._fanout_manifest()}, config={"services": []})
         )
-        self.assertEqual(
-            [d.format() for d in diagnostics if d.level == "error"], []
-        )
-        self.assertEqual(
-            [name for name in files if "manifest-policy" in name], []
-        )
+        self.assertEqual([d.format() for d in diagnostics if d.level == "error"], [])
+        self.assertEqual([name for name in files if "manifest-policy" in name], [])
 
     def test_for_each_non_list_fails_closed_with_e156(self) -> None:
         _, diagnostics = render_helm(
@@ -355,7 +360,9 @@ class RawManifestDiagnosticsTest(unittest.TestCase):
         _, diagnostics = render_helm(
             self._plan(
                 {"policy": self._fanout_manifest()},
-                config={"services": [{"name": "a", "port": 1}, {"name": "a", "port": 2}]},
+                config={
+                    "services": [{"name": "a", "port": 1}, {"name": "a", "port": 2}]
+                },
             )
         )
         self.assertIn("E156", [d.code for d in diagnostics if d.level == "error"])
@@ -369,12 +376,8 @@ class RawManifestDiagnosticsTest(unittest.TestCase):
                 config={"on": False, "services": [{"name": "a", "port": 1}]},
             )
         )
-        self.assertEqual(
-            [d.format() for d in diagnostics if d.level == "error"], []
-        )
-        self.assertEqual(
-            [name for name in files if "manifest-policy" in name], []
-        )
+        self.assertEqual([d.format() for d in diagnostics if d.level == "error"], [])
+        self.assertEqual([name for name in files if "manifest-policy" in name], [])
 
     def test_unresolved_item_reference_fails_closed_with_e071(self) -> None:
         _, diagnostics = render_helm(
@@ -403,9 +406,7 @@ class RawManifestDiagnosticsTest(unittest.TestCase):
                 }
             )
         )
-        self.assertEqual(
-            [d.format() for d in diagnostics if d.level == "error"], []
-        )
+        self.assertEqual([d.format() for d in diagnostics if d.level == "error"], [])
         templated = yaml.safe_load(files["templates/gitops-manifest-templated.yaml"])
         plain = yaml.safe_load(files["templates/gitops-manifest-plain.yaml"])
         self.assertEqual(templated["metadata"]["name"], "{{ .Release.Name }}-already")

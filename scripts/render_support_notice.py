@@ -7,6 +7,7 @@ remember to write it by hand. The policy itself lives in
 `docs/security-support-policy.md`; this script only renders the standard
 notice described there (Section 4, "End-of-support communication").
 """
+
 from __future__ import annotations
 
 import sys

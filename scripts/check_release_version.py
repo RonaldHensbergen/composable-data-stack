@@ -4,6 +4,7 @@
 Used by .github/workflows/release.yml to fail fast when a `vX.Y.Z` tag is
 pushed without first bumping the `project.version` field in pyproject.toml.
 """
+
 from __future__ import annotations
 
 import sys

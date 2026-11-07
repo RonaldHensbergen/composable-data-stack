@@ -20,6 +20,7 @@ sql-database provider that advertises a non-Postgres engine fails
 metadataDatabase.driver at its postgres default and when it sets one
 explicitly), while matching the advertised engine passes.
 """
+
 import shutil
 import tempfile
 import unittest
@@ -106,13 +107,20 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                         "rtoMinutes": 240,
                         "restoreVerification": {"frequencyDays": 30},
                     }
-                    for workload_class in ("configuration", "identity-metadata", "warehouse")
+                    for workload_class in (
+                        "configuration",
+                        "identity-metadata",
+                        "warehouse",
+                    )
                 ],
             }
         profile = {
             "apiVersion": "cds/v1alpha1",
             "kind": "Profile",
-            "metadata": {"name": "keycloak-postgres-wiring", "environment": environment},
+            "metadata": {
+                "name": "keycloak-postgres-wiring",
+                "environment": environment,
+            },
             "spec": {
                 "runtime": {"type": "docker-compose"},
                 "modules": [
@@ -163,20 +171,23 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
             ):
                 diagnostics = validate_profile(str(profile_file))
                 self.assertEqual(
-                    [d for d in diagnostics if d.level == "error"], [],
+                    [d for d in diagnostics if d.level == "error"],
+                    [],
                     msg=f"unexpected validation errors: {diagnostics}",
                 )
 
                 plan, plan_diags = build_plan(str(profile_file), env_file=str(env_file))
                 self.assertIsNotNone(plan)
                 self.assertEqual(
-                    [d for d in plan_diags if d.level == "error"], [],
+                    [d for d in plan_diags if d.level == "error"],
+                    [],
                     msg=f"unexpected plan errors: {plan_diags}",
                 )
 
                 output, render_diags = render_compose(plan, env_file=str(env_file))
                 self.assertEqual(
-                    [d for d in render_diags if d.level == "error"], [],
+                    [d for d in render_diags if d.level == "error"],
+                    [],
                     msg=f"unexpected render errors: {render_diags}",
                 )
 
@@ -200,7 +211,9 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                 self.assertEqual(keycloak_env["KC_DB_URL_PORT"], 5432)
                 self.assertEqual(keycloak_env["KC_DB_URL_DATABASE"], "identity")
                 self.assertEqual(keycloak_env["KC_DB_USERNAME"], "identity")
-                self.assertEqual(keycloak_env["KC_DB_PASSWORD"], "${CDS_IDENTITY_DB_PASSWORD}")
+                self.assertEqual(
+                    keycloak_env["KC_DB_PASSWORD"], "${CDS_IDENTITY_DB_PASSWORD}"
+                )
 
                 # KC_DB is derived from config.metadataDatabase.driver (not
                 # hardcoded) and defaults to "postgres" when the profile
@@ -246,7 +259,8 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                 self.assertIsNotNone(plan)
                 output, render_diags = render_compose(plan, env_file=str(env_file))
                 self.assertEqual(
-                    [d for d in render_diags if d.level == "error"], [],
+                    [d for d in render_diags if d.level == "error"],
+                    [],
                     msg=f"unexpected render errors: {render_diags}",
                 )
 
@@ -261,7 +275,9 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
 
                 # The rendered mode the script will read at container runtime
                 # is the module's configSchema default (production, #974).
-                self.assertEqual(service["environment"]["CDS_WEBSERVER_MODE"], "production")
+                self.assertEqual(
+                    service["environment"]["CDS_WEBSERVER_MODE"], "production"
+                )
 
                 # Production mode must boot without a configured hostname
                 # (plain-HTTP-behind-proxy topology, docs/serving-modes.md).
@@ -279,7 +295,9 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
         env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return env_file
 
-    def test_production_profile_without_explicit_mode_passes_e140_and_renders_production(self):
+    def test_production_profile_without_explicit_mode_passes_e140_and_renders_production(
+        self,
+    ):
         # E140 absent-mode regression (issue #974): E140 only rejects an
         # *explicit* webServer.mode "development" in a production profile,
         # because validation runs before configSchema defaults apply -- an
@@ -291,18 +309,18 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
         # CDS_WEBSERVER_MODE=production, so it can never silently run
         # `start-dev` at runtime.
         module_def = yaml.safe_load(
-            (_REPO_ROOT / "modules" / "identity" / "keycloak" / "module.yaml").read_text(
-                encoding="utf-8"
-            )
+            (
+                _REPO_ROOT / "modules" / "identity" / "keycloak" / "module.yaml"
+            ).read_text(encoding="utf-8")
         )
         self.assertNotEqual(
             module_def["metadata"].get("productionSuitable", True),
             False,
             msg="keycloak must be production-suitable (productionSuitable: true)",
         )
-        mode_schema = module_def["spec"]["configSchema"]["properties"]["webServer"]["properties"][
-            "mode"
-        ]
+        mode_schema = module_def["spec"]["configSchema"]["properties"]["webServer"][
+            "properties"
+        ]["mode"]
         self.assertEqual(
             mode_schema.get("default"),
             "production",
@@ -324,19 +342,23 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                     msg=f"production profile with keycloak and no explicit mode must validate: {diagnostics}",
                 )
                 self.assertNotIn(
-                    "E140", [d.code for d in diagnostics], msg=f"unexpected E140: {diagnostics}"
+                    "E140",
+                    [d.code for d in diagnostics],
+                    msg=f"unexpected E140: {diagnostics}",
                 )
 
                 plan, plan_diags = build_plan(str(profile_file), env_file=str(env_file))
                 self.assertIsNotNone(plan)
                 self.assertEqual(
-                    [d for d in plan_diags if d.level == "error"], [],
+                    [d for d in plan_diags if d.level == "error"],
+                    [],
                     msg=f"unexpected plan errors: {plan_diags}",
                 )
 
                 output, render_diags = render_compose(plan, env_file=str(env_file))
                 self.assertEqual(
-                    [d for d in render_diags if d.level == "error"], [],
+                    [d for d in render_diags if d.level == "error"],
+                    [],
                     msg=f"unexpected render errors: {render_diags}",
                 )
 
@@ -351,7 +373,9 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             profile_dir = Path(root)
             profile_file = self._write_profile(
-                profile_dir, environment="production", keycloak_web_server_mode="development"
+                profile_dir,
+                environment="production",
+                keycloak_web_server_mode="development",
             )
 
             with mock.patch.dict(
@@ -361,9 +385,7 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                 e140 = [d for d in diagnostics if d.code == "E140"]
                 self.assertEqual(len(e140), 1)
                 self.assertEqual(e140[0].level, "error")
-                self.assertEqual(
-                    e140[0].path, "spec.modules[1].config.webServer.mode"
-                )
+                self.assertEqual(e140[0].path, "spec.modules[1].config.webServer.mode")
 
     def test_host_port_binds_localhost_and_honors_config(self):
         with tempfile.TemporaryDirectory() as root:
@@ -383,20 +405,23 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
             ):
                 diagnostics = validate_profile(str(profile_file))
                 self.assertEqual(
-                    [d for d in diagnostics if d.level == "error"], [],
+                    [d for d in diagnostics if d.level == "error"],
+                    [],
                     msg=f"unexpected validation errors: {diagnostics}",
                 )
 
                 plan, plan_diags = build_plan(str(profile_file), env_file=str(env_file))
                 self.assertIsNotNone(plan)
                 self.assertEqual(
-                    [d for d in plan_diags if d.level == "error"], [],
+                    [d for d in plan_diags if d.level == "error"],
+                    [],
                     msg=f"unexpected plan errors: {plan_diags}",
                 )
 
                 output, render_diags = render_compose(plan, env_file=str(env_file))
                 self.assertEqual(
-                    [d for d in render_diags if d.level == "error"], [],
+                    [d for d in render_diags if d.level == "error"],
+                    [],
                     msg=f"unexpected render errors: {render_diags}",
                 )
 
@@ -556,7 +581,8 @@ class KeycloakEngineGuardTest(unittest.TestCase):
     def test_matching_explicit_driver_passes_validation(self):
         diagnostics = self._validate(driver="mysql")
         self.assertEqual(
-            [d for d in diagnostics if d.level == "error"], [],
+            [d for d in diagnostics if d.level == "error"],
+            [],
             msg=f"unexpected validation errors: {diagnostics}",
         )
 

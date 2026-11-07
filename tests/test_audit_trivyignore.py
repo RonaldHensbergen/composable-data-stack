@@ -47,7 +47,9 @@ def _report(*ids, fixed=None):
 class AuditTrivyignoreTest(unittest.TestCase):
     def test_parse_entries_skips_comments_and_blank_lines(self):
         entries = audit_trivyignore.parse_entries(IGNORE)
-        self.assertEqual([e.vuln_id for e in entries], ["CVE-2026-0001", "CVE-2026-0002"])
+        self.assertEqual(
+            [e.vuln_id for e in entries], ["CVE-2026-0001", "CVE-2026-0002"]
+        )
         self.assertEqual(entries[1].line, 5)
 
     def test_reported_ids_handles_results_without_vulnerabilities(self):
@@ -94,7 +96,9 @@ class AuditTrivyignoreTest(unittest.TestCase):
             out = tmp / "out.md"
             args = ["--ignore", str(ignore), "--output", str(out), str(report)]
 
-            report.write_text(_report("CVE-2099-0001", "CVE-2099-0002"), encoding="utf-8")
+            report.write_text(
+                _report("CVE-2099-0001", "CVE-2099-0002"), encoding="utf-8"
+            )
             self.assertEqual(audit_trivyignore.main(args + ["--warn-days", "0"]), 0)
             self.assertFalse(out.exists())
 
@@ -114,7 +118,9 @@ class AuditTrivyignoreTest(unittest.TestCase):
             bad = Path(tmp) / "bad.json"
             bad.write_text("not json", encoding="utf-8")
             self.assertEqual(
-                audit_trivyignore.main(["--ignore", str(REPO_ROOT / ".trivyignore"), str(bad)]),
+                audit_trivyignore.main(
+                    ["--ignore", str(REPO_ROOT / ".trivyignore"), str(bad)]
+                ),
                 1,
             )
 
@@ -133,7 +139,9 @@ class TrivyignoreAuditWorkflowTest(unittest.TestCase):
         self.workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
         steps = self.workflow["jobs"]["audit"]["steps"]
         self.scan_step = next(
-            step for step in steps if step.get("name") == "Scan published images without the ignore file"
+            step
+            for step in steps
+            if step.get("name") == "Scan published images without the ignore file"
         )
 
     def test_scan_does_not_ignore_unfixed_findings(self) -> None:

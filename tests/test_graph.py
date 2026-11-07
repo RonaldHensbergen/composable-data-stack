@@ -32,7 +32,9 @@ class GraphValidationTest(unittest.TestCase):
         # fire for a self-referencing module.
         self.assertEqual(len(diagnostics), 2)
         self.assertTrue(all(d.code == "E040" for d in diagnostics))
-        self.assertTrue(any("cannot depend on itself" in d.message for d in diagnostics))
+        self.assertTrue(
+            any("cannot depend on itself" in d.message for d in diagnostics)
+        )
 
     def test_direct_cycle_is_detected(self):
         module_ids = {"a", "b"}
@@ -59,9 +61,7 @@ class GraphValidationTest(unittest.TestCase):
         # RecursionError.
         depth = 900
         module_ids = {f"m{i}" for i in range(depth)}
-        depends_on_map = {
-            f"m{i}": [f"m{i - 1}"] if i > 0 else [] for i in range(depth)
-        }
+        depends_on_map = {f"m{i}": [f"m{i - 1}"] if i > 0 else [] for i in range(depth)}
 
         diagnostics = validate_dependency_graph(module_ids, depends_on_map)
 

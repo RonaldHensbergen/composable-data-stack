@@ -22,6 +22,7 @@ variables, not values, and connection URIs are redacted through
 ``redact_uri`` before display. See ``docs/runtime-api.md`` for the full
 environment convention and API reference.
 """
+
 from .connections import close_all, database
 from .database import DatabaseConnection
 from .errors import (

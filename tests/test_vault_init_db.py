@@ -16,7 +16,9 @@ from cli.renderer import render_compose
 from cli.validator import validate_profile
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-VAULT_PROFILE = REPO_ROOT / "profiles" / "local-dagster-postgres-superset-vault" / "profile.yaml"
+VAULT_PROFILE = (
+    REPO_ROOT / "profiles" / "local-dagster-postgres-superset-vault" / "profile.yaml"
+)
 SCRIPT = REPO_ROOT / "profiles" / "local-dagster-postgres-superset-vault" / "init-db.sh"
 
 _EXPECTED_INIT_ENV = {
@@ -45,7 +47,9 @@ class VaultInitDbTest(unittest.TestCase):
     def test_every_psql_variable_is_passed_via_dash_v(self) -> None:
         text = _read_script()
         header, _, body = text.partition("<<'SQL'")
-        defined = set(re.findall(r"^\s*-v\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", header, re.M))
+        defined = set(
+            re.findall(r"^\s*-v\s+([A-Za-z_][A-Za-z0-9_]*)\s*=", header, re.M)
+        )
         referenced = set(re.findall(r":['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]", body))
         referenced |= set(re.findall(r"(?<![':]):([A-Za-z_][A-Za-z0-9_]*)", body))
         self.assertTrue(referenced, "expected psql variable references in init-db.sh")
@@ -66,11 +70,14 @@ class VaultInitDbWiringTest(unittest.TestCase):
     into postgres and delivers every variable the script reads."""
 
     def test_rendered_postgres_service_mounts_script_and_env(self) -> None:
-        self.assertTrue(VAULT_PROFILE.exists(), f"Vault profile not found at {VAULT_PROFILE}")
+        self.assertTrue(
+            VAULT_PROFILE.exists(), f"Vault profile not found at {VAULT_PROFILE}"
+        )
 
         diagnostics = validate_profile(str(VAULT_PROFILE))
         self.assertEqual(
-            [d for d in diagnostics if d.level == "error"], [],
+            [d for d in diagnostics if d.level == "error"],
+            [],
             msg=f"unexpected validation errors: {diagnostics}",
         )
 
@@ -96,13 +103,15 @@ class VaultInitDbWiringTest(unittest.TestCase):
             plan, plan_diags = build_plan(str(VAULT_PROFILE), env_file=str(env_file))
             self.assertIsNotNone(plan)
             self.assertEqual(
-                [d for d in plan_diags if d.level == "error"], [],
+                [d for d in plan_diags if d.level == "error"],
+                [],
                 msg=f"unexpected plan errors: {plan_diags}",
             )
 
             output, render_diags = render_compose(plan, env_file=str(env_file))
             self.assertEqual(
-                [d for d in render_diags if d.level == "error"], [],
+                [d for d in render_diags if d.level == "error"],
+                [],
                 msg=f"unexpected render errors: {render_diags}",
             )
 
@@ -112,8 +121,16 @@ class VaultInitDbWiringTest(unittest.TestCase):
             mounts = postgres.get("volumes", [])
             self.assertTrue(
                 any(
-                    (isinstance(v, dict) and v.get("target") == "/docker-entrypoint-initdb.d/init-db.sh")
-                    or (isinstance(v, str) and v.endswith("init-db.sh:/docker-entrypoint-initdb.d/init-db.sh"))
+                    (
+                        isinstance(v, dict)
+                        and v.get("target") == "/docker-entrypoint-initdb.d/init-db.sh"
+                    )
+                    or (
+                        isinstance(v, str)
+                        and v.endswith(
+                            "init-db.sh:/docker-entrypoint-initdb.d/init-db.sh"
+                        )
+                    )
                     for v in mounts
                 ),
                 f"init-db.sh not mounted into postgres: {mounts}",

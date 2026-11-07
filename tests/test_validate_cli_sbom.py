@@ -82,7 +82,10 @@ class ValidateSbomTest(unittest.TestCase):
         sbom = _valid_sbom()
         sbom["bomFormat"] = "SPDX"
         problems = validate_cli_sbom.validate_sbom(
-            sbom, expected_name="composable-data-stack", expected_version="0.9.1", required_dependency_names=[]
+            sbom,
+            expected_name="composable-data-stack",
+            expected_version="0.9.1",
+            required_dependency_names=[],
         )
         self.assertTrue(any("bomFormat" in p for p in problems))
 
@@ -90,7 +93,10 @@ class ValidateSbomTest(unittest.TestCase):
         sbom = _valid_sbom()
         del sbom["metadata"]["component"]
         problems = validate_cli_sbom.validate_sbom(
-            sbom, expected_name="composable-data-stack", expected_version="0.9.1", required_dependency_names=[]
+            sbom,
+            expected_name="composable-data-stack",
+            expected_version="0.9.1",
+            required_dependency_names=[],
         )
         self.assertTrue(any("metadata.component is missing" in p for p in problems))
 
@@ -98,7 +104,10 @@ class ValidateSbomTest(unittest.TestCase):
         sbom = _valid_sbom()
         sbom["metadata"]["component"]["name"] = "some-other-project"
         problems = validate_cli_sbom.validate_sbom(
-            sbom, expected_name="composable-data-stack", expected_version="0.9.1", required_dependency_names=[]
+            sbom,
+            expected_name="composable-data-stack",
+            expected_version="0.9.1",
+            required_dependency_names=[],
         )
         self.assertTrue(any("metadata.component.name" in p for p in problems))
 
@@ -106,7 +115,10 @@ class ValidateSbomTest(unittest.TestCase):
         sbom = _valid_sbom()
         sbom["metadata"]["component"]["name"] = "Composable_Data.Stack"
         problems = validate_cli_sbom.validate_sbom(
-            sbom, expected_name="composable-data-stack", expected_version="0.9.1", required_dependency_names=[]
+            sbom,
+            expected_name="composable-data-stack",
+            expected_version="0.9.1",
+            required_dependency_names=[],
         )
         self.assertEqual(problems, [])
 
@@ -114,7 +126,10 @@ class ValidateSbomTest(unittest.TestCase):
         sbom = _valid_sbom()
         sbom["metadata"]["component"]["version"] = "0.1.0"
         problems = validate_cli_sbom.validate_sbom(
-            sbom, expected_name="composable-data-stack", expected_version="0.9.1", required_dependency_names=[]
+            sbom,
+            expected_name="composable-data-stack",
+            expected_version="0.9.1",
+            required_dependency_names=[],
         )
         self.assertTrue(any("metadata.component.version" in p for p in problems))
 
@@ -124,14 +139,25 @@ class ValidateSbomTest(unittest.TestCase):
             sbom,
             expected_name="composable-data-stack",
             expected_version="0.9.1",
-            required_dependency_names=["jsonschema", "packaging", "rich", "nonexistent-dep"],
+            required_dependency_names=[
+                "jsonschema",
+                "packaging",
+                "rich",
+                "nonexistent-dep",
+            ],
         )
         self.assertEqual(len(problems), 1)
         self.assertIn("nonexistent-dep", problems[0])
 
     def test_dependency_check_is_case_and_separator_insensitive(self) -> None:
         sbom = _valid_sbom()
-        sbom["components"].append({"type": "library", "name": "jsonschema-specifications", "version": "2023.1"})
+        sbom["components"].append(
+            {
+                "type": "library",
+                "name": "jsonschema-specifications",
+                "version": "2023.1",
+            }
+        )
         problems = validate_cli_sbom.validate_sbom(
             sbom,
             expected_name="composable-data-stack",

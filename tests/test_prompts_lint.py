@@ -1,4 +1,5 @@
 """Tests for scripts/check_prompts.py — the prompt trust-boundary lint."""
+
 import importlib.util
 import sys
 import tempfile
@@ -201,7 +202,7 @@ class PromptsLintTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             wf = self._inference_workflow(
                 'gh issue list --repo "$GITHUB_REPOSITORY" --state open \\\n'
-                '  --json number,labels,milestone,createdAt,updatedAt,url \\\n'
+                "  --json number,labels,milestone,createdAt,updatedAt,url \\\n"
                 '  > "$RUNNER_TEMP/open-issues.json"'
             )
             path = self._workflow(Path(tmp), "wf.yml", wf)
@@ -272,7 +273,7 @@ class PromptsLintTest(unittest.TestCase):
         # access (e.g. .["tit"+"le"]) cannot be verified statically, so ANY
         # --jq on a gh collection command feeding file_input is rejected —
         # even one that looks metadata-only.
-        for jq in ('.[].title', '.[]."tit"+"le"', '.[].number'):
+        for jq in (".[].title", '.[]."tit"+"le"', ".[].number"):
             with tempfile.TemporaryDirectory() as tmp:
                 wf = self._inference_workflow(
                     f'gh issue list --json number,labels --jq "{jq}" > "$RUNNER_TEMP/open-issues.json"'
@@ -296,7 +297,7 @@ class PromptsLintTest(unittest.TestCase):
     def test_workflow_gh_api_graphql_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             wf = self._inference_workflow(
-                "gh api graphql -f query='query { repository(owner:\"O\", name:\"R\") { issues { nodes { body } } } }' > \"$RUNNER_TEMP/open-issues.json\""
+                'gh api graphql -f query=\'query { repository(owner:"O", name:"R") { issues { nodes { body } } } }\' > "$RUNNER_TEMP/open-issues.json"'
             )
             path = self._workflow(Path(tmp), "wf.yml", wf)
             errors = check_prompts.lint_workflow(path)
@@ -418,8 +419,8 @@ class PromptsLintTest(unittest.TestCase):
     def test_workflow_wget_and_python_fetchers_fail(self):
         for collect in (
             'wget -qO "$RUNNER_TEMP/open-issues.json" https://api.github.com/repos/O/R/pulls/3/comments',
-            'python3 -c "import urllib.request; urllib.request.urlretrieve(\'https://github.com/O/R/issues\', \'$RUNNER_TEMP/open-issues.json\')"',
-            'python3 -c "import requests; open(\'$RUNNER_TEMP/open-issues.json\',\'w\').write(requests.get(\'https://api.github.com/graphql\').text)"',
+            "python3 -c \"import urllib.request; urllib.request.urlretrieve('https://github.com/O/R/issues', '$RUNNER_TEMP/open-issues.json')\"",
+            "python3 -c \"import requests; open('$RUNNER_TEMP/open-issues.json','w').write(requests.get('https://api.github.com/graphql').text)\"",
         ):
             with tempfile.TemporaryDirectory() as tmp:
                 wf = self._inference_workflow(collect)
@@ -473,7 +474,7 @@ class PromptsLintTest(unittest.TestCase):
             'echo "$DATA" > "$RUNNER_TEMP/open-issues.json"',
             'cat > "$RUNNER_TEMP/open-issues.json" <<EOF\nhello\nEOF',
             'cp seed.json "$RUNNER_TEMP/open-issues.json"',
-            'python3 -c "open(\'$RUNNER_TEMP/open-issues.json\',\'w\').write(\'x\')"',
+            "python3 -c \"open('$RUNNER_TEMP/open-issues.json','w').write('x')\"",
         ):
             with tempfile.TemporaryDirectory() as tmp:
                 wf = self._inference_workflow(collect)
@@ -525,7 +526,7 @@ class PromptsLintTest(unittest.TestCase):
                 'git log --since="90 days ago" --max-count=100 \\\n'
                 '  --format="%h %ad" --date=short \\\n'
                 '  > "$RUNNER_TEMP/recent-commits.txt"\n'
-                'python3 scripts/redact_secrets.py --strict \\\n'
+                "python3 scripts/redact_secrets.py --strict \\\n"
                 '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
             )
             path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
@@ -537,7 +538,7 @@ class PromptsLintTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             wf = self._biweekly_shaped_workflow(
                 'echo "user text" > "$RUNNER_TEMP/recent-commits.txt"\n'
-                'python3 scripts/redact_secrets.py --strict \\\n'
+                "python3 scripts/redact_secrets.py --strict \\\n"
                 '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
             )
             path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
@@ -550,7 +551,7 @@ class PromptsLintTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             wf = self._biweekly_shaped_workflow(
                 'git log --max-count=100 > "$RUNNER_TEMP/recent-commits.txt"\n'
-                'python3 scripts/redact_secrets.py --strict \\\n'
+                "python3 scripts/redact_secrets.py --strict \\\n"
                 '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
             )
             path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
@@ -578,7 +579,7 @@ class PromptsLintTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 wf = self._biweekly_shaped_workflow(
                     f'git log --format="{fmt}" > "$RUNNER_TEMP/recent-commits.txt"\n'
-                    'python3 scripts/redact_secrets.py --strict \\\n'
+                    "python3 scripts/redact_secrets.py --strict \\\n"
                     '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
                 )
                 path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
@@ -593,7 +594,7 @@ class PromptsLintTest(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 wf = self._biweekly_shaped_workflow(
                     f'git log --format="{fmt}" > "$RUNNER_TEMP/recent-commits.txt"\n'
-                    'python3 scripts/redact_secrets.py --strict \\\n'
+                    "python3 scripts/redact_secrets.py --strict \\\n"
                     '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
                 )
                 path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
@@ -668,19 +669,19 @@ class PromptsLintTest(unittest.TestCase):
         # ANY invocation in a feeding job fails closed — except
         # scripts/redact_secrets.py (covered by the redact rule).
         for collect in (
-            'python3 fetch_issues.py',
-            'python3 - <<\'PY\'\nimport urllib.request\nPY',
-            'GH_TOKEN=x python3 fetch.py',
-            'bash build.sh',
-            'node script.js',
-            'python3 -c "open(\'/tmp/notes.txt\',\'w\').write(\'x\')"',
+            "python3 fetch_issues.py",
+            "python3 - <<'PY'\nimport urllib.request\nPY",
+            "GH_TOKEN=x python3 fetch.py",
+            "bash build.sh",
+            "node script.js",
+            "python3 -c \"open('/tmp/notes.txt','w').write('x')\"",
             # github-advanced-security on #1118: wrapper commands must not
             # hide the opaque runner (env/command/nohup/... + env dash flags)
-            'env python3 fetch.py',
-            'env -i GH_TOKEN=x python3 fetch.py',
-            'command node script.js',
-            'nohup bash build.sh',
-            'sudo -n python3 fetch.py',
+            "env python3 fetch.py",
+            "env -i GH_TOKEN=x python3 fetch.py",
+            "command node script.js",
+            "nohup bash build.sh",
+            "sudo -n python3 fetch.py",
         ):
             with tempfile.TemporaryDirectory() as tmp:
                 wf = self._inference_workflow(collect)
@@ -796,7 +797,7 @@ class PromptsLintTest(unittest.TestCase):
         # verifiable and stays allowed.
         with tempfile.TemporaryDirectory() as tmp:
             wf = self._inference_workflow(
-                'curl -s -o /tmp/cache.json https://example.com/x.json'
+                "curl -s -o /tmp/cache.json https://example.com/x.json"
             )
             path = self._workflow(Path(tmp), "wf.yml", wf)
             self.assertEqual([], check_prompts.lint_workflow(path))
@@ -809,7 +810,7 @@ class PromptsLintTest(unittest.TestCase):
             wf = self._biweekly_shaped_workflow(
                 'git log --format="%h %ad" > "$RUNNER_TEMP/recent-commits.txt"; '
                 'echo "INJECT" >> "$RUNNER_TEMP/recent-commits.txt"\n'
-                'python3 scripts/redact_secrets.py --strict \\\n'
+                "python3 scripts/redact_secrets.py --strict \\\n"
                 '  "$RUNNER_TEMP/recent-commits.txt" "$RUNNER_TEMP/recent-commits.txt"'
             )
             path = self._workflow(Path(tmp), "biweekly-issue-audit.yml", wf)
@@ -917,7 +918,9 @@ class PromptsLintTest(unittest.TestCase):
             'cp --target-directory="$RUNNER_TEMP" payload.json',
         ):
             with tempfile.TemporaryDirectory() as tmp:
-                path = self._workflow(Path(tmp), "wf.yml", base.replace("@@COLLECT@@", collect))
+                path = self._workflow(
+                    Path(tmp), "wf.yml", base.replace("@@COLLECT@@", collect)
+                )
                 errors = check_prompts.lint_workflow(path)
                 self.assertTrue(
                     any("allowlisted" in e or "chained" in e for e in errors),

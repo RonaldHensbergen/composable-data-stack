@@ -846,10 +846,7 @@
         },
         "medium": {
           "type": "string",
-          "enum": [
-            "",
-            "Memory"
-          ]
+          "enum": ["", "Memory"]
         },
         "enabledFrom": {
           "type": "string",

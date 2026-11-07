@@ -120,11 +120,15 @@ class LoadModuleInstancesTest(unittest.TestCase):
             module_dir = root / "modules" / "cat" / "mod"
             profile_dir.mkdir(parents=True)
             module_dir.mkdir(parents=True)
-            (module_dir / "module.yaml").write_text(yaml.safe_dump(module_doc), encoding="utf-8")
+            (module_dir / "module.yaml").write_text(
+                yaml.safe_dump(module_doc), encoding="utf-8"
+            )
             instance = {"id": "m", "source": "cat/mod", "config": {}}
             instance.update(module_instance or {})
             with patch.dict("os.environ", {"CDS_MODULE_PATH": str(root / "modules")}):
-                return load_module_instances(profile_dir / "profile.yaml", self._profile([instance]))
+                return load_module_instances(
+                    profile_dir / "profile.yaml", self._profile([instance])
+                )
 
     def test_wrong_kind_reports_e021_on_source_path(self):
         instances, diagnostics = self._run({"kind": "Profile"})
@@ -145,9 +149,13 @@ class LoadModuleInstancesTest(unittest.TestCase):
 
     def test_unresolvable_source_skips_module(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            profile = self._profile([{"id": "m", "source": "modules/none", "config": {}}])
+            profile = self._profile(
+                [{"id": "m", "source": "modules/none", "config": {}}]
+            )
             with patch.dict("os.environ", {"CDS_MODULE_PATH": tmpdir}):
-                instances, diagnostics = load_module_instances(Path(tmpdir) / "profile.yaml", profile)
+                instances, diagnostics = load_module_instances(
+                    Path(tmpdir) / "profile.yaml", profile
+                )
         self.assertEqual(instances, [])
         self.assertTrue(has_errors(diagnostics))
 
@@ -159,7 +167,9 @@ class LoadModuleInstancesTest(unittest.TestCase):
             (module_dir / "module.yaml").write_text("a: [unclosed\n", encoding="utf-8")
             profile = self._profile([{"id": "m", "source": "cat/mod", "config": {}}])
             with patch.dict("os.environ", {"CDS_MODULE_PATH": str(root / "modules")}):
-                instances, diagnostics = load_module_instances(root / "profile.yaml", profile)
+                instances, diagnostics = load_module_instances(
+                    root / "profile.yaml", profile
+                )
         self.assertEqual(instances, [])
         self.assertTrue(has_errors(diagnostics))
 
@@ -189,30 +199,48 @@ class ModuleConfigAndSecretsTest(unittest.TestCase):
     def test_unknown_secret_ref_in_nested_config_reports_e050(self):
         profile = {"spec": {"secrets": {"values": {"known": "CDS_KNOWN"}}}}
         config = {"a": {"b": ["secrets.known", "secrets.missing"]}, "c": "plain"}
-        diagnostics = validate_secret_refs(profile, [_inst("m", _module(), config, index=2)])
-        self.assertEqual(_codes(diagnostics), [("E050", "spec.modules[2].config.a.b[1]")])
+        diagnostics = validate_secret_refs(
+            profile, [_inst("m", _module(), config, index=2)]
+        )
+        self.assertEqual(
+            _codes(diagnostics), [("E050", "spec.modules[2].config.a.b[1]")]
+        )
 
 
 class ContractBindingsTest(unittest.TestCase):
     def _bind(self, consume, config, providers=None, registry=None):
-        consumer = _inst("app", _module(consumes=[consume], category="orch", name="app"), config)
+        consumer = _inst(
+            "app", _module(consumes=[consume], category="orch", name="app"), config
+        )
         instances = [consumer] + (providers or [])
         if registry is None:
             return validate_contract_bindings(instances)
-        with patch.object(validator, "_load_compatibility_registry", return_value=registry):
+        with patch.object(
+            validator, "_load_compatibility_registry", return_value=registry
+        ):
             return validate_contract_bindings(instances)
 
     def _provider(self, kind="sql-database", category="wh", name="pg"):
         return _inst(
             "pg",
-            _module(provides=[{"name": "sql", "contract": {"kind": kind}}], category=category, name=name),
+            _module(
+                provides=[{"name": "sql", "contract": {"kind": kind}}],
+                category=category,
+                name=name,
+            ),
             index=1,
         )
 
     def test_registry_load_failure_reports_e092(self):
-        with patch.object(validator, "_load_compatibility_registry", side_effect=CompatibilityRegistryError("boom")):
+        with patch.object(
+            validator,
+            "_load_compatibility_registry",
+            side_effect=CompatibilityRegistryError("boom"),
+        ):
             diagnostics = validate_contract_bindings([])
-        self.assertEqual(_codes(diagnostics), [("E092", "cli/resources/compatibility-registry.json")])
+        self.assertEqual(
+            _codes(diagnostics), [("E092", "cli/resources/compatibility-registry.json")]
+        )
 
     def test_incomplete_consume_entry_reports_e021(self):
         diagnostics = self._bind({"name": "db"}, {})
@@ -249,7 +277,9 @@ class ContractBindingsTest(unittest.TestCase):
         self.assertEqual(_codes(diagnostics), [("E041", "spec.modules[0].config")])
         self.assertIn("contractRef", diagnostics[0].message)
 
-    def test_conditionally_required_binding_without_contract_ref_mentions_condition(self):
+    def test_conditionally_required_binding_without_contract_ref_mentions_condition(
+        self,
+    ):
         diagnostics = self._bind(
             _consume(required=False, requiredIf="config.mode==on"),
             {"mode": "on", "db": {"x": 1}},
@@ -272,28 +302,38 @@ class ContractBindingsTest(unittest.TestCase):
 
     def test_producer_without_named_contract_reports_e041(self):
         diagnostics = self._bind(
-            _consume(), {"db": {"contractRef": "pg.other"}}, providers=[self._provider()]
+            _consume(),
+            {"db": {"contractRef": "pg.other"}},
+            providers=[self._provider()],
         )
         self.assertEqual(_codes(diagnostics), [("E041", "spec.modules[0].config")])
         self.assertIn("does not provide", diagnostics[0].message)
 
     def test_kind_mismatch_reports_e042(self):
         diagnostics = self._bind(
-            _consume(), {"db": {"contractRef": "pg.sql"}}, providers=[self._provider(kind="object-store")]
+            _consume(),
+            {"db": {"contractRef": "pg.sql"}},
+            providers=[self._provider(kind="object-store")],
         )
         self.assertEqual(_codes(diagnostics), [("E042", "spec.modules[0].config")])
 
     def test_unsupported_registry_pairing_reports_e043(self):
         registry = {("sql-database", "wh/pg", "orch/app"): "unsupported"}
         diagnostics = self._bind(
-            _consume(), {"db": {"contractRef": "pg.sql"}}, providers=[self._provider()], registry=registry
+            _consume(),
+            {"db": {"contractRef": "pg.sql"}},
+            providers=[self._provider()],
+            registry=registry,
         )
         self.assertEqual(_codes(diagnostics), [("E043", "spec.modules[0].config")])
 
     def test_tested_registry_pairing_is_clean(self):
         registry = {("sql-database", "wh/pg", "orch/app"): "tested"}
         diagnostics = self._bind(
-            _consume(), {"db": {"contractRef": "pg.sql"}}, providers=[self._provider()], registry=registry
+            _consume(),
+            {"db": {"contractRef": "pg.sql"}},
+            providers=[self._provider()],
+            registry=registry,
         )
         self.assertEqual(diagnostics, [])
 
@@ -315,17 +355,31 @@ class CompatibilityRegistryTest(unittest.TestCase):
         self.assertIn("validation failed", str(ctx.exception))
 
     def test_duplicate_pairing_raises_registry_error(self):
-        pairing = {"contract": "k", "provider": "a/b", "consumer": "c/d", "status": "tested"}
+        pairing = {
+            "contract": "k",
+            "provider": "a/b",
+            "consumer": "c/d",
+            "status": "tested",
+        }
         with self.assertRaises(CompatibilityRegistryError) as ctx:
             self._load({"pairings": [pairing, dict(pairing)]})
         self.assertIn("pairings[1]", str(ctx.exception))
 
     def test_valid_registry_builds_lookup(self):
-        pairing = {"contract": "k", "provider": "a/b", "consumer": "c/d", "status": "unsupported"}
-        self.assertEqual(self._load({"pairings": [pairing]}), {("k", "a/b", "c/d"): "unsupported"})
+        pairing = {
+            "contract": "k",
+            "provider": "a/b",
+            "consumer": "c/d",
+            "status": "unsupported",
+        }
+        self.assertEqual(
+            self._load({"pairings": [pairing]}), {("k", "a/b", "c/d"): "unsupported"}
+        )
 
     def test_module_key_requires_category_and_name(self):
-        self.assertEqual(_module_key({"metadata": {"category": "a", "name": "b"}}), "a/b")
+        self.assertEqual(
+            _module_key({"metadata": {"category": "a", "name": "b"}}), "a/b"
+        )
         self.assertIsNone(_module_key({"metadata": {"category": "a"}}))
         self.assertIsNone(_module_key({}))
 
@@ -343,8 +397,12 @@ class PinnedImageDigestsTest(unittest.TestCase):
         ]
         result = {"status": "stale", "latest_digest": "sha256:new"}
         with (
-            patch.object(validator, "collect_pinned_images_for_module", return_value=entries),
-            patch.object(validator, "check_digest_staleness", return_value=result) as check,
+            patch.object(
+                validator, "collect_pinned_images_for_module", return_value=entries
+            ),
+            patch.object(
+                validator, "check_digest_staleness", return_value=result
+            ) as check,
         ):
             diagnostics = validate_pinned_image_digests(instances)
         self.assertEqual(check.call_count, 1)
@@ -359,9 +417,13 @@ class PinnedImageDigestsTest(unittest.TestCase):
     def test_non_stale_pin_is_ignored(self):
         with (
             patch.object(
-                validator, "collect_pinned_images_for_module", return_value=[{"image": "i", "service": "s"}]
+                validator,
+                "collect_pinned_images_for_module",
+                return_value=[{"image": "i", "service": "s"}],
             ),
-            patch.object(validator, "check_digest_staleness", return_value={"status": "current"}),
+            patch.object(
+                validator, "check_digest_staleness", return_value={"status": "current"}
+            ),
         ):
             self.assertEqual(validate_pinned_image_digests([_inst("a", _module())]), [])
 
@@ -378,13 +440,16 @@ class ImageSourceConfigTest(unittest.TestCase):
     def test_registry_source_without_tag_reports_e103(self):
         inst = _inst("a", _module(), {"image": {"source": "registry"}}, index=4)
         self.assertEqual(
-            _codes(validate_image_source_config([inst])), [("E103", "spec.modules[4].config.image.tag")]
+            _codes(validate_image_source_config([inst])),
+            [("E103", "spec.modules[4].config.image.tag")],
         )
 
     def test_registry_source_with_latest_tag_warns(self):
         inst = _inst("a", _module(), {"image": {"source": "registry", "tag": "latest"}})
         diagnostics = validate_image_source_config([inst])
-        self.assertEqual(_codes(diagnostics), [("W097", "spec.modules[0].config.image.tag")])
+        self.assertEqual(
+            _codes(diagnostics), [("W097", "spec.modules[0].config.image.tag")]
+        )
         self.assertEqual(diagnostics[0].level, "warning")
 
 
@@ -402,21 +467,31 @@ class OutputsTest(unittest.TestCase):
 
     def test_invalid_ref_reports_e060(self):
         diagnostics = self._outputs({"o": {"from": "nodot"}})
-        self.assertEqual(_codes(diagnostics), [("E060", "spec.outputs.contracts.o.from")])
+        self.assertEqual(
+            _codes(diagnostics), [("E060", "spec.outputs.contracts.o.from")]
+        )
 
     def test_unknown_module_reports_e060(self):
         diagnostics = self._outputs({"o": {"from": "ghost.sql"}})
-        self.assertEqual(_codes(diagnostics), [("E060", "spec.outputs.contracts.o.from")])
+        self.assertEqual(
+            _codes(diagnostics), [("E060", "spec.outputs.contracts.o.from")]
+        )
         self.assertIn("unknown module", diagnostics[0].message)
 
     def test_missing_provide_reports_e060(self):
-        inst = _inst("pg", _module(provides=[{"name": "sql", "contract": {"kind": "k"}}]))
+        inst = _inst(
+            "pg", _module(provides=[{"name": "sql", "contract": {"kind": "k"}}])
+        )
         diagnostics = self._outputs({"o": {"from": "pg.other"}}, [inst])
-        self.assertEqual(_codes(diagnostics), [("E060", "spec.outputs.contracts.o.from")])
+        self.assertEqual(
+            _codes(diagnostics), [("E060", "spec.outputs.contracts.o.from")]
+        )
         self.assertIn("does not provide", diagnostics[0].message)
 
     def test_valid_output_is_clean(self):
-        inst = _inst("pg", _module(provides=[{"name": "sql", "contract": {"kind": "k"}}]))
+        inst = _inst(
+            "pg", _module(provides=[{"name": "sql", "contract": {"kind": "k"}}])
+        )
         self.assertEqual(self._outputs({"o": {"from": "pg.sql"}}, [inst]), [])
 
 
@@ -439,12 +514,14 @@ class ObservabilityTest(unittest.TestCase):
 
     def test_non_dict_log_shipping_reports_e100(self):
         self.assertEqual(
-            _codes(self._check({"logShipping": "x"})), [("E100", "spec.observability.logShipping")]
+            _codes(self._check({"logShipping": "x"})),
+            [("E100", "spec.observability.logShipping")],
         )
 
     def test_missing_enabled_reports_e100(self):
         self.assertEqual(
-            _codes(self._check(self._shipping())), [("E100", "spec.observability.logShipping.enabled")]
+            _codes(self._check(self._shipping())),
+            [("E100", "spec.observability.logShipping.enabled")],
         )
 
     def test_non_boolean_enabled_reports_e100(self):
@@ -455,11 +532,15 @@ class ObservabilityTest(unittest.TestCase):
 
     def test_non_dict_retention_reports_e100(self):
         diagnostics = self._check(self._shipping(enabled=True, retention=5))
-        self.assertEqual(_codes(diagnostics), [("E100", "spec.observability.logShipping.retention")])
+        self.assertEqual(
+            _codes(diagnostics), [("E100", "spec.observability.logShipping.retention")]
+        )
 
     def test_invalid_retention_values_report_e101(self):
         diagnostics = self._check(
-            self._shipping(enabled=True, retention={"rawDays": 0, "structuredDays": True})
+            self._shipping(
+                enabled=True, retention={"rawDays": 0, "structuredDays": True}
+            )
         )
         self.assertEqual(
             _codes(diagnostics),
@@ -474,7 +555,8 @@ class ObservabilityTest(unittest.TestCase):
             self._shipping(enabled=True, retention={"rawDays": 30, "structuredDays": 7})
         )
         self.assertEqual(
-            _codes(diagnostics), [("E101", "spec.observability.logShipping.retention.structuredDays")]
+            _codes(diagnostics),
+            [("E101", "spec.observability.logShipping.retention.structuredDays")],
         )
 
     def test_valid_retention_without_sink_is_clean(self):
@@ -487,43 +569,63 @@ class ObservabilityTest(unittest.TestCase):
         for sink in ("x", {"contractRef": 3}, {}):
             with self.subTest(sink=sink):
                 diagnostics = self._check(self._shipping(enabled=True, sink=sink))
-                self.assertEqual(_codes(diagnostics), [("E100", "spec.observability.logShipping.sink")])
+                self.assertEqual(
+                    _codes(diagnostics),
+                    [("E100", "spec.observability.logShipping.sink")],
+                )
 
     def test_invalid_sink_ref_reports_e102(self):
-        diagnostics = self._check(self._shipping(enabled=True, sink={"contractRef": "nodot"}))
+        diagnostics = self._check(
+            self._shipping(enabled=True, sink={"contractRef": "nodot"})
+        )
         self.assertEqual(
-            _codes(diagnostics), [("E102", "spec.observability.logShipping.sink.contractRef")]
+            _codes(diagnostics),
+            [("E102", "spec.observability.logShipping.sink.contractRef")],
         )
 
     def test_unknown_sink_module_reports_e102(self):
-        diagnostics = self._check(self._shipping(enabled=True, sink={"contractRef": "ghost.logs"}))
+        diagnostics = self._check(
+            self._shipping(enabled=True, sink={"contractRef": "ghost.logs"})
+        )
         self.assertEqual(
-            _codes(diagnostics), [("E102", "spec.observability.logShipping.sink.contractRef")]
+            _codes(diagnostics),
+            [("E102", "spec.observability.logShipping.sink.contractRef")],
         )
         self.assertIn("unknown module", diagnostics[0].message)
 
     def test_sink_missing_provide_reports_e102(self):
-        inst = _inst("loki", _module(provides=[{"name": "logs", "contract": {"kind": "log-sink"}}]))
+        inst = _inst(
+            "loki",
+            _module(provides=[{"name": "logs", "contract": {"kind": "log-sink"}}]),
+        )
         diagnostics = self._check(
             self._shipping(enabled=True, sink={"contractRef": "loki.other"}), [inst]
         )
         self.assertEqual(
-            _codes(diagnostics), [("E102", "spec.observability.logShipping.sink.contractRef")]
+            _codes(diagnostics),
+            [("E102", "spec.observability.logShipping.sink.contractRef")],
         )
         self.assertIn("does not provide", diagnostics[0].message)
 
     def test_sink_wrong_kind_reports_e102(self):
-        inst = _inst("loki", _module(provides=[{"name": "logs", "contract": {"kind": "sql-database"}}]))
+        inst = _inst(
+            "loki",
+            _module(provides=[{"name": "logs", "contract": {"kind": "sql-database"}}]),
+        )
         diagnostics = self._check(
             self._shipping(enabled=True, sink={"contractRef": "loki.logs"}), [inst]
         )
         self.assertEqual(
-            _codes(diagnostics), [("E102", "spec.observability.logShipping.sink.contractRef")]
+            _codes(diagnostics),
+            [("E102", "spec.observability.logShipping.sink.contractRef")],
         )
         self.assertIn('expected "log-sink"', diagnostics[0].message)
 
     def test_valid_sink_is_clean(self):
-        inst = _inst("loki", _module(provides=[{"name": "logs", "contract": {"kind": "log-sink"}}]))
+        inst = _inst(
+            "loki",
+            _module(provides=[{"name": "logs", "contract": {"kind": "log-sink"}}]),
+        )
         diagnostics = self._check(
             self._shipping(enabled=True, sink={"contractRef": "loki.logs"}), [inst]
         )
@@ -571,10 +673,18 @@ class BackupConfigTest(unittest.TestCase):
         policy.update(overrides)
         return policy
 
-    def _profile(self, backup=None, environment="production", secrets=("backup_key",), required=True):
+    def _profile(
+        self,
+        backup=None,
+        environment="production",
+        secrets=("backup_key",),
+        required=True,
+    ):
         spec = {
             "secrets": {
-                "values": {alias: {"env": "CDS_X", "required": required} for alias in secrets}
+                "values": {
+                    alias: {"env": "CDS_X", "required": required} for alias in secrets
+                }
             }
         }
         if backup is not None:
@@ -592,7 +702,13 @@ class BackupConfigTest(unittest.TestCase):
         return {
             "encryption": {"keyFrom": "secrets.backup_key"},
             "policies": [
-                self._policy(c) for c in ("warehouse", "orchestration-metadata", "bi-metadata", "configuration")
+                self._policy(c)
+                for c in (
+                    "warehouse",
+                    "orchestration-metadata",
+                    "bi-metadata",
+                    "configuration",
+                )
             ],
         }
 
@@ -605,67 +721,117 @@ class BackupConfigTest(unittest.TestCase):
     def test_disabled_modules_do_not_require_a_class(self):
         inst = _inst("bi", _module(category="bi"))
         inst["instance"] = {"enabled": False}
-        self.assertEqual(validator.required_backup_workload_classes([inst]), ["configuration"])
+        self.assertEqual(
+            validator.required_backup_workload_classes([inst]), ["configuration"]
+        )
 
     def test_non_production_without_backup_is_clean(self):
         profile = self._profile(environment="local")
-        self.assertEqual(validator.validate_backup_config(profile, self._instances()), [])
+        self.assertEqual(
+            validator.validate_backup_config(profile, self._instances()), []
+        )
 
     def test_production_without_backup_reports_e133(self):
-        diagnostics = validator.validate_backup_config(self._profile(), self._instances())
+        diagnostics = validator.validate_backup_config(
+            self._profile(), self._instances()
+        )
         self.assertEqual(_codes(diagnostics), [("E133", "spec.backup")])
 
     def test_complete_production_backup_is_clean(self):
         profile = self._profile(self._full_backup())
-        self.assertEqual(validator.validate_backup_config(profile, self._instances()), [])
+        self.assertEqual(
+            validator.validate_backup_config(profile, self._instances()), []
+        )
 
     def test_production_missing_class_reports_e133(self):
         backup = self._full_backup()
-        backup["policies"] = [p for p in backup["policies"] if p["workloadClass"] != "warehouse"]
-        diagnostics = validator.validate_backup_config(self._profile(backup), self._instances())
+        backup["policies"] = [
+            p for p in backup["policies"] if p["workloadClass"] != "warehouse"
+        ]
+        diagnostics = validator.validate_backup_config(
+            self._profile(backup), self._instances()
+        )
         self.assertEqual(_codes(diagnostics), [("E133", "spec.backup.policies")])
         self.assertIn("warehouse", diagnostics[0].message)
 
     def test_production_without_encryption_reports_e134(self):
         backup = self._full_backup()
         del backup["encryption"]
-        diagnostics = validator.validate_backup_config(self._profile(backup), self._instances())
+        diagnostics = validator.validate_backup_config(
+            self._profile(backup), self._instances()
+        )
         self.assertEqual(_codes(diagnostics), [("E134", "spec.backup.encryption")])
 
     def test_production_without_restore_verification_reports_e135(self):
         backup = self._full_backup()
         del backup["policies"][0]["restoreVerification"]
-        diagnostics = validator.validate_backup_config(self._profile(backup), self._instances())
-        self.assertEqual(_codes(diagnostics), [("E135", "spec.backup.policies[0].restoreVerification")])
+        diagnostics = validator.validate_backup_config(
+            self._profile(backup), self._instances()
+        )
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E135", "spec.backup.policies[0].restoreVerification")],
+        )
 
     def test_duplicate_workload_class_reports_e130(self):
         backup = {"policies": [self._policy("warehouse"), self._policy("warehouse")]}
-        diagnostics = validator.validate_backup_config(self._profile(backup, environment="local"), [])
-        self.assertEqual(_codes(diagnostics), [("E130", "spec.backup.policies[1].workloadClass")])
+        diagnostics = validator.validate_backup_config(
+            self._profile(backup, environment="local"), []
+        )
+        self.assertEqual(
+            _codes(diagnostics), [("E130", "spec.backup.policies[1].workloadClass")]
+        )
 
     def test_unknown_encryption_secret_reports_e131(self):
-        backup = {"encryption": {"keyFrom": "secrets.ghost"}, "policies": [self._policy("warehouse")]}
-        diagnostics = validator.validate_backup_config(self._profile(backup, environment="local"), [])
-        self.assertEqual(_codes(diagnostics), [("E131", "spec.backup.encryption.keyFrom")])
+        backup = {
+            "encryption": {"keyFrom": "secrets.ghost"},
+            "policies": [self._policy("warehouse")],
+        }
+        diagnostics = validator.validate_backup_config(
+            self._profile(backup, environment="local"), []
+        )
+        self.assertEqual(
+            _codes(diagnostics), [("E131", "spec.backup.encryption.keyFrom")]
+        )
 
     def _target(self, ref, instances=None):
-        backup = {"target": {"contractRef": ref}, "policies": [self._policy("warehouse")]}
-        return validator.validate_backup_config(self._profile(backup, environment="local"), instances or [])
+        backup = {
+            "target": {"contractRef": ref},
+            "policies": [self._policy("warehouse")],
+        }
+        return validator.validate_backup_config(
+            self._profile(backup, environment="local"), instances or []
+        )
 
     def test_target_invalid_unknown_and_missing_report_e132(self):
-        provider = _inst("repo", _module(provides=[{"name": "t", "contract": {"kind": "backup-target"}}]))
-        self.assertEqual(_codes(self._target("nodot")), [("E132", "spec.backup.target.contractRef")])
+        provider = _inst(
+            "repo",
+            _module(provides=[{"name": "t", "contract": {"kind": "backup-target"}}]),
+        )
+        self.assertEqual(
+            _codes(self._target("nodot")), [("E132", "spec.backup.target.contractRef")]
+        )
         self.assertIn("unknown module", self._target("ghost.t")[0].message)
-        self.assertIn("does not provide", self._target("repo.other", [provider])[0].message)
+        self.assertIn(
+            "does not provide", self._target("repo.other", [provider])[0].message
+        )
 
     def test_target_wrong_kind_reports_e132(self):
-        provider = _inst("repo", _module(provides=[{"name": "t", "contract": {"kind": "sql-database"}}]))
+        provider = _inst(
+            "repo",
+            _module(provides=[{"name": "t", "contract": {"kind": "sql-database"}}]),
+        )
         diagnostics = self._target("repo.t", [provider])
-        self.assertEqual(_codes(diagnostics), [("E132", "spec.backup.target.contractRef")])
-        self.assertIn("expected \"backup-target\"", diagnostics[0].message)
+        self.assertEqual(
+            _codes(diagnostics), [("E132", "spec.backup.target.contractRef")]
+        )
+        self.assertIn('expected "backup-target"', diagnostics[0].message)
 
     def test_valid_target_is_clean(self):
-        provider = _inst("repo", _module(provides=[{"name": "t", "contract": {"kind": "backup-target"}}]))
+        provider = _inst(
+            "repo",
+            _module(provides=[{"name": "t", "contract": {"kind": "backup-target"}}]),
+        )
         self.assertEqual(self._target("repo.t", [provider]), [])
 
     def test_identity_and_secrets_categories_require_classes(self):
@@ -690,7 +856,11 @@ class BackupConfigTest(unittest.TestCase):
             spec["supportsRestoreVerification"] = supports_restore
         return _inst(
             "repo",
-            _module(provides=[{"name": "t", "contract": {"kind": "backup-target", "spec": spec}}]),
+            _module(
+                provides=[
+                    {"name": "t", "contract": {"kind": "backup-target", "spec": spec}}
+                ]
+            ),
         )
 
     def _production_backup_with_target(self, provider, **kwargs):
@@ -699,31 +869,46 @@ class BackupConfigTest(unittest.TestCase):
             "encryption": {"keyFrom": "secrets.backup_key"},
             "policies": [
                 self._policy(c)
-                for c in ("warehouse", "orchestration-metadata", "bi-metadata", "configuration")
+                for c in (
+                    "warehouse",
+                    "orchestration-metadata",
+                    "bi-metadata",
+                    "configuration",
+                )
             ],
         }
         instances = self._instances() + [provider]
-        return validator.validate_backup_config(self._profile(backup, **kwargs), instances)
+        return validator.validate_backup_config(
+            self._profile(backup, **kwargs), instances
+        )
 
     def test_production_target_without_encryption_advertisement_reports_e132(self):
         provider = self._capable_target(encrypted=False, supports_restore=None)
         diagnostics = self._production_backup_with_target(provider)
         codes = {d.code for d in diagnostics}
         self.assertIn("E132", codes)
-        self.assertIn("does not advertise client-side encryption", " ".join(d.message for d in diagnostics))
+        self.assertIn(
+            "does not advertise client-side encryption",
+            " ".join(d.message for d in diagnostics),
+        )
 
     def test_production_target_without_restore_advertisement_reports_e132(self):
         provider = self._capable_target(encrypted=True, supports_restore=False)
         diagnostics = self._production_backup_with_target(provider)
         self.assertIn("E132", {d.code for d in diagnostics})
-        self.assertIn("does not advertise restore verification", " ".join(d.message for d in diagnostics))
+        self.assertIn(
+            "does not advertise restore verification",
+            " ".join(d.message for d in diagnostics),
+        )
 
     def test_production_capable_target_is_clean(self):
         provider = self._capable_target()
         self.assertEqual(self._production_backup_with_target(provider), [])
 
     def test_production_target_capability_from_config_reference(self):
-        provider = self._capable_target(encrypted="${config.tlsEnabled}", supports_restore="${config.restoreOk}")
+        provider = self._capable_target(
+            encrypted="${config.tlsEnabled}", supports_restore="${config.restoreOk}"
+        )
         provider["config"] = {"tlsEnabled": True, "restoreOk": "true"}
         self.assertEqual(self._production_backup_with_target(provider), [])
 
@@ -746,10 +931,21 @@ class BackupConfigTest(unittest.TestCase):
             "metadata": {"name": "p", "environment": "local"},
             "spec": {
                 "runtime": {"type": "docker-compose"},
-                "modules": [{"id": "a", "source": "x", "version": "1", "enabled": True, "config": {}}],
+                "modules": [
+                    {
+                        "id": "a",
+                        "source": "x",
+                        "version": "1",
+                        "enabled": True,
+                        "config": {},
+                    }
+                ],
                 "backup": {
                     "encryption": {"keyFrom": "hunter2-literal-key"},
-                    "policies": [self._policy("warehouse", rpoMinutes=0), self._policy("nope")],
+                    "policies": [
+                        self._policy("warehouse", rpoMinutes=0),
+                        self._policy("nope"),
+                    ],
                 },
             },
         }
@@ -779,23 +975,45 @@ class AuthenticationConfigTest(unittest.TestCase):
         }
 
     def _sql_module(self, advertisement):
-        spec = {"authentication": "${config.authentication.hostAuth}"} if advertisement else {}
-        provides = [{"name": "sql-database", "contract": {"kind": "sql-database", "spec": spec}}]
+        spec = (
+            {"authentication": "${config.authentication.hostAuth}"}
+            if advertisement
+            else {}
+        )
+        provides = [
+            {"name": "sql-database", "contract": {"kind": "sql-database", "spec": spec}}
+        ]
         return _module(category="warehouse", name="pg", provides=provides)
 
     def _cache_module(self, advertisement=True):
-        spec = {"authentication": "${ifNonempty:config.passwordFrom,required,}"} if advertisement else {}
-        provides = [{"name": "cache-service", "contract": {"kind": "cache-service", "spec": spec}}]
+        spec = (
+            {"authentication": "${ifNonempty:config.passwordFrom,required,}"}
+            if advertisement
+            else {}
+        )
+        provides = [
+            {
+                "name": "cache-service",
+                "contract": {"kind": "cache-service", "spec": spec},
+            }
+        ]
         return _module(category="cache", name="keydb", provides=provides)
 
     def test_non_production_is_untouched(self):
         profile = self._profile(environment="local")
         unauthenticated_cache = _inst("keydb", self._cache_module())
         missing_ad = _inst("pg", self._sql_module(advertisement=True))
-        self.assertEqual(validator.validate_authentication_config(profile, [unauthenticated_cache, missing_ad]), [])
+        self.assertEqual(
+            validator.validate_authentication_config(
+                profile, [unauthenticated_cache, missing_ad]
+            ),
+            [],
+        )
 
     def test_sql_database_trust_reports_e139(self):
-        inst = _inst("pg", self._sql_module(True), {"authentication": {"hostAuth": "trust"}})
+        inst = _inst(
+            "pg", self._sql_module(True), {"authentication": {"hostAuth": "trust"}}
+        )
         diagnostics = validator.validate_authentication_config(self._profile(), [inst])
         self.assertEqual(_codes(diagnostics), [("E139", "spec.modules[0].config")])
         self.assertIn("trust", diagnostics[0].message)
@@ -811,14 +1029,21 @@ class AuthenticationConfigTest(unittest.TestCase):
         self.assertEqual(_codes(diagnostics), [("E139", "spec.modules[0].config")])
 
     def test_sql_database_legacy_md5_warns(self):
-        inst = _inst("pg", self._sql_module(True), {"authentication": {"hostAuth": "md5"}})
+        inst = _inst(
+            "pg", self._sql_module(True), {"authentication": {"hostAuth": "md5"}}
+        )
         diagnostics = validator.validate_authentication_config(self._profile(), [inst])
         self.assertEqual(_codes(diagnostics), [("W105", "spec.modules[0].config")])
 
     def test_sql_database_scram_is_clean(self):
-        config = {"authentication": {"hostAuth": "scram-sha-256"}, "passwordFrom": "secrets.db_password"}
+        config = {
+            "authentication": {"hostAuth": "scram-sha-256"},
+            "passwordFrom": "secrets.db_password",
+        }
         inst = _inst("pg", self._sql_module(True), config)
-        self.assertEqual(validator.validate_authentication_config(self._profile(), [inst]), [])
+        self.assertEqual(
+            validator.validate_authentication_config(self._profile(), [inst]), []
+        )
 
     def test_cache_without_password_reports_e137(self):
         inst = _inst("keydb", self._cache_module())
@@ -826,31 +1051,51 @@ class AuthenticationConfigTest(unittest.TestCase):
         self.assertEqual(_codes(diagnostics), [("E137", "spec.modules[0].config")])
 
     def test_cache_with_required_secret_is_clean(self):
-        inst = _inst("keydb", self._cache_module(), {"passwordFrom": "secrets.cache_password"})
-        self.assertEqual(validator.validate_authentication_config(self._profile(), [inst]), [])
+        inst = _inst(
+            "keydb", self._cache_module(), {"passwordFrom": "secrets.cache_password"}
+        )
+        self.assertEqual(
+            validator.validate_authentication_config(self._profile(), [inst]), []
+        )
 
     def test_cache_without_advertisement_reports_e137(self):
-        inst = _inst("keydb", self._cache_module(advertisement=False), {"passwordFrom": "secrets.cache_password"})
+        inst = _inst(
+            "keydb",
+            self._cache_module(advertisement=False),
+            {"passwordFrom": "secrets.cache_password"},
+        )
         diagnostics = validator.validate_authentication_config(self._profile(), [inst])
         self.assertEqual(_codes(diagnostics), [("E137", "spec.modules[0].config")])
 
     def test_optional_secret_alias_reports_e138(self):
-        profile = self._profile(secrets={"cache_password": {"env": "CDS_CACHE_PASSWORD"}})
-        inst = _inst("keydb", self._cache_module(), {"passwordFrom": "secrets.cache_password"})
+        profile = self._profile(
+            secrets={"cache_password": {"env": "CDS_CACHE_PASSWORD"}}
+        )
+        inst = _inst(
+            "keydb", self._cache_module(), {"passwordFrom": "secrets.cache_password"}
+        )
         diagnostics = validator.validate_authentication_config(profile, [inst])
-        self.assertEqual(_codes(diagnostics), [("E138", "spec.modules[0].config.passwordFrom")])
+        self.assertEqual(
+            _codes(diagnostics), [("E138", "spec.modules[0].config.passwordFrom")]
+        )
         self.assertIn("required", diagnostics[0].message)
 
     def test_plaintext_credential_reports_e138(self):
         inst = _inst("keydb", self._cache_module(True), {"passwordFrom": "hunter2"})
         diagnostics = validator.validate_authentication_config(self._profile(), [inst])
-        self.assertEqual(_codes(diagnostics), [("E138", "spec.modules[0].config.passwordFrom")])
+        self.assertEqual(
+            _codes(diagnostics), [("E138", "spec.modules[0].config.passwordFrom")]
+        )
         self.assertIn("plaintext", diagnostics[0].message)
 
     def test_profile_input_credential_reports_e138(self):
-        inst = _inst("keydb", self._cache_module(True), {"passwordFrom": "${CDS_CACHE_PASSWORD}"})
+        inst = _inst(
+            "keydb", self._cache_module(True), {"passwordFrom": "${CDS_CACHE_PASSWORD}"}
+        )
         diagnostics = validator.validate_authentication_config(self._profile(), [inst])
-        self.assertEqual(_codes(diagnostics), [("E138", "spec.modules[0].config.passwordFrom")])
+        self.assertEqual(
+            _codes(diagnostics), [("E138", "spec.modules[0].config.passwordFrom")]
+        )
         self.assertIn("profile input", diagnostics[0].message)
 
     def test_empty_credential_reports_e138(self):
@@ -873,12 +1118,18 @@ class AuthenticationConfigTest(unittest.TestCase):
             "initDbEnv": {"ANALYTICS_DB_PASSWORD": "config.passwordFrom"},
         }
         inst = _inst("pg", self._sql_module(True), config)
-        self.assertEqual(validator.validate_authentication_config(self._profile(), [inst]), [])
+        self.assertEqual(
+            validator.validate_authentication_config(self._profile(), [inst]), []
+        )
 
     def test_unrelated_providers_are_untouched(self):
-        provides = [{"name": "http-service", "contract": {"kind": "http-service", "spec": {}}}]
+        provides = [
+            {"name": "http-service", "contract": {"kind": "http-service", "spec": {}}}
+        ]
         inst = _inst("web", _module(provides=provides), {"adminToken": "hunter2"})
-        self.assertEqual(validator.validate_authentication_config(self._profile(), [inst]), [])
+        self.assertEqual(
+            validator.validate_authentication_config(self._profile(), [inst]), []
+        )
 
     def test_disabled_modules_are_still_validated(self):
         # load_module_instances already skips enabled: false instances, so
@@ -899,38 +1150,59 @@ class WebServingModeTest(unittest.TestCase):
         return _module(category="bi", name="superset")
 
     def test_development_mode_is_rejected_in_production(self):
-        inst = _inst("superset", self._web_module(), {"webServer": {"mode": "development"}})
+        inst = _inst(
+            "superset", self._web_module(), {"webServer": {"mode": "development"}}
+        )
         diagnostics = validator.validate_web_serving_mode(self._profile(), [inst])
-        self.assertEqual(_codes(diagnostics), [("E140", "spec.modules[0].config.webServer.mode")])
+        self.assertEqual(
+            _codes(diagnostics), [("E140", "spec.modules[0].config.webServer.mode")]
+        )
         self.assertIn("development web servers are prohibited", diagnostics[0].message)
 
     def test_production_mode_is_clean(self):
-        inst = _inst("superset", self._web_module(), {"webServer": {"mode": "production"}})
-        self.assertEqual(validator.validate_web_serving_mode(self._profile(), [inst]), [])
+        inst = _inst(
+            "superset", self._web_module(), {"webServer": {"mode": "production"}}
+        )
+        self.assertEqual(
+            validator.validate_web_serving_mode(self._profile(), [inst]), []
+        )
 
     def test_unset_mode_uses_the_module_default_and_is_clean(self):
         # Validation runs before configSchema defaults apply: an absent
         # webServer.mode means the module default (production), never the
         # development server.
         inst = _inst("superset", self._web_module())
-        self.assertEqual(validator.validate_web_serving_mode(self._profile(), [inst]), [])
+        self.assertEqual(
+            validator.validate_web_serving_mode(self._profile(), [inst]), []
+        )
 
     def test_development_mode_is_allowed_outside_production(self):
-        inst = _inst("superset", self._web_module(), {"webServer": {"mode": "development"}})
+        inst = _inst(
+            "superset", self._web_module(), {"webServer": {"mode": "development"}}
+        )
         self.assertEqual(
-            validator.validate_web_serving_mode(self._profile(environment="local"), [inst]), []
+            validator.validate_web_serving_mode(
+                self._profile(environment="local"), [inst]
+            ),
+            [],
         )
 
     def test_non_string_and_placeholder_modes_pass(self):
         # Only a literal "development" is rejected: a ${CDS_*} placeholder
         # cannot be resolved at validation time and profile inputs are
         # checked elsewhere (E138-style credential checks).
-        inst = _inst("superset", self._web_module(), {"webServer": {"mode": "${CDS_WEB_MODE}"}})
-        self.assertEqual(validator.validate_web_serving_mode(self._profile(), [inst]), [])
+        inst = _inst(
+            "superset", self._web_module(), {"webServer": {"mode": "${CDS_WEB_MODE}"}}
+        )
+        self.assertEqual(
+            validator.validate_web_serving_mode(self._profile(), [inst]), []
+        )
 
     def test_non_dict_web_server_block_is_ignored(self):
         inst = _inst("superset", self._web_module(), {"webServer": "development"})
-        self.assertEqual(validator.validate_web_serving_mode(self._profile(), [inst]), [])
+        self.assertEqual(
+            validator.validate_web_serving_mode(self._profile(), [inst]), []
+        )
 
 
 class ModuleBackupConfigTest(unittest.TestCase):
@@ -974,7 +1246,11 @@ class ModuleBackupConfigTest(unittest.TestCase):
         self.assertEqual(
             validator.validate_module_backup_config(
                 self._profile(),
-                [self._inst({"enabled": True, "encryptionKeyFrom": "secrets.backup_key"})],
+                [
+                    self._inst(
+                        {"enabled": True, "encryptionKeyFrom": "secrets.backup_key"}
+                    )
+                ],
             ),
             [],
         )
@@ -1062,7 +1338,14 @@ class ProductionMarkerShapeTest(unittest.TestCase):
 
     def test_volume_item_without_marker_is_clean(self):
         diagnostics = validator.validate_module_marker_shapes(
-            [_inst("db", self._module([{"type": "volume", "source": "data", "target": "/data"}]))]
+            [
+                _inst(
+                    "db",
+                    self._module(
+                        [{"type": "volume", "source": "data", "target": "/data"}]
+                    ),
+                )
+            ]
         )
         self.assertEqual(diagnostics, [])
 
@@ -1115,7 +1398,9 @@ class ProductionMarkerShapeTest(unittest.TestCase):
         )
         self.assertIn("mapping form", diagnostics[0].message)
 
-    def test_volume_item_inside_production_mapping_with_mapping_marker_reports_e144(self):
+    def test_volume_item_inside_production_mapping_with_mapping_marker_reports_e144(
+        self,
+    ):
         module = self._module([])
         module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = {
             "volumes": [
@@ -1155,9 +1440,7 @@ class ProductionMarkerShapeTest(unittest.TestCase):
         self.assertEqual(diagnostics, [])
 
     def test_service_level_mapping_marker_is_clean(self):
-        module = self._module(
-            [{"type": "volume", "source": "data", "target": "/data"}]
-        )
+        module = self._module([{"type": "volume", "source": "data", "target": "/data"}])
         module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = {
             "image": "postgres:18-alpine"
         }
@@ -1166,7 +1449,9 @@ class ProductionMarkerShapeTest(unittest.TestCase):
 
     def test_service_string_marker_reports_e144(self):
         module = self._module([])
-        module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = "true"
+        module["spec"]["implementation"]["compose"]["services"]["db"]["production"] = (
+            "true"
+        )
         diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
         self.assertEqual(
             _codes(diagnostics),
@@ -1192,13 +1477,20 @@ class ProductionMarkerShapeTest(unittest.TestCase):
         for marker in ({"read_only": True}, True):
             with self.subTest(marker=marker):
                 module = self._module([])
-                module["spec"]["implementation"]["compose"]["services"]["db"]["ports"] = [
-                    {"target": 5432, "production": marker}
-                ]
-                diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
+                module["spec"]["implementation"]["compose"]["services"]["db"][
+                    "ports"
+                ] = [{"target": 5432, "production": marker}]
+                diagnostics = validator.validate_module_marker_shapes(
+                    [_inst("db", module)]
+                )
                 self.assertEqual(
                     _codes(diagnostics),
-                    [("E144", "module:db.spec.implementation.compose.services.db.ports[0].production")],
+                    [
+                        (
+                            "E144",
+                            "module:db.spec.implementation.compose.services.db.ports[0].production",
+                        )
+                    ],
                 )
                 self.assertIn("only implemented on services", diagnostics[0].message)
 
@@ -1221,7 +1513,14 @@ class ProductionMarkerShapeTest(unittest.TestCase):
 
     def test_mount_string_marker_message_names_boolean_not_mapping(self):
         module = self._module(
-            [{"type": "volume", "source": "data", "target": "/data", "production": "true"}]
+            [
+                {
+                    "type": "volume",
+                    "source": "data",
+                    "target": "/data",
+                    "production": "true",
+                }
+            ]
         )
         diagnostics = validator.validate_module_marker_shapes([_inst("db", module)])
         self.assertEqual(len(diagnostics), 1)
@@ -1232,14 +1531,23 @@ class ProductionMarkerShapeTest(unittest.TestCase):
         # End-to-end wiring: the rule is part of the validation pipeline,
         # so an offending template surfaces E144 with its precise path.
         module = self._module(
-            [{"type": "volume", "source": "data", "target": "/data", "production": {"r": 1}}]
+            [
+                {
+                    "type": "volume",
+                    "source": "data",
+                    "target": "/data",
+                    "production": {"r": 1},
+                }
+            ]
         )
         inst = _inst("db", module)
         with (
             patch.object(validator, "validate_profile_shape", return_value=[]),
             patch.object(validator, "load_module_instances", return_value=([inst], [])),
         ):
-            diagnostics = validate_loaded_profile({"spec": {"modules": []}}, Path("profile.yaml"))
+            diagnostics = validate_loaded_profile(
+                {"spec": {"modules": []}}, Path("profile.yaml")
+            )
         self.assertTrue(
             any(
                 d.code == "E144"
@@ -1283,8 +1591,14 @@ class EnabledFromShapeTest(unittest.TestCase):
     def test_string_condition_on_service_and_mount_is_clean(self):
         module = self._module(
             {"enabledFrom": "config.backup.enabled"},
-            [{"type": "volume", "source": "data", "target": "/data",
-              "enabledFrom": "config.storage.enabled"}],
+            [
+                {
+                    "type": "volume",
+                    "source": "data",
+                    "target": "/data",
+                    "enabledFrom": "config.storage.enabled",
+                }
+            ],
         )
         self.assertEqual(self._scan(module), [])
 
@@ -1302,12 +1616,23 @@ class EnabledFromShapeTest(unittest.TestCase):
 
     def test_bool_condition_on_mount_entry_reports_e145(self):
         module = self._module(
-            volumes=[{"type": "volume", "source": "data", "target": "/data",
-                      "enabledFrom": True}]
+            volumes=[
+                {
+                    "type": "volume",
+                    "source": "data",
+                    "target": "/data",
+                    "enabledFrom": True,
+                }
+            ]
         )
         self.assertEqual(
             _codes(self._scan(module)),
-            [("E145", "module:db.spec.implementation.compose.services.db.volumes[0].enabledFrom")],
+            [
+                (
+                    "E145",
+                    "module:db.spec.implementation.compose.services.db.volumes[0].enabledFrom",
+                )
+            ],
         )
 
     def test_bool_conditionally_enabled_from_on_healthcheck_reports_e145(self):
@@ -1340,17 +1665,31 @@ class EnabledFromShapeTest(unittest.TestCase):
 
     def test_bool_condition_on_volume_definition_reports_e145(self):
         module = self._module()
-        module["spec"]["implementation"]["compose"]["volumes"]["data"]["enabledFrom"] = 1
+        module["spec"]["implementation"]["compose"]["volumes"]["data"][
+            "enabledFrom"
+        ] = 1
         self.assertEqual(
             _codes(self._scan(module)),
-            [("E145", "module:db.spec.implementation.compose.volumes.data.enabledFrom")],
+            [
+                (
+                    "E145",
+                    "module:db.spec.implementation.compose.volumes.data.enabledFrom",
+                )
+            ],
         )
 
     def test_condition_on_other_list_entries_reports_e145(self):
-        module = self._module({"ports": [{"target": 5432, "enabledFrom": "config.enabled"}]})
+        module = self._module(
+            {"ports": [{"target": 5432, "enabledFrom": "config.enabled"}]}
+        )
         self.assertEqual(
             _codes(self._scan(module)),
-            [("E145", "module:db.spec.implementation.compose.services.db.ports[0].enabledFrom")],
+            [
+                (
+                    "E145",
+                    "module:db.spec.implementation.compose.services.db.ports[0].enabledFrom",
+                )
+            ],
         )
 
     def test_e145_flows_through_validate_loaded_profile(self):
@@ -1360,11 +1699,14 @@ class EnabledFromShapeTest(unittest.TestCase):
             patch.object(validator, "validate_profile_shape", return_value=[]),
             patch.object(validator, "load_module_instances", return_value=([inst], [])),
         ):
-            diagnostics = validate_loaded_profile({"spec": {"modules": []}}, Path("profile.yaml"))
+            diagnostics = validate_loaded_profile(
+                {"spec": {"modules": []}}, Path("profile.yaml")
+            )
         self.assertTrue(
             any(
                 d.code == "E145"
-                and d.path == "module:db.spec.implementation.compose.services.db.enabledFrom"
+                and d.path
+                == "module:db.spec.implementation.compose.services.db.enabledFrom"
                 for d in diagnostics
             )
         )
@@ -1393,7 +1735,9 @@ class KubernetesMarkerShapeTest(unittest.TestCase):
         }
 
     def _scan(self, kubernetes):
-        return validator.validate_module_marker_shapes([_inst("pg", self._module(kubernetes))])
+        return validator.validate_module_marker_shapes(
+            [_inst("pg", self._module(kubernetes))]
+        )
 
     def test_valid_markers_are_clean(self):
         kubernetes = {
@@ -1412,7 +1756,12 @@ class KubernetesMarkerShapeTest(unittest.TestCase):
         diagnostics = self._scan(kubernetes)
         self.assertEqual(
             _codes(diagnostics),
-            [("E145", "module:pg.spec.implementation.kubernetes.workloads.app.enabledFrom")],
+            [
+                (
+                    "E145",
+                    "module:pg.spec.implementation.kubernetes.workloads.app.enabledFrom",
+                )
+            ],
         )
 
     def test_bool_enabled_from_on_volume_spec_reports_e145(self):
@@ -1421,21 +1770,36 @@ class KubernetesMarkerShapeTest(unittest.TestCase):
         kubernetes = {"volumes": {"data": {"enabledFrom": True}}}
         self.assertEqual(
             _codes(self._scan(kubernetes)),
-            [("E145", "module:pg.spec.implementation.kubernetes.volumes.data.enabledFrom")],
+            [
+                (
+                    "E145",
+                    "module:pg.spec.implementation.kubernetes.volumes.data.enabledFrom",
+                )
+            ],
         )
 
     def test_string_production_on_volume_spec_reports_e144(self):
         kubernetes = {"volumes": {"data": {"production": "true"}}}
         self.assertEqual(
             _codes(self._scan(kubernetes)),
-            [("E144", "module:pg.spec.implementation.kubernetes.volumes.data.production")],
+            [
+                (
+                    "E144",
+                    "module:pg.spec.implementation.kubernetes.volumes.data.production",
+                )
+            ],
         )
 
     def test_string_production_on_configmap_spec_reports_e144(self):
         kubernetes = {"configMaps": {"code": {"production": "true"}}}
         self.assertEqual(
             _codes(self._scan(kubernetes)),
-            [("E144", "module:pg.spec.implementation.kubernetes.configMaps.code.production")],
+            [
+                (
+                    "E144",
+                    "module:pg.spec.implementation.kubernetes.configMaps.code.production",
+                )
+            ],
         )
 
     def test_string_enabled_from_on_configmap_is_clean(self):
@@ -1449,14 +1813,24 @@ class KubernetesMarkerShapeTest(unittest.TestCase):
         kubernetes = {"configMaps": {"code": {"enabledFrom": True}}}
         self.assertEqual(
             _codes(self._scan(kubernetes)),
-            [("E145", "module:pg.spec.implementation.kubernetes.configMaps.code.enabledFrom")],
+            [
+                (
+                    "E145",
+                    "module:pg.spec.implementation.kubernetes.configMaps.code.enabledFrom",
+                )
+            ],
         )
 
     def test_production_on_workload_reports_e144(self):
         kubernetes = {"workloads": {"app": {"production": True}}}
         self.assertEqual(
             _codes(self._scan(kubernetes)),
-            [("E144", "module:pg.spec.implementation.kubernetes.workloads.app.production")],
+            [
+                (
+                    "E144",
+                    "module:pg.spec.implementation.kubernetes.workloads.app.production",
+                )
+            ],
         )
 
     def test_string_for_each_on_manifest_is_clean(self):
@@ -1486,5 +1860,10 @@ class KubernetesMarkerShapeTest(unittest.TestCase):
         }
         self.assertEqual(
             _codes(self._scan(kubernetes)),
-            [("E145", "module:pg.spec.implementation.kubernetes.manifests.policy.forEach")],
+            [
+                (
+                    "E145",
+                    "module:pg.spec.implementation.kubernetes.manifests.policy.forEach",
+                )
+            ],
         )

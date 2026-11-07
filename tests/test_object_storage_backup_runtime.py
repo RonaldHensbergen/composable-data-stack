@@ -174,27 +174,43 @@ def _profile() -> dict:
 
 def _source_env() -> list[str]:
     return [
-        "-e", "RCLONE_CONFIG_SOURCE_TYPE=s3",
-        "-e", "RCLONE_CONFIG_SOURCE_PROVIDER=Other",
-        "-e", "RCLONE_CONFIG_SOURCE_ENV_AUTH=false",
-        "-e", f"RCLONE_CONFIG_SOURCE_ACCESS_KEY_ID={ENV_VALUES['CDS_SRC_ACCESS_KEY']}",
-        "-e", f"RCLONE_CONFIG_SOURCE_SECRET_ACCESS_KEY={ENV_VALUES['CDS_SRC_SECRET_KEY']}",
-        "-e", f"RCLONE_CONFIG_SOURCE_ENDPOINT=http://{SOURCE_SERVICE}:3900",
-        "-e", "RCLONE_CONFIG_SOURCE_REGION=garage",
-        "-e", "RCLONE_CONFIG_SOURCE_FORCE_PATH_STYLE=true",
+        "-e",
+        "RCLONE_CONFIG_SOURCE_TYPE=s3",
+        "-e",
+        "RCLONE_CONFIG_SOURCE_PROVIDER=Other",
+        "-e",
+        "RCLONE_CONFIG_SOURCE_ENV_AUTH=false",
+        "-e",
+        f"RCLONE_CONFIG_SOURCE_ACCESS_KEY_ID={ENV_VALUES['CDS_SRC_ACCESS_KEY']}",
+        "-e",
+        f"RCLONE_CONFIG_SOURCE_SECRET_ACCESS_KEY={ENV_VALUES['CDS_SRC_SECRET_KEY']}",
+        "-e",
+        f"RCLONE_CONFIG_SOURCE_ENDPOINT=http://{SOURCE_SERVICE}:3900",
+        "-e",
+        "RCLONE_CONFIG_SOURCE_REGION=garage",
+        "-e",
+        "RCLONE_CONFIG_SOURCE_FORCE_PATH_STYLE=true",
     ]
 
 
 def _destination_env() -> list[str]:
     return [
-        "-e", "RCLONE_CONFIG_DESTINATION_TYPE=s3",
-        "-e", "RCLONE_CONFIG_DESTINATION_PROVIDER=Other",
-        "-e", "RCLONE_CONFIG_DESTINATION_ENV_AUTH=false",
-        "-e", f"RCLONE_CONFIG_DESTINATION_ACCESS_KEY_ID={ENV_VALUES['CDS_DST_ACCESS_KEY']}",
-        "-e", f"RCLONE_CONFIG_DESTINATION_SECRET_ACCESS_KEY={ENV_VALUES['CDS_DST_SECRET_KEY']}",
-        "-e", f"RCLONE_CONFIG_DESTINATION_ENDPOINT=http://{DESTINATION_SERVICE}:3900",
-        "-e", "RCLONE_CONFIG_DESTINATION_REGION=garage",
-        "-e", "RCLONE_CONFIG_DESTINATION_FORCE_PATH_STYLE=true",
+        "-e",
+        "RCLONE_CONFIG_DESTINATION_TYPE=s3",
+        "-e",
+        "RCLONE_CONFIG_DESTINATION_PROVIDER=Other",
+        "-e",
+        "RCLONE_CONFIG_DESTINATION_ENV_AUTH=false",
+        "-e",
+        f"RCLONE_CONFIG_DESTINATION_ACCESS_KEY_ID={ENV_VALUES['CDS_DST_ACCESS_KEY']}",
+        "-e",
+        f"RCLONE_CONFIG_DESTINATION_SECRET_ACCESS_KEY={ENV_VALUES['CDS_DST_SECRET_KEY']}",
+        "-e",
+        f"RCLONE_CONFIG_DESTINATION_ENDPOINT=http://{DESTINATION_SERVICE}:3900",
+        "-e",
+        "RCLONE_CONFIG_DESTINATION_REGION=garage",
+        "-e",
+        "RCLONE_CONFIG_DESTINATION_FORCE_PATH_STYLE=true",
     ]
 
 
@@ -202,12 +218,16 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if os.getenv("CDS_RUN_DOCKER_SMOKE") != "1":
-            raise unittest.SkipTest("Set CDS_RUN_DOCKER_SMOKE=1 to run Docker runtime proof tests")
+            raise unittest.SkipTest(
+                "Set CDS_RUN_DOCKER_SMOKE=1 to run Docker runtime proof tests"
+            )
 
         if shutil.which("docker") is None:
             raise unittest.SkipTest("Docker CLI not available")
 
-        docker_info = subprocess.run(["docker", "info"], capture_output=True, text=True, errors="replace")
+        docker_info = subprocess.run(
+            ["docker", "info"], capture_output=True, text=True, errors="replace"
+        )
         if docker_info.returncode != 0:
             raise unittest.SkipTest("Docker daemon is not available")
 
@@ -216,17 +236,26 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         # it lives at the repo root like production (the garage module's
         # garage.toml bind, notably).
         return [
-            "docker", "compose",
-            "--env-file", str(self._env_file),
-            "-f", str(COMPOSE_FILE),
-            "-p", PROJECT,
+            "docker",
+            "compose",
+            "--env-file",
+            str(self._env_file),
+            "-f",
+            str(COMPOSE_FILE),
+            "-p",
+            PROJECT,
         ]
 
-    def _run(self, command: list[str], timeout: int = 1200,
-             allow_failure: bool = False) -> subprocess.CompletedProcess:
+    def _run(
+        self, command: list[str], timeout: int = 1200, allow_failure: bool = False
+    ) -> subprocess.CompletedProcess:
         result = subprocess.run(
-            command, env=os.environ.copy(), capture_output=True, text=True,
-            errors="replace", timeout=timeout,
+            command,
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
         )
         if result.returncode != 0 and not allow_failure:
             self.fail(
@@ -238,14 +267,27 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
             )
         return result
 
-    def _rclone(self, remote_env: list[str], args: list[str], timeout: int = 300,
-                allow_failure: bool = False,
-                volumes: list[str] | None = None) -> subprocess.CompletedProcess:
+    def _rclone(
+        self,
+        remote_env: list[str],
+        args: list[str],
+        timeout: int = 300,
+        allow_failure: bool = False,
+        volumes: list[str] | None = None,
+    ) -> subprocess.CompletedProcess:
         return self._run(
             [
-                "docker", "run", "--rm", "--network", NETWORK,
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                NETWORK,
                 *([vol for v in (volumes or []) for vol in ("-v", v)]),
-                *remote_env, RCLONE_IMAGE, "--config", "/dev/null", *args,
+                *remote_env,
+                RCLONE_IMAGE,
+                "--config",
+                "/dev/null",
+                *args,
             ],
             timeout=timeout,
             allow_failure=allow_failure,
@@ -266,7 +308,8 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:
             cat = self._rclone(
-                _source_env(), ["cat", f"source:{SOURCE_BUCKET}/{MARKER_KEY}"],
+                _source_env(),
+                ["cat", f"source:{SOURCE_BUCKET}/{MARKER_KEY}"],
                 allow_failure=True,
             )
             if cat.returncode == 0 and cat.stdout == content:
@@ -278,13 +321,24 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         started = time.monotonic()
         while time.monotonic() - started < deadline_seconds:
             container = self._run(
-                [*self._compose(), "ps", "-q", service], timeout=60, allow_failure=True,
+                [*self._compose(), "ps", "-q", service],
+                timeout=60,
+                allow_failure=True,
             )
             container_id = container.stdout.strip()
             if container_id:
                 status = subprocess.run(
-                    ["docker", "inspect", "--format", "{{.State.Health.Status}}", container_id],
-                    capture_output=True, text=True, errors="replace", timeout=60,
+                    [
+                        "docker",
+                        "inspect",
+                        "--format",
+                        "{{.State.Health.Status}}",
+                        container_id,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=60,
                 )
                 if status.stdout.strip() == "healthy":
                     return
@@ -295,11 +349,14 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         """Returns the snapshot's UTC-timestamped directory id once the
         seeded marker and the pass's completion marker have both landed
         under it on the destination."""
-        listing_base = f"destination:{DESTINATION_BUCKET}/{SNAPSHOT_PREFIX}/{SOURCE_BUCKET}"
+        listing_base = (
+            f"destination:{DESTINATION_BUCKET}/{SNAPSHOT_PREFIX}/{SOURCE_BUCKET}"
+        )
         started = time.monotonic()
         while time.monotonic() - started < deadline_seconds:
             listing = self._rclone(
-                _destination_env(), ["lsf", "--recursive", listing_base],
+                _destination_env(),
+                ["lsf", "--recursive", listing_base],
                 allow_failure=True,
             )
             if listing.returncode == 0:
@@ -318,7 +375,9 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         self.fail(
             f"no completed snapshot of {SOURCE_BUCKET} appeared on the destination within "
             f"{deadline_seconds}s; backup logs:\n"
-            + self._run([*self._compose(), "logs", "--tail", "150", BACKUP_SERVICE]).stdout
+            + self._run(
+                [*self._compose(), "logs", "--tail", "150", BACKUP_SERVICE]
+            ).stdout
         )
 
     def _prepare(self, profile: dict) -> None:
@@ -338,9 +397,7 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         profile_path = self._work / "profile.yaml"
         profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
         diagnostics = validate_profile(str(profile_path))
-        self.assertEqual(
-            [d.format() for d in diagnostics if d.level == "error"], []
-        )
+        self.assertEqual([d.format() for d in diagnostics if d.level == "error"], [])
         plan, plan_diagnostics = build_plan(
             str(profile_path), env_file=str(self._env_file)
         )
@@ -359,7 +416,8 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         self.addCleanup(
             lambda: self._run(
                 [*self._compose(), "down", "-v", "--remove-orphans"],
-                timeout=300, allow_failure=True,
+                timeout=300,
+                allow_failure=True,
             )
         )
 
@@ -382,18 +440,24 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         """Returns the service container's (status, exit code, restart count)."""
         container = self._run(
             [*self._compose(), "ps", "--all", "-q", service],
-            timeout=60, allow_failure=True,
+            timeout=60,
+            allow_failure=True,
         )
         container_id = container.stdout.strip()
         if not container_id:
             return ("missing", "", "")
         state = subprocess.run(
             [
-                "docker", "inspect", "--format",
+                "docker",
+                "inspect",
+                "--format",
                 "{{.State.Status}} {{.State.ExitCode}} {{.RestartCount}}",
                 container_id,
             ],
-            capture_output=True, text=True, errors="replace", timeout=60,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=60,
         )
         fields = state.stdout.strip().split()
         if len(fields) == 3:
@@ -417,15 +481,19 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
             "secrets.backup_bad_secret_key"
         )
         profile["spec"]["secrets"]["values"]["backup_bad_access_key"] = {
-            "env": "CDS_BACKUP_BAD_ACCESS_KEY", "required": True,
+            "env": "CDS_BACKUP_BAD_ACCESS_KEY",
+            "required": True,
         }
         profile["spec"]["secrets"]["values"]["backup_bad_secret_key"] = {
-            "env": "CDS_BACKUP_BAD_SECRET_KEY", "required": True,
+            "env": "CDS_BACKUP_BAD_SECRET_KEY",
+            "required": True,
         }
         self._prepare(profile)
 
         with self.subTest("failed passes keep the service up and write no marker"):
-            self._run([*self._compose(), "up", "-d", SOURCE_SERVICE, DESTINATION_SERVICE])
+            self._run(
+                [*self._compose(), "up", "-d", SOURCE_SERVICE, DESTINATION_SERVICE]
+            )
             self._wait_healthy(SOURCE_SERVICE)
             self._wait_healthy(DESTINATION_SERVICE)
             self._run([*self._compose(), "up", "-d", BACKUP_SERVICE])
@@ -446,7 +514,8 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
                     break
                 time.sleep(5)
             self.assertGreaterEqual(
-                len(failed_ids), 2,
+                len(failed_ids),
+                2,
                 msg=f"expected at least two failed passes with fresh timestamps, "
                 f"got {sorted(failed_ids)}; logs:\n{logs[-1000:]}",
             )
@@ -468,7 +537,9 @@ class ObjectStorageBackupRuntimeTest(unittest.TestCase):
         self._prepare(_profile())
 
         with self.subTest("boot storage services and seed the source bucket"):
-            self._run([*self._compose(), "up", "-d", SOURCE_SERVICE, DESTINATION_SERVICE])
+            self._run(
+                [*self._compose(), "up", "-d", SOURCE_SERVICE, DESTINATION_SERVICE]
+            )
             self._wait_healthy(SOURCE_SERVICE)
             self._wait_healthy(DESTINATION_SERVICE)
             self._seed(MARKER_V1)

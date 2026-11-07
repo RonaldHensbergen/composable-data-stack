@@ -21,6 +21,7 @@ are written in profiles):
   field spellings (as shipped by the dagster module's environment block)
   are accepted as aliases for ``_DATABASE`` and ``_USERNAME``.
 """
+
 from __future__ import annotations
 
 import re
@@ -128,7 +129,9 @@ def resolve_connection_uri(prefix: str, env: Mapping[str, str]) -> str:
     )
 
 
-def _build_network_uri(prefix: str, scheme: str, backend: str, env: Mapping[str, str]) -> str:
+def _build_network_uri(
+    prefix: str, scheme: str, backend: str, env: Mapping[str, str]
+) -> str:
     host = env.get(f"{prefix}_HOST")
     port = env.get(f"{prefix}_PORT") or _DEFAULT_PORTS[backend]
     # Legacy spellings (the dagster module's environment block predates the

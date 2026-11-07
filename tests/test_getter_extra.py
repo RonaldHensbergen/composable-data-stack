@@ -68,7 +68,10 @@ def _fake_response(data: bytes) -> MagicMock:
 
 class DownloadErrorTest(unittest.TestCase):
     def _download(self, urlopen_mock):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(getter, "urlopen", urlopen_mock):
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(getter, "urlopen", urlopen_mock),
+        ):
             return _download_github_repository("o", "r", "main", Path(tmp))
 
     def test_http_error_is_wrapped(self) -> None:
@@ -92,8 +95,11 @@ class DownloadErrorTest(unittest.TestCase):
 
     def test_absolute_member_does_not_escape(self) -> None:
         data = _tar_bytes({"/abs-evil/x.txt": b"x"})
-        with tempfile.TemporaryDirectory() as tmp, patch.object(
-            getter, "urlopen", MagicMock(return_value=_fake_response(data))
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(
+                getter, "urlopen", MagicMock(return_value=_fake_response(data))
+            ),
         ):
             try:
                 _download_github_repository("o", "r", "main", Path(tmp))
@@ -113,8 +119,11 @@ class DownloadErrorTest(unittest.TestCase):
 
     def test_commit_from_pax_comment(self) -> None:
         data = _tar_bytes({"o-r-abcdef1/x": b"1"}, comment=FULL_SHA)
-        with tempfile.TemporaryDirectory() as tmp, patch.object(
-            getter, "urlopen", MagicMock(return_value=_fake_response(data))
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(
+                getter, "urlopen", MagicMock(return_value=_fake_response(data))
+            ),
         ):
             root, commit = _download_github_repository("o", "r", "main", Path(tmp))
             self.assertEqual(commit, FULL_SHA)
@@ -122,16 +131,22 @@ class DownloadErrorTest(unittest.TestCase):
 
     def test_commit_from_directory_suffix(self) -> None:
         data = _tar_bytes({"o-r-abcdef1/x": b"1"})
-        with tempfile.TemporaryDirectory() as tmp, patch.object(
-            getter, "urlopen", MagicMock(return_value=_fake_response(data))
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(
+                getter, "urlopen", MagicMock(return_value=_fake_response(data))
+            ),
         ):
             _root, commit = _download_github_repository("o", "r", "main", Path(tmp))
             self.assertEqual(commit, "abcdef1")
 
     def test_no_commit_when_suffix_not_sha(self) -> None:
         data = _tar_bytes({"project/x": b"1"})
-        with tempfile.TemporaryDirectory() as tmp, patch.object(
-            getter, "urlopen", MagicMock(return_value=_fake_response(data))
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            patch.object(
+                getter, "urlopen", MagicMock(return_value=_fake_response(data))
+            ),
         ):
             _root, commit = _download_github_repository("o", "r", "main", Path(tmp))
             self.assertIsNone(commit)
@@ -141,7 +156,9 @@ class ExpandAbbreviatedCommitTest(unittest.TestCase):
     def test_success(self) -> None:
         resp = _fake_response((FULL_SHA + "\n").encode())
         with patch.object(getter, "urlopen", return_value=resp):
-            self.assertEqual(_expand_abbreviated_commit("o", "r", "main", "aaaaaaa"), FULL_SHA)
+            self.assertEqual(
+                _expand_abbreviated_commit("o", "r", "main", "aaaaaaa"), FULL_SHA
+            )
 
     def test_network_failure(self) -> None:
         with patch.object(getter, "urlopen", side_effect=URLError("down")):
@@ -156,12 +173,16 @@ class ExpandAbbreviatedCommitTest(unittest.TestCase):
     def test_mismatching_sha(self) -> None:
         resp = _fake_response(("b" * 40).encode())
         with patch.object(getter, "urlopen", return_value=resp):
-            with self.assertRaisesRegex(GetError, "does not match the downloaded archive"):
+            with self.assertRaisesRegex(
+                GetError, "does not match the downloaded archive"
+            ):
                 _expand_abbreviated_commit("o", "r", "main", "aaaaaaa")
 
     def test_non_sha_response(self) -> None:
         with patch.object(getter, "urlopen", return_value=_fake_response(b"nope")):
-            with self.assertRaisesRegex(GetError, "does not match the downloaded archive"):
+            with self.assertRaisesRegex(
+                GetError, "does not match the downloaded archive"
+            ):
                 _expand_abbreviated_commit("o", "r", "main", "aaaaaaa")
 
 
@@ -199,8 +220,9 @@ class PrepareSourceTest(unittest.TestCase):
             with self.subTest(allowed=allowed):
                 self.assertIsNone(_check_source_allowed("o", "r", allowed))
         for allowed in (["other"], ["o/other"], ["o2/r"]):
-            with self.subTest(allowed=allowed), self.assertRaisesRegex(
-                GetError, "not in the trusted-source allowlist"
+            with (
+                self.subTest(allowed=allowed),
+                self.assertRaisesRegex(GetError, "not in the trusted-source allowlist"),
             ):
                 _check_source_allowed("o", "r", allowed)
 
@@ -209,10 +231,16 @@ class PrepareSourceTest(unittest.TestCase):
             repo = Path(tmp) / "repo"
             (repo / "profiles").mkdir(parents=True)
             patches = [
-                patch.object(getter, "_download_github_repository", return_value=(repo, resolved)),
+                patch.object(
+                    getter, "_download_github_repository", return_value=(repo, resolved)
+                ),
             ]
             if expanded is not None:
-                patches.append(patch.object(getter, "_expand_abbreviated_commit", return_value=expanded))
+                patches.append(
+                    patch.object(
+                        getter, "_expand_abbreviated_commit", return_value=expanded
+                    )
+                )
             with contextlib.ExitStack() as stack:
                 for p in patches:
                     stack.enter_context(p)
@@ -228,7 +256,9 @@ class PrepareSourceTest(unittest.TestCase):
             self._with_download("b" * 40, "a" * 12)
 
     def test_pin_expands_abbreviated(self) -> None:
-        _path, commit, _ref = self._with_download("aaaaaaa", "a" * 12, expanded=FULL_SHA)
+        _path, commit, _ref = self._with_download(
+            "aaaaaaa", "a" * 12, expanded=FULL_SHA
+        )
         self.assertEqual(commit, FULL_SHA)
 
 
@@ -260,7 +290,10 @@ class ProfileResolutionTest(unittest.TestCase):
             self.assertEqual(result, root / "profiles" / "flat.yaml")
 
     def test_profile_symlink_outside_repo_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as outside,
+        ):
             root = Path(tmp).resolve()
             _write(Path(outside) / "profile.yaml", "kind: Profile\n")
             (root / "profiles").mkdir()
@@ -302,31 +335,55 @@ class ExtendsAndAssetRootsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             p = root / "a" / "profile.yaml"
-            with patch.object(getter, "load_yaml_file", return_value=({"extends": ["x"]}, [])), patch.object(
-                getter, "_derive_profiles_root", return_value=None
+            with (
+                patch.object(
+                    getter, "load_yaml_file", return_value=({"extends": ["x"]}, [])
+                ),
+                patch.object(getter, "_derive_profiles_root", return_value=None),
             ):
-                with self.assertRaisesRegex(GetError, "Could not derive a profiles root"):
+                with self.assertRaisesRegex(
+                    GetError, "Could not derive a profiles root"
+                ):
                     _collect_extends_profile_dirs(root, p)
 
     def test_unresolvable_parent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             p = root / "profiles" / "a" / "profile.yaml"
-            with patch.object(getter, "load_yaml_file", return_value=({"extends": ["x"]}, [])), patch.object(
-                getter, "_derive_profiles_root", return_value=root / "profiles"
-            ), patch.object(getter, "_resolve_extends_ref", return_value=root / "missing.yaml"):
-                with self.assertRaisesRegex(GetError, "Could not resolve extends parent"):
+            with (
+                patch.object(
+                    getter, "load_yaml_file", return_value=({"extends": ["x"]}, [])
+                ),
+                patch.object(
+                    getter, "_derive_profiles_root", return_value=root / "profiles"
+                ),
+                patch.object(
+                    getter, "_resolve_extends_ref", return_value=root / "missing.yaml"
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    GetError, "Could not resolve extends parent"
+                ):
                     _collect_extends_profile_dirs(root, p)
 
     def test_parent_outside_repo(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as outside,
+        ):
             root = Path(tmp).resolve()
             parent = Path(outside) / "profile.yaml"
             _write(parent, "kind: Profile\n")
             p = root / "profiles" / "a" / "profile.yaml"
-            with patch.object(getter, "load_yaml_file", return_value=({"extends": ["x"]}, [])), patch.object(
-                getter, "_derive_profiles_root", return_value=root / "profiles"
-            ), patch.object(getter, "_resolve_extends_ref", return_value=parent):
+            with (
+                patch.object(
+                    getter, "load_yaml_file", return_value=({"extends": ["x"]}, [])
+                ),
+                patch.object(
+                    getter, "_derive_profiles_root", return_value=root / "profiles"
+                ),
+                patch.object(getter, "_resolve_extends_ref", return_value=parent),
+            ):
                 with self.assertRaisesRegex(GetError, "outside the source repository"):
                     _collect_extends_profile_dirs(root, p)
 
@@ -335,8 +392,13 @@ class ExtendsAndAssetRootsTest(unittest.TestCase):
             root = Path(tmp).resolve()
             p = root / "profiles" / "a" / "profile.yaml"
             _write(p, "kind: Profile\n")
-            with patch.object(getter, "resolve_extends", return_value=(doc, {}, diags or [])), patch.object(
-                getter, "_collect_extends_profile_dirs", return_value=set()
+            with (
+                patch.object(
+                    getter, "resolve_extends", return_value=(doc, {}, diags or [])
+                ),
+                patch.object(
+                    getter, "_collect_extends_profile_dirs", return_value=set()
+                ),
             ):
                 return _collect_asset_roots(root, p)
 
@@ -358,7 +420,9 @@ class ExtendsAndAssetRootsTest(unittest.TestCase):
 
     def test_module_source_unresolvable(self) -> None:
         with self.assertRaisesRegex(GetError, "Could not resolve module source"):
-            self._asset_roots({"spec": {"modules": [{"id": "m", "source": "../../nope"}]}})
+            self._asset_roots(
+                {"spec": {"modules": [{"id": "m", "source": "../../nope"}]}}
+            )
 
 
 class ModuleAssetsTest(unittest.TestCase):
@@ -477,7 +541,9 @@ class ModuleAssetsTest(unittest.TestCase):
             (root / "module.yaml").write_text("unused", encoding="utf-8")
             with (
                 patch.object(getter, "load_yaml_file", return_value=(module_doc, [])),
-                patch.object(getter, "_collect_build_assets", side_effect=capture_build),
+                patch.object(
+                    getter, "_collect_build_assets", side_effect=capture_build
+                ),
             ):
                 _collect_module_runtime_assets(root, root, {}, environment="local")
 
@@ -535,7 +601,9 @@ class BuildAssetsTest(unittest.TestCase):
     def test_unresolved_templates_and_empty(self) -> None:
         self.assertEqual(self._build({"context": ""})[0], set())
         self.assertEqual(self._build({"context": "${config.x}"})[0], set())
-        self.assertEqual(self._build({"context": ".", "dockerfile": "${config.d}"})[0], set())
+        self.assertEqual(
+            self._build({"context": ".", "dockerfile": "${config.d}"})[0], set()
+        )
         self.assertEqual(self._build({"context": ".", "dockerfile": ""})[0], set())
         self.assertEqual(self._build({"context": ".", "dockerfile": 3})[0], set())
 
@@ -551,7 +619,10 @@ class BuildAssetsTest(unittest.TestCase):
             self._build({"context": ".", "dockerfile": "../evil"})
 
     def test_context_outside_repo_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as outside,
+        ):
             root = Path(tmp).resolve()
             with self.assertRaisesRegex(GetError, "build context"):
                 _collect_build_assets(
@@ -576,7 +647,9 @@ class BuildAssetsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             _write(root / "a", "x")
-            self.assertEqual(_resolve_existing_local_path(str(root / "a"), []), root / "a")
+            self.assertEqual(
+                _resolve_existing_local_path(str(root / "a"), []), root / "a"
+            )
             self.assertIsNone(_resolve_existing_local_path(str(root / "zz"), []))
             self.assertEqual(_resolve_existing_local_path("./a", [root]), root / "a")
 
@@ -584,7 +657,9 @@ class BuildAssetsTest(unittest.TestCase):
 class DockerfileParsingTest(unittest.TestCase):
     def test_unreadable_dockerfile(self) -> None:
         with self.assertRaisesRegex(GetError, "Could not read Dockerfile"):
-            _parse_dockerfile_assets(Path("/nonexistent"), Path("/nonexistent/Dockerfile"))
+            _parse_dockerfile_assets(
+                Path("/nonexistent"), Path("/nonexistent/Dockerfile")
+            )
 
     def test_continuations_blank_lines_and_trailing_continuation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -599,8 +674,12 @@ class DockerfileParsingTest(unittest.TestCase):
             self.assertEqual(assets, {root / "a.txt", root / "b.txt"})
 
     def test_options_stripping(self) -> None:
-        self.assertEqual(_strip_dockerfile_instruction_options("--chown=1 a b"), ("a b", False))
-        self.assertEqual(_strip_dockerfile_instruction_options("--from=x a b"), ("a b", True))
+        self.assertEqual(
+            _strip_dockerfile_instruction_options("--chown=1 a b"), ("a b", False)
+        )
+        self.assertEqual(
+            _strip_dockerfile_instruction_options("--from=x a b"), ("a b", True)
+        )
         self.assertEqual(_strip_dockerfile_instruction_options("--link"), ("", False))
 
     def _sources(self, line, files=("a.txt",)):
@@ -608,8 +687,12 @@ class DockerfileParsingTest(unittest.TestCase):
             root = Path(tmp).resolve()
             for f in files:
                 _write(root / f, "x")
-            result = _extract_dockerfile_instruction_sources(root, root / "Dockerfile", line)
-            return {p.relative_to(root).as_posix() if p != root else "." for p in result}
+            result = _extract_dockerfile_instruction_sources(
+                root, root / "Dockerfile", line
+            )
+            return {
+                p.relative_to(root).as_posix() if p != root else "." for p in result
+            }
 
     def test_invalid_json_form(self) -> None:
         with self.assertRaisesRegex(GetError, "Could not parse COPY"):
@@ -642,7 +725,10 @@ class DockerfileParsingTest(unittest.TestCase):
 
 class CopyAndManifestTest(unittest.TestCase):
     def test_add_copy_action_outside_repo(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as outside,
+        ):
             f = Path(outside) / "f"
             _write(f, "x")
             with self.assertRaisesRegex(GetError, "outside the source repository"):
@@ -658,7 +744,11 @@ class CopyAndManifestTest(unittest.TestCase):
             root = Path(tmp).resolve()
             _write(root / "f", "x")
             actions: dict = {}
-            kwargs = dict(source_repo=root, destination_root=root / "d", actions_by_destination=actions)
+            kwargs = dict(
+                source_repo=root,
+                destination_root=root / "d",
+                actions_by_destination=actions,
+            )
             _add_copy_action(source_file=root / "f", **kwargs)
             _add_copy_action(source_file=root / "f", **kwargs)
             self.assertEqual(len(actions), 1)
@@ -691,7 +781,9 @@ class CopyAndManifestTest(unittest.TestCase):
             _write_actions([CopyAction(root / "src", root / "link", "link")])
             self.assertFalse((root / "link").is_symlink())
             self.assertEqual((root / "target").read_text(), "orig")
-            with patch.object(getter.shutil, "copy2", side_effect=PermissionError("denied")):
+            with patch.object(
+                getter.shutil, "copy2", side_effect=PermissionError("denied")
+            ):
                 with self.assertRaisesRegex(GetError, "Could not write"):
                     _write_actions([CopyAction(root / "src", root / "o", "o")])
 
@@ -700,18 +792,28 @@ class CopyAndManifestTest(unittest.TestCase):
             path = Path(tmp) / "m.json"
             _write(path, "{}")
             err = io.StringIO()
-            with patch.object(Path, "read_text", side_effect=OSError("nope")), contextlib.redirect_stderr(err):
-                self.assertEqual(_read_tracking_manifest(path), {"version": 1, "profiles": {}})
+            with (
+                patch.object(Path, "read_text", side_effect=OSError("nope")),
+                contextlib.redirect_stderr(err),
+            ):
+                self.assertEqual(
+                    _read_tracking_manifest(path), {"version": 1, "profiles": {}}
+                )
             self.assertIn("could not be read", err.getvalue())
 
     def test_read_manifest_malformed_variants(self) -> None:
-        for content, reason in (("{bad", "invalid JSON"), ("[]", "must be a JSON object")):
+        for content, reason in (
+            ("{bad", "invalid JSON"),
+            ("[]", "must be a JSON object"),
+        ):
             with self.subTest(content=content), tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "m.json"
                 _write(path, content)
                 err = io.StringIO()
                 with contextlib.redirect_stderr(err):
-                    self.assertEqual(_read_tracking_manifest(path), {"version": 1, "profiles": {}})
+                    self.assertEqual(
+                        _read_tracking_manifest(path), {"version": 1, "profiles": {}}
+                    )
                 self.assertIn(reason, err.getvalue())
                 self.assertIn("backed up to", err.getvalue())
 
@@ -720,7 +822,10 @@ class CopyAndManifestTest(unittest.TestCase):
             path = Path(tmp) / "m.json"
             _write(path, "{bad")
             err = io.StringIO()
-            with patch.object(getter.shutil, "copy2", side_effect=OSError("ro")), contextlib.redirect_stderr(err):
+            with (
+                patch.object(getter.shutil, "copy2", side_effect=OSError("ro")),
+                contextlib.redirect_stderr(err),
+            ):
                 _read_tracking_manifest(path)
             self.assertIn("backup failed", err.getvalue())
 
@@ -728,7 +833,9 @@ class CopyAndManifestTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "m.json"
             _write(path, json.dumps({"x": 1}))
-            self.assertEqual(_read_tracking_manifest(path), {"x": 1, "version": 1, "profiles": {}})
+            self.assertEqual(
+                _read_tracking_manifest(path), {"x": 1, "version": 1, "profiles": {}}
+            )
 
     def test_write_manifest_resets_non_dict_profiles_and_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -760,9 +867,13 @@ class CopyAndManifestTest(unittest.TestCase):
             self.assertIn("p", json.loads(manifest.read_text())["profiles"])
 
     def test_asset_root_relative_path_outside_repo(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            tempfile.TemporaryDirectory() as outside,
+        ):
             self.assertEqual(
-                _asset_root_relative_path(Path(outside), Path(tmp)), Path(outside).resolve().as_posix()
+                _asset_root_relative_path(Path(outside), Path(tmp)),
+                Path(outside).resolve().as_posix(),
             )
 
 
@@ -770,7 +881,9 @@ class FormatGetPlanTest(unittest.TestCase):
     def test_empty_and_truncated_lists(self) -> None:
         dest = Path("/dst")
         self.assertIn("No file changes", format_get_plan([], destination_root=dest))
-        actions = [CopyAction(Path(f"/s/{i}"), dest / str(i), f"f{i:02d}") for i in range(45)]
+        actions = [
+            CopyAction(Path(f"/s/{i}"), dest / str(i), f"f{i:02d}") for i in range(45)
+        ]
         conflicts = [a.repo_relative_path for a in actions[:22]]
         text = format_get_plan(actions, destination_root=dest, conflicts=conflicts)
         self.assertIn("... 2 more", text)

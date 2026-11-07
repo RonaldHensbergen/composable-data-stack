@@ -14,6 +14,7 @@ and the agent's own instructions.
 Runs in the CI lint job on pull requests (needs fetch-depth: 0). Locally:
     python scripts/check_agent_policy.py --base origin/main --head HEAD
 """
+
 from __future__ import annotations
 
 import argparse
@@ -97,8 +98,20 @@ def pr_labels() -> list[str]:
     repo = os.environ.get("GITHUB_REPOSITORY")
     if not match or not repo:
         return []
-    rc, out = _run(["gh", "pr", "view", match.group(1), "--repo", repo,
-                    "--json", "labels", "--jq", ".labels[].name"])
+    rc, out = _run(
+        [
+            "gh",
+            "pr",
+            "view",
+            match.group(1),
+            "--repo",
+            repo,
+            "--json",
+            "labels",
+            "--jq",
+            ".labels[].name",
+        ]
+    )
     if rc != 0:
         return []
     return [line.strip() for line in out.splitlines() if line.strip()]
@@ -123,9 +136,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base", default="origin/main")
     parser.add_argument("--head", default="HEAD")
-    parser.add_argument("--labels", default="", help="comma-separated PR labels (default: query gh in CI)")
+    parser.add_argument(
+        "--labels",
+        default="",
+        help="comma-separated PR labels (default: query gh in CI)",
+    )
     args = parser.parse_args()
-    labels = [l.strip() for l in args.labels.split(",") if l.strip()] if args.labels else pr_labels()
+    labels = (
+        [l.strip() for l in args.labels.split(",") if l.strip()]
+        if args.labels
+        else pr_labels()
+    )
     errors = check(args.base, args.head, labels)
     if errors:
         for error in errors:

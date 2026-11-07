@@ -1,4 +1,5 @@
 """Tests for the cds-runtime workload API (issue #219)."""
+
 import os
 import sys
 import tempfile
@@ -40,10 +41,14 @@ except ModuleNotFoundError:
 class EnvPrefixTest(unittest.TestCase):
     def test_default_prefix_maps_name_to_env_namespace(self):
         self.assertEqual(env_prefix_for("analytics"), "CDS_DB_ANALYTICS")
-        self.assertEqual(env_prefix_for("analytics-database"), "CDS_DB_ANALYTICS_DATABASE")
+        self.assertEqual(
+            env_prefix_for("analytics-database"), "CDS_DB_ANALYTICS_DATABASE"
+        )
 
     def test_prefix_override_adopts_legacy_env_blocks(self):
-        self.assertEqual(env_prefix_for("analytics", prefix="CDS_ANALYTICS_DB"), "CDS_ANALYTICS_DB")
+        self.assertEqual(
+            env_prefix_for("analytics", prefix="CDS_ANALYTICS_DB"), "CDS_ANALYTICS_DB"
+        )
 
     def test_invalid_names_are_rejected(self):
         for bad in ("", "has space", "drop;table", None, 3):
@@ -121,7 +126,10 @@ class ConnectionUriResolutionTest(unittest.TestCase):
         )
 
     def test_sqlite_memory(self):
-        env = {"CDS_DB_WAREHOUSE_BACKEND": "sqlite", "CDS_DB_WAREHOUSE_SQLITE_PATH": ":memory:"}
+        env = {
+            "CDS_DB_WAREHOUSE_BACKEND": "sqlite",
+            "CDS_DB_WAREHOUSE_SQLITE_PATH": ":memory:",
+        }
         self.assertEqual(
             connections.database("warehouse", env=env).connection_uri,
             "sqlite:///:memory:",
@@ -199,7 +207,9 @@ class ConnectionUriResolutionTest(unittest.TestCase):
             "CDS_ANALYTICS_DB_PASSWORD": "p",
         }
         self.assertEqual(
-            connections.database("analytics", prefix="CDS_ANALYTICS_DB", env=env).connection_uri,
+            connections.database(
+                "analytics", prefix="CDS_ANALYTICS_DB", env=env
+            ).connection_uri,
             "postgresql+psycopg2://u:p@db:5433/analytics",
         )
 
@@ -207,7 +217,9 @@ class ConnectionUriResolutionTest(unittest.TestCase):
         # A legacy-only block is not mistaken for an unknown connection.
         env = {"CDS_ANALYTICS_DB_NAME": "analytics"}
         with self.assertRaises(MissingConnectionSettingsError) as ctx:
-            uri = connections.database("analytics", prefix="CDS_ANALYTICS_DB", env=env).connection_uri
+            uri = connections.database(
+                "analytics", prefix="CDS_ANALYTICS_DB", env=env
+            ).connection_uri
             self.assertTrue(uri)
         self.assertIn("CDS_ANALYTICS_DB_HOST", str(ctx.exception))
 
@@ -236,7 +248,9 @@ class ConnectionUriResolutionTest(unittest.TestCase):
         # A connection whose prefix merely shares a stem with a configured
         # one is still unknown.
         with self.assertRaises(UnknownConnectionError):
-            uri = connections.database("analytics", env={"CDS_DB_ANALYTICS_DB_HOST": "h"}).connection_uri
+            uri = connections.database(
+                "analytics", env={"CDS_DB_ANALYTICS_DB_HOST": "h"}
+            ).connection_uri
             self.assertTrue(uri)
 
 
@@ -260,8 +274,12 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(second.name, "analytics")
 
     def test_explicit_env_bypasses_the_registry(self):
-        first = connections.database("analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "sqlite:///:memory:"})
-        second = connections.database("analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "sqlite:///:memory:"})
+        first = connections.database(
+            "analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "sqlite:///:memory:"}
+        )
+        second = connections.database(
+            "analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "sqlite:///:memory:"}
+        )
         self.assertIsNot(first, second)
 
     def test_close_all_disposes_and_clears(self):
@@ -274,7 +292,9 @@ class RegistryTest(unittest.TestCase):
                 self.closed = True
                 super().close()
 
-        tracked = Tracked("analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "sqlite:///:memory:"})
+        tracked = Tracked(
+            "analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "sqlite:///:memory:"}
+        )
         connections._connections[("analytics", "CDS_DB_ANALYTICS")] = tracked
         connections.close_all()
         self.assertTrue(tracked.closed)
@@ -301,7 +321,8 @@ class RedactionTest(unittest.TestCase):
 
     def test_query_error_message_redacts_embedded_uris(self):
         connection = DatabaseConnection(
-            "analytics", env={"CDS_DB_ANALYTICS_CONNECTION_URI": "postgresql://user:secret@host/db"}
+            "analytics",
+            env={"CDS_DB_ANALYTICS_CONNECTION_URI": "postgresql://user:secret@host/db"},
         )
         message = connection._redacted_message(
             Exception("could not reach postgresql://user:hunter2@db:5432/x")
@@ -311,13 +332,17 @@ class RedactionTest(unittest.TestCase):
         self.assertIn("***", message)
 
     def test_connection_repr_carries_no_configuration(self):
-        env = {"CDS_DB_ANALYTICS_CONNECTION_URI": "postgresql://user:secret@host:5432/db"}
+        env = {
+            "CDS_DB_ANALYTICS_CONNECTION_URI": "postgresql://user:secret@host:5432/db"
+        }
         connection = connections.database("analytics", env=env)
         self.assertEqual(repr(connection), "DatabaseConnection(name='analytics')")
         self.assertNotIn("secret", repr(connection))
 
     def test_redacted_connection_uri(self):
-        env = {"CDS_DB_ANALYTICS_CONNECTION_URI": "postgresql://user:secret@host:5432/db"}
+        env = {
+            "CDS_DB_ANALYTICS_CONNECTION_URI": "postgresql://user:secret@host:5432/db"
+        }
         self.assertEqual(
             connections.database("analytics", env=env).redacted_connection_uri,
             "postgresql://user:***@host:5432/db",
@@ -347,7 +372,9 @@ class QueryErrorRedactionTest(unittest.TestCase):
 
     def test_error_message_redacts_uri_password_without_uri_shape(self):
         env = {"CDS_DB_C_CONNECTION_URI": "postgresql://user:hunter2@db:5432/d"}
-        error = self._connection(env)._query_error(RuntimeError("password hunter2 rejected"))
+        error = self._connection(env)._query_error(
+            RuntimeError("password hunter2 rejected")
+        )
         self.assertNotIn("hunter2", str(error))
 
     def test_short_secrets_are_not_substituted(self):
@@ -375,10 +402,22 @@ class ApiGuardTest(unittest.TestCase):
     def test_exported_surface(self):
         import cds_runtime
 
-        for name in ("connections", "database", "close_all", "redact_uri", "env_prefix_for"):
+        for name in (
+            "connections",
+            "database",
+            "close_all",
+            "redact_uri",
+            "env_prefix_for",
+        ):
             self.assertTrue(hasattr(cds_runtime, name), name)
-        for error in (CdsRuntimeError, UnknownConnectionError, MissingConnectionSettingsError,
-                      DriverUnavailableError, ConnectionSetupError, QueryExecutionError):
+        for error in (
+            CdsRuntimeError,
+            UnknownConnectionError,
+            MissingConnectionSettingsError,
+            DriverUnavailableError,
+            ConnectionSetupError,
+            QueryExecutionError,
+        ):
             self.assertTrue(issubclass(error, CdsRuntimeError))
 
     def test_top_level_connections_module_is_the_registry_module(self):
@@ -387,14 +426,18 @@ class ApiGuardTest(unittest.TestCase):
         self.assertIs(via_attribute.database, connections.database)
 
     def test_dagster_adapter_returns_connection_uri(self):
-        env = {"CDS_DB_ANALYTICS_DATABASE_CONNECTION_URI": "postgresql://u:p@db:5432/analytics"}
+        env = {
+            "CDS_DB_ANALYTICS_DATABASE_CONNECTION_URI": "postgresql://u:p@db:5432/analytics"
+        }
         self.assertEqual(
             dagster.postgres_url("analytics-database", env=env),
             "postgresql://u:p@db:5432/analytics",
         )
 
     def test_dagster_adapter_rejects_non_postgres_url(self):
-        env = {"CDS_DB_ANALYTICS_DATABASE_CONNECTION_URI": "mysql+pymysql://u:p@db:3306/d"}
+        env = {
+            "CDS_DB_ANALYTICS_DATABASE_CONNECTION_URI": "mysql+pymysql://u:p@db:3306/d"
+        }
         with self.assertRaises(ValueError) as ctx:
             dagster.postgres_url("analytics-database", env=env)
         self.assertIn("analytics-database", str(ctx.exception))
@@ -404,7 +447,9 @@ class ApiGuardTest(unittest.TestCase):
         self.assertEqual(resolve_connection_uri("CDS_DB_X", env), "sqlite:///:memory:")
 
 
-@unittest.skipIf(not SQLALCHEMY_AVAILABLE, "SQLAlchemy is not installed in this environment")
+@unittest.skipIf(
+    not SQLALCHEMY_AVAILABLE, "SQLAlchemy is not installed in this environment"
+)
 class DatabaseOperationsTest(unittest.TestCase):
     """The data path, exercised against a real (SQLite) engine."""
 
@@ -448,7 +493,9 @@ class DatabaseOperationsTest(unittest.TestCase):
 
     def test_insert_rows_rejects_inconsistent_rows(self):
         with self.assertRaises(ValueError):
-            self.db.insert_rows("customers", [{"name": "a", "active": 1}, {"name": "b"}])
+            self.db.insert_rows(
+                "customers", [{"name": "a", "active": 1}, {"name": "b"}]
+            )
 
     def test_insert_rows_rejects_injection_through_identifiers(self):
         with self.assertRaises(ValueError):
@@ -464,23 +511,36 @@ class DatabaseOperationsTest(unittest.TestCase):
 
     def test_transaction_commits_on_success(self):
         with self.db.transaction() as tx:
-            tx.execute("INSERT INTO customers (name, active) VALUES (:n, :a)", {"n": "t1", "a": 1})
-            tx.execute("INSERT INTO customers (name, active) VALUES (:n, :a)", {"n": "t2", "a": 1})
+            tx.execute(
+                "INSERT INTO customers (name, active) VALUES (:n, :a)",
+                {"n": "t1", "a": 1},
+            )
+            tx.execute(
+                "INSERT INTO customers (name, active) VALUES (:n, :a)",
+                {"n": "t2", "a": 1},
+            )
         self.assertEqual(len(self.db.fetch_all("SELECT * FROM customers")), 2)
 
     def test_transaction_rolls_back_on_exception(self):
         with self.assertRaises(RuntimeError):
             with self.db.transaction() as tx:
-                tx.execute("INSERT INTO customers (name, active) VALUES (:n, :a)", {"n": "t", "a": 1})
+                tx.execute(
+                    "INSERT INTO customers (name, active) VALUES (:n, :a)",
+                    {"n": "t", "a": 1},
+                )
                 raise RuntimeError("boom")
         self.assertEqual(self.db.fetch_all("SELECT * FROM customers"), [])
 
     def test_transaction_fetch_operations_share_the_transaction(self):
-        self.db.execute("INSERT INTO customers (name, active) VALUES (:n, :a)", {"n": "x", "a": 1})
+        self.db.execute(
+            "INSERT INTO customers (name, active) VALUES (:n, :a)", {"n": "x", "a": 1}
+        )
         with self.db.transaction() as tx:
             row = tx.fetch_one("SELECT * FROM customers WHERE name = :n", {"n": "x"})
             self.assertEqual(row["name"], "x")
-            tx.execute("UPDATE customers SET active = :a WHERE name = :n", {"a": 0, "n": "x"})
+            tx.execute(
+                "UPDATE customers SET active = :a WHERE name = :n", {"a": 0, "n": "x"}
+            )
 
     def test_query_error_is_typed_and_redacted(self):
         with self.assertRaises(QueryExecutionError) as ctx:
@@ -518,7 +578,9 @@ class DatabaseOperationsTest(unittest.TestCase):
         db = connections.database("analytics", env=self.env)
         try:
             with ThreadPoolExecutor(max_workers=8) as pool:
-                futures = [pool.submit(db.fetch_one, "SELECT 1 AS x") for _ in range(32)]
+                futures = [
+                    pool.submit(db.fetch_one, "SELECT 1 AS x") for _ in range(32)
+                ]
                 self.assertTrue(all(future.result() == {"x": 1} for future in futures))
         finally:
             sqlalchemy.create_engine = original_create_engine
@@ -526,14 +588,19 @@ class DatabaseOperationsTest(unittest.TestCase):
         self.assertEqual(len(created), 1)
 
     def test_close_disposes_and_reconnects_lazily(self):
-        self.db.execute("INSERT INTO customers (name, active) VALUES (:n, :a)", {"n": "a", "a": 1})
+        self.db.execute(
+            "INSERT INTO customers (name, active) VALUES (:n, :a)", {"n": "a", "a": 1}
+        )
         self.db.close()
         self.db.close()  # idempotent
         self.assertEqual(len(self.db.fetch_all("SELECT * FROM customers")), 1)
 
     def test_context_manager_closes_on_exit(self):
         with connections.database("analytics", env=self.env) as db:
-            db.execute("INSERT INTO customers (name, active) VALUES (:n, :a)", {"n": "a", "a": 1})
+            db.execute(
+                "INSERT INTO customers (name, active) VALUES (:n, :a)",
+                {"n": "a", "a": 1},
+            )
             engine = db.engine()
         self.assertIsNotNone(engine)
         self.assertIsNone(db._engine)
@@ -560,7 +627,9 @@ class ConcurrencyTest(unittest.TestCase):
         self.addCleanup(self._tmp.cleanup)
         self._saved = {key: os.environ.get(key) for key in self._ENV_KEYS}
         os.environ["CDS_DB_CONCURRENT_BACKEND"] = "sqlite"
-        os.environ["CDS_DB_CONCURRENT_SQLITE_PATH"] = str(Path(self._tmp.name) / "concurrent.db")
+        os.environ["CDS_DB_CONCURRENT_SQLITE_PATH"] = str(
+            Path(self._tmp.name) / "concurrent.db"
+        )
         self.addCleanup(self._restore_env)
 
     def _restore_env(self):
@@ -573,16 +642,23 @@ class ConcurrencyTest(unittest.TestCase):
 
     def test_threads_share_one_registered_connection(self):
         with ThreadPoolExecutor(max_workers=8) as pool:
-            results = [pool.submit(connections.database, "concurrent") for _ in range(64)]
+            results = [
+                pool.submit(connections.database, "concurrent") for _ in range(64)
+            ]
             objects = [future.result() for future in results]
-        self.assertTrue(all(obj is objects[0] for obj in objects), "registry returned different objects")
+        self.assertTrue(
+            all(obj is objects[0] for obj in objects),
+            "registry returned different objects",
+        )
 
     def test_concurrent_operations_on_one_connection(self):
         db = connections.database("concurrent")
         db.execute("CREATE TABLE hits (id INTEGER PRIMARY KEY)")
         db.execute("INSERT INTO hits (id) VALUES (:i)", {"i": 0})
         with ThreadPoolExecutor(max_workers=8) as pool:
-            futures = [pool.submit(db.fetch_one, "SELECT id FROM hits") for _ in range(64)]
+            futures = [
+                pool.submit(db.fetch_one, "SELECT id FROM hits") for _ in range(64)
+            ]
             for future in futures:
                 self.assertEqual(future.result(), {"id": 0})
         self.assertEqual(db.fetch_all("SELECT * FROM hits"), [{"id": 0}])

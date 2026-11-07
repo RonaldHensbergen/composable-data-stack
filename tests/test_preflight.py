@@ -58,7 +58,10 @@ class PreflightTest(unittest.TestCase):
 
         self.assertFalse(preflight_passed(checks))
         self.assertTrue(
-            any(check.name == "runtime.cli" and check.status == "FAIL" for check in checks)
+            any(
+                check.name == "runtime.cli" and check.status == "FAIL"
+                for check in checks
+            )
         )
 
     @patch("cli.preflight.subprocess.run")
@@ -77,7 +80,10 @@ class PreflightTest(unittest.TestCase):
 
         self.assertFalse(preflight_passed(checks))
         self.assertTrue(
-            any(check.name == "runtime.daemon" and check.status == "FAIL" for check in checks)
+            any(
+                check.name == "runtime.daemon" and check.status == "FAIL"
+                for check in checks
+            )
         )
 
     @patch("cli.preflight.subprocess.run")
@@ -98,8 +104,9 @@ class PreflightTest(unittest.TestCase):
             }
         )
 
-        with tempfile.TemporaryDirectory() as tmpdir, patch.dict(
-            os.environ, {}, clear=True
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.dict(os.environ, {}, clear=True),
         ):
             checks = run_preflight(
                 self.plan,
@@ -124,7 +131,9 @@ class PreflightTest(unittest.TestCase):
         mock_run,
     ) -> None:
         mock_run.return_value = subprocess.CompletedProcess([], 0)
-        compose_yaml = "services:\n  app:\n    environment:\n      TOKEN: ${CDS_TOKEN}\n"
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n      TOKEN: ${CDS_TOKEN}\n"
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
@@ -142,7 +151,9 @@ class PreflightTest(unittest.TestCase):
         mock_run,
     ) -> None:
         mock_run.return_value = subprocess.CompletedProcess([], 0)
-        compose_yaml = "services:\n  app:\n    environment:\n      TOKEN: ${CDS_TOKEN}\n"
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n      TOKEN: ${CDS_TOKEN}\n"
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             env_file = Path(tmpdir) / ".env"
@@ -177,7 +188,10 @@ class PreflightTest(unittest.TestCase):
             )
         )
         self.assertTrue(
-            any(check.name == "environment" and check.status == "PASS" for check in checks)
+            any(
+                check.name == "environment" and check.status == "PASS"
+                for check in checks
+            )
         )
 
     @patch("cli.preflight.subprocess.run")
@@ -228,7 +242,9 @@ class PreflightTest(unittest.TestCase):
         mock_run,
     ) -> None:
         mock_run.return_value = subprocess.CompletedProcess([], 0)
-        compose_yaml = "services:\n  app:\n    environment:\n      PASSWORD: ${CDS_TOKEN:-}\n"
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n      PASSWORD: ${CDS_TOKEN:-}\n"
+        )
 
         with patch.dict(os.environ, {}, clear=True):
             checks = run_preflight(self.plan, compose_yaml, Path("missing.env"))
@@ -356,8 +372,7 @@ class PreflightTest(unittest.TestCase):
     ) -> None:
         mock_run.return_value = subprocess.CompletedProcess([], 0)
         compose_yaml = (
-            "services:\n  app:\n    environment:\n"
-            "      SECRET: ${CDS_TURKEY:-food}\n"
+            "services:\n  app:\n    environment:\n      SECRET: ${CDS_TURKEY:-food}\n"
         )
 
         with patch.dict(os.environ, {}, clear=True):
@@ -390,7 +405,9 @@ class PreflightTest(unittest.TestCase):
 
         self.assertFalse(preflight_passed(checks))
         self.assertTrue(
-            any(check.name == "ports.api" and check.status == "FAIL" for check in checks)
+            any(
+                check.name == "ports.api" and check.status == "FAIL" for check in checks
+            )
         )
 
     def test_fails_for_unsupported_runtime(self) -> None:
@@ -438,7 +455,9 @@ class PreflightTest(unittest.TestCase):
 
         self.assertFalse(preflight_passed(checks))
         self.assertTrue(
-            any(check.name == "ports.dns" and check.status == "FAIL" for check in checks)
+            any(
+                check.name == "ports.dns" and check.status == "FAIL" for check in checks
+            )
         )
 
     @patch("cli.preflight.subprocess.run")
@@ -496,18 +515,26 @@ class PreflightTest(unittest.TestCase):
         start = time.monotonic()
         self.assertIsNone(_ENV_REFERENCE.search(payload))
         elapsed = time.monotonic() - start
-        self.assertLess(elapsed, 1.0, "regex match took too long; backtracking may have regressed")
+        self.assertLess(
+            elapsed, 1.0, "regex match took too long; backtracking may have regressed"
+        )
 
 
 class HostHardeningTest(unittest.TestCase):
     HARDENED = {
-        "SecurityOptions": ["name=seccomp,profile=builtin", "name=rootless", "name=cgroupns"],
+        "SecurityOptions": [
+            "name=seccomp,profile=builtin",
+            "name=rootless",
+            "name=cgroupns",
+        ],
         "LoggingDriver": "json-file",
         "LiveRestoreEnabled": True,
     }
 
     def setUp(self) -> None:
-        self._context_patch = patch("cli.preflight._uses_non_default_context", return_value=False)
+        self._context_patch = patch(
+            "cli.preflight._uses_non_default_context", return_value=False
+        )
         self._context_patch.start()
         self.addCleanup(patch.stopall)
 
@@ -515,25 +542,43 @@ class HostHardeningTest(unittest.TestCase):
         return {c.name: c for c in _check_host_hardening(info)}
 
     def test_hardened_daemon_passes_every_inspected_control(self) -> None:
-        with patch.dict(os.environ, {"DOCKER_HOST": "tcp://h:2376", "DOCKER_TLS_VERIFY": "1"}):
+        with patch.dict(
+            os.environ, {"DOCKER_HOST": "tcp://h:2376", "DOCKER_TLS_VERIFY": "1"}
+        ):
             checks = self._by_name(self.HARDENED)
         self.assertTrue(all(c.status == "PASS" for c in checks.values()), checks)
 
     def test_default_rootful_daemon_warns_but_never_fails(self) -> None:
-        info = {"SecurityOptions": ["name=seccomp,profile=unconfined"], "LoggingDriver": "none"}
+        info = {
+            "SecurityOptions": ["name=seccomp,profile=unconfined"],
+            "LoggingDriver": "none",
+        }
         checks = _check_host_hardening(info)
         by_name = {c.name: c for c in checks}
-        for name in ("host.rootless", "host.userns", "host.seccomp", "host.logging", "host.live-restore"):
+        for name in (
+            "host.rootless",
+            "host.userns",
+            "host.seccomp",
+            "host.logging",
+            "host.live-restore",
+        ):
             self.assertEqual(by_name[name].status, "WARN", name)
         self.assertTrue(preflight_passed(checks))
 
     def test_userns_without_rootless_satisfies_userns_only(self) -> None:
-        by_name = self._by_name({**self.HARDENED, "SecurityOptions": ["name=seccomp,profile=builtin", "name=userns"]})
+        by_name = self._by_name(
+            {
+                **self.HARDENED,
+                "SecurityOptions": ["name=seccomp,profile=builtin", "name=userns"],
+            }
+        )
         self.assertEqual(by_name["host.rootless"].status, "WARN")
         self.assertEqual(by_name["host.userns"].status, "PASS")
 
     def test_tcp_docker_host_without_tls_warns(self) -> None:
-        with patch.dict(os.environ, {"DOCKER_HOST": "tcp://127.0.0.1:2375"}, clear=True):
+        with patch.dict(
+            os.environ, {"DOCKER_HOST": "tcp://127.0.0.1:2375"}, clear=True
+        ):
             check = _check_socket_exposure()
         self.assertEqual(check.status, "WARN")
 
@@ -547,9 +592,13 @@ class HostHardeningTest(unittest.TestCase):
             self.assertEqual(_check_socket_exposure().status, "PASS")
 
     def test_uninspectable_socket_is_omitted(self) -> None:
-        with patch.dict(os.environ, {"DOCKER_HOST": "unix:///nonexistent/docker.sock"}, clear=True):
+        with patch.dict(
+            os.environ, {"DOCKER_HOST": "unix:///nonexistent/docker.sock"}, clear=True
+        ):
             self.assertIsNone(_check_socket_exposure())
-        with patch.dict(os.environ, {"DOCKER_HOST": "npipe:////./pipe/docker_engine"}, clear=True):
+        with patch.dict(
+            os.environ, {"DOCKER_HOST": "npipe:////./pipe/docker_engine"}, clear=True
+        ):
             self.assertIsNone(_check_socket_exposure())
 
     @unittest.skipIf(os.name == "nt", "POSIX file modes are not enforced on Windows")
@@ -562,7 +611,9 @@ class HostHardeningTest(unittest.TestCase):
     def test_current_context_in_config_file_omits_socket_check(self) -> None:
         self._context_patch.stop()
         with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / "config.json").write_text('{"currentContext": "remote"}', encoding="utf-8")
+            (Path(tmpdir) / "config.json").write_text(
+                '{"currentContext": "remote"}', encoding="utf-8"
+            )
             with patch.dict(os.environ, {"DOCKER_CONFIG": tmpdir}, clear=True):
                 self.assertIsNone(_check_socket_exposure())
 
@@ -578,18 +629,30 @@ class HostHardeningTest(unittest.TestCase):
 
     @patch("cli.preflight.subprocess.run")
     @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
-    def test_unreachable_daemon_failure_includes_stderr_detail(self, _which, mock_run) -> None:
+    def test_unreachable_daemon_failure_includes_stderr_detail(
+        self, _which, mock_run
+    ) -> None:
         mock_run.side_effect = [
             subprocess.CompletedProcess([], 0),
-            subprocess.CompletedProcess([], 1, stdout="", stderr="permission denied on docker.sock\n"),
+            subprocess.CompletedProcess(
+                [], 1, stdout="", stderr="permission denied on docker.sock\n"
+            ),
         ]
-        checks = run_preflight({"runtime": {"type": "docker-compose"}}, "services: {}\n", Path("missing.env"))
+        checks = run_preflight(
+            {"runtime": {"type": "docker-compose"}},
+            "services: {}\n",
+            Path("missing.env"),
+        )
         daemon = next(c for c in checks if c.name == "runtime.daemon")
         self.assertEqual(daemon.status, "FAIL")
         self.assertIn("permission denied", daemon.message)
 
     def test_docker_desktop_skips_host_checks(self) -> None:
-        info = {**self.HARDENED, "OperatingSystem": "Docker Desktop", "SecurityOptions": []}
+        info = {
+            **self.HARDENED,
+            "OperatingSystem": "Docker Desktop",
+            "SecurityOptions": [],
+        }
         self.assertEqual(_check_host_hardening(info), [])
 
     def test_logging_pass_message_does_not_claim_rotation_verified(self) -> None:
@@ -603,17 +666,25 @@ class HostHardeningTest(unittest.TestCase):
             sock.touch()
             for mode, expected in ((0o666, "WARN"), (0o660, "PASS")):
                 sock.chmod(mode)
-                with patch.dict(os.environ, {"DOCKER_HOST": f"unix://{sock}"}, clear=True):
+                with patch.dict(
+                    os.environ, {"DOCKER_HOST": f"unix://{sock}"}, clear=True
+                ):
                     self.assertEqual(_check_socket_exposure().status, expected)
 
     @patch("cli.preflight.subprocess.run")
     @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
-    def test_run_preflight_reports_host_checks_from_docker_info_json(self, _which, mock_run) -> None:
+    def test_run_preflight_reports_host_checks_from_docker_info_json(
+        self, _which, mock_run
+    ) -> None:
         mock_run.side_effect = [
             subprocess.CompletedProcess([], 0),
             subprocess.CompletedProcess([], 0, stdout=json.dumps(self.HARDENED)),
         ]
-        checks = run_preflight({"runtime": {"type": "docker-compose"}}, "services: {}\n", Path("missing.env"))
+        checks = run_preflight(
+            {"runtime": {"type": "docker-compose"}},
+            "services: {}\n",
+            Path("missing.env"),
+        )
         self.assertIn("host.rootless", [c.name for c in checks])
         self.assertEqual(mock_run.call_count, 2)
 
@@ -624,7 +695,11 @@ class HostHardeningTest(unittest.TestCase):
             subprocess.CompletedProcess([], 0),
             subprocess.CompletedProcess([], 0, stdout="not json"),
         ]
-        checks = run_preflight({"runtime": {"type": "docker-compose"}}, "services: {}\n", Path("missing.env"))
+        checks = run_preflight(
+            {"runtime": {"type": "docker-compose"}},
+            "services: {}\n",
+            Path("missing.env"),
+        )
         self.assertFalse(any(c.name.startswith("host.") for c in checks))
         self.assertTrue(preflight_passed(checks))
 

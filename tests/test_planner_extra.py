@@ -37,7 +37,9 @@ def _profile(modules, **spec):
 def _write_module(root: Path, name: str, module_def: dict) -> None:
     module_dir = root / "modules" / name
     module_dir.mkdir(parents=True, exist_ok=True)
-    (module_dir / "module.yaml").write_text(yaml.safe_dump(module_def), encoding="utf-8")
+    (module_dir / "module.yaml").write_text(
+        yaml.safe_dump(module_def), encoding="utf-8"
+    )
 
 
 def _nested(depth, leaf):
@@ -69,7 +71,8 @@ class BuildPlanEdgeCaseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             profile_file = Path(tmpdir) / "profile.yaml"
             with patch(
-                "cli.overlay.resolve_profile", return_value=(_profile([]), {"k": "v"}, [])
+                "cli.overlay.resolve_profile",
+                return_value=(_profile([]), {"k": "v"}, []),
             ) as resolver:
                 plan, diags = planner.build_plan(str(profile_file), environment="dev")
 
@@ -80,7 +83,9 @@ class BuildPlanEdgeCaseTest(unittest.TestCase):
 
     def test_build_plan_from_profile_rejects_non_list_modules(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            plan, diags = planner.build_plan_from_profile(_profile("nope"), Path(tmpdir))
+            plan, diags = planner.build_plan_from_profile(
+                _profile("nope"), Path(tmpdir)
+            )
 
         self.assertIsNone(plan)
         self.assertEqual([(d.code, d.path) for d in diags], [("E010", "spec.modules")])
@@ -90,14 +95,20 @@ class BuildPlanEdgeCaseTest(unittest.TestCase):
             plan, diags = planner.build_plan_from_profile(_profile(["x"]), Path(tmpdir))
 
         self.assertIsNotNone(plan)
-        self.assertEqual([(d.code, d.path) for d in diags], [("E010", "spec.modules[0]")])
+        self.assertEqual(
+            [(d.code, d.path) for d in diags], [("E010", "spec.modules[0]")]
+        )
 
-    def test_build_plan_from_profile_skips_disabled_and_reports_missing_id_and_source(self):
-        profile = _profile([
-            {"id": "off", "source": "./modules/off", "enabled": False},
-            {"source": "./modules/x"},
-            {"id": "nosource"},
-        ])
+    def test_build_plan_from_profile_skips_disabled_and_reports_missing_id_and_source(
+        self,
+    ):
+        profile = _profile(
+            [
+                {"id": "off", "source": "./modules/off", "enabled": False},
+                {"source": "./modules/x"},
+                {"id": "nosource"},
+            ]
+        )
         with tempfile.TemporaryDirectory() as tmpdir:
             plan, diags = planner.build_plan_from_profile(profile, Path(tmpdir))
 
@@ -134,17 +145,28 @@ class BuildPlanEdgeCaseTest(unittest.TestCase):
     def test_build_plan_from_profile_reports_e094_for_deeply_nested_config(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            _write_module(root, "deep", _module(config_schema=_nested_schema(MAX_NESTING_DEPTH + 5)))
+            _write_module(
+                root,
+                "deep",
+                _module(config_schema=_nested_schema(MAX_NESTING_DEPTH + 5)),
+            )
             config = _nested(MAX_NESTING_DEPTH + 5, "v")
 
             plan, diags = planner.build_plan_from_profile(
-                _profile([{"id": "deep", "source": "./modules/deep", "config": config}]), root
+                _profile(
+                    [{"id": "deep", "source": "./modules/deep", "config": config}]
+                ),
+                root,
             )
 
         self.assertEqual(plan["modules"], [])
-        self.assertEqual([(d.code, d.path) for d in diags], [("E094", "spec.modules[0].config")])
+        self.assertEqual(
+            [(d.code, d.path) for d in diags], [("E094", "spec.modules[0].config")]
+        )
 
-    def test_build_plan_from_profile_reports_e094_for_deeply_nested_provided_contract(self):
+    def test_build_plan_from_profile_reports_e094_for_deeply_nested_provided_contract(
+        self,
+    ):
         deep_contract = {"kind": "x", "spec": _nested(MAX_NESTING_DEPTH + 5, "v")}
         module = _module(provides=[{"name": "deep", "contract": deep_contract}])
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -155,7 +177,9 @@ class BuildPlanEdgeCaseTest(unittest.TestCase):
                 _profile([{"id": "prov", "source": "./modules/prov"}]), root
             )
 
-        self.assertEqual([(d.code, d.path) for d in diags], [("E094", "module:prov.provides")])
+        self.assertEqual(
+            [(d.code, d.path) for d in diags], [("E094", "module:prov.provides")]
+        )
         self.assertEqual(plan["modules"][0]["provides"], {})
 
     def test_build_plan_from_profile_records_environment_provenance_and_label(self):
@@ -174,7 +198,9 @@ class BuildPlanEdgeCaseTest(unittest.TestCase):
 
     def test_plan_generated_profile_returns_none_when_resolution_fails(self):
         diag = Diagnostic(level="error", code="E001", message="boom", path="x")
-        with patch("cli.overlay.resolve_extends_from_profile", return_value=(None, {}, [diag])):
+        with patch(
+            "cli.overlay.resolve_extends_from_profile", return_value=(None, {}, [diag])
+        ):
             plan, diags = planner.plan_generated_profile(_profile([]), Path("."))
 
         self.assertIsNone(plan)
@@ -259,7 +285,9 @@ class ImageOverrideTest(unittest.TestCase):
         base = {"image": {"tag": "1.0", "variant": "base"}}
         planner._apply_image_source_override(base, self._module_def(), "registry")
         no_default = {"image": {"variant": "hardened"}}
-        planner._apply_image_source_override(no_default, self._module_def(tag_default=""), "registry")
+        planner._apply_image_source_override(
+            no_default, self._module_def(tag_default=""), "registry"
+        )
 
         self.assertEqual(pinned["image"]["tag"], "9.9")
         self.assertEqual(base["image"]["tag"], "1.0")
@@ -320,7 +348,10 @@ class ApplyDefaultsTest(unittest.TestCase):
                         "properties": {"k": {"type": "string", "default": "v"}},
                     },
                 },
-                "given": {"type": "array", "items": {"type": "object", "properties": {"k": {"default": "v"}}}},
+                "given": {
+                    "type": "array",
+                    "items": {"type": "object", "properties": {"k": {"default": "v"}}},
+                },
                 "scalar": {"type": "string", "default": "s"},
             },
         }
@@ -342,7 +373,10 @@ class ApplyDefaultsTest(unittest.TestCase):
 
     def test_raises_when_schema_nesting_too_deep(self):
         with self.assertRaises(MaxNestingDepthExceeded):
-            planner.apply_defaults(_nested(MAX_NESTING_DEPTH + 5, "v"), _nested_schema(MAX_NESTING_DEPTH + 5))
+            planner.apply_defaults(
+                _nested(MAX_NESTING_DEPTH + 5, "v"),
+                _nested_schema(MAX_NESTING_DEPTH + 5),
+            )
 
 
 class ConsumedContractTest(unittest.TestCase):
@@ -358,7 +392,9 @@ class ConsumedContractTest(unittest.TestCase):
         return resolved, diags
 
     def test_skips_incomplete_consume_entries(self):
-        resolved, diags = self._resolve({}, [{"name": "a"}, {"mappedFrom": "spec.config.x"}])
+        resolved, diags = self._resolve(
+            {}, [{"name": "a"}, {"mappedFrom": "spec.config.x"}]
+        )
 
         self.assertEqual((resolved, diags), ({}, []))
 
@@ -369,7 +405,10 @@ class ConsumedContractTest(unittest.TestCase):
             "required": False,
             "requiredIf": "!!!",
         }
-        with patch("cli.planner.evaluate_required_if", side_effect=planner.RequiredIfSyntaxError("bad")):
+        with patch(
+            "cli.planner.evaluate_required_if",
+            side_effect=planner.RequiredIfSyntaxError("bad"),
+        ):
             resolved, diags = self._resolve({}, [consume])
 
         self.assertEqual(resolved, {})
@@ -420,7 +459,10 @@ class ConsumedContractTest(unittest.TestCase):
     def test_producer_without_provided_contract_reports_e041(self):
         consume = {"name": "db", "mappedFrom": "spec.config.db"}
         _, diags = self._resolve(
-            {"db": {"contractRef": "p.sql"}}, [consume], modules={"p": {}}, contracts={"p": {}}
+            {"db": {"contractRef": "p.sql"}},
+            [consume],
+            modules={"p": {}},
+            contracts={"p": {}},
         )
 
         self.assertIn('does not provide "sql"', diags[0].message)
@@ -429,11 +471,16 @@ class ConsumedContractTest(unittest.TestCase):
         consume = {"name": "db", "mappedFrom": "spec.config.db"}
         contracts = {"p": {"sql": {"kind": "sql"}}}
         resolved, diags = self._resolve(
-            {"db": {"contractRef": "p.sql"}}, [consume], modules={"p": {}}, contracts=contracts
+            {"db": {"contractRef": "p.sql"}},
+            [consume],
+            modules={"p": {}},
+            contracts=contracts,
         )
 
         self.assertEqual(diags, [])
-        self.assertEqual(resolved["db"], {"contractRef": "p.sql", "contract": {"kind": "sql"}})
+        self.assertEqual(
+            resolved["db"], {"contractRef": "p.sql", "contract": {"kind": "sql"}}
+        )
         self.assertIsNot(resolved["db"]["contract"], contracts["p"]["sql"])
 
 
@@ -456,9 +503,14 @@ class SecretRefAndOutputsTest(unittest.TestCase):
                 "notstr": {"from": 5},
             }
         }
-        resolved = planner.resolve_outputs(outputs, {"p": {"sql": {"kind": "sql"}}}, diags)
+        resolved = planner.resolve_outputs(
+            outputs, {"p": {"sql": {"kind": "sql"}}}, diags
+        )
 
-        self.assertEqual(resolved, {"contracts": {"ok": {"from": "p.sql", "contract": {"kind": "sql"}}}})
+        self.assertEqual(
+            resolved,
+            {"contracts": {"ok": {"from": "p.sql", "contract": {"kind": "sql"}}}},
+        )
         self.assertEqual(
             [(d.code, d.path) for d in diags],
             [
@@ -475,24 +527,36 @@ class SubstitutionTest(unittest.TestCase):
 
     def test_substitute_values_handles_containers_and_scalars(self):
         ctx = {"config": {"n": 3, "s": "x"}}
-        result = planner.substitute_values({"a": ["${config.s}", 1, "${config.n}"]}, ctx)
+        result = planner.substitute_values(
+            {"a": ["${config.s}", 1, "${config.n}"]}, ctx
+        )
 
         self.assertEqual(result, {"a": ["x", 1, 3]})
 
     def test_substitute_string_variants(self):
-        ctx = {"config": {"n": 3, "s": "x", "pw": "secrets.db"}, "secrets": {"db": "CDS_DB"}}
+        ctx = {
+            "config": {"n": 3, "s": "x", "pw": "secrets.db"},
+            "secrets": {"db": "CDS_DB"},
+        }
 
         self.assertEqual(planner.substitute_string("plain", ctx), "plain")
         self.assertEqual(planner.substitute_string("${config.n}", ctx), 3)
         self.assertEqual(planner.substitute_string("a-${config.s}-b", ctx), "a-x-b")
         self.assertEqual(planner.substitute_string("$${config.s}", ctx), "${config.s}")
-        self.assertEqual(planner.substitute_string("${config.nope}", ctx), "${config.nope}")
+        self.assertEqual(
+            planner.substitute_string("${config.nope}", ctx), "${config.nope}"
+        )
         self.assertEqual(planner.substitute_string("${config.pw}", ctx), "${CDS_DB}")
         self.assertEqual(planner.substitute_string("${secrets.db}", ctx), "${CDS_DB}")
-        self.assertEqual(planner.substitute_string("${secrets.unmapped}", ctx), "${unmapped}")
+        self.assertEqual(
+            planner.substitute_string("${secrets.unmapped}", ctx), "${unmapped}"
+        )
 
     def test_resolve_expr_if_nonempty(self):
-        ctx = {"config": {"v": "x", "e": " ", "pw": "secrets.db"}, "secrets": {"db": "CDS_DB"}}
+        ctx = {
+            "config": {"v": "x", "e": " ", "pw": "secrets.db"},
+            "secrets": {"db": "CDS_DB"},
+        }
 
         self.assertEqual(planner.resolve_expr("ifNonempty:config.v,-,+", ctx), "-x+")
         self.assertEqual(planner.resolve_expr("ifNonempty:config.e,-,+", ctx), "")
@@ -508,7 +572,13 @@ class SubstitutionTest(unittest.TestCase):
             "module": {
                 "spec": {
                     "provides": [
-                        {"name": "sql", "contract": {"host": "${service.host}", "port": "${config.port}"}},
+                        {
+                            "name": "sql",
+                            "contract": {
+                                "host": "${service.host}",
+                                "port": "${config.port}",
+                            },
+                        },
                         {"contract": {"ignored": True}},
                     ]
                 }
@@ -559,7 +629,11 @@ class BackupSourceBindingTest(unittest.TestCase):
             self._module(
                 "restic",
                 ["restic-repo"],
-                {"source-a": self._consumed_backup_source("dlt.backup-source", "dlt-dlt-state")},
+                {
+                    "source-a": self._consumed_backup_source(
+                        "dlt.backup-source", "dlt-dlt-state"
+                    )
+                },
             ),
         ]
         self.assertEqual(self._diags(modules), [])
@@ -570,7 +644,11 @@ class BackupSourceBindingTest(unittest.TestCase):
             self._module(
                 "restic",
                 ["restic-repo"],
-                {"source-a": self._consumed_backup_source("dlt.backup-source", "dlt-typo")},
+                {
+                    "source-a": self._consumed_backup_source(
+                        "dlt.backup-source", "dlt-typo"
+                    )
+                },
             ),
         ]
         self.assertEqual(
@@ -597,7 +675,10 @@ class BackupSourceBindingTest(unittest.TestCase):
             "contractRef": "pg.sql-database",
             "contract": {"kind": "sql-database", "spec": {}},
         }
-        modules = [self._module("pg", ["postgres-data"]), self._module("dag", [], {"db": consumed})]
+        modules = [
+            self._module("pg", ["postgres-data"]),
+            self._module("dag", [], {"db": consumed}),
+        ]
         self.assertEqual(self._diags(modules), [])
 
 

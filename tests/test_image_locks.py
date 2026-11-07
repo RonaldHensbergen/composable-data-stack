@@ -24,7 +24,9 @@ class ImageLockTest(unittest.TestCase):
         for name, path in DOCKERFILES.items():
             with self.subTest(image=name):
                 text = (REPO_ROOT / path).read_text(encoding="utf-8")
-                installs = re.findall(r"(?:pip install|uv pip install)(?:\\\n|[^\n])*", text)
+                installs = re.findall(
+                    r"(?:pip install|uv pip install)(?:\\\n|[^\n])*", text
+                )
                 requirement_installs = [i for i in installs if "requirements" in i]
                 self.assertTrue(requirement_installs)
                 for install in requirement_installs:
@@ -42,7 +44,9 @@ class ImageLockTest(unittest.TestCase):
                 self.assertIn("--hash=sha256:", lock.read_text(encoding="utf-8"))
 
     def test_ci_audits_the_locks_and_checks_for_drift(self) -> None:
-        ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("scripts/check_image_locks.py", ci)
         self.assertIn("git diff --exit-code images", ci)
         self.assertIn("pip-audit --require-hashes --disable-pip", ci)

@@ -20,6 +20,7 @@ enable scripts/check_cra_release_gate.py's strict checks for a specific
 release, after a real conformity-assessment process. See
 docs/cra-release-evidence-gate.md#6-release-gate.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,7 +63,9 @@ def build_manifest(
         "evidence": {
             "scopeDecision": _repo_doc(commit_sha, "docs/cra-scope-decision.md"),
             "riskAssessment": _repo_doc(commit_sha, "docs/cra-risk-assessment.md"),
-            "technicalDocumentation": _repo_doc(commit_sha, "docs/cra-technical-documentation.md"),
+            "technicalDocumentation": _repo_doc(
+                commit_sha, "docs/cra-technical-documentation.md"
+            ),
             "sbom": {"ref": sbom_file},
             "releaseInventory": {"ref": release_inventory_file},
             "testResults": {
@@ -73,7 +76,9 @@ def build_manifest(
                 **_repo_doc(commit_sha, "docs/image-scanning.md"),
                 "note": "Runtime images are rescanned daily and on every change; status is not a static per-release snapshot.",
             },
-            "supportInformation": _repo_doc(commit_sha, "docs/security-support-policy.md"),
+            "supportInformation": _repo_doc(
+                commit_sha, "docs/security-support-policy.md"
+            ),
             "userInstructions": _repo_doc(commit_sha, "README.md"),
             "signaturesProvenance": _repo_doc(commit_sha, "docs/image-signing.md"),
         },
@@ -108,23 +113,41 @@ def build_manifest(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--commit-sha", required=True, help="Source commit SHA this release was built from")
-    parser.add_argument("--source-ref", required=True, help="Git ref (tag) this release was built from")
-    parser.add_argument("--sbom-file", default="cli-sbom.cyclonedx.json", help="Filename of the CLI SBOM for this release")
+    parser.add_argument(
+        "--commit-sha",
+        required=True,
+        help="Source commit SHA this release was built from",
+    )
+    parser.add_argument(
+        "--source-ref", required=True, help="Git ref (tag) this release was built from"
+    )
+    parser.add_argument(
+        "--sbom-file",
+        default="cli-sbom.cyclonedx.json",
+        help="Filename of the CLI SBOM for this release",
+    )
     parser.add_argument(
         "--release-inventory-file",
         default="release-inventory.json",
         help="Filename of the release artifact inventory for this release",
     )
-    parser.add_argument("--generated-at", required=True, help="UTC ISO-8601 timestamp of generation")
-    parser.add_argument("--generated-by", required=True, help="URL of the workflow run that generated this manifest")
+    parser.add_argument(
+        "--generated-at", required=True, help="UTC ISO-8601 timestamp of generation"
+    )
+    parser.add_argument(
+        "--generated-by",
+        required=True,
+        help="URL of the workflow run that generated this manifest",
+    )
     parser.add_argument(
         "--pyproject",
         type=Path,
         default=Path(__file__).resolve().parent.parent / "pyproject.toml",
         help="Path to pyproject.toml (default: repository root)",
     )
-    parser.add_argument("--output", required=True, type=Path, help="Path to write the manifest JSON to")
+    parser.add_argument(
+        "--output", required=True, type=Path, help="Path to write the manifest JSON to"
+    )
     args = parser.parse_args()
 
     name, version = pyproject_name_and_version(args.pyproject)
@@ -139,8 +162,12 @@ def main() -> int:
         generated_by=args.generated_by,
     )
 
-    args.output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(f"OK: wrote CRA release-evidence manifest for {name} {version} to {args.output}")
+    args.output.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    print(
+        f"OK: wrote CRA release-evidence manifest for {name} {version} to {args.output}"
+    )
     return 0
 
 

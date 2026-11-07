@@ -6,6 +6,7 @@ exposes them through its provide entry, with its configSchema defaults
 applied, and that the resolved contract stays provider-neutral for
 downstream TLS checks.
 """
+
 import unittest
 from pathlib import Path
 
@@ -49,10 +50,18 @@ class ReverseProxyTlsMetadataTest(unittest.TestCase):
 
     def test_contract_document_declares_the_metadata_fields(self):
         contract = yaml.safe_load(
-            (_REPO_ROOT / "shared" / "contracts" / "reverse-proxy.yaml").read_text(encoding="utf-8")
+            (_REPO_ROOT / "shared" / "contracts" / "reverse-proxy.yaml").read_text(
+                encoding="utf-8"
+            )
         )
         fields = contract["spec"]["fields"]
-        for field in ("tls", "tlsMinVersion", "tlsMaxVersion", "tlsSniStrict", "certVerified"):
+        for field in (
+            "tls",
+            "tlsMinVersion",
+            "tlsMaxVersion",
+            "tlsSniStrict",
+            "certVerified",
+        ):
             self.assertIn(field, fields, f"contract document is missing field {field}")
         # Every metadata field documents its TLS semantics.
         for field in ("tlsMinVersion", "tlsMaxVersion", "tlsSniStrict", "certVerified"):

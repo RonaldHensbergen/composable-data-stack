@@ -166,8 +166,7 @@ class SupersetOidcHelmTest(unittest.TestCase):
         profile_file = self._write_profile(profile_dir, oidc=oidc)
         env_file = profile_dir / ".env"
         env_file.write_text(
-            "\n".join(f"{key}={value}" for key, value in _SECRET_VALUES.items())
-            + "\n",
+            "\n".join(f"{key}={value}" for key, value in _SECRET_VALUES.items()) + "\n",
             encoding="utf-8",
         )
         with mock.patch.dict(
@@ -203,16 +202,18 @@ class SupersetOidcHelmTest(unittest.TestCase):
         return files["templates/superset-superset-deployment.yaml"]
 
     def _env_value(self, deployment: str, name: str) -> str:
-        match = re.search(
-            rf"- name: {re.escape(name)}\n\s+value: (.*)", deployment
+        match = re.search(rf"- name: {re.escape(name)}\n\s+value: (.*)", deployment)
+        self.assertIsNotNone(
+            match, f"env entry {name} missing from superset deployment"
         )
-        self.assertIsNotNone(match, f"env entry {name} missing from superset deployment")
         return match.group(1).strip().strip("'\"")
 
     def test_issuer_url_and_client_id_render_as_literal_env(self):
         files, _ = self._render()
         deployment = self._superset_deployment(files)
-        self.assertEqual(self._env_value(deployment, "CDS_OIDC_ISSUER_URL"), _ISSUER_URL)
+        self.assertEqual(
+            self._env_value(deployment, "CDS_OIDC_ISSUER_URL"), _ISSUER_URL
+        )
         self.assertEqual(self._env_value(deployment, "CDS_OIDC_CLIENT_ID"), "superset")
 
     def test_client_secret_is_only_a_secret_key_ref_expansion(self):
@@ -327,7 +328,8 @@ class SupersetOidcHelmTest(unittest.TestCase):
             plan, plan_diags = build_plan(str(profile_file), env_file=str(env_file))
             self.assertIsNotNone(plan)
             self.assertEqual(
-                [d for d in plan_diags if d.level == "error"], [],
+                [d for d in plan_diags if d.level == "error"],
+                [],
                 msg=f"unexpected plan errors: {plan_diags}",
             )
             files, render_diags = render_helm(plan, env_file=str(env_file))

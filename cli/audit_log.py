@@ -16,6 +16,7 @@ recorded (e.g. "CDS_DB_PASSWORD"), the same `${CDS_*}` placeholder
 convention used by the planner/renderer (see `cli/secrets.py`) -- never
 secret values.
 """
+
 from __future__ import annotations
 
 import json
@@ -148,7 +149,10 @@ def record_entry(
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, sort_keys=True) + "\n")
     except OSError as exc:
-        print(f"WARNING Could not write audit log entry to {log_path}: {exc}", file=sys.stderr)
+        print(
+            f"WARNING Could not write audit log entry to {log_path}: {exc}",
+            file=sys.stderr,
+        )
         return None
 
     return log_path

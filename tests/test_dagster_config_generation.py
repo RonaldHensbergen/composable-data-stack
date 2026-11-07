@@ -18,10 +18,14 @@ _spec.loader.exec_module(_mod)
 
 class TestDetectBackend(unittest.TestCase):
     def test_postgresql_uri(self):
-        self.assertEqual(_mod.detect_backend("postgresql://user:pass@host:5432/db"), "postgres")
+        self.assertEqual(
+            _mod.detect_backend("postgresql://user:pass@host:5432/db"), "postgres"
+        )
 
     def test_mysql_uri(self):
-        self.assertEqual(_mod.detect_backend("mysql+pymysql://user:pass@host:3306/db"), "mysql")
+        self.assertEqual(
+            _mod.detect_backend("mysql+pymysql://user:pass@host:3306/db"), "mysql"
+        )
 
     def test_sqlite_uri(self):
         self.assertEqual(_mod.detect_backend("sqlite:////tmp/dagster.db"), "sqlite")
@@ -45,7 +49,9 @@ class TestGenerateDagsterYaml(unittest.TestCase):
 
     def test_postgres_backend_via_connection_uri(self):
         output = self._generate(
-            {"DAGSTER_DB_CONNECTION_URI": "postgresql://analytics:pass@postgres:5432/dagster"}
+            {
+                "DAGSTER_DB_CONNECTION_URI": "postgresql://analytics:pass@postgres:5432/dagster"
+            }
         )
         self.assertIn("dagster_postgres.run_storage", output)
         self.assertIn("PostgresRunStorage", output)
@@ -56,7 +62,9 @@ class TestGenerateDagsterYaml(unittest.TestCase):
 
     def test_postgres_config_uses_generic_env_vars(self):
         output = self._generate(
-            {"DAGSTER_DB_CONNECTION_URI": "postgresql://analytics:pass@postgres:5432/dagster"}
+            {
+                "DAGSTER_DB_CONNECTION_URI": "postgresql://analytics:pass@postgres:5432/dagster"
+            }
         )
         self.assertIn("DAGSTER_DB_HOST", output)
         self.assertIn("DAGSTER_DB_USER", output)
@@ -66,7 +74,9 @@ class TestGenerateDagsterYaml(unittest.TestCase):
 
     def test_postgres_config_has_no_legacy_postgres_vars(self):
         output = self._generate(
-            {"DAGSTER_DB_CONNECTION_URI": "postgresql://analytics:pass@postgres:5432/dagster"}
+            {
+                "DAGSTER_DB_CONNECTION_URI": "postgresql://analytics:pass@postgres:5432/dagster"
+            }
         )
         self.assertNotIn("DAGSTER_POSTGRES_HOST", output)
         self.assertNotIn("DAGSTER_POSTGRES_USER", output)
@@ -74,7 +84,9 @@ class TestGenerateDagsterYaml(unittest.TestCase):
         self.assertNotIn("DAGSTER_POSTGRES_DB", output)
 
     def test_sqlite_backend_via_connection_uri(self):
-        output = self._generate({"DAGSTER_DB_CONNECTION_URI": "sqlite:////tmp/dagster.db"})
+        output = self._generate(
+            {"DAGSTER_DB_CONNECTION_URI": "sqlite:////tmp/dagster.db"}
+        )
         self.assertIn("SqliteRunStorage", output)
         self.assertIn("SqliteScheduleStorage", output)
         self.assertIn("SqliteEventLogStorage", output)
@@ -106,9 +118,7 @@ class TestGenerateDagsterYaml(unittest.TestCase):
             self.assertTrue((Path(tmpdir) / "dagster.yaml").exists())
 
     def test_telemetry_is_disabled(self):
-        output = self._generate(
-            {"DAGSTER_DB_CONNECTION_URI": "postgresql://host/db"}
-        )
+        output = self._generate({"DAGSTER_DB_CONNECTION_URI": "postgresql://host/db"})
         self.assertIn("telemetry:", output)
         self.assertIn("enabled: false", output)
 

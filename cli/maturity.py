@@ -24,7 +24,9 @@ def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
     """Summarize recognized platform contracts from a resolved Plan."""
     modules = plan.get("modules")
     if not isinstance(modules, list):
-        raise ValueError("Maturity reporting requires a resolved Plan with a modules list.")
+        raise ValueError(
+            "Maturity reporting requires a resolved Plan with a modules list."
+        )
 
     providers_by_kind: dict[str, set[str]] = {}
     stateful_instances: set[str] = set()
@@ -34,7 +36,9 @@ def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
         module_id = module.get("id")
         provides = module.get("provides", {})
         if not isinstance(module_id, str) or not isinstance(provides, dict):
-            raise ValueError("Resolved Plan contains a module without a valid id or provides map.")
+            raise ValueError(
+                "Resolved Plan contains a module without a valid id or provides map."
+            )
         for contract in provides.values():
             if not isinstance(contract, dict):
                 continue
@@ -68,7 +72,8 @@ def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
 
     basic_achieved = bound_by_id["database"] and bound_by_id["cache"]
     observability_achieved = any(
-        bound_by_id[capability_id] for capability_id in ("logging", "metrics", "tracing")
+        bound_by_id[capability_id]
+        for capability_id in ("logging", "metrics", "tracing")
     )
     automated_achieved = (
         basic_achieved
@@ -91,9 +96,7 @@ def build_maturity_report(plan: dict[str, Any]) -> dict[str, Any]:
         or bool(providers_by_kind.get("service-mesh"))
         or broker_is_security_control
     )
-    backed_up_instances = _backed_up_stateful_instances(
-        modules, stateful_instances
-    )
+    backed_up_instances = _backed_up_stateful_instances(modules, stateful_instances)
     missing_stateful_backups = sorted(stateful_instances - backed_up_instances)
     resilient_achieved = secured_achieved and not missing_stateful_backups
     tiers = [
@@ -168,8 +171,7 @@ def _backed_up_stateful_instances(
         provided_kinds = {
             contract.get("kind")
             for contract in provides.values()
-            if isinstance(contract, dict)
-            and isinstance(contract.get("kind"), str)
+            if isinstance(contract, dict) and isinstance(contract.get("kind"), str)
         }
         if "backup-target" in provided_kinds:
             backup_target_providers.add(module_id)
@@ -235,13 +237,10 @@ def format_maturity_report(report: dict[str, Any]) -> str:
         providers = ", ".join(capability["providerInstances"]) or "-"
         contract_kinds = ", ".join(capability["contractKinds"])
         bound = "Yes" if capability["bound"] else "No"
-        lines.append(
-            f"{capability['name']} | {contract_kinds} | {bound} | {providers}"
-        )
+        lines.append(f"{capability['name']} | {contract_kinds} | {bound} | {providers}")
 
     labels = {
-        capability["id"]: capability["name"]
-        for capability in report["capabilities"]
+        capability["id"]: capability["name"] for capability in report["capabilities"]
     }
     labels.update(
         {
@@ -255,15 +254,10 @@ def format_maturity_report(report: dict[str, Any]) -> str:
     )
     lines.extend(["", "Tier requirements:"])
     for tier in report["tiers"]:
-        requirements = [
-            labels.get(item, item)
-            for item in tier["requirements"]
-        ]
+        requirements = [labels.get(item, item) for item in tier["requirements"]]
         status = "met" if tier["achieved"] else "not met"
         lines.append(f"  {tier['name']}: {status} ({', '.join(requirements)})")
-    lines.append(
-        "Note: GitOps is reported but does not affect the maturity tiers."
-    )
+    lines.append("Note: GitOps is reported but does not affect the maturity tiers.")
     lines.append(
         "Note: Tier results reflect declared contract presence, not effective "
         "runtime enforcement or NIST SP 800-207 conformity."

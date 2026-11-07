@@ -13,6 +13,7 @@ renames the existing `## [Unreleased]` heading to a dated
 `## [X.Y.Z] - YYYY-MM-DD` heading and inserts a new empty `## [Unreleased]`
 section above it, so future PRs have somewhere to add entries again.
 """
+
 from __future__ import annotations
 
 import datetime

@@ -269,9 +269,7 @@ class MaturityReportTest(unittest.TestCase):
         postgres = next(module for module in modules if module["id"] == "postgres")
         postgres["provides"]["backup"] = {"kind": "backup-target"}
         postgres["config"] = {"backup": {"enabled": True}}
-        modules.extend(
-            [_module("loki", "log-sink"), _module("mesh", "service-mesh")]
-        )
+        modules.extend([_module("loki", "log-sink"), _module("mesh", "service-mesh")])
 
         report = build_maturity_report(
             {"metadata": {"name": "resilient"}, "modules": modules}
@@ -326,8 +324,14 @@ class MaturityCommandTest(unittest.TestCase):
             ),
             patch("cli.main.load_env_file"),
             patch("cli.main.load_saved_environment", return_value=None),
-            patch("cli.main.resolve_profile_path", return_value="/profiles/minimal/profile.yaml"),
-            patch("cli.main.resolve_env_file_path", return_value=Path("/profiles/minimal/.env")),
+            patch(
+                "cli.main.resolve_profile_path",
+                return_value="/profiles/minimal/profile.yaml",
+            ),
+            patch(
+                "cli.main.resolve_env_file_path",
+                return_value=Path("/profiles/minimal/.env"),
+            ),
             patch("cli.main.validate_profile", return_value=[]) as validate_profile,
             patch("cli.main.build_plan", return_value=(plan, [])) as build_plan,
             patch("cli.main._maybe_notify_update"),

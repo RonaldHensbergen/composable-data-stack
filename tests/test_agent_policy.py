@@ -1,4 +1,5 @@
 """Tests for scripts/check_agent_policy.py — the agent approval policy gate."""
+
 import importlib.util
 import sys
 import unittest
@@ -21,28 +22,44 @@ class AgentPolicyTest(unittest.TestCase):
         self.assertFalse(check_agent_policy.is_agent_commit("fix: human commit"))
 
     def test_protected_paths(self):
-        self.assertEqual(".github/workflows/", check_agent_policy.protected_hit(".github/workflows/ci.yml"))
+        self.assertEqual(
+            ".github/workflows/",
+            check_agent_policy.protected_hit(".github/workflows/ci.yml"),
+        )
         self.assertEqual("certs/", check_agent_policy.protected_hit("certs/ca.crt"))
         self.assertEqual("AGENT.md", check_agent_policy.protected_hit("AGENT.md"))
         self.assertIsNone(check_agent_policy.protected_hit("cli/main.py"))
         self.assertIsNone(check_agent_policy.protected_hit("docs/architecture.md"))
         # near-misses must not match
-        self.assertIsNone(check_agent_policy.protected_hit("docs/.github/workflows-notes.md"))
+        self.assertIsNone(
+            check_agent_policy.protected_hit("docs/.github/workflows-notes.md")
+        )
 
     def test_check_blocks_unlabeled_protected_change(self):
         commits = ["abc123"]  # SHAs of agent commits (stubbed)
-        orig_commits, orig_files = check_agent_policy.agent_commits, check_agent_policy.touched_files
+        orig_commits, orig_files = (
+            check_agent_policy.agent_commits,
+            check_agent_policy.touched_files,
+        )
         check_agent_policy.agent_commits = lambda _b, _h: commits
         try:
-            check_agent_policy.touched_files = lambda _c: {".github/workflows/ci.yml", "cli/main.py"}
+            check_agent_policy.touched_files = lambda _c: {
+                ".github/workflows/ci.yml",
+                "cli/main.py",
+            }
             errors = check_agent_policy.check("origin/main", "HEAD", [])
             self.assertTrue(any("agent-approved" in e for e in errors))
-            self.assertEqual([], check_agent_policy.check("origin/main", "HEAD", ["agent-approved"]))
+            self.assertEqual(
+                [], check_agent_policy.check("origin/main", "HEAD", ["agent-approved"])
+            )
             # no protected files -> no error even without label
             check_agent_policy.touched_files = lambda _c: {"cli/main.py"}
             self.assertEqual([], check_agent_policy.check("origin/main", "HEAD", []))
         finally:
-            check_agent_policy.agent_commits, check_agent_policy.touched_files = orig_commits, orig_files
+            check_agent_policy.agent_commits, check_agent_policy.touched_files = (
+                orig_commits,
+                orig_files,
+            )
 
 
 if __name__ == "__main__":

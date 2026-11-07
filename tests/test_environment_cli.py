@@ -4,6 +4,7 @@ the `cds diff` command (issue #230). Uses a real, minimal profile+module
 fixture on disk so validate/plan/render/security run their full pipeline
 against an actual environment overlay merge, rather than mocking cli.overlay.
 """
+
 import contextlib
 import io
 import json
@@ -34,17 +35,33 @@ class EnvironmentOverlayFixture(unittest.TestCase):
                 {
                     "apiVersion": "cds/v1alpha1",
                     "kind": "Module",
-                    "metadata": {"name": "postgres", "category": "warehouse", "version": "0.1.0"},
+                    "metadata": {
+                        "name": "postgres",
+                        "category": "warehouse",
+                        "version": "0.1.0",
+                    },
                     "spec": {
                         "runtime": {
                             "type": "container",
                             "service": {
                                 "name": "postgres",
-                                "ports": [{"name": "db", "containerPort": 5432, "protocol": "TCP"}],
+                                "ports": [
+                                    {
+                                        "name": "db",
+                                        "containerPort": 5432,
+                                        "protocol": "TCP",
+                                    }
+                                ],
                             },
                         },
-                        "configSchema": {"type": "object", "additionalProperties": True},
-                        "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+                        "configSchema": {
+                            "type": "object",
+                            "additionalProperties": True,
+                        },
+                        "implementation": {
+                            "kind": "docker-compose",
+                            "compose": {"services": {}},
+                        },
                     },
                 }
             )
@@ -82,7 +99,10 @@ class EnvironmentOverlayFixture(unittest.TestCase):
 
     def _run(self, argv):
         stdout = io.StringIO()
-        with patch.dict(os.environ, self.env_vars, clear=False), patch.object(sys, "argv", argv):
+        with (
+            patch.dict(os.environ, self.env_vars, clear=False),
+            patch.object(sys, "argv", argv),
+        ):
             with contextlib.redirect_stdout(stdout):
                 result = main()
         return result, stdout.getvalue()
@@ -90,7 +110,9 @@ class EnvironmentOverlayFixture(unittest.TestCase):
 
 class ValidatePlanRenderEnvironmentTest(EnvironmentOverlayFixture):
     def test_configured_environment_is_used_when_flag_is_omitted(self):
-        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
         config_path = self.root / ".cds" / "config.json"
         config_path.parent.mkdir()
         config_path.write_text(
@@ -99,17 +121,23 @@ class ValidatePlanRenderEnvironmentTest(EnvironmentOverlayFixture):
         env_vars = {**self.env_vars, "CDS_CONFIG_PATH": str(config_path)}
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, env_vars, clear=False), patch.object(
-            sys, "argv", ["cds", "plan"]
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(os.environ, env_vars, clear=False),
+            patch.object(sys, "argv", ["cds", "plan"]),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 0, stdout.getvalue())
         self.assertEqual(json.loads(stdout.getvalue())["environment"], "prod")
 
     def test_explicit_environment_overrides_configured_default(self):
-        self._write_overlay("dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 2}}]}})
-        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
+        self._write_overlay(
+            "dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 2}}]}}
+        )
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
         config_path = self.root / ".cds" / "config.json"
         config_path.parent.mkdir()
         config_path.write_text(
@@ -118,9 +146,11 @@ class ValidatePlanRenderEnvironmentTest(EnvironmentOverlayFixture):
         env_vars = {**self.env_vars, "CDS_CONFIG_PATH": str(config_path)}
 
         stdout = io.StringIO()
-        with patch.dict(os.environ, env_vars, clear=False), patch.object(
-            sys, "argv", ["cds", "plan", "--environment", "dev"]
-        ), contextlib.redirect_stdout(stdout):
+        with (
+            patch.dict(os.environ, env_vars, clear=False),
+            patch.object(sys, "argv", ["cds", "plan", "--environment", "dev"]),
+            contextlib.redirect_stdout(stdout),
+        ):
             result = main()
 
         self.assertEqual(result, 0, stdout.getvalue())
@@ -129,18 +159,24 @@ class ValidatePlanRenderEnvironmentTest(EnvironmentOverlayFixture):
         self.assertEqual(plan["modules"][0]["config"]["replicas"], 2)
 
     def test_validate_uses_overlay_when_environment_given(self):
-        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
         result, output = self._run(["cds", "validate", "--environment", "prod"])
         self.assertEqual(result, 0, output)
         self.assertIn("valid", output.lower())
 
     def test_validate_rejects_unknown_environment(self):
-        result, output = self._run(["cds", "validate", "--environment", "does-not-exist"])
+        result, output = self._run(
+            ["cds", "validate", "--environment", "does-not-exist"]
+        )
         self.assertEqual(result, 1)
         self.assertIn("does-not-exist", output)
 
     def test_plan_records_environment_and_provenance_and_applies_overlay(self):
-        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
         result, output = self._run(["cds", "plan", "--environment", "prod"])
         self.assertEqual(result, 0, output)
         plan = json.loads(output)
@@ -149,7 +185,9 @@ class ValidatePlanRenderEnvironmentTest(EnvironmentOverlayFixture):
         self.assertEqual(plan["modules"][0]["config"]["replicas"], 3)
 
     def test_plan_without_environment_is_unaffected_by_overlay_existing(self):
-        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
         result, output = self._run(["cds", "plan"])
         self.assertEqual(result, 0, output)
         plan = json.loads(output)
@@ -158,12 +196,31 @@ class ValidatePlanRenderEnvironmentTest(EnvironmentOverlayFixture):
         self.assertEqual(plan["modules"][0]["config"]["replicas"], 1)
 
     def test_render_from_profile_rejects_environment_combined_with_plan_file(self):
-        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
-        plan_result, plan_output = self._run(["cds", "plan", "--environment", "prod", "--output", str(self.root / "plan.json")])
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
+        plan_result, plan_output = self._run(
+            [
+                "cds",
+                "plan",
+                "--environment",
+                "prod",
+                "--output",
+                str(self.root / "plan.json"),
+            ]
+        )
         self.assertEqual(plan_result, 0, plan_output)
 
         result, output = self._run(
-            ["cds", "render", str(self.root / "plan.json"), "--environment", "prod", "--output", str(self.root / "out.yml")]
+            [
+                "cds",
+                "render",
+                str(self.root / "plan.json"),
+                "--environment",
+                "prod",
+                "--output",
+                str(self.root / "out.yml"),
+            ]
         )
         self.assertEqual(result, 1)
         self.assertIn("not supported", output.lower())
@@ -174,7 +231,9 @@ class SecurityEnvironmentTest(EnvironmentOverlayFixture):
         # Overlay promotes the profile to production; base stays "local".
         self._write_overlay("prod", {"metadata": {"environment": "production"}})
         base_result, base_output = self._run(["cds", "security"])
-        prod_result, prod_output = self._run(["cds", "security", "--environment", "prod"])
+        prod_result, prod_output = self._run(
+            ["cds", "security", "--environment", "prod"]
+        )
         # Both must at least run cleanly; the overlay must actually flow the
         # declared environment into security classification.
         self.assertIn(base_result, (0, 1))
@@ -222,15 +281,23 @@ class InitEnvironmentTest(EnvironmentOverlayFixture):
 
 class DiffCommandTest(EnvironmentOverlayFixture):
     def test_diff_reports_no_changes_for_identical_overlays(self):
-        self._write_overlay("dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}})
-        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}})
+        self._write_overlay(
+            "dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}}
+        )
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}}
+        )
         result, output = self._run(["cds", "diff", "--from", "dev", "--to", "prod"])
         self.assertEqual(result, 0, output)
         self.assertIn("No differences", output)
 
     def test_diff_reports_changed_module_config(self):
-        self._write_overlay("dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}})
-        self._write_overlay("prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}})
+        self._write_overlay(
+            "dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}}
+        )
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
         result, output = self._run(["cds", "diff", "--from", "dev", "--to", "prod"])
         self.assertEqual(result, 0, output)
         self.assertIn("spec.modules[db].config.replicas", output)
@@ -238,7 +305,9 @@ class DiffCommandTest(EnvironmentOverlayFixture):
         self.assertIn("3", output)
 
     def test_diff_reports_added_module(self):
-        self._write_overlay("dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}})
+        self._write_overlay(
+            "dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}}
+        )
         self._write_overlay(
             "prod",
             {
@@ -247,7 +316,11 @@ class DiffCommandTest(EnvironmentOverlayFixture):
                     "modules": [
                         {"id": "db", "config": {"replicas": 1}},
                     ],
-                    "secrets": {"values": {"backup_key": {"env": "CDS_BACKUP_KEY", "required": True}}},
+                    "secrets": {
+                        "values": {
+                            "backup_key": {"env": "CDS_BACKUP_KEY", "required": True}
+                        }
+                    },
                     "backup": {
                         "encryption": {"keyFrom": "secrets.backup_key"},
                         "policies": [
@@ -274,23 +347,48 @@ class DiffCommandTest(EnvironmentOverlayFixture):
         # so a diff of resolved profiles cannot leak one.
         self._write_overlay(
             "dev",
-            {"spec": {"secrets": {"values": {"db_password": {"env": "CDS_DB_PASSWORD", "required": True}}}}},
+            {
+                "spec": {
+                    "secrets": {
+                        "values": {
+                            "db_password": {"env": "CDS_DB_PASSWORD", "required": True}
+                        }
+                    }
+                }
+            },
         )
         self._write_overlay(
             "prod",
-            {"spec": {"secrets": {"values": {"db_password": {"env": "CDS_DB_PASSWORD_PROD", "required": True}}}}},
+            {
+                "spec": {
+                    "secrets": {
+                        "values": {
+                            "db_password": {
+                                "env": "CDS_DB_PASSWORD_PROD",
+                                "required": True,
+                            }
+                        }
+                    }
+                }
+            },
         )
         result, output = self._run(["cds", "diff", "--from", "dev", "--to", "prod"])
         self.assertEqual(result, 0, output)
         self.assertNotIn("change-me", output)
 
     def test_diff_fails_clearly_on_unknown_environment(self):
-        self._write_overlay("dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}})
-        result, output = self._run(["cds", "diff", "--from", "dev", "--to", "does-not-exist"])
+        self._write_overlay(
+            "dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}}
+        )
+        result, output = self._run(
+            ["cds", "diff", "--from", "dev", "--to", "does-not-exist"]
+        )
         self.assertEqual(result, 1)
         self.assertIn("does-not-exist", output)
 
-    def test_diff_reports_full_list_change_for_heterogeneous_id_and_non_id_entries(self):
+    def test_diff_reports_full_list_change_for_heterogeneous_id_and_non_id_entries(
+        self,
+    ):
         """Regression test: a nested config list where only some entries have
         an "id" key (a plausible shape for open-schema module config, e.g.
         dashboards/routes/connections) must not silently drop the id-less

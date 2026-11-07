@@ -13,6 +13,7 @@ actual state via the `gh` CLI, and reports mismatches.
 Used by .github/workflows/roadmap-freshness.yml on a biweekly cadence; also
 runnable locally: `python scripts/check_roadmap_freshness.py`.
 """
+
 from __future__ import annotations
 
 import json
@@ -51,7 +52,11 @@ def split_sections(roadmap_text: str) -> dict[str, str]:
     sections: dict[str, str] = {}
     for index, match in enumerate(headings):
         start = match.end()
-        end = headings[index + 1].start() if index + 1 < len(headings) else len(roadmap_text)
+        end = (
+            headings[index + 1].start()
+            if index + 1 < len(headings)
+            else len(roadmap_text)
+        )
         sections[match.group(1)] = roadmap_text[start:end]
     return sections
 
@@ -86,7 +91,9 @@ def pyproject_version(pyproject_path: Path) -> str:
     return version
 
 
-def fetch_issue_states_via_gh(repo: str, numbers: list[int]) -> dict[int, dict[str, object]]:
+def fetch_issue_states_via_gh(
+    repo: str, numbers: list[int]
+) -> dict[int, dict[str, object]]:
     """Look up issue state/assignees for each number via the `gh` CLI.
 
     Numbers that fail to resolve (deleted, transferred, or `gh` unavailable)
