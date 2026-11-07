@@ -14,7 +14,7 @@ import copy
 import io
 import json
 import os
-import subprocess
+import re
 import sys
 import tempfile
 import unittest
@@ -37,7 +37,7 @@ from cli.validator import (
     validate_profile,
     validate_profile_shape,
 )
-from tests.hermetic_project import find_cds, hermetic_env, init_env, make_project
+from tests.hermetic_project import make_project
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PROFILE_NAME = "local-dagster-postgres-superset"
@@ -370,21 +370,37 @@ class MainReportTextFormatTest(unittest.TestCase):
         self.assertEqual(parsed["dataSharing"]["datasets"][0]["datasetId"], "urn:example:datasets:address-register")
 
 
+def _write_env(project: Path, profile: dict) -> Path:
+    """Write a placeholder .env covering every CDS_* variable the profile
+    references (declared secret env names plus raw ${CDS_*} refs), without
+    spawning the cds CLI — subprocess-spawning tests are excluded from the
+    mutmut kill matrix (see pyproject.toml [tool.mutmut])."""
+    names = set()
+    values = (profile.get("spec", {}).get("secrets", {}).get("values") or {})
+    for value in values.values():
+        if isinstance(value, dict) and isinstance(value.get("env"), str):
+            names.add(value["env"])
+    names.update(re.findall(r"\$\{(CDS_[A-Z0-9_]+)\}", yaml.safe_dump(profile, sort_keys=False)))
+    env_path = project / ".env"
+    env_path.write_text("".join(f"{name}=test-placeholder\n" for name in sorted(names)), encoding="utf-8")
+    return env_path
+
+
 class EndToEndTest(unittest.TestCase):
     """End-to-end against a hermetic copy of a shipped profile with a
-    dataSharing declaration injected: validate accepts it, plan carries it,
-    and `cds report` surfaces it."""
+    dataSharing declaration injected: validate accepts it, and the
+    validate -> plan -> render -> report pipeline surfaces the declaration.
+    Kept subprocess-free so it can run in the mutmut kill matrix."""
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.cds = find_cds()
         cls._tmp = tempfile.TemporaryDirectory()
         cls.project = Path(cls._tmp.name)
         cls.profile_file = str(make_project(cls.project, _PROFILE_NAME))
-        init_env(cls.cds, cls.project, _PROFILE_NAME)
         profile = yaml.safe_load(Path(cls.profile_file).read_text(encoding="utf-8"))
         profile["spec"]["dataSharing"] = copy.deepcopy(_DECLARATION)
         Path(cls.profile_file).write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+        cls.env_file = str(_write_env(cls.project, profile))
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -427,46 +443,20 @@ class EndToEndTest(unittest.TestCase):
     def test_report_includes_declaration_end_to_end(self) -> None:
         clean_environ = {k: v for k, v in os.environ.items() if not k.startswith("CDS_")}
         with patch.dict(os.environ, clean_environ, clear=True):
-            report, diagnostics = build_compliance_report(
-                self.profile_file, env_file=str(self.project / ".env")
-            )
+            report, diagnostics = build_compliance_report(self.profile_file, env_file=self.env_file)
         self.assertIsNotNone(report, f"report build failed: {diagnostics}")
         self.assertIn("dataSharing", report)
         section = report["dataSharing"]
         self.assertEqual(section["registration"]["system"], "fds-afsprakenstelsel")
+        self.assertEqual(
+            section["registration"]["reference"],
+            "https://realisatieibds.nl/registrations/example-123",
+        )
         self.assertEqual(section["note"], DATA_SHARING_NOTE)
         by_id = {d["datasetId"]: d for d in section["datasets"]}
         linked = by_id["urn:example:datasets:address-register"]
         self.assertEqual(linked["module"], "postgres")
         self.assertIn("moduleProvidesOpenDataProvider", linked)
-
-    def test_cds_report_cli_json_includes_declaration(self) -> None:
-        result = subprocess.run(
-            self.cds + ["report", _PROFILE_NAME, "--json"],
-            cwd=str(self.project),
-            capture_output=True,
-            text=True,
-            env=hermetic_env(),
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        report = json.loads(result.stdout)
-        self.assertIn("dataSharing", report)
-        self.assertEqual(
-            report["dataSharing"]["registration"]["reference"],
-            "https://realisatieibds.nl/registrations/example-123",
-        )
-
-    def test_cds_report_cli_text_shows_section(self) -> None:
-        result = subprocess.run(
-            self.cds + ["report", _PROFILE_NAME],
-            cwd=str(self.project),
-            capture_output=True,
-            text=True,
-            env=hermetic_env(),
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("-- Data Sharing Declaration --", result.stdout)
-        self.assertIn("dataset: urn:example:datasets:address-register", result.stdout)
 
 
 if __name__ == "__main__":
