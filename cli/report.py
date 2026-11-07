@@ -28,6 +28,7 @@ from .image_verification import (
 )
 from .planner import build_plan
 from .renderer import render_compose
+from .resolver import iter_consume_bindings
 from .secrets import load_secrets_from_env
 from .validator import has_errors, validate_profile
 
@@ -180,10 +181,12 @@ def _build_topology_summary(plan: dict[str, Any]) -> list[dict[str, Any]]:
             for name, contract in module.get("provides", {}).items()
         ]
         consumes = []
-        for name, consumed in module.get("consumes", {}).items():
+        # List-valued consume entries (issue #883: reverse-proxy routes) are
+        # flattened into one topology entry per route binding.
+        for name, item_index, consumed in iter_consume_bindings(module.get("consumes")):
             contract_ref = consumed.get("contractRef")
             consumes.append({
-                "name": name,
+                "name": f"{name}[{item_index}]" if item_index is not None else name,
                 "kind": consumed.get("contract", {}).get("kind"),
                 "contractRef": contract_ref,
                 "provider": contract_ref.split(".", 1)[0] if contract_ref else None,

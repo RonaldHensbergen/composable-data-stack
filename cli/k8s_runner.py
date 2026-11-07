@@ -357,3 +357,57 @@ def _kubectl_command(kube_context: str | None, namespace: str) -> list[str]:
         command.extend(["--context", kube_context])
     command.extend(["--namespace", namespace])
     return command
+
+
+def check_operator_crds(
+    plan: dict[str, Any],
+    kube_context: str | None,
+) -> tuple[list[tuple[str, dict[str, Any]]], bool]:
+    """
+    Check whether the CRDs of the plan's declared out-of-band operators
+    (`implementation.kubernetes.operators`, issue #768) are present on the
+    cluster before a chart is installed.
+
+    Returns `(missing, check_ok)`. `missing` lists the (module_id, operator)
+    pairs whose CRD is confirmed absent (`kubectl get crd` answered NotFound);
+    `check_ok` is False when the check itself could not run (kubectl missing
+    or an RBAC/network error other than NotFound), in which case `missing` is
+    empty and the caller should warn and continue rather than fail — helm
+    will still fail on its own if the CRD is truly absent.
+    """
+    from .k8s_renderer import declared_operators
+
+    missing: list[tuple[str, dict[str, Any]]] = []
+    check_ok = True
+    seen: set[str] = set()
+    for _module_id, operator in declared_operators(plan):
+        crd = operator["crd"]
+        if crd in seen:
+            continue
+        seen.add(crd)
+        command = ["kubectl"]
+        if kube_context:
+            command.extend(["--context", kube_context])
+        command.extend(["get", "crd", crd, "-o", "name"])
+        try:
+            result = subprocess.run(  # nosec B603  # noqa: S603 - fixed argv, no shell
+                command,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            check_ok = False
+            continue
+        if result.returncode == 0:
+            continue
+        output = (result.stdout or "") + (result.stderr or "")
+        if "NotFound" in output or "not found" in output.lower():
+            for mid, op in declared_operators(plan):
+                if op["crd"] == crd:
+                    missing.append((mid, op))
+        else:
+            # RBAC or connectivity error: the CRD may well be there.
+            check_ok = False
+    return missing, check_ok

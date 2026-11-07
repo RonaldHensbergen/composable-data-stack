@@ -1373,8 +1373,8 @@ class EnabledFromShapeTest(unittest.TestCase):
 class KubernetesMarkerShapeTest(unittest.TestCase):
     """E144/E145 for the `implementation.kubernetes` block: production
     gates are implemented on volume/configMap specs, enabledFrom on
-    volume specs (guarded) and workloads (unguarded -- a bad shape
-    crashes the helm renderer)."""
+    volume specs, configMap specs (both guarded, issue #1117) and
+    workloads (unguarded -- a bad shape crashes the helm renderer)."""
 
     def _module(self, kubernetes):
         return {
@@ -1438,8 +1438,15 @@ class KubernetesMarkerShapeTest(unittest.TestCase):
             [("E144", "module:pg.spec.implementation.kubernetes.configMaps.code.production")],
         )
 
-    def test_enabled_from_on_configmap_reports_e145(self):
+    def test_string_enabled_from_on_configmap_is_clean(self):
+        # enabledFrom on configMap specs is implemented by the helm renderer
+        # (issue #1117): the ConfigMap is dropped when the expression resolves
+        # to False.
         kubernetes = {"configMaps": {"code": {"enabledFrom": "config.enabled"}}}
+        self.assertEqual(self._scan(kubernetes), [])
+
+    def test_bool_enabled_from_on_configmap_reports_e145(self):
+        kubernetes = {"configMaps": {"code": {"enabledFrom": True}}}
         self.assertEqual(
             _codes(self._scan(kubernetes)),
             [("E145", "module:pg.spec.implementation.kubernetes.configMaps.code.enabledFrom")],
@@ -1450,4 +1457,34 @@ class KubernetesMarkerShapeTest(unittest.TestCase):
         self.assertEqual(
             _codes(self._scan(kubernetes)),
             [("E144", "module:pg.spec.implementation.kubernetes.workloads.app.production")],
+        )
+
+    def test_string_for_each_on_manifest_is_clean(self):
+        # forEach fan-out is implemented by the helm renderer (issue #1170).
+        kubernetes = {
+            "manifests": {
+                "policy": {
+                    "apiVersion": "security.istio.io/v1",
+                    "kind": "AuthorizationPolicy",
+                    "metadata": {"name": "allow-${item.name}"},
+                    "forEach": "config.services",
+                }
+            }
+        }
+        self.assertEqual(self._scan(kubernetes), [])
+
+    def test_bool_for_each_on_manifest_reports_e145(self):
+        kubernetes = {
+            "manifests": {
+                "policy": {
+                    "apiVersion": "security.istio.io/v1",
+                    "kind": "AuthorizationPolicy",
+                    "metadata": {"name": "allow"},
+                    "forEach": True,
+                }
+            }
+        }
+        self.assertEqual(
+            _codes(self._scan(kubernetes)),
+            [("E145", "module:pg.spec.implementation.kubernetes.manifests.policy.forEach")],
         )

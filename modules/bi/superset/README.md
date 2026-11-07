@@ -94,4 +94,11 @@ exact Superset callback URL
 `<public-superset-url>/oauth-authorized/keycloak` in the identity-provider
 client, enable Standard Flow, and ensure the issuer URL is reachable and
 consistent for both browsers and Superset containers. Client secrets remain
-runtime `${CDS_*}` placeholders in rendered Compose output.
+runtime placeholders in rendered output: `${CDS_*}` in Compose, and on the
+Helm target a `$(CDS_*)` expansion backed by a `secretKeyRef` entry plus a
+`required` key in `templates/secret.yaml` — never a literal value in the
+chart (E078 stays green). This path is covered end to end on `--target helm`
+by `tests/test_superset_oidc_helm.py` using the kubernetes-capable fixture
+provider `tests/fixtures/helm-oidc/modules/identity/oidc-stub` (issue #1075;
+the real keycloak module is still compose-only and fails closed with E072 on
+the helm target).

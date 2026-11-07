@@ -211,6 +211,9 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+# Obsidian per-user vault/workspace state, at any depth (e.g. docs/plan/.obsidian/)
+.obsidian/
+
 # Generated compose output from `cds render`
 docker-compose.yml
 docker-compose.yaml
@@ -267,6 +270,13 @@ workdirs/shared-data/processed/*
 !workdirs/shared-data/incoming/.gitkeep
 !workdirs/shared-data/incoming/offers-1000.csv
 !workdirs/shared-data/processed/.gitkeep
+
+# DuckDB warehouse file mount (workdirs/duckdb/*): the database file is
+# created by the duckdb-init one-shot job at runtime (local-duckdb-dlt-dbt
+# profile, see modules/warehouse/duckdb). Keep the directory in git, but
+# not the database file.
+workdirs/duckdb/*
+!workdirs/duckdb/.gitkeep
 
 # Traefik TLS certificate/key material (local-haven-reference profile, see
 # modules/integration/traefik). Keep the directory and its README, never a

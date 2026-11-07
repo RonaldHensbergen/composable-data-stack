@@ -62,6 +62,15 @@ profile is reported by Docker at `cds up`.
   Rendering fails with `E127` if the profile directory is unknown or the
   profile cannot be referenced relative to `docker-compose.yml` (for example
   on a different Windows drive).
+- **Snap-confined Docker runtime rejects `no-new-privileges`.** On the
+  snap-confined Docker runtime (used in some agent sandboxes), every
+  container fails to start under `--security-opt no-new-privileges:true`
+  with `exec <binary>: operation not permitted` — for any image, including a
+  plain `alpine` `/bin/sh`. This is a runtime artifact, not an image defect:
+  the affected images carry no `security.capability` xattr on their main
+  binaries and exec cleanly under `PR_SET_NO_NEW_PRIVS` on a standard runc
+  host (#1066). Before weakening module hardening because of this error,
+  verify on a non-snap Docker host (#1155).
 
 ## Production runtime policy
 

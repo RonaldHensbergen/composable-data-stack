@@ -1,7 +1,7 @@
 # Keycloak
 
-Keycloak identity/SSO provider running in development mode, backed by a
-consumed sql-database contract for its own metadata store.
+Keycloak identity/SSO provider with production web serving by default,
+backed by a consumed sql-database contract for its own metadata store.
 
 ## Purpose
 
@@ -12,13 +12,13 @@ its own metadata storage, instead of hardcoding a database service name.
 
 ## Known limitations
 
-- Runs in development mode (`start-dev`) by default, which relaxes
-  hostname/TLS requirements not suitable for production;
-  `config.webServer.mode: production` switches to Keycloak production
-  mode (`kc.sh start --http-enabled=true`) — the default stays
-  `development` until the module is production-suitable
-  (see [`docs/serving-modes.md`](../../docs/serving-modes.md), issue #216)
-- Declares `productionSuitable: false`, do not use in production
+- `config.webServer.mode: development` runs Keycloak in development mode
+  (`start-dev`), which relaxes hostname/TLS requirements; the default is
+  `production` (`kc.sh start --http-enabled=true`), and production profiles
+  reject an explicit `development` mode (E140), so a production profile can
+  never silently run `start-dev` when the mode is left unset
+  (see [`docs/serving-modes.md`](../../docs/serving-modes.md), issues #216,
+  #974)
 - The default realm is Keycloak's built-in `master`; set `realm` to a
   dedicated application realm to have Keycloak import it on startup.
   Existing realms are not overwritten. Configure clients and users through
@@ -30,9 +30,10 @@ its own metadata storage, instead of hardcoding a database service name.
   network namespace.
 - `KC_DB` is exposed as `metadataDatabase.driver` (default `postgres`) so
   the vendor value can be set explicitly if a non-Postgres `sql-database`
-  provider is ever bound here; there is still no automatic validation that
-  the chosen driver actually matches the bound provider's wire protocol
-  (tracked in #682)
+  provider is ever bound here; the `metadata-database` consume entry
+  declares `engineFrom: spec.config.metadataDatabase.driver`, so validation
+  fails closed with E154 when the bound provider's contract does not
+  advertise a matching `engine` (issue #682)
 - `httpPort` is bound to `127.0.0.1`; use a TLS-terminating
   reverse-proxy/ingress module for browser access beyond the local host.
 
@@ -49,7 +50,10 @@ its own metadata storage, instead of hardcoding a database service name.
   `KC_DB_URL_HOST`/`KC_DB_URL_PORT`/`KC_DB_URL_DATABASE`/`KC_DB_USERNAME`/`KC_DB_PASSWORD`
 - `metadataDatabase.driver` selects the `KC_DB` vendor value
   (`postgres`/`mysql`/`mariadb`/`mssql`/`oracle`); defaults to `postgres`,
-  matching the only `sql-database` provider in this repository today
+  matching the only `sql-database` provider in this repository today. The
+  bound provider's `sql-database` contract must advertise a matching
+  `engine` (see `engineFrom` on the consume entry), otherwise `cds validate`
+  fails with E154 (issue #682)
 - `adminUser.passwordFrom` must reference a profile secret; there is no
   default admin password
 - `realm` selects the issuer realm. Non-master realms are imported on

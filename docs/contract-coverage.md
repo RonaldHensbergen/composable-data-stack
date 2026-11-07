@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 41 of 41 (100%)** — modules 18/18 (100%), profiles 8/8 (100%), shared contracts 15/15 (100%)
+**Overall contract coverage: 49 of 49 (100%)** — modules 21/21 (100%), profiles 12/12 (100%), shared contracts 16/16 (100%)
 
 ## Modules
 
@@ -28,17 +28,20 @@ everyone how much of the system is still unwritten.
 | `modules/integration/traefik` | traefik | yes |
 | `modules/orchestration/dagster` | dagster | yes |
 | `modules/secrets/vault` | vault | yes |
+| `modules/security/istio` | istio | yes |
 | `modules/storage/garage` | garage | yes |
 | `modules/transformation/dbt` | dbt | yes |
+| `modules/warehouse/duckdb` | duckdb | yes |
 | `modules/warehouse/postgres` | postgres | yes |
 | `modules-experimental/backup/object-storage` | object-storage-backup | yes |
 | `modules-experimental/gitops/fluxcd` | fluxcd | yes |
 | `modules-experimental/ingestion/dlt` | dlt | yes |
+| `modules-experimental/observability/grafana` | grafana | yes |
 | `modules-experimental/observability/loki` | loki | yes |
 | `modules-experimental/observability/marquez` | marquez | yes |
 | `modules-experimental/observability/otel-collector` | otel-collector | yes |
 | `modules-experimental/orchestration/airflow` | airflow | yes |
-| `modules-experimental/warehouse/duckdb` | duckdb | yes |
+| `modules-experimental/warehouse/postgres-operator` | postgres-operator | yes |
 
 ## Profiles
 
@@ -48,8 +51,12 @@ everyone how much of the system is still unwritten.
 | `profiles/local-dagster-postgres-superset` | local-dagster-postgres-superset | yes |
 | `profiles/local-dagster-postgres-superset-dbt` | local-dagster-postgres-superset-dbt | yes |
 | `profiles/local-dagster-postgres-superset-vault` | local-dagster-postgres-superset-vault | yes |
+| `profiles/local-duckdb-dlt-dbt` | local-duckdb-dlt-dbt | yes |
 | `profiles/local-haven-reference` | local-haven-reference | yes |
 | `profiles/local-kubernetes-example` | local-kubernetes-example | yes |
+| `profiles/local-kubernetes-postgres-operator` | local-kubernetes-postgres-operator | yes |
+| `profiles/local-loki-otel-collector` | local-loki-otel-collector | yes |
+| `profiles/local-postgres-grafana` | local-postgres-grafana | yes |
 | `profiles/production-kubernetes-example` | production-kubernetes-example | yes |
 | `profiles/team-dagster-postgres-superset` | team-dagster-postgres-superset | yes |
 
@@ -70,6 +77,7 @@ everyone how much of the system is still unwritten.
 | `shared/contracts/oidc-provider.yaml` | oidc-provider | yes |
 | `shared/contracts/open-data-provider.yaml` | open-data-provider | yes |
 | `shared/contracts/reverse-proxy.yaml` | reverse-proxy | yes |
+| `shared/contracts/service-mesh.yaml` | service-mesh | yes |
 | `shared/contracts/sql-database.yaml` | sql-database | yes |
 | `shared/contracts/trace-sink.yaml` | trace-sink | yes |
 

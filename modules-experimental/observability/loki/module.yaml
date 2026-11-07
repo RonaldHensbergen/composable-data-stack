@@ -9,20 +9,23 @@ metadata:
   productionSuitable: false
   displayName: Loki log aggregation (experimental)
   description: >
-    Local and development log aggregation using Vector as an HTTP ingestion
-    gateway and Grafana Loki as the log store. Provides the shared log-sink
-    contract with separate retention for raw records and structured runtime
-    events. The unauthenticated endpoint and single-node storage are not
-    suitable for production.
+    Local and development log aggregation using Grafana Loki as the log
+    store, with Vector as a host-loopback plain-JSON ingestion gateway.
+    Provides the shared log-sink contract over Loki's native OTLP/HTTP
+    endpoint (/otlp/v1/logs) with separate retention for raw records and
+    structured runtime events, so OTLP-capable shippers (e.g. the
+    otel-collector module's backends.logs) can forward logs end-to-end
+    (issue #1076). The unauthenticated endpoint and single-node storage are
+    not suitable for production.
 
 spec:
   runtime:
     type: container
     service:
-      name: loki
+      name: loki-storage
       ports:
-        - name: ingest
-          containerPort: 8686
+        - name: otlp-http
+          containerPort: 3100
           protocol: TCP
       networks:
         - default
@@ -37,8 +40,10 @@ spec:
         maximum: 65535
         default: 8686
         description: >-
-          Host loopback port for the Vector HTTP ingestion endpoint. Other
-          Compose services should use the provided log-sink contract.
+          Host loopback port for the Vector plain-JSON gateway (/logs). Other
+          Compose services and OTLP shippers should use the provided log-sink
+          contract, which advertises Loki's native OTLP/HTTP endpoint
+          (/otlp/v1/logs on the loki-storage service).
 
       rawRetentionDays:
         type: integer
@@ -58,23 +63,35 @@ spec:
         kind: log-sink
         spec:
           # This module renders two compose services (loki, loki-storage);
-          # the namesake `loki` service serves the ingest endpoint, so
-          # ${service.dns} resolves to its rendered DNS name. serviceName
-          # advertises the same serving service explicitly for the E150
-          # host cross-check (issue #1029), matching the marquez module.
-          host: ${service.dns}
-          # Consumers use the in-network listener, not the host-published port.
-          port: 8686
-          protocol: http
-          ingestPath: /logs
+          # the `loki-storage` service serves Loki's native OTLP/HTTP ingest
+          # endpoint (/otlp/v1/logs on port 3100, enabled by default since
+          # Loki 3.0), so the contract points at its rendered DNS name
+          # through the renderer's service-naming rule (issue #1029).
+          # serviceName advertises the same serving service explicitly for
+          # the E150 host cross-check, matching the marquez module.
+          # connectionUri lets OTLP/HTTP forwarders (e.g. the otel-collector
+          # module's backends.logs) dial connectionUri + ingestPath directly
+          # (issue #1076).
+          host: ${service.services.loki-storage}
+          # Consumers use the in-network OTLP listener on the storage service.
+          port: 3100
+          protocol: otlp-http
+          ingestPath: /otlp/v1/logs
+          connectionUri: http://${service.services.loki-storage}:3100
           rawRetentionDays: ${config.rawRetentionDays}
           structuredRetentionDays: ${config.structuredRetentionDays}
-          serviceName: loki
+          serviceName: loki-storage
 
   implementation:
     kind: docker-compose
     compose:
       services:
+        # The Vector service is a plain-JSON (one object per POST /logs)
+        # ingestion gateway published on the host loopback for local dev
+        # tools; it classifies records into the retention tiers and pushes
+        # them to Loki's push API. The log-sink contract instead advertises
+        # loki-storage's native OTLP/HTTP endpoint (issue #1076), which
+        # OTLP-capable shippers such as the otel-collector module use.
         loki:
           image: timberio/vector:0.51.0-alpine@sha256:cef2a4d33b43b3e9196ba0bd9f1d8b9006a03bfe15363514c5a0f78b8cb8e9d9
           command:
@@ -85,9 +102,8 @@ spec:
           read_only: true
           cap_drop:
             - ALL
-          # Both pinned images fail to exec with no-new-privileges in this
-          # Docker runtime; capability dropping and read-only filesystems
-          # remain enabled.
+          security_opt:
+            - no-new-privileges:true
           pids_limit: 128
           tmpfs:
             - /tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=0700
@@ -99,7 +115,12 @@ spec:
               target: /etc/vector/vector.yaml
               read_only: true
           environment:
-            LOKI_ENDPOINT: "http://${service.host}-loki-storage:3100"
+            # ${service.services.<name>} maps through the renderer's
+            # service-naming rule (issue #1029), so the storage service
+            # resolves for any module instance id — including the namesake
+            # `loki`, where `${service.host}-loki-storage` would render a
+            # non-existent `loki-loki-storage` DNS name.
+            LOKI_ENDPOINT: "http://${service.services.loki-storage}:3100"
           depends_on:
             loki-storage:
               condition: service_started
@@ -114,6 +135,8 @@ spec:
           read_only: true
           cap_drop:
             - ALL
+          security_opt:
+            - no-new-privileges:true
           pids_limit: 256
           tmpfs:
             - /tmp:rw,noexec,nosuid,nodev,uid=10001,gid=10001,mode=0700

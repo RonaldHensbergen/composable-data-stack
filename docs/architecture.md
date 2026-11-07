@@ -39,9 +39,10 @@ The platform is divided into logical layers.
 | --- | --- | --- |
 | **Secrets** | credentials, secret injection, key management | Vault |
 | **Identity** | authentication, SSO, and centrally revocable identity for admin-facing modules | Keycloak |
+| **Security** | peer identity and optional L7 authorization between Kubernetes workloads | Istio service mesh (`modules/security/istio`, Helm target only) |
 | **Infrastructure services** | service coordination backends and support systems | KeyDB |
 | **Ingestion** | extract-load pipelines into the warehouse | dlt (experimental) |
-| **Storage / compute** | databases, warehouses, and processing engines | Postgres, DuckDB (experimental) |
+| **Storage / compute** | databases, warehouses, and processing engines | Postgres, DuckDB |
 | **Orchestration** | workflow scheduling and task execution | Dagster |
 | **Transformation** | data modeling and transformation | dbt (targets Postgres or DuckDB) |
 | **Quality** | data validation and testing | (planned) |
@@ -51,6 +52,13 @@ The platform is divided into logical layers.
 Modules marked *(planned)* are not yet implemented. See the [roadmap](roadmap.md) for planned modules.
 
 Not every profile will contain every layer, but this layered model makes module responsibilities explicit and supports future production hardening.
+
+The Istio reference module provides the vendor-neutral `service-mesh`
+contract. It renders namespace-wide mTLS and optional per-service authorization
+resources into Helm charts; operators install the Istio control plane and
+enable sidecar injection separately. The module is included in the
+`production-kubernetes-example` and `local-kubernetes-example` profiles
+(issue #1171).
 
 ## Modules
 
@@ -111,7 +119,7 @@ placeholder.
 **End-to-end example** (from `profiles/local-dagster-postgres-superset/profile.yaml`):
 
 - **Secret**: `postgres` sets `passwordFrom: secrets.analytics_db_password`; the profile maps that alias to `env: CDS_ANALYTICS_DB_PASSWORD`. `load_profile_secrets` builds the alias→env-name map (name only, never the value); `resolve_expr` turns the ref into `${CDS_ANALYTICS_DB_PASSWORD}` in the rendered compose. Docker Compose resolves the real value at container start, CDS never touches it.
-- **Contract**: `postgres` provides `sql-database`; `dagster` sets `analyticsDatabase.contractRef: postgres.sql-database`. `parse_contract_ref` splits producer + name. **Validate**: `validate_contract_bindings` checks producer exists, provides it, and kind matches; `E041` / `E042` on failure. A consume entry may also declare `tls: required` (issue #577); the provider's contract spec must then advertise `tls: true` (a boolean literal, or a pure `${config.<path>}` reference resolving to true against the producer instance's profile config), otherwise validation fails with `E128`. It then looks up the `warehouse/postgres` → `orchestration/dagster` pairing for `sql-database` in `cli/resources/compatibility-registry.json`, a bundled, single-source record of module pairings known to have been tested together or known NOT to work despite matching `kind` (see [issue #350](https://github.com/RonaldHensbergen/composable-data-stack/issues/350)); this pairing is recorded as `tested` (exercised by this very profile), so it passes. A pairing recorded as `unsupported` fails with `E043` even though its `kind` matches; a pairing with no registry entry is only structurally checked (not blocked) -- kind matching alone doesn't imply a known-good combination. **Plan**: `resolve_consumed_contracts` re-checks existence only (a kind mismatch would already have stopped at validate) and merges the resolved contract (host, port, `password: ${CDS_ANALYTICS_DB_PASSWORD}`, etc.) into `dagster`'s config. See [Troubleshooting](../README.md#️-troubleshooting) for `E041`/`E042`/`E043`.
+- **Contract**: `postgres` provides `sql-database`; `dagster` sets `analyticsDatabase.contractRef: postgres.sql-database`. `parse_contract_ref` splits producer + name. **Validate**: `validate_contract_bindings` checks producer exists, provides it, and kind matches; `E041` / `E042` on failure. A consume entry may also declare `tls: required` (issue #577); the provider's contract spec must then advertise `tls: true` (a boolean literal, or a pure `${config.<path>}` reference resolving to true against the producer instance's profile config), otherwise validation fails with `E128`. A consume entry may likewise declare `engineFrom: spec.config.<path>` (issue #682); the expected engine is read from the consumer's config at that path (falling back to the `configSchema` default when the profile leaves it unset), and the provider's contract spec must then advertise a matching `engine` (a string literal or a pure `${config.<path>}` reference against the producer's config), otherwise validation fails with `E154` -- so a consumer like keycloak whose `KC_DB` comes from `metadataDatabase.driver` can never silently bind to a provider speaking a different wire protocol. It then looks up the `warehouse/postgres` → `orchestration/dagster` pairing for `sql-database` in `cli/resources/compatibility-registry.json`, a bundled, single-source record of module pairings known to have been tested together or known NOT to work despite matching `kind` (see [issue #350](https://github.com/RonaldHensbergen/composable-data-stack/issues/350)); this pairing is recorded as `tested` (exercised by this very profile), so it passes. A pairing recorded as `unsupported` fails with `E043` even though its `kind` matches; a pairing with no registry entry is only structurally checked (not blocked) -- kind matching alone doesn't imply a known-good combination. **Plan**: `resolve_consumed_contracts` re-checks existence only (a kind mismatch would already have stopped at validate) and merges the resolved contract (host, port, `password: ${CDS_ANALYTICS_DB_PASSWORD}`, etc.) into `dagster`'s config. See [Troubleshooting](../README.md#️-troubleshooting) for `E041`/`E042`/`E043`.
 
 **Raw secret values are never embedded in rendered output.** Every `secrets.*` resolution path (`planner.py`'s `resolve_expr`, `renderer.py`'s `_resolve_expr`) emits a `${CDS_VAR_NAME}` placeholder, never the value; the `secrets` dict only ever holds alias→env-name mappings. Docker Compose reads the real value at container start, outside of CDS.
 

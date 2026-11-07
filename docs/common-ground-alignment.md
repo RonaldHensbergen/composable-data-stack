@@ -57,16 +57,18 @@ of scope for this profile.
 
 ## 4. Known gaps
 
-- CDS has no contract-based auto-wiring between a `reverse-proxy` provider
-  and an `http-service` consumer yet; the reference profile's Traefik →
-  Keycloak routing is hand-authored dynamic configuration
-  ([`traefik/dynamic/keycloak.yml`](../traefik/dynamic/keycloak.yml)), not
-  resolved from the profile's contract graph.
+- Traefik → Keycloak routing is resolved from the profile's contract graph
+  (issue #883): the profile's `config.routes` entry binds
+  `keycloak.http-service` through the Traefik module's `routes` consume
+  entry (`contractRef`), and `cds render` generates the file-provider
+  document (`traefik/dynamic/cds-routes-traefik.yml`) from that binding --
+  there is no hand-authored routing file anymore.
 - Keycloak realm import and the shared `oidc-provider` contract are
   implemented; consumers must still provision their own clients and
   configure an issuer URL reachable from both browsers and service
-  containers. Keycloak remains experimental because its default development
-  mode is not production-suitable.
+  containers. Keycloak is production-suitable and serves HTTP in production
+  mode by default (#974); `start-dev` remains an explicit local-only opt-in
+  (`config.webServer.mode: development`).
 - The experimental Loki `log-sink` provider (#662) is not wired into the
   reference profile by default; add it when centralized logging is needed.
 

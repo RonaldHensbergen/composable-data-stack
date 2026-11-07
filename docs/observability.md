@@ -87,7 +87,9 @@ against.
 
 [`shared/contracts/log-sink.yaml`](../shared/contracts/log-sink.yaml) defines
 a vendor-neutral contract (`kind: log-sink`) that a centralized log collector
-module can provide: `host`, `port`, `protocol`, an optional `ingestPath`, and
+module can provide: `host`, `port`, `protocol`, an optional `ingestPath`, an
+optional `connectionUri` (the pre-composed `<scheme>://<host>:<port>` base a
+client dials directly, as on `trace-sink`/`metrics-sink` — issue #1076), and
 optional `rawRetentionDays`/`structuredRetentionDays`. Any module that ships
 logs can `consume` this contract the same way modules already consume
 `sql-database` or `cache-service` — by declaring a `consumes` entry and
@@ -101,15 +103,30 @@ wire-level fields needed to reach it.
 
 The experimental
 [`loki` module](../modules-experimental/observability/loki/README.md) provides
-this contract using a Vector HTTP gateway and Loki storage. It accepts one
-JSON object per `POST` to `/logs`; records containing the required string
-fields `service`, `profile`, `environment`, `timestamp`, and `severity` are
-stored in the structured tier, while other records use the raw tier. Loki
+this contract over **Loki's native OTLP/HTTP endpoint**
+(`protocol: otlp-http`, `ingestPath: /otlp/v1/logs`,
+`connectionUri: http://<loki-storage>:3100`, served on the storage service's
+port 3100 by default since Loki 3.0 — issue #1076), so OTLP-capable shippers
+such as the `otel-collector` module's `backends.logs` can forward logs
+end-to-end. A Vector gateway additionally accepts one JSON object per `POST`
+to `/logs` on the host loopback for local dev tools; records containing the
+required string fields `service`, `profile`, `environment`, `timestamp`, and
+`severity` are stored in the structured tier, while other records use the raw
+tier. On the OTLP path, Loki promotes the `service.name`,
+`deployment.environment.name`, and `tier` resource attributes to index labels,
+so shippers can set `tier="structured"` to reach the structured tier. Loki
 applies its default retention to raw records and a `tier="structured"`
 retention override to structured events. The gateway classifies by field
 presence and type, but does not validate the full event schema or tail
 container logs automatically; configure applications or a separate shipper
-to POST records to the provided endpoint.
+to ship records to the provided endpoint.
+
+[`profiles/local-loki-otel-collector`](../profiles/local-loki-otel-collector/README.md)
+bundles `loki` and `otel-collector` into one small local stack; the Docker
+smoke-test CI job drives it end to end (ingest raw + structured records, query
+them back from the store) so the experimental modules' runtime behavior is
+covered, not just their render output (issue #1065,
+`tests/test_observability_runtime_smoke.py`).
 
 ## 6. Profile-level opt-in without naming a module
 
@@ -225,6 +242,10 @@ specific lineage backend; a provider could be backed by Marquez,
 OpenMetadata, DataHub, or any other service that accepts the OpenLineage
 HTTP event API.
 
+For the FDS data-provider alignment, this is a partial mechanism for
+processing lineage, not full FDS traceability or dataset-catalog metadata;
+see the [provenance and traceability assessment](fds-alignment.md#provenance-and-traceability).
+
 The `connectionUri` field exists because `${ifNonempty:...}` placeholder
 substitution (used by optional contract bindings, see below) does not
 re-template its own output — a consumer cannot compose a URL from separate
@@ -300,8 +321,11 @@ contract (issue #777, coordinated with the Grafana module scope of #369):
 - [`shared/contracts/metrics-sink.yaml`](../shared/contracts/metrics-sink.yaml)
   (`kind: metrics-sink`): same shape, plus an optional `scrapePath` so a
   Prometheus-style scrape endpoint (`protocol: prometheus`) also conforms.
+- [`shared/contracts/log-sink.yaml`](../shared/contracts/log-sink.yaml) gained
+  the same optional `connectionUri` field in #1076, so an OTLP/HTTP-capable
+  log backend (e.g. Loki's native `/otlp/v1/logs`) is forwardable too.
 
-Both stay vendor-neutral: nothing in the CLI hardcodes OTel — the contracts
+All stay vendor-neutral: nothing in the CLI hardcodes OTel — the contracts
 only commit to the wire-level fields needed to reach a collector.
 
 ### Reference provider: the `otel-collector` experimental module
@@ -313,10 +337,19 @@ per-signal paths `/v1/logs`, `/v1/metrics`, `/v1/traces`; OTLP/gRPC on 4317
 is also open for SDKs that prefer it). Each signal can optionally be
 forwarded to a bound backend module via `spec.config.backends.<signal>.contractRef`;
 forwarding uses the backend's advertised `connectionUri` **+ `ingestPath`**
-over OTLP/HTTP (the collector's `otlphttp` exporter treats a per-signal
+over OTLP/HTTP (the collector's `otlp_http` exporter treats a per-signal
 endpoint as the complete URL and does not append `/v1/<signal>` itself), so
 the backend must expose an OTLP/HTTP ingest endpoint — as the sink contracts
-provided here do. Unbound signals stay collector-local. The module is
+provided here do, and as the `loki` module does through Loki's native
+`/otlp/v1/logs` endpoint. All three sink contracts declare `connectionUri`
+(the `log-sink` contract gained the field in #1076), so **the logs signal
+forwards end-to-end exactly like metrics and traces**, e.g.
+`backends.logs: {contractRef: logs.log-sink}` with a `loki` instance in the
+profile. Unbound signals stay collector-local: the per-signal endpoint renders
+empty and the exporter falls back to its base endpoint — the collector's own
+health_check extension, which answers the export POST with 200 on any path and
+drops the batch silently instead of retrying a dead port (`127.0.0.1:1`)
+forever. The module is
 experimental (`productionSuitable: false`): single-node, unauthenticated
 OTLP endpoints, no storage of its own.
 
@@ -375,3 +408,40 @@ renders empty when the binding is absent, so optional telemetry is purely
 additive. The provided-contract host check (E150) now also covers
 `metrics-sink` and `trace-sink` providers, so a mis-advertised collector
 endpoint fails closed at render time.
+
+## 13. Dashboarding: the `grafana` module
+
+[`modules-experimental/observability/grafana`](../modules-experimental/observability/grafana/module.yaml)
+(issue #369) is the experimental dashboarding/query UI for the contracts above:
+it **provides** `http-service` (health path `/api/health`) so a reverse proxy
+or another module can route to it, and **consumes** two optional contracts to
+provision datasources declaratively:
+
+- `sql-database` via `spec.config.warehouseDatabase.contractRef` — provisions
+  a Postgres "Warehouse" datasource from the binding's
+  host/port/database/username/password. The consume entry declares
+  `engineFrom: spec.config.warehouseEngine` (default `postgres`), so a bound
+  provider advertising a different engine fails validation with E154 instead
+  of provisioning a broken datasource (issue #682).
+- `metrics-sink` via `spec.config.metricsSink.contractRef` — provisions a
+  Prometheus "Metrics" datasource from the contract's `connectionUri`, but
+  only when the provider advertises `protocol: prometheus`; push-style OTLP
+  endpoints (`otlp-grpc`/`otlp-http`, e.g. the `otel-collector` module) cannot
+  be queried by Grafana directly, so no datasource is mounted for them.
+
+Provisioning uses Grafana's own declarative provisioning: the module
+bind-mounts files from `provisioning/datasources/` into
+`/etc/grafana/provisioning/datasources/`, gated per binding with `enabledFrom`
+equality checks (`bindings.warehouse-database.engine==postgres`,
+`bindings.metrics-sink.protocol==prometheus`), and the files expand
+`${CDS_GF_DS_*}` environment variables that the compose service fills from the
+bindings via `${ifNonempty:...}`. Admin credentials come from
+`spec.config.adminUser` (`secrets.<alias>`, never inline). Analytics reporting
+and update checks are disabled in the container because the module declares no
+external egress.
+
+The [`local-postgres-grafana` profile](../profiles/local-postgres-grafana)
+demos the warehouse datasource wiring end to end. The module is experimental
+(`productionSuitable: false`): single-node, loopback-only host publish, no OIDC
+wiring yet, docker-compose target only — the same posture as the other
+`modules-experimental/observability/` modules.

@@ -1,6 +1,7 @@
 """Target-specific security checks for Kubernetes workload declarations."""
 from __future__ import annotations
 
+import ipaddress
 from typing import Any
 
 
@@ -78,6 +79,12 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
                         ["Declare both requests and limits for the container."],
                         category="configuration-management",
                     ))
+            _scan_declared_external_egress(
+                findings,
+                module_id,
+                workload.get("egress"),
+                f"{path}.egress",
+            )
             service_type = (workload.get("service") or {}).get("type")
             if service_type in ("NodePort", "LoadBalancer"):
                 findings.append(_finding(
@@ -168,7 +175,148 @@ def scan_k8s_security(plan: dict[str, Any]) -> list[dict[str, Any]]:
                         ],
                         category="configuration-management",
                     ))
+            for index, rule in enumerate(network_policy.get("ingress") or []):
+                if not isinstance(rule, dict):
+                    continue
+                # An ingress rule without a "from" restriction (or with an
+                # ipBlock peer) admits external sources on its ports --
+                # equal or worse exposure than the NodePort/LoadBalancer
+                # service CDS-K8S-007 flags. Selector-based peers stay
+                # cluster-internal and are not flagged.
+                sources = rule.get("from")
+                if isinstance(sources, list) and sources:
+                    opens_external = any(
+                        isinstance(peer, dict) and "ipBlock" in peer
+                        for peer in sources
+                    )
+                else:
+                    opens_external = True
+                if opens_external:
+                    findings.append(_finding(
+                        "CDS-K8S-010",
+                        "low",
+                        (
+                            f'Custom ingress rule {index} of module "{module_id}" '
+                            "opens external ingress (no from restriction or an "
+                            "ipBlock peer), which the default-deny "
+                            "NetworkPolicy baseline would otherwise block."
+                        ),
+                        f"module:{module_id}.implementation.kubernetes.networkPolicy."
+                        f"ingress.{index}",
+                        module_id,
+                        [
+                            "Confirm the source is intended; scope the rule to the "
+                            "minimum: the smallest ipBlock cidr (with except where "
+                            "possible) or a selector-based peer, and a TCP port list."
+                        ],
+                        category="configuration-management",
+                    ))
+        _scan_declared_external_egress(
+            findings,
+            module_id,
+            kubernetes.get("egress"),
+            f"module:{module_id}.implementation.kubernetes.egress",
+        )
     return findings
+
+
+def _scan_declared_external_egress(
+    findings: list[dict[str, Any]],
+    module_id: str,
+    declared: Any,
+    path: str,
+) -> None:
+    """
+    Record every declared external egress entry (issue #1023) as a
+    CDS-K8S-009 finding whose severity scales with breadth. A declaration
+    opens a hole in the default-deny egress baseline by definition, so the
+    scan is the audit record: 0.0.0.0/0 (or ::/0) on all ports disables the
+    baseline for the affected pods (high), an unscoped destination or a
+    missing port list is medium, and a destination+port-scoped entry is low,
+    mirroring how CDS-K8S-008 records raw ipBlock passthrough rules.
+    """
+    if not isinstance(declared, list):
+        return
+    for index, entry in enumerate(declared):
+        if not isinstance(entry, dict):
+            # Shape errors are the renderer's to fail closed on (E153).
+            continue
+        cidr_text = entry.get("cidr")
+        if cidr_text is None and entry.get("host") is not None:
+            host = str(entry["host"])
+            cidr_text = f"{host}{'/128' if ':' in host else '/32'}"
+        try:
+            network = ipaddress.ip_network(str(cidr_text), strict=False)
+        except ValueError:
+            # Unparseable (e.g. an unresolved ${config.*} expression or a DNS
+            # name): the renderer fails closed with E153 on the resolved value.
+            continue
+        all_destinations = network.prefixlen == 0
+        ports = entry.get("ports")
+        if ports is None and entry.get("port") is not None:
+            ports = [entry["port"]]
+        # The scan sees the plan before ${config.*} substitution, so a ports
+        # value supplied through a config expression arrives as a string:
+        # ports are declared (breadth unknown until render), so it must not
+        # be misread as a missing port list.
+        port_scoped = (isinstance(ports, list) and bool(ports)) or (
+            isinstance(ports, str) and bool(ports.strip())
+        )
+        if all_destinations and not port_scoped:
+            severity = "high"
+            message = (
+                f'Declared external egress {index} of module "{module_id}" opens '
+                f"egress to every address ({network}) on all ports, which disables "
+                "the default-deny egress baseline for the affected pods."
+            )
+            recommendation = [
+                "Scope the declaration to the smallest cidr (with except where "
+                "possible) and an explicit port list, or drop it: external egress "
+                "stays denied unless declared (issue #1023).",
+            ]
+        elif all_destinations:
+            severity = "medium"
+            message = (
+                f'Declared external egress {index} of module "{module_id}" opens '
+                f"egress to every address ({network}) on the declared ports only; "
+                "the destination itself is unscoped."
+            )
+            recommendation = [
+                "Replace the 0.0.0.0/0 (or ::/0) cidr with the smallest range that "
+                "covers the intended destination, with except entries where possible.",
+            ]
+        elif not port_scoped:
+            severity = "medium"
+            message = (
+                f'Declared external egress {index} of module "{module_id}" opens '
+                f"egress to {network} on all ports; the declaration carries no port "
+                "list, so the rule cannot be port-scoped."
+            )
+            recommendation = [
+                "Declare port/ports (and protocol) so the rule allows exactly the "
+                "ports the destination needs.",
+            ]
+        else:
+            severity = "low"
+            message = (
+                f'Declared external egress {index} of module "{module_id}" opens '
+                f"egress to {network} on {len(ports)} declared port(s); recorded as "
+                "the audit trail of an intentional external opening."
+            )
+            recommendation = [
+                "Keep the cidr as small as possible (with except where applicable) "
+                "and the port list minimal; remove the entry when the destination is "
+                "no longer needed.",
+            ]
+        findings.append(_finding(
+            "CDS-K8S-009",
+            severity,
+            message,
+            f"{path}.{index}",
+            module_id,
+            recommendation,
+            category="configuration-management",
+        ))
 
 
 def _runs_as_non_root(
@@ -218,10 +366,12 @@ def _finding(
         # NodePort/LoadBalancer ingress exposure note) are container/pod
         # runtime-hardening posture checks, so they default to the matching
         # cli.security_common.COMPLIANCE_CATEGORIES value; CDS-K8S-005
-        # (resource requests/limits), CDS-K8S-006 (wildcard RBAC rules), and
-        # CDS-K8S-008 (unrestricted custom egress) override this below since
-        # they're capacity-, privilege-, and network-governance concerns
-        # rather than runtime-hardening posture.
+        # (resource requests/limits), CDS-K8S-006 (wildcard RBAC rules),
+        # CDS-K8S-008 (unrestricted custom egress), CDS-K8S-009 (declared
+        # external egress breadth), and CDS-K8S-010 (source-unrestricted
+        # custom ingress) override this below since they're capacity-,
+        # privilege-, and network-governance concerns rather than
+        # runtime-hardening posture.
         "category": category,
         "message": message,
         "path": path,

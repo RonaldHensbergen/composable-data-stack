@@ -3981,21 +3981,87 @@ class ConfigCommandCLITest(unittest.TestCase):
 
 class AuditLogCLIIntegrationTest(unittest.TestCase):
     """`cds validate`/`cds render` must append a local audit-trail entry
-    (#737), and both the env-var and config disable paths must suppress
-    it."""
+    (#737) anchored to the profile's own project root -- not the cwd the
+    command was invoked from (#822) -- and both the env-var and config
+    disable paths must suppress it."""
+
+    _MODULE_YAML = """\
+apiVersion: cds/v1alpha1
+kind: Module
+metadata:
+  name: postgres
+  category: warehouse
+  version: "0.1.0"
+spec:
+  runtime:
+    type: container
+    service:
+      name: postgres
+      ports:
+        - name: db
+          containerPort: 5432
+          protocol: TCP
+  configSchema:
+    type: object
+    additionalProperties: false
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        postgres:
+          image: postgres:16
+"""
+
+    _PROFILE_YAML = """\
+apiVersion: cds/v1alpha1
+kind: Profile
+metadata:
+  name: demo
+  environment: local
+spec:
+  runtime:
+    type: docker-compose
+  modules:
+    - id: postgres
+      source: ../../modules/warehouse/postgres
+      version: "0.1.0"
+      enabled: true
+      config: {}
+  secrets:
+    provider:
+      type: env
+    values: {}
+"""
 
     def setUp(self):
-        self.repo_root = Path(__file__).resolve().parent.parent
-        self.profiles_root = self.repo_root / "profiles"
         self.tmpdir = tempfile.TemporaryDirectory()
-        self.project_root = Path(self.tmpdir.name)
+        # A self-contained "profiles checkout" with its own project marker
+        # (pyproject.toml), so resolve_project_root() anchors here -- exactly
+        # like a centrally shared profiles repo resolved via CDS_PROFILE_PATH.
+        self.checkout = Path(self.tmpdir.name) / "profiles-checkout"
+        module_dir = self.checkout / "modules" / "warehouse" / "postgres"
+        module_dir.mkdir(parents=True)
+        (self.checkout / "pyproject.toml").write_text('[project]\nname = "profiles-checkout"\n', encoding="utf-8")
+        (module_dir / "module.yaml").write_text(self._MODULE_YAML, encoding="utf-8")
+        profile_dir = self.checkout / "profiles" / "demo"
+        profile_dir.mkdir(parents=True)
+        (profile_dir / "profile.yaml").write_text(self._PROFILE_YAML, encoding="utf-8")
+        self.profiles_root = self.checkout / "profiles"
+
+        # The cwd commands are invoked from: deliberately NOT the profile's
+        # own project root.
+        self.foreign_cwd = Path(self.tmpdir.name) / "foreign-cwd"
+        self.foreign_cwd.mkdir()
         self.original_cwd = Path.cwd()
-        os.chdir(self.project_root)
+        os.chdir(self.foreign_cwd)
         self.env_patch = patch.dict(
             os.environ,
             {
                 "CDS_PROFILE_PATH": str(self.profiles_root),
-                "CDS_CONFIG_PATH": str(self.project_root / ".cds" / "config.json"),
+                # Neutralize any inherited module override so the profile's
+                # relative `source:` resolves against the checkout itself.
+                "CDS_MODULE_PATH": "",
+                "CDS_CONFIG_PATH": str(self.foreign_cwd / ".cds" / "config.json"),
             },
             clear=False,
         )
@@ -4006,47 +4072,83 @@ class AuditLogCLIIntegrationTest(unittest.TestCase):
         os.chdir(self.original_cwd)
         self.tmpdir.cleanup()
 
-    def _audit_entries(self):
-        log_path = self.project_root / ".cds" / "audit-log.jsonl"
+    def _audit_entries(self, root: Path | None = None):
+        log_path = (root or self.checkout) / ".cds" / "audit-log.jsonl"
         if not log_path.exists():
             return []
         return [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
 
+    def _run_cli(self, *argv):
+        with patch.object(sys, "argv", ["cds", *argv]), contextlib.redirect_stdout(io.StringIO()):
+            return main()
+
     def test_validate_command_appends_audit_entry(self):
-        with patch.object(
-            sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
-        ), contextlib.redirect_stdout(io.StringIO()):
-            result = main()
+        result = self._run_cli("validate", "demo")
 
         self.assertEqual(result, 0)
         entries = self._audit_entries()
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["command"], "validate")
         self.assertEqual(entries[0]["outcome"], "success")
-        self.assertEqual(entries[0]["profile"], "local-dagster-postgres-superset")
+        self.assertEqual(entries[0]["profile"], "demo")
         # Never a secret value, only alias/env-var names (see cli/secrets.py).
         for alias in entries[0]["secretAliases"]:
             self.assertNotIn("=", alias)
 
+    def test_audit_entry_anchors_to_profile_project_root_not_cwd(self):
+        """Regression test for #822: with the profile resolved via
+        CDS_PROFILE_PATH from a cwd that is not the profile's own project
+        root, the entry must land next to the profile/project, not in the
+        unrelated cwd the command happened to be invoked from."""
+        result = self._run_cli("validate", "demo")
+
+        self.assertEqual(result, 0)
+        entries = self._audit_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["command"], "validate")
+        self.assertEqual(entries[0]["outcome"], "success")
+        # Nothing may be scattered into the unrelated cwd.
+        self.assertFalse((self.foreign_cwd / ".cds" / "audit-log.jsonl").exists())
+
+    def test_render_command_anchors_audit_entry_to_profile_project_root(self):
+        """Same anchoring for `cds render` (#822): the entry lands in the
+        profile's project root, alongside the rendered docker-compose.yml."""
+        result = self._run_cli("render", "demo")
+
+        self.assertEqual(result, 0)
+        entries = self._audit_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["command"], "render")
+        self.assertEqual(entries[0]["outcome"], "success")
+        self.assertEqual(entries[0]["details"]["target"], "compose")
+        # details.output comes from resolve_project_root(), which resolves
+        # symlinks/short names (e.g. /var -> /private/var on macOS, 8.3 names
+        # on Windows), so compare against the resolved checkout path.
+        self.assertEqual(entries[0]["details"]["output"], str(self.checkout.resolve() / "docker-compose.yml"))
+        self.assertTrue((self.checkout / "docker-compose.yml").exists())
+        self.assertFalse((self.foreign_cwd / ".cds" / "audit-log.jsonl").exists())
+
+    def test_audit_entry_unchanged_when_cwd_is_project_root(self):
+        """Common case (#822 acceptance criterion): when the cwd already is
+        the profile's project root, the entry lands in the cwd as before."""
+        os.chdir(self.checkout)
+        result = self._run_cli("validate", "demo")
+
+        self.assertEqual(result, 0)
+        entries = self._audit_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["command"], "validate")
+
     def test_audit_log_disabled_via_env_var(self):
         with patch.dict(os.environ, {"CDS_AUDIT_LOG_DISABLE": "true"}, clear=False):
-            with patch.object(
-                sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
-            ), contextlib.redirect_stdout(io.StringIO()):
-                main()
+            self._run_cli("validate", "demo")
 
         self.assertEqual(self._audit_entries(), [])
+        self.assertFalse((self.foreign_cwd / ".cds" / "audit-log.jsonl").exists())
 
     def test_audit_log_disabled_via_config(self):
-        with patch.object(
-            sys, "argv", ["cds", "config", "set", "audit.enabled", "false"]
-        ), contextlib.redirect_stdout(io.StringIO()):
-            main()
-
-        with patch.object(
-            sys, "argv", ["cds", "validate", "local-dagster-postgres-superset"]
-        ), contextlib.redirect_stdout(io.StringIO()):
-            main()
+        self._run_cli("config", "set", "audit.enabled", "false")
+        self._run_cli("validate", "demo")
 
         self.assertEqual(self._audit_entries(), [])
 

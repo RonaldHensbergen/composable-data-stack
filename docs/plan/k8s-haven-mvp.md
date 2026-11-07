@@ -1,6 +1,6 @@
 # Kubernetes MVP Runbook: From a Fresh Directory to v1.0.0, with Haven Parity
 
-Version: 0.1
+Version: 0.2
 Status: Draft — execution runbook, drafted 2026-11-02. Fill in the signoff
 table (section 13) while running it; promote to a committed plan once a cycle
 has completed.
@@ -76,12 +76,16 @@ example profiles (#77), the production hardening checklist (#72), FluxCD
 GitOps rendering (#767), the `backup-target` contract (#210), the Loki
 log-sink provider (#662), the `trace-sink`/`metrics-sink` contracts and
 otel-collector module (#777), the Keycloak module with the shared
-`oidc-provider` contract and Superset consumer (#370, #1064), and the
-`cds maturity` tier report (#769, #1059).
+`oidc-provider` contract and Superset consumer (#370, #1064), the
+`cds maturity` tier report (#769, #1059), and the production-suitable
+Istio service-mesh module wired into the production and local Kubernetes
+examples (#1171).
 
 Post-MVP, tracked but **not** blocking this cycle (each keeps its issue and
 milestone): [#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776)
-service mesh and
+service mesh (its reference module is now production-suitable and used by
+the Kubernetes example profiles via #1171, but the full Haven MVP still does
+not require it) and
 [#1068](https://github.com/RonaldHensbergen/composable-data-stack/issues/1068)
 workload identity — the **Secured** tier is reachable via TLS + identity broker
 without a mesh;
@@ -123,7 +127,7 @@ evidence.
 | [0 — Bootstrap](#5-gate-0--bootstrap-from-a-fresh-directory-docker-only) | Fresh dir + Docker → CLI, tooling, profiles, cluster, #690 merged | `cds --version`, `kubectl get nodes` green, profiles fetched on a main SHA including PR #1105, Compose smoke run passes | 4–6 h |
 | [1 — Kubernetes MVP](#6-gate-1--kubernetes-mvp-on-a-local-cluster) | Full Helm lifecycle on the local cluster | `cds up/state/down --target helm` green, all workloads healthy, boundary checks pass, #1031 and #1023 closed, evidence recorded | 8–10 h |
 | [2 — Production-ready](#7-gate-2--production-ready-posture-on-kubernetes) | Prod overlay passes fail-closed gates on Helm, with real backup | `validate`/`security`/`preflight` diff-clean, checklist mapped with every control working on Helm, backup + restore verified (#665/#668/#669, E142), #1033 closed, maturity tier **Secured** recorded | 10–12 h |
-| [3 — Haven parity](#8-gate-3--haven-parity) | Haven-shaped profile runs on Helm | Identity + TLS ingress + operator-managed DB + backup + live observability + GitOps on `--target helm` (#1075, #682, #974, #883, #768, #369, #1066, #1076 closed), maturity tier **Secured**, gap matrix recorded | 5–8 working days |
+| [3 — Haven parity](#8-gate-3--haven-parity) | Haven-shaped profile runs on Helm | Identity + TLS ingress + operator-managed DB + backup + live observability + GitOps on `--target helm` (#1075, #682, #974, #883, #768, #369, #1066, #1076 closed), maturity tier **Secured**, gap matrix recorded, GitOps sync proven live and workload code running from a Git checkout (G3.8/G3.9 = #1136/#1137) | 5–8 working days |
 | [4 — Evidence and issues](#9-gate-4--evidence-and-issue-triage) | Everything reproducible, every remaining gap tracked | Signoff table complete, one issue per non-blocking gap (#1065 included), docs/changelog updated | 3–4 h |
 | [5 — v1.0.0 release](#10-gate-5--v100-release) | Cut and publish v1.0.0 | All section-2 blocking issues closed, tag pushed, release published with evidence assets, announcement done | 4–6 h |
 
@@ -350,11 +354,34 @@ with the Gate-2 profile only.
 - [ ] **G3.7 Sync the parity plan** (~1 h). Update section 4 of
   [docs/haven-parity-plan.md](../haven-parity-plan.md) to match the measured
   status. Exit: plan matches reality.
+- [ ] **G3.8 Prove the GitOps handoff end to end** (~2 h; tracked as
+  [#1136](https://github.com/RonaldHensbergen/composable-data-stack/issues/1136)).
+  Render the Haven-shaped profile (`cds render ... --target helm --output chart/`),
+  commit the rendered chart to a scratch GitOps repository per the
+  [`gitops-target` contract](../../shared/contracts/gitops-target.yaml)
+  (`repositoryUrl`/`branch`/`path`, rendered-chart-as-artifact mode), bootstrap
+  FluxCD on the k3d cluster (CDS renders but does not install the controllers),
+  apply the rendered `GitRepository` + `Kustomization`/`HelmRelease`, and verify
+  reconciliation: all workloads healthy from the repo state, plus a deliberately
+  introduced drift corrected on the next `syncInterval`. Exit: sync proven with
+  evidence (`kubectl get kustomization` Ready, drift-correction transcript) —
+  rendered Flux manifests alone are not sufficient.
+- [ ] **G3.9 Prove workload code runs from a Git checkout** (~2 h; tracked as
+  [#1137](https://github.com/RonaldHensbergen/composable-data-stack/issues/1137)).
+  Clone a small dbt project (SQL + Python models) from a Git repository into the
+  profile's `config.project.hostPath` (default `./workdirs/dbt`; bind-mounted
+  read-only into the container as `DBT_PROJECT_DIR`), run the models against the
+  Helm warehouse, and record `git rev-parse HEAD` in the evidence bundle. Note
+  the Dagster equivalent (`config.definitionsFile.hostPath`,
+  `config.sharedData.hostPath`, bind-mounted read-only into the user-code
+  container). Exit: models execute from the checked-out repo; host paths exist
+  before `cds up`.
 
 Gate 3 exit: the Haven-shaped profile — identity, TLS ingress, operator-managed
 database, backup, live observability, GitOps — runs on `--target helm` on the
 k3d cluster; maturity tier **Secured** recorded with the gap matrix; all
-section-2 Gate-3 issues closed.
+section-2 Gate-3 issues closed; GitOps reconciliation proven live and workload
+code running from a Git checkout (G3.8/G3.9).
 
 ## 9. Gate 4 — Evidence and issue triage
 
@@ -506,8 +533,9 @@ module set, mapped to the Haven+ baseline of
 | `orchestration/dagster` | `http-service`, `backup-source` | orchestration workload | stable; has `kubernetes:` block |
 | `bi/superset` | `http-service`, consumes `oidc-provider` | BI workload | stable; has `kubernetes:` block |
 | `cache/keydb` | `cache-service` | cache | stable; has `kubernetes:` block |
+| `security/istio` | `service-mesh` | peer identity and optional L7 authorization | production-suitable; used in `production-kubernetes-example` and `local-kubernetes-example` (#1171); Helm-only with out-of-band istiod |
 | `transformation/dbt` | consumes `sql-database`, `docs-service` | transformation | stable; no `kubernetes:` block yet |
-| `identity/keycloak` | `oidc-provider` | identity/SSO (Haven+: Keycloak) | `productionSuitable: false`, no `kubernetes:` block — #1075, #682/#974 (G3.3) |
+| `identity/keycloak` | `oidc-provider` | identity/SSO (Haven+: Keycloak) | production-suitable with production web serving by default (#974 landed); no `kubernetes:` block — #1075, #682 (G3.3) |
 | `integration/traefik` | `reverse-proxy` with TLS | TLS ingress edge (stands in for cert-manager+ingress at MVP scope) | no `kubernetes:` block — #1075, #883, #1033 (G3.3/G3.4) |
 | `backup/restic` | provides `backup-target`, consumes `backup-source` | backup (Haven+: Velero); Postgres sidecar is #665 | production-only piece (E143); no `kubernetes:` block — G2.9 |
 | `storage/garage` | `object-storage` (S3) | restic's S3 repository target / landing zone (#669) | `productionSuitable: false` (single-node) — deviation for the local MVP cluster only |
@@ -516,7 +544,8 @@ module set, mapped to the Haven+ baseline of
 | `observability/loki` + `observability/otel-collector` (experimental) | `log-sink`, `metrics-sink`, `trace-sink` | observability: logs + OTLP pipeline (Haven+: Loki/Alloy; Grafana metrics backend = #369) | experimental; no `kubernetes:` blocks — G3.6 (#369, #1066, #1076) |
 
 Deliberately **not** in the full profile (post-MVP, per section 2): service
-mesh/Istio (#776), workload identity (#1068), a standalone cert-manager
+mesh/Istio (#776; its production-suitable reference module is available via
+issue #1171), workload identity (#1068), a standalone cert-manager
 (#205/#577/#580 — Traefik TLS covers the edge), and Marquez lineage (#976).
 
 Once the profile exists, the same command shape runs the whole ~v2.0 suite:
@@ -544,7 +573,7 @@ issues land — on the Compose target the suite renders and runs today.
 | 0 — Bootstrap | `cds test local-kubernetes-example` (Compose default) after `cds init` | exit 0: validate, security, plan, render all green on Compose |
 | 1 — Kubernetes MVP | `cds test local-kubernetes-example --target helm`, then `cds up/state/down ... --target helm` plus the boundary checks of [scripts/k8s/e2e.sh](../../scripts/k8s/e2e.sh) (`make k3d-e2e` from a clone) | exit 0; chart passes `helm lint`/`template`; all workloads healthy; E2E pass = all, fail = 0 |
 | 2 — Production-ready | `cds test production-kubernetes-example --environment prod --target helm`, plus `cds preflight ... --environment prod` and `cds security ... --environment prod --target helm` | exit 0, or findings exactly matching the documented snapshot; no preflight `[FAIL]` |
-| 3 — Haven parity | `cds maturity local-haven-reference --format json --target helm`, plus a live `--target helm` run of the Haven-shaped profile from G3.3–G3.6 | Haven-shaped profile running on Helm; tier **Secured** reported with justifying contracts; gap matrix complete |
+| 3 — Haven parity | `cds maturity local-haven-reference --format json --target helm`, plus a live `--target helm` run of the Haven-shaped profile from G3.3–G3.9 | Haven-shaped profile running on Helm; tier **Secured** reported with justifying contracts; gap matrix complete; GitOps sync and code-from-Git proven (G3.8/G3.9) |
 | 4 — Evidence and issues | (process gate — no command) | results recorded, one issue per gap, docs/changelog updated |
 | 5 — v1.0.0 release | `python -m unittest discover -s tests -p "*.py"` + `CDS_RUN_DOCKER_SMOKE=1 python3 -m unittest tests.test_compose_runtime_smoke -v` + `make k3d-build && make k3d-e2e` (from a clone) | all green, per [docs/release-strategy.md](../release-strategy.md#release-gates) |
 

@@ -1,3 +1,4 @@
+# modules/warehouse/duckdb/module.yaml
 # yaml-language-server: $schema=../../../cli/resources/module.schema.json
 apiVersion: cds/v1alpha1
 kind: Module
@@ -6,8 +7,7 @@ metadata:
   name: duckdb
   category: warehouse
   version: "0.1.0"
-  productionSuitable: false
-  displayName: DuckDB (experimental)
+  displayName: DuckDB
   description: >
     Fast, in-process analytical (OLAP) warehouse based on DuckDB. Unlike
     postgres, DuckDB is embedded and has no network protocol -- it provides
@@ -15,11 +15,9 @@ metadata:
     file) instead of a sql-database contract. This module only prepares
     that shared file with the correct permissions; the actual database is
     opened directly by whichever consumer module (e.g. dlt, dbt) reads or
-    writes it. This module is marked experimental because the file-database
-    contract shape is new to CDS and unproven across multiple consumers, not
-    because DuckDB itself is immature -- see README.md for consumption
-    details and current limitations (e.g. BI tools cannot connect to it like
-    they do postgres, and it has no multi-node clustering).
+    writes it. See README.md for consumption details and current limitations
+    (e.g. BI tools cannot connect to it like they do postgres, and it has no
+    multi-node clustering).
 
 spec:
   runtime:

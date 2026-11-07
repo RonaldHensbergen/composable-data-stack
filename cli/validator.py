@@ -552,6 +552,69 @@ def _provider_advertises_tls(provider_contract: dict[str, Any], producer_inst: d
     return False
 
 
+def _provider_advertised_engine(
+    provider_contract: dict[str, Any], producer_inst: dict[str, Any]
+) -> str | None:
+    """
+    Resolve the provider's contract-spec `engine` advertisement for the
+    engineFrom consume check (issue #682), mirroring how the TLS
+    advertisement is evaluated: a literal string is used as-is, and a pure
+    "${config.<path>}" reference is resolved against the producer instance's
+    profile config. Anything else (an absent field, a non-string value, or an
+    unresolvable config reference) means "no engine advertised", so the
+    requirement fails closed.
+    """
+    value = (provider_contract.get("spec") or {}).get("engine")
+    if not isinstance(value, str):
+        return None
+    if value.startswith("${config.") and value.endswith("}"):
+        try:
+            resolved = resolve_path({"config": producer_inst.get("config")}, value[2:-1])
+        except KeyError:
+            return None
+        return resolved if isinstance(resolved, str) else None
+    return value
+
+
+def _schema_default_at_config_path(module_def: dict[str, Any], config_path: str) -> tuple[bool, Any]:
+    """
+    Walk the module's configSchema along a dotted config path (e.g.
+    "metadataDatabase.driver") and return (True, default) when the leaf schema
+    node declares a plain `default`. Used to resolve an engineFrom reference
+    when the profile does not set the field explicitly: validation runs
+    before the planner applies configSchema defaults, so without this fallback
+    a defaulted driver (e.g. keycloak's metadataDatabase.driver defaulting to
+    postgres) could not be enforced at validate time.
+    """
+    node: Any = (module_def.get("spec") or {}).get("configSchema") or {}
+    for part in config_path.split("."):
+        props = node.get("properties") if isinstance(node, dict) else None
+        if not isinstance(props, dict) or part not in props:
+            return False, None
+        node = props[part]
+    if isinstance(node, dict) and "default" in node:
+        return True, node["default"]
+    return False, None
+
+
+def _consumer_expected_engine(inst: dict[str, Any], engine_from: str) -> tuple[bool, Any]:
+    """
+    Resolve a consume entry's engineFrom path against the consumer instance's
+    own config, falling back to the configSchema default at that path when the
+    profile leaves the field unset (see _schema_default_at_config_path).
+    Returns (False, None) when neither yields a value.
+    """
+    try:
+        value = resolve_path({"spec": {"config": inst.get("config")}}, engine_from)
+        if value is not None:
+            return True, value
+    except KeyError:
+        pass
+    prefix = "spec.config."
+    config_path = engine_from[len(prefix):] if engine_from.startswith(prefix) else engine_from
+    return _schema_default_at_config_path(inst["module"], config_path)
+
+
 def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
     diagnostics: list[Diagnostic] = []
 
@@ -624,6 +687,224 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                 )
                 continue
 
+            config_path = f"spec.modules[{inst['index']}].config"
+
+            def _validate_one_ref(
+                contract_ref: Any,
+                ref_path: str,
+                _name: str = name,
+                _inst: dict = inst,
+                _kind: Any = expected_kind,
+                _consume: dict = consume,
+            ) -> None:
+                """Validate one contractRef binding; shared by single-object and
+                list-valued mappedFrom targets (issue #883)."""
+                parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+                if parsed is None:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E041",
+                            message=f'Invalid contract ref "{contract_ref}". Expected "<module-id>.<contract-name>".',
+                            path=ref_path,
+                        )
+                    )
+                    return
+
+                producer_id, provide_name = parsed
+                producer = by_id.get(producer_id)
+                if producer is None:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E041",
+                            message=f'Contract ref "{contract_ref}" points to unknown module "{producer_id}".',
+                            path=ref_path,
+                        )
+                    )
+                    return
+
+                provides = producer["module"].get("spec", {}).get("provides", [])
+                matched = next((p for p in provides if p.get("name") == provide_name), None)
+                if matched is None:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E041",
+                            message=f'Contract ref "{contract_ref}" points to module "{producer_id}", but it does not provide "{provide_name}".',
+                            path=ref_path,
+                        )
+                    )
+                    return
+
+                actual_kind = matched.get("contract", {}).get("kind")
+                if actual_kind != _kind:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E042",
+                            message=(
+                                f'Contract kind mismatch for "{contract_ref}": '
+                                f'consumer expects "{_kind}", provider exposes "{actual_kind}".'
+                            ),
+                            path=ref_path,
+                        )
+                    )
+                    return
+
+                if _consume.get("tls") == "required" and not _provider_advertises_tls(
+                    matched.get("contract", {}), producer
+                ):
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E128",
+                            message=(
+                                f'Consume entry "{_name}" in module "{_inst["id"]}" requires a '
+                                f'TLS-protected endpoint (tls: required), but contract ref '
+                                f'"{contract_ref}" resolves to "{producer_id}", whose "{provide_name}" '
+                                'contract does not advertise one. Providers opt in by setting '
+                                '"tls: true" in the provide entry\'s contract spec (either a boolean '
+                                'literal or a "${config.<path>}" reference that resolves to true '
+                                'against the producer instance\'s profile config).'
+                            ),
+                            path=ref_path,
+                        )
+                    )
+
+                engine_from = _consume.get("engineFrom")
+                if isinstance(engine_from, str) and engine_from:
+                    # Messages use the profile-facing "config.<path>" vocabulary
+                    # (same as requiredIf), not the internal "spec.config.<path>"
+                    # engineFrom spelling.
+                    engine_from_config = (
+                        "config." + engine_from[len("spec.config."):]
+                        if engine_from.startswith("spec.config.")
+                        else engine_from
+                    )
+                    has_expected, expected = _consumer_expected_engine(_inst, engine_from)
+                    if not has_expected or not isinstance(expected, str) or not expected.strip():
+                        diagnostics.append(
+                            Diagnostic(
+                                level="error",
+                                code="E041",
+                                message=(
+                                    f'Consume entry "{_name}" in module "{_inst["id"]}" declares '
+                                    f'engineFrom "{engine_from_config}", but that path resolves to no '
+                                    'usable string value (absent, non-string, or blank) in the '
+                                    'module instance config and declares no configSchema default.'
+                                ),
+                                path=ref_path,
+                            )
+                        )
+                    else:
+                        # Not a `continue`: the compatibility-registry check (E043)
+                        # below must still run for this binding, like it does on the
+                        # E128 and E154 paths.
+                        advertised = _provider_advertised_engine(matched.get("contract", {}), producer)
+                        if advertised is None:
+                            diagnostics.append(
+                                Diagnostic(
+                                    level="error",
+                                    code="E154",
+                                    message=(
+                                        f'Consume entry "{_name}" in module "{_inst["id"]}" expects database '
+                                        f'engine "{expected}" (engineFrom "{engine_from_config}"), but contract '
+                                        f'ref "{contract_ref}" resolves to "{producer_id}", whose '
+                                        f'"{provide_name}" contract advertises no "engine" in its spec. '
+                                        'Providers opt in by setting "engine" (a literal string, or a '
+                                        '"${config.<path>}" reference resolving against the producer '
+                                        'instance\'s profile config); without an advertisement the '
+                                        'engine requirement fails closed so a wrong-vendor binding '
+                                        'cannot silently misconfigure the consumer.'
+                                    ),
+                                    path=ref_path,
+                                )
+                            )
+                        elif advertised.strip().lower() != expected.strip().lower():
+                            diagnostics.append(
+                                Diagnostic(
+                                    level="error",
+                                    code="E154",
+                                    message=(
+                                        f'Consume entry "{_name}" in module "{_inst["id"]}" expects database '
+                                        f'engine "{expected}" (engineFrom "{engine_from_config}"), but contract '
+                                        f'ref "{contract_ref}" resolves to "{producer_id}", whose '
+                                        f'"{provide_name}" contract advertises engine "{advertised}". The '
+                                        'consumer would speak the wrong wire protocol to the bound '
+                                        f'provider; set "{engine_from_config}" to "{advertised}", or bind a '
+                                        f'provider advertising "{expected}".'
+                                    ),
+                                    path=ref_path,
+                                )
+                            )
+
+                provider_key = _module_key(producer["module"])
+                consumer_key = _module_key(_inst["module"])
+                if compatibility_registry is not None and provider_key and consumer_key:
+                    status = compatibility_registry.get((_kind, provider_key, consumer_key))
+                    if status == "unsupported":
+                        diagnostics.append(
+                            Diagnostic(
+                                level="error",
+                                code="E043",
+                                message=(
+                                    f'Contract ref "{contract_ref}" pairs "{consumer_key}" (consumer) with '
+                                    f'"{provider_key}" (provider) for contract "{_kind}": this pairing '
+                                    'matches structurally but is recorded as unsupported in the compatibility '
+                                    'registry (cli/resources/compatibility-registry.json).'
+                                ),
+                                path=ref_path,
+                            )
+                        )
+            if isinstance(value, list):
+                # List-valued binding (issue #883): the mappedFrom path
+                # resolves to a list of route-style entries, each carrying
+                # its own contractRef (e.g. a reverse proxy's config.routes
+                # bound to several http-service providers). Each entry is
+                # validated exactly like a single binding, at a per-entry
+                # path so the diagnostic points at the offending route.
+                mapped_suffix = (
+                    mapped_from[len("spec.config."):]
+                    if mapped_from.startswith("spec.config.")
+                    else None
+                )
+                if not value and not effective_required:
+                    continue
+                for item_index, item in enumerate(value):
+                    item_path = (
+                        f"{config_path}.{mapped_suffix}[{item_index}]"
+                        if mapped_suffix
+                        else config_path
+                    )
+                    if not isinstance(item, dict) or "contractRef" not in item:
+                        diagnostics.append(
+                            Diagnostic(
+                                level="error",
+                                code="E041",
+                                message=(
+                                    f'Consume binding "{name}" entry {item_index} must resolve '
+                                    'to an object with "contractRef".'
+                                ),
+                                path=item_path,
+                            )
+                        )
+                        continue
+                    _validate_one_ref(item["contractRef"], item_path)
+                if not value and effective_required:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E041",
+                            message=(
+                                f'Consume binding "{name}" resolves to an empty list; each '
+                                'entry must be an object with "contractRef".'
+                            ),
+                            path=config_path,
+                        )
+                    )
+                continue
+
             if not isinstance(value, dict) or "contractRef" not in value:
                 if not effective_required and not value:
                     continue
@@ -635,103 +916,12 @@ def validate_contract_bindings(module_instances: list[dict[str, Any]]) -> list[D
                             f'Consume binding "{name}" must resolve to an object with "contractRef"'
                             + (f' (required because {required_if}).' if conditionally_required and not required else ".")
                         ),
-                        path=f"spec.modules[{inst['index']}].config",
+                        path=config_path,
                     )
                 )
                 continue
 
-            contract_ref = value["contractRef"]
-            parsed = parse_contract_ref(contract_ref)
-            if parsed is None:
-                diagnostics.append(
-                    Diagnostic(
-                        level="error",
-                        code="E041",
-                        message=f'Invalid contract ref "{contract_ref}". Expected "<module-id>.<contract-name>".',
-                        path=f"spec.modules[{inst['index']}].config",
-                    )
-                )
-                continue
-
-            producer_id, provide_name = parsed
-            producer = by_id.get(producer_id)
-            if producer is None:
-                diagnostics.append(
-                    Diagnostic(
-                        level="error",
-                        code="E041",
-                        message=f'Contract ref "{contract_ref}" points to unknown module "{producer_id}".',
-                        path=f"spec.modules[{inst['index']}].config",
-                    )
-                )
-                continue
-
-            provides = producer["module"].get("spec", {}).get("provides", [])
-            matched = next((p for p in provides if p.get("name") == provide_name), None)
-            if matched is None:
-                diagnostics.append(
-                    Diagnostic(
-                        level="error",
-                        code="E041",
-                        message=f'Contract ref "{contract_ref}" points to module "{producer_id}", but it does not provide "{provide_name}".',
-                        path=f"spec.modules[{inst['index']}].config",
-                    )
-                )
-                continue
-
-            actual_kind = matched.get("contract", {}).get("kind")
-            if actual_kind != expected_kind:
-                diagnostics.append(
-                    Diagnostic(
-                        level="error",
-                        code="E042",
-                        message=(
-                            f'Contract kind mismatch for "{contract_ref}": '
-                            f'consumer expects "{expected_kind}", provider exposes "{actual_kind}".'
-                        ),
-                        path=f"spec.modules[{inst['index']}].config",
-                    )
-                )
-                continue
-
-            if consume.get("tls") == "required" and not _provider_advertises_tls(
-                matched.get("contract", {}), producer
-            ):
-                diagnostics.append(
-                    Diagnostic(
-                        level="error",
-                        code="E128",
-                        message=(
-                            f'Consume entry "{name}" in module "{inst["id"]}" requires a '
-                            f'TLS-protected endpoint (tls: required), but contract ref '
-                            f'"{contract_ref}" resolves to "{producer_id}", whose "{provide_name}" '
-                            'contract does not advertise one. Providers opt in by setting '
-                            '"tls: true" in the provide entry\'s contract spec (either a boolean '
-                            'literal or a "${config.<path>}" reference that resolves to true '
-                            'against the producer instance\'s profile config).'
-                        ),
-                        path=f"spec.modules[{inst['index']}].config",
-                    )
-                )
-
-            provider_key = _module_key(producer["module"])
-            consumer_key = _module_key(inst["module"])
-            if compatibility_registry is not None and provider_key and consumer_key:
-                status = compatibility_registry.get((expected_kind, provider_key, consumer_key))
-                if status == "unsupported":
-                    diagnostics.append(
-                        Diagnostic(
-                            level="error",
-                            code="E043",
-                            message=(
-                                f'Contract ref "{contract_ref}" pairs "{consumer_key}" (consumer) with '
-                                f'"{provider_key}" (provider) for contract "{expected_kind}": this pairing '
-                                'matches structurally but is recorded as unsupported in the compatibility '
-                                'registry (cli/resources/compatibility-registry.json).'
-                            ),
-                            path=f"spec.modules[{inst['index']}].config",
-                        )
-                    )
+            _validate_one_ref(value["contractRef"], config_path)
 
     return diagnostics
 
@@ -1512,9 +1702,9 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
 
     The helm renderer applies `production` gates to the kubernetes volume
     and configMap specs (apply_production_gates), and resolves
-    `enabledFrom` on volume specs (guarded, so a bad shape silently
-    misbehaves) and on workloads (unguarded, so a bad shape crashes).
-    Marker shapes fail closed here instead.
+    `enabledFrom` on volume specs and configMap specs (guarded, so a bad
+    shape silently misbehaves) and on workloads (unguarded, so a bad shape
+    crashes). Marker shapes fail closed here instead.
     """
     diagnostics: list[Diagnostic] = []
     if not isinstance(kubernetes, dict):
@@ -1561,7 +1751,9 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
                 spec.get("enabledFrom"), f"{base_path}.volumes.{name}.enabledFrom"
             ))
 
-    # ConfigMap specs: production gates are implemented, enabledFrom is not.
+    # ConfigMap specs: both marker classes are implemented here (the helm
+    # renderer resolves enabledFrom and drops the ConfigMap when it is False,
+    # issue #1117).
     configmaps = kubernetes.get("configMaps", {})
     if isinstance(configmaps, dict):
         for name, spec in configmaps.items():
@@ -1570,17 +1762,9 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
             diagnostics.extend(_production_shape(
                 spec.get("production"), f"{base_path}.configMaps.{name}.production"
             ))
-            if "enabledFrom" in spec:
-                diagnostics.append(Diagnostic(
-                    level="error",
-                    code="E145",
-                    message=(
-                        "The `enabledFrom` marker is not implemented on kubernetes "
-                        "configMap entries (only on volume specs and workloads); the "
-                        "helm renderer would silently ignore it."
-                    ),
-                    path=f"{base_path}.configMaps.{name}.enabledFrom",
-                ))
+            diagnostics.extend(_condition_shape(
+                spec.get("enabledFrom"), f"{base_path}.configMaps.{name}.enabledFrom"
+            ))
 
     # Workloads: enabledFrom is implemented (unguarded, so a bad shape
     # crashes), production gates are not.
@@ -1604,8 +1788,9 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
                     path=f"{base_path}.workloads.{name}.production",
                 ))
 
-    # Raw manifests (issue #767): enabledFrom gates are implemented by the
-    # helm renderer, production gates are not.
+    # Raw manifests (issue #767): enabledFrom gates and forEach fan-out
+    # (issue #1170) are implemented by the helm renderer, production gates
+    # are not.
     manifests = kubernetes.get("manifests", {})
     if isinstance(manifests, dict):
         for name, spec in manifests.items():
@@ -1614,6 +1799,19 @@ def _kubernetes_marker_diagnostics(kubernetes: Any, *, base_path: str) -> list[D
             diagnostics.extend(_condition_shape(
                 spec.get("enabledFrom"), f"{base_path}.manifests.{name}.enabledFrom"
             ))
+            for_each = spec.get("forEach")
+            if for_each is not None and not (isinstance(for_each, str) and for_each.strip()):
+                diagnostics.append(Diagnostic(
+                    level="error",
+                    code="E145",
+                    message=(
+                        "`forEach` on a kubernetes manifest entry must be a non-empty "
+                        "string holding a config path expression that resolves to a "
+                        "list (e.g. `config.services`); other shapes crash the helm "
+                        "renderer or silently misbehave."
+                    ),
+                    path=f"{base_path}.manifests.{name}.forEach",
+                ))
             if "production" in spec:
                 diagnostics.append(Diagnostic(
                     level="error",

@@ -44,7 +44,7 @@ this doc was written — the function names are the stable anchor.
 | Artifact | Written by | Standard? |
 | --- | --- | --- |
 | `<project-root>/docker-compose.yml` | `cds render` / `cds up` (compose) | Yes — a plain Compose file. `docker compose -f docker-compose.yml <cmd>` works as-is. |
-| `<project-root>/traefik/dynamic/cds-routes-<module>.yml` | same render, next to the compose file (`cli/renderer.py:250`, `:255`, `:697`) | Yes — Traefik file-provider documents, mounted by the compose file. |
+| `<project-root>/traefik/dynamic/cds-routes-<module>.yml` | same render, next to the compose file (`cli/renderer.py:247`, `:250`, `:823`) | Yes — Traefik file-provider documents, mounted by the compose file. |
 | `<project-root>/chart/` (`Chart.yaml`, `values.yaml`, `templates/`, ...) | `cds render --target helm` / `cds up --target helm` | Yes — a plain Helm chart. `helm upgrade --install <release> chart/ ...` works as-is. Contains no secret values, only `CDS_*` key names. |
 | `<project-root>/.env` | `cds init` | Yes — a standard Compose env file. Compose picks it up automatically when the compose file lives at the project root. |
 

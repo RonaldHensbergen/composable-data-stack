@@ -3,13 +3,16 @@
 Replace `sample_source` below with a real extractor (a REST API, files, a
 source database, etc.) -- this only demonstrates that the pipeline can
 connect to and load into the destination configured by the module's
-consumed sql-database contract.
+consumed contract: a sql-database contract (postgres) or a file-database
+contract (duckdb), selected by config.destinationType.
 
-DESTINATION__POSTGRES__CREDENTIALS, DLT_PIPELINE_NAME, and DLT_DATASET_NAME
-are set by the dlt module's compose environment (see
+CDS_DLT_DESTINATION, DESTINATION__POSTGRES__CREDENTIALS (postgres mode),
+DESTINATION__DUCKDB__CREDENTIALS (duckdb mode), DLT_PIPELINE_NAME, and
+DLT_DATASET_NAME are set by the dlt module's compose environment (see
 modules-experimental/ingestion/dlt/module.yaml and images/dlt/entrypoint.sh);
-dlt itself reads DESTINATION__POSTGRES__CREDENTIALS directly, this script
-only needs to read the pipeline/dataset names.
+dlt itself reads the DESTINATION__<NAME>__CREDENTIALS variable directly,
+this script only needs to read the destination type and pipeline/dataset
+names.
 """
 import os
 from pathlib import Path
@@ -17,7 +20,7 @@ from pathlib import Path
 import dlt
 
 
-def _destination_roundtrip_check() -> str:
+def _postgres_roundtrip_check() -> str:
     """Run the shared example workload against the destination connection.
 
     The same workdirs/db_roundtrip.py runs unchanged in the dagster
@@ -36,6 +39,34 @@ def _destination_roundtrip_check() -> str:
     return module.roundtrip("destination", "hello from the dlt runtime")
 
 
+def _duckdb_roundtrip_check() -> str:
+    """Write/read one marker row through the shared DuckDB file directly.
+
+    DuckDB is embedded (no connection URI): the destination is the database
+    file bind-mounted from the consumed file-database contract, so this
+    check opens it with the duckdb client library shipped by dlt[duckdb] and
+    proves the bind mount works before dlt loads into it. The connection is
+    closed again afterwards -- DuckDB allows only one read-write connection
+    per file at a time, and dlt opens its own when the pipeline runs.
+    """
+    import duckdb
+
+    path = os.environ["DESTINATION__DUCKDB__CREDENTIALS"]
+    con = duckdb.connect(path)
+    try:
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS cds_roundtrip (id INTEGER PRIMARY KEY, marker TEXT)"
+        )
+        con.execute("DELETE FROM cds_roundtrip WHERE id = 1")
+        con.execute(
+            "INSERT INTO cds_roundtrip (id, marker) VALUES (1, 'hello from the dlt runtime')"
+        )
+        row = con.execute("SELECT marker FROM cds_roundtrip WHERE id = 1").fetchone()
+    finally:
+        con.close()
+    return row[0] if row else ""
+
+
 @dlt.resource(name="ping")
 def sample_source():
     """Trivial resource so the pipeline is runnable out of the box."""
@@ -43,10 +74,14 @@ def sample_source():
 
 
 def main() -> None:
-    print(f"destination roundtrip: {_destination_roundtrip_check()!r}")
+    destination = os.environ.get("CDS_DLT_DESTINATION", "postgres")
+    if destination == "duckdb":
+        print(f"destination roundtrip: {_duckdb_roundtrip_check()!r}")
+    else:
+        print(f"destination roundtrip: {_postgres_roundtrip_check()!r}")
     pipeline = dlt.pipeline(
         pipeline_name=os.environ.get("DLT_PIPELINE_NAME", "cds_dlt_pipeline"),
-        destination="postgres",
+        destination=destination,
         dataset_name=os.environ.get("DLT_DATASET_NAME", "raw"),
     )
     load_info = pipeline.run(sample_source())

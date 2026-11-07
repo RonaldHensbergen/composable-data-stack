@@ -8,9 +8,12 @@ import yaml
 
 from cli import preflight
 from cli.preflight import (
+    _DOCS_BASE_URL,
     PreflightCheck,
+    _check_environment,
     _check_images,
     _check_ports,
+    _check_runtime,
     _expand_port_range,
     _hosts_overlap,
     _load_env_values,
@@ -18,6 +21,7 @@ from cli.preflight import (
     _published_ports,
     _reference_default_value,
     _run_runtime_command,
+    format_check_line,
 )
 
 
@@ -231,6 +235,111 @@ class PortIsAvailableTest(unittest.TestCase):
             for error in (OSError("in use"), OverflowError("range")):
                 sock.bind.side_effect = error
                 self.assertFalse(_port_is_available("127.0.0.1", 80, "tcp"))
+
+
+class NonPassDocReferenceTest(unittest.TestCase):
+    """Every WARN/FAIL preflight result must link to a repo doc."""
+
+    def assert_doc_reference(self, check: PreflightCheck) -> None:
+        self.assertIsNotNone(check.reference, check.name)
+        if check.reference is not None:
+            self.assertTrue(
+                check.reference.startswith(_DOCS_BASE_URL), check.reference
+            )
+
+    def test_images_fail_links_to_verification_policy(self) -> None:
+        policy = MagicMock()
+        policy.mode = "policy"
+        with (
+            patch("cli.preflight.load_policy_from_env", return_value=policy),
+            patch(
+                "cli.preflight.verify_images",
+                return_value=[
+                    {"path": "services.web.image", "rule_id": "IMG-1", "message": "bad"}
+                ],
+            ),
+            patch("cli.preflight.default_fixture_path", return_value=None),
+        ):
+            checks = _check_images({}, "services: {}")
+        self.assertEqual(checks[0].status, "FAIL")
+        self.assert_doc_reference(checks[0])
+        self.assertIn("image-signing.md#verification-policy", checks[0].reference or "")
+
+    def test_port_warn_and_fail_link_to_port_doc(self) -> None:
+        with patch("cli.preflight._port_is_available", return_value=None):
+            warn = _check_ports(yaml.safe_dump({"services": {"a": {"ports": ["9000:90/sctp"]}}}))
+        with patch("cli.preflight._port_is_available", return_value=False):
+            fail = _check_ports(yaml.safe_dump({"services": {"a": {"ports": ["9000:90"]}}}))
+        compose = yaml.safe_dump(
+            {"services": {"a": {"ports": ["8080:80"]}, "b": {"ports": ["8080:81"]}}}
+        )
+        with patch("cli.preflight._port_is_available", return_value=True):
+            conflict = _check_ports(compose)
+        for check in [*warn, *fail, *conflict]:
+            if check.status != "PASS":
+                self.assert_doc_reference(check)
+                self.assertIn("from-docker-to-cds-profile.md", check.reference or "")
+
+    def test_environment_warn_and_fail_link_to_installation(self) -> None:
+        compose_yaml = (
+            "services:\n  app:\n    environment:\n"
+            "      MISSING: ${CDS_MISSING}\n"
+            "      TOKEN: ${CDS_TOKEN}\n"
+            "      PASSWORD: ${CDS_DB_PASSWORD:-postgres}\n"
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("CDS_TOKEN=change-me\n", encoding="utf-8")
+            with patch.dict("os.environ", {}, clear=True):
+                missing_checks = _check_environment(compose_yaml, env_file)
+                env_file.write_text("CDS_MISSING=x\nCDS_TOKEN=change-me\n", encoding="utf-8")
+                placeholder_checks = _check_environment(compose_yaml, env_file)
+        non_pass = [c for c in [*missing_checks, *placeholder_checks] if c.status != "PASS"]
+        self.assertEqual(
+            {c.name for c in non_pass},
+            {"environment.CDS_MISSING", "environment.placeholders", "environment.insecure-defaults"},
+        )
+        for check in non_pass:
+            self.assert_doc_reference(check)
+            self.assertIn("installation.md#5-initialize-configuration", check.reference or "")
+
+    def test_runtime_failures_link_to_docs(self) -> None:
+        with patch("cli.preflight.shutil.which", return_value=None):
+            cli_missing = _check_runtime({"type": "docker-compose"}, {})
+        self.assertEqual(cli_missing[0].name, "runtime.cli")
+        self.assert_doc_reference(cli_missing[0])
+        self.assertIn("installation.md#7-check-runtime-prerequisites", cli_missing[0].reference or "")
+
+        def fail(command, **_kwargs):
+            return subprocess.CompletedProcess(command, 1, "", "boom")
+
+        with (
+            patch("cli.preflight.shutil.which", return_value="/usr/bin/docker"),
+            patch("cli.preflight.subprocess.run", side_effect=fail),
+        ):
+            daemon_down = _check_runtime({"type": "docker-compose"}, {})
+        daemon_fail = next(c for c in daemon_down if c.name == "runtime.daemon")
+        self.assert_doc_reference(daemon_fail)
+        self.assertIn("installation.md#7-check-runtime-prerequisites", daemon_fail.reference or "")
+
+        unsupported = _check_runtime({"type": "kubernetes"}, {})
+        self.assertEqual(unsupported[0].name, "runtime")
+        self.assert_doc_reference(unsupported[0])
+        self.assertIn("how-it-works.md", unsupported[0].reference or "")
+
+    def test_format_check_line_appends_reference_only_for_non_pass(self) -> None:
+        warn = PreflightCheck("WARN", "host.rootless", "warn msg", reference="https://x/docs/a.md")
+        self.assertEqual(
+            format_check_line(warn), "[WARN] host.rootless: warn msg (see https://x/docs/a.md)"
+        )
+        fail = PreflightCheck("FAIL", "runtime.daemon", "fail msg", reference="https://x/docs/b.md")
+        self.assertEqual(
+            format_check_line(fail), "[FAIL] runtime.daemon: fail msg (see https://x/docs/b.md)"
+        )
+        passed = PreflightCheck("PASS", "runtime.cli", "ok msg")
+        self.assertEqual(format_check_line(passed), "[PASS] runtime.cli: ok msg")
+        no_ref = PreflightCheck("WARN", "x", "msg")
+        self.assertEqual(format_check_line(no_ref), "[WARN] x: msg")
 
 
 if __name__ == "__main__":

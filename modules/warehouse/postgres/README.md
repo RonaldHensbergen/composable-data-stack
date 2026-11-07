@@ -6,7 +6,11 @@ PostgreSQL database module that provides a sql-database contract.
 
 Provides a PostgreSQL instance for profiles that need relational storage
 or a warehouse. One instance can serve several logical databases through
-separate contract bindings.
+separate contract bindings. Every `sql-database` provide advertises
+`engine: postgres` in its contract spec, so consumers that declare
+`engineFrom` on their consume entry (e.g. identity/keycloak) fail validation
+with `E154` when bound to a provider speaking a different wire protocol
+(issue #682).
 
 ## Known limitations
 

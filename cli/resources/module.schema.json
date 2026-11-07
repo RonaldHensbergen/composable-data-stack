@@ -183,6 +183,11 @@
           "type": "string",
           "enum": ["required"],
           "description": "TLS requirement for the bound provider (issue #577). 'required': the provider's contract spec must advertise a TLS-protected endpoint (a boolean 'tls: true' in its provides entry's contract spec, or a pure ${config.<path>} reference resolving to true against the producer instance's profile config); anything else -- an absent field, tls: false, or an unresolvable config reference -- fails validation with E128. An omitted tls key places no TLS requirement (backward compatible: existing profiles and module.yaml documents stay valid unless they explicitly opt into stricter TLS). Values other than 'required' are rejected at module schema validation (E021) so a typo cannot silently disable the check."
+        },
+        "engineFrom": {
+          "type": "string",
+          "pattern": "^spec\\.config(\\.[A-Za-z0-9_]+)+$",
+          "description": "Engine requirement for the bound sql-database provider (issue #682). Dotted 'spec.config.<path>' reference to a string field in this module's own config holding the database engine/wire-protocol vendor the consumer expects the provider to speak (e.g. spec.config.metadataDatabase.driver in identity/keycloak, feeding KC_DB). At validate time the referenced value -- taken from the profile config when set, otherwise from the module configSchema default at that path -- is compared case-insensitively with the provider contract spec's advertised 'engine' (a literal string, or a pure ${config.<path>} reference resolving against the producer instance's profile config); a mismatch, or a provider that advertises no engine at all, fails validation with E154 so a wrong-vendor binding fails loudly instead of silently misconfiguring the consumer. An omitted engineFrom key places no engine requirement (backward compatible). Must match spec.config.<path> (dotted path under spec.config) so a typo fails at schema validation (E021) instead of silently disabling enforcement."
         }
       }
     },
@@ -315,8 +320,73 @@
         },
         "networkPolicy": {
           "$ref": "#/$defs/kubernetesNetworkPolicy"
+        },
+        "services": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/kubernetesDeclaredService"
+          },
+          "description": "Services the module's own manifests (or the operator they drive) cause to exist in the release namespace, e.g. the <cluster>-rw Service a CloudNativePG Cluster creates (issue #768). Declared but NOT rendered by CDS: the names join the renderer's service registry, so contract-host validation (E084/E150), release-scoped binding hosts, ${k8s.service.*}, and waitFor gates treat them exactly like rendered workload Services. Key naming follows the workload rule: key \"rw\" on module instance \"warehouse\" is \"warehouse-rw\" (release-scoped \"{{ .Release.Name }}-warehouse-rw\")."
+        },
+        "egress": {
+          "$ref": "#/$defs/kubernetesEgress"
+        },
+        "operators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/kubernetesOperator"
+          },
+          "description": "Out-of-band operators the module's manifests depend on (issue #768). CDS renders the CRs but never installs the operator: `cds render`/`cds test` warn with W130 naming the operator and its install command, the chart's NOTES.txt lists it, and `cds up --target helm` fails closed with E155 when the operator's CRD is absent from the cluster. Each entry names the CRD the operator provides (`crd`, checked with `kubectl get crd`), a one-line `install` command, and an optional `docs` URL."
         }
       }
+    },
+    "kubernetesOperator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "crd",
+        "install"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable operator name, e.g. \"CloudNativePG\"."
+        },
+        "crd": {
+          "type": "string",
+          "pattern": "^[a-z0-9.-]+\\.[a-z0-9.-]+$",
+          "description": "A CRD the operator installs (e.g. \"clusters.postgresql.cnpg.io\"); `cds up --target helm` checks for it with `kubectl get crd` before installing the chart."
+        },
+        "install": {
+          "type": "string",
+          "minLength": 1,
+          "description": "One-line command that installs the operator on the cluster, e.g. \"helm repo add cnpg https://cloudnative-pg.github.io/charts && helm upgrade --install cnpg --namespace cnpg-system --create-namespace cnpg/cloudnative-pg\"."
+        },
+        "docs": {
+          "type": "string",
+          "pattern": "^https://[^\\s]+$",
+          "description": "Optional documentation URL for the operator installation."
+        }
+      },
+      "description": "An operator that must be installed on the cluster out of band before the module's manifests can be applied."
+    },
+    "kubernetesDeclaredService": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Override the generated DNS name. Defaults to the module-prefixed key (same rule as workloads)."
+        },
+        "description": {
+          "type": "string",
+          "description": "Why this Service exists and who creates it (e.g. an operator-created Service from a Cluster CR)."
+        }
+      },
+      "description": "A Service the module does not render itself but expects to exist in the release namespace once its manifests are applied."
     },
     "kubernetesManifest": {
       "type": "object",
@@ -343,7 +413,7 @@
             "name": {
               "type": "string",
               "minLength": 1,
-              "description": "Object name. The helm renderer prefixes it with \"{{ .Release.Name }}-\" unless the name already contains a {{ .Release.Name }} template. May reference ${service.host} for the module instance id."
+              "description": "Object name. The helm renderer prefixes it with \"{{ .Release.Name }}-\" unless the name already contains a {{ .Release.Name }} template. May reference ${service.host} for the module instance id, and ${item.*} inside a `forEach` fan-out (issue #1170)."
             }
           }
         },
@@ -351,9 +421,14 @@
           "type": "string",
           "minLength": 1,
           "description": "Optional config path expression gating the manifest (e.g. \"config.mode==chart\"); the manifest is skipped when the expression resolves to False. Stripped from the rendered output."
+        },
+        "forEach": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional config path expression that must resolve to a list (e.g. \"config.services\", issue #1170). The manifest is rendered once per list element with the element bound as `item`, so the body can reference ${item.name} etc. Each copy's template file name is suffixed with the copy's resolved metadata.name, and duplicate resolved names fail closed with E156. Stripped from the rendered output."
         }
       },
-      "description": "A raw Kubernetes manifest (any CRD) emitted as an extra chart template. Values support the same ${config.*}/${bindings.*}/${service.*}/${k8s.service.*} substitution as workloads; ${secrets.*} references are rejected by the renderer (E078) because chart files must never carry secret material."
+      "description": "A raw Kubernetes manifest (any CRD) emitted as an extra chart template. Values support the same ${config.*}/${bindings.*}/${service.*}/${k8s.service.*} substitution as workloads (plus ${item.*} inside a `forEach` fan-out). A value that is exactly one ${secrets.*} reference (resolving to ${CDS_*}) is rewritten to a Helm `required` lookup of .Values.secrets, so the secret value is supplied at install time and never stored in the chart; any other leftover ${CDS_*} is rejected by the renderer (E078) because chart files must never carry secret material."
     },
     "kubernetesNetworkPolicy": {
       "type": "object",
@@ -372,7 +447,115 @@
           "items": {
             "type": "object"
           },
-          "description": "Additional NetworkPolicy ingress rules (networking.k8s.io/v1 rule objects), rendered verbatim after the binding-derived rules, e.g. to admit a cross-namespace ingress controller that no contract binding can name."
+          "description": "Additional NetworkPolicy ingress rules (networking.k8s.io/v1 rule objects), rendered verbatim after the binding-derived rules, e.g. to admit a cross-namespace ingress controller that no contract binding can name. A rule without a from restriction (or with an ipBlock peer) admits sources beyond the selector-based ones, equally or more exposed than a NodePort/LoadBalancer service; the security scan reports every such rule as a low finding (CDS-K8S-010)."
+        }
+      }
+    },
+    "kubernetesEgress": {
+      "type": "array",
+      "description": "Declared external egress destinations (issue #1023). The generated NetworkPolicy is default-deny for egress, and contract bindings are the only other source of allow rules, so egress to anything outside the plan -- an external database, an HTTPS API, a package index, an object store reached by address -- is denied unless declared here. Each entry renders as an ipBlock rule scoped to exactly the declared destination, except-CIDRs, and ports; undeclared external egress remains denied. Module-level entries apply to all of the module's pods; workload-level entries (workloads.<name>.egress) render as an additional workload-scoped NetworkPolicy. Broad declarations (0.0.0.0/0, or no port list) are reported by the security scan as CDS-K8S-009.",
+      "items": {
+        "$ref": "#/$defs/kubernetesEgressEntry"
+      }
+    },
+    "kubernetesEgressEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "host"
+          ]
+        },
+        {
+          "required": [
+            "cidr"
+          ]
+        }
+      ],
+      "description": "One external egress destination. Values support the same ${config.*} substitution as the rest of the kubernetes block, so a profile can supply the destination through module config; the renderer validates the resolved value and fails closed with E153. A DNS name is rejected: a NetworkPolicy cannot express one.",
+      "properties": {
+        "host": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F:.]+$"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$\\{config\\.[a-zA-Z0-9_.-]+\\}$"
+            }
+          ],
+          "description": "External destination as an IP literal (IPv4 or IPv6); rendered as a /32 or /128 ipBlock cidr."
+        },
+        "cidr": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F:.]+/[0-9]{1,3}$"
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$\\{config\\.[a-zA-Z0-9_.-]+\\}$"
+            }
+          ],
+          "description": "External destination range as a CIDR block, rendered as an ipBlock cidr. Host bits must not be set (e.g. 10.20.0.0/16, not 10.20.0.5/16)."
+        },
+        "except": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-fA-F:.]+/[0-9]{1,3}$"
+              },
+              {
+                "type": "string",
+                "pattern": "^\\$\\{config\\.[a-zA-Z0-9_.-]+\\}$"
+              }
+            ]
+          },
+          "description": "CIDRs inside cidr that stay denied (ipBlock.except); each must be a subnet of cidr."
+        },
+        "port": {
+          "type": [
+            "integer",
+            "string"
+          ],
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Single destination port. Merged with ports when both are given."
+        },
+        "ports": {
+          "oneOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              }
+            },
+            {
+              "type": "string",
+              "pattern": "^\\$\\{config\\.[a-zA-Z0-9_.-]+\\}$",
+              "description": "Config expression resolving to a list of port integers."
+            }
+          ],
+          "description": "Destination ports. When neither port nor ports is given the rule covers all ports to the destination (flagged by CDS-K8S-009)."
+        },
+        "protocol": {
+          "type": "string",
+          "enum": [
+            "TCP",
+            "UDP",
+            "SCTP"
+          ],
+          "default": "TCP",
+          "description": "Transport protocol for the declared ports."
         }
       }
     },
@@ -522,6 +705,10 @@
         "podSecurityContext": {
           "type": "object",
           "description": "Pod-level securityContext. Needed where compose names a user (user: postgres) that Kubernetes can only express numerically."
+        },
+        "egress": {
+          "$ref": "#/$defs/kubernetesEgress",
+          "description": "External egress destinations declared for this workload's pods only. Rendered as a separate workload-scoped NetworkPolicy (additive to the module policy); the module-level implementation.kubernetes.egress applies to all module pods."
         }
       }
     },
@@ -711,6 +898,11 @@
             "string"
           ],
           "description": "Octal file mode, e.g. 0555 for an executable script."
+        },
+        "enabledFrom": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional config path expression gating the ConfigMap (e.g. \"config.sampleData.enabled\"); when it resolves to False the ConfigMap is not rendered and its matching compose bind mounts are skipped on the Kubernetes target. Stripped from the rendered output."
         }
       }
     },

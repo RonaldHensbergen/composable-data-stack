@@ -9,9 +9,12 @@ metadata:
   description: >-
     Shared, vendor-neutral contract describing the values a centralized log
     collector exposes so any module can ship structured events to it without
-    the profile hardcoding a specific logging provider. See
-    docs/observability.md for the tiered retention design this contract
-    supports.
+    the profile hardcoding a specific logging provider. Shaped so an
+    OpenTelemetry Collector OTLP receiver or Loki's native OTLP endpoint can
+    be a conforming provider (protocol "otlp-http" with an OTLP ingest path
+    such as "/v1/logs" or "/otlp/v1/logs"), alongside plain-HTTP JSON
+    collectors (issue #1076). See docs/observability.md for the tiered
+    retention design this contract supports.
 
 spec:
   fields:
@@ -22,15 +25,29 @@ spec:
     port:
       type: integer
       required: true
-      description: TCP port the collector listens on.
+      description: >-
+        TCP port the collector listens on (OTLP/HTTP default 4318, Loki's
+        native OTLP endpoint 3100).
     protocol:
       type: string
       required: true
-      description: Wire protocol expected by the collector, e.g. "http", "grpc", or "syslog".
+      description: >-
+        Wire protocol expected by the collector, e.g. "otlp-http",
+        "otlp-grpc", "http", "grpc", or "syslog".
     ingestPath:
       type: string
       required: false
       description: Optional path/endpoint suffix for HTTP-based collectors (e.g. a push API route).
+    connectionUri:
+      type: string
+      required: false
+      description: >-
+        Fully composed base endpoint ("<scheme>://<host>:<port>") a client
+        dials directly, mirroring the `connectionUri` field on
+        `trace-sink`/`metrics-sink`/`sql-database`/`lineage-sink`. OTLP/HTTP
+        forwarders (e.g. the `otel-collector` module's `backends.logs`) dial
+        `connectionUri` + `ingestPath`, so providers that want their logs
+        signal to be forwardable should advertise it (issue #1076).
     rawRetentionDays:
       type: integer
       required: false
@@ -51,9 +68,15 @@ spec:
         built from `${service.services.<name>}` for the same service
         (issue #1029).
   examples:
-    - host: log-collector
+    - host: loki-storage
       port: 3100
-      protocol: http
-      ingestPath: /loki/api/v1/push
+      protocol: otlp-http
+      ingestPath: /otlp/v1/logs
+      connectionUri: http://loki-storage:3100
       rawRetentionDays: 7
       structuredRetentionDays: 90
+    - host: otel-collector
+      port: 4318
+      protocol: otlp-http
+      ingestPath: /v1/logs
+      connectionUri: http://otel-collector:4318

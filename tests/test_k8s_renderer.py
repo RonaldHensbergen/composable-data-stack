@@ -1319,3 +1319,796 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             demo["spec"]["ingress"][1]["ports"],
             [{"protocol": "TCP", "port": 8080}],
         )
+
+    def test_wait_gates_on_bound_provider_and_same_module_service_render(
+        self,
+    ) -> None:
+        # Gates resolving to a bound provider's endpoint or a same-module
+        # Service are allowed by the default-deny NetworkPolicy baseline, so
+        # they render unchanged (issue #1031).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [
+            {"host": "${bindings.backend.host}", "port": "${bindings.backend.port}"},
+            {"host": "${k8s.service.app}", "port": 8080},
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        deployment = files["templates/consumer-app-deployment.yaml"]
+        self.assertIn("until nc -z {{ .Release.Name }}-demo-app 8080", deployment)
+        self.assertIn("until nc -z {{ .Release.Name }}-consumer-app 8080", deployment)
+
+    def test_wait_gate_on_non_bound_cross_module_host_fails_closed(self) -> None:
+        # A gate naming another module's Service without a binding for it can
+        # only hang until its timeout under the default-deny policy: fail
+        # closed with E152 naming the gate and the unreachable host (#1031).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${k8s.service.isolated-app}", "port": 8080}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertEqual(
+            e152[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.waitFor",
+        )
+        self.assertIn("consumer/app", e152[0].message)
+        self.assertIn("{{ .Release.Name }}-isolated-app", e152[0].message)
+
+    def test_wait_gate_on_external_host_fails_closed(self) -> None:
+        # Same silent-failure class for a literal external host: no binding
+        # and no same-module Service, so no egress rule can cover it.
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "api.example.com", "port": 443}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("api.example.com", e152[0].message)
+
+    def test_wait_gate_on_unconsumed_provider_service_fails_closed(self) -> None:
+        # The demo module's Service is in the chart, but the consumer binds
+        # nothing from it in this variant: even a resolvable cross-module
+        # Service DNS name is unreachable without the egress edge.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["consumes"] = {}
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "${k8s.service.demo-app}", "port": 8080}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("{{ .Release.Name }}-demo-app", e152[0].message)
+
+    def test_wait_gate_on_disabled_same_module_service_fails_closed(self) -> None:
+        # A same-module Service whose workload is disabled (enabledFrom
+        # resolves to False) renders no Service, so a gate on it would hang
+        # at runtime exactly like a non-bound host: fail closed with E152
+        # (#1031). When the workload is enabled, the same gate renders.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["config"] = {"optional": {"enabled": False}}
+        workloads = consumer["implementation"]["kubernetes"]["workloads"]
+        workloads["sidecar"] = {
+            "kind": "Deployment",
+            "containers": ["app"],
+            "enabledFrom": "config.optional.enabled",
+            "service": {
+                "type": "ClusterIP",
+                "ports": [{"name": "http", "port": 9090}],
+            },
+        }
+        workloads["app"]["waitFor"] = [
+            {"host": "${k8s.service.sidecar}", "port": 9090}
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("{{ .Release.Name }}-consumer-sidecar", e152[0].message)
+
+        consumer["config"] = {"optional": {"enabled": True}}
+        files, diagnostics = render_helm(plan)
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+
+    def test_wait_gate_covered_by_passthrough_ip_block_renders(self) -> None:
+        # The custom networkPolicy.egress passthrough is the escape hatch
+        # for destinations no binding can name; a gate whose host:port an
+        # ipBlock rule covers is allowed, so E152 must not fire (#1031).
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z 10.8.1.5 443",
+            files["templates/consumer-app-deployment.yaml"],
+        )
+
+    def test_wait_gate_outside_passthrough_ip_block_fails_closed(self) -> None:
+        # Same passthrough rule, but the gate names an address outside the
+        # CIDR or a port the rule does not open: still unreachable, still
+        # E152.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+
+        for host, port in (("10.9.0.1", 443), ("10.8.1.5", 5432)):
+            with self.subTest(host=host, port=port):
+                workload["waitFor"] = [{"host": host, "port": port}]
+
+                files, diagnostics = render_helm(plan)
+
+                self.assertEqual(files, {})
+                e152 = [d for d in diagnostics if d.code == "E152"]
+                self.assertEqual(len(e152), 1)
+                self.assertIn(f'"{host}"', e152[0].message)
+
+
+    def test_wait_gate_with_excepted_passthrough_address_fails_closed(self) -> None:
+        # An `except` CIDR inside the ipBlock stays denied, so a gate on an
+        # excepted address is not lifted by the passthrough rule.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16", "except": ["10.8.1.0/24"]}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("10.8.1.5", e152[0].message)
+
+    def test_wait_gate_with_malformed_passthrough_except_does_not_crash(self) -> None:
+        # E149 shape-checks a passthrough rule only as a mapping, and a plan
+        # loaded from a file bypasses the module schema: a garbage `except`
+        # entry must not crash the renderer with a ValueError from the
+        # ipaddress parser -- the entry is skipped, the gate stays covered.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [{
+                "to": [{"ipBlock": {"cidr": "10.8.0.0/16", "except": ["not-a-cidr"]}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "10.8.1.5", "port": 443}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z 10.8.1.5 443",
+            files["templates/consumer-app-deployment.yaml"],
+        )
+
+    def proxy_plan(self) -> dict:
+        """A reverse-proxy module with routes, two route targets, and an unrouted module."""
+        proxy = self.module("proxy")
+        proxy["provides"] = {
+            "reverse-proxy": {
+                "kind": "reverse-proxy",
+                "spec": {"host": "proxy-app", "port": 443},
+            }
+        }
+        proxy["config"] = {
+            "routes": [
+                {"host": "app.example.local", "contractRef": "demo.http"},
+                {"host": "alt.example.local", "contractRef": "other.http"},
+            ]
+        }
+        demo = self.module("demo")
+        demo["provides"] = {
+            "http": {"kind": "http-service", "spec": {"host": "demo-app", "port": 8080}}
+        }
+        other = self.module("other")
+        other["implementation"]["kubernetes"]["workloads"]["app"]["service"] = {
+            "type": "ClusterIP",
+            "ports": [{"name": "http", "port": 9090}],
+        }
+        other["provides"] = {
+            "http": {"kind": "http-service", "spec": {"host": "other-app", "port": 9090}}
+        }
+        isolated = self.module("isolated")
+        return {
+            "metadata": {"name": "test-chart", "version": "1.2.3"},
+            "runtime": {"namespace": "test"},
+            "secrets": {},
+            "modules": [proxy, demo, other, isolated],
+        }
+
+    def proxy_egress_edges(self, files: dict, module_id: str) -> dict:
+        """Map peer module -> egress rule for the binding/route-derived rules."""
+        policy = self.policy(files, module_id)
+        edges = {}
+        for rule in policy["spec"]["egress"]:
+            to = rule.get("to")
+            if not to:
+                continue
+            peer = to[0].get("podSelector", {}).get("matchLabels", {}).get(
+                "cds.dev/module"
+            )
+            if peer and peer != module_id:
+                edges[peer] = rule
+        return edges
+
+    def proxy_ingress_edges(self, files: dict, module_id: str) -> dict:
+        """Map peer module -> ingress rule for the binding/route-derived rules."""
+        policy = self.policy(files, module_id)
+        edges = {}
+        for rule in policy["spec"]["ingress"]:
+            frm = rule.get("from")
+            if not frm:
+                continue
+            peer = frm[0].get("podSelector", {}).get("matchLabels", {}).get(
+                "cds.dev/module"
+            )
+            if peer and peer != module_id:
+                edges[peer] = rule
+        return edges
+
+    def test_reverse_proxy_routes_render_port_scoped_edges_without_passthrough(
+        self,
+    ) -> None:
+        # Issue #1033: a route's target module becomes an egress edge on the
+        # proxy and a matching ingress edge on the target, scoped to the
+        # route's backend port -- no passthrough rules involved.
+        files, _ = self.render(self.proxy_plan())
+
+        proxy_edges = self.proxy_egress_edges(files, "proxy")
+        self.assertEqual(set(proxy_edges), {"demo", "other"})
+        self.assertEqual(
+            proxy_edges["demo"],
+            {
+                "to": [{
+                    "podSelector": {
+                        "matchLabels": {
+                            "cds.dev/module": "demo",
+                            "app.kubernetes.io/instance": "{{ .Release.Name }}",
+                        }
+                    }
+                }],
+                "ports": [{"protocol": "TCP", "port": 8080}],
+            },
+        )
+        self.assertEqual(
+            proxy_edges["other"]["ports"],
+            [{"protocol": "TCP", "port": 9090}],
+        )
+        # The proxy's egress is exactly same-module + DNS + the two routes.
+        self.assertEqual(len(self.policy(files, "proxy")["spec"]["egress"]), 4)
+
+        demo_ingress = self.proxy_ingress_edges(files, "demo")
+        self.assertEqual(set(demo_ingress), {"proxy"})
+        self.assertEqual(
+            demo_ingress["proxy"]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+        other_ingress = self.proxy_ingress_edges(files, "other")
+        self.assertEqual(set(other_ingress), {"proxy"})
+        self.assertEqual(
+            other_ingress["proxy"]["ports"],
+            [{"protocol": "TCP", "port": 9090}],
+        )
+
+    def test_route_targets_not_named_by_any_route_stay_unreachable(self) -> None:
+        # The inverse direction of #1033: "isolated" provides an http-service
+        # but no route names it, so the proxy gets no egress edge to it and
+        # it gets no ingress edge from the proxy.
+        files, _ = self.render(self.proxy_plan())
+
+        self.assertNotIn("isolated", yaml.safe_dump(self.proxy_egress_edges(files, "proxy")))
+        isolated = self.policy(files, "isolated")
+        self.assertNotIn("proxy", yaml.safe_dump(isolated["spec"]))
+        self.assertEqual(len(isolated["spec"]["ingress"]), 1)
+        self.assertEqual(len(isolated["spec"]["egress"]), 2)
+
+    def test_route_backend_port_maps_through_target_service_target_port(self) -> None:
+        # The route's backend port is the contract's Service-facing port:
+        # a `port: 80, targetPort: 8080` remap on the target's Service must
+        # generate the rule for the pod port 8080, like a binding's port.
+        plan = self.proxy_plan()
+        demo = plan["modules"][1]
+        demo["implementation"]["kubernetes"]["workloads"]["app"]["service"] = {
+            "type": "ClusterIP",
+            "ports": [{"name": "http", "port": 80, "targetPort": 8080}],
+        }
+        demo["provides"]["http"]["spec"]["port"] = 80
+
+        files, _ = self.render(plan)
+
+        self.assertEqual(
+            self.proxy_egress_edges(files, "proxy")["demo"]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+        self.assertEqual(
+            self.proxy_ingress_edges(files, "demo")["proxy"]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+
+    def test_route_to_unknown_target_warns_and_adds_no_edge(self) -> None:
+        # A route naming a module the plan does not contain cannot become an
+        # edge: W129 says so and the default-deny baseline keeps holding.
+        plan = self.proxy_plan()
+        plan["modules"][0]["config"]["routes"].append(
+            {"host": "ghost.example.local", "contractRef": "ghost.http"}
+        )
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        w129 = [d for d in diagnostics if d.code == "W129"]
+        self.assertEqual(len(w129), 1)
+        self.assertEqual(w129[0].path, "module:proxy.config.routes[2]")
+        self.assertIn("unknown module", w129[0].message)
+        self.assertNotIn("ghost", yaml.safe_dump(self.policy(files, "proxy")["spec"]))
+        # The valid routes still produced their edges.
+        self.assertEqual(set(self.proxy_egress_edges(files, "proxy")), {"demo", "other"})
+
+    def test_route_target_without_port_evidence_warns_and_stays_denied(self) -> None:
+        # No numeric port on the target's http-service and no advertised
+        # service ports: no port-scoped edge can be derived, so the target
+        # stays unreachable and W129 points at the route.
+        plan = self.proxy_plan()
+        demo = plan["modules"][1]
+        demo["implementation"]["kubernetes"]["workloads"]["app"].pop("service")
+        demo["provides"]["http"]["spec"] = {"host": "demo-app"}
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        w129 = [d for d in diagnostics if d.code == "W129"]
+        self.assertEqual(len(w129), 1)
+        self.assertEqual(w129[0].path, "module:proxy.config.routes[0]")
+        self.assertIn("no numeric port", w129[0].message)
+        self.assertEqual(set(self.proxy_egress_edges(files, "proxy")), {"other"})
+        self.assertEqual(self.proxy_ingress_edges(files, "demo"), {})
+
+    def test_wait_gate_on_route_target_service_renders(self) -> None:
+        # The route-derived egress edge covers a waitFor gate on the route
+        # target's Service, so E152 must not fire for it (#1033); a gate on
+        # a Service no route names still fails closed.
+        plan = self.proxy_plan()
+        workload = plan["modules"][0]["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [
+            {"host": "${k8s.service.demo-app}", "port": 8080},
+            {"host": "${k8s.service.isolated-app}", "port": 8080},
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("{{ .Release.Name }}-isolated-app", e152[0].message)
+
+        workload["waitFor"] = [{"host": "${k8s.service.demo-app}", "port": 8080}]
+        files, diagnostics = render_helm(plan)
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        deployment = files["templates/proxy-app-deployment.yaml"]
+        self.assertIn("until nc -z {{ .Release.Name }}-demo-app 8080", deployment)
+
+    def test_route_with_out_of_range_backend_port_falls_back_to_advertised(self) -> None:
+        # The compose route check (E136) rejects backend ports outside
+        # 1-65535, but a plan loaded from a file can bypass it; such a port
+        # must not render into the NetworkPolicy. The rule falls back to the
+        # target's advertised service ports instead.
+        plan = self.proxy_plan()
+        demo = plan["modules"][1]
+        demo["provides"]["http"]["spec"]["port"] = 70000
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("W129", {d.code for d in diagnostics})
+        self.assertEqual(
+            self.proxy_egress_edges(files, "proxy")["demo"]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+        self.assertEqual(
+            self.proxy_ingress_edges(files, "demo")["proxy"]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+
+    # -- Declared external egress (issue #1023) ----------------------------
+
+    def test_declared_external_egress_renders_exact_ipblock_rule(self) -> None:
+        # A module-level egress entry renders as an ipBlock rule scoped to
+        # exactly the declared host (as a /32) and port; every other module
+        # keeps default-deny egress -- undeclared external traffic stays
+        # denied.
+        plan = self.bound_plan()
+        plan["modules"][1]["implementation"]["kubernetes"]["egress"] = [
+            {"host": "203.0.113.10", "port": 5432},
+        ]
+
+        files, _ = self.render(plan)
+
+        consumer = self.policy(files, "consumer")
+        self.assertEqual(
+            consumer["spec"]["egress"][-1],
+            {
+                "to": [{"ipBlock": {"cidr": "203.0.113.10/32"}}],
+                "ports": [{"protocol": "TCP", "port": 5432}],
+            },
+        )
+        for module_id in ("demo", "isolated"):
+            with self.subTest(module=module_id):
+                policy = self.policy(files, module_id)
+                self.assertNotIn("ipBlock", yaml.safe_dump(policy["spec"]))
+
+    def test_declared_egress_cidr_except_and_port_list_render(self) -> None:
+        plan = self.bound_plan()
+        plan["modules"][1]["implementation"]["kubernetes"]["egress"] = [
+            {
+                "cidr": "10.20.0.0/16",
+                "except": ["10.20.0.13/32"],
+                "port": 443,
+                "ports": [8443, 443],
+                "protocol": "UDP",
+            },
+        ]
+
+        files, _ = self.render(plan)
+
+        consumer = self.policy(files, "consumer")
+        self.assertEqual(
+            consumer["spec"]["egress"][-1],
+            {
+                "to": [{
+                    "ipBlock": {
+                        "cidr": "10.20.0.0/16",
+                        "except": ["10.20.0.13/32"],
+                    }
+                }],
+                "ports": [
+                    {"protocol": "UDP", "port": 443},
+                    {"protocol": "UDP", "port": 8443},
+                ],
+            },
+        )
+
+    def test_declared_egress_without_ports_stays_destination_scoped(self) -> None:
+        # No port list means all ports -- but only to the declared
+        # destination; the rule carries no "ports" key and the security
+        # scan flags it (CDS-K8S-009 medium).
+        plan = self.bound_plan()
+        plan["modules"][1]["implementation"]["kubernetes"]["egress"] = [
+            {"cidr": "10.20.0.0/16"},
+        ]
+
+        files, _ = self.render(plan)
+
+        consumer = self.policy(files, "consumer")
+        self.assertEqual(
+            consumer["spec"]["egress"][-1],
+            {"to": [{"ipBlock": {"cidr": "10.20.0.0/16"}}]},
+        )
+
+    def test_ipv6_host_renders_a_128_ipblock(self) -> None:
+        plan = self.bound_plan()
+        plan["modules"][1]["implementation"]["kubernetes"]["egress"] = [
+            {"host": "2001:db8::10", "ports": [443]},
+        ]
+
+        files, _ = self.render(plan)
+
+        consumer = self.policy(files, "consumer")
+        self.assertEqual(
+            consumer["spec"]["egress"][-1]["to"],
+            [{"ipBlock": {"cidr": "2001:db8::10/128"}}],
+        )
+
+    def test_workload_scoped_egress_renders_a_workload_specific_policy(self) -> None:
+        # A workload-level entry must not open the destination for the
+        # module's other pods: it renders as a separate release-scoped
+        # NetworkPolicy whose podSelector also matches the workload's
+        # app.kubernetes.io/name label, and the module policy stays closed.
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["egress"] = [{"host": "198.51.100.7", "ports": [443]}]
+
+        files, _ = self.render(plan)
+
+        consumer = self.policy(files, "consumer")
+        self.assertNotIn("ipBlock", yaml.safe_dump(consumer["spec"]))
+
+        workload_policy = yaml.safe_load(
+            files["templates/consumer-app-egress-network-policy.yaml"]
+        )
+        self.assertEqual(workload_policy["kind"], "NetworkPolicy")
+        self.assertEqual(
+            workload_policy["metadata"]["name"],
+            "{{ .Release.Name }}-consumer-app-egress-network-policy",
+        )
+        self.assertEqual(
+            workload_policy["spec"]["podSelector"]["matchLabels"],
+            {
+                "cds.dev/module": "consumer",
+                "app.kubernetes.io/name": "consumer-app",
+                "app.kubernetes.io/instance": "{{ .Release.Name }}",
+            },
+        )
+        self.assertEqual(workload_policy["spec"]["policyTypes"], ["Egress"])
+        self.assertEqual(
+            workload_policy["spec"]["egress"],
+            [{
+                "to": [{"ipBlock": {"cidr": "198.51.100.7/32"}}],
+                "ports": [{"protocol": "TCP", "port": 443}],
+            }],
+        )
+
+    def test_egress_destinations_support_config_substitution(self) -> None:
+        # The profile supplies the destination through module config, so the
+        # declaration itself stays declarative per environment.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["config"] = {
+            "externalCidr": "198.51.100.0/24",
+            "externalPorts": [443, 8443],
+        }
+        consumer["implementation"]["kubernetes"]["egress"] = [
+            {"cidr": "${config.externalCidr}", "ports": "${config.externalPorts}"},
+        ]
+
+        files, _ = self.render(plan)
+
+        consumer_policy = self.policy(files, "consumer")
+        self.assertEqual(
+            consumer_policy["spec"]["egress"][-1],
+            {
+                "to": [{"ipBlock": {"cidr": "198.51.100.0/24"}}],
+                "ports": [
+                    {"protocol": "TCP", "port": 443},
+                    {"protocol": "TCP", "port": 8443},
+                ],
+            },
+        )
+
+    def test_malformed_egress_entries_fail_closed(self) -> None:
+        # Plans loaded from files bypass the module schema, so every shape
+        # the schema would reject is re-checked here and fails closed (E153).
+        cases = [
+            ("allow-all", "list of egress entries"),
+            ([{"port": 443}], 'exactly one of "host"'),
+            ([{"host": "1.2.3.4", "cidr": "10.0.0.0/8"}], 'exactly one of "host"'),
+            ([{"host": "api.example.com", "port": 443}], "DNS"),
+            ([{"cidr": "10.20.0.5/24"}], "CIDR block in network form"),
+            ([{"cidr": "not-a-cidr"}], "CIDR block in network form"),
+            ([{"cidr": "10.20.0.0/16", "except": ["10.30.0.0/16"]}], "subnet of the declared cidr"),
+            ([{"cidr": "10.20.0.0/16", "except": ["nope/32"]}], "not a valid CIDR"),
+            ([{"host": "203.0.113.10", "port": 0}], "between 1 and 65535"),
+            ([{"host": "203.0.113.10", "port": 70000}], "between 1 and 65535"),
+            ([{"host": "203.0.113.10", "ports": [443, "abc"]}], "between 1 and 65535"),
+            ([{"host": "203.0.113.10", "ports": []}], "non-empty list"),
+            ([{"host": "203.0.113.10", "protocol": "ICMP"}], '"protocol" must be one of'),
+            ([{"host": "203.0.113.10", "to": []}], "unknown key"),
+            (["not-a-mapping"], "must be a mapping"),
+            ([{"cidr": "${config.missing}", "port": 443}], "does not resolve"),
+        ]
+        for declared, expected in cases:
+            with self.subTest(declared=declared):
+                plan = self.bound_plan()
+                plan["modules"][1]["implementation"]["kubernetes"]["egress"] = declared
+
+                files, diagnostics = render_helm(plan)
+
+                self.assertEqual(files, {})
+                e153 = [d for d in diagnostics if d.code == "E153"]
+                self.assertEqual(len(e153), 1)
+                expected_path = "module:consumer.implementation.kubernetes.egress"
+                if isinstance(declared, list):
+                    expected_path += "[0]"
+                self.assertEqual(e153[0].path, expected_path)
+                self.assertIn(expected, e153[0].message)
+
+    def test_malformed_workload_egress_fails_closed_with_workload_path(self) -> None:
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["egress"] = [{"cidr": "10.20.0.5/24"}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e153 = [d for d in diagnostics if d.code == "E153"]
+        self.assertEqual(len(e153), 1)
+        self.assertEqual(
+            e153[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.egress[0]",
+        )
+
+    def test_wait_gate_on_declared_external_host_renders(self) -> None:
+        # A gate whose host:port a declared egress entry covers is allowed by
+        # the baseline, so it renders (issue #1023 closes the E152 gap).
+        plan = self.bound_plan()
+        consumer_k8s = plan["modules"][1]["implementation"]["kubernetes"]
+        consumer_k8s["egress"] = [{"cidr": "203.0.113.0/24", "ports": [5432, 443]}]
+        consumer_k8s["workloads"]["app"]["waitFor"] = [
+            {"host": "203.0.113.10", "port": 5432},
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        deployment = files["templates/consumer-app-deployment.yaml"]
+        self.assertIn("until nc -z 203.0.113.10 5432", deployment)
+
+    def test_wait_gate_on_declared_host_with_uncovered_port_fails_closed(self) -> None:
+        plan = self.bound_plan()
+        consumer_k8s = plan["modules"][1]["implementation"]["kubernetes"]
+        consumer_k8s["egress"] = [{"host": "203.0.113.10", "port": 5432}]
+        consumer_k8s["workloads"]["app"]["waitFor"] = [
+            {"host": "203.0.113.10", "port": 22},
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("implementation.kubernetes.egress", e152[0].message)
+
+    def test_wait_gate_on_undeclared_external_ip_fails_closed(self) -> None:
+        plan = self.bound_plan()
+        consumer_k8s = plan["modules"][1]["implementation"]["kubernetes"]
+        consumer_k8s["egress"] = [{"host": "203.0.113.10", "port": 5432}]
+        consumer_k8s["workloads"]["app"]["waitFor"] = [
+            {"host": "203.0.113.99", "port": 5432},
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("203.0.113.99", e152[0].message)
+
+    def test_wait_gate_on_external_dns_name_stays_denied(self) -> None:
+        # A DNS name cannot be expressed in a NetworkPolicy ipBlock, so even
+        # with egress declared the gate fails closed: resolve the name to an
+        # IP/CIDR and declare that instead.
+        plan = self.bound_plan()
+        consumer_k8s = plan["modules"][1]["implementation"]["kubernetes"]
+        consumer_k8s["egress"] = [{"cidr": "0.0.0.0/0", "ports": [443]}]
+        consumer_k8s["workloads"]["app"]["waitFor"] = [
+            {"host": "api.example.com", "port": 443},
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("api.example.com", e152[0].message)
+        self.assertIn("DNS-name host cannot be expressed", e152[0].message)
+    def test_workload_scoped_egress_covers_only_that_workloads_gates(self) -> None:
+        # The worker's declaration opens its destination for the worker's
+        # pods only: the app workload's gate on the same host still fails
+        # closed, while the worker's gate renders.
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["compose"]["services"]["worker"] = {
+            "image": "example/app:1"
+        }
+        consumer_k8s = consumer["implementation"]["kubernetes"]
+        consumer_k8s["workloads"]["worker"] = {
+            "kind": "Deployment",
+            "containers": ["worker"],
+            "egress": [{"host": "203.0.113.10", "port": 5432}],
+            "waitFor": [{"host": "203.0.113.10", "port": 5432}],
+        }
+        consumer_k8s["workloads"]["app"]["waitFor"] = [
+            {"host": "203.0.113.10", "port": 5432},
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("consumer/app", e152[0].message)
+
+    def test_wait_gate_covered_by_portless_entry_and_except_carve_out(self) -> None:
+        # An entry without ports covers every port of its destination; an
+        # address inside `except` stays denied even when the cidr contains it.
+        plan = self.bound_plan()
+        consumer_k8s = plan["modules"][1]["implementation"]["kubernetes"]
+        consumer_k8s["egress"] = [
+            {"cidr": "203.0.113.0/24", "except": ["203.0.113.13/32"]},
+        ]
+        consumer_k8s["workloads"]["app"]["waitFor"] = [
+            {"host": "203.0.113.10", "port": 9999},
+            {"host": "203.0.113.13", "port": 443},
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("203.0.113.13", e152[0].message)
+    def test_module_schema_accepts_declared_external_egress(self) -> None:
+        schema = json.loads(
+            (Path(__file__).resolve().parent.parent / "cli" / "resources"
+             / "module.schema.json").read_text(encoding="utf-8")
+        )
+        validator = Draft202012Validator(
+            {"$ref": "#/$defs/kubernetesImplementation", "$defs": schema["$defs"]}
+        )
+        block = {
+            "workloads": {
+                "app": {
+                    "kind": "Deployment",
+                    "containers": ["app"],
+                    "egress": [{"cidr": "0.0.0.0/0", "ports": [443]}],
+                }
+            },
+            "egress": [
+                {"host": "203.0.113.10", "port": 5432},
+                {
+                    "cidr": "10.20.0.0/16",
+                    "except": ["10.20.0.13/32"],
+                    "ports": [443, 8443],
+                    "protocol": "UDP",
+                },
+                {"cidr": "${config.externalCidr}", "ports": "${config.externalPorts}"},
+            ],
+        }
+        self.assertEqual(list(validator.iter_errors(block)), [])
+        invalid = {
+            "workloads": {"app": {"kind": "Deployment", "containers": ["app"]}},
+            "egress": [{"host": "1.2.3.4", "cidr": "10.0.0.0/8"}],
+        }
+        self.assertTrue(list(validator.iter_errors(invalid)))

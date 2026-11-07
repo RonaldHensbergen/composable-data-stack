@@ -1,0 +1,68 @@
+# profiles/local-duckdb-dlt-dbt/profile.yaml
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: local-duckdb-dlt-dbt
+  environment: local
+  displayName: Local DuckDB + dlt + dbt
+  description: >
+    Lightweight local-analytics demo stack with DuckDB as the warehouse.
+    A dlt one-shot job loads into the DuckDB file via the file-database
+    contract, then a dbt one-shot job runs models/tests against the same
+    file (warehouseType: duckdb). No network-facing database service is
+    involved; DuckDB is embedded in the consumer containers through the
+    shared bind-mounted host directory (see modules/warehouse/duckdb).
+
+spec:
+  runtime:
+    type: docker-compose
+    namespace: cds-local
+    networks:
+      - name: cds-local
+        driver: bridge
+
+  modules:
+    - id: duckdb
+      source: ../../modules/warehouse/duckdb
+      version: "0.1.0"
+      enabled: true
+      config:
+        hostDirectory: ./workdirs/duckdb
+
+    - id: dlt
+      source: ../../modules-experimental/ingestion/dlt
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - duckdb
+      config:
+        destinationType: duckdb
+        destinationWarehouseFile:
+          contractRef: duckdb.file-database
+
+    - id: dbt
+      source: ../../modules/transformation/dbt
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - duckdb
+        - dlt
+      config:
+        warehouseType: duckdb
+        targetWarehouseFile:
+          contractRef: duckdb.file-database
+        schema: main
+        docs:
+          enabled: true
+          port: 8090
+        healthcheck:
+          enabled: true
+
+  outputs:
+    contracts:
+      warehouseFile:
+        from: duckdb.file-database
+      transformationDocs:
+        from: dbt.docs-service

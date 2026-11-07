@@ -1,0 +1,48 @@
+# profiles/local-loki-otel-collector/profile.yaml
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: local-loki-otel-collector
+  environment: local
+  displayName: Local Loki + OTel Collector (experimental observability)
+  description: >
+    Minimal local stack bundling the experimental observability modules:
+    `loki` (Vector ingest gateway + Loki store, provides `log-sink`) and
+    `otel-collector` (OTLP receiver, provides `log-sink`/`metrics-sink`/
+    `trace-sink`). Used by the Docker smoke-test CI job
+    (.github/workflows/docker-smoke-test.yml, issue #1065) to prove the
+    experimental modules not only render green but actually ingest and store
+    events at runtime. See docs/observability.md sections 5 and 12.
+
+spec:
+  runtime:
+    type: docker-compose
+    namespace: cds-local
+    networks:
+      - name: cds-local
+        driver: bridge
+
+  modules:
+    - id: loki
+      source: ../../modules-experimental/observability/loki
+      version: "0.1.0"
+      enabled: true
+      config:
+        ingestPort: 8686
+        rawRetentionDays: 7
+        structuredRetentionDays: 90
+
+    - id: otel-collector
+      source: ../../modules-experimental/observability/otel-collector
+      version: "0.1.0"
+      enabled: true
+      config:
+        otlpGrpcPort: 4317
+        otlpHttpPort: 4318
+        healthPort: 13133
+        # No backends.* bindings: each signal stays collector-local (the
+        # collector's own log), which the smoke test asserts via container
+        # logs instead of a store query.
+        backends: {}

@@ -93,7 +93,7 @@ spec:
   - `${bindings.<contract>.<field>}` reads a field from a contract declared in `spec.consumes` and resolved by the profile
   - `${secrets.<alias>}` resolves a profile secret alias to a Docker Compose runtime placeholder such as `${CDS_DB_PASSWORD}`; CDS never embeds the secret value
   - `${certificates.<alias>.cert}` / `${certificates.<alias>.key}` (issue #578) resolve one half of a profile certificate alias declared under `spec.certificates.values` to its `${CDS_*}` runtime placeholder. CDS never generates, reads, or embeds certificate or private key material: the alias only names the environment variables the external secret/cert provider supplies, so an undeclared alias, a bare `certificates.<alias>` reference, or an unknown trailing part fails validation with `E129` instead of silently not substituting
-- `enabledFrom` / `conditionallyEnabledFrom: <json-path>`, which include or drop a volume, service, or healthcheck based on a boolean resolved from the profile's config (see `postgres`'s `storage.enabled` and `healthcheck.enabled` above). The marker's shape is enforced: it must be a **non-empty string** on services, volume definitions, volume-mount entries, and healthchecks — anything else (e.g. the boolean `enabledFrom: true`, unlike `production: true`) crashes the renderer and now fails validation with `E145`; on entries of any other service list field the marker is not implemented, so any `enabledFrom` key there fails closed as well. In the `kubernetes` implementation block the same rules apply (`production` gates on volume and configMap entries, `enabledFrom` on volume entries and workloads; markers elsewhere in the block fail closed). Both render targets re-check marker shapes when rendering a stored plan (plans can be loaded from files).
+- `enabledFrom` / `conditionallyEnabledFrom: <json-path>`, which include or drop a volume, service, or healthcheck based on a boolean resolved from the profile's config (see `postgres`'s `storage.enabled` and `healthcheck.enabled` above). The marker's shape is enforced: it must be a **non-empty string** on services, volume definitions, volume-mount entries, and healthchecks — anything else (e.g. the boolean `enabledFrom: true`, unlike `production: true`) crashes the renderer and now fails validation with `E145`; on entries of any other service list field the marker is not implemented, so any `enabledFrom` key there fails closed as well. In the `kubernetes` implementation block the same rules apply (`production` gates on volume and configMap entries, `enabledFrom` on volume entries, configMap entries (issue #1117), and workloads; markers elsewhere in the block fail closed). On the Kubernetes target a volume-mount entry carrying `enabledFrom` is skipped together with its matching ConfigMap when the expression resolves to `False`. Both render targets re-check marker shapes when rendering a stored plan (plans can be loaded from files). Raw `kubernetes.manifests` entries additionally support `forEach: <json-path>` (issue #1170): when the expression resolves to a list (e.g. `config.services`), the manifest is rendered once per element with that element bound as `item`, so the body can reference `${item.name}`; each copy's template file name is suffixed with its resolved `metadata.name`, duplicate resolved names fail closed with `E156`, and the marker is stripped from the rendered output like `enabledFrom`.
 
 When authoring `spec.implementation.compose`:
 
@@ -229,17 +229,86 @@ The field is optional (`required: false`) in the shared contract documents
 `cache-service.yaml`, `reverse-proxy.yaml`); `file-database` carries no TLS
 field because it describes a bind-mounted file, not a network endpoint.
 
+### Database engine requirements (`engineFrom`)
+
+A consumer whose own config selects the database wire protocol (e.g.
+Keycloak's `KC_DB`, fed from `metadataDatabase.driver`) can declare an engine
+requirement on a `consumes` entry, provider-neutral and opt-in (issue #682):
+
+```yaml
+spec:
+  consumes:
+    - name: metadata-database
+      contract:
+        kind: sql-database
+      required: true
+      mappedFrom: spec.config.metadataDatabase
+      engineFrom: spec.config.metadataDatabase.driver
+```
+
+`engineFrom` is a dotted `spec.config.<path>` reference to a string field in
+the consumer's own config; the referenced value is the engine the consumer
+expects the bound provider to speak. The provider opts in from its provide
+entry's `contract.spec`:
+
+```yaml
+spec:
+  provides:
+    - name: sql-database
+      contract:
+        kind: sql-database
+        spec:
+          host: ${service.host}
+          port: ${config.port}
+          engine: postgres
+```
+
+Semantics and validation paths:
+
+- The expected engine is read from the consumer's profile config at the
+  `engineFrom` path; when the profile leaves the field unset, the consumer's
+  `configSchema` default at that path is used, so a defaulted driver is
+  enforced too (this is exactly the silent-misconfiguration case #682 wants
+  caught: default `postgres` bound to a non-Postgres provider).
+- The provider's advertisement is a string literal or a pure
+  `${config.<path>}` reference that resolves against the producer instance's
+  profile config; comparison is case-insensitive and uses the common short
+  vendor name (`postgres`, `mysql`, `mariadb`, `mssql`, `oracle`).
+- A mismatch, or a provider that advertises no `engine` at all, fails closed
+  with `E154` at `cds validate` (see
+  [Troubleshooting](../README.md#️-troubleshooting)); an unresolvable
+  `engineFrom` path (no config value and no schema default) fails with
+  `E041`.
+- Omitting `engineFrom` places no engine requirement, so existing modules and
+  profiles stay valid unless they explicitly opt in.
+- Like every other contract-spec field, `engine` flows into the consumer's
+  resolved binding (`${bindings.<name>.engine}`) during `cds plan`.
+
+The field is optional (`required: false`) in
+`shared/contracts/sql-database.yaml`; today `modules/warehouse/postgres` is
+the only `sql-database` provider and advertises `engine: postgres` on all of
+its database provides, and `modules/identity/keycloak` is the only consumer
+declaring `engineFrom`.
+
 ### Reverse-proxy dynamic routes
 
 A module providing the `reverse-proxy` contract (e.g. Traefik) exposes public
 routes through its `config.routes` entries instead of Docker label
-autodiscovery: each entry declares a public `host` and a `target` module
-id (or `<module-id>.<contract-name>` when the target provides several
-`http-service` contracts). CDS resolves the target's `http-service`
-contract, cross-checks the backend address against the compose services the
-render actually produced, and writes deterministic file-provider
-configuration next to the rendered compose file; invalid routing inputs
-fail with `E136` instead of silently generating broken config.
+autodiscovery or a hand-written routing file (issue #883): each entry binds
+one `http-service` provide through its `contractRef`
+(`<module-id>.<contract-name>`), declared on the module as a list-valued
+`consumes` entry (`mappedFrom: spec.config.routes`), so the profile binds the
+routed service with the same `contractRef` vocabulary as every other
+contract and a wrong ref fails at `cds validate` with `E041`/`E042`. Each
+entry composes a public rule from an optional `host` and an optional
+`pathPrefix` (at least one is required; a provider may advertise a default
+`pathPrefix` on its `http-service` contract). CDS generates the route
+document from the resolved binding -- the backend host/port come from the
+bound contract, so no service name is hardcoded -- cross-checks the backend
+address against the compose services the render actually produced, and
+writes deterministic file-provider configuration next to the rendered
+compose file; invalid routing inputs fail with `E136` instead of silently
+generating broken config.
 
 The same fail-closed cross-check applies to plain provided contracts
 (issues #1010, #1029): every `http-service`, `sql-database`,
@@ -642,3 +711,26 @@ A module is considered complete when:
 - its services start successfully in that profile
 
 `README.md` is encouraged for anything not obvious from `module.yaml`, but is not required for a module to be considered complete.
+
+## Choosing a warehouse module
+
+Two modules provide the `sql-database` contract, and they are complements, not
+competitors (issue #768):
+
+| Module | Render target | Best for |
+| --- | --- | --- |
+| `modules/warehouse/postgres` (stable) | `compose` (and `helm` via its StatefulSet+PVC block) | Local/dev Compose stacks; single-node Postgres; the built-in pgBackRest `backup-target` sidecar |
+| `modules-experimental/warehouse/postgres-operator` (experimental) | `helm` only | Kubernetes-only deployments that want operator-managed HA/failover (`config.instances: 3`) instead of a single StatefulSet+PVC |
+
+Choose the operator-backed variant when the profile only ever renders to
+Kubernetes and you need high availability; choose the plain Compose module
+otherwise. Both advertise the same contract fields, so consumers (Dagster,
+Superset, Keycloak, dbt, ...) bind through `contractRef: <id>.sql-database`
+with no consumer-side changes — only the profile's warehouse `source` and
+config differ. The operator variant renders a CloudNativePG `Cluster` CR
+plus the app-credentials Secret, and declares the operator-created
+`<cluster>-rw` Service via `implementation.kubernetes.services` so the
+advertised `host` (`<id>-rw`, release-scoped to `{{ .Release.Name }}-<id>-rw`)
+passes the contract-host checks; see the module README and
+[docs/kubernetes.md](kubernetes.md#operator-managed-modules). The
+CloudNativePG operator itself is installed on the cluster out of band.

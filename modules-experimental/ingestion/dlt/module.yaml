@@ -11,8 +11,11 @@ metadata:
   description: >
     Experimental dlt (data load tool) ingestion module. Runs a bind-mounted
     Python pipeline script as a one-shot job that extracts from a source and
-    loads into a consumed sql-database contract (e.g. the postgres module).
-    See images/dlt/README.md for configuration details.
+    loads into a consumed destination warehouse -- either a client-server
+    sql-database contract (e.g. the postgres module) or an embedded
+    file-database contract (e.g. the duckdb module), selected via
+    config.destinationType. See images/dlt/README.md for configuration
+    details.
 
 spec:
   runtime:
@@ -26,9 +29,25 @@ spec:
   configSchema:
     type: object
     additionalProperties: false
-    required:
-      - destinationDatabase
+    required: []
     properties:
+      destinationType:
+        type: string
+        enum:
+          - postgres
+          - duckdb
+        default: postgres
+        description: >
+          Selects which consumed destination the rendered pipeline loads
+          into. "postgres" requires destinationDatabase.contractRef to
+          reference a sql-database provider; "duckdb" requires
+          destinationWarehouseFile.contractRef to reference a file-database
+          provider. Only one of destinationDatabase/destinationWarehouseFile
+          needs to be set, matching this value -- each consume entry's
+          requiredIf below enforces the match at compile time (E041), so a
+          mismatch fails `cds validate`/`cds test` instead of only being
+          caught by entrypoint.sh's runtime check at container start.
+
       pipeline:
         type: object
         additionalProperties: false
@@ -58,12 +77,37 @@ spec:
       destinationDatabase:
         type: object
         additionalProperties: false
-        required:
-          - contractRef
+        default: {}
         properties:
           contractRef:
             type: string
             pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+        description: >
+          Binding to a sql-database provider (e.g. postgres), used when
+          destinationType is "postgres". The empty default lets the
+          destinationType==duckdb mode leave this unset; the consume entry's
+          requiredIf turns the empty object into an E041 when postgres is
+          selected without a real contractRef.
+
+      destinationWarehouseFile:
+        type: object
+        additionalProperties: false
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+        description: >
+          Binding to a file-database provider (e.g. duckdb), used when
+          destinationType is "duckdb". The consumed contract's shared
+          directory is always bind-mounted to the fixed container path
+          /usr/app/duckdb_data (hardcoded in the compose template, not
+          user-configurable) -- this field only needs contractRef. Keeping
+          this object free of its own defaulted properties matters: CDS's
+          schema-default application recursively fills in nested property
+          defaults even when the whole object is omitted, which would
+          otherwise make an unset-but-still-non-empty destinationWarehouseFile
+          indistinguishable from a real binding and break the required:false
+          skip-when-unset behavior of the consume entry below.
 
       destinationDataset:
         type: string
@@ -104,8 +148,16 @@ spec:
     - name: destination-database
       contract:
         kind: sql-database
-      required: true
+      required: false
+      requiredIf: "config.destinationType==postgres"
       mappedFrom: spec.config.destinationDatabase
+
+    - name: destination-warehouse-file
+      contract:
+        kind: file-database
+      required: false
+      requiredIf: "config.destinationType==duckdb"
+      mappedFrom: spec.config.destinationWarehouseFile
 
   implementation:
     kind: docker-compose
@@ -136,9 +188,29 @@ spec:
               target: "${config.pipeline.containerPath}"
               read_only: true
             - dlt-state:/usr/app/dlt_state
+            - type: bind
+              source: "${bindings.destination-warehouse-file.hostDirectory}"
+              target: /usr/app/duckdb_data
+              enabledFrom: "config.destinationType==duckdb"
+          # Both destinations' env vars are always present in this template,
+          # but only one is active per instance (config.destinationType). The
+          # postgres vars use ifNonempty because they must tolerate being
+          # unbound when duckdb is selected. The requiredIf gates on
+          # destination-database/destination-warehouse-file above guarantee
+          # destination-warehouse-file is always bound when duckdb is
+          # selected (E041 fails the build otherwise), so the bind mount
+          # source above uses a plain ref -- nothing to tolerate there. The
+          # DESTINATION__DUCKDB__CREDENTIALS filename segment still uses
+          # ifNonempty as defense in depth: file-database's `filename` field
+          # is required by shared/contracts/file-database.yaml, but nothing
+          # here re-validates that at compile time the way requiredIf does
+          # for the binding itself, so an empty value degrades to targeting
+          # the mounted directory instead of failing the substitution.
           environment:
-            DESTINATION__POSTGRES__CREDENTIALS: "${bindings.destination-database.connectionUri}"
-            CDS_DB_DESTINATION_CONNECTION_URI: "${bindings.destination-database.connectionUri}"
+            CDS_DLT_DESTINATION: "${config.destinationType}"
+            DESTINATION__POSTGRES__CREDENTIALS: "${ifNonempty:bindings.destination-database.connectionUri,,}"
+            CDS_DB_DESTINATION_CONNECTION_URI: "${ifNonempty:bindings.destination-database.connectionUri,,}"
+            DESTINATION__DUCKDB__CREDENTIALS: "/usr/app/duckdb_data/${ifNonempty:bindings.destination-warehouse-file.filename,,}"
             DLT_DATASET_NAME: "${config.destinationDataset}"
             DLT_PIPELINE_NAME: "${config.pipelineName}"
             DLT_PIPELINES_DIR: /usr/app/dlt_state

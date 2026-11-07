@@ -8,6 +8,223 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Promoted the Istio service-mesh provider to `modules/security/istio/` with
+  `productionSuitable: true`, and enrolled Postgres, Dagster, and Superset in
+  the production-style and local Kubernetes example profiles. The k3d E2E
+  harness now installs the out-of-band Istio control plane and verifies the
+  rendered `PeerAuthentication` resource; the per-service
+  `AuthorizationPolicy` selectors from #1170 remain explicitly scoped to each
+  enrolled service. (#1171)
+- Unscoped custom ingress allow rules are recorded by the Kubernetes
+  security scan (issue #1030): a `networkPolicy.ingress` passthrough rule
+  without a source restriction (no `from` key, an empty `from` list, or an
+  `ipBlock` peer) admits sources no contract binding can name -- all sources
+  when `from` is absent, equally or more exposed than the
+  NodePort/LoadBalancer service CDS-K8S-007 flags -- so `cds security` now
+  reports every such rule as a low CDS-K8S-010 finding
+  (configuration-management), mirroring the CDS-K8S-008 egress shape.
+  Selector-scoped (`namespaceSelector`/`podSelector`) ingress rules stay
+  clean. (The issue text says CDS-K8S-009, but that code had already been
+  taken on `main` by declared-external-egress breadth, so the new rule is
+  CDS-K8S-010.)
+- New `service-mesh` shared contract (`shared/contracts/service-mesh.yaml`)
+  and experimental reference provider `modules-experimental/security/istio`
+  (issue #776, Haven parity workstream 3.4): vendor-neutral contract for
+  mutual TLS and traffic policy between a profile's named module services
+  (`mtlsMode`, enrolled `services`, optional per-service
+  `authorizationPolicy`), validated by `cli/validator.py` like every shared
+  contract. The Istio module is gated to `--target helm` only
+  (`targets: [kubernetes]`; `--target compose` fails closed with E070) and
+  renders a namespace-wide `PeerAuthentication` (STRICT mTLS by default)
+  plus an optional `AuthorizationPolicy` (`config.authorization`) via
+  `implementation.kubernetes.manifests`. A profile enrolls an existing
+  module by naming its instance id in `config.services` — no consumer-side
+  changes; the module advertises the resolved mesh on the contract, which
+  `cds maturity` already counts as the service-mesh leg of the Secured tier.
+  The Istio control plane is declared under
+  `implementation.kubernetes.operators`, so render/test warn with W130 and
+  `cds up --target helm` fails closed with E155 while its CRD is absent.
+  Not wired into any stable profile. Documented in
+  `modules-experimental/security/istio/README.md`, `docs/kubernetes.md`
+  ("Service mesh"), `docs/zero-trust-architecture.md`, `docs/roadmap.md`,
+  and `docs/haven-parity-plan.md` (workstream 3.4 / section 4 status table).
+- Per-service `AuthorizationPolicy` selectors in the Istio reference module,
+  via a new `forEach` marker on raw `implementation.kubernetes.manifests`
+  entries (issue #1170): when the marker's config path expression resolves
+  to a list (e.g. `config.services`), the Helm renderer emits one manifest
+  copy per element with the element bound as `item` (`${item.name}` etc.),
+  suffixing each copy's template file name with its resolved
+  `metadata.name`. Misuse fails closed: a non-string marker is E145, an
+  expression that resolves to nothing or to a non-list, and duplicate
+  resolved names, are E156; a leftover `${item.*}` is E071. The istio module
+  now renders `config.authorization` as one `AuthorizationPolicy` per
+  enrolled service (named `mesh-allow-<service>`, selected onto that
+  service's pods via `spec.selector.matchLabels` on `cds.dev/module`)
+  instead of a single namespace-wide policy. Documented in
+  `modules-experimental/security/istio/README.md`, `docs/kubernetes.md`,
+  `docs/modules.md`, the `service-mesh` contract, and the README
+  troubleshooting table (E156).
+
+- New experimental module `modules-experimental/warehouse/postgres-operator`
+  (issue #768): a Kubernetes-native, operator-managed PostgreSQL for the
+  `--target helm` render target, backed by CloudNativePG. It provides the
+  same `sql-database` contract as `modules/warehouse/postgres` (which stays
+  untouched as the Compose/local-dev path), so consumers bind with no
+  consumer-side changes. The module renders a CloudNativePG `Cluster` CR
+  (instances, digest-pinned `imageName`, PVC size, `initdb` bootstrap,
+  `pg_hba` from `config.authentication.hostAuth`, and `inheritedMetadata`
+  labels so binding-derived NetworkPolicy edges select the operator pods)
+  plus the app-credentials `Secret` the bootstrap reads. The advertised
+  endpoint is the operator-created `<cluster>-rw` Service, declared via the
+  new `implementation.kubernetes.services` block. Demoed by the new
+  `profiles/local-kubernetes-postgres-operator` profile (Superset + KeyDB
+  binding via the unchanged `sql-database` contract);
+  `cds test local-kubernetes-postgres-operator --target helm` passes and
+  `--target compose` fails closed with E070. Documented in
+  `docs/modules.md` ("Choosing a warehouse module"), `docs/kubernetes.md`
+  ("Operator-managed modules"), `docs/roadmap.md`, and
+  `docs/haven-parity-plan.md` section 4 (workstream 3.6 now implemented,
+  experimental).
+
+- The Helm renderer learned two module-schema blocks for operator-managed
+  modules (issue #768): `implementation.kubernetes.services` declares
+  Services that a module's manifests (or the operator they drive) create
+  without CDS rendering them — the names join the renderer's service
+  registry, so E084/E150 contract-host checks, release-scoping of consumer
+  binding hosts, `${k8s.service.*}`, and `waitFor` gates treat them like
+  rendered workload Services; and a raw `kubernetes.manifests` value that is
+  exactly one secret reference (`secrets.*` → `${CDS_*}`) is rewritten to a
+  Helm `required` lookup of `.Values.secrets` (the key is registered in the
+  chart's secrets Secret), so CRs can consume secrets without the committed
+  chart ever carrying them — any other leftover `${CDS_*}` still fails
+  closed with E078.
+
+- Out-of-band operator prerequisites are now surfaced in-product (issue
+  #768): a module can declare `implementation.kubernetes.operators` entries
+  (`name`, `crd`, `install`, optional `docs`) — used by the postgres-operator
+  module for CloudNativePG. `cds render`/`cds test`/`cds up --target helm`
+  warn with **W130** naming the install command, the chart's `NOTES.txt`
+  repeats it, and `cds up --target helm` fails closed with **E155** when
+  `kubectl get crd <crd>` confirms the operator's CRD is absent from the
+  cluster (instead of a bare helm "no matches for kind" failure); when the
+  check itself cannot run it warns and continues. New codes W130/E155 are in
+  the README troubleshooting table.
+- Provider-neutral HTTP routing contract wiring for reverse proxies (issue
+  #883): a reverse-proxy module (e.g. `modules/integration/traefik`) now
+  declares a list-valued `consumes` entry (`mappedFrom: spec.config.routes`)
+  of kind `http-service`, and each `config.routes` entry binds the routed
+  service with `contractRef: <module-id>.<contract-name>` instead of a
+  `target` module id. The planner resolves every route's binding into the
+  plan's `consumes` map, `cds validate` checks each ref like any other
+  binding (E041/E042 at a per-route path), and the compose renderer
+  generates the Traefik file-provider document
+  (`traefik/dynamic/cds-routes-<module>.yml`) from those resolved bindings
+  -- the backend host/port/serviceName come from the bound contract, so no
+  service name is hardcoded and no hand-written routing file is needed.
+  Route entries compose a public rule from an optional `host` and an
+  optional `pathPrefix` (at least one required; the bound `http-service`
+  contract may advertise a default `pathPrefix`), rendered as `Host(...)`,
+  `PathPrefix(...)`, or both joined with `&&`; invalid rules, duplicate
+  rules, unknown entrypoints, and undeclared certificate aliases still fail
+  closed with E136, and the helm target derives the same route targets as
+  NetworkPolicy edges from the `contractRef` (W129).
+  `shared/contracts/http-service.yaml` documents the consume-side routing
+  flow and the new optional `pathPrefix` field;
+  `shared/contracts/reverse-proxy.yaml` documents that providers route
+  bound `http-service` contracts. `profiles/local-haven-reference` now
+  routes its TLS entrypoint to Keycloak via
+  `contractRef: keycloak.http-service` and the static
+  `traefik/dynamic/keycloak.yml` is deleted; `modules/identity/keycloak`
+  advertises the in-network container port (`config.containerPort`, default
+  8080) as the http-service backend port instead of the localhost host
+  publish, so a generated route dials the port the container actually
+  listens on. Validator/planner/renderer/k8s tests and docs updated.
+- New experimental `grafana` observability module
+  (`modules-experimental/observability/grafana/`, issue #369): a Grafana
+  dashboarding UI providing the `http-service` contract (health path
+  `/api/health`), with optional `sql-database` and `metrics-sink` bindings
+  provisioned as datasources via Grafana declarative provisioning
+  (`provisioning/datasources/*.yaml`, gated per binding with `enabledFrom`
+  equality checks and fed from `${ifNonempty:bindings....,,}` env vars). The
+  warehouse binding is engine-guarded (`engineFrom`, E154 for non-Postgres
+  providers, issue #682); the metrics datasource is only provisioned for
+  `protocol: prometheus` providers. Admin credentials come from
+  `secrets.<alias>` only, the UI is published on the host loopback only, and
+  analytics/update checks are disabled (no external egress declared). Comes
+  with the `local-postgres-grafana` demo profile, a module README, and
+  `tests/test_grafana_module.py` covering schema, contract wiring, render
+  gating, the E154 guard, and the container-hardening baseline.
+- Two new Gate 3 tasks in the Kubernetes/Haven MVP runbook
+  (`docs/plan/k8s-haven-mvp.md`): G3.8 proves the GitOps handoff end to end —
+  render the Haven-shaped profile, commit the rendered chart to a
+  `gitops-target` repository, and verify Flux reconciles and corrects drift
+  (issue #1136) — and G3.9 proves workload SQL/py code runs from a Git
+  checkout via the bind mounts (`config.project.hostPath` for dbt,
+  `definitionsFile.hostPath`/`sharedData.hostPath` for Dagster, issue #1137).
+  The executable companion `docs/plan/k8s-haven-gate-checklist.md` is now
+  committed alongside, with both tasks as rows; Gate 3 exit criteria updated.
+- Enforced database-engine match for `sql-database` bindings (issue #682): a
+  `consumes` entry can now declare `engineFrom: spec.config.<path>` naming a
+  string field in the consumer's own config whose value is the engine it
+  expects the bound provider to speak (e.g. keycloak's
+  `metadataDatabase.driver`, which feeds `KC_DB`). At `cds validate` the
+  referenced value — from the profile config when set, otherwise from the
+  `configSchema` default at that path, so a defaulted driver is enforced too —
+  is compared case-insensitively with the provider contract spec's advertised
+  `engine` (a literal, or a pure `${config.<path>}` reference against the
+  producer's config). A mismatch, or a provider advertising no `engine` at
+  all, fails closed with the new `E154`; an unresolvable `engineFrom` path
+  fails with `E041`. `modules/warehouse/postgres` now advertises
+  `engine: postgres` on all four `sql-database` provides, and
+  `modules/identity/keycloak` declares
+  `engineFrom: spec.config.metadataDatabase.driver` on its `metadata-database`
+  consume entry, so binding Keycloak to a non-Postgres `sql-database` provider
+  now fails validation instead of silently misconfiguring `KC_DB`. The
+  `engine` field is added to `shared/contracts/sql-database.yaml`, the
+  `engineFrom` field to `cli/resources/module.schema.json`, and the README
+  troubleshooting table, `docs/modules.md`, and `docs/architecture.md` are
+  updated; unit tests in `tests/test_validator.py` and end-to-end guard tests
+  in `tests/test_keycloak_postgres_wiring.py` cover match, mismatch, missing
+  advertisement, config-reference, schema-default, and backward-compat cases.
+
+- Declared external egress for helm-target workloads under the generated
+  default-deny NetworkPolicies (issue #1023): modules can now declare
+  egress to destinations outside the plan via
+  `implementation.kubernetes.egress` -- a list of entries with `host` (IP
+  literal, rendered as a /32 or /128 ipBlock) or `cidr`, optional `except`
+  CIDRs, `port`/`ports`, and `protocol` (default TCP) -- or scoped to one
+  workload via `implementation.kubernetes.workloads.<name>.egress`, which
+  renders an additional workload-scoped NetworkPolicy selecting that
+  workload's `app.kubernetes.io/name`. Entries render as ipBlock rules on
+  the module's release-scoped NetworkPolicy allowing exactly the declared
+  destination/ports; undeclared external egress remains denied (the
+  security baseline, now stated explicitly in `docs/kubernetes.md`).
+  Values support `${config.*}` substitution so a profile can supply the
+  destination through module config. Malformed entries (DNS-name host,
+  CIDR with host bits, `except` outside the CIDR, bad port/protocol,
+  unresolved expression) fail closed with the new E153 diagnostic, and the
+  k8s security scan records every declared entry as a CDS-K8S-009 finding
+  whose severity scales with breadth (0.0.0.0/0 on all ports = high).
+  The E152 wait-gate check now also accepts a gate whose host:port a
+  declared entry (or a raw `networkPolicy.egress` ipBlock rule) covers,
+  and its message points at `implementation.kubernetes.egress`. Module
+  schema (`cli/resources/module.schema.json`), renderer, scan, README
+  troubleshooting table, and tests included.
+- New `sampleData` config block on the dagster module (issue #1117):
+  `sampleData.enabled` (default `false`) ships the bundled
+  `offers-1000.csv` sample fixture into the dagster containers at the same
+  container path (`sampleData.containerPath`, default
+  `/app/data/cds/incoming/offers-1000.csv`) on both render targets — on
+  Compose through the existing `sharedData` bind plus a read-only file bind,
+  on Helm through a new `sample-data` ConfigMap projected from
+  `sampleData.hostPath` — and schedules the `load_offers_1000` job
+  automatically via `CDS_SAMPLE_DATA_ENABLED` (the job is idempotent and
+  leaves exactly 1,000 rows in `offers_1000`). The helm renderer now honors
+  `enabledFrom` on `implementation.kubernetes.configMaps` entries and on
+  individual compose volume-mount entries, so the ConfigMap and its mounts
+  disappear when the parameter is off; rendering stays fail-closed
+  (`cds test` green on both targets with the parameter on and off).
+
 - Added `docs/plan/k8s-haven-mvp.md` (#1104): an execution runbook for an MVP
   cycle that starts from a fresh directory with only Docker installed and walks
   six gates — bootstrap, Kubernetes MVP on a local k3d cluster (`--target
@@ -37,6 +254,163 @@ The format is based on Keep a Changelog.
   file. Linked from `docs/cli-reference.md`, the README (quick-start and
   documentation index), and `docs/kubernetes.md`.
 
+- `cds render --target helm` now validates every `waitFor` gate host against
+  the default-deny NetworkPolicy baseline (issue #1031): a gate whose resolved
+  host is neither a same-module Service emitted by this render (a workload
+  disabled via `enabledFrom` gets no Service) nor the endpoint of a provider
+  the module consumes (no binding-derived egress edge exists for it), and
+  whose host:port no custom `networkPolicy.egress` ipBlock rule covers, would
+  only hang until its timeout, so the render fails closed with the new E152
+  diagnostic naming the gate workload and the unreachable host. Gates
+  resolving to `${bindings.*.host}` of a consumed provider, to a same-module
+  `${k8s.service.*}` Service, or to an ipBlock-passthrough-covered external
+  address render unchanged; tests cover the allowed cases plus the
+  fail-closed ones (cross-module Service without a binding, external literal
+  host, disabled same-module Service target, address/port outside the
+  passthrough CIDR). Documented in `docs/kubernetes.md` and the README
+  troubleshooting table.
+
+- `cds render --target helm` now derives NetworkPolicy edges from
+  reverse-proxy `config.routes` (issue #1033): each route's target module
+  opens a port-scoped egress rule on the proxy's pods and a matching ingress
+  rule on the target's pods, scoped to the route's backend port (the
+  target's http-service contract port, mapped through the target's Service
+  `targetPort` like a binding's port), so a proxy needs no hand-written
+  `networkPolicy` passthrough rules for its routed targets. Targets no route
+  names stay unreachable from the proxy. A route that cannot yield a
+  port-scoped edge (unknown target module, no matching http-service provide,
+  no usable port evidence -- absent or outside 1-65535 with no advertised
+  service ports to fall back to) adds no edge -- default-deny holds -- and is
+  reported with the new W129 warning; the passthrough remains the escape
+  hatch.
+  `waitFor` gates on a route target's Service are accepted by the E152
+  baseline check. Tests cover both acceptance criteria plus the port remap,
+  the W129 cases, and the gate check. Documented in `docs/kubernetes.md` and
+  the README troubleshooting table.
+
+- Helm-target test coverage for Superset's `identityProvider` binding (issue
+  #1075): the only `oidc-provider` provider in the repo (keycloak) is
+  compose-only, so the new fixture module
+  `tests/fixtures/helm-oidc/modules/identity/oidc-stub` provides a minimal
+  kubernetes-capable `oidc-provider` and `tests/test_superset_oidc_helm.py`
+  renders a profile binding it on `--target helm` end to end — issuer URL
+  env present as a literal value, client secret only as a `$(CDS_*)`
+  expansion backed by a `secretKeyRef` entry and a `required` key in
+  `templates/secret.yaml`, E078/E079 secret-plumbing checks green, no secret
+  values in any chart file. The rendered chart is pinned by golden hashes in
+  `tests/golden/k8s-chart-oidc.sha256`. A guard test also pins that binding
+  the compose-only keycloak on the helm target still fails closed with E072.
+- The experimental `dlt` ingestion module can now load into an embedded
+  `file-database` warehouse in addition to a `sql-database` one: a new
+  `config.destinationType` (`postgres` default, or `duckdb`) selects which
+  consume entry is required (`destinationDatabase` vs the new
+  `destinationWarehouseFile`, enforced at compile time with E041), the
+  consumed contract's shared `hostDirectory` is bind-mounted at
+  `/usr/app/duckdb_data` when duckdb is selected, and the database file path
+  is passed to dlt's duckdb destination via `DESTINATION__DUCKDB__CREDENTIALS`
+  (the `images/dlt` image now also pins the `duckdb` client library). A new
+  `profiles/local-duckdb-dlt-dbt` demo profile composes duckdb + dlt + dbt
+  end to end against the shared file (#593).
+
+- Documented the snap-confined Docker runtime artifact (issue #1155, loose end
+  of #1066/PR #1154): on the snap-confined Docker runtime every container
+  fails to start under `--security-opt no-new-privileges:true` with
+  `exec ...: operation not permitted` for any image, which is a runtime
+  artifact rather than image file capabilities — `docs/runtime-confinement.md`
+  gains a "Scope And Caveats" note advising to verify on a non-snap Docker
+  host before changing module hardening, the smoke-test guide
+  (`docs/profile-testing/failure-path-and-ci.md`) classifies the failure as a
+  test-infrastructure artifact, and the loki module README's known-limitations
+  links to the note.
+- Docker smoke-test CI now covers the experimental observability modules
+  (issue #1065): a new `Docker Runtime Smoke Test` step runs
+  `tests/test_observability_runtime_smoke.py`, which renders the new
+  `profiles/local-loki-otel-collector` profile (loki + otel-collector),
+  brings it up on its own compose project, asserts every container reaches a
+  running state (otel-collector additionally healthy via its healthcheck),
+  POSTs a raw and a structured JSON record to the loki `/logs` ingest
+  endpoint and an OTLP/HTTP log record to the collector's `/v1/logs`,
+  queries both records back from the Loki store under their retention tier,
+  and confirms the collector received the OTLP record — so "renders green but
+  fails at runtime" in experimental modules is caught in CI. The render-level
+  contract coverage for the profile runs everywhere in
+  `tests/test_local_loki_otel_collector_profile.py`.
+- Every `WARN` and `FAIL` line in `cds preflight` output now ends with a
+  `(see <url>)` link to the repo doc that governs the check
+  (`PreflightCheck.reference`): the Docker host hardening baseline for
+  `host.*` warnings, `docs/rootless-docker.md` for `host.rootless`,
+  `docs/installation.md` for runtime and environment findings,
+  `docs/from-docker-to-cds-profile.md` for host-port findings, and
+  `docs/image-signing.md#verification-policy` for `images.*` failures.
+
+### Changed
+
+- The `log-sink` contract and the observability modules can now forward the
+  logs signal end-to-end over OTLP/HTTP (issue #1076, loose end from #777/#1063):
+  `shared/contracts/log-sink.yaml` gains an optional `connectionUri` field
+  (mirroring `trace-sink`/`metrics-sink`) with OTLP-shaped examples, and the
+  experimental `loki` module now provides its `log-sink` contract over Loki's
+  native OTLP/HTTP endpoint (`protocol: otlp-http`, `ingestPath: /otlp/v1/logs`,
+  `connectionUri: http://<loki-storage>:3100`, served by the `loki-storage`
+  service on port 3100) instead of the plain-JSON Vector gateway, which
+  remains as the host-loopback dev endpoint (`/logs`). Loki promotes the
+  `service.name`, `deployment.environment.name`, and `tier` resource
+  attributes to index labels so OTLP shippers can still reach the
+  `tier="structured"` retention stream. The `otel-collector` module's
+  `backends.logs` binding therefore resolves a real forwarding URL (e.g.
+  `http://logs-loki-storage:3100/otlp/v1/logs`) instead of silently staying
+  collector-local, and its unbound-signal discard now points at the
+  collector's own health_check extension (which answers the export POST with
+  200 and drops the batch silently — no retry storm) instead of
+  `http://127.0.0.1:1`. Verified at runtime against the pinned images: a log posted to
+  the collector's `/v1/logs` with `backends.logs` bound to a `loki` instance
+  lands in Loki (`service_name`/`tier` labels applied), and an unbound signal
+  produces no export-retry errors. `docs/observability.md` (sections 5 and
+  12), both module READMEs, and `tests/test_otel_collector_module.py` /
+  `tests/test_loki_module.py` (including an end-to-end
+  `backends.logs -> loki.log-sink` plan/render test) are updated.
+
+- `cds get` (and `cds list --remote`) now default `--ref` to the release tag
+  matching the installed CLI version (e.g. `v0.15.0` for cds 0.15.0) instead
+  of `main`, so a fetched profile and its modules are validated by the same
+  bundled schema as the running `cds` and version-skew failures like
+  `E021 ... 'enabledFrom' was unexpected` cannot occur by default. When the
+  version is unknown, is a dev/local build, or the tag does not exist
+  upstream (e.g. a fork without tags), the default falls back to `main` with
+  a note on stderr. An explicit `--ref <branch|tag|sha>` is unchanged and
+  still fails closed on 404, but a version tag newer than the installed cds
+  version (e.g. `--ref v0.16.0` on cds 0.15.0) now prints a warning on
+  `cds get` and `cds update`, since assets at a newer release may use schema
+  features the running CLI does not understand. A bare version
+  (`--ref 0.15.0`) is accepted as shorthand for its `v`-prefixed release tag
+  (`v0.15.0`), retrying on HTTP 404. The resolved revision is
+  recorded in `.cds/get-manifest.json`, so `cds update` keeps the layout on
+  that tag; re-run `cds get --ref main` to move to `main`.
+
+- The keycloak module (`modules/identity/keycloak`) is now production-suitable
+  and defaults `config.webServer.mode` to `production` in the same change
+  (issue #974): the `productionSuitable: false` marker is dropped and the
+  configSchema default flips from `development` to `production`, so a
+  production profile using keycloak without an explicit mode passes `cds
+  validate` (E140 only rejects an *explicit* `development`) and plans/renders
+  `CDS_WEBSERVER_MODE=production` instead of silently running `start-dev` at
+  runtime. `development` remains an explicit opt-in for local profiles and is
+  still rejected in production profiles by E140. `docs/serving-modes.md`
+  (keycloak row default column), the module README, and the haven/roadmap docs
+  are updated to match; `tests/test_keycloak_postgres_wiring.py` gains an E140
+  regression test covering a production profile with keycloak and no explicit
+  mode (validates clean, renders production mode) plus the explicit-`development`
+  rejection case.
+
+- The DuckDB warehouse module is promoted out of `modules-experimental/` to
+  `modules/warehouse/duckdb/` and is now production-suitable: the
+  `productionSuitable: false` marker and the `(experimental)` displayName
+  suffix are dropped once the `file-database` contract shape is exercised by
+  real consumers (dlt and dbt wiring plus the `local-duckdb-dlt-dbt` demo
+  profile, #593). `docs/architecture.md` and `docs/roadmap.md` list the module
+  under stable components; `tests/test_duckdb_hardening.py` now asserts the
+  production-suitable metadata instead of the experimental one.
+
 ### Fixed
 
 - `cds down` now writes its lifecycle log to `.cds/logs/down-<profile>-<ts>.log`
@@ -44,6 +418,73 @@ The format is based on Keep a Changelog.
   takes a `prefix` parameter (`"up"` for `cds up`, `"down"` for `cds down`)
   instead of unconditionally prefixing `up-` (#1123).
 
+- The `Mutation Tests (Kill Matrix)` workflow no longer fails on time-capped
+  PR runs (issue #1175): a `timeout`-killed matrix can leave an empty or
+  truncated `mutants/*.meta` cache file, and `mutmut export-cicd-stats`
+  crashed on it with a `JSONDecodeError` (`load()` only tolerates a missing
+  file), while a run capped before any result was recorded left
+  `mutmut badge` failing on the missing `mutants/mutmut-cicd-stats.json`.
+  The export step now drops incomplete meta cache files before exporting and
+  writes an all-zero stats placeholder when no results exist, so the badge,
+  job summary, and artifact still publish the partial matrix.
+  `tests/test_mutation_tests_workflow.py` reproduces the crash against the
+  previous workflow and pins the tolerant export.
+- The local audit log (`.cds/audit-log.jsonl`, #737/#810) is now anchored to
+  the profile's own project root — `resolve_project_root(profile_path)`,
+  the same resolution that decides where `docker-compose.yml` is rendered —
+  instead of the current working directory (issue #822). Entries for a
+  profile resolved via `CDS_PROFILE_PATH` from an unrelated directory (e.g.
+  a centrally shared profiles checkout) now consistently land in one
+  `.cds/audit-log.jsonl` next to that profile's project, rather than being
+  scattered across whatever directory `cds` was invoked from. When the cwd
+  already is the project root, the location is unchanged.
+  `docs/audit-log.md` documents the resolved location, and
+  `tests/test_main.py::AuditLogCLIIntegrationTest` gains #822 regression
+  tests (validate/render from a foreign cwd) alongside the common-case test.
+- `modules-experimental/observability/otel-collector/collector.yaml` now uses
+  the canonical `otlp_http/<signal>` exporter names instead of the deprecated
+  `otlphttp` alias, which logged a deprecation warning on every startup of the
+  pinned 0.164.0 image, and pins the `health_check` extension to
+  `0.0.0.0:${env:HEALTH_PORT}` with a comment explaining why: the image's
+  default is `localhost:13133`, which left the host-published
+  `127.0.0.1:<healthPort>:13133` mapping unanswerable from the host (issue
+  #1167; the container-side compose healthcheck half was already closed by
+  #1065/#1165). `tests/test_otel_collector_module.py` pins both properties of
+  the shipped collector config. Verified at runtime against the pinned
+  image: zero deprecation warnings, `otelcol-contrib validate` exits 0,
+  OTLP/HTTP ingest answers 200, and the host-published health port answers
+  `{"status":"Server available"}` with HTTP 200.
+- Bumped the digest-pinned base of the hardened dagster image to remediate
+  CVE-2026-85091 (HIGH, heap buffer overflow in zlib's `gz_vacate()`) reported
+  by the Trivy image scan against the alpine 3.24.2 layer:
+  `python:3.14-alpine` `sha256:f6a589...` -> `sha256:a18b20ad...` (alpine
+  3.24.4, zlib 1.3.2-r1) in both stages of `images/dagster/hardened/Dockerfile`.
+- `cds test --target helm` (and `cds security`) no longer fail the security
+  stage with W096 when the profile's Compose render fails *only* because a
+  module has no compose implementation (E070 — e.g. a Helm-only module such
+  as the CloudNativePG operator module, issue #768). That skip is expected
+  and already surfaced by the render stage itself; any other render error
+  still raises W096 and fails the stage, so the silent-skip guard
+  (GHSA-mx5p-cv63-6829) is unchanged for real breakage.
+- `modules-experimental/observability/loki` re-enables
+  `security_opt: no-new-privileges:true` on both the `loki` (Vector) and
+  `loki-storage` (Loki) services (#1066). The omission was based on an
+  `exec ...: operation not permitted` failure under no_new_privs, but that
+  failure is an artifact of the snap-confined Docker runtime used in the
+  sandbox (it rejects every binary under `--security-opt
+  no-new-privileges:true`, including a plain Alpine `/bin/sh`), not of the
+  images: registry layer inspection shows no `security.capability` xattr on
+  either pinned binary, and both `timberio/vector:0.51.0-alpine` and
+  `grafana/loki:3.6.1` exec cleanly under `PR_SET_NO_NEW_PRIVS` on a
+  standard runc host. `tests/test_loki_module.py` now asserts the flag on
+  the module definition and on the rendered Compose output.
+- The `Mutation Tests (Kill Matrix)` workflow no longer fails on PRs when a
+  hosted runner receives a shutdown signal ~4 minutes into the job (observed
+  on PR #1143 and on the weekly `main` run, both killed before the previous
+  240s cap could fire): the PR time cap is lowered to 180s so `timeout` fires
+  first and the step exits 124, which the workflow already accepts as a
+  partial matrix. Weekly schedule runs stay uncapped and produce the full
+  matrix.
 - `cds render/up --target helm` no longer fails with E085 ("bind source
   outside the project root") on projects scaffolded by `cds get`: the
   renderer's project-root detection now treats a `.cds/` directory as a
@@ -98,6 +539,41 @@ The format is based on Keep a Changelog.
   Tests in `tests/test_prompts_lint.py`; policy documented in
   `.github/prompts/README.md` (#1090; residual opaque-`run:`-script vectors
   tracked in #1120).
+- Bumped the digest-pinned base images of the five published runtime images
+  to remediate CVE-2026-109518 (HIGH, on-path attack in apt/libapt-pkg on
+  Debian) reported by the daily Trivy scan (#1144-#1148): `python:3.14-slim`
+  to `sha256:ac25e5af...` (Debian trixie base now baking apt 3.0.4) in the
+  dlt, dbt, and dagster base Dockerfiles; `postgres:18` to
+  `sha256:e923a22a...` (apt 3.0.4) in `images/postgres/Dockerfile` plus the
+  matching pin in `modules/warehouse/postgres/module.yaml` and the
+  `tests/test_image_digest_check.py` example; and
+  `apache/superset:6.1.0-py311` to `sha256:3f63de20...` in
+  `images/superset/base/Dockerfile` (that base still ships apt 2.6.1, but
+  the image's build-time `apt-get upgrade` now pulls the fixed apt 2.6.2
+  from bookworm-security). Merging this PR triggers `publish-images.yml`,
+  whose pre-push Trivy HIGH/CRITICAL gate re-verifies all five rebuilt
+  images before they are signed and republished.
+- Two "renders green but fails at runtime" bugs in the experimental
+  observability modules, caught by building the #1065 docker smoke test
+  (both fixed here so the new CI job is green):
+  - `modules-experimental/observability/loki` now points the Vector gateway's
+    `LOKI_ENDPOINT` at `${service.services.loki-storage}` instead of
+    `${service.host}-loki-storage`. The old template only resolved when the
+    module instance id differed from `loki`; with the conventional id `loki`
+    the rendered storage service is `loki-storage` while the endpoint named
+    the non-existent `loki-loki-storage`, so ingestion failed at runtime.
+    `tests/test_loki_module.py` pins the rendered endpoint for the namesake
+    id.
+  - `modules-experimental/observability/otel-collector` no longer configures
+    the removed `logging` exporter (the pinned
+    `otel/opentelemetry-collector-contrib:0.164.0` fails config validation
+    with it — the collector exited 1 on startup) and no longer renders a
+    container-side healthcheck (that image is distroless — no shell, wget, or
+    curl — so the `CMD-SHELL wget` probe could never pass and would keep the
+    container permanently unhealthy). Pipelines now use the `debug` exporter,
+    and health is probed via the host-published `healthPort`
+    (`health_check` on 13133). `tests/test_otel_collector_module.py` asserts
+    the healthcheck is absent.
 
 ## [0.15.0] - 2026-11-02
 

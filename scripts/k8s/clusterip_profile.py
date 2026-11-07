@@ -26,7 +26,14 @@ def write_clusterip_profile(source: Path, target: Path) -> list[str]:
         if not isinstance(service, dict):
             continue
         service["type"] = "ClusterIP"
-        service.pop("nodePort", None)
+        # Set nodePort to 0 instead of popping it: a profile that extends
+        # another profile (e.g. local-kubernetes-example extends
+        # local-dagster-postgres-superset) deep-merges module config, so a
+        # popped key would inherit the base profile's nodePort and the
+        # rendered ClusterIP Service would still carry it — invalid at
+        # apply time ("nodePort: Forbidden ... when `type` is 'ClusterIP'").
+        # 0 is the schema minimum and renders as no nodePort at all.
+        service["nodePort"] = 0
         converted.append(str(module.get("id", "<unknown>")))
 
     target.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")

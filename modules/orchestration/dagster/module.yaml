@@ -204,6 +204,49 @@ spec:
             minLength: 1
             default: /app/data/cds
 
+      sampleData:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Bundled sample dataset (the offers-1000.csv fixture consumed by the
+          load_offers_1000 job via CDS_OFFERS_FIXTURE_PATH). When enabled, the
+          CSV is shipped into the dagster containers at the same container
+          path on both render targets -- on Compose through the sharedData
+          directory bind plus an explicit read-only file bind, on Kubernetes
+          through a ConfigMap projected from the same host file -- and the
+          load_offers_1000 job is scheduled automatically instead of relying
+          on manual materialization (the job is idempotent: it replaces the
+          rows sourced from the fixture, so re-runs leave exactly 1,000 rows
+          in offers_1000).
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: >-
+              Ship the bundled sample CSV into the dagster containers and
+              run the load_offers_1000 job on a schedule. Default false keeps
+              the current behavior: no sample-data ConfigMap on the helm
+              target and no automatic load.
+          hostPath:
+            type: string
+            minLength: 1
+            default: ./workdirs/shared-data/incoming/offers-1000.csv
+            description: >-
+              Project-relative path of the bundled sample CSV. On the helm
+              target the file is read at render time and projected as a
+              ConfigMap; it must stay under the 1MiB ConfigMap limit
+              (enforced with E075).
+          containerPath:
+            type: string
+            minLength: 1
+            pattern: "^/"
+            default: /app/data/cds/incoming/offers-1000.csv
+            description: >-
+              Absolute container path the sample CSV is available at on both
+              render targets; also exported to the user-code container as
+              CDS_OFFERS_FIXTURE_PATH.
+
       definitionsFile:
         type: object
         additionalProperties: false
@@ -377,6 +420,16 @@ spec:
             - type: bind
               source: "${config.sharedData.hostPath}"
               target: "${config.sharedData.containerPath}"
+            # Single-file bind of the bundled sample CSV: on Compose the file
+            # is already reachable through the sharedData directory bind, this
+            # entry only pins it explicitly and read-only; on Kubernetes the
+            # renderer promotes exactly this bind to the sample-data
+            # ConfigMap (issue #1117).
+            - type: bind
+              source: "${config.sampleData.hostPath}"
+              target: "${config.sampleData.containerPath}"
+              read_only: true
+              enabledFrom: config.sampleData.enabled
             - type: bind
               source: "${config.definitionsFile.hostPath}"
               target: "${config.definitionsFile.containerPath}"
@@ -411,6 +464,8 @@ spec:
             OPENLINEAGE_ENDPOINT: "${ifNonempty:bindings.lineage-sink.ingestPath,,}"
             OPENLINEAGE_API_KEY: "${ifNonempty:bindings.lineage-sink.authToken,,}"
             OPENLINEAGE_NAMESPACE: "${config.openlineageNamespace}"
+            CDS_SAMPLE_DATA_ENABLED: "${config.sampleData.enabled}"
+            CDS_OFFERS_FIXTURE_PATH: "${config.sampleData.containerPath}"
         dagster-webserver:
           build:
             context: ../../../
@@ -450,6 +505,16 @@ spec:
             - type: bind
               source: "${config.sharedData.hostPath}"
               target: "${config.sharedData.containerPath}"
+            # Single-file bind of the bundled sample CSV: on Compose the file
+            # is already reachable through the sharedData directory bind, this
+            # entry only pins it explicitly and read-only; on Kubernetes the
+            # renderer promotes exactly this bind to the sample-data
+            # ConfigMap (issue #1117).
+            - type: bind
+              source: "${config.sampleData.hostPath}"
+              target: "${config.sampleData.containerPath}"
+              read_only: true
+              enabledFrom: config.sampleData.enabled
           environment:
             DB_BACKEND: "${config.storage.backend}"
             DAGSTER_HOME: "${config.homeDir}"
@@ -532,6 +597,16 @@ spec:
             - type: bind
               source: "${config.sharedData.hostPath}"
               target: "${config.sharedData.containerPath}"
+            # Single-file bind of the bundled sample CSV: on Compose the file
+            # is already reachable through the sharedData directory bind, this
+            # entry only pins it explicitly and read-only; on Kubernetes the
+            # renderer promotes exactly this bind to the sample-data
+            # ConfigMap (issue #1117).
+            - type: bind
+              source: "${config.sampleData.hostPath}"
+              target: "${config.sampleData.containerPath}"
+              read_only: true
+              enabledFrom: config.sampleData.enabled
           environment:
             DB_BACKEND: "${config.storage.backend}"
             DAGSTER_HOME: "${config.homeDir}"
@@ -730,6 +805,19 @@ spec:
           mountPath: "${config.tenderAnalyticsFile.containerPath}"
           containers:
             - user-code
+        # Bundled sample CSV, projected from the same host file the compose
+        # target binds, so both render targets see the identical file at the
+        # identical path (issue #1117). Gated on config.sampleData.enabled:
+        # when false, neither the ConfigMap nor its mounts are rendered.
+        sample-data:
+          key: offers-1000.csv
+          fromBind: "${config.sampleData.hostPath}"
+          mountPath: "${config.sampleData.containerPath}"
+          containers:
+            - user-code
+            - dagster-webserver
+            - dagster-daemon
+          enabledFrom: config.sampleData.enabled
         workspace:
           key: workspace.yaml
           mountPath: /app/images/dagster/workspace.yaml

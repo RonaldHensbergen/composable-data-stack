@@ -31,7 +31,7 @@ scope instead.
   - #210 Add backup, restore, and disaster-recovery contracts
 
 New capability modules and contracts (S3-compatible object storage, log-sink,
-Keycloak realm/config, Grafana, DuckDB profile wiring, etc.) are tracked with
+Keycloak realm/config, Grafana, etc.) are tracked with
 `enhancement` + `area:configuration`; browse those labels for open module
 requests that don't yet have a `help wanted` tag.
 
@@ -62,9 +62,14 @@ These are considered production-ready in the current release (v0.15.0):
 - Module: KeyDB (`modules/cache/keydb/`)
 - Module: Vault (`modules/secrets/vault/`)
 - Module: dbt (`modules/transformation/dbt/`) — promoted from experimental with production-suitable hardening (#594)
+- Module: Istio service mesh (`modules/security/istio/`) — production-suitable Helm-only provider of the `service-mesh` contract, enrolled by the production and local Kubernetes example profiles (#1171)
+- Module: DuckDB (`modules/warehouse/duckdb/`) — promoted from experimental (#593); embedded/file-based warehouse via the `file-database` contract, consumed by dlt and dbt
 - Module: Traefik (`modules/integration/traefik/`) — TLS-enforcing reverse proxy; not yet wired into a stable profile
 - Profile: `local-dagster-postgres-superset`
 - Profile: `local-dagster-postgres-superset-dbt`
+- Profile: `local-duckdb-dlt-dbt` — local-analytics demo with DuckDB as the warehouse, loaded by dlt and transformed by dbt (#593)
+- Profile: `production-kubernetes-example` — production-style Helm stack with STRICT Istio mTLS enrollment for Postgres, Dagster, and Superset (#1171)
+- Profile: `local-kubernetes-example` — k3d Helm example with STRICT Istio mTLS enrollment, exercised by Kubernetes E2E (#1171)
 - Image supply chain: signed, SBOM- and provenance-attested image publishing to both Docker Hub and GHCR, with `--hardened` variant selection and `image.source: build|registry` per module
 
 ---
@@ -76,13 +81,16 @@ These work but may have breaking changes in upcoming releases:
 - **Kubernetes/Helm rendering target** (`--target helm` on `render`/`validate`/`security`/`up`/`down`/`state`/`test`) — `cli/k8s_renderer.py`, `cli/k8s_security.py`, and `cli/k8s_runner.py` render a Helm chart and manage its lifecycle via `helm upgrade --install`; includes a k3d-based local-dev harness and a TenderNed demo profile (#608). Still missing the platform baseline (GitOps, observability, backup, network policy) tracked in [docs/haven-parity-plan.md](haven-parity-plan.md) and issues #690/#75/#77.
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
-- Module: DuckDB (`modules-experimental/warehouse/duckdb/`) — embedded/file-based warehouse via the `file-database` contract; wired into dbt (#599), not yet wired into dlt or a demo profile (#593)
-- Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider running in development mode by default (`start-dev`, configurable via `config.webServer.mode`, #216), backed by a consumed `sql-database` contract and providing `oidc-provider`; wired into the `local-haven-reference` profile (#772), remains experimental pending production hardening
+- Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider with production web serving by default (`config.webServer.mode`, #216/#974; `development`/`start-dev` is an explicit local-only opt-in rejected in production profiles by E140), backed by a consumed `sql-database` contract and providing `oidc-provider`; wired into the `local-haven-reference` profile (#772), remains experimental pending its `--target helm` implementation (#1075)
 - Module: Marquez (`modules-experimental/observability/marquez/`) — OpenLineage-compatible lineage backend, reference provider for the `lineage-sink` contract; demoed by `local-dagster-postgres-marquez` (#779)
-- Module: Loki (`modules-experimental/observability/loki/`) — experimental `log-sink` provider using Vector HTTP ingestion and Loki retention tiers (#662)
+- Module: Loki (`modules-experimental/observability/loki/`) — experimental `log-sink` provider over Loki's native OTLP/HTTP endpoint (`/otlp/v1/logs`, with `connectionUri` since #1076) plus a host-loopback Vector JSON gateway, and Loki retention tiers (#662)
+- Module: Grafana (`modules-experimental/observability/grafana/`) — experimental dashboarding UI providing `http-service`, with an optional `sql-database` binding provisioned as a Postgres datasource and an optional `metrics-sink` binding (protocol `prometheus`) provisioned as a Prometheus datasource; demoed by `local-postgres-grafana` (#369)
 - Module: FluxCD (`modules-experimental/gitops/fluxcd/`) — experimental reference provider of the new vendor-neutral `gitops-target` contract (`shared/contracts/gitops-target.yaml`); renders Flux `GitRepository`/`Kustomization`/`HelmRelease` bootstrap manifests over the `--target helm` chart output via the new `implementation.kubernetes.manifests` block (#767, see the "GitOps handoff" section of [docs/kubernetes.md](kubernetes.md))
+- Module: postgres-operator (`modules-experimental/warehouse/postgres-operator/`) — experimental CloudNativePG-backed warehouse providing the same `sql-database` contract as `modules/warehouse/postgres`, Kubernetes-only (`--target helm`); renders a `Cluster` CR plus the app-credentials Secret and declares the operator-created `<cluster>-rw` Service via the new `implementation.kubernetes.services` block (#768, demoed by the `local-kubernetes-postgres-operator` profile below, see [docs/kubernetes.md](kubernetes.md#operator-managed-modules))
 - Profile: `local-dagster-postgres-superset-vault` — not tested thoroughly yet
-- Profile: `local-haven-reference` — Common Ground/Haven-aligned reference stack (identity, TLS ingress, database), experimental while Keycloak remains unsuitable for production (#772, see [docs/common-ground-alignment.md](common-ground-alignment.md))
+- Profile: `local-haven-reference` — Common Ground/Haven-aligned reference stack (identity, TLS ingress, database), experimental pending the Keycloak/Traefik `--target helm` implementations (#772, #1075, see [docs/common-ground-alignment.md](common-ground-alignment.md))
+- Profile: `local-kubernetes-postgres-operator` — warehouse on the experimental CloudNativePG operator module with Superset/KeyDB binding via the unchanged `sql-database` contract, rendered with `--target helm` (#768)
+- Profile: `local-postgres-grafana` — minimal Postgres + experimental Grafana demo wiring the `sql-database` contract into a provisioned Grafana datasource (#369)
 - `scripts/compose_to_module.py` — scaffolds a starter `module.yaml` from an existing `docker-compose.yml`
 - `scripts/ai_profile_review.py` — optional AI-assisted guardrail/simplification review for profiles
 
@@ -93,8 +101,8 @@ These work but may have breaking changes in upcoming releases:
 - 📋 **Stabilize Vault-backed profile** — validate and harden `local-dagster-postgres-superset-vault` for regular use
 - 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
 - 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77); see the [Zero Trust mapping](zero-trust-architecture.md) for the security boundaries and remaining gaps
-- 🚧 **Haven parity — Kubernetes database operators** — GitOps rendering is delivered: `gitops-target` contract + FluxCD reference module render Flux bootstrap manifests over the Helm chart output (#767); the Kubernetes-native database operator pattern remains open (#768); the Basic/Automated/Observed/Secured/Resilient profile maturity report is implemented across #769 and #1059
-- 📋 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + Istio reference module (#776), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink`/`metrics-sink` contracts + OpenTelemetry Collector reference module (#777 — contracts and the experimental `otel-collector` module in progress)
+- 🚧 **Haven parity — Kubernetes database operators** — GitOps rendering is delivered: `gitops-target` contract + FluxCD reference module render Flux bootstrap manifests over the Helm chart output (#767); the Kubernetes-native database operator pattern is delivered experimentally: CloudNativePG-backed `postgres-operator` module providing `sql-database` on `--target helm` (#768); the Basic/Automated/Observed/Secured/Resilient profile maturity report is implemented across #769 and #1059
+- 🚧 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + production-suitable Istio reference module (#776, #1171 — `modules/security/istio`, Helm target only), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink`/`metrics-sink` contracts + OpenTelemetry Collector reference module (#777 — contracts and the experimental `otel-collector` module in progress)
 
 ---
 

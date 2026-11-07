@@ -38,6 +38,17 @@ want to run the stack without the `cds` CLI.
 `environments/<name>.yaml` over the base profile before resolving; see
 [Environment Overlays](../README.md#environment-overlays).
 
+## `cds preflight`
+
+`cds preflight [profile]` prints one `[PASS]`/`[WARN]`/`[FAIL]` line per check.
+Every `WARN` and `FAIL` line ends with a `(see <url>)` link to the repo doc that
+governs the check: the [host hardening baseline](docker-host-hardening.md) for
+`host.*` warnings (`host.rootless` links [rootless-docker.md](rootless-docker.md)),
+the [installation guide](installation.md) for runtime and environment findings,
+[from-docker-to-cds-profile.md](from-docker-to-cds-profile.md) for host-port
+findings, and the [image verification policy](image-signing.md#verification-policy)
+for `images.*` failures.
+
 Color output is terminal-only: when stdout is piped or redirected, `cds` prints
 plain text. On a terminal, `cds up` and `cds state` accept `--no-color`, and a
 non-empty `NO_COLOR` environment variable (<https://no-color.org/>) disables
@@ -77,12 +88,23 @@ prevent this read-only report; secret values are never included in the output.
 Copies the selected `profiles/<name>/` tree, every referenced module
 directory, and any local build-context assets referenced by those modules'
 Dockerfiles. By design it downloads from GitHub rather than a local checkout:
-by default it fetches this project's upstream repository at the `main` branch,
-downloading a tarball via the GitHub API (no `git` binary required). Use
-`--remote <owner/repo>` (or a `github.com/...` URL) to fetch a fork, and
-`--ref <branch|tag|sha>` to select a specific revision. Pass `--local <dir>`
-to use an existing local directory instead of downloading (mutually exclusive
-with `--remote`/`--ref`) for offline/dev workflows. Use `--into` to choose a
+it fetches this project's upstream repository (or a fork via
+`--remote <owner/repo>`, also accepting a `github.com/...` URL), downloading
+a tarball via the GitHub API (no `git` binary required). Without `--ref`, the
+revision defaults to the release tag matching the installed `cds` version
+(e.g. `v0.15.0` for cds 0.15.0), so the fetched profiles and modules are
+validated by the same schema that ships inside the running CLI; when the
+version is unknown or the tag does not exist upstream (e.g. a dev build, or a
+fork without the tags), it falls back to the `main` branch. Pass
+`--ref <branch|tag|sha>` to select a specific revision explicitly; a bare
+version like `--ref 0.15.0` is accepted as shorthand for the `v0.15.0` release
+tag. A version tag newer than the installed `cds` version (e.g.
+`--ref v0.16.0` on cds 0.15.0) prints a warning, because such assets may use
+schema features the running CLI does not understand and fail validation with
+an opaque E021 (the same warning fires on `cds update` when the tracked ref
+is a newer tag). Pass
+`--local <dir>` to use an existing local directory instead of downloading
+(mutually exclusive with `--remote`/`--ref`) for offline/dev workflows. Use `--into` to choose a
 destination root, `--dry-run` to inspect the copy plan first, and `--force` to
 replace conflicting local files. Successful fetches record tracking metadata
 in `.cds/get-manifest.json` (including the resolved commit SHA) for `cds update`.
@@ -116,7 +138,11 @@ runtime build assets, while `--contracts` selects shared contract files.
 Contract declarations embedded in `module.yaml` are refreshed with the module.
 
 The command uses each manifest entry's recorded source and ref, applying a
-stored commit pin when one was specified. Before replacing a file, it compares
+stored commit pin when one was specified. Because `cds get` records the
+revision it actually fetched (by default the release tag matching the
+installed `cds` version), `cds update` keeps you on that tag rather than
+jumping to `main`; re-run `cds get --ref main` (or another ref) to move the
+layout to a different revision. Before replacing a file, it compares
 the local SHA-256 with the last fetched hash. Files modified or deleted locally
 are reported as conflicts and left untouched; new files are copied only when
 their destination does not already exist. Conflicts produce a non-zero exit
@@ -129,10 +155,12 @@ than deleted.
 ## `cds list`
 
 `cds list profiles`, `cds list modules`, and `cds list images` accept the same
-`--remote`/`--ref`/`--local` source-repository selection as `cds get`, so you
-can discover what's available in another repository (a fork, or an existing
-local checkout) before running `cds get` against it. Without these flags,
-`cds list` inspects the local project as before.
+`--remote`/`--ref`/`--local` source-repository selection as `cds get` (with the
+same default revision: the release tag matching the installed `cds` version,
+falling back to `main`), so you can discover what's available in another
+repository (a fork, or an existing local checkout) before running `cds get`
+against it. Without these flags, `cds list` inspects the local project as
+before.
 
 ## `cds compose-profile`
 

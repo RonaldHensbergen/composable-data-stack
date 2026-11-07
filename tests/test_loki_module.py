@@ -38,21 +38,47 @@ class LokiModuleTest(unittest.TestCase):
             r"^grafana/loki:3\.6\.1@sha256:[0-9a-f]{64}$",
         )
 
-    def test_log_sink_contract_exposes_internal_ingest_and_retention(self) -> None:
+    def test_log_sink_contract_exposes_native_otlp_endpoint_and_retention(self) -> None:
+        # The contract advertises Loki's native OTLP/HTTP endpoint on the
+        # loki-storage service (issue #1076) so OTLP/HTTP forwarders such as
+        # the otel-collector module's backends.logs can dial it end-to-end.
         provided = self.module["spec"]["provides"][0]
         self.assertEqual(provided["name"], "log-sink")
         self.assertEqual(provided["contract"]["kind"], "log-sink")
         contract = provided["contract"]["spec"]
-        self.assertEqual(contract["host"], "${service.dns}")
-        self.assertEqual(contract["port"], 8686)
-        self.assertEqual(contract["protocol"], "http")
-        self.assertEqual(contract["ingestPath"], "/logs")
+        self.assertEqual(contract["host"], "${service.services.loki-storage}")
+        self.assertEqual(contract["port"], 3100)
+        self.assertEqual(contract["protocol"], "otlp-http")
+        self.assertEqual(contract["ingestPath"], "/otlp/v1/logs")
+        self.assertEqual(
+            contract["connectionUri"],
+            "http://${service.services.loki-storage}:3100",
+        )
         self.assertEqual(contract["rawRetentionDays"], "${config.rawRetentionDays}")
         self.assertEqual(
             contract["structuredRetentionDays"],
             "${config.structuredRetentionDays}",
         )
-        self.assertEqual(contract["serviceName"], "loki")
+        self.assertEqual(contract["serviceName"], "loki-storage")
+        # The runtime block describes the same contract-serving service.
+        runtime_service = self.module["spec"]["runtime"]["service"]
+        self.assertEqual(runtime_service["name"], "loki-storage")
+        self.assertEqual(runtime_service["ports"][0]["containerPort"], 3100)
+
+    def test_loki_config_promotes_otlp_tier_attribute_for_retention(self) -> None:
+        loki_yaml = yaml.safe_load(
+            (MODULE_PATH.parent / "loki.yaml").read_text(encoding="utf-8")
+        )
+        promoted = loki_yaml["distributor"]["otlp_config"][
+            "default_resource_attributes_as_index_labels"
+        ]
+        self.assertIn("service.name", promoted)
+        self.assertIn("tier", promoted)
+        self.assertTrue(loki_yaml["limits_config"]["allow_structured_metadata"])
+        self.assertEqual(
+            loki_yaml["limits_config"]["retention_stream"][0]["selector"],
+            '{tier="structured"}',
+        )
 
     def test_profile_validation_and_render_publish_the_contract_endpoint(self) -> None:
         profile = {
@@ -100,12 +126,16 @@ class LokiModuleTest(unittest.TestCase):
                 )
                 assert plan is not None
                 provided = plan["modules"][0]["provides"]["log-sink"]["spec"]
-                self.assertEqual(provided["host"], "logs-loki")
-                self.assertEqual(provided["port"], 8686)
-                self.assertEqual(provided["ingestPath"], "/logs")
+                self.assertEqual(provided["host"], "logs-loki-storage")
+                self.assertEqual(provided["port"], 3100)
+                self.assertEqual(provided["protocol"], "otlp-http")
+                self.assertEqual(provided["ingestPath"], "/otlp/v1/logs")
+                self.assertEqual(
+                    provided["connectionUri"], "http://logs-loki-storage:3100"
+                )
                 self.assertEqual(provided["rawRetentionDays"], 7)
                 self.assertEqual(provided["structuredRetentionDays"], 90)
-                self.assertEqual(provided["serviceName"], "loki")
+                self.assertEqual(provided["serviceName"], "loki-storage")
 
                 rendered, render_diagnostics = render_compose(plan)
 
@@ -127,6 +157,104 @@ class LokiModuleTest(unittest.TestCase):
         self.assertEqual(
             compose["services"]["logs-loki"]["environment"]["LOKI_ENDPOINT"],
             "http://logs-loki-storage:3100",
+        )
+
+    def test_services_run_with_no_new_privileges(self) -> None:
+        # Both pinned images (timberio/vector, grafana/loki) ship their main
+        # binary without file capabilities, so exec succeeds under
+        # no_new_privs (issue #1066); assert the flag on the module and on
+        # the rendered Compose output.
+        services = self.module["spec"]["implementation"]["compose"]["services"]
+        for name, service in services.items():
+            with self.subTest(service=name):
+                self.assertIn("no-new-privileges:true", service["security_opt"])
+
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "loki-nnp-test", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "logs",
+                        "source": "observability/loki",
+                        "version": "0.1.0",
+                        "enabled": True,
+                    }
+                ],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            profile_path = Path(tmp) / "profile.yaml"
+            profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+            with mock.patch.dict(
+                "os.environ",
+                {"CDS_MODULE_PATH": str(REPO_ROOT / "modules-experimental")},
+                clear=False,
+            ):
+                plan, _ = build_plan(str(profile_path))
+                rendered, render_diagnostics = render_compose(plan)
+        self.assertEqual(
+            [d.format() for d in render_diagnostics if d.level == "error"],
+            [],
+        )
+        compose = yaml.safe_load(rendered)
+        for name in ("logs-loki", "logs-loki-storage"):
+            with self.subTest(rendered_service=name):
+                self.assertIn(
+                    "no-new-privileges:true",
+                    compose["services"][name]["security_opt"],
+                )
+
+    def test_loki_endpoint_resolves_for_the_namesake_module_id(self) -> None:
+        # Regression test for the docker smoke coverage gap (#1065): with the
+        # conventional instance id `loki`, the rendered storage service is
+        # `loki-storage`, so the Vector LOKI_ENDPOINT must point there —
+        # `${service.host}-loki-storage` would render the non-existent
+        # `loki-loki-storage` and only fail at runtime. `${service.services.*}`
+        # maps through the renderer's naming rule (issue #1029) for any id.
+        profile = {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Profile",
+            "metadata": {"name": "loki-namesake-test", "environment": "local"},
+            "spec": {
+                "runtime": {"type": "docker-compose"},
+                "modules": [
+                    {
+                        "id": "loki",
+                        "source": "observability/loki",
+                        "version": "0.1.0",
+                        "enabled": True,
+                    }
+                ],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            profile_path = Path(tmp) / "profile.yaml"
+            profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+            with mock.patch.dict(
+                "os.environ",
+                {"CDS_MODULE_PATH": str(REPO_ROOT / "modules-experimental")},
+                clear=False,
+            ):
+                plan, plan_diagnostics = build_plan(str(profile_path))
+                self.assertIsNotNone(plan)
+                self.assertEqual(
+                    [d.format() for d in plan_diagnostics if d.level == "error"],
+                    [],
+                )
+                rendered, render_diagnostics = render_compose(plan)
+        self.assertEqual(
+            [d.format() for d in render_diagnostics if d.level == "error"],
+            [],
+        )
+        compose = yaml.safe_load(rendered)
+        self.assertIn("loki", compose["services"])
+        self.assertIn("loki-storage", compose["services"])
+        self.assertEqual(
+            compose["services"]["loki"]["environment"]["LOKI_ENDPOINT"],
+            "http://loki-storage:3100",
         )
 
     def test_ingestion_is_not_granted_host_docker_socket_access(self) -> None:

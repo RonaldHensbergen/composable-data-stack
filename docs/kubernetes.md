@@ -17,6 +17,8 @@ including k3s through k3d.
 - [Translation boundaries](#translation-boundaries)
 - [Network isolation and least privilege](#network-isolation-and-least-privilege)
 - [GitOps handoff](#gitops-handoff)
+- [Operator-managed modules](#operator-managed-modules)
+- [Service mesh (mTLS between module instances)](#service-mesh-mtls-between-module-instances)
 - [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
@@ -262,10 +264,28 @@ guess at semantics that differ between runtimes.
 | Network policy | Emitted per module: default-deny ingress/egress with contract-derived allow rules (see [Network isolation](#network-isolation-and-least-privilege)) |
 | `pids_limit` | Not translated by the current schema |
 | Local `build:` | Build first, then import into k3d |
+| Single-file host bind (`fromBind`) | ConfigMap projected at the bind target via `subPath`, read-only |
+| Directory host bind | `emptyDir` (host content is not carried over) |
 
 Dagster's Compose-only Unix socket does not cross Pod boundaries. The
 Kubernetes implementation uses Dagster gRPC over a ClusterIP Service, as
 recorded in ADR 0002.
+
+### Sample data on the Helm target
+
+The dagster module's `sampleData.enabled` (default `false`) ships the bundled
+`offers-1000.csv` fixture into the dagster pods on the Helm target as the
+`sample-data` ConfigMap, projected at `sampleData.containerPath` (default
+`/app/data/cds/incoming/offers-1000.csv`) — the same path the Compose target
+serves through its `sharedData` host bind, so both targets see the identical
+file (issue #1117). The ConfigMap is rendered from `sampleData.hostPath`
+(default `./workdirs/shared-data/incoming/offers-1000.csv`) at render time and
+must stay under the 1 MiB ConfigMap limit (E075). When enabled, the user-code
+container also gets `CDS_SAMPLE_DATA_ENABLED=true` and
+`CDS_OFFERS_FIXTURE_PATH`, and the `load_offers_1000` job runs on a schedule
+(idempotent: exactly 1,000 rows in `offers_1000` after every run). When the
+parameter is absent or `false`, neither the ConfigMap nor its mounts are
+rendered and behavior is unchanged.
 
 ## Network isolation and least privilege
 
@@ -281,11 +301,37 @@ NetworkPolicy (issue #75):
   binding without a numeric port falls back to the provider's advertised
   service ports; with no port evidence at all the rule stays module-scoped
   and the render reports `W128` asking for the port to be declared.
+- Reverse-proxy `config.routes` entries derive the same pair of edges
+  (#1033, #883): each route binds an `http-service` provide through its
+  `contractRef` (`<module-id>.<contract-name>`), and that target module
+  opens egress on the proxy's pods and matching ingress on the target's
+  pods, scoped to the route's backend port (the target's http-service
+  contract port, mapped through the target's Service `targetPort` like a
+  binding's port). Targets no route names stay unreachable from the proxy.
+  A route that cannot yield a port-scoped edge (malformed or unknown
+  contractRef, no matching http-service provide, no port evidence) adds no
+  edge and is reported as `W129`; the `networkPolicy.egress` passthrough
+  remains the escape hatch for anything routes cannot express.
 - Within a module, pods may talk freely on any port: a module is the unit
   of composition and declares its own internal wiring (which is why the
   Superset init job and the webserver share one policy).
 - Egress to the cluster DNS service (kube-system `kube-dns`, UDP+TCP 53) is
   the only other unconditional rule.
+- Egress to anything outside the plan -- an external database, an HTTPS API,
+  a package index, an object store reached by address -- is denied. That is
+  the security baseline: the only way to open external egress is a declared
+  `implementation.kubernetes.egress` entry (see below, issue #1023). A DNS
+  name cannot be declared: a NetworkPolicy can only express IP ranges, so
+  resolve the name and declare the resulting IP/CIDR.
+- `waitFor` gates are validated against this baseline at render time: a gate
+  whose resolved host is neither a same-module Service emitted by this render
+  (a workload disabled via `enabledFrom` gets no Service), the endpoint of
+  a consumed provider, nor a reverse-proxy route target, and whose host:port
+  no custom `networkPolicy.egress` ipBlock rule covers, would only hang until
+  its timeout, so the render fails closed with E152 naming the gate and the
+  unreachable host (#1031, #1033), and whose host:port no declared
+  `implementation.kubernetes.egress` entry covers (#1023). A DNS-name gate
+  host stays denied: a NetworkPolicy cannot express one.
 - NodePort and LoadBalancer services are intended entry points: ingress is
   opened to all sources on exactly their exposed ports, and CDS-K8S-007
   flags that exposure.
@@ -293,16 +339,55 @@ NetworkPolicy (issue #75):
   `implementation.kubernetes.serviceAccount.rbac` (malformed rules fail
   closed with E148), and wildcard grants are flagged by CDS-K8S-006.
 
+### Declaring external egress
+
+Contract bindings and reverse-proxy routes are the only ways to open
+cross-module traffic, and they cannot name anything outside the plan. For an
+external destination, declare it under `implementation.kubernetes.egress`
+(issue #1023):
+
+```yaml
+implementation:
+  kubernetes:
+    egress:
+      - host: 203.0.113.10          # IP literal -> ipBlock 203.0.113.10/32
+        port: 5432                  # external PostgreSQL
+      - cidr: 10.20.0.0/16          # a range, with optional carve-outs
+        except: [10.20.0.13/32]     # stays denied
+        ports: [443, 8443]          # HTTPS endpoints
+        protocol: TCP               # default; UDP/SCTP also possible
+```
+
+Each entry renders as one ipBlock egress rule on the module's NetworkPolicy,
+scoped to exactly the declared destination, `except` CIDRs, and ports; the
+policy itself stays release-scoped (`{{ .Release.Name }}-...`). To open a
+destination for one workload only, put the same list under that workload
+(`implementation.kubernetes.workloads.<name>.egress`): it renders as an
+additional workload-scoped NetworkPolicy whose podSelector also matches the
+workload's `app.kubernetes.io/name` label, so the module's other pods keep
+default-deny egress. Values support `${config.*}` substitution, so a
+profile can supply the destination through module config. Malformed entries
+(a DNS-name `host`, a `cidr` with host bits set, an `except` outside the
+`cidr`, a bad port or protocol, an unresolved expression) fail closed with
+E153. Without `port`/`ports` the rule covers all ports to that destination
+only. The security scan records every declared entry as a CDS-K8S-009
+finding whose severity scales with breadth: `0.0.0.0/0` on all ports is high,
+an unscoped destination or a missing port list is medium, and a
+destination+port-scoped entry is low -- the audit trail of an intentional
+opening in `cds security --target helm`.
+
 ### When the baseline denies something you need
 
-Bindings cannot name external endpoints or cross-namespace clients: a job
-reading an external API or database, or an ingress controller fronting a
-ClusterIP service, would be silently denied by the default-deny baseline.
-Declare those rules via `implementation.kubernetes.networkPolicy.ingress`/
-`egress` -- they are rendered verbatim after the binding-derived rules, and
-malformed shapes fail closed with E149. The security scan records every
-external-egress rule as a low CDS-K8S-008 finding, so intentional openings
-stay visible in `cds security --target helm`.
+For anything the structured `egress` block cannot express -- cross-namespace
+clients such as an ingress controller fronting a ClusterIP service, or
+selector-based peers -- declare raw rules via
+`implementation.kubernetes.networkPolicy.ingress`/`egress`: they are rendered
+verbatim after the binding-derived, route-derived, and declared-egress rules,
+and malformed shapes fail closed with E149. The security scan records every
+external-egress rule as a low CDS-K8S-008 finding, and every ingress rule
+without a source restriction (no `from`, an empty `from` list, or an ipBlock
+peer) as a low CDS-K8S-010 finding, so intentional openings stay visible in
+`cds security --target helm`.
 
 ## GitOps handoff
 
@@ -332,6 +417,11 @@ The module declares raw Kubernetes manifests via
 `implementation.kubernetes.manifests`, a new module-schema block the Helm
 renderer emits verbatim as extra chart templates (substituted like any other
 module value, named `{{ .Release.Name }}-...`, and shape-checked with E151).
+A manifest may also declare `forEach: <config path>` (issue #1170): when the
+expression resolves to a list, the renderer emits one copy per element with
+the element bound as `item` (`${item.name}` etc.), suffixing each copy's
+template file name with its resolved `metadata.name`; duplicate names fail
+closed with E156.
 Because a GitOps module has no workloads of its own, it gets no ServiceAccount
 or NetworkPolicy, and rendering a profile that contains it with
 `--target compose` fails closed with E070.
@@ -341,6 +431,104 @@ the cluster needs a FluxCD (or ArgoCD) installation with its CRDs present
 before the rendered chart is applied — and CDS does not commit to the GitOps
 repository; rendering produces local files the operator commits. ArgoCD can be
 added later as a second provider of the same `gitops-target` contract.
+
+## Operator-managed modules
+
+A module whose endpoint is created by an operator (not by CDS-rendered pods)
+declares that endpoint instead of a workload, e.g. the experimental
+[`modules-experimental/warehouse/postgres-operator`](../modules-experimental/warehouse/postgres-operator/)
+(issue #768), which renders a CloudNativePG `Cluster` CR. Two schema blocks
+support this pattern:
+
+- `implementation.kubernetes.services` declares Services the module's
+  manifests cause to exist in the release namespace — CloudNativePG creates
+  `<cluster>-rw`/`-ro`/`-r` for every Cluster. The names are *declared, not
+  rendered*: they join the renderer's service registry, so contract-host
+  validation (E084/E150), release-scoping of consumer binding hosts, and
+  `waitFor` gates treat them exactly like rendered workload Services. Key
+  `rw` on module instance `warehouse` is `warehouse-rw`, release-scoped to
+  `{{ .Release.Name }}-warehouse-rw` — matching the operator-created Service
+  for a Cluster named `{{ .Release.Name }}-warehouse`.
+- `implementation.kubernetes.manifests` carries the CR itself (see
+  [GitOps handoff](#gitops-handoff)). A manifest value that is exactly one
+  secret reference (`secrets.*`, resolving to `${CDS_*}`) is rewritten to a
+  Helm `required` lookup of `.Values.secrets`, so CRs like a `Cluster`'s
+  `bootstrap.initdb.secret` can consume the app password without the chart
+  ever storing it; any other leftover `${CDS_*}` still fails closed with
+  E078.
+
+Like the GitOps module, an operator-managed module runs no pods of its own, so
+it gets no ServiceAccount or NetworkPolicy, and `--target compose` fails
+closed with E070. CDS renders the CR but does not install the operator
+itself — the module declares it under `implementation.kubernetes.operators`
+(`name`, `crd`, `install`, optional `docs`), and CDS surfaces the
+prerequisite at every step (issue #768):
+
+- `cds render` / `cds test` / `cds up --target helm` print a **W130** warning
+  naming the operator, its CRD, and the install command; the chart's
+  `templates/NOTES.txt` repeats it after `helm install`.
+- `cds up --target helm` checks the cluster first (`kubectl get crd <crd>`)
+  and fails closed with **E155** while the CRD is absent, rather than letting
+  `helm` fail with "no matches for kind". If the check itself cannot run
+  (RBAC/connectivity), it warns and continues.
+
+Installing CloudNativePG on the cluster (official chart; installs controller,
+webhooks, RBAC, and CRDs):
+
+```bash
+helm repo add cnpg https://cloudnative-pg.github.io/charts
+helm repo update
+helm upgrade --install cnpg \
+  --namespace cnpg-system \
+  --create-namespace \
+  cnpg/cloudnative-pg
+kubectl get crd clusters.postgresql.cnpg.io                          # CRD registered
+kubectl -n cnpg-system rollout status deployment/cnpg-cloudnative-pg  # ready
+```
+
+cert-manager is not required for a basic install (the operator manages its
+own webhook/cluster CA by default). See the module README for the full flow
+and the demo profile
+[`profiles/local-kubernetes-postgres-operator`](../profiles/local-kubernetes-postgres-operator/).
+
+## Service mesh (mTLS between module instances)
+
+For profiles that need mutual TLS between module instances — rather than only
+TLS at the ingress/reverse proxy — the vendor-neutral
+[`service-mesh` contract](../shared/contracts/service-mesh.yaml) describes
+the mesh (enforcement mode, enrolled named services, optional per-service
+authorization policy), and the production-suitable reference provider
+[`modules/security/istio`](../modules/security/istio/) (issue #776, promoted
+by #1171) renders the Istio security resources on the Helm target:
+
+- a namespace-wide `PeerAuthentication` with `mtls.mode` from
+  `config.mtlsMode` (`STRICT` by default), and
+- when `config.authorization.enabled` is true, one `AuthorizationPolicy`
+  (`action: ALLOW`) **per enrolled service**, fanned out over
+  `config.services` with the `forEach` manifest marker (issue #1170): each
+  policy carries `spec.selector.matchLabels: {cds.dev/module: <service>}` and
+  the rules from `config.authorization.rules`, so the allow rules apply
+  per service rather than namespace-wide.
+
+A profile enrolls an existing module simply by naming its instance id (and
+port) in the istio module's `config.services` — no consumer-side changes to
+that module: the mesh policy selects its pods by the `cds.dev/module` label.
+The module advertises the resolved mesh on the `service-mesh` contract, which
+`cds maturity` counts as the service-mesh leg of the **Secured** tier.
+
+Like operator-managed modules, the istio module runs no pods of its own (no
+ServiceAccount/NetworkPolicy), declares the Istio control plane under
+`implementation.kubernetes.operators` (W130 on render/test, E155 on
+`cds up --target helm` while `peerauthentications.security.istio.io` is
+absent), and fails closed with E070 on `--target compose`. The mesh adds peer
+identity and L7 policy on top of CDS's default-deny NetworkPolicy — it does
+not open L3/L4 paths by itself, so enrolled modules still need their
+contract-derived (or passthrough) NetworkPolicy edges. The module is
+included in the `production-kubernetes-example` and
+`local-kubernetes-example` profiles. The Istio control plane remains an
+out-of-band prerequisite: render/test report W130, and `cds up --target helm`
+fails closed with E155 while the `PeerAuthentication` CRD is absent. See the
+module README for the istiod install and namespace sidecar-injection label.
 
 ## Troubleshooting
 

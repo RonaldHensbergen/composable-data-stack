@@ -49,13 +49,13 @@ from .k8s_provision import (
     import_local_images,
 )
 from .k8s_renderer import render_helm
-from .k8s_runner import get_k8s_state, helm_down, helm_up
+from .k8s_runner import check_operator_crds, get_k8s_state, helm_down, helm_up
 from .k8s_security import scan_k8s_security
 from .loader import load_yaml_file, save_generated_profile
 from .maturity import build_maturity_report, format_maturity_report
 from .overlay import _merge_profile_docs, resolve_extends, resolve_profile
 from .planner import build_plan
-from .preflight import preflight_passed, run_preflight
+from .preflight import format_check_line, preflight_passed, run_preflight
 from .renderer import render_compose
 from .report import build_compliance_report
 from .secret_leak import (
@@ -149,8 +149,16 @@ def _record_audit(
     environment: str | None = None,
     plan: dict[str, Any] | None = None,
     details: dict[str, Any] | None = None,
+    profile_path: str | None = None,
 ) -> None:
     """Append a local audit-trail entry for a render/apply attempt (#737).
+
+    The entry is anchored to the profile's own project root
+    (`resolve_project_root(profile_path)`, the same convention as rendered
+    Compose output) rather than the cwd, so entries for a profile resolved
+    via e.g. `CDS_PROFILE_PATH` from an unrelated directory still land in
+    one consistent `.cds/audit-log.jsonl` (#822). With no `profile_path`,
+    the entry falls back to the cwd-anchored path.
 
     Never raises or changes control flow: audit logging is best-effort
     local evidence and must not affect the outcome of the command it
@@ -164,6 +172,7 @@ def _record_audit(
             environment=environment,
             plan=plan,
             details=details,
+            project_root=resolve_project_root(profile_path) if profile_path else None,
             config_disabled=load_saved_audit_disabled(),
         )
     except Exception as exc:  # pragma: no cover - defensive, see docstring
@@ -803,7 +812,9 @@ def list_modules(module_root: Path | None = None) -> list[str]:
 
 
 @contextmanager
-def _resolve_list_source_roots(remote: str | None, ref: str, local: str | None):
+def _resolve_list_source_roots(
+    remote: str | None, ref: str | None, local: str | None, cli_version: str | None = None
+):
     """Yield the (profiles_root, modules_root) pair `cds list` should scan.
 
     With no --remote/--local, this is just the local project's roots. With
@@ -816,7 +827,7 @@ def _resolve_list_source_roots(remote: str | None, ref: str, local: str | None):
         yield get_profiles_root(), get_modules_root()
         return
     with _prepare_source_repository(
-        remote, ref, local, allowed_sources=load_allowed_get_sources()
+        remote, ref, local, allowed_sources=load_allowed_get_sources(), cli_version=cli_version
     ) as source_repo:
         yield source_repo / "profiles", source_repo / "modules"
 
@@ -852,8 +863,12 @@ def _add_remote_source_args(subparser: argparse.ArgumentParser) -> None:
     )
     subparser.add_argument(
         "--ref",
-        default="main",
-        help="Branch, tag, or commit to fetch from --remote (default: main)",
+        default=None,
+        help=(
+            "Branch, tag, or commit to inspect --remote at (default: the release "
+            "tag matching the installed cds version, e.g. v0.15.0, falling back "
+            "to main when that tag does not exist)"
+        ),
     )
     subparser.add_argument(
         "--local",
@@ -1808,8 +1823,13 @@ def _run() -> int:
     )
     get_parser.add_argument(
         "--ref",
-        default="main",
-        help="Branch, tag, or commit to fetch from --remote (default: main)",
+        default=None,
+        help=(
+            "Branch, tag, or commit to fetch from --remote (default: the release "
+            "tag matching the installed cds version, e.g. v0.15.0, so fetched "
+            "assets match the running CLI's schema; falls back to main when that "
+            "tag does not exist)"
+        ),
     )
     get_parser.add_argument(
         "--commit",
@@ -2061,6 +2081,7 @@ def _run() -> int:
             args.profile,
             "failure" if validation_failed else "success",
             environment=args.environment,
+            profile_path=profile_path
         )
         return 1 if validation_failed else 0
 
@@ -2324,16 +2345,20 @@ def _run() -> int:
                 code, render_diags = _render_helm_chart(plan, output_path, args.force, env_file=env_file)
                 all_diags = render_diags
                 if code != 0:
-                    _record_audit("render", str(source_profile), "failure", plan=plan)
+                    _record_audit("render", str(source_profile), "failure", plan=plan, profile_path=str(source_profile))
                     return code
                 if has_errors(all_diags):
                     print_diagnostics(all_diags)
                     print("Render failed.")
-                    _record_audit("render", str(source_profile), "failure", plan=plan)
+                    _record_audit("render", str(source_profile), "failure", plan=plan, profile_path=str(source_profile))
                     return 1
+                render_warnings = [d for d in all_diags if d.level != "error"]
+                if render_warnings:
+                    print_diagnostics(render_warnings)
                 print(f"Rendered Helm chart written to {output_path}")
                 _record_audit(
-                    "render", str(source_profile), "success", plan=plan, details={"target": "helm", "output": output_path}
+                    "render", str(source_profile), "success", plan=plan, details={"target": "helm", "output": output_path},
+                    profile_path=str(source_profile)
                 )
                 return 0
 
@@ -2343,12 +2368,13 @@ def _run() -> int:
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Render failed.")
-                _record_audit("render", str(source_profile), "failure", plan=plan)
+                _record_audit("render", str(source_profile), "failure", plan=plan, profile_path=str(source_profile))
                 return 1
 
             print(f"Rendered compose file written to {output_path}")
             _record_audit(
-                "render", str(source_profile), "success", plan=plan, details={"target": "compose", "output": output_path}
+                "render", str(source_profile), "success", plan=plan, details={"target": "compose", "output": output_path},
+                profile_path=str(source_profile)
             )
             return 0
         else:
@@ -2363,7 +2389,7 @@ def _run() -> int:
             if has_errors(diagnostics):
                 print_diagnostics(diagnostics)
                 print("Cannot render because validation failed.")
-                _record_audit("render", profile_or_plan, "failure", environment=args.environment)
+                _record_audit("render", profile_or_plan, "failure", environment=args.environment, profile_path=profile_path)
                 return 1
 
             env_file = str(resolve_env_file_path(profile_path))
@@ -2374,7 +2400,7 @@ def _run() -> int:
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Cannot render because plan generation failed.")
-                _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
+                _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
                 return 1
 
             output_path = args.output
@@ -2388,13 +2414,16 @@ def _run() -> int:
                 code, render_diags = _render_helm_chart(plan, output_path, args.force, env_file=env_file)
                 all_diags = all_diags + render_diags
                 if code != 0:
-                    _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
+                    _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
                     return code
                 if has_errors(all_diags):
                     print_diagnostics(all_diags)
                     print("Render failed.")
-                    _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
+                    _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
                     return 1
+                render_warnings = [d for d in all_diags if d.level != "error"]
+                if render_warnings:
+                    print_diagnostics(render_warnings)
                 print(f"Rendered Helm chart written to {output_path}")
                 _record_audit(
                     "render",
@@ -2403,6 +2432,7 @@ def _run() -> int:
                     environment=args.environment,
                     plan=plan,
                     details={"target": "helm", "output": output_path},
+                    profile_path=profile_path
                 )
                 return 0
 
@@ -2412,7 +2442,7 @@ def _run() -> int:
             if has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Render failed.")
-                _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan)
+                _record_audit("render", profile_or_plan, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
                 return 1
 
             print(f"Rendered compose file written to {output_path}")
@@ -2423,6 +2453,7 @@ def _run() -> int:
                 environment=args.environment,
                 plan=plan,
                 details={"target": "compose", "output": output_path},
+                profile_path=profile_path
             )
 
             return 0
@@ -2461,7 +2492,7 @@ def _run() -> int:
         if has_errors(all_diags):
             print_diagnostics(all_diags)
             print("Cannot start stack because plan generation failed.")
-            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
             return 1
 
         if args.target == "helm":
@@ -2472,8 +2503,11 @@ def _run() -> int:
             if code != 0 or has_errors(all_diags):
                 print_diagnostics(all_diags)
                 print("Cannot start stack because Helm rendering failed.")
-                _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
+                _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
                 return code or 1
+            render_warnings = [d for d in render_diags if d.level != "error"]
+            if render_warnings:
+                print_diagnostics(render_warnings)
 
             plan_release, plan_namespace = _helm_identity(
                 plan.get("metadata"), plan.get("runtime"), profile_path
@@ -2504,8 +2538,44 @@ def _run() -> int:
                         _record_audit(
                             "up", args.profile, "failure", environment=args.environment, plan=plan,
                             details={"target": "helm", "namespace": namespace, "release": release},
+                            profile_path=profile_path
                         )
                         return cluster_code
+                    # Modules can declare out-of-band operators their manifests
+                    # need (implementation.kubernetes.operators, issue #768). If
+                    # such an operator's CRD is confirmed absent from the
+                    # cluster, helm would fail with "no matches for kind" — fail
+                    # early instead, naming the install command (E155).
+                    missing_operators, crd_check_ok = check_operator_crds(plan, args.kube_context)
+                    if missing_operators:
+                        for module_id, operator in missing_operators:
+                            docs = f" (docs: {operator['docs']})" if operator.get("docs") else ""
+                            print(Diagnostic(
+                                level="error",
+                                code="E155",
+                                message=(
+                                    f'Module "{module_id}" needs operator "{operator["name"]}", '
+                                    f'but its CRD "{operator["crd"]}" is not present on the '
+                                    "cluster, so the rendered chart cannot be applied. "
+                                    f'Install the operator first: {operator["install"]}{docs}'
+                                ),
+                                path=f"module:{module_id}.implementation.kubernetes.operators",
+                            ).format())
+                        print("Cannot start stack because a required out-of-band operator is missing.")
+                        _record_audit(
+                            "up", args.profile, "failure", environment=args.environment, plan=plan,
+                            details={"target": "helm", "namespace": namespace, "release": release,
+                                     "missingOperators": [op["name"] for _, op in missing_operators]},
+                            profile_path=profile_path
+                        )
+                        return 1
+                    if not crd_check_ok:
+                        print(
+                            "WARNING could not verify the CRDs of declared out-of-band "
+                            "operators on the cluster (kubectl error); if an operator is "
+                            "missing, helm install will fail with \"no matches for kind\". "
+                            "See the W130 warnings from rendering for install commands."
+                        )
                     built_images: list[str] = []
                     if builds and not args.no_build:
                         print(f"Building local images: {', '.join(build.image for build in builds)}")
@@ -2515,6 +2585,7 @@ def _run() -> int:
                             _record_audit(
                                 "up", args.profile, "failure", environment=args.environment, plan=plan,
                                 details={"target": "helm", "namespace": namespace, "release": release},
+                                profile_path=profile_path
                             )
                             return build_code
                         built_images = [build.image for build in builds]
@@ -2526,6 +2597,7 @@ def _run() -> int:
                             _record_audit(
                                 "up", args.profile, "failure", environment=args.environment, plan=plan,
                                 details={"target": "helm", "namespace": namespace, "release": release},
+                                profile_path=profile_path
                             )
                             return import_code
                     elif builds and args.no_build:
@@ -2547,13 +2619,14 @@ def _run() -> int:
                     )
             except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
                 print(f"ERROR {exc}")
-                _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
+                _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
                 return 1
             if result != 0:
                 print(f"Helm deployment failed (exit {result}). See {log_path} for details.")
                 _record_audit(
                     "up", args.profile, "failure", environment=args.environment, plan=plan,
                     details={"target": "helm", "namespace": namespace, "release": release},
+                    profile_path=profile_path
                 )
                 return result
             if args.detach:
@@ -2568,6 +2641,7 @@ def _run() -> int:
                     "release": release,
                     "images": built_images,
                 },
+                profile_path=profile_path
             )
             return 0
 
@@ -2577,7 +2651,7 @@ def _run() -> int:
         if has_errors(all_diags):
             print_diagnostics(all_diags)
             print("Cannot start stack because render failed.")
-            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
             return 1
 
         print(f"Rendered compose file written to {output_path}")
@@ -2621,7 +2695,7 @@ def _run() -> int:
                     )
                     if build_returncode != 0:
                         print(f"Build failed (exit {build_returncode}). See {log_path} for details.")
-                        _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
+                        _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
                         return build_returncode
 
                 print(f"Running: {' '.join(up_cmd)}")
@@ -2629,7 +2703,7 @@ def _run() -> int:
                     up_returncode = run_streamed(up_cmd, log_file, echo=args.detach)
                     if up_returncode != 0:
                         print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
-                        _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
+                        _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
                         return up_returncode
                     print(
                         f"Stack starting in the background. Run 'cds state' to check status; "
@@ -2638,6 +2712,7 @@ def _run() -> int:
                     _record_audit(
                         "up", args.profile, "success", environment=args.environment, plan=plan,
                         details={"target": "compose", "detach": True},
+                        profile_path=profile_path
                     )
                     return 0
 
@@ -2699,7 +2774,7 @@ def _run() -> int:
                         f"\nStopped watching; the stack keeps running. "
                         f"Docker output logged to {log_path}."
                     )
-                    _record_audit("up", args.profile, "interrupted", environment=args.environment, plan=plan)
+                    _record_audit("up", args.profile, "interrupted", environment=args.environment, plan=plan, profile_path=profile_path)
                     return 130
 
                 while True:
@@ -2710,18 +2785,18 @@ def _run() -> int:
                         continue
                 if up_returncode != 0:
                     print(f"'docker compose up' failed (exit {up_returncode}). See {log_path} for details.")
-                    _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
+                    _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
                     return up_returncode
         except KeyboardInterrupt:
             print(
                 f"\nInterrupted. The stack keeps running; "
                 f"Docker output logged to {log_path}."
             )
-            _record_audit("up", args.profile, "interrupted", environment=args.environment, plan=plan)
+            _record_audit("up", args.profile, "interrupted", environment=args.environment, plan=plan, profile_path=profile_path)
             return 130
         except FileNotFoundError:
             print("ERROR docker was not found. Install Docker and ensure it is on your PATH.")
-            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
             return 1
         finally:
             if log_tail_process is not None:
@@ -2732,13 +2807,14 @@ def _run() -> int:
                 f"\nStack did not settle within {args.timeout:.0f}s, or a service is unhealthy. "
                 f"Run 'cds state' for the latest status; full output in {log_path}."
             )
-            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan)
+            _record_audit("up", args.profile, "failure", environment=args.environment, plan=plan, profile_path=profile_path)
             return 1
 
         print(f"\nStack is up. Full output in {log_path}.")
         _record_audit(
             "up", args.profile, "success", environment=args.environment, plan=plan,
             details={"target": "compose"},
+            profile_path=profile_path
         )
         return 0
 
@@ -2754,6 +2830,7 @@ def _run() -> int:
                 dry_run=args.dry_run,
                 allowed_sources=load_allowed_get_sources(),
                 commit=args.commit,
+                cli_version=_cds_version(),
             )
         except GetError as exc:
             print(f"ERROR {exc}", file=sys.stderr)
@@ -2784,6 +2861,7 @@ def _run() -> int:
                 categories=categories,
                 dry_run=args.dry_run,
                 allowed_sources=load_allowed_get_sources(),
+                cli_version=_cds_version(),
             )
         except GetError as exc:
             print(f"ERROR {exc}", file=sys.stderr)
@@ -2972,6 +3050,8 @@ def _run() -> int:
         if validate_ok and plan_ok:
             if not render_ok:
                 print_diagnostics(render_diags)
+            elif render_diags:
+                print_diagnostics([d for d in render_diags if d.level != "error"])
             stages.append(("render", "PASS" if render_ok else "FAIL"))
         else:
             stages.append(("render", "SKIP"))
@@ -2989,6 +3069,7 @@ def _run() -> int:
             environment=args.environment,
             plan=plan if plan_ok else None,
             details={"stages": dict(stages)},
+            profile_path=profile_path
         )
         return 0 if all_passed else 1
 
@@ -3065,7 +3146,7 @@ def _run() -> int:
 
         checks = run_preflight(plan, compose_yaml, env_file, strict=load_saved_security_strict())
         for check in checks:
-            print(f"[{check.status}] {check.name}: {check.message}")
+            print(format_check_line(check))
 
         if preflight_passed(checks):
             print("\nPreflight passed.")
@@ -3151,7 +3232,9 @@ def _run() -> int:
 
     if args.command == "list":
         try:
-            with _resolve_list_source_roots(args.remote, args.ref, args.local) as (profile_root, module_root):
+            with _resolve_list_source_roots(
+                args.remote, args.ref, args.local, cli_version=_cds_version()
+            ) as (profile_root, module_root):
                 if args.list_command == "profiles":
                     for profile_name in list_profiles(profile_root):
                         print(profile_name)

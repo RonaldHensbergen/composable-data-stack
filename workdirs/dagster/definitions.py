@@ -14,10 +14,12 @@ from psycopg2.extras import execute_values
 
 from dagster import (
     AssetObservation,
+    DefaultScheduleStatus,
     Definitions,
     Field,
     MetadataValue,
     RunRequest,
+    ScheduleDefinition,
     SensorEvaluationContext,
     SkipReason,
     asset,
@@ -58,6 +60,15 @@ OFFERS_FIXTURE_PATH = Path(
     os.getenv("CDS_OFFERS_FIXTURE_PATH", str(INCOMING_DATA_DIR / "offers-1000.csv"))
 )
 OFFERS_EXPECTED_ROWS = 1000
+# Set by the dagster module when config.sampleData.enabled is true: the bundled
+# sample fixture is present in the container and the load_offers_1000 job runs
+# on a schedule instead of manual materialization (issue #1117).
+SAMPLE_DATA_ENABLED = os.getenv("CDS_SAMPLE_DATA_ENABLED", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 SUPPORTED_INGEST_EXTENSIONS = {".csv", ".json", ".ndjson"}
 TEXT_FILE_ENCODINGS = ("utf-8", "utf-8-sig", "cp1252", "latin-1")
 
@@ -529,6 +540,27 @@ def load_offers_1000_job() -> None:
     load_offers_1000_fixture()
 
 
+# Runs only when the profile enables sample data (dagster module
+# config.sampleData.enabled sets CDS_SAMPLE_DATA_ENABLED=true in the
+# user-code container). The job is idempotent -- it deletes the rows sourced
+# from the fixture before re-inserting -- so the schedule always leaves
+# exactly OFFERS_EXPECTED_ROWS rows in offers_1000 (issue #1117).
+sample_data_schedule = (
+    ScheduleDefinition(
+        name="load_offers_1000_sample_data",
+        job=load_offers_1000_job,
+        cron_schedule="* * * * *",
+        default_status=DefaultScheduleStatus.RUNNING,
+        description=(
+            "Materialize the bundled offers-1000.csv sample fixture into "
+            "offers_1000 (enabled via config.sampleData.enabled)."
+        ),
+    )
+    if SAMPLE_DATA_ENABLED
+    else None
+)
+
+
 @sensor(job=process_incoming_file_job, minimum_interval_seconds=30)
 def incoming_files_sensor(context: SensorEvaluationContext):
     context.log.debug("Sensor evaluation started for incoming directory %s", INCOMING_DATA_DIR)
@@ -591,4 +623,5 @@ defs = Definitions(
         process_incoming_file_job,
     ],
     sensors=[incoming_files_sensor],
+    schedules=[schedule for schedule in [sample_data_schedule] if schedule is not None],
 )

@@ -53,10 +53,12 @@ jobs:
           set +e
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             # PR runs are time-capped: hosted runners have been observed to
-            # cancel long jobs mid-run, so keep the matrix bounded and accept
-            # a partial result (exit 124 from timeout). Weekly schedule runs
-            # are uncapped and produce the full matrix.
-            timeout 240 python -m mutmut run
+            # receive a shutdown signal mid-run (~4 min into the job, killing
+            # the step before a longer cap could fire and exit 124), so keep
+            # the matrix bounded well below that window and accept a partial
+            # result (exit 124 from timeout). Weekly schedule runs are
+            # uncapped and produce the full matrix.
+            timeout 180 python -m mutmut run
           else
             python -m mutmut run
           fi
@@ -71,10 +73,41 @@ jobs:
 
       - name: Export stats, badge, and results
         run: |
+          # A time-capped PR run (exit 124) can be killed mid-write, leaving an
+          # empty or truncated mutants/*.meta cache file. mutmut's load() only
+          # tolerates a missing file (FileNotFoundError), so drop unparseable or
+          # incomplete meta files first, or export-cicd-stats crashes with a
+          # JSONDecodeError and fails the whole job (#1175).
+          python - <<'EOF'
+          import json
+          from pathlib import Path
+          # Keys mutmut's SourceFileMutationData.load() pops without a default;
+          # a meta file missing any of them is incomplete and would crash the export.
+          required_keys = {"exit_code_by_key", "durations_by_key", "estimated_durations_by_key"}
+          mutants_dir = Path("mutants")
+          if mutants_dir.is_dir():
+              for meta_path in mutants_dir.rglob("*.meta"):
+                  try:
+                      meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                  except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+                      meta = None
+                  if not isinstance(meta, dict) or not required_keys <= meta.keys():
+                      meta_path.unlink()
+                      print(f"::notice::Removed incomplete mutation cache file {meta_path} (time-capped run, #1175)")
+          EOF
           python -m mutmut export-cicd-stats
+          # When a time-capped run recorded no results at all, export-cicd-stats
+          # writes no stats file, and badge requires an existing valid-JSON input,
+          # so write an empty-stats placeholder to keep the badge and the job
+          # summary rendering instead of failing the job (#1175).
+          if ! python -c 'import json; json.load(open("mutants/mutmut-cicd-stats.json"))' 2>/dev/null; then
+            mkdir -p mutants
+            printf '%s\n' '{"killed": 0, "survived": 0, "total": 0, "no_tests": 0, "skipped": 0, "suspicious": 0, "timeout": 0, "check_was_interrupted_by_user": 0, "segfault": 0}' > mutants/mutmut-cicd-stats.json
+            echo "::notice::No mutation results recorded (time-capped run); wrote empty-stats placeholder (#1175)."
+          fi
           python -m mutmut badge --output "$RUNNER_TEMP/mutation-badge.svg" --label "mutation score"
           python -m mutmut results --all true > "$RUNNER_TEMP/mutmut-results.txt" || true
-          cat "$RUNNER_TEMP/mutmut-results.txt"
+          cat "$RUNNER_TEMP/mutmut-results.txt" || true
 
       - name: Mutation score summary
         shell: bash
