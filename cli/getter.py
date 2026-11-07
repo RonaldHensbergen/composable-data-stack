@@ -1483,6 +1483,10 @@ def _write_tracking_manifest(
     pinned_commit: str | None = None,
 ) -> None:
     manifest_path = target_root / _TRACKING_FILE
+    if manifest_path.parent.is_symlink():
+        raise GetError(
+            f"Refusing to write through symlinked tracking metadata: {manifest_path}"
+        )
     manifest = _read_tracking_manifest(manifest_path)
 
     relative_files = {
@@ -1522,7 +1526,11 @@ def _write_tracking_manifest(
         # Same write-through-symlink guard as _write_actions(): never follow
         # a symlink planted at the tracking manifest's path.
         manifest_path.unlink()
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    # S8707 false positive: this fixed path is beneath the operator-selected
+    # output root; symlinks at the manifest and parent are guarded above.
+    manifest_path.write_text(  # NOSONAR
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def _build_tracking_assets(

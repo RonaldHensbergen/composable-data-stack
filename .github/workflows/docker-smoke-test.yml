@@ -35,7 +35,9 @@ jobs:
 
   smoke-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 60 -> 90 for the added profile-matrix lifecycle step (#1208): one
+    # render -> build -> up --wait -> state -> down cycle per compose profile.
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -58,6 +60,12 @@ jobs:
           CDS_RUN_DOCKER_SMOKE: "1"
         run: |
           python -m unittest tests.test_compose_runtime_smoke -v
+
+      - name: Run compose lifecycle smoke over the profile matrix (render -> build -> up -> state -> down, #1208)
+        env:
+          CDS_RUN_DOCKER_SMOKE: "1"
+        run: |
+          python -m unittest tests.test_compose_profile_lifecycle_smoke -v
 
       - name: Upload smoke test container logs
         if: failure()

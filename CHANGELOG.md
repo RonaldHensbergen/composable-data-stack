@@ -20,6 +20,27 @@ The format is based on Keep a Changelog.
   Documented in `shared/contracts/open-data-provider.yaml`, the postgres
   module's `config.dataProvider.classification`, `docs/fds-alignment.md`, and
   the README troubleshooting table (W131).
+- CI now exercises the full shipped profile matrix, not just
+  `local-dagster-postgres-superset` (issue #1208). Cheap tier, every PR and
+  no Docker: the new `profile-matrix` job in `.github/workflows/ci.yml` runs
+  `scripts/check_profile_matrix.py` (`make profile-matrix`), which runs the
+  same code paths as `cds validate` / `cds render` over every
+  `profiles/*/profile.yaml` and every `profiles/*/environments/*.yaml`
+  overlay — schema + planner validation, then a compose render, plus a Helm
+  render where the target is defined (a module without a
+  `implementation.kubernetes` block, E072, or a compose-only capability
+  like backup, E142, means "not defined" and is skipped; any other error
+  fails). Guards keep the matrix from shrinking silently: every combo must
+  define at least one target, the Kubernetes example profiles must render
+  to Helm, and the superset/vault variants must render to compose. The same
+  check runs in the unit-test job via `tests/test_profile_matrix.py` on all
+  CI operating systems. Smoke tier: the docker-smoke-test workflow gains a
+  `tests/test_compose_profile_lifecycle_smoke.py` step running the full
+  `render -> build -> up --wait -> cds state -> cds down` lifecycle per
+  compose profile (default `CDS_SMOKE_LIFECYCLE_PROFILES`:
+  `local-dagster-postgres-superset,local-dagster-postgres-superset-vault`).
+  The k3d e2e on the Kubernetes example profiles remains the helm-tier
+  runtime gate.
 - Plan-time validation of `service-mesh` enrollments (issue #1179): every
   `config.services[].name` of a module providing the `service-mesh` contract
   must name a module instance id of the profile, checked against the planned
@@ -383,6 +404,14 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- Deduplicated the Kubernetes workload substitution used for NetworkPolicy
+  surfaces (issue #1034): `cli/k8s_renderer.py` no longer substitutes each
+  module's Kubernetes block twice per render. `_render_module` now collects
+  each enabled workload's Service type, ports, and port -> targetPort map
+  while the workloads are already being substituted in its single rendering
+  pass, and hands them to the NetworkPolicy generator; the separate
+  `_workload_surfaces` pass is gone. Pure refactor — no behavior change,
+  golden chart hashes unchanged.
 - Added Gate 4.5 (stability and Beta-readiness) to the Kubernetes MVP runbook
   (`docs/plan/k8s-haven-mvp.md`) and gate checklist
   (`docs/plan/k8s-haven-gate-checklist.md`): issues #1206 (versioned profile
@@ -391,6 +420,12 @@ The format is based on Keep a Changelog.
   (profile-matrix E2E in CI) are now blocking issues for the v1.0.0 release
   gate, with the `Development Status` classifier decision (Alpha → Beta)
   recorded as task G4.7.
+- CI now guards `uv.lock` freshness (issue #1197): the `lint` job in
+  `.github/workflows/ci.yml` runs `uv lock --check` right after setting up
+  Python, so a `pyproject.toml` change that is not followed by `uv lock`
+  fails the build instead of silently drifting (previously only caught when
+  someone ran `uv lock --check` locally, e.g. the ruff 0.17.1 -> 0.17.3 drift
+  from #1056).
 - The `log-sink` contract and the observability modules can now forward the
   logs signal end-to-end over OTLP/HTTP (issue #1076, loose end from #777/#1063):
   `shared/contracts/log-sink.yaml` gains an optional `connectionUri` field
@@ -458,6 +493,11 @@ The format is based on Keep a Changelog.
   production-suitable metadata instead of the experimental one.
 
 ### Fixed
+
+- `cds get` no longer follows a symlinked `.cds` tracking directory, update
+  notifications parse bounded PEP 440 versions, and image digest pins use
+  deterministic validation instead of potentially super-linear regular
+  expressions (issue #1199).
 
 - `cds down` now writes its lifecycle log to `.cds/logs/down-<profile>-<ts>.log`
   instead of `.cds/logs/up-down-<profile>-<ts>.log`: `default_log_path()`

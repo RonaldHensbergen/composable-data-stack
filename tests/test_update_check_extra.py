@@ -45,6 +45,13 @@ class ParseVersionTest(unittest.TestCase):
         self.assertFalse(update_check.is_newer("garbage", "1.0"))
         self.assertFalse(update_check.is_newer("1.0", "garbage"))
 
+    def test_parses_prereleases_and_rejects_overlong_input(self):
+        self.assertEqual(str(update_check._parse_version("v1.2.3rc1")), "1.2.3rc1")
+        self.assertTrue(update_check.is_newer("1.2.3", "1.2.3rc1"))
+        self.assertFalse(update_check.is_newer("1.2.3rc2", "1.2.3rc1"))
+        self.assertFalse(update_check.is_newer("1.2.3.post1", "1.2.3"))
+        self.assertIsNone(update_check._parse_version("1." * 200 + "1"))
+
 
 class FetchLatestVersionTest(unittest.TestCase):
     def _response(self, body: bytes):
