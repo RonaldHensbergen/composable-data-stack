@@ -315,8 +315,17 @@ NetworkPolicy (issue #75):
 - Within a module, pods may talk freely on any port: a module is the unit
   of composition and declares its own internal wiring (which is why the
   Superset init job and the webserver share one policy).
-- Egress to the cluster DNS service (kube-system `kube-dns`, UDP+TCP 53) is
-  the only other unconditional rule.
+- Egress to the cluster DNS service is the only other unconditional rule. The
+  built-in selector allows UDP and TCP port 53 to pods in the `kube-system`
+  namespace labeled `k8s-app: kube-dns`. This matches common kubeadm, k3s/k3d,
+  EKS, and GKE CoreDNS installations; the selector is fixed and does not
+  discover DNS pods with different labels, such as OpenShift's `dns-default`.
+  Under the default-deny policy, workloads on those clusters will not resolve
+  service names until an allow rule matches their DNS pods. Add a rule under
+  each affected module's `implementation.kubernetes.networkPolicy.egress`
+  passthrough, using the cluster's actual DNS namespace and pod labels and
+  allowing both UDP and TCP port 53. This rule is additive: it does not replace
+  the built-in `kube-dns` selector.
 - Egress to anything outside the plan -- an external database, an HTTPS API,
   a package index, an object store reached by address -- is denied. That is
   the security baseline: the only way to open external egress is a declared
@@ -388,6 +397,32 @@ external-egress rule as a low CDS-K8S-008 finding, and every ingress rule
 without a source restriction (no `from`, an empty `from` list, or an ipBlock
 peer) as a low CDS-K8S-010 finding, so intentional openings stay visible in
 `cds security --target helm`.
+
+For example, a DNS provider with different labels needs a peer selector and
+both DNS transports; replace the placeholder namespace and label with values
+from the cluster:
+
+```yaml
+implementation:
+  kubernetes:
+    networkPolicy:
+      egress:
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: <dns-namespace>
+              podSelector:
+                matchLabels:
+                  <dns-pod-label>: <dns-pod-value>
+          ports:
+            - protocol: UDP
+              port: 53
+            - protocol: TCP
+              port: 53
+```
+
+Because CDS generates one policy per module, add this passthrough to every
+module whose workloads need to resolve names.
 
 ## GitOps handoff
 
@@ -547,3 +582,9 @@ module README for the istiod install and namespace sidecar-injection label.
   helm` checks reachability before installing and fails with this guidance.
 - If Helm reports missing secret data, rerun `cds init`, fill every required
   `CDS_*` value, and keep `.env` untracked.
+- If every Service name lookup times out under the default-deny NetworkPolicy,
+  the cluster's DNS pods are probably not labeled `k8s-app: kube-dns` in
+  `kube-system` (for example OpenShift's `dns-default`): add the passthrough
+  egress rule from
+  [Network isolation and least privilege](#network-isolation-and-least-privilege)
+  to every module that needs to resolve names (#1032).
