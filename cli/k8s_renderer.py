@@ -283,6 +283,7 @@ def render_helm(
     manifests: list[tuple[str, dict[str, Any]]] = []
     secret_keys: set[str] = set()
     module_surfaces: dict[str, list[dict[str, Any]]] = {}
+    rendered_pod_modules: set[str] = set()
 
     for module in renderable:
         module_id = module["id"]
@@ -325,6 +326,8 @@ def render_helm(
         files.update(module_files)
         secret_keys.update(module_secret_keys)
         diagnostics.extend(module_diags)
+        if _module_renders_pods(module, module_values, module_manifests):
+            rendered_pod_modules.add(module_id)
         # A manifest-only module (e.g. a GitOps bootstrap, issue #767) runs
         # no pods of its own, so it gets no ServiceAccount and no
         # NetworkPolicy: both would select nothing.
@@ -337,6 +340,8 @@ def render_helm(
                     ),
                 )
             )
+
+    diagnostics.extend(_check_service_mesh_enrollments(renderable, rendered_pod_modules))
 
     workload_modules = [
         module
@@ -391,6 +396,78 @@ def render_helm(
         _write_chart(Path(output_dir), files)
 
     return files, diagnostics
+
+
+def _check_service_mesh_enrollments(
+    modules: list[dict[str, Any]], rendered_pod_modules: set[str]
+) -> list[Diagnostic]:
+    """Warn when a service-mesh enrollment selects no rendered workload pods."""
+    module_ids = {module["id"] for module in modules if module.get("id")}
+    diagnostics: list[Diagnostic] = []
+    for module in modules:
+        provides = module.get("provides")
+        if not isinstance(provides, dict) or not any(
+            isinstance(provided, dict) and provided.get("kind") == "service-mesh"
+            for provided in provides.values()
+        ):
+            continue
+        services = (module.get("config") or {}).get("services")
+        if not isinstance(services, list):
+            continue
+        for index, service in enumerate(services):
+            if not isinstance(service, dict):
+                continue
+            name = service.get("name")
+            if not isinstance(name, str) or name not in module_ids:
+                continue
+            if name in rendered_pod_modules:
+                continue
+            diagnostics.append(
+                Diagnostic(
+                    level="warning",
+                    code="W132",
+                    message=(
+                        f'Module "{module["id"]}" enrolls service "{name}" in its '
+                        "service-mesh config, but the module renders no Kubernetes "
+                        "workload pods. If enabled, the per-service "
+                        "AuthorizationPolicy selector would select zero pods via the "
+                        "cds.dev/module label."
+                    ),
+                    path=f"module:{module['id']}.config.services[{index}].name",
+                )
+            )
+    return diagnostics
+
+
+def _module_renders_pods(
+    module: dict[str, Any],
+    rendered_workloads: dict[str, Any],
+    manifests: list[tuple[str, dict[str, Any]]],
+) -> bool:
+    """Return whether the module renders at least one pod with its module label."""
+    module_id = module["id"]
+    workload_specs = (
+        (module.get("implementation") or {}).get("kubernetes") or {}
+    ).get("workloads", {})
+    for name, rendered in rendered_workloads.items():
+        spec = workload_specs.get(name, {})
+        kind = spec.get("kind", "Deployment")
+        replicas = rendered.get("replicas", 1)
+        if kind == "Job" or (
+            kind in {"Deployment", "StatefulSet"}
+            and isinstance(replicas, int)
+            and not isinstance(replicas, bool)
+            and replicas > 0
+        ):
+            return True
+    for _, manifest in manifests:
+        if manifest.get("kind") != "Pod":
+            continue
+        metadata = manifest.get("metadata")
+        labels = metadata.get("labels") if isinstance(metadata, dict) else None
+        if isinstance(labels, dict) and labels.get("cds.dev/module") == module_id:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
