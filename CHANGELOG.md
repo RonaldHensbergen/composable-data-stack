@@ -15,8 +15,13 @@ The format is based on Keep a Changelog.
   overlays, `cli/overlay.py`), so bind-mount sources such as the dagster
   module's `definitionsFile.hostPath` / `sharedData.hostPath` can be pointed
   at a project repo's own `workdirs/` without editing `profile.yaml`.
-  Precedence: CLI flag > persisted `cds config` value > environment overlay >
-  base `profile.yaml`. `cds validate`/`plan`/`render`/`security`/`up` pick the
+  Overrides persist either in the gitignored `.cds/config.json` (per machine)
+  or, with `cds config set --shared`, in the committable team-shared
+  `cds.shared.json` at the project root (`CDS_SHARED_CONFIG_PATH` to
+  relocate) so teams can share path defaults; only `module.*` keys are
+  allowed in the shared file and secrets are rejected in both.
+  Precedence: CLI flag > `.cds/config.json` > `cds.shared.json` > environment
+  overlay > base `profile.yaml`. `cds validate`/`plan`/`render`/`security`/`up` pick the
   override up automatically, and `cds diff` shows the persisted overrides in a
   dedicated section. Unknown module ids, non-scalar target paths, and values
   matching a resolved secret are rejected with E161 (alias-only rule

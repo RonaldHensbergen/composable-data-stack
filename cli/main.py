@@ -408,19 +408,35 @@ def find_project_root(start: Path | None = None) -> Path:
 
 
 def get_config_path() -> Path:
-    """Location of the per-project CDS config file."""
+    """Location of the per-project CDS config file (gitignored, per-machine)."""
     override = os.getenv("CDS_CONFIG_PATH")
     if override:
         return Path(override).expanduser()
     return find_project_root() / ".cds" / "config.json"
 
 
+def get_shared_config_path() -> Path:
+    """Location of the committable, team-shared CDS config file (issue #1220).
+
+    Unlike the gitignored `.cds/config.json`, this file lives at the project
+    root (default `cds.shared.json`) so a team can commit shared
+    `module.<id>.config.<path>` defaults such as a common hostPath layout.
+    Only module overrides may be stored here; secret values are rejected the
+    same way as for the per-machine file. `CDS_SHARED_CONFIG_PATH` overrides
+    the location.
+    """
+    override = os.getenv("CDS_SHARED_CONFIG_PATH")
+    if override:
+        return Path(override).expanduser()
+    return find_project_root() / "cds.shared.json"
+
+
 class ConfigIOError(RuntimeError):
     """Raised when the CDS config file cannot be read or written."""
 
 
-def _read_config() -> dict:
-    config_path = get_config_path()
+def _read_config(config_path: Path | None = None) -> dict:
+    config_path = config_path or get_config_path()
     if not config_path.exists():
         return {}
     try:
@@ -445,8 +461,8 @@ def _read_config() -> dict:
     return data
 
 
-def _write_config(data: dict) -> Path:
-    config_path = get_config_path()
+def _write_config(data: dict, config_path: Path | None = None) -> Path:
+    config_path = config_path or get_config_path()
     try:
         if data:
             _atomic_write(config_path, json.dumps(data, indent=2) + "\n")
@@ -459,8 +475,8 @@ def _write_config(data: dict) -> Path:
     return config_path
 
 
-def _config_value(key: str) -> Any:
-    value: Any = _read_config()
+def _config_value(key: str, config_path: Path | None = None) -> Any:
+    value: Any = _read_config(config_path)
     for part in key.split("."):
         if not isinstance(value, dict) or part not in value:
             return None
@@ -699,14 +715,16 @@ def clear_saved_profile() -> bool:
     return True
 
 
-def set_config_value(key: str, value: Any) -> Path:
+def set_config_value(key: str, value: Any, config_path: Path | None = None) -> Path:
     """Set a supported project setting and return the config file path.
 
     For `module.<id>.config.<path>` keys (issue #1220) `value` is the already
     coerced scalar produced by _validate_module_override_setting(); the key is
-    stored as a nested mapping under the "module" key.
+    stored as a nested mapping under the "module" key. `config_path` targets a
+    different file than the default `.cds/config.json` (used for the shared
+    `cds.shared.json` via `--shared`).
     """
-    data = _read_config()
+    data = _read_config(config_path)
     if key == "profile":
         data["profile"] = value
     elif key == "environment":
@@ -751,12 +769,12 @@ def set_config_value(key: str, value: Any) -> Path:
         node[parts[-1]] = value
     else:
         raise ValueError(f"Unknown config key '{key}'.")
-    return _write_config(data)
+    return _write_config(data, config_path)
 
 
-def unset_config_value(key: str) -> bool:
+def unset_config_value(key: str, config_path: Path | None = None) -> bool:
     """Remove a supported project setting."""
-    data = _read_config()
+    data = _read_config(config_path)
     if key == "profile" or key == "environment":
         if key not in data:
             return False
@@ -815,7 +833,7 @@ def unset_config_value(key: str) -> bool:
                 break
     else:
         raise ValueError(f"Unknown config key '{key}'.")
-    _write_config(data)
+    _write_config(data, config_path)
     return True
 
 
@@ -2337,18 +2355,37 @@ def _run() -> int:
         "override one scalar value of a module's config in the resolved profile "
         "(persisted locally, applied on top of environment overlays)"
     )
+    config_shared_help = (
+        "use the committable team-shared file (cds.shared.json, or "
+        "CDS_SHARED_CONFIG_PATH) instead of the gitignored .cds/config.json; "
+        "only 'module.<id>.config.<path>' keys are allowed there"
+    )
     config_get_parser = config_subparsers.add_parser(
         "get", help="Print a persisted setting"
     )
     config_get_parser.add_argument("key", type=_config_key_arg, help=config_key_help)
+    config_get_parser.add_argument(
+        "--shared", action="store_true", help=config_shared_help
+    )
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
     config_set_parser.add_argument("key", type=_config_key_arg, help=config_key_help)
     config_set_parser.add_argument("value")
+    config_set_parser.add_argument(
+        "--shared", action="store_true", help=config_shared_help
+    )
     config_unset_parser = config_subparsers.add_parser(
         "unset", help="Remove a persisted setting"
     )
     config_unset_parser.add_argument("key", type=_config_key_arg, help=config_key_help)
-    config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
+    config_unset_parser.add_argument(
+        "--shared", action="store_true", help=config_shared_help
+    )
+    config_list_parser = config_subparsers.add_parser(
+        "list", help="Print all persisted settings as JSON"
+    )
+    config_list_parser.add_argument(
+        "--shared", action="store_true", help=config_shared_help
+    )
 
     subparsers.add_parser(
         "check-update",
@@ -4263,12 +4300,29 @@ def _run() -> int:
         return 0
 
     if args.command == "config":
+        # --shared targets the committable team file (cds.shared.json), which
+        # only accepts module.<id>.config.<path> overrides (issue #1220).
+        target_path = (
+            get_shared_config_path() if getattr(args, "shared", False) else None
+        )
+        if (
+            target_path is not None
+            and args.config_command != "list"
+            and not args.key.startswith("module.")
+        ):
+            print(
+                "ERROR Only 'module.<id>.config.<path>' keys can be stored in "
+                f"the shared file ({target_path}); use the per-machine "
+                ".cds/config.json for CLI-level settings."
+            )
+            return 1
+
         if args.config_command == "list":
-            print(json.dumps(_read_config(), indent=2, sort_keys=True))
+            print(json.dumps(_read_config(target_path), indent=2, sort_keys=True))
             return 0
 
         if args.config_command == "get":
-            value = _config_value(args.key)
+            value = _config_value(args.key, target_path)
             if value is None:
                 print(f"ERROR Config key '{args.key}' is not set.")
                 return 1
@@ -4335,7 +4389,7 @@ def _run() -> int:
             else:
                 value = args.value
             try:
-                config_path = set_config_value(args.key, value)
+                config_path = set_config_value(args.key, value, config_path=target_path)
             except ConfigIOError as exc:
                 print(f"ERROR {exc}")
                 return 1
@@ -4344,12 +4398,12 @@ def _run() -> int:
             return 0
 
         try:
-            removed = unset_config_value(args.key)
+            removed = unset_config_value(args.key, config_path=target_path)
         except ConfigIOError as exc:
             print(f"ERROR {exc}")
             return 1
         if removed:
-            print(f"Unset {args.key} ({get_config_path()})")
+            print(f"Unset {args.key} ({target_path or get_config_path()})")
         else:
             print(f"Config key '{args.key}' is not set.")
         return 0
@@ -4383,7 +4437,9 @@ def _run() -> int:
         from_profile, _, from_diags = resolve_profile(
             profile_path, args.from_environment
         )
-        to_profile, _, to_diags = resolve_profile(profile_path, args.to_environment)
+        to_profile, to_provenance, to_diags = resolve_profile(
+            profile_path, args.to_environment
+        )
         all_diags = from_diags + to_diags
 
         if from_profile is None or to_profile is None:
@@ -4402,9 +4458,10 @@ def _run() -> int:
         # Persisted `module.<id>.config.<path>` overrides (issue #1220) apply
         # equally to both sides above, so show their effect separately: the
         # `--to` environment resolved with and without them. Values come from
-        # the gitignored config file and stay secret *aliases* when set.
+        # the persisted config files (gitignored .cds/config.json and/or the
+        # committable cds.shared.json) and stay secret *aliases* when set.
         persisted_changes: list[tuple[str, str, Any, Any]] = []
-        if _config_value("module"):
+        if _config_value("module") or _config_value("module", get_shared_config_path()):
             to_base, _, _ = resolve_profile(
                 profile_path, args.to_environment, apply_persisted=False
             )
@@ -4430,9 +4487,16 @@ def _run() -> int:
                     print(f"  ~ {path}: {json.dumps(old)} -> {json.dumps(new)}")
 
         if persisted_changes:
+            sources = sorted(
+                {
+                    to_provenance[path]
+                    for path, _, _, _ in persisted_changes
+                    if path in to_provenance
+                }
+            )
             print(
-                f"\nPersisted local overrides ({get_config_path()}) applied on top "
-                f"of '{args.to_environment}':"
+                f"\nPersisted module overrides ({', '.join(sources)}) applied on "
+                f"top of '{args.to_environment}':"
             )
             for path, kind, old, new in sorted(persisted_changes, key=lambda c: c[0]):
                 if kind == "added":

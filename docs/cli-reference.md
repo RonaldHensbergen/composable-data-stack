@@ -227,22 +227,37 @@ cds config get module.dagster.config.definitionsFile.hostPath
 cds config unset module.dagster.config.definitionsFile.hostPath
 ```
 
-The override is persisted in the gitignored `.cds/config.json` (per machine,
-never committed) and deep-merged into the matching `spec.modules[]` entry of
-the resolved profile at load time, with the same merge semantics as
-environment overlays. Precedence is: CLI flag > persisted `cds config` value
-> environment overlay > base `profile.yaml`. `cds validate`, `plan`, `render`,
-`security`, and `up` all pick the override up without editing `profile.yaml`,
-and `cds diff` lists the persisted overrides in their own section.
+By default the override is persisted in the gitignored `.cds/config.json`
+(per machine, never committed). Pass `--shared` to store it in the committable
+team-shared file `cds.shared.json` at the project root instead (location
+overridable via `CDS_SHARED_CONFIG_PATH`), so a team can commit shared path
+defaults such as a common `workdirs/` layout:
+
+```bash
+cds config set --shared module.dagster.config.sharedData.hostPath ./workdirs/shared-data
+cds config get --shared module.dagster.config.sharedData.hostPath
+cds config unset --shared module.dagster.config.sharedData.hostPath
+cds config list --shared
+```
+
+Only `module.<id>.config.<path>` keys are allowed in the shared file;
+CLI-level settings stay per-machine. Both files are deep-merged into the
+matching `spec.modules[]` entry of the resolved profile at load time, with the
+same merge semantics as environment overlays. Precedence is: CLI flag >
+per-machine `.cds/config.json` > team-shared `cds.shared.json` > environment
+overlay > base `profile.yaml`. `cds validate`, `plan`, `render`, `security`,
+and `up` all pick the overrides up without editing `profile.yaml`, and
+`cds diff` lists the persisted overrides in their own section, naming the
+file each value came from.
 
 Set-time validation rejects the override with E161 when the module id is
 unknown in the saved default profile, when the path addresses a non-scalar
 (dict/list) value, or when the value matches a resolved secret — the
-alias-only rule is unchanged: store `secrets.<alias>` references, never
-secret values. Values are coerced to the type of the value they replace
-(`true`/`false` for booleans, integers, floats, otherwise strings). Team-wide
-shared defaults belong in a committed `environments/<name>.yaml` overlay, not
-in `.cds/config.json`.
+alias-only rule is unchanged and applies to both files: store
+`secrets.<alias>` references, never secret values. Values are coerced to the
+type of the value they replace (`true`/`false` for booleans, integers,
+floats, otherwise strings). For per-environment variation of the same values,
+use a committed `environments/<name>.yaml` overlay instead.
 
 ## Resolving `[profile]`
 

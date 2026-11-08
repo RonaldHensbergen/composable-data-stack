@@ -98,11 +98,13 @@ class ModuleOverrideFixture(unittest.TestCase):
         self.config_path = self.root / ".cds" / "config.json"
         self.config_path.parent.mkdir()
         self.config_path.write_text(json.dumps({"profile": str(self.profile_path)}))
+        self.shared_path = self.root / "cds.shared.json"
 
         self.env_vars = {
             "CDS_PROFILE_PATH": str(self.profile_dir),
             "CDS_MODULE_PATH": str(self.modules_dir.parent.parent),
             "CDS_CONFIG_PATH": str(self.config_path),
+            "CDS_SHARED_CONFIG_PATH": str(self.shared_path),
         }
 
     def _write_overlay(self, name, content):
@@ -115,6 +117,12 @@ class ModuleOverrideFixture(unittest.TestCase):
 
     def _read_config(self):
         return json.loads(self.config_path.read_text())
+
+    def _write_shared(self, data):
+        self.shared_path.write_text(json.dumps(data))
+
+    def _read_shared(self):
+        return json.loads(self.shared_path.read_text())
 
     def _run(self, argv, extra_env=None):
         stdout = io.StringIO()
@@ -405,7 +413,7 @@ class DiffShowsPersistedOverridesTest(ModuleOverrideFixture):
         result, output = self._run(["cds", "diff", "--from", "dev", "--to", "prod"])
         self.assertEqual(result, 0, output)
         self.assertIn("spec.modules[db].config.replicas", output)
-        self.assertIn("Persisted local overrides", output)
+        self.assertIn("Persisted module overrides", output)
         self.assertIn(str(self.config_path), output)
         self.assertIn("spec.modules[db].config.hostPath", output)
         self.assertIn("./my-w", output)
@@ -419,7 +427,7 @@ class DiffShowsPersistedOverridesTest(ModuleOverrideFixture):
         )
         result, output = self._run(["cds", "diff", "--from", "dev", "--to", "prod"])
         self.assertEqual(result, 0, output)
-        self.assertNotIn("Persisted local overrides", output)
+        self.assertNotIn("Persisted module overrides", output)
 
     def test_diff_persisted_section_appears_even_without_env_changes(self):
         self._write_overlay(
@@ -432,8 +440,168 @@ class DiffShowsPersistedOverridesTest(ModuleOverrideFixture):
         result, output = self._run(["cds", "diff", "--from", "dev", "--to", "prod"])
         self.assertEqual(result, 0, output)
         self.assertNotIn("No differences", output)
-        self.assertIn("Persisted local overrides", output)
+        self.assertIn("Persisted module overrides", output)
         self.assertIn("./my-w", output)
+
+
+class SharedConfigFileTest(ModuleOverrideFixture):
+    """The committable team-shared file (cds.shared.json) selected with
+    `cds config ... --shared` (issue #1220's "One Question": both exist)."""
+
+    def test_set_shared_writes_shared_file_not_local(self):
+        result, output = self._run(
+            [
+                "cds",
+                "config",
+                "set",
+                "--shared",
+                "module.db.config.hostPath",
+                "./team-workdirs/db",
+            ]
+        )
+        self.assertEqual(result, 0, output)
+        self.assertIn(str(self.shared_path), output)
+        self.assertEqual(
+            self._read_shared()["module"]["db"]["config"]["hostPath"],
+            "./team-workdirs/db",
+        )
+        self.assertNotIn("module", self._read_config())
+
+    def test_shared_rejects_cli_level_keys(self):
+        for argv in (
+            ["cds", "config", "set", "--shared", "target", "helm"],
+            ["cds", "config", "get", "--shared", "target"],
+            ["cds", "config", "unset", "--shared", "profile"],
+        ):
+            result, output = self._run(argv)
+            self.assertEqual(result, 1, (argv, output))
+            self.assertIn("module.<id>.config.<path>", output)
+        self.assertFalse(self.shared_path.exists())
+
+    def test_get_unset_list_shared(self):
+        self._run(
+            [
+                "cds",
+                "config",
+                "set",
+                "--shared",
+                "module.db.config.hostPath",
+                "./team-w",
+            ]
+        )
+        result, output = self._run(
+            ["cds", "config", "get", "--shared", "module.db.config.hostPath"]
+        )
+        self.assertEqual(result, 0, output)
+        self.assertIn("./team-w", output)
+
+        result, output = self._run(["cds", "config", "list", "--shared"])
+        self.assertEqual(result, 0, output)
+        self.assertEqual(
+            json.loads(output)["module"]["db"]["config"]["hostPath"], "./team-w"
+        )
+        # the local listing is untouched
+        result, output = self._run(["cds", "config", "list"])
+        self.assertNotIn("module", json.loads(output))
+
+        result, output = self._run(
+            ["cds", "config", "unset", "--shared", "module.db.config.hostPath"]
+        )
+        self.assertEqual(result, 0, output)
+        self.assertIn("Unset", output)
+        self.assertFalse(self.shared_path.exists())  # emptied file is removed
+        result, output = self._run(
+            ["cds", "config", "get", "--shared", "module.db.config.hostPath"]
+        )
+        self.assertEqual(result, 1)
+        self.assertIn("not set", output)
+
+    def test_shared_override_applies_at_load_and_beats_environment_overlay(self):
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
+        self._run(
+            ["cds", "config", "set", "--shared", "module.db.config.replicas", "4"]
+        )
+        result, output = self._run(["cds", "plan", "--environment", "prod"])
+        self.assertEqual(result, 0, output)
+        plan = json.loads(output)
+        self.assertEqual(plan["modules"][0]["config"]["replicas"], 4)
+        self.assertEqual(
+            plan["provenance"]["spec.modules[db].config.replicas"],
+            str(self.shared_path),
+        )
+
+    def test_per_machine_override_beats_shared(self):
+        self._run(
+            ["cds", "config", "set", "--shared", "module.db.config.replicas", "4"]
+        )
+        self._run(["cds", "config", "set", "module.db.config.replicas", "5"])
+        result, output = self._run(["cds", "plan"])
+        self.assertEqual(result, 0, output)
+        plan = json.loads(output)
+        self.assertEqual(plan["modules"][0]["config"]["replicas"], 5)
+        self.assertEqual(
+            plan["provenance"]["spec.modules[db].config.replicas"],
+            str(self.config_path),
+        )
+        # without the per-machine override the shared value applies
+        self._run(["cds", "config", "unset", "module.db.config.replicas"])
+        result, output = self._run(["cds", "plan"])
+        plan = json.loads(output)
+        self.assertEqual(plan["modules"][0]["config"]["replicas"], 4)
+        self.assertEqual(
+            plan["provenance"]["spec.modules[db].config.replicas"],
+            str(self.shared_path),
+        )
+
+    def test_shared_secret_value_rejected(self):
+        result, output = self._run(
+            [
+                "cds",
+                "config",
+                "set",
+                "--shared",
+                "module.db.config.password",
+                "supersecretvalue123",
+            ],
+            extra_env={"CDS_DB_PASSWORD": "supersecretvalue123"},
+        )
+        self.assertEqual(result, 1)
+        self.assertIn("E161", output)
+        self.assertIn("secrets.<alias>", output)
+        self.assertFalse(self.shared_path.exists())
+
+    def test_shared_unknown_module_id_fails_validate_with_e161(self):
+        self._write_shared({"module": {"ghost": {"config": {"hostPath": "./w"}}}})
+        result, output = self._run(["cds", "validate"])
+        self.assertEqual(result, 1)
+        self.assertIn("E161", output)
+        self.assertIn("ghost", output)
+
+    def test_diff_lists_shared_file_as_source(self):
+        self._write_overlay(
+            "dev", {"spec": {"modules": [{"id": "db", "config": {"replicas": 1}}]}}
+        )
+        self._write_overlay(
+            "prod", {"spec": {"modules": [{"id": "db", "config": {"replicas": 3}}]}}
+        )
+        self._run(
+            [
+                "cds",
+                "config",
+                "set",
+                "--shared",
+                "module.db.config.hostPath",
+                "./team-w",
+            ]
+        )
+        result, output = self._run(["cds", "diff", "--from", "dev", "--to", "prod"])
+        self.assertEqual(result, 0, output)
+        self.assertIn("Persisted module overrides", output)
+        self.assertIn(str(self.shared_path), output)
+        self.assertIn("spec.modules[db].config.hostPath", output)
+        self.assertIn("./team-w", output)
 
 
 if __name__ == "__main__":

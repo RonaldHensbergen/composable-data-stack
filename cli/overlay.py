@@ -418,21 +418,28 @@ def _merge_modules(
     return [by_id[mid] for mid in order]
 
 
-def _persisted_module_overrides() -> tuple[dict[str, Any], str]:
+def _persisted_module_override_sources() -> list[tuple[dict[str, Any], str]]:
     """
-    Return ({module_id: override_doc}, source_label) for the
-    `module.<id>.<path>` overrides persisted in the project config file
-    (.cds/config.json, issue #1220). The import is lazy because cli/main.py
-    imports this module at top level, so the config reader can only be
-    imported at call time (same pattern as cli/validator.py's lazy import of
-    resolve_profile). Returns ({}, "") when no overrides are persisted.
+    Return [(override_doc, source_label), ...] for the `module.<id>.<path>`
+    overrides persisted in the project config files (issue #1220), ordered so
+    later entries win: the committable team-shared file (cds.shared.json)
+    first, then the gitignored per-machine file (.cds/config.json) on top.
+    The import is lazy because cli/main.py imports this module at top level,
+    so the config reader can only be imported at call time (same pattern as
+    cli/validator.py's lazy import of resolve_profile). Returns [] when no
+    overrides are persisted.
     """
-    from .main import _read_config, get_config_path
+    from .main import _read_config, get_config_path, get_shared_config_path
 
-    modules = _read_config().get("module")
-    if not isinstance(modules, dict) or not modules:
-        return {}, ""
-    return modules, str(get_config_path())
+    sources: list[tuple[dict[str, Any], str]] = []
+    shared_path = get_shared_config_path()
+    shared = _read_config(shared_path).get("module")
+    if isinstance(shared, dict) and shared:
+        sources.append((shared, str(shared_path)))
+    local = _read_config().get("module")
+    if isinstance(local, dict) and local:
+        sources.append((local, str(get_config_path())))
+    return sources
 
 
 def _reject_non_scalar_override_leaves(
@@ -478,14 +485,33 @@ def _apply_persisted_module_overrides(
 ) -> dict[str, Any]:
     """
     Deep-merge the `module.<id>.<path>` overrides persisted in the project
-    config file (issue #1220) into the matching spec.modules[] entries of the
+    config files (issue #1220) into the matching spec.modules[] entries of the
     resolved profile, with the same merge semantics as environment overlays.
     Called after the environment overlay so the precedence stays: CLI flag >
-    persisted `cds config` value > environment overlay > base profile.yaml.
-    Unknown module ids and overrides of non-scalar paths are reported as E161
-    errors. Returns a new profile dict; `profile` is not mutated.
+    per-machine `.cds/config.json` > team-shared `cds.shared.json` >
+    environment overlay > base profile.yaml. Unknown module ids and overrides
+    of non-scalar paths are reported as E161 errors. Returns a new profile
+    dict; `profile` is not mutated.
     """
-    overrides, source_label = _persisted_module_overrides()
+    for overrides, source_label in _persisted_module_override_sources():
+        profile = _apply_module_override_doc(
+            profile, overrides, source_label, provenance, diagnostics
+        )
+    return profile
+
+
+def _apply_module_override_doc(
+    profile: dict[str, Any],
+    overrides: dict[str, Any],
+    source_label: str,
+    provenance: dict[str, str],
+    diagnostics: list[Diagnostic],
+) -> dict[str, Any]:
+    """
+    Merge one override document ({module_id: override_doc} from one config
+    file) into the profile's spec.modules[] entries; see
+    _apply_persisted_module_overrides for the precedence chain.
+    """
     if not overrides:
         return profile
 
