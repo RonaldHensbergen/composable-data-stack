@@ -292,9 +292,13 @@ def _resolve_profile_document_best_effort(
     the profile has since been edited into an invalid state (e.g. an
     unrelated module config error) -- falling back to generic defaults in
     that case would target the wrong release/namespace instead of tearing
-    down (or reporting on) the one that's actually running.
+    down (or reporting on) the one that's actually running. Persisted local
+    module overrides (issue #1220) are deliberately not applied here either:
+    teardown must keep working off the profile as committed.
     """
-    document, provenance, diagnostics = resolve_extends(profile_path)
+    document, provenance, diagnostics = resolve_extends(
+        profile_path, apply_persisted=False
+    )
     if document is None or any(d.level == "error" for d in diagnostics):
         return {}
 
@@ -404,19 +408,35 @@ def find_project_root(start: Path | None = None) -> Path:
 
 
 def get_config_path() -> Path:
-    """Location of the per-project CDS config file."""
+    """Location of the per-project CDS config file (gitignored, per-machine)."""
     override = os.getenv("CDS_CONFIG_PATH")
     if override:
         return Path(override).expanduser()
     return find_project_root() / ".cds" / "config.json"
 
 
+def get_shared_config_path() -> Path:
+    """Location of the committable, team-shared CDS config file (issue #1220).
+
+    Unlike the gitignored `.cds/config.json`, this file lives at the project
+    root (default `cds.shared.json`) so a team can commit shared
+    `module.<id>.config.<path>` defaults such as a common hostPath layout.
+    Only module overrides may be stored here; secret values are rejected the
+    same way as for the per-machine file. `CDS_SHARED_CONFIG_PATH` overrides
+    the location.
+    """
+    override = os.getenv("CDS_SHARED_CONFIG_PATH")
+    if override:
+        return Path(override).expanduser()
+    return find_project_root() / "cds.shared.json"
+
+
 class ConfigIOError(RuntimeError):
     """Raised when the CDS config file cannot be read or written."""
 
 
-def _read_config() -> dict:
-    config_path = get_config_path()
+def _read_config(config_path: Path | None = None) -> dict:
+    config_path = config_path or get_config_path()
     if not config_path.exists():
         return {}
     try:
@@ -441,8 +461,8 @@ def _read_config() -> dict:
     return data
 
 
-def _write_config(data: dict) -> Path:
-    config_path = get_config_path()
+def _write_config(data: dict, config_path: Path | None = None) -> Path:
+    config_path = config_path or get_config_path()
     try:
         if data:
             _atomic_write(config_path, json.dumps(data, indent=2) + "\n")
@@ -455,8 +475,8 @@ def _write_config(data: dict) -> Path:
     return config_path
 
 
-def _config_value(key: str) -> Any:
-    value: Any = _read_config()
+def _config_value(key: str, config_path: Path | None = None) -> Any:
+    value: Any = _read_config(config_path)
     for part in key.split("."):
         if not isinstance(value, dict) or part not in value:
             return None
@@ -501,6 +521,153 @@ _CONFIG_KEYS = [
     "audit.enabled",
     "get.allowedSources",
 ]
+
+# `cds config set module.<id>.config.<path> <value>` (issue #1220): a dotted
+# override of one scalar leaf of a module instance's config in the resolved
+# profile, persisted under the "module" key of .cds/config.json and
+# deep-merged into the matching spec.modules[] entry at load time.
+_MODULE_CONFIG_KEY_RE = re.compile(
+    r"^module\.[A-Za-z0-9_-]+\.config(\.[A-Za-z0-9_-]+)+$"
+)
+
+
+def _config_key_arg(key: str) -> str:
+    """argparse type for `cds config get|set|unset <key>`: a fixed _CONFIG_KEYS
+    entry or a `module.<id>.config.<path>` override key (issue #1220)."""
+    if key in _CONFIG_KEYS or _MODULE_CONFIG_KEY_RE.match(key):
+        return key
+    raise argparse.ArgumentTypeError(
+        f"invalid key {key!r} (choose from {', '.join(_CONFIG_KEYS)}, "
+        "or 'module.<id>.config.<path>')"
+    )
+
+
+def _coerce_module_override_value(raw: str, existing: Any, key: str) -> Any:
+    """
+    Coerce the CLI string for a module config override to the type of the
+    value it replaces (bool/int/float keep their type; strings and new leaves
+    fall back to best-effort scalar typing). Raises ValueError with an [E161]
+    message when the raw string cannot match the existing type.
+    """
+    if isinstance(existing, bool):
+        if raw not in {"true", "false"}:
+            raise ValueError(
+                f"[E161] Value for '{key}' must be true or false "
+                "(the current value is a boolean)."
+            )
+        return raw == "true"
+    if isinstance(existing, int):
+        try:
+            return int(raw)
+        except ValueError:
+            raise ValueError(
+                f"[E161] Value for '{key}' must be an integer "
+                "(the current value is a number)."
+            ) from None
+    if isinstance(existing, float):
+        try:
+            return float(raw)
+        except ValueError:
+            raise ValueError(
+                f"[E161] Value for '{key}' must be a number "
+                "(the current value is a float)."
+            ) from None
+    if existing is None:
+        lowered = raw.lower()
+        if lowered in {"true", "false"}:
+            return lowered == "true"
+        digits = raw.lstrip("-")
+        if re.fullmatch(r"\d+", digits) and not (
+            len(digits) > 1 and digits.startswith("0")
+        ):
+            return int(raw)
+        if re.fullmatch(r"-?\d+\.\d+([eE][+-]?\d+)?|-?\d+[eE][+-]?\d+", raw):
+            return float(raw)
+    return raw
+
+
+def _validate_module_override_setting(key: str, raw_value: str) -> Any:
+    """
+    Validate a `module.<id>.config.<path>` override (issue #1220) against the
+    saved default profile, resolved as committed (without other persisted
+    overrides), and return the coerced value to persist. Raises ValueError
+    with an [E161] message for unknown module ids, non-scalar target paths,
+    or a value that matches a resolved secret (alias-only rule: store
+    'secrets.<alias>' references, never values).
+    """
+    parts = key.split(".")
+    module_id, config_path = parts[1], parts[3:]
+    dotted_path = ".".join(config_path)
+    saved_profile = load_saved_profile()
+    if not saved_profile:
+        raise ValueError(
+            "[E161] Cannot set a module override without a saved default profile. "
+            "Run `cds use <profile>` or `cds config set profile <profile>` first."
+        )
+    try:
+        profile_path = resolve_profile_path(saved_profile)
+    except ValueError as exc:
+        raise ValueError(
+            "[E161] Cannot set a module override: the saved default profile could "
+            "not be resolved."
+        ) from exc
+    profile, _, diagnostics = resolve_profile(
+        profile_path, load_saved_environment(), apply_persisted=False
+    )
+    if profile is None or has_errors(diagnostics):
+        details = "; ".join(d.message for d in diagnostics if d.level == "error")
+        raise ValueError(
+            details or "[E161] The saved default profile could not be resolved."
+        )
+    spec = profile.get("spec") if isinstance(profile, dict) else None
+    modules = spec.get("modules") if isinstance(spec, dict) else None
+    modules = modules if isinstance(modules, list) else []
+    module_entry = next(
+        (m for m in modules if isinstance(m, dict) and m.get("id") == module_id), None
+    )
+    if module_entry is None:
+        known = sorted(
+            str(m["id"]) for m in modules if isinstance(m, dict) and m.get("id")
+        )
+        raise ValueError(
+            f"[E161] Unknown module id '{module_id}' in the saved profile "
+            f"(known module ids: {', '.join(known) or 'none'})."
+        )
+    current: Any = module_entry.get("config")
+    if current is None:
+        current = {}
+    for segment in config_path[:-1]:
+        if not isinstance(current, dict):
+            raise ValueError(
+                f"[E161] Config path '{dotted_path}' of module '{module_id}' "
+                f"traverses a non-scalar value at '{segment}'; only scalar leaf "
+                "paths can be overridden."
+            )
+        if segment not in current:
+            current = {}
+            break
+        current = current[segment]
+    if not isinstance(current, dict):
+        raise ValueError(
+            f"[E161] Config path '{dotted_path}' of module '{module_id}' traverses "
+            "a non-scalar value; only scalar leaf paths can be overridden."
+        )
+    existing = current.get(config_path[-1])
+    if isinstance(existing, (dict, list)):
+        raise ValueError(
+            f"[E161] Config path '{dotted_path}' of module '{module_id}' addresses "
+            f"a non-scalar value ({type(existing).__name__}); only scalar leaf "
+            "paths can be overridden."
+        )
+    secret_values = resolved_secret_values(
+        env_file=str(resolve_env_file_path(profile_path))
+    )
+    if raw_value in secret_values.values():
+        raise ValueError(
+            f"[E161] Value for '{key}' matches a resolved secret value; store a "
+            "'secrets.<alias>' reference instead, never the value itself."
+        )
+    return _coerce_module_override_value(raw_value, existing, key)
 
 
 def load_allowed_get_sources() -> list[str]:
@@ -548,9 +715,16 @@ def clear_saved_profile() -> bool:
     return True
 
 
-def set_config_value(key: str, value: str) -> Path:
-    """Set a supported project setting and return the config file path."""
-    data = _read_config()
+def set_config_value(key: str, value: Any, config_path: Path | None = None) -> Path:
+    """Set a supported project setting and return the config file path.
+
+    For `module.<id>.config.<path>` keys (issue #1220) `value` is the already
+    coerced scalar produced by _validate_module_override_setting(); the key is
+    stored as a nested mapping under the "module" key. `config_path` targets a
+    different file than the default `.cds/config.json` (used for the shared
+    `cds.shared.json` via `--shared`).
+    """
+    data = _read_config(config_path)
     if key == "profile":
         data["profile"] = value
     elif key == "environment":
@@ -577,14 +751,30 @@ def set_config_value(key: str, value: str) -> Path:
         if not isinstance(get_settings, dict):
             raise ConfigIOError("Config key 'get' must be a mapping.")
         get_settings["allowedSources"] = value
+    elif key.startswith("module."):
+        # generic dotted set from the config root: module.<id>.config.<path>
+        parts = key.split(".")
+        node: Any = data
+        for part in parts[:-1]:
+            if not isinstance(node, dict):
+                raise ConfigIOError(
+                    f"Config key '{key}' conflicts with a non-mapping value."
+                )
+            child = node.setdefault(part, {})
+            if not isinstance(child, dict):
+                raise ConfigIOError(
+                    f"Config key '{key}' conflicts with a non-mapping value."
+                )
+            node = child
+        node[parts[-1]] = value
     else:
         raise ValueError(f"Unknown config key '{key}'.")
-    return _write_config(data)
+    return _write_config(data, config_path)
 
 
-def unset_config_value(key: str) -> bool:
+def unset_config_value(key: str, config_path: Path | None = None) -> bool:
     """Remove a supported project setting."""
-    data = _read_config()
+    data = _read_config(config_path)
     if key == "profile" or key == "environment":
         if key not in data:
             return False
@@ -621,9 +811,29 @@ def unset_config_value(key: str) -> bool:
         del get_settings["allowedSources"]
         if not get_settings:
             del data["get"]
+    elif key.startswith("module."):
+        parts = key.split(".")
+        node: Any = data
+        for part in parts[:-1]:
+            if not isinstance(node, dict) or part not in node:
+                return False
+            node = node[part]
+        if not isinstance(node, dict) or parts[-1] not in node:
+            return False
+        del node[parts[-1]]
+        # prune parent mappings left empty by the removal (down to the root)
+        for index in range(len(parts) - 2, -1, -1):
+            parent: Any = data
+            for part in parts[:index]:
+                parent = parent[part]
+            child = parent[parts[index]]
+            if isinstance(child, dict) and not child:
+                del parent[parts[index]]
+            else:
+                break
     else:
         raise ValueError(f"Unknown config key '{key}'.")
-    _write_config(data)
+    _write_config(data, config_path)
     return True
 
 
@@ -2097,7 +2307,10 @@ def _run() -> int:
 
     diff_parser = subparsers.add_parser(
         "diff",
-        help="Show effective configuration differences between two environment overlays",
+        help=(
+            "Show effective configuration differences between two environment "
+            "overlays, plus any persisted local module overrides (.cds/config.json)"
+        ),
     )
     _add_profile_arg(diff_parser)
     diff_parser.add_argument(
@@ -2137,18 +2350,42 @@ def _run() -> int:
     config_subparsers = config_parser.add_subparsers(
         dest="config_command", required=True
     )
+    config_key_help = (
+        f"one of {', '.join(_CONFIG_KEYS)}, or 'module.<id>.config.<path>' to "
+        "override one scalar value of a module's config in the resolved profile "
+        "(persisted locally, applied on top of environment overlays)"
+    )
+    config_shared_help = (
+        "use the committable team-shared file (cds.shared.json, or "
+        "CDS_SHARED_CONFIG_PATH) instead of the gitignored .cds/config.json; "
+        "only 'module.<id>.config.<path>' keys are allowed there"
+    )
     config_get_parser = config_subparsers.add_parser(
         "get", help="Print a persisted setting"
     )
-    config_get_parser.add_argument("key", choices=_CONFIG_KEYS)
+    config_get_parser.add_argument("key", type=_config_key_arg, help=config_key_help)
+    config_get_parser.add_argument(
+        "--shared", action="store_true", help=config_shared_help
+    )
     config_set_parser = config_subparsers.add_parser("set", help="Persist a setting")
-    config_set_parser.add_argument("key", choices=_CONFIG_KEYS)
+    config_set_parser.add_argument("key", type=_config_key_arg, help=config_key_help)
     config_set_parser.add_argument("value")
+    config_set_parser.add_argument(
+        "--shared", action="store_true", help=config_shared_help
+    )
     config_unset_parser = config_subparsers.add_parser(
         "unset", help="Remove a persisted setting"
     )
-    config_unset_parser.add_argument("key", choices=_CONFIG_KEYS)
-    config_subparsers.add_parser("list", help="Print all persisted settings as JSON")
+    config_unset_parser.add_argument("key", type=_config_key_arg, help=config_key_help)
+    config_unset_parser.add_argument(
+        "--shared", action="store_true", help=config_shared_help
+    )
+    config_list_parser = config_subparsers.add_parser(
+        "list", help="Print all persisted settings as JSON"
+    )
+    config_list_parser.add_argument(
+        "--shared", action="store_true", help=config_shared_help
+    )
 
     subparsers.add_parser(
         "check-update",
@@ -2310,7 +2547,12 @@ def _run() -> int:
             raw_document.get("extends")
         )
 
-        document, _provenance, diagnostics = resolve_extends(profile_path)
+        # apply_persisted=False: compose-profile merges into the profile as
+        # committed -- local `module.*` overrides from .cds/config.json (issue
+        # #1220) must not be baked into a profile written back with --write.
+        document, _provenance, diagnostics = resolve_extends(
+            profile_path, apply_persisted=False
+        )
         if document is None or has_errors(diagnostics):
             print_diagnostics(diagnostics)
             print(
@@ -4058,12 +4300,29 @@ def _run() -> int:
         return 0
 
     if args.command == "config":
+        # --shared targets the committable team file (cds.shared.json), which
+        # only accepts module.<id>.config.<path> overrides (issue #1220).
+        target_path = (
+            get_shared_config_path() if getattr(args, "shared", False) else None
+        )
+        if (
+            target_path is not None
+            and args.config_command != "list"
+            and not args.key.startswith("module.")
+        ):
+            print(
+                "ERROR Only 'module.<id>.config.<path>' keys can be stored in "
+                f"the shared file ({target_path}); use the per-machine "
+                ".cds/config.json for CLI-level settings."
+            )
+            return 1
+
         if args.config_command == "list":
-            print(json.dumps(_read_config(), indent=2, sort_keys=True))
+            print(json.dumps(_read_config(target_path), indent=2, sort_keys=True))
             return 0
 
         if args.config_command == "get":
-            value = _config_value(args.key)
+            value = _config_value(args.key, target_path)
             if value is None:
                 print(f"ERROR Config key '{args.key}' is not set.")
                 return 1
@@ -4121,23 +4380,30 @@ def _run() -> int:
                     )
                     return 1
                 value = args.value
+            elif args.key.startswith("module."):
+                try:
+                    value = _validate_module_override_setting(args.key, args.value)
+                except ValueError as exc:
+                    print(f"ERROR {exc}")
+                    return 1
             else:
                 value = args.value
             try:
-                config_path = set_config_value(args.key, value)
+                config_path = set_config_value(args.key, value, config_path=target_path)
             except ConfigIOError as exc:
                 print(f"ERROR {exc}")
                 return 1
-            print(f"Set {args.key} = {value} ({config_path})")
+            display = json.dumps(value) if args.key.startswith("module.") else value
+            print(f"Set {args.key} = {display} ({config_path})")
             return 0
 
         try:
-            removed = unset_config_value(args.key)
+            removed = unset_config_value(args.key, config_path=target_path)
         except ConfigIOError as exc:
             print(f"ERROR {exc}")
             return 1
         if removed:
-            print(f"Unset {args.key} ({get_config_path()})")
+            print(f"Unset {args.key} ({target_path or get_config_path()})")
         else:
             print(f"Config key '{args.key}' is not set.")
         return 0
@@ -4171,7 +4437,9 @@ def _run() -> int:
         from_profile, _, from_diags = resolve_profile(
             profile_path, args.from_environment
         )
-        to_profile, _, to_diags = resolve_profile(profile_path, args.to_environment)
+        to_profile, to_provenance, to_diags = resolve_profile(
+            profile_path, args.to_environment
+        )
         all_diags = from_diags + to_diags
 
         if from_profile is None or to_profile is None:
@@ -4187,22 +4455,56 @@ def _run() -> int:
         changes: list[tuple[str, str, Any, Any]] = []
         _diff_values("", from_profile, to_profile, changes)
 
-        if not changes:
+        # Persisted `module.<id>.config.<path>` overrides (issue #1220) apply
+        # equally to both sides above, so show their effect separately: the
+        # `--to` environment resolved with and without them. Values come from
+        # the persisted config files (gitignored .cds/config.json and/or the
+        # committable cds.shared.json) and stay secret *aliases* when set.
+        persisted_changes: list[tuple[str, str, Any, Any]] = []
+        if _config_value("module") or _config_value("module", get_shared_config_path()):
+            to_base, _, _ = resolve_profile(
+                profile_path, args.to_environment, apply_persisted=False
+            )
+            if to_base is not None:
+                _diff_values("", to_base, to_profile, persisted_changes)
+
+        if not changes and not persisted_changes:
             print(
                 f"No differences between environment '{args.from_environment}' and '{args.to_environment}'."
             )
             return 0
 
-        print(
-            f"Differences from '{args.from_environment}' to '{args.to_environment}':\n"
-        )
-        for path, kind, old, new in sorted(changes, key=lambda c: c[0]):
-            if kind == "added":
-                print(f"  + {path}: {json.dumps(new)}")
-            elif kind == "removed":
-                print(f"  - {path}: {json.dumps(old)}")
-            else:
-                print(f"  ~ {path}: {json.dumps(old)} -> {json.dumps(new)}")
+        if changes:
+            print(
+                f"Differences from '{args.from_environment}' to '{args.to_environment}':\n"
+            )
+            for path, kind, old, new in sorted(changes, key=lambda c: c[0]):
+                if kind == "added":
+                    print(f"  + {path}: {json.dumps(new)}")
+                elif kind == "removed":
+                    print(f"  - {path}: {json.dumps(old)}")
+                else:
+                    print(f"  ~ {path}: {json.dumps(old)} -> {json.dumps(new)}")
+
+        if persisted_changes:
+            sources = sorted(
+                {
+                    to_provenance[path]
+                    for path, _, _, _ in persisted_changes
+                    if path in to_provenance
+                }
+            )
+            print(
+                f"\nPersisted module overrides ({', '.join(sources)}) applied on "
+                f"top of '{args.to_environment}':"
+            )
+            for path, kind, old, new in sorted(persisted_changes, key=lambda c: c[0]):
+                if kind == "added":
+                    print(f"  + {path}: {json.dumps(new)}")
+                elif kind == "removed":
+                    print(f"  - {path}: {json.dumps(old)}")
+                else:
+                    print(f"  ~ {path}: {json.dumps(old)} -> {json.dumps(new)}")
 
         return 0
 

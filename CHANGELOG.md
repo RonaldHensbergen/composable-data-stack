@@ -8,6 +8,30 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Local module config overrides via `cds config set module.<id>.config.<path>
+  <value>` (issue #1220): the override is persisted in the gitignored
+  `.cds/config.json` and deep-merged into the matching `spec.modules[]` entry
+  of the resolved profile at load time (same merge semantics as environment
+  overlays, `cli/overlay.py`), so bind-mount sources such as the dagster
+  module's `definitionsFile.hostPath` / `sharedData.hostPath` can be pointed
+  at a project repo's own `workdirs/` without editing `profile.yaml`.
+  Overrides persist either in the gitignored `.cds/config.json` (per machine)
+  or, with `cds config set --shared`, in the committable team-shared
+  `cds.shared.json` at the project root (`CDS_SHARED_CONFIG_PATH` to
+  relocate) so teams can share path defaults; only `module.*` keys are
+  allowed in the shared file and secrets are rejected in both.
+  Precedence: CLI flag > `.cds/config.json` > `cds.shared.json` > environment
+  overlay > base `profile.yaml`. `cds validate`/`plan`/`render`/`security`/`up` pick the
+  override up automatically, and `cds diff` shows the persisted overrides in a
+  dedicated section. Unknown module ids, non-scalar target paths, and values
+  matching a resolved secret are rejected with E161 (alias-only rule
+  unchanged: store `secrets.<alias>` references, never values); values are
+  coerced to the type of the value they replace. `compose-profile --write`,
+  `cds get` asset collection, and the best-effort `down`/`state` resolution
+  deliberately resolve the profile as committed. Documented in
+  `docs/cli-reference.md` and the README troubleshooting table (E161);
+  `tests/test_config_module_overrides.py` covers merge precedence, rejection
+  paths, and the diff section.
 - New best-practice doc [docs/repo-layout.md](docs/repo-layout.md): the
   recommended repository layout separating platform assets (modules,
   profiles) from project assets (Dagster pipelines, dbt/dlt code, database
