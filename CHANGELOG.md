@@ -9,14 +9,17 @@ The format is based on Keep a Changelog.
 ### Added
 
 - New `Issue Project Order` GitHub workflow
-  (`.github/workflows/issue-project-order.yml`): every newly opened issue is
-  added to the "Composable Data Stack Roadmap" project (with `Status: Todo`)
-  and assigned the next free `Order` value (max + 1), so new items append at
-  the end of the board without reordering existing ones. It authenticates
-  with the `PROJECTS_TOKEN` repository secret — a classic PAT with the
-  `project` scope plus `public_repo` — since `GITHUB_TOKEN` is
-  repository-scoped and cannot access GitHub Projects, and fine-grained PATs
-  cannot access user-owned projects.
+  (`.github/workflows/issue-project-order.yml`, logic in
+  `scripts/assign_project_order.py` with unit tests): every newly opened
+  issue is added to the "Composable Data Stack Roadmap" project (with
+  `Status: Todo`) and assigned an `Order` in a priority inbox band (1000+):
+  fix 1000+, milestone 1100+, security 1200+, `priority:high` 1300+,
+  `priority:medium` 1400+, rest 1500+, appending at max + 1 within the band
+  so existing items are never reordered. It authenticates with the
+  `PROJECTS_TOKEN` repository secret — a classic PAT with the `project`
+  scope plus `public_repo` — since `GITHUB_TOKEN` is repository-scoped and
+  cannot access GitHub Projects, and fine-grained PATs cannot access
+  user-owned projects.
 - Local module config overrides via `cds config set module.<id>.config.<path>
   <value>` (issue #1220): the override is persisted in the gitignored
   `.cds/config.json` and deep-merged into the matching `spec.modules[]` entry

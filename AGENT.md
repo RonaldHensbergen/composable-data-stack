@@ -216,14 +216,19 @@ Rules of use:
   should be assigned one (append at the end of the matching tier; never
   reorder existing items).
 - New issues get an `Order` automatically: the `Issue Project Order`
-  workflow (`.github/workflows/issue-project-order.yml`) adds each newly
-  opened issue to the project (with `Status: Todo`) and sets `Order` to
-  max + 1. It authenticates with the `PROJECTS_TOKEN` repository secret: a
-  classic PAT with the `project` scope plus `public_repo`, because
-  `GITHUB_TOKEN` cannot access Projects and fine-grained PATs have no
-  account-level Projects permission for user-owned projects. To backfill an
-  existing issue, re-run the workflow via workflow_dispatch with its issue
-  number.
+  workflow (`.github/workflows/issue-project-order.yml`, logic in
+  `scripts/assign_project_order.py`) adds each newly opened issue to the
+  project (with `Status: Todo`) and assigns an `Order` in the auto-assign
+  inbox bands (1000+, above the curated board), reflecting priority by
+  precedence: fix (`bug` label or `fix:`/`fix(scope):` title) 1000+,
+  milestone 1100+, security (`area:security`/`vuln-scan`) 1200+,
+  `priority:high` 1300+, `priority:medium` 1400+, rest 1500+ — appending at
+  max + 1 within the band, so existing items are never reordered. It
+  authenticates with the `PROJECTS_TOKEN` repository secret: a classic PAT
+  with the `project` scope plus `public_repo`, because `GITHUB_TOKEN` cannot
+  access Projects and fine-grained PATs have no account-level Projects
+  permission for user-owned projects. To backfill an existing issue, re-run
+  the workflow via workflow_dispatch with its issue number.
 - Pick up work by the lowest `Order` that is open, not `Done`, and not
   already in flight via an open PR.
 - Mechanic: `gh project item-edit 1 --owner RonaldHensbergen --url
