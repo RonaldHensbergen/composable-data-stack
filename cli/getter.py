@@ -983,7 +983,12 @@ def _collect_asset_roots(source_repo: Path, profile_path: Path) -> list[Path]:
     # parent profile (not redeclared in the child) are still collected;
     # cli.overlay is the single source of truth for extends semantics (see
     # cli.planner/cli.validator, which route through it the same way).
-    profile_doc, _provenance, diagnostics = resolve_extends(str(profile_path))
+    # apply_persisted=False: `cds get` collects assets from the source repo's
+    # profile as committed; the local project's persisted module overrides
+    # (issue #1220) must not leak into another repo's profile resolution.
+    profile_doc, _provenance, diagnostics = resolve_extends(
+        str(profile_path), apply_persisted=False
+    )
     if profile_doc is None or any(d.level == "error" for d in diagnostics):
         raise GetError(f"Could not load source profile {profile_path}")
 
@@ -1543,7 +1548,12 @@ def _build_tracking_assets(
     if not asset_roots:
         return []
 
-    profile_doc, _provenance, diagnostics = resolve_extends(str(profile_path))
+    # apply_persisted=False: `cds get` collects assets from the source repo's
+    # profile as committed; the local project's persisted module overrides
+    # (issue #1220) must not leak into another repo's profile resolution.
+    profile_doc, _provenance, diagnostics = resolve_extends(
+        str(profile_path), apply_persisted=False
+    )
     if profile_doc is None or any(d.level == "error" for d in diagnostics):
         raise GetError(f"Could not load source profile {profile_path}")
 

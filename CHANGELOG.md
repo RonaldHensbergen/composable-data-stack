@@ -8,6 +8,25 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- Local module config overrides via `cds config set module.<id>.config.<path>
+  <value>` (issue #1220): the override is persisted in the gitignored
+  `.cds/config.json` and deep-merged into the matching `spec.modules[]` entry
+  of the resolved profile at load time (same merge semantics as environment
+  overlays, `cli/overlay.py`), so bind-mount sources such as the dagster
+  module's `definitionsFile.hostPath` / `sharedData.hostPath` can be pointed
+  at a project repo's own `workdirs/` without editing `profile.yaml`.
+  Precedence: CLI flag > persisted `cds config` value > environment overlay >
+  base `profile.yaml`. `cds validate`/`plan`/`render`/`security`/`up` pick the
+  override up automatically, and `cds diff` shows the persisted overrides in a
+  dedicated section. Unknown module ids, non-scalar target paths, and values
+  matching a resolved secret are rejected with E161 (alias-only rule
+  unchanged: store `secrets.<alias>` references, never values); values are
+  coerced to the type of the value they replace. `compose-profile --write`,
+  `cds get` asset collection, and the best-effort `down`/`state` resolution
+  deliberately resolve the profile as committed. Documented in
+  `docs/cli-reference.md` and the README troubleshooting table (E161);
+  `tests/test_config_module_overrides.py` covers merge precedence, rejection
+  paths, and the diff section.
 - Recommended standard vocabulary for the `open-data-provider` contract's
   `classification` field (issue #845): CDS now recommends the DCAT-AP-NL data
   themes — the EU data-theme authority list

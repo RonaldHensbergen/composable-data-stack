@@ -418,8 +418,145 @@ def _merge_modules(
     return [by_id[mid] for mid in order]
 
 
+def _persisted_module_overrides() -> tuple[dict[str, Any], str]:
+    """
+    Return ({module_id: override_doc}, source_label) for the
+    `module.<id>.<path>` overrides persisted in the project config file
+    (.cds/config.json, issue #1220). The import is lazy because cli/main.py
+    imports this module at top level, so the config reader can only be
+    imported at call time (same pattern as cli/validator.py's lazy import of
+    resolve_profile). Returns ({}, "") when no overrides are persisted.
+    """
+    from .main import _read_config, get_config_path
+
+    modules = _read_config().get("module")
+    if not isinstance(modules, dict) or not modules:
+        return {}, ""
+    return modules, str(get_config_path())
+
+
+def _reject_non_scalar_override_leaves(
+    target: dict[str, Any],
+    override: dict[str, Any],
+    path: str,
+    diagnostics: list[Diagnostic],
+) -> None:
+    """
+    Emit an E161 error for every scalar leaf of `override` whose target in the
+    module entry is a dict or list -- replacing a whole config subtree with a
+    scalar is never what `cds config set module.<id>.<path>` meant (issue
+    #1220). Mapping-over-scalar/missing targets are left to the module config
+    schema validation that runs right after the merge.
+    """
+    for key, value in override.items():
+        child_path = f"{path}.{key}" if path else key
+        current = target.get(key) if isinstance(target, dict) else None
+        if isinstance(value, dict):
+            if isinstance(current, dict):
+                _reject_non_scalar_override_leaves(
+                    current, value, child_path, diagnostics
+                )
+        elif isinstance(current, (dict, list)):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E161",
+                    message=(
+                        f"Persisted override '{child_path}' would replace a "
+                        f"non-scalar value ({type(current).__name__}) with a scalar; "
+                        "point it at a leaf value instead."
+                    ),
+                    path=child_path,
+                )
+            )
+
+
+def _apply_persisted_module_overrides(
+    profile: dict[str, Any],
+    provenance: dict[str, str],
+    diagnostics: list[Diagnostic],
+) -> dict[str, Any]:
+    """
+    Deep-merge the `module.<id>.<path>` overrides persisted in the project
+    config file (issue #1220) into the matching spec.modules[] entries of the
+    resolved profile, with the same merge semantics as environment overlays.
+    Called after the environment overlay so the precedence stays: CLI flag >
+    persisted `cds config` value > environment overlay > base profile.yaml.
+    Unknown module ids and overrides of non-scalar paths are reported as E161
+    errors. Returns a new profile dict; `profile` is not mutated.
+    """
+    overrides, source_label = _persisted_module_overrides()
+    if not overrides:
+        return profile
+
+    spec = profile.get("spec")
+    modules = spec.get("modules") if isinstance(spec, dict) else None
+    if not isinstance(modules, list):
+        modules = []
+
+    known_ids = {
+        m["id"] for m in modules if isinstance(m, dict) and isinstance(m.get("id"), str)
+    }
+    for mid, override in overrides.items():
+        if mid in known_ids:
+            continue
+        if not isinstance(override, dict):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E161",
+                    message=(
+                        f"Persisted override 'module.{mid}' must be a mapping, got "
+                        f"{type(override).__name__}."
+                    ),
+                    path=f"module.{mid}",
+                )
+            )
+            continue
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E161",
+                message=(
+                    f"Persisted override names unknown module id '{mid}' "
+                    f"(known module ids: {sorted(known_ids) or 'none'}). Remove it "
+                    "with `cds config unset module.<id>.<path>` or fix the id."
+                ),
+                path=f"module.{mid}",
+            )
+        )
+
+    new_modules = []
+    for module in modules:
+        mid = module.get("id") if isinstance(module, dict) else None
+        override = overrides.get(mid) if isinstance(mid, str) else None
+        if not isinstance(module, dict) or not isinstance(override, dict):
+            new_modules.append(module)
+            continue
+        prefix = f"spec.modules[{mid}]"
+        _reject_non_scalar_override_leaves(module, override, prefix, diagnostics)
+        new_modules.append(
+            _merge_value(
+                module,
+                override,
+                provenance.get(prefix, source_label),
+                source_label,
+                prefix,
+                provenance,
+            )
+        )
+        provenance[prefix] = source_label
+
+    new_profile = dict(profile)
+    new_spec = dict(spec) if isinstance(spec, dict) else {}
+    new_spec["modules"] = new_modules
+    new_profile["spec"] = new_spec
+    return new_profile
+
+
 def resolve_extends(
     profile_path: str,
+    apply_persisted: bool = True,
 ) -> tuple[dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
     """
     Resolves only a profile's `extends` chain (no --environment overlay, no
@@ -428,8 +565,20 @@ def resolve_extends(
     when no --environment is selected, while preserving their own
     lighter-weight/defensive diagnostic handling instead of resolve_profile()'s
     full validation, which would mask those diagnostics.
+
+    apply_persisted=True (the default) additionally deep-merges the
+    `module.<id>.<path>` overrides persisted in the project config file
+    (.cds/config.json, issue #1220) into the matching spec.modules[] entries,
+    so plan/render/security see the same effective profile with or without an
+    --environment. Callers that must see the profile as committed -- `cds
+    diff`'s baseline, `compose-profile --write`, the best-effort down/state
+    resolution, and `cds get` asset collection from a source repo -- pass
+    apply_persisted=False.
     """
-    return _compose_extends(Path(profile_path), ())
+    base, provenance, diagnostics = _compose_extends(Path(profile_path), ())
+    if base is not None and apply_persisted:
+        base = _apply_persisted_module_overrides(base, provenance, diagnostics)
+    return base, provenance, diagnostics
 
 
 def resolve_extends_from_profile(
@@ -452,6 +601,7 @@ def resolve_extends_from_profile(
 def resolve_profile(
     profile_path: str,
     environment: str | None = None,
+    apply_persisted: bool = True,
 ) -> tuple[dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
     """
     Loads and, if an environment is selected, merges the profile at
@@ -465,6 +615,12 @@ def resolve_profile(
     environment=None (the default) reproduces the exact behavior of
     load_yaml_file + validate_loaded_profile on the base profile alone,
     standalone profiles are unaffected by this resolver existing.
+
+    apply_persisted=True (the default) additionally deep-merges the
+    `module.<id>.<path>` overrides persisted in the project config file
+    (.cds/config.json, issue #1220) into the matching spec.modules[] entries
+    after the environment overlay; pass False to resolve the profile as
+    committed (used by `cds diff` to show the persisted overrides' effect).
     """
     profile_file = Path(profile_path)
     base, provenance, diagnostics = _compose_extends(profile_file, ())
@@ -479,6 +635,7 @@ def resolve_profile(
         environment,
         profile_file,
         diagnostics,
+        apply_persisted=apply_persisted,
     )
     return resolved, out_provenance, diagnostics
 
@@ -488,6 +645,7 @@ def resolve_profile_from_profile(
     profile_dir: Path,
     environment: str | None = None,
     source_label: str = "<in-memory profile>",
+    apply_persisted: bool = True,
 ) -> tuple[dict[str, Any] | None, dict[str, str], list[Diagnostic]]:
     """
     In-memory counterpart to resolve_profile() (issue #349): resolves
@@ -515,6 +673,7 @@ def resolve_profile_from_profile(
         environment,
         anchor_file,
         diagnostics,
+        apply_persisted=apply_persisted,
     )
     return resolved, out_provenance, diagnostics
 
@@ -527,6 +686,7 @@ def _resolve_environment_overlay_and_validate(
     environment: str | None,
     anchor_file: Path,
     diagnostics: list[Diagnostic],
+    apply_persisted: bool = True,
 ) -> tuple[dict[str, Any] | None, dict[str, str]]:
     """
     Shared tail of resolve_profile()/resolve_profile_from_profile(): applies
@@ -543,8 +703,17 @@ def _resolve_environment_overlay_and_validate(
     provenance intentionally differs between failure branches to preserve
     resolve_profile()'s pre-existing behavior (empty on overlay-resolution
     failures, the extends-derived provenance on validation failures).
+
+    apply_persisted=True additionally deep-merges the `module.<id>.<path>`
+    overrides persisted in the project config file (issue #1220) into the
+    resolved profile's spec.modules[] entries, after the environment overlay
+    (precedence: CLI flag > persisted `cds config` value > environment
+    overlay > base profile.yaml) and before validate_loaded_profile(), so the
+    overridden values get the full schema/contract validation.
     """
     if environment is None:
+        if apply_persisted:
+            base = _apply_persisted_module_overrides(base, provenance, diagnostics)
         diagnostics.extend(validate_loaded_profile(base, anchor_file))
         if any(d.level == "error" for d in diagnostics):
             return None, provenance
@@ -586,6 +755,9 @@ def _resolve_environment_overlay_and_validate(
     diagnostics.extend(merge_diagnostics)
     if merge_diagnostics:
         return None, {}
+
+    if apply_persisted:
+        merged = _apply_persisted_module_overrides(merged, provenance, diagnostics)
 
     diagnostics.extend(validate_loaded_profile(merged, anchor_file))
     if any(d.level == "error" for d in diagnostics):
