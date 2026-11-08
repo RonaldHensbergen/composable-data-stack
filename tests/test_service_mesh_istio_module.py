@@ -20,7 +20,7 @@ Covers the acceptance criteria of #776 and the promotion in #1171:
   against the profile's module instance ids (issue #1179): an unknown id
   (typo or disabled module) fails closed with E159, because the rendered
   per-service AuthorizationPolicy would select zero pods.
-- Helm rendering warns with W131 when a known enrollment has no rendered
+- Helm rendering warns with W132 when a known enrollment has no rendered
   workload pods, including modules whose workloads are gated off (issue #1198).
 """
 
@@ -381,7 +381,7 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
         config = dict(ISTIO_CONFIG)
         config["services"] = [*config["services"], {"name": "mesh", "port": 8080}]
         files, diagnostics = self._render(config)
-        warnings = [d for d in diagnostics if d.code == "W131"]
+        warnings = [d for d in diagnostics if d.code == "W132"]
         self.assertEqual(len(warnings), 1)
         self.assertEqual(warnings[0].level, "warning")
         self.assertEqual(warnings[0].path, "module:mesh.config.services[2].name")
@@ -402,7 +402,7 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
             yaml.safe_load(files["values.yaml"])["modules"]["warehouse"]["workloads"],
             {},
         )
-        warnings = [d for d in diagnostics if d.code == "W131"]
+        warnings = [d for d in diagnostics if d.code == "W132"]
         self.assertEqual(len(warnings), 1)
         self.assertEqual(warnings[0].path, "module:mesh.config.services[0].name")
         self.assertIn('"warehouse"', warnings[0].message)
@@ -414,7 +414,7 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
             "replicas"
         ] = 0
         _, diagnostics = render_helm(plan)
-        warnings = [d for d in diagnostics if d.code == "W131"]
+        warnings = [d for d in diagnostics if d.code == "W132"]
         self.assertEqual(len(warnings), 1)
         self.assertEqual(warnings[0].path, "module:mesh.config.services[0].name")
 
@@ -432,7 +432,7 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
             }
         }
         _, diagnostics = render_helm(plan)
-        self.assertEqual([d for d in diagnostics if d.code == "W131"], [])
+        self.assertEqual([d for d in diagnostics if d.code == "W132"], [])
 
     def test_enrollment_of_a_disabled_module_fails_with_e159(self) -> None:
         # A disabled module instance is not in the plan, so enrolling its id
@@ -472,7 +472,7 @@ class IstioRenderTest(_EnvFileMixin, unittest.TestCase):
 
         warnings = [d for d in diagnostics if d.level == "warning"]
         self.assertIn("W130", [d.code for d in warnings])
-        self.assertNotIn("W131", [d.code for d in warnings])
+        self.assertNotIn("W132", [d.code for d in warnings])
         self.assertIn(
             "peerauthentications.security.istio.io",
             next(d for d in warnings if d.code == "W130").message,

@@ -65,7 +65,7 @@ The format is based on Keep a Changelog.
   otherwise select zero pods via the `cds.dev/module` label (a silent no-op
   allow policy). Documented in the README troubleshooting table (E159),
   `modules/security/istio/README.md`, and `docs/kubernetes.md`.
-- Helm rendering now warns with W131 when a known service-mesh enrollment
+- Helm rendering now warns with W132 when a known service-mesh enrollment
   names a module that produces no workload pods, including manifest-only
   modules and modules whose workloads are all disabled by `enabledFrom`
   (issue #1198). The check uses the workloads actually rendered for the Helm

@@ -60,7 +60,7 @@ Two boundaries worth knowing:
   instance ids: an unknown id (a typo, or a disabled module) fails closed
   with `E159`, because the rendered per-service `AuthorizationPolicy` would
   select zero pods — a silent no-op.
-- On the Helm target, `W131` warns when a known enrollment names a module
+- On the Helm target, `W132` warns when a known enrollment names a module
   with no rendered workload pods (for example, a manifest-only module or one
   whose workloads are all gated off). If authorization is enabled, its
   per-service policy would select zero pods; enroll a module with an enabled

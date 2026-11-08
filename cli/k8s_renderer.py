@@ -425,7 +425,7 @@ def _check_service_mesh_enrollments(
             diagnostics.append(
                 Diagnostic(
                     level="warning",
-                    code="W131",
+                    code="W132",
                     message=(
                         f'Module "{module["id"]}" enrolls service "{name}" in its '
                         "service-mesh config, but the module renders no Kubernetes "

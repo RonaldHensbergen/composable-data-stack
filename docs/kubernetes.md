@@ -555,7 +555,7 @@ zero pods — a silent no-op. The module advertises the resolved mesh on the
 `service-mesh` contract, which `cds maturity` counts as the service-mesh leg
 of the **Secured** tier.
 
-Helm rendering also warns with W131 when a known enrollment names a module
+Helm rendering also warns with W132 when a known enrollment names a module
 that produces no workload pods, including a manifest-only module or one whose
 workloads are all gated off by `enabledFrom`. If authorization is enabled, the
 per-service policy would select zero pods; enroll a module with an enabled
