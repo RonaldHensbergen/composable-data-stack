@@ -217,10 +217,13 @@ Rules of use:
   reorder existing items).
 - New issues get an `Order` automatically: the `Issue Project Order`
   workflow (`.github/workflows/issue-project-order.yml`) adds each newly
-  opened issue to the project and sets `Order` to max + 1. It authenticates
-  with the `PROJECTS_TOKEN` repository secret (a PAT, because `GITHUB_TOKEN`
-  cannot access Projects). To backfill an existing issue, re-run the
-  workflow via workflow_dispatch with its issue number.
+  opened issue to the project (with `Status: Todo`) and sets `Order` to
+  max + 1. It authenticates with the `PROJECTS_TOKEN` repository secret: a
+  classic PAT with the `project` scope plus `public_repo`, because
+  `GITHUB_TOKEN` cannot access Projects and fine-grained PATs have no
+  account-level Projects permission for user-owned projects. To backfill an
+  existing issue, re-run the workflow via workflow_dispatch with its issue
+  number.
 - Pick up work by the lowest `Order` that is open, not `Done`, and not
   already in flight via an open PR.
 - Mechanic: `gh project item-edit 1 --owner RonaldHensbergen --url

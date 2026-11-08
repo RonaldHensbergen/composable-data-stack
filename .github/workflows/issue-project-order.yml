@@ -10,9 +10,10 @@ name: Issue Project Order
 #
 # GITHUB_TOKEN is repository-scoped and cannot access GitHub Projects, so
 # this workflow authenticates with a personal access token stored in the
-# `PROJECTS_TOKEN` repository secret: a fine-grained PAT with the
-# account-level "Projects" permission (read & write) for RonaldHensbergen,
-# or a classic PAT with the `project` scope.
+# `PROJECTS_TOKEN` repository secret. The roadmap project is user-owned, and
+# fine-grained PATs have no account-level Projects permission, so use a
+# classic PAT with the `project` scope (read/write for Projects v2) plus
+# `public_repo` (this repository is public) to resolve issue URLs.
 
 on:
   issues:
@@ -44,6 +45,8 @@ jobs:
       PROJECT_OWNER: RonaldHensbergen
       PROJECT_NUMBER: "1"
       ORDER_FIELD: Order
+      STATUS_FIELD: Status
+      STATUS_TODO: Todo
     steps:
       - name: Resolve issue
         id: issue
@@ -57,6 +60,10 @@ jobs:
           if [[ -z "${number}" ]]; then
             echo "No issue number available; nothing to do."
             exit 0
+          fi
+          if [[ ! "${number}" =~ ^[0-9]+$ ]]; then
+            echo "Invalid issue number '${number}'; expected a positive integer." >&2
+            exit 1
           fi
           echo "number=${number}" >> "$GITHUB_OUTPUT"
           echo "url=https://github.com/${GITHUB_REPOSITORY}/issues/${number}" >> "$GITHUB_OUTPUT"
@@ -84,7 +91,11 @@ jobs:
             '.items[] | select((.content.number // 0) == $n and (.content.type // "") == "Issue")' \
             <<<"${items}" > /dev/null; then
             gh project item-add "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --url "${url}"
-            echo "Added issue #${number} to project ${PROJECT_NUMBER}."
+            # One field per item-edit invocation; new items also get the
+            # board's default Status so they don't show up blank.
+            gh project item-edit "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" \
+              --url "${url}" --field "$STATUS_FIELD" --value "$STATUS_TODO"
+            echo "Added issue #${number} to project ${PROJECT_NUMBER} with Status=${STATUS_TODO}."
           fi
 
           max="$(jq '[.items[].order // empty] | max // 0' <<<"${items}")"
