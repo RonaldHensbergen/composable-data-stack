@@ -22,6 +22,7 @@ from urllib.request import Request, urlopen
 from .loader import load_yaml_file, resolve_module_dir
 from .overlay import _derive_profiles_root, _resolve_extends_ref, resolve_extends
 from .planner import MaxNestingDepthExceeded, apply_defaults, substitute_string
+from .security_common import ensure_no_symlinked_parent
 from .utils import _atomic_write
 
 # The upstream repository `cds get` downloads from when no `--remote` is
@@ -1483,10 +1484,9 @@ def _write_tracking_manifest(
     pinned_commit: str | None = None,
 ) -> None:
     manifest_path = target_root / _TRACKING_FILE
-    if manifest_path.parent.is_symlink():
-        raise GetError(
-            f"Refusing to write through symlinked tracking metadata: {manifest_path}"
-        )
+    ensure_no_symlinked_parent(
+        manifest_path, what="tracking metadata", error_type=GetError
+    )
     manifest = _read_tracking_manifest(manifest_path)
 
     relative_files = {

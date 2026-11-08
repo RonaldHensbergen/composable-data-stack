@@ -68,6 +68,8 @@ from .security_common import (
     COMPLIANCE_CATEGORIES,
     NIS2_ARTICLE_21_MEASURES,
     SEVERITY_ORDER,
+    SymlinkedWriteError,
+    ensure_no_symlinked_parent,
     infer_profile_class,
     resolve_project_root,
 )
@@ -279,6 +281,30 @@ def _helm_identity(
     release = str((metadata or {}).get("name") or fallback_release)
     namespace = str((runtime or {}).get("namespace") or "cds-local")
     return release, namespace
+
+
+def _resolve_log_path(
+    log_file_arg: str | None, profile_name: str, *, prefix: str = "up"
+) -> Path:
+    """
+    Compute the lifecycle log path for `cds up`/`cds down` and resolve it.
+
+    For the default `.cds/logs/...` location, refuse to continue when `.cds`
+    or `.cds/logs` is a symlink: mkdir() and open() both follow the link, so
+    the log file would land outside the project tree (issue #1215, same
+    write-through-symlink class as the tracking manifest guarded in
+    cli/getter.py). An explicit --log-file is the operator's own choice and is
+    not guarded. Only the relative default path is checked, so an injected
+    absolute `logs_dir` (tests) under a symlinked TMPDIR is not a false
+    positive.
+    """
+    if log_file_arg:
+        return Path(log_file_arg).resolve()
+    raw = default_log_path(profile_name, prefix=prefix)
+    if not raw.is_absolute():
+        ensure_no_symlinked_parent(raw, what="log directory")
+        ensure_no_symlinked_parent(raw.parent, what="log directory")
+    return raw.resolve()
 
 
 def _resolve_profile_document_best_effort(
@@ -2794,11 +2820,13 @@ def _run() -> int:
             )
             namespace = args.namespace or plan_namespace
             release = args.release or plan_release
-            log_path = (
-                Path(args.log_file)
-                if args.log_file
-                else default_log_path(Path(profile_path).parent.name)
-            ).resolve()
+            try:
+                log_path = _resolve_log_path(
+                    args.log_file, Path(profile_path).parent.name
+                )
+            except SymlinkedWriteError as exc:
+                print(f"ERROR {exc}")
+                return 1
             log_path.parent.mkdir(parents=True, exist_ok=True)
             use_color = (not no_color) and sys.stdout.isatty()
             try:
@@ -3045,11 +3073,11 @@ def _run() -> int:
         except yaml.YAMLError:
             pass
 
-        if args.log_file:
-            log_path = Path(args.log_file)
-        else:
-            log_path = default_log_path(Path(profile_path).parent.name)
-        log_path = log_path.resolve()
+        try:
+            log_path = _resolve_log_path(args.log_file, Path(profile_path).parent.name)
+        except SymlinkedWriteError as exc:
+            print(f"ERROR {exc}")
+            return 1
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         log_tail_process = None
@@ -3352,11 +3380,13 @@ def _run() -> int:
         profile_release, profile_namespace = _k8s_runtime_defaults(
             profile_path, args.environment
         )
-        log_path = (
-            Path(args.log_file)
-            if args.log_file
-            else default_log_path(Path(profile_path).parent.name, prefix="down")
-        ).resolve()
+        try:
+            log_path = _resolve_log_path(
+                args.log_file, Path(profile_path).parent.name, prefix="down"
+            )
+        except SymlinkedWriteError as exc:
+            print(f"ERROR {exc}")
+            return 1
         log_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with open(log_path, "a", encoding="utf-8") as log_file:
