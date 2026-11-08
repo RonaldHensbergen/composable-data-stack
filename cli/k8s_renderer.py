@@ -200,6 +200,8 @@ def render_helm(
     ] = {}
     external_egress: dict[str, list[dict[str, Any]]] = {}
     workload_egress: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    module_contexts: dict[str, dict[str, Any]] = {}
+    enabled_workloads_by_module: dict[str, dict[str, dict[str, Any]]] = {}
     for module in renderable:
         module_id = module["id"]
         k8s = module["implementation"]["kubernetes"]
@@ -212,6 +214,12 @@ def render_helm(
         diagnostics.extend(passthrough_diags)
 
         context = _module_context(module, secrets, service_names)
+        module_contexts[module_id] = context
+        # Substitute the module's workloads once, here: the wait-gate host
+        # check below and the rendering pass both consume this single
+        # substitution, so each module's Kubernetes block is substituted
+        # exactly once per render (issue #1216).
+        enabled_workloads_by_module[module_id] = _enabled_workloads(k8s, context)
         entries, egress_diags = _external_egress_entries(
             module_id,
             k8s.get("egress"),
@@ -239,7 +247,8 @@ def render_helm(
         _check_wait_gate_hosts(
             renderable,
             service_names,
-            secrets,
+            module_contexts,
+            enabled_workloads_by_module,
             network_policy_passthrough,
             external_egress,
             workload_egress,
@@ -288,7 +297,10 @@ def render_helm(
     for module in renderable:
         module_id = module["id"]
         k8s = module["implementation"]["kubernetes"]
-        context = _module_context(module, secrets, service_names)
+        # Reuse the per-module context and substituted workloads computed in
+        # the pre-pass above; building or substituting them again here would
+        # be a second pass per render (issue #1216).
+        context = module_contexts[module_id]
         # The helm target is treated as production-only for now: Kubernetes
         # deploys always render the production variants, regardless of the
         # profile's metadata.environment. The learning (easy-install)
@@ -316,6 +328,7 @@ def render_helm(
             service_names=service_names,
             profile_dir=profile_dir,
             project_root=project_root,
+            enabled_workloads=enabled_workloads_by_module[module_id],
             is_production=True,
         )
         values["modules"][module_id] = {
@@ -485,6 +498,7 @@ def _render_module(
     service_names: dict[str, str],
     profile_dir: Path | None,
     project_root: Path | None,
+    enabled_workloads: dict[str, dict[str, Any]],
     is_production: bool = False,
 ) -> tuple[
     dict[str, Any],
@@ -527,13 +541,10 @@ def _render_module(
     for cm_name, cm in configmaps.items():
         manifests.append((f"{module_id}-configmap-{cm_name}.yaml", cm["manifest"]))
 
-    for workload_name, workload_raw in k8s.get("workloads", {}).items():
-        workload = _substitute_values(deepcopy(workload_raw), context)
-
-        enabled_from = workload.get("enabledFrom")
-        if enabled_from and _resolve_expr(enabled_from, context) is False:
-            continue
-
+    # Workloads arrive already substituted and filtered by enabledFrom from
+    # the single substitution pass in render_helm's pre-pass (issue #1216);
+    # substituting them again here would duplicate that pass.
+    for workload_name, workload in enabled_workloads.items():
         surfaces.append(_workload_surface(workload))
 
         full_name = _compose_service_name(module_id, workload_name)
@@ -2892,6 +2903,27 @@ def _module_context(
     return context
 
 
+def _enabled_workloads(
+    k8s: dict[str, Any], context: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
+    """
+    Substitute a module's Kubernetes workloads once and return the enabled
+    ones (whose `enabledFrom` does not resolve to False), keyed by workload
+    name. This is the single substitution pass per render: `render_helm`
+    computes it in its pre-pass and shares the result with both
+    `_render_module` and `_check_wait_gate_hosts`, so the substitution rules
+    live in one place (issue #1216).
+    """
+    enabled: dict[str, dict[str, Any]] = {}
+    for workload_name, workload_raw in (k8s.get("workloads") or {}).items():
+        workload = _substitute_values(deepcopy(workload_raw), context)
+        enabled_from = workload.get("enabledFrom")
+        if enabled_from and _resolve_expr(enabled_from, context) is False:
+            continue
+        enabled[str(workload_name)] = workload
+    return enabled
+
+
 def _passthrough_rule_covers(rule: dict[str, Any], host: str, port: int | None) -> bool:
     """
     Whether a raw `networkPolicy.egress` rule with an ipBlock peer covers
@@ -2950,7 +2982,8 @@ def _passthrough_rule_covers(rule: dict[str, Any], host: str, port: int | None) 
 def _check_wait_gate_hosts(
     modules: list[dict[str, Any]],
     service_names: dict[str, str],
-    secrets: dict[str, str],
+    module_contexts: dict[str, dict[str, Any]],
+    enabled_workloads_by_module: dict[str, dict[str, dict[str, Any]]],
     passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]]
     | None = None,
     external_egress: dict[str, list[dict[str, Any]]] | None = None,
@@ -2972,8 +3005,9 @@ def _check_wait_gate_hosts(
     module's Service that no binding or route names, an external address
     nobody declared, a DNS name (a NetworkPolicy cannot express one) -- can
     only hang until the gate's timeout with no diagnostic, so the render
-    fails closed with E152 instead of shipping the gate. Hosts are compared
-    after the same substitution the renderer applies, so
+    fails closed with E152 instead of shipping the gate. The module contexts
+    and substituted enabled workloads are passed in from `render_helm`'s
+    single substitution pass per render (issue #1216), so
     `${bindings.*.host}` and `${k8s.service.*}` gates are checked by their
     resolved value.
     """
@@ -2982,8 +3016,7 @@ def _check_wait_gate_hosts(
     diagnostics: list[Diagnostic] = []
     for module in modules:
         module_id = module["id"]
-        k8s = module["implementation"]["kubernetes"]
-        context = _module_context(module, secrets, service_names)
+        context = module_contexts[module_id]
 
         # The hosts a binding-derived egress edge exists for: the
         # release-scoped endpoint of every consumed provider in this render.
@@ -2998,19 +3031,16 @@ def _check_wait_gate_hosts(
             if isinstance(binding, dict) and binding.get("host"):
                 bound_hosts.add(str(binding["host"]))
 
-        # Substitute each workload once: the resolved values drive both the
-        # same-module Service allowlist and the gate check below. A workload
-        # whose enabledFrom resolves to False renders no Service, so a gate
-        # on it would hang at runtime exactly like a non-bound host.
-        enabled_workloads: dict[str, dict[str, Any]] = {}
+        # The enabled workloads were substituted once in render_helm's
+        # pre-pass and are passed in (issue #1216): the resolved values
+        # drive both the same-module Service allowlist and the gate check
+        # below. A workload whose enabledFrom resolves to False is already
+        # excluded here, so a gate on it would hang at runtime exactly like
+        # a non-bound host.
+        enabled_workloads = enabled_workloads_by_module[module_id]
         same_module_services: set[str] = set()
-        for workload_name, workload_raw in (k8s.get("workloads") or {}).items():
-            workload = _substitute_values(deepcopy(workload_raw), context)
-            enabled_from = workload.get("enabledFrom")
-            if enabled_from and _resolve_expr(enabled_from, context) is False:
-                continue
-            enabled_workloads[str(workload_name)] = workload
-            full = _compose_service_name(module_id, str(workload_name))
+        for workload_name in enabled_workloads:
+            full = _compose_service_name(module_id, workload_name)
             if full in service_names:
                 same_module_services.add(
                     _release_scoped_service_name(service_names[full])
