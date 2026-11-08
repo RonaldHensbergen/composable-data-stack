@@ -36,6 +36,11 @@ The file is [JSON Lines](https://jsonlines.org/) (one JSON object per
 line), so it can be tailed, `grep`ped, or parsed line-by-line without
 loading the whole history into memory.
 
+The append never follows a symlink: if `.cds` itself (or the log file) is a
+symlink, the entry is refused with a `WARNING` on stderr instead of landing
+outside the project tree (same write-through-symlink guard as the lifecycle
+logs and the `cds get` tracking manifest, issue #1225).
+
 ## What's recorded
 
 Each entry is a JSON object with:

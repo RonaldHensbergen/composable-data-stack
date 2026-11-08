@@ -562,6 +562,17 @@ The format is based on Keep a Changelog.
   `--log-file` remains the operator's own choice and is not guarded
   (issue #1215).
 
+- The remaining `.cds` write-through-symlink paths are closed too (loose end
+  from #1215 / PR #1223): the audit trail append in `cli/audit_log.py` now
+  reuses `security_common.ensure_no_symlinked_parent()` so a symlinked `.cds`
+  directory is refused with a `WARNING` (the entry never lands outside the
+  project tree and `record_entry()` still never raises), and
+  `cli/main.py`'s `_resolve_log_path()` additionally refuses a symlink
+  planted at the default log file itself via the new
+  `security_common.ensure_no_symlink()` helper. The residual TOCTOU window
+  between the check and `open()` is accepted for the local-operator CLI per
+  `docs/threat-model.md`, same as the #1199 manifest guard (issue #1225).
+
 - `cds get` no longer follows a symlinked `.cds` tracking directory, update
   notifications parse bounded PEP 440 versions, and image digest pins use
   deterministic validation instead of potentially super-linear regular
