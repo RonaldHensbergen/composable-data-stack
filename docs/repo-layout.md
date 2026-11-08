@@ -82,12 +82,17 @@ project.
 - **Environment variation** — `environments/<name>.yaml` overlays are
   deep-merged over the base profile with `--environment <name>`, so they can
   also override module config such as a `hostPath` per environment;
-  `cds config set environment <name>` persists that choice. Note that
-  `cds config` only accepts CLI-level keys (`profile`, `environment`,
-  `security.strict`, `image.source`, `target`, `audit.enabled`,
-  `get.allowedSources`) — it cannot set `hostPath` directly, and profile
-  config strings can instead be parameterized with `${CDS_*}` env
-  placeholders resolved from `.env`. `cds use <profile>` persists a
+  `cds config set environment <name>` persists that choice. For project-level
+  path defaults there is also `cds config set module.<id>.config.<path>
+  <value>` (issue #1220): the override is persisted per machine in the
+  gitignored `.cds/config.json`, or — with `--shared` — in the committable
+  `cds.shared.json` at the project root so the whole team shares it (only
+  `module.*` keys are allowed there; secrets are rejected in both, so store
+  `secrets.<alias>` references, never values). Precedence: CLI flag >
+  `.cds/config.json` > `cds.shared.json` > environment overlay > base
+  `profile.yaml`; see [cli-reference.md](cli-reference.md#local-module-config-overrides-moduleidconfigpath).
+  Profile config strings can alternatively be parameterized with `${CDS_*}`
+  env placeholders resolved from `.env`. `cds use <profile>` persists a
   per-project default profile in the gitignored `.cds/config.json`.
 
 ## Recommended setups
@@ -118,14 +123,21 @@ Keep the platform in a CDS checkout (or fork) and your code in your own repo:
 my-data-project/
 ├── profiles/
 │   └── local/
-│       ├── profile.yaml        # adapted copy: hostPath points at ../workdirs/...
-│       └── init-db.sh
+│       ├── profile.yaml        # can stay byte-identical to the checkout's copy:
+│       └── init-db.sh          #   hostPath is overridden via cds config instead
 ├── workdirs/
 │   ├── dagster/definitions.py
 │   ├── dbt/
 │   └── dlt/
+├── cds.shared.json             # optional, committed: team-shared module.<id>.config.<path>
+│                               #   overrides (e.g. hostPath -> ./workdirs/...)
 └── .env                        # gitignored; provides the CDS_* secret values
 ```
+
+With `cds config set --shared module.dagster.config.definitionsFile.hostPath
+./workdirs/dagster/definitions.py` in `cds.shared.json`, the profile no
+longer needs an adapted `hostPath`; a personal tweak goes in the gitignored
+`.cds/config.json` via plain `cds config set` and wins over the shared file.
 
 Name the two paths explicitly as variables so every command shows what it
 refers to:

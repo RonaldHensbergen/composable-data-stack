@@ -26,7 +26,7 @@ want to run the stack without the `cds` CLI.
 |cds test [profile]|One-shot smoke validation: validate, security, plan, and render|
 |cds security [profile]|Run rule-based security validation on a profile|
 |cds report [profile] [--json] [--output \<path\>]|Export a compliance/evidence report for a rendered stack (modules, image signature/SBOM/provenance evidence, contract topology, secret-leak check, and the optional `spec.dataSharing` declaration when the profile declares it); see [compliance-report.md](compliance-report.md)|
-|cds diff [profile] --from \<env\> --to \<env\>|Show effective configuration differences between two environment overlays, secrets never included|
+|cds diff [profile] --from \<env\> --to \<env\>|Show effective configuration differences between two environment overlays plus any persisted local module overrides, secrets never included|
 |cds generate-profile \<input\|-\> [--name \<name\>] [--force]|Persist a JSON/YAML profile document (file path or stdin) to `profiles/<name>/profile.yaml`|
 |cds compose-profile [profile] --add-module \<source\> [--bind \<name\>=\<moduleId.contract\>] [--set \<path\>=\<value\>] [--secret \<alias\>=\<ENV_VAR\>] [--write\|--output \<path\>]|Merge a new module instance into an existing profile, auto-resolving unambiguous contract bindings/dependencies and reporting ambiguous or missing ones|
 |cds use [profile] [--clear]|Save (show/clear) a default profile so it doesn't have to be passed to other commands|
@@ -211,6 +211,53 @@ setting, showing, or clearing `profile`.
 CLI flags take precedence over these defaults. In particular,
 `--environment` overrides `config environment`; `CDS_PROFILE_PATH` continues
 to override the saved profile.
+
+### Local module config overrides (`module.<id>.config.<path>`)
+
+`cds config set` also accepts a dotted `module.<id>.config.<path>` key to
+override one scalar value of a module instance's config in the resolved
+profile — most notably bind-mount sources such as the dagster module's
+`definitionsFile.hostPath` / `sharedData.hostPath` when you run a separate
+project repo against an external CDS checkout:
+
+```bash
+cds config set module.dagster.config.definitionsFile.hostPath ./workdirs/dagster/definitions.py
+cds config set module.dagster.config.sharedData.hostPath ./workdirs/dagster/shared
+cds config get module.dagster.config.definitionsFile.hostPath
+cds config unset module.dagster.config.definitionsFile.hostPath
+```
+
+By default the override is persisted in the gitignored `.cds/config.json`
+(per machine, never committed). Pass `--shared` to store it in the committable
+team-shared file `cds.shared.json` at the project root instead (location
+overridable via `CDS_SHARED_CONFIG_PATH`), so a team can commit shared path
+defaults such as a common `workdirs/` layout:
+
+```bash
+cds config set --shared module.dagster.config.sharedData.hostPath ./workdirs/shared-data
+cds config get --shared module.dagster.config.sharedData.hostPath
+cds config unset --shared module.dagster.config.sharedData.hostPath
+cds config list --shared
+```
+
+Only `module.<id>.config.<path>` keys are allowed in the shared file;
+CLI-level settings stay per-machine. Both files are deep-merged into the
+matching `spec.modules[]` entry of the resolved profile at load time, with the
+same merge semantics as environment overlays. Precedence is: CLI flag >
+per-machine `.cds/config.json` > team-shared `cds.shared.json` > environment
+overlay > base `profile.yaml`. `cds validate`, `plan`, `render`, `security`,
+and `up` all pick the overrides up without editing `profile.yaml`, and
+`cds diff` lists the persisted overrides in their own section, naming the
+file each value came from.
+
+Set-time validation rejects the override with E161 when the module id is
+unknown in the saved default profile, when the path addresses a non-scalar
+(dict/list) value, or when the value matches a resolved secret — the
+alias-only rule is unchanged and applies to both files: store
+`secrets.<alias>` references, never secret values. Values are coerced to the
+type of the value they replace (`true`/`false` for booleans, integers,
+floats, otherwise strings). For per-environment variation of the same values,
+use a committed `environments/<name>.yaml` overlay instead.
 
 ## Resolving `[profile]`
 
