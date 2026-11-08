@@ -79,9 +79,16 @@ project.
   profile never reads your code; the container does.
 - **Runtime wiring** — services find each other through contracts
   (`contractRef: postgres.sql-database`), never through shared files.
-- **Environment variation** — `environments/<name>.yaml` overlays merged with
-  `--environment <name>`; `cds use <profile>` persists a per-project default
-  in the gitignored `.cds/config.json`.
+- **Environment variation** — `environments/<name>.yaml` overlays are
+  deep-merged over the base profile with `--environment <name>`, so they can
+  also override module config such as a `hostPath` per environment;
+  `cds config set environment <name>` persists that choice. Note that
+  `cds config` only accepts CLI-level keys (`profile`, `environment`,
+  `security.strict`, `image.source`, `target`, `audit.enabled`,
+  `get.allowedSources`) — it cannot set `hostPath` directly, and profile
+  config strings can instead be parameterized with `${CDS_*}` env
+  placeholders resolved from `.env`. `cds use <profile>` persists a
+  per-project default profile in the gitignored `.cds/config.json`.
 
 ## Recommended setups
 
