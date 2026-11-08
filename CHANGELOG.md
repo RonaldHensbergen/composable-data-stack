@@ -454,6 +454,14 @@ The format is based on Keep a Changelog.
 
 ### Changed
 
+- Deduplicated the wait-gate host check's workload substitution (issue
+  #1216, loose end from #1034): `render_helm` now substitutes each module's
+  Kubernetes workloads exactly once per render, in its pre-pass (new
+  `_enabled_workloads` helper), and shares the substituted enabled workloads
+  and module contexts with both `_check_wait_gate_hosts` (E152) and
+  `_render_module`. The gate check no longer deep-copies and substitutes
+  every workload a second time, so the substitution rules live in one
+  place. Pure refactor — no behavior change, golden chart hashes unchanged.
 - Deduplicated the Kubernetes workload substitution used for NetworkPolicy
   surfaces (issue #1034): `cli/k8s_renderer.py` no longer substitutes each
   module's Kubernetes block twice per render. `_render_module` now collects
