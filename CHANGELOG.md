@@ -8,6 +8,13 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- New `Issue Project Order` GitHub workflow
+  (`.github/workflows/issue-project-order.yml`): every newly opened issue is
+  added to the "Composable Data Stack Roadmap" project and assigned the next
+  free `Order` value (max + 1), so new items append at the end of the board
+  without reordering existing ones. It authenticates with the
+  `PROJECTS_TOKEN` repository secret (a PAT with Projects write), since
+  `GITHUB_TOKEN` is repository-scoped and cannot access GitHub Projects.
 - Local module config overrides via `cds config set module.<id>.config.<path>
   <value>` (issue #1220): the override is persisted in the gitignored
   `.cds/config.json` and deep-merged into the matching `spec.modules[]` entry
