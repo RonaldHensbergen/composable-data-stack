@@ -552,6 +552,15 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- Docker smoke-test log redaction now also covers `*_KEY` env vars such as
+  `CDS_BACKUP_ENCRYPTION_KEY` (issue #1217): both `_redact` helpers in
+  `tests/test_compose_runtime_smoke.py` and
+  `tests/test_compose_profile_lifecycle_smoke.py` match the `KEY` and
+  `ENCRYPTION` name markers in addition to `PASSWORD`/`SECRET`/`TOKEN`, so a
+  real backup-encryption key set by a developer running the smoke locally can
+  no longer leak into `smoke-logs/` or the CI job log. New unit tests cover
+  `_redact` (including the `*_KEY` case) and run without a Docker daemon.
+
 - `cds up`/`cds down` no longer write the default lifecycle log through a
   symlinked `.cds` directory: `cli/main.py`'s new `_resolve_log_path()` guards
   the default `.cds/logs/...` path with the shared
