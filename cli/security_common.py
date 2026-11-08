@@ -39,6 +39,23 @@ def resolve_project_root(profile_path: str) -> Path:
     return found if found is not None else Path.cwd().resolve()
 
 
+class SymlinkedWriteError(RuntimeError):
+    """A write target's parent directory is a symlink (write-through-symlink)."""
+
+
+def ensure_no_symlinked_parent(
+    path: Path, *, what: str, error_type: type[RuntimeError] = SymlinkedWriteError
+) -> None:
+    """
+    Refuse to write `path` when its parent directory is a symlink: mkdir() and
+    open() both follow the link, so the file would land outside the intended
+    tree (e.g. a symlink planted at `.cds`, issue #1215). `error_type` lets
+    callers keep their own exception contract (e.g. getter's GetError).
+    """
+    if path.parent.is_symlink():
+        raise error_type(f"Refusing to write through symlinked {what}: {path}")
+
+
 # Closed set of informational compliance control categories a rule-set.json
 # rule can be tagged with (rule-schema.json's $defs.complianceCategory),
 # each mapped to a short display label plus the rationale documented in

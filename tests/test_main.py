@@ -2754,7 +2754,9 @@ spec:
                 result = main()
 
         self.assertEqual(result, 0)
-        mock_default_log_path.assert_called_once_with("local-dagster-postgres-superset")
+        mock_default_log_path.assert_called_once_with(
+            "local-dagster-postgres-superset", prefix="up"
+        )
 
     @patch("cli.main.default_log_path")
     @patch("cli.main.poll_state_until_settled")
@@ -2798,7 +2800,195 @@ spec:
                 result = main()
 
         self.assertEqual(result, 0)
-        mock_default_log_path.assert_called_once_with("local-dagster-postgres-superset")
+        mock_default_log_path.assert_called_once_with(
+            "local-dagster-postgres-superset", prefix="up"
+        )
+
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_refuses_symlinked_cds_log_dir(
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
+    ):
+        # Issue #1215: a symlink planted at .cds must not redirect the default
+        # .cds/logs write outside the project tree. default_log_path is NOT
+        # mocked here so the real relative .cds/logs path is guarded.
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir).resolve() / "project"
+            project.mkdir()
+            outside = Path(tmpdir).resolve() / "outside"
+            outside.mkdir()
+            (project / ".cds").symlink_to(outside, target_is_directory=True)
+            previous_cwd = os.getcwd()
+            os.chdir(project)
+            try:
+                with (
+                    patch.dict(
+                        os.environ,
+                        {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                        clear=False,
+                    ),
+                    patch.object(
+                        sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+                    ),
+                    contextlib.redirect_stdout(io.StringIO()) as out,
+                ):
+                    result = main()
+                output = out.getvalue()
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(result, 1)
+            self.assertIn("symlinked", output)
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertTrue((project / ".cds").is_symlink())
+            mock_run_streamed.assert_not_called()
+
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
+    def test_up_command_explicit_log_file_is_not_guarded(
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
+    ):
+        # Issue #1215: the symlink guard applies to the *default* log path
+        # only — an explicit --log-file is the operator's own choice.
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        mock_run_streamed.return_value = 0
+        mock_up_process = MagicMock()
+        mock_up_process.wait.return_value = 0
+        mock_start_up.return_value = mock_up_process
+        mock_start_tail.return_value = MagicMock()
+        mock_poll.return_value = (True, {})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir).resolve() / "project"
+            project.mkdir()
+            outside = Path(tmpdir).resolve() / "outside"
+            outside.mkdir()
+            (project / ".cds").symlink_to(outside, target_is_directory=True)
+            explicit_log = Path(tmpdir).resolve() / "explicit.log"
+            previous_cwd = os.getcwd()
+            os.chdir(project)
+            try:
+                with (
+                    patch.dict(
+                        os.environ,
+                        {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                        clear=False,
+                    ),
+                    patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "cds",
+                            "up",
+                            "local-dagster-postgres-superset",
+                            "--log-file",
+                            str(explicit_log),
+                        ],
+                    ),
+                ):
+                    result = main()
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(result, 0)
+            self.assertTrue(explicit_log.exists())
+
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
+    @patch("cli.main.ensure_k8s_cluster", return_value=0)
+    @patch("cli.main.helm_up", return_value=0)
+    @patch("cli.main._render_helm_chart", return_value=(0, []))
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile", return_value=[])
+    def test_up_helm_refuses_symlinked_cds_log_dir(
+        self, _mock_validate, mock_plan, _mock_render, mock_helm_up, _mock_ensure
+    ):
+        # Issue #1215, Helm target: same write-through-symlink guard on the
+        # `cds up --target helm` log path.
+        mock_plan.return_value = (
+            {
+                "metadata": {"name": "demo"},
+                "runtime": {"namespace": "demo-ns"},
+                "modules": [],
+            },
+            [],
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir).resolve() / "project"
+            project.mkdir()
+            outside = Path(tmpdir).resolve() / "outside"
+            outside.mkdir()
+            (project / ".cds").symlink_to(outside, target_is_directory=True)
+            previous_cwd = os.getcwd()
+            os.chdir(project)
+            try:
+                with (
+                    patch.dict(
+                        os.environ,
+                        {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                        clear=False,
+                    ),
+                    patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "cds",
+                            "up",
+                            "local-dagster-postgres-superset",
+                            "--target",
+                            "helm",
+                        ],
+                    ),
+                    contextlib.redirect_stdout(io.StringIO()) as out,
+                ):
+                    result = main()
+                output = out.getvalue()
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(result, 1)
+            self.assertIn("symlinked", output)
+            self.assertEqual(list(outside.iterdir()), [])
+            mock_helm_up.assert_not_called()
 
     @patch("cli.main.poll_state_until_settled")
     @patch("cli.main.start_log_tail")
@@ -3831,6 +4021,53 @@ spec:
         mock_log_path.assert_called_once_with(
             "local-dagster-postgres-superset", prefix="down"
         )
+
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
+    @patch("cli.main.helm_down", return_value=0)
+    def test_down_refuses_symlinked_cds_log_dir(self, mock_helm_down):
+        # Issue #1215: `cds down` must refuse to write its default
+        # .cds/logs/down-*.log through a symlinked .cds directory.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir).resolve() / "project"
+            project.mkdir()
+            outside = Path(tmpdir).resolve() / "outside"
+            outside.mkdir()
+            (project / ".cds").symlink_to(outside, target_is_directory=True)
+            previous_cwd = os.getcwd()
+            os.chdir(project)
+            try:
+                with (
+                    patch.dict(
+                        os.environ,
+                        {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                        clear=False,
+                    ),
+                    patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "cds",
+                            "down",
+                            "local-dagster-postgres-superset",
+                            "--target",
+                            "helm",
+                        ],
+                    ),
+                    contextlib.redirect_stdout(io.StringIO()) as out,
+                ):
+                    result = main()
+                output = out.getvalue()
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(result, 1)
+            self.assertIn("symlinked", output)
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertTrue((project / ".cds").is_symlink())
+            mock_helm_down.assert_not_called()
 
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_down", return_value=0)

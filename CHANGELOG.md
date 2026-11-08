@@ -544,6 +544,16 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- `cds up`/`cds down` no longer write the default lifecycle log through a
+  symlinked `.cds` directory: `cli/main.py`'s new `_resolve_log_path()` guards
+  the default `.cds/logs/...` path with the shared
+  `security_common.ensure_no_symlinked_parent()` helper (the same
+  write-through-symlink class `cli/getter.py` closed for the tracking
+  manifest in #1199) and fails with a stable `ERROR` instead of letting
+  `mkdir()`/`open()` follow the link outside the project tree. An explicit
+  `--log-file` remains the operator's own choice and is not guarded
+  (issue #1215).
+
 - `cds get` no longer follows a symlinked `.cds` tracking directory, update
   notifications parse bounded PEP 440 versions, and image digest pins use
   deterministic validation instead of potentially super-linear regular
