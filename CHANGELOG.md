@@ -8,6 +8,12 @@ The format is based on Keep a Changelog.
 
 ### Added
 
+- New best-practice doc [docs/repo-layout.md](docs/repo-layout.md): the
+  recommended repository layout separating platform assets (modules,
+  profiles) from project assets (Dagster pipelines, dbt/dlt code, database
+  scripts), with the supported setups from a single checkout to a separate
+  project repo wired through `CDS_PROFILE_PATH` / `CDS_MODULE_PATH` and
+  `hostPath` mounts.
 - Recommended standard vocabulary for the `open-data-provider` contract's
   `classification` field (issue #845): CDS now recommends the DCAT-AP-NL data
   themes — the EU data-theme authority list
