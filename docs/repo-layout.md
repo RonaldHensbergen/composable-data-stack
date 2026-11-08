@@ -71,9 +71,12 @@ project.
 - **Code mounting** — workload code enters containers through bind mounts
   configured in the profile, e.g. the dagster module's
   `definitionsFile.hostPath` / `sharedData.hostPath`. Relative `hostPath`
-  values resolve against the directory you run `cds` from (where the rendered
-  `docker-compose.yml` lives). The profile never reads your code; the
-  container does.
+  values resolve against the project root — the nearest ancestor of the
+  profile's directory containing a `.cds`, `pyproject.toml`, or `.git`
+  marker, falling back to the current directory — which is also where the
+  rendered `docker-compose.yml` is written and from which Compose resolves
+  relative bind sources (`cli/security_common.py:resolve_project_root`). The
+  profile never reads your code; the container does.
 - **Runtime wiring** — services find each other through contracts
   (`contractRef: postgres.sql-database`), never through shared files.
 - **Environment variation** — `environments/<name>.yaml` overlays merged with
@@ -143,8 +146,11 @@ drop the `modules/` prefix from each `source:`; pointing at the checkout root
 as above covers both `modules/` and `modules-experimental/`. See
 [installers.md](installers.md) for the full `CDS_PROFILE_PATH` forms.)
 
-Relative `hostPath` entries in the profile resolve from the directory you
-run `cds` in, so run from `my-data-project/` or adjust the paths.
+Relative `hostPath` entries in the profile resolve against that same project
+root — the `my-data-project/` checkout itself, found via its `.git` marker —
+not against the directory you happen to run `cds` from, so
+`hostPath: ./workdirs/...` works from anywhere as long as the profile lives
+inside the project.
 
 ### C. Pinned fork or vendored ref — platform as a dependency
 
@@ -160,8 +166,9 @@ watch the ref).
   database scripts: project repo.
 - Never commit secret values — not in profiles (aliases only) and not in
   database scripts.
-- Run `cds` from a stable project root so relative `hostPath` mounts resolve
-  consistently.
+- Keep your profile inside your project repo so the marker-based project
+  root — and with it relative `hostPath` mounts — resolves consistently,
+  regardless of where you run `cds` from.
 - If you outgrow the checkout, the migration path is: move `workdirs/` and
   your profile into your own repo, set `CDS_PROFILE_PATH` / `CDS_MODULE_PATH`,
   and keep the CDS checkout purely as the module source.
