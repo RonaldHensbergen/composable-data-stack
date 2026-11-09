@@ -69,6 +69,7 @@ from .security_common import (
     NIS2_ARTICLE_21_MEASURES,
     SEVERITY_ORDER,
     SymlinkedWriteError,
+    ensure_no_symlink,
     ensure_no_symlinked_parent,
     infer_profile_class,
     resolve_project_root,
@@ -290,13 +291,14 @@ def _resolve_log_path(
     Compute the lifecycle log path for `cds up`/`cds down` and resolve it.
 
     For the default `.cds/logs/...` location, refuse to continue when `.cds`
-    or `.cds/logs` is a symlink: mkdir() and open() both follow the link, so
-    the log file would land outside the project tree (issue #1215, same
-    write-through-symlink class as the tracking manifest guarded in
-    cli/getter.py). An explicit --log-file is the operator's own choice and is
-    not guarded. Only the relative default path is checked, so an injected
-    absolute `logs_dir` (tests) under a symlinked TMPDIR is not a false
-    positive.
+    or `.cds/logs` is a symlink, or when a symlink is planted at the log file
+    itself: mkdir() and open() both follow the link, so the log file would
+    land outside the project tree (issue #1215, same write-through-symlink
+    class as the tracking manifest guarded in cli/getter.py; the file-level
+    guard closes the pre-planted-log-file case from #1225). An explicit
+    --log-file is the operator's own choice and is not guarded. Only the
+    relative default path is checked, so an injected absolute `logs_dir`
+    (tests) under a symlinked TMPDIR is not a false positive.
     """
     if log_file_arg:
         return Path(log_file_arg).resolve()
@@ -304,6 +306,7 @@ def _resolve_log_path(
     if not raw.is_absolute():
         ensure_no_symlinked_parent(raw, what="log directory")
         ensure_no_symlinked_parent(raw.parent, what="log directory")
+        ensure_no_symlink(raw, what="log file")
     return raw.resolve()
 
 

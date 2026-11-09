@@ -1,4 +1,7 @@
+import contextlib
+import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -161,6 +164,35 @@ class AuditLogTest(unittest.TestCase):
             self.assertFalse(outside_target.exists())
             self.assertTrue(log_path.is_file())
             self.assertFalse(log_path.is_symlink())
+
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
+    def test_record_entry_refuses_symlinked_cds_dir(self) -> None:
+        # Issue #1225: a symlink planted at .cds must not redirect the audit
+        # append outside the project tree -- the entry is refused with a
+        # warning (record_entry never raises) and nothing is created outside.
+        with (
+            tempfile.TemporaryDirectory() as tmp_dir,
+            tempfile.TemporaryDirectory() as outside_dir,
+        ):
+            project_root = Path(tmp_dir)
+            outside = Path(outside_dir)
+            (project_root / ".cds").symlink_to(outside, target_is_directory=True)
+
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                result = record_entry(
+                    command="validate",
+                    profile="demo",
+                    outcome="success",
+                    project_root=project_root,
+                )
+
+            self.assertIsNone(result)
+            self.assertIn("symlinked", err.getvalue())
+            self.assertEqual(list(outside.iterdir()), [])
+            self.assertTrue((project_root / ".cds").is_symlink())
 
 
 if __name__ == "__main__":

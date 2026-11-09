@@ -56,6 +56,21 @@ def ensure_no_symlinked_parent(
         raise error_type(f"Refusing to write through symlinked {what}: {path}")
 
 
+def ensure_no_symlink(
+    path: Path, *, what: str, error_type: type[RuntimeError] = SymlinkedWriteError
+) -> None:
+    """
+    Refuse to write `path` when the target itself is a symlink: open() follows
+    the link, so the write would land at the link's destination (e.g. a
+    symlink planted at a log file inside a real `.cds/logs/`, issue #1225).
+    The residual TOCTOU window between this check and open() is accepted for
+    the local-operator CLI (docs/threat-model.md), same as
+    ensure_no_symlinked_parent().
+    """
+    if path.is_symlink():
+        raise error_type(f"Refusing to write through symlinked {what}: {path}")
+
+
 # Closed set of informational compliance control categories a rule-set.json
 # rule can be tagged with (rule-schema.json's $defs.complianceCategory),
 # each mapped to a short display label plus the rationale documented in

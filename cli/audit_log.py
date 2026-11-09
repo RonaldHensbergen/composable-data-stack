@@ -26,6 +26,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .security_common import SymlinkedWriteError, ensure_no_symlinked_parent
+
 _LOG_FILE = Path(".cds") / "audit-log.jsonl"
 
 # Set to disable the audit log without touching project config, e.g. for a
@@ -141,6 +143,13 @@ def record_entry(
         entry["details"] = details
 
     try:
+        # Never append through a symlinked .cds directory: mkdir() and
+        # open() both follow the link, so the entry would land outside the
+        # project tree (issue #1225, same write-through-symlink class as
+        # the lifecycle-log guard in cli/main.py and the tracking manifest
+        # in cli/getter.py). audit_log_path() always returns the default
+        # .cds/audit-log.jsonl, so this guard covers the default path only.
+        ensure_no_symlinked_parent(log_path, what="audit log directory")
         log_path.parent.mkdir(parents=True, exist_ok=True)
         if log_path.is_symlink():
             # Never follow/overwrite-through a symlink planted at the log
@@ -148,7 +157,7 @@ def record_entry(
             log_path.unlink()
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, sort_keys=True) + "\n")
-    except OSError as exc:
+    except (OSError, SymlinkedWriteError) as exc:
         print(
             f"WARNING Could not write audit log entry to {log_path}: {exc}",
             file=sys.stderr,

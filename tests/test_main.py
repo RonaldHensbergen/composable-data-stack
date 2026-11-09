@@ -2873,6 +2873,70 @@ spec:
     @patch("cli.main.render_compose")
     @patch("cli.main.build_plan")
     @patch("cli.main.validate_profile")
+    def test_up_command_refuses_symlinked_log_file(
+        self,
+        mock_validate,
+        mock_plan,
+        mock_render,
+        mock_run_streamed,
+        mock_start_up,
+        mock_start_tail,
+        mock_poll,
+    ):
+        # Issue #1225: a symlink planted at the default log file itself
+        # (inside a real .cds/logs/) must not be written through. The UTC-
+        # timestamped name makes this hard to pre-plant, but the file-level
+        # guard in _resolve_log_path() closes it fully. default_log_path is
+        # pinned to a fixed name here so the symlink can be pre-planted.
+        mock_validate.return_value = []
+        mock_plan.return_value = ({"metadata": {"name": "cds-test"}}, [])
+        mock_render.return_value = ("services: {}", [])
+        planted_rel = Path(".cds") / "logs" / "up-planted.log"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project = Path(tmpdir).resolve() / "project"
+            logs_dir = project / ".cds" / "logs"
+            logs_dir.mkdir(parents=True)
+            outside = Path(tmpdir).resolve() / "outside"
+            outside.mkdir()
+            escaped = outside / "escaped.log"
+            (logs_dir / "up-planted.log").symlink_to(escaped)
+            previous_cwd = os.getcwd()
+            os.chdir(project)
+            try:
+                with (
+                    patch.dict(
+                        os.environ,
+                        {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                        clear=False,
+                    ),
+                    patch.object(
+                        sys, "argv", ["cds", "up", "local-dagster-postgres-superset"]
+                    ),
+                    patch("cli.main.default_log_path", return_value=planted_rel),
+                    contextlib.redirect_stdout(io.StringIO()) as out,
+                ):
+                    result = main()
+                output = out.getvalue()
+            finally:
+                os.chdir(previous_cwd)
+
+            self.assertEqual(result, 1)
+            self.assertIn("symlinked", output)
+            self.assertFalse(escaped.exists())
+            self.assertTrue((logs_dir / "up-planted.log").is_symlink())
+            mock_run_streamed.assert_not_called()
+
+    @unittest.skipIf(
+        sys.platform.startswith("win"),
+        "symlinks require elevated privileges on Windows",
+    )
+    @patch("cli.main.poll_state_until_settled")
+    @patch("cli.main.start_log_tail")
+    @patch("cli.main.start_up_in_background")
+    @patch("cli.main.run_streamed")
+    @patch("cli.main.render_compose")
+    @patch("cli.main.build_plan")
+    @patch("cli.main.validate_profile")
     def test_up_command_explicit_log_file_is_not_guarded(
         self,
         mock_validate,
