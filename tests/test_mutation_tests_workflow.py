@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import yaml
@@ -378,6 +379,41 @@ class ExportStepFunctionalTest(unittest.TestCase):
         # The empty cache is tolerated by mutmut (boxed/mutmut#630), not dropped.
         self.assertTrue((project / "mutants" / "bar.py.meta").exists())
         self.assertTrue((project / "mutants" / "foo.py.meta").exists())
+
+
+class TornMetaProbeTest(unittest.TestCase):
+    """Pin the #1240 probe decision logic with a mocked mutmut CLI.
+
+    Hermetic: runs with or without mutmut installed, so CI (no mutmut) covers
+    the skip-condition logic too.
+    """
+
+    def _probe(self, run_result=None, run_error=None) -> bool:
+        module = sys.modules[__name__]
+        with unittest.mock.patch.object(module, "_MUTMUT_AVAILABLE", True):
+            with unittest.mock.patch.object(subprocess, "run") as run:
+                if run_error is not None:
+                    run.side_effect = run_error
+                else:
+                    run.return_value = run_result
+                return _installed_mutmut_tolerates_torn_meta()
+
+    def test_probe_passes_when_export_cicd_stats_succeeds(self) -> None:
+        self.assertTrue(self._probe(run_result=subprocess.CompletedProcess([], 0)))
+
+    def test_probe_fails_when_export_cicd_stats_crashes(self) -> None:
+        self.assertFalse(self._probe(run_result=subprocess.CompletedProcess([], 1)))
+
+    def test_probe_fails_on_subprocess_error(self) -> None:
+        self.assertFalse(self._probe(run_error=subprocess.TimeoutExpired("mutmut", 60)))
+        self.assertFalse(self._probe(run_error=OSError("boom")))
+
+    def test_probe_never_runs_without_mutmut(self) -> None:
+        module = sys.modules[__name__]
+        with unittest.mock.patch.object(module, "_MUTMUT_AVAILABLE", False):
+            with unittest.mock.patch.object(subprocess, "run") as run:
+                self.assertFalse(_installed_mutmut_tolerates_torn_meta())
+                run.assert_not_called()
 
 
 if __name__ == "__main__":
