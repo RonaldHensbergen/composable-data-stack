@@ -253,7 +253,7 @@ postgres-postgres:
 - `image: postgres:16` → stays as-is
 - `POSTGRES_DB: analytics` → becomes `${config.database}` (value moves to profile)
 - `POSTGRES_PASSWORD: ${CDS_ANALYTICS_POSTGRES_PASSWORD}` → becomes `${config.superuserPasswordFrom}` (secret reference for the container's superuser password)
-- `ports: [5432:5432]` → host port becomes `${config.port}`; container port declared in `runtime.service.ports`
+- `ports: [5432:5432]` → host port becomes `${config.port}`; container port declared in `runtime.service.ports`. The host-published port is host-side only: a provided contract advertises the container port (e.g. `port: 5432`), which is what in-network consumers dial (issue #1067)
 - `volumes: postgres-postgres-data:…` → captured in `implementation.compose.volumes`
 - `healthcheck:` → captured with `conditionallyEnabledFrom` gate
 

@@ -16,7 +16,11 @@ spec:
     endpoint:
       type: string
       required: true
-      description: S3 API endpoint URL, including scheme and port.
+      description: >-
+        S3 API endpoint URL, including scheme and port. The port is the
+        in-network port of the storage service (container port on Compose,
+        Service port on Kubernetes), not the localhost host-published port
+        (issue #1067).
     bucket:
       type: string
       required: true

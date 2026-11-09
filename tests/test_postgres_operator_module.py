@@ -65,7 +65,6 @@ OPERATOR_CONFIG = {
     "database": "${CDS_ANALYTICS_DB_NAME}",
     "username": "${CDS_ANALYTICS_DB_USER}",
     "passwordFrom": "secrets.analytics_db_password",
-    "port": 5432,
     "instances": 3,
     "storage": {"size": "10Gi"},
     "authentication": {"hostAuth": "scram-sha-256"},

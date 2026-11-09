@@ -31,8 +31,11 @@ spec:
       type: string
       required: true
       description: >-
-        Config path (e.g. spec.config.webPort) whose value is the TCP port
-        the HTTP service listens on.
+        Config path (e.g. spec.config.webPort) naming the module's port
+        knob for this service. Under the contract port semantic (issue
+        #1067) that knob is the host-side publish only: the value
+        consumers dial in-network is the `port` field (the container port),
+        never the host-published loopback port.
     host:
       type: string
       required: false
@@ -61,11 +64,14 @@ spec:
       type: integer
       required: false
       description: >-
-        Resolvable TCP port value (e.g. interpolated ${config.webPort}) that
-        consumers such as the reverse-proxy route generator (issue #581) use
-        as the backend port; absent means the provider does not advertise a
-        directly reachable port and route generation fails with a
-        diagnostic instead of guessing.
+        TCP port consumers such as the reverse-proxy route generator (issue
+        #581) dial in-network as the backend port: the provider's container
+        port on the Compose network (on Kubernetes the Service port, which
+        CDS renders equal to the container port). Not the localhost
+        host-published port, which is a separate module config concern (see
+        `portFrom`, issue #1067); absent means the provider does not
+        advertise a directly reachable port and route generation fails with
+        a diagnostic instead of guessing.
     healthPath:
       type: string
       required: false

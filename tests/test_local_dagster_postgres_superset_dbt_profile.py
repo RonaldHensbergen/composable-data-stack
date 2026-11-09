@@ -97,6 +97,57 @@ class LocalDagsterPostgresSupersetDbtProfileTest(unittest.TestCase):
             "service_healthy",
         )
 
+    def test_contract_ports_advertise_in_network_ports_not_host_publish(self) -> None:
+        # Issue #1067: with non-default host-publish ports configured, the
+        # provided contracts and every consumer binding must still use the
+        # in-network container port, while the localhost host publish keeps
+        # the configured value.
+        plan, plan_diags = build_plan(str(PROFILE_PATH), env_file=str(self.env_file))
+        self.assertIsNotNone(plan)
+        errors = [d for d in plan_diags if d.level == "error"]
+        self.assertEqual(errors, [])
+        for module in plan["modules"]:
+            if module["id"] == "postgres":
+                module["config"]["port"] = 5433
+            if module["id"] == "keydb":
+                module["config"]["port"] = 6380
+
+        output, render_diags = render_compose(plan, env_file=str(self.env_file))
+        errors = [d for d in render_diags if d.level == "error"]
+        self.assertEqual(errors, [])
+        compose = yaml.safe_load(output)
+
+        # Host-side publishes keep the configured overrides.
+        self.assertEqual(
+            compose["services"]["postgres"]["ports"], ["127.0.0.1:5433:5432"]
+        )
+        self.assertEqual(
+            compose["services"]["keydb"]["ports"], ["127.0.0.1:6380:6379"]
+        )
+        self.assertEqual(
+            compose["services"]["dbt-docs"]["ports"], ["127.0.0.1:8090:80"]
+        )
+
+        # Consumer bindings dial the in-network container port.
+        dbt = next(m for m in plan["modules"] if m["id"] == "dbt")
+        target = dbt["consumes"]["target-database"]["contract"]["spec"]
+        self.assertEqual(str(target["port"]), "5432")
+        self.assertIn(":5432/", target["connectionUri"])
+        superset = next(m for m in plan["modules"] if m["id"] == "superset")
+        cache = superset["consumes"]["cache-service"]["contract"]["spec"]
+        self.assertEqual(str(cache["port"]), "6379")
+        self.assertTrue(cache["connectionUri"].endswith(":6379"))
+        metadata = superset["consumes"]["metadata-database"]["contract"]["spec"]
+        self.assertEqual(str(metadata["port"]), "5432")
+
+        # The docs-service contract advertises the nginx container port,
+        # not the 8090 host publish.
+        self.assertEqual(str(dbt["provides"]["docs-service"]["spec"]["port"]), "80")
+
+        # The rendered consumer env uses the container port.
+        dbt_env = compose["services"]["dbt-run"]["environment"]
+        self.assertEqual(str(dbt_env["DBT_PORT"]), "5432")
+
 
 if __name__ == "__main__":
     unittest.main()

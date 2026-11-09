@@ -209,7 +209,8 @@ class OtelCollectorModuleShapeTest(unittest.TestCase):
             provided = provides[name]["spec"]
             self.assertEqual(provided["protocol"], "otlp-http")
             self.assertEqual(provided["ingestPath"], path)
-            self.assertEqual(provided["port"], "${config.otlpHttpPort}")
+            # In-network container port, not the host publish (#1067).
+            self.assertEqual(provided["port"], 4318)
             self.assertEqual(provided["host"], "${service.dns}")
 
     def test_module_consumes_optional_backends(self) -> None:
