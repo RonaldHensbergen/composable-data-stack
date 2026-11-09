@@ -13,6 +13,9 @@ metadata:
     (webserver + daemon), with pluggable storage bindings.
 
 spec:
+  # Templates use defaultByEnvironment on config.image.variant (#959), which
+  # requires cds >= 0.15.0; older CLIs fail at validate/plan time with E024.
+  requiresCliVersion: "0.15.0"
   runtime:
     type: container
     service:

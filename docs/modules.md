@@ -65,6 +65,36 @@ A module should not own:
 - unrelated shared utilities
 - configuration for other modules
 
+## CLI version requirement
+
+A module whose templates rely on CLI vocabulary introduced after a given
+release declares the minimum CLI version it needs as `spec.requiresCliVersion`
+(a semver string, e.g. `"0.15.0"`):
+
+```yaml
+spec:
+  requiresCliVersion: "0.15.0"   # e.g. for ${service.dns} or defaultByEnvironment
+  runtime: ...
+```
+
+`cds validate` and `cds plan` compare the field against the installed CLI
+version (`importlib.metadata.version("composable-data-stack")`) and fail with
+`E024` when the installed CLI is older:
+
+```text
+[E024] spec.modules[0].spec.requiresCliVersion
+Module "postgres" requires cds >= 0.15.0, but 0.14.0 is installed -- upgrade (pip install -U composable-data-stack) or fetch assets pinned to a matching ref (cds get --ref v0.14.0 ...).
+```
+
+This turns what would otherwise surface only at render time as `E071` (an
+unresolved `${...}` expression left in the rendered output) into an actionable
+validate-time diagnostic. When the installed CLI version cannot be determined
+(e.g. running from a source checkout without an installed distribution), the
+check is skipped rather than failing every declaring module. The field is
+optional; modules that only use vocabulary available in the oldest supported
+CLI omit it. Malformed values (anything that is not a semver string) are
+rejected at schema-validation time with `E021`.
+
 ## Implementation
 
 Each module declares its Docker Compose implementation inline, under `spec.implementation`:

@@ -142,6 +142,44 @@ class BuildPlanEdgeCaseTest(unittest.TestCase):
         self.assertEqual(plan["modules"], [])
         self.assertTrue(diags)
 
+    def test_build_plan_from_profile_emits_e024_when_module_requires_newer_cli(self):
+        module = _module()
+        module["spec"]["requiresCliVersion"] = "0.15.0"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_module(root, "mod", module)
+
+            with patch("cli.validator.installed_cli_version", return_value="0.14.0"):
+                plan, diags = planner.build_plan_from_profile(
+                    _profile([{"id": "m", "source": "./modules/mod", "config": {}}]),
+                    root,
+                )
+
+        self.assertEqual(plan["modules"], [])
+        self.assertEqual(
+            [(d.code, d.path) for d in diags],
+            [("E024", "spec.modules[0].spec.requiresCliVersion")],
+        )
+        self.assertIn("requires cds >= 0.15.0", diags[0].message)
+
+    def test_build_plan_from_profile_passes_when_cli_version_satisfies_requirement(
+        self,
+    ):
+        module = _module()
+        module["spec"]["requiresCliVersion"] = "0.15.0"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            _write_module(root, "mod", module)
+
+            with patch("cli.validator.installed_cli_version", return_value="0.15.1"):
+                plan, diags = planner.build_plan_from_profile(
+                    _profile([{"id": "m", "source": "./modules/mod", "config": {}}]),
+                    root,
+                )
+
+        self.assertEqual(diags, [])
+        self.assertEqual([m["id"] for m in plan["modules"]], ["m"])
+
     def test_build_plan_from_profile_reports_e094_for_deeply_nested_config(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

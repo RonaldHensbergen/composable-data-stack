@@ -17,6 +17,7 @@ from cli.validator import (
     validate_contract_file,
     validate_image_source_config,
     validate_loaded_profile,
+    validate_module_cli_versions,
     validate_module_configs,
     validate_observability_config,
     validate_outputs,
@@ -172,6 +173,103 @@ class LoadModuleInstancesTest(unittest.TestCase):
                 )
         self.assertEqual(instances, [])
         self.assertTrue(has_errors(diagnostics))
+
+
+class RequiresCliVersionTest(unittest.TestCase):
+    """spec.requiresCliVersion (issue #1111): checked at validate/plan time
+    against the installed CLI version, failing with E024 when the installed
+    CLI is too old (instead of a render-time E071)."""
+
+    def _doc(self, requires=None):
+        spec = {
+            "runtime": {
+                "type": "container",
+                "service": {"name": "mod", "ports": []},
+            },
+            "configSchema": {"type": "object"},
+            "implementation": {"kind": "docker-compose", "compose": {"services": {}}},
+        }
+        if requires is not None:
+            spec["requiresCliVersion"] = requires
+        return {
+            "apiVersion": "cds/v1alpha1",
+            "kind": "Module",
+            "metadata": {"name": "mod", "category": "cat", "version": "0.1.0"},
+            "spec": spec,
+        }
+
+    def _load(self, module_doc):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            profile_dir = root / "profiles" / "p"
+            module_dir = root / "modules" / "cat" / "mod"
+            profile_dir.mkdir(parents=True)
+            module_dir.mkdir(parents=True)
+            (module_dir / "module.yaml").write_text(
+                yaml.safe_dump(module_doc), encoding="utf-8"
+            )
+            profile = {
+                "spec": {"modules": [{"id": "m", "source": "cat/mod", "config": {}}]}
+            }
+            with patch.dict("os.environ", {"CDS_MODULE_PATH": str(root / "modules")}):
+                return load_module_instances(profile_dir / "profile.yaml", profile)
+
+    def test_field_absent_is_noop_even_on_old_cli(self):
+        inst = _inst("m", self._doc())
+        self.assertEqual(validate_module_cli_versions([inst], cli_version="0.14.0"), [])
+
+    def test_field_satisfied_passes(self):
+        inst = _inst("m", self._doc("0.15.0"), index=2)
+        self.assertEqual(validate_module_cli_versions([inst], cli_version="0.15.1"), [])
+
+    def test_field_equal_to_installed_passes(self):
+        inst = _inst("m", self._doc("0.15.0"))
+        self.assertEqual(validate_module_cli_versions([inst], cli_version="0.15.0"), [])
+
+    def test_field_violated_emits_e024_with_actionable_message(self):
+        inst = _inst("dagster", self._doc("0.15.0"))
+        diagnostics = validate_module_cli_versions([inst], cli_version="0.14.0")
+        self.assertEqual(
+            _codes(diagnostics),
+            [("E024", "spec.modules[0].spec.requiresCliVersion")],
+        )
+        message = diagnostics[0].message
+        self.assertIn('Module "dagster" requires cds >= 0.15.0, but 0.14.0', message)
+        self.assertIn("pip install -U composable-data-stack", message)
+        self.assertIn("cds get --ref v0.14.0", message)
+
+    def test_unknown_installed_version_is_treated_as_new_enough(self):
+        # Running from a source checkout without an installed distribution
+        # must not fail every module that declares requiresCliVersion.
+        inst = _inst("m", self._doc("99.0.0"))
+        self.assertEqual(
+            validate_module_cli_versions([inst], cli_version="unknown"), []
+        )
+
+    def test_malformed_value_reports_e024_when_schema_validation_is_bypassed(self):
+        # The planner loads modules without running module.schema.json, so a
+        # malformed value reaches the check itself (E021 covers it on the
+        # validate path).
+        inst = _inst("m", self._doc("0.15"))
+        diagnostics = validate_module_cli_versions([inst], cli_version="0.15.1")
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual(diagnostics[0].code, "E024")
+        self.assertIn("malformed spec.requiresCliVersion", diagnostics[0].message)
+
+    def test_malformed_value_rejected_by_schema_at_load_time(self):
+        instances, diagnostics = self._load(self._doc("0.15"))
+        self.assertEqual(instances, [])
+        self.assertTrue(diagnostics)
+        self.assertTrue(all(d.code == "E021" for d in diagnostics))
+        self.assertTrue(any("spec.requiresCliVersion" in d.path for d in diagnostics))
+
+    def test_valid_value_loads_cleanly_and_fails_check_on_old_cli(self):
+        instances, diagnostics = self._load(self._doc("0.15.0"))
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(len(instances), 1)
+        with patch.object(validator, "installed_cli_version", return_value="0.14.0"):
+            checked = validate_module_cli_versions(instances)
+        self.assertEqual([d.code for d in checked], ["E024"])
 
 
 class ModuleConfigAndSecretsTest(unittest.TestCase):
@@ -655,6 +753,34 @@ class LoadedProfilePipelineTest(unittest.TestCase):
             diagnostics = validate_loaded_profile(profile, Path("profile.yaml"))
         configs.assert_not_called()
         self.assertEqual(_codes(diagnostics), [("E021", "p")])
+
+    def test_pipeline_runs_cli_version_check_after_module_loading(self):
+        profile = {"spec": {"modules": []}}
+        inst = {
+            "index": 0,
+            "id": "m",
+            "source": "cat/mod",
+            "config": {},
+            "dependsOn": [],
+            "instance": {"id": "m", "source": "cat/mod", "config": {}},
+            "module": self._module_with_requires("0.15.0"),
+            "module_file": "cat/mod/module.yaml",
+        }
+        with (
+            patch.object(validator, "validate_profile_shape", return_value=[]),
+            patch.object(validator, "load_module_instances", return_value=([inst], [])),
+            patch.object(validator, "installed_cli_version", return_value="0.14.0"),
+        ):
+            diagnostics = validate_loaded_profile(profile, Path("profile.yaml"))
+        self.assertIn("E024", {d.code for d in diagnostics})
+        e024 = [d for d in diagnostics if d.code == "E024"]
+        self.assertEqual(e024[0].path, "spec.modules[0].spec.requiresCliVersion")
+
+    @staticmethod
+    def _module_with_requires(requires):
+        module = _module()
+        module["spec"]["requiresCliVersion"] = requires
+        return module
 
 
 if __name__ == "__main__":
