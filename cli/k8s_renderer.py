@@ -26,7 +26,9 @@ baseline unless the module declares it under
 `workloads.<name>.egress`), which renders an ipBlock rule for exactly that
 destination and port (issue #1023). `waitFor` gate hosts are validated
 against that baseline at render time and fail closed with E152 when no
-allow rule can cover them (issue #1031). Reverse-proxy `config.routes`
+allow rule can cover them (issue #1031), and `waitFor` entry shapes are
+re-checked the same way, failing closed with E162 on a malformed entry
+(issue #1130). Reverse-proxy `config.routes`
 entries are derived into the same policies: each route's target module
 opens a port-scoped egress edge on the proxy and a matching ingress edge
 on the target (issue #1033).
@@ -240,6 +242,17 @@ def render_helm(
             )
             workload_egress[(module_id, str(workload_name))] = workload_entries
             diagnostics.extend(workload_diags)
+        # waitFor entry shapes are re-checked on the substituted workloads
+        # (E162, issue #1130): `_wait_containers` reads gate["host"] and
+        # gate["port"] directly, and a plan loaded from a file bypasses the
+        # module schema, so a malformed entry must fail closed here instead
+        # of crashing the render with a KeyError/TypeError.
+        for workload_name, workload in enabled_workloads_by_module[module_id].items():
+            diagnostics.extend(
+                _wait_for_shape_diagnostics(
+                    module_id, str(workload_name), workload.get("waitFor")
+                )
+            )
 
     diagnostics.extend(_check_binding_services(renderable, service_names))
     diagnostics.extend(_check_provided_contract_services(renderable, service_names))
@@ -1653,6 +1666,89 @@ def _wait_containers(wait_for: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return containers
+
+
+def _wait_for_shape_diagnostic(where: str, requirement: str) -> Diagnostic:
+    return Diagnostic(
+        level="error",
+        code="E162",
+        message=(
+            f'Malformed waitFor gate at "{where}": {requirement}. A plan '
+            "loaded from a file bypasses the module schema, and the renderer "
+            "reads these fields directly when building the wait init "
+            "containers, so it fails closed here instead of crashing the "
+            "render with a KeyError/TypeError (issue #1130)."
+        ),
+        path=where,
+    )
+
+
+def _wait_for_shape_diagnostics(
+    module_id: str, workload_name: str, declared: Any
+) -> list[Diagnostic]:
+    """
+    Re-check `waitFor` entry shapes at render time (issue #1130).
+
+    A plan loaded from a file bypasses `module.schema.json`, and
+    `_wait_containers` reads `gate["host"]`/`gate["port"]` directly, so a
+    malformed entry would crash the render with a raw KeyError/TypeError.
+    The block must be a list of mappings, each with a non-empty string
+    `host`, a `port` (integer or string), and `timeoutSeconds` (if present)
+    an integer -- the same fail-closed convention as E148/E149/E151/E153.
+    """
+    base = (
+        f"module:{module_id}.implementation.kubernetes."
+        f"workloads.{workload_name}.waitFor"
+    )
+    if declared is None:
+        return []
+    if not isinstance(declared, list):
+        return [
+            _wait_for_shape_diagnostic(
+                base,
+                '"waitFor" must be a list of gate entries (mappings) with a '
+                'non-empty string "host" and a "port"',
+            )
+        ]
+    diagnostics: list[Diagnostic] = []
+    for index, gate in enumerate(declared):
+        where = f"{base}[{index}]"
+        if not isinstance(gate, dict):
+            diagnostics.append(
+                _wait_for_shape_diagnostic(
+                    where,
+                    "each waitFor entry must be a mapping with a non-empty "
+                    'string "host" and a "port" (integer or string)',
+                )
+            )
+            continue
+        host = gate.get("host")
+        if not isinstance(host, str) or not host:
+            diagnostics.append(
+                _wait_for_shape_diagnostic(
+                    where, 'each waitFor entry must declare a non-empty string "host"'
+                )
+            )
+            continue
+        port = gate.get("port")
+        if isinstance(port, bool) or not isinstance(port, (int, str)):
+            diagnostics.append(
+                _wait_for_shape_diagnostic(
+                    where,
+                    'each waitFor entry must declare a "port" (integer or string)',
+                )
+            )
+            continue
+        timeout = gate.get("timeoutSeconds")
+        if timeout is not None and (
+            isinstance(timeout, bool) or not isinstance(timeout, int)
+        ):
+            diagnostics.append(
+                _wait_for_shape_diagnostic(
+                    where, '"timeoutSeconds" must be an integer when present'
+                )
+            )
+    return diagnostics
 
 
 def _workload_manifest(

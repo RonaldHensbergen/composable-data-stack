@@ -1563,6 +1563,106 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             files["templates/consumer-app-deployment.yaml"],
         )
 
+    def test_wait_for_entry_missing_host_fails_closed(self) -> None:
+        # A plan loaded from a file bypasses the module schema, and
+        # `_wait_containers` reads gate["host"] directly: a gate without a
+        # host must fail closed with E162 naming the entry path, not crash
+        # the render with a KeyError (issue #1130).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"port": 8080}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e162 = [d for d in diagnostics if d.code == "E162"]
+        self.assertEqual(len(e162), 1)
+        self.assertEqual(
+            e162[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.waitFor[0]",
+        )
+        self.assertIn('"host"', e162[0].message)
+
+    def test_wait_for_non_mapping_entry_fails_closed(self) -> None:
+        # Same crash class for a non-mapping entry: reading ["host"] from it
+        # raises TypeError -- fail closed with E162 instead (issue #1130).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = ["demo-app:8080"]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e162 = [d for d in diagnostics if d.code == "E162"]
+        self.assertEqual(len(e162), 1)
+        self.assertEqual(
+            e162[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.waitFor[0]",
+        )
+        self.assertIn("mapping", e162[0].message)
+
+    def test_wait_for_non_list_block_fails_closed(self) -> None:
+        # A mapping instead of a list iterates as its keys, each of which
+        # crashes on ["host"]: fail closed with E162 on the block (#1130).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = {"host": "demo-app", "port": 8080}
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e162 = [d for d in diagnostics if d.code == "E162"]
+        self.assertEqual(len(e162), 1)
+        self.assertEqual(
+            e162[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.waitFor",
+        )
+
+    def test_wait_for_non_integer_timeout_fails_closed(self) -> None:
+        # `timeoutSeconds` must be an integer when present; a string would
+        # pass the schema bypass but is rejected here (issue #1130).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [
+            {"host": "${k8s.service.app}", "port": 8080, "timeoutSeconds": "60"}
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e162 = [d for d in diagnostics if d.code == "E162"]
+        self.assertEqual(len(e162), 1)
+        self.assertIn("timeoutSeconds", e162[0].message)
+
+    def test_wait_for_valid_entry_renders_unchanged(self) -> None:
+        # Schema-valid entries (substituted host, integer port and
+        # timeoutSeconds) render unchanged and produce no E162, so golden
+        # hashes stay stable (issue #1130).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [
+            {"host": "${k8s.service.app}", "port": 8080, "timeoutSeconds": 60}
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E162", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z {{ .Release.Name }}-consumer-app 8080",
+            files["templates/consumer-app-deployment.yaml"],
+        )
+
     def proxy_plan(self) -> dict:
         """A reverse-proxy module with routes, two route targets, and an unrouted module."""
         proxy = self.module("proxy")

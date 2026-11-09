@@ -350,6 +350,12 @@ NetworkPolicy (issue #75):
   unreachable host (#1031, #1033), and whose host:port no declared
   `implementation.kubernetes.egress` entry covers (#1023). A DNS-name gate
   host stays denied: a NetworkPolicy cannot express one.
+- `waitFor` entry shapes are re-checked at render time too: a plan loaded from
+  a file bypasses the module schema, so a malformed entry -- a non-list
+  block, a non-mapping entry, a missing or non-string `host`, a missing
+  `port`, a non-integer `timeoutSeconds` -- fails closed with E162 naming the
+  entry path instead of crashing the renderer with a `KeyError`/`TypeError`
+  (#1130).
 - NodePort and LoadBalancer services are intended entry points: ingress is
   opened to all sources on exactly their exposed ports, and CDS-K8S-007
   flags that exposure.
