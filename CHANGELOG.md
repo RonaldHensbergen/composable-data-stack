@@ -19,6 +19,20 @@ The format is based on Keep a Changelog.
   `KeyError`/`TypeError` on a plan loaded from a file, which bypasses the
   module schema (issue #1130).
 - `cds up --target helm` no longer reports a false failure on a cold k3d cluster (issue #1116): when `--timeout` is not passed, the settle budget now defaults to 180s plus 120s per local image build (`helm_settle_timeout()`, `cli/k8s_runner.py:36`), covering the `docker build` + `k3d image import` + kubelet image-load time of a first run, so the first `cds up` exits 0 once pods are Ready without requiring `--timeout`. `--no-build` and build-free profiles keep the flat 180s default, and an explicit `--timeout` always wins. When the budget does expire, the settle-failure message now distinguishes pods that are still initializing (`STARTING`) from actually unhealthy pods, and hints at re-running `cds up` or passing `--timeout` (`_settle_failure_message()`, `cli/k8s_runner.py:52`, written to the log and echoed to the terminal). Covered by `tests/test_k8s_runner.py` (timeout calculation + message wording) and `tests/test_main.py` (default scaling vs. explicit `--timeout` vs. `--no-build`); documented in `docs/kubernetes.md` and `docs/underlying-commands.md`.
+- The Helm render now validates a `waitFor` gate's port against the
+  binding's port-scoped egress rule, closing the port dimension of the
+  silent-failure class #1031 closed for hosts (issue #1124): when a gate's
+  resolved host is a bound provider endpoint, `cli/k8s_renderer.py`'s
+  `_check_wait_gate_hosts` maps the gate's Service-facing port through the
+  provider Service's `port_map` (exactly as `_binding_ports` maps the
+  contract port, so a `port`/`targetPort` remap keeps the check correct)
+  and fails closed with the new E163 diagnostic -- naming the gate, the
+  host, the uncovered port, and the ports the binding does open -- when no
+  binding to that host covers it. A gate on a same-module Service still
+  needs no port check (same-module egress is unscoped), and a gate whose
+  port matches the binding port renders unchanged. README troubleshooting
+  table, `docs/kubernetes.md`, and tests (uncovered port, second unopened
+  provider port, `port`/`targetPort` remap) included.
 
 ## [0.15.1] - 2026-11-09
 

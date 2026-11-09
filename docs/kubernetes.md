@@ -356,6 +356,14 @@ NetworkPolicy (issue #75):
   `port`, a non-integer `timeoutSeconds` -- fails closed with E162 naming the
   entry path instead of crashing the renderer with a `KeyError`/`TypeError`
   (#1130).
+- A gate on a bound provider endpoint is also checked in the port dimension
+  (#1124): the binding-derived egress rule is port-scoped, so the gate's
+  Service-facing port is mapped through the provider Service's `port_map`
+  (exactly as the contract port is mapped for the rule itself, keeping a
+  `port`/`targetPort` remap correct) and must be covered by a binding to
+  that host. An uncovered port fails closed with E163 naming the gate, the
+  host, and the port. Same-module gates need no port check: same-module
+  egress is unscoped.
 - NodePort and LoadBalancer services are intended entry points: ingress is
   opened to all sources on exactly their exposed ports, and CDS-K8S-007
   flags that exposure.
