@@ -271,7 +271,8 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
         redacted = value
         for key, secret in env.items():
             if secret and any(
-                marker in key.upper() for marker in ("PASSWORD", "SECRET", "TOKEN")
+                marker in key.upper()
+                for marker in ("PASSWORD", "SECRET", "TOKEN", "KEY", "ENCRYPTION")
             ):
                 redacted = redacted.replace(secret, "<redacted>")
         return re.sub(
@@ -861,6 +862,46 @@ class ComposeRuntimeSmokeTest(unittest.TestCase):
             env,
         )
         return result.stdout.strip()
+
+
+class ComposeRuntimeSmokeRedactTest(unittest.TestCase):
+    """Unit tests for _redact; these run without a Docker daemon (#1217)."""
+
+    _ENV = {
+        "CDS_ANALYTICS_DB_NAME": "analytics",
+        "CDS_BACKUP_ENCRYPTION_KEY": "real-backup-encryption-key",
+        "CDS_DAGSTER_DB_PASSWORD": "dagster-testpass",
+        "CDS_SUPERSET_SECRET_KEY": "superset-secret-key",
+        "CDS_VAULT_TOKEN": "vault-root-token",
+        "CDS_EMPTY_TOKEN": "",
+    }
+
+    def test_key_named_env_value_is_redacted(self) -> None:
+        output = ComposeRuntimeSmokeTest._redact(
+            "backup key = real-backup-encryption-key", self._ENV
+        )
+        self.assertNotIn("real-backup-encryption-key", output)
+        self.assertIn("<redacted>", output)
+
+    def test_existing_markers_still_redact(self) -> None:
+        for secret in ("dagster-testpass", "superset-secret-key", "vault-root-token"):
+            output = ComposeRuntimeSmokeTest._redact(f"value={secret}", self._ENV)
+            self.assertNotIn(secret, output)
+
+    def test_non_secret_values_are_kept(self) -> None:
+        output = ComposeRuntimeSmokeTest._redact("db=analytics", self._ENV)
+        self.assertEqual(output, "db=analytics")
+
+    def test_empty_secret_does_not_mangle_output(self) -> None:
+        output = ComposeRuntimeSmokeTest._redact("unchanged", self._ENV)
+        self.assertEqual(output, "unchanged")
+
+    def test_postgres_url_password_is_redacted(self) -> None:
+        output = ComposeRuntimeSmokeTest._redact(
+            "dsn=postgresql://dagster:url-only-pass@postgres:5432/dagster", self._ENV
+        )
+        self.assertNotIn("url-only-pass", output)
+        self.assertIn("postgresql://dagster:<redacted>@postgres:5432/dagster", output)
 
 
 if __name__ == "__main__":
