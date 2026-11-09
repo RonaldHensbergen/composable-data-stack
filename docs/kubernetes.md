@@ -99,6 +99,15 @@ The timeout bounds both Helm's wait and every explicit workload rollout check.
 Output is written to `.cds/logs/`. `--detach` submits the release without
 waiting for rollouts.
 
+Without `--timeout`, the settle budget defaults to 180s plus 120s per local
+image build (issue #1116): on a cold k3d cluster each built image adds build,
+`k3d image import`, and kubelet image-load time before its pods can become
+Ready, so a first run waits long enough instead of reporting a false failure.
+With `--no-build` (or no local images) the default stays at 180s. When the
+budget does expire, the failure message distinguishes pods that are still
+initializing from pods that are actually unhealthy, and hints at re-running
+`cds up` or passing `--timeout`.
+
 `cds up --target helm` is self-contained, like the Compose target (#690). Before
 `helm upgrade --install` runs, it:
 

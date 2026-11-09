@@ -213,7 +213,11 @@ Underneath (`cli/main.py:2467`):
      Never commit that file.
 5. Polls readiness with the exact same query as `cds state --target helm`
    (below) until all workloads settle or `--timeout` elapses
-   (`poll_k8s_state_until_settled()`, `cli/k8s_runner.py:166`).
+   (`poll_k8s_state_until_settled()`, `cli/k8s_runner.py:246`). Default when
+   `--timeout` is not passed: 180 s, plus 120 s per local image build
+   (`helm_settle_timeout()`, `cli/k8s_runner.py:36`) so a cold k3d first run
+   doesn't false-fail; on timeout the message separates still-initializing
+   from unhealthy workloads (issue #1116).
 
 Copy-pasteable standalone equivalent:
 
