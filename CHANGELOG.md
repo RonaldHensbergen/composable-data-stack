@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-09
+
 ### Added
 
 - New `Issue Project Order` GitHub workflow
