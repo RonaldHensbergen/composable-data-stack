@@ -3917,6 +3917,101 @@ spec:
         self.assertTrue(mock_ensure.call_args.kwargs["create"])
         self.assertEqual(mock_ensure.call_args.args[0], "k3d-test")
 
+    def _run_up_helm_with_builds(self, builds, extra_argv):
+        """Shared harness for the settle-timeout tests (issue #1116)."""
+        plan = {
+            "metadata": {"name": "demo"},
+            "runtime": {"namespace": "demo-ns"},
+            "modules": [],
+        }
+        with (
+            patch("cli.main.validate_profile", return_value=[]),
+            patch("cli.main.build_plan", return_value=(plan, [])),
+            patch("cli.main._render_helm_chart", return_value=(0, [])),
+            patch("cli.main.helm_up", return_value=0) as mock_helm_up,
+            patch("cli.main.default_log_path") as mock_log_path,
+            patch("cli.main.ensure_k8s_cluster", return_value=0) as mock_ensure,
+            patch("cli.main.collect_local_builds", return_value=builds),
+            patch("cli.main.build_local_images", return_value=0),
+            patch("cli.main.import_local_images", return_value=0),
+            tempfile.TemporaryDirectory() as tmpdir,
+        ):
+            mock_log_path.return_value = Path(tmpdir) / "up.log"
+            argv = [
+                "cds",
+                "up",
+                "local-dagster-postgres-superset",
+                "--target",
+                "helm",
+                "--kube-context",
+                "k3d-test",
+                *extra_argv,
+            ]
+            with (
+                patch.dict(
+                    os.environ,
+                    {"CDS_PROFILE_PATH": str(self.profiles_root)},
+                    clear=False,
+                ),
+                patch.object(sys, "argv", argv),
+                contextlib.redirect_stdout(io.StringIO()) as stdout,
+            ):
+                result = main()
+        self.assertEqual(result, 0)
+        return mock_helm_up, mock_ensure, stdout.getvalue()
+
+    def test_up_helm_scales_default_settle_timeout_per_local_image(self):
+        # Issue #1116: no --timeout + 3 local builds -> 180s + 3 x 120s = 540s
+        from cli.k8s_provision import LocalImageBuild
+        from cli.k8s_runner import HELM_COLD_START_SECONDS_PER_IMAGE
+        from cli.up_runner import DEFAULT_TIMEOUT_SECONDS
+
+        builds = [
+            LocalImageBuild(image=f"local/x{i}:custom", context="/repo")
+            for i in range(3)
+        ]
+        mock_helm_up, _mock_ensure, out = self._run_up_helm_with_builds(builds, [])
+        self.assertEqual(
+            mock_helm_up.call_args.kwargs["timeout"],
+            DEFAULT_TIMEOUT_SECONDS + 3 * HELM_COLD_START_SECONDS_PER_IMAGE,
+        )
+        self.assertEqual(mock_helm_up.call_args.kwargs["timeout"], 540.0)
+        self.assertIn("Settle timeout: 540s", out)
+
+    def test_up_helm_explicit_timeout_wins_over_scaled_default(self):
+        from cli.k8s_provision import LocalImageBuild
+
+        builds = [LocalImageBuild(image="local/x:custom", context="/repo")]
+        mock_helm_up, _mock_ensure, out = self._run_up_helm_with_builds(
+            builds, ["--timeout", "45"]
+        )
+        self.assertEqual(mock_helm_up.call_args.kwargs["timeout"], 45.0)
+        self.assertNotIn("Settle timeout:", out)
+
+    def test_up_helm_no_build_keeps_flat_default_timeout(self):
+        # --no-build skips build/import, so there is no cold-start work to
+        # budget for: the default stays at the flat base (issue #1116).
+        from cli.k8s_provision import LocalImageBuild
+        from cli.up_runner import DEFAULT_TIMEOUT_SECONDS
+
+        builds = [LocalImageBuild(image="local/x:custom", context="/repo")]
+        mock_helm_up, _mock_ensure, out = self._run_up_helm_with_builds(
+            builds, ["--no-build"]
+        )
+        self.assertEqual(
+            mock_helm_up.call_args.kwargs["timeout"], DEFAULT_TIMEOUT_SECONDS
+        )
+        self.assertNotIn("Settle timeout:", out)
+
+    def test_up_helm_without_local_builds_keeps_flat_default_timeout(self):
+        from cli.up_runner import DEFAULT_TIMEOUT_SECONDS
+
+        mock_helm_up, _mock_ensure, out = self._run_up_helm_with_builds([], [])
+        self.assertEqual(
+            mock_helm_up.call_args.kwargs["timeout"], DEFAULT_TIMEOUT_SECONDS
+        )
+        self.assertNotIn("Settle timeout:", out)
+
     @patch("cli.main.ensure_k8s_cluster", return_value=2)
     @patch("cli.main.default_log_path")
     @patch("cli.main.helm_up", return_value=0)

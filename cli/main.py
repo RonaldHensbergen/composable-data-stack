@@ -49,7 +49,14 @@ from .k8s_provision import (
     import_local_images,
 )
 from .k8s_renderer import render_helm
-from .k8s_runner import check_operator_crds, get_k8s_state, helm_down, helm_up
+from .k8s_runner import (
+    HELM_COLD_START_SECONDS_PER_IMAGE,
+    check_operator_crds,
+    get_k8s_state,
+    helm_down,
+    helm_settle_timeout,
+    helm_up,
+)
 from .k8s_security import scan_k8s_security
 from .loader import load_yaml_file, save_generated_profile
 from .maturity import build_maturity_report, format_maturity_report
@@ -2028,9 +2035,15 @@ def _run() -> int:
     up_parser.add_argument(
         "--timeout",
         type=float,
-        default=DEFAULT_TIMEOUT_SECONDS,
-        help=f"Seconds to wait for services to settle before giving up "
-        f"(default: {int(DEFAULT_TIMEOUT_SECONDS)}; ignored with --detach)",
+        # None marks "not passed": the up handler then derives the default —
+        # flat for compose, scaled per local image build for the helm target
+        # (issue #1116) — so a cold k3d first run doesn't false-fail at 180s.
+        default=None,
+        help="Seconds to wait for services to settle before giving up "
+        f"(default: {int(DEFAULT_TIMEOUT_SECONDS)}; with --target helm and local "
+        f"image builds, {int(DEFAULT_TIMEOUT_SECONDS)} + "
+        f"{int(HELM_COLD_START_SECONDS_PER_IMAGE)}s per local image; "
+        "ignored with --detach)",
     )
     up_parser.add_argument(
         "--no-color",
@@ -3081,11 +3094,34 @@ def _run() -> int:
                     # creating the k3d cluster), build the plan's local images,
                     # and import them into the cluster before helm installs.
                     builds = collect_local_builds(plan)
+                    # Issue #1116: without an explicit --timeout, scale the
+                    # settle budget for the cold-start work of local image
+                    # builds (docker build + k3d image import + kubelet image
+                    # load), so a first run on a cold k3d cluster waits long
+                    # enough instead of false-failing at the flat 180s.
+                    if args.timeout is not None:
+                        settle_timeout = args.timeout
+                    elif builds and not args.no_build:
+                        settle_timeout = helm_settle_timeout(
+                            DEFAULT_TIMEOUT_SECONDS, len(builds)
+                        )
+                        print(
+                            f"Settle timeout: {settle_timeout:.0f}s "
+                            f"({int(DEFAULT_TIMEOUT_SECONDS)}s base + "
+                            f"{int(HELM_COLD_START_SECONDS_PER_IMAGE)}s x "
+                            f"{len(builds)} local image build(s))"
+                        )
+                    else:
+                        settle_timeout = DEFAULT_TIMEOUT_SECONDS
                     cluster_code = ensure_k8s_cluster(
                         args.kube_context,
                         create=args.create_cluster,
                         log_file=log_file,
-                        timeout=args.timeout,
+                        timeout=(
+                            args.timeout
+                            if args.timeout is not None
+                            else DEFAULT_TIMEOUT_SECONDS
+                        ),
                         use_color=use_color,
                     )
                     if cluster_code != 0:
@@ -3224,7 +3260,7 @@ def _run() -> int:
                         namespace=namespace,
                         release=release,
                         kube_context=args.kube_context,
-                        timeout=args.timeout,
+                        timeout=settle_timeout,
                         detach=args.detach,
                         log_file=log_file,
                         use_color=use_color,
@@ -3283,6 +3319,12 @@ def _run() -> int:
             return 0
 
         output_path = str(resolve_project_root(profile_path) / "docker-compose.yml")
+        # Compose has no helm-style local-image cold-start step, so its
+        # default settle timeout stays the flat base unless --timeout was
+        # passed explicitly (issue #1116 scales only the helm target).
+        settle_timeout = (
+            args.timeout if args.timeout is not None else DEFAULT_TIMEOUT_SECONDS
+        )
         compose_yaml, render_diags = render_compose(
             plan, output_path=output_path, env_file=env_file
         )
@@ -3419,7 +3461,7 @@ def _run() -> int:
                             settled, _grouped = poll_state_until_settled(
                                 output_path,
                                 expected_service_count=expected_service_count,
-                                timeout=args.timeout,
+                                timeout=settle_timeout,
                                 use_color=True,
                                 redraw_fn=lambda text: live.update(
                                     Text.from_ansi(text),
@@ -3431,7 +3473,7 @@ def _run() -> int:
                         settled, _grouped = poll_state_until_settled(
                             output_path,
                             expected_service_count=expected_service_count,
-                            timeout=args.timeout,
+                            timeout=settle_timeout,
                             use_color=(not no_color) and sys.stdout.isatty(),
                             up_done_fn=up_process.poll,
                             on_up_finished=_begin_log_tail,
@@ -3508,7 +3550,7 @@ def _run() -> int:
 
         if not settled:
             print(
-                f"\nStack did not settle within {args.timeout:.0f}s, or a service is unhealthy. "
+                f"\nStack did not settle within {settle_timeout:.0f}s, or a service is unhealthy. "
                 f"Run 'cds state' for the latest status; full output in {log_path}."
             )
             _record_audit(
