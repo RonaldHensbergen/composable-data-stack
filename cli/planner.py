@@ -275,6 +275,16 @@ def build_plan_from_profile(
         if module_def is None:
             continue
 
+        # Local import: cli.validator cannot be imported at module scope
+        # here (validator -> image_digest_check -> image_updates -> planner),
+        # same reason build_plan() imports cli.overlay locally.
+        from .validator import check_requires_cli_version
+
+        cli_version_diag = check_requires_cli_version(module_def, module_id, i)
+        if cli_version_diag is not None:
+            diagnostics.append(cli_version_diag)
+            continue
+
         try:
             normalized_config = apply_defaults(
                 module_instance.get("config", {}),

@@ -65,6 +65,11 @@
         "runtime": {
           "$ref": "#/$defs/runtime"
         },
+        "requiresCliVersion": {
+          "type": "string",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$",
+          "description": "Minimum cds CLI version (semver, e.g. \"0.15.0\") this module's templates require, e.g. because they use interpolation vocabulary introduced after the last release. Compared against the installed CLI at validate/plan time; a violation fails with E024 instead of surfacing later as a render-time E071."
+        },
         "configSchema": {
           "type": "object"
         },

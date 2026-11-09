@@ -11,6 +11,9 @@ metadata:
     Keycloak identity/SSO provider with production web serving by default,
     backed by a consumed sql-database contract for its own metadata store.
 spec:
+  # Contract hosts are built from ${service.dns} (#1028), which requires
+  # cds >= 0.15.0; older CLIs fail at validate/plan time with E024.
+  requiresCliVersion: "0.15.0"
   runtime:
     type: container
     service:

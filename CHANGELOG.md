@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Modules can now declare `spec.requiresCliVersion` (a semver string, e.g. `"0.15.0"`) in `module.yaml` (issue #1111): `cds validate` and `cds plan` compare it against the installed CLI version (`importlib.metadata.version("composable-data-stack")`) and fail with a dedicated `E024` diagnostic — `Module "<id>" requires cds >= <version>, but <installed> is installed -- upgrade (pip install -U composable-data-stack) or fetch assets pinned to a matching ref (cds get --ref v<installed> ...)` — instead of surfacing later as a render-time `E071` (unresolved `${...}` in the rendered output). Malformed values are rejected at schema-validation time (`E021`) via a semver `pattern` on the new field in `cli/resources/module.schema.json`; when the installed version cannot be determined (source checkout without an installed distribution) the check is skipped. Backfilled `requiresCliVersion: "0.15.0"` on the modules whose templates rely on post-0.14.0 vocabulary: `defaultByEnvironment` on dagster (`config.image.variant`, #959) and `${service.dns}` contract hosts (#1028) on postgres, keydb, superset, traefik, keycloak, garage, and the experimental otel-collector/grafana. Documented in `docs/modules.md` (CLI version requirement) and the README troubleshooting table; unit tests in `tests/test_validator_extra.py` and `tests/test_planner_extra.py`.
+
 ## [0.15.1] - 2026-11-09
 
 ### Added

@@ -4,10 +4,13 @@ from __future__ import annotations
 import json
 import os
 import re
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
 from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
+from packaging.version import InvalidVersion, Version
 
 from .confinement import validate_confinement
 from .diagnostics import Diagnostic
@@ -68,6 +71,7 @@ def validate_loaded_profile(
         return diagnostics
 
     diagnostics.extend(validate_module_configs(module_instances))
+    diagnostics.extend(validate_module_cli_versions(module_instances))
     diagnostics.extend(validate_dependencies(module_instances))
     diagnostics.extend(validate_secret_refs(profile, module_instances))
     diagnostics.extend(validate_certificate_refs(profile, module_instances))
@@ -312,6 +316,95 @@ def load_module_instances(
         )
 
     return instances, diagnostics
+
+
+def installed_cli_version() -> str:
+    """Resolve the installed CDS CLI version ("unknown" when not installed)."""
+    try:
+        return _package_version("composable-data-stack")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+# Strict-enough semver shape for the planner path, which loads module.yaml
+# without running module.schema.json; the full semver pattern (rejecting
+# leading zeros, etc.) is enforced by module.schema.json on the validate path.
+_SEMVER_RE = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][0-9A-Za-z.-]+)?$"
+)
+
+
+def check_requires_cli_version(
+    module_def: dict[str, Any],
+    module_id: str,
+    index: int,
+    cli_version: str | None = None,
+) -> Diagnostic | None:
+    """
+    Compare a module's spec.requiresCliVersion (issue #1111) against the
+    running CLI and return an E024 diagnostic when the installed CLI is too
+    old, so the mismatch fails at validate/plan time with an actionable
+    message instead of surfacing later as a render-time E071.
+
+    Returns None when the field is absent or satisfied, and also when the
+    installed version cannot be determined (e.g. running from a source
+    checkout without an installed distribution): an unknown version is
+    treated as "new enough" rather than failing every module.
+    """
+    required = (module_def.get("spec") or {}).get("requiresCliVersion")
+    if not required:
+        return None
+    required = str(required)
+    if cli_version is None:
+        cli_version = installed_cli_version()
+    path = f"spec.modules[{index}].spec.requiresCliVersion"
+    try:
+        required_version = Version(required)
+    except InvalidVersion:
+        required_version = None
+    if required_version is None or not _SEMVER_RE.match(required):
+        # module.schema.json's pattern already rejects malformed values with
+        # E021 on the validate path; this branch only matters for callers
+        # that load a module without schema validation (e.g. the planner).
+        return Diagnostic(
+            level="error",
+            code="E024",
+            message=(
+                f'Module "{module_id}" has a malformed spec.requiresCliVersion '
+                f'{required!r}; expected a semver string like "0.15.0".'
+            ),
+            path=path,
+        )
+    try:
+        installed_version = Version(str(cli_version).strip().lstrip("v"))
+    except InvalidVersion:
+        return None
+    if installed_version < required_version:
+        return Diagnostic(
+            level="error",
+            code="E024",
+            message=(
+                f'Module "{module_id}" requires cds >= {required}, but '
+                f"{cli_version} is installed -- upgrade "
+                "(pip install -U composable-data-stack) or fetch assets pinned "
+                f"to a matching ref (cds get --ref v{cli_version} ...)."
+            ),
+            path=path,
+        )
+    return None
+
+
+def validate_module_cli_versions(
+    module_instances: list[dict[str, Any]], cli_version: str | None = None
+) -> list[Diagnostic]:
+    diagnostics: list[Diagnostic] = []
+    for inst in module_instances:
+        diag = check_requires_cli_version(
+            inst["module"], inst["id"], inst["index"], cli_version=cli_version
+        )
+        if diag is not None:
+            diagnostics.append(diag)
+    return diagnostics
 
 
 def validate_module_configs(module_instances: list[dict[str, Any]]) -> list[Diagnostic]:
