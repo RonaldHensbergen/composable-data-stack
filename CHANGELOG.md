@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- `python3 -m pytest tests/` is hermetic w.r.t. the installed mutmut again (issue #1240): the two torn-`mutants/*.meta` tests in `tests/test_mutation_tests_workflow.py::ExportStepFunctionalTest` now probe the installed mutmut and skip with a clear message (`requires mutmut with the torn-.meta fix (boxed/mutmut#630) ... or uninstall mutmut`) when it lacks the #630 fix — e.g. a PyPI mutmut 3.8.1 on a dev machine — instead of crashing with `json.decoder.JSONDecodeError` on an otherwise green `main`. The no-mutmut stub path (as in CI, where mutmut is in no dependency extra) and the pinned-commit path used by `make test-mutation` are unchanged.
+
 ### Added
 
 - Modules can now declare `spec.requiresCliVersion` (a semver string, e.g. `"0.15.0"`) in `module.yaml` (issue #1111): `cds validate` and `cds plan` compare it against the installed CLI version (`importlib.metadata.version("composable-data-stack")`) and fail with a dedicated `E024` diagnostic — `Module "<id>" requires cds >= <version>, but <installed> is installed -- upgrade (pip install -U composable-data-stack) or fetch assets pinned to a matching ref (cds get --ref v<installed> ...)` — instead of surfacing later as a render-time `E071` (unresolved `${...}` in the rendered output). Malformed values are rejected at schema-validation time (`E021`) via a semver `pattern` on the new field in `cli/resources/module.schema.json`; when the installed version cannot be determined (source checkout without an installed distribution) the check is skipped. Backfilled `requiresCliVersion: "0.15.0"` on the modules whose templates rely on post-0.14.0 vocabulary: `defaultByEnvironment` on dagster (`config.image.variant`, #959) and `${service.dns}` contract hosts (#1028) on postgres, keydb, superset, traefik, keycloak, garage, and the experimental otel-collector/grafana. Documented in `docs/modules.md` (CLI version requirement) and the README troubleshooting table; unit tests in `tests/test_validator_extra.py` and `tests/test_planner_extra.py`.
