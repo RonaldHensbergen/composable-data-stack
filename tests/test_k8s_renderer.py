@@ -1533,6 +1533,102 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertEqual(len(e152), 1)
         self.assertIn("{{ .Release.Name }}-demo-app", e152[0].message)
 
+    def test_wait_gate_on_non_binding_service_of_consumed_provider_renders(
+        self,
+    ) -> None:
+        # The binding-derived egress edge selects all of the provider
+        # module's pods (`_module_peer(provider_id)`), so a gate on a
+        # *second* Service of a consumed provider is covered by the
+        # NetworkPolicy whenever the port is: here the contract advertises
+        # no port, so the rule is scoped to the provider's advertised
+        # ports and the metrics Service's port is covered -- the gate
+        # renders (issue #1125).
+        plan = self.bound_plan()
+        provider = plan["modules"][0]
+        provider["implementation"]["kubernetes"]["workloads"]["metrics"] = {
+            "kind": "Deployment",
+            "containers": ["app"],
+            "service": {
+                "type": "ClusterIP",
+                "ports": [{"name": "metrics", "port": 9090}],
+            },
+        }
+        del plan["modules"][1]["consumes"]["backend"]["contract"]["spec"]["port"]
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${k8s.service.demo-metrics}", "port": 9090}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        self.assertNotIn("E163", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z {{ .Release.Name }}-demo-metrics 9090",
+            files["templates/consumer-app-deployment.yaml"],
+        )
+
+    def test_wait_gate_on_non_binding_provider_service_uncovered_port_fails_e163(
+        self,
+    ) -> None:
+        # Same module-wide host allowlist (issue #1125), but the port rule
+        # still applies: the contract opens only 8080, so a gate on the
+        # provider's second Service on port 9090 is host-allowed yet
+        # port-denied -- fail closed with E163, not E152.
+        plan = self.bound_plan()
+        provider = plan["modules"][0]
+        provider["implementation"]["kubernetes"]["workloads"]["metrics"] = {
+            "kind": "Deployment",
+            "containers": ["app"],
+            "service": {
+                "type": "ClusterIP",
+                "ports": [{"name": "metrics", "port": 9090}],
+            },
+        }
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${k8s.service.demo-metrics}", "port": 9090}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        e163 = [d for d in diagnostics if d.code == "E163"]
+        self.assertEqual(len(e163), 1)
+        self.assertIn("{{ .Release.Name }}-demo-metrics", e163[0].message)
+        self.assertIn("9090", e163[0].message)
+
+    def test_wait_gate_on_disabled_provider_service_fails_closed(self) -> None:
+        # A consumed provider's workload disabled via enabledFrom renders
+        # no Service and no pods, so the module-wide edge does not reach
+        # it: a gate on its Service still fails closed with E152
+        # (issue #1125).
+        plan = self.bound_plan()
+        provider = plan["modules"][0]
+        provider["config"] = {"optional": {"enabled": False}}
+        provider["implementation"]["kubernetes"]["workloads"]["metrics"] = {
+            "kind": "Deployment",
+            "containers": ["app"],
+            "enabledFrom": "config.optional.enabled",
+            "service": {
+                "type": "ClusterIP",
+                "ports": [{"name": "metrics", "port": 9090}],
+            },
+        }
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${k8s.service.demo-metrics}", "port": 9090}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("{{ .Release.Name }}-demo-metrics", e152[0].message)
+
     def test_wait_gate_on_disabled_same_module_service_fails_closed(self) -> None:
         # A same-module Service whose workload is disabled (enabledFrom
         # resolves to False) renders no Service, so a gate on it would hang
