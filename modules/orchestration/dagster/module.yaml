@@ -40,6 +40,15 @@ spec:
         minimum: 1
         maximum: 65535
         default: 3000
+        description: >-
+          Host-side publish only: the dagster webserver always listens on
+          the fixed container port 3000 inside the Compose network, and the
+          provided http-service contract advertises that in-network port
+          (issue #1067). This value is rendered solely into the Compose host
+          publish <webPort>:3000 (Kubernetes exposes the Service via
+          nodePort instead); in-network consumers and the reverse proxy dial
+          ${bindings.<contract>.host}:${bindings.<contract>.port}, which is
+          always 3000 regardless of this setting.
 
       kubernetesService:
         type: object
@@ -348,7 +357,10 @@ spec:
         spec:
           portFrom: spec.config.webPort
           host: ${service.host}
-          port: ${config.webPort}
+          # The in-network container port, not the host publish (webPort):
+          # route generation and in-network consumers dial dagster-webserver
+          # on the shared network, where it listens on 3000 (issue #1067).
+          port: 3000
           # The webserver is one of this module's several compose services
           # (user-code, webserver, daemon); the instance id alone does not
           # resolve on the Compose network, so route generation maps this
@@ -718,7 +730,10 @@ spec:
             type: "${config.kubernetesService.type}"
             ports:
               - name: http
-                port: "${config.webPort}"
+                # Service port equals the container port so the
+                # Service-facing port matches the advertised contract port
+                # (issue #1067); nodePort stays the node-facing knob.
+                port: 3000
                 targetPort: 3000
                 nodePort: "${config.kubernetesService.nodePort}"
           containerOverrides:

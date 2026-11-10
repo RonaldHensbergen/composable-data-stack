@@ -58,13 +58,6 @@ spec:
           same reference is advertised on the sql-database contract, so
           consumers receive it through their own secretKeyRef plumbing.
 
-      port:
-        type: integer
-        minimum: 1
-        maximum: 65535
-        default: 5432
-        description: TCP port the database listens on (advertised on the contract).
-
       instances:
         type: integer
         minimum: 1
@@ -123,7 +116,10 @@ spec:
           # implementation.kubernetes.services so contract-host validation
           # (E084/E150) and binding release-scoping accept it (issue #768).
           host: ${service.host}-rw
-          port: ${config.port}
+          # The in-network port: CloudNativePG creates the <cluster>-rw
+          # Service on the fixed port 5432, which is what in-cluster
+          # consumers dial (issue #1067).
+          port: 5432
           database: ${config.database}
           username: ${config.username}
           password: ${config.passwordFrom}
@@ -132,7 +128,7 @@ spec:
           # entry (issue #682): this module always speaks the Postgres wire
           # protocol.
           engine: postgres
-          connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.host}-rw:${config.port}/${config.database}
+          connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.host}-rw:5432/${config.database}
 
   implementation:
     kind: kubernetes

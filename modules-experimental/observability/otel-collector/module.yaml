@@ -64,14 +64,27 @@ spec:
         minimum: 1
         maximum: 65535
         default: 4317
-        description: Container port of the OTLP/gRPC receiver (the OTel SDK default transport).
+        description: >-
+          Host-side publish only: the collector's OTLP/gRPC receiver always
+          listens on the fixed container port 4317 inside the Compose network
+          (issue #1067). This value is rendered solely into the
+          localhost-only host publish 127.0.0.1:<otlpGrpcPort>:4317.
 
       otlpHttpPort:
         type: integer
         minimum: 1
         maximum: 65535
         default: 4318
-        description: Container port of the OTLP/HTTP receiver (per-signal paths /v1/logs, /v1/metrics, /v1/traces).
+        description: >-
+          Host-side publish only: the collector's OTLP/HTTP receiver always
+          listens on the fixed container port 4318 inside the Compose network
+          (per-signal paths /v1/logs, /v1/metrics, /v1/traces), and the
+          provided log-sink/metrics-sink/trace-sink contracts advertise that
+          in-network port (issue #1067). This value is rendered solely into
+          the localhost-only host publish 127.0.0.1:<otlpHttpPort>:4318;
+          in-network consumers dial
+          ${bindings.<contract>.host}:${bindings.<contract>.port}, which is
+          always 4318 regardless of this setting.
 
       healthPort:
         type: integer
@@ -79,10 +92,13 @@ spec:
         maximum: 65535
         default: 13133
         description: >-
-          Container port of the collector's health_check extension, published
-          on the host loopback. The pinned image is distroless (no shell, no
-          wget/curl), so no container-side healthcheck can run; probe this
-          published port instead (issue #1065).
+          Host-side publish only: the collector's health_check extension
+          always listens on the fixed container port 13133 inside the Compose
+          network (issue #1067). This value is rendered solely into the
+          localhost-only host publish 127.0.0.1:<healthPort>:13133. The
+          pinned image is distroless (no shell, no wget/curl), so no
+          container-side healthcheck can run; probe this published port
+          instead (issue #1065).
 
       backends:
         type: object
@@ -131,30 +147,36 @@ spec:
         kind: log-sink
         spec:
           host: ${service.dns}
-          port: ${config.otlpHttpPort}
+          # In-network container port of the OTLP/HTTP receiver, not
+          # the localhost host publish (config.otlpHttpPort) (issue #1067).
+          port: 4318
           protocol: otlp-http
           ingestPath: /v1/logs
-          connectionUri: http://${service.dns}:${config.otlpHttpPort}
+          connectionUri: http://${service.dns}:4318
 
     - name: metrics-sink
       contract:
         kind: metrics-sink
         spec:
           host: ${service.dns}
-          port: ${config.otlpHttpPort}
+          # In-network container port of the OTLP/HTTP receiver, not
+          # the localhost host publish (config.otlpHttpPort) (issue #1067).
+          port: 4318
           protocol: otlp-http
           ingestPath: /v1/metrics
-          connectionUri: http://${service.dns}:${config.otlpHttpPort}
+          connectionUri: http://${service.dns}:4318
 
     - name: trace-sink
       contract:
         kind: trace-sink
         spec:
           host: ${service.dns}
-          port: ${config.otlpHttpPort}
+          # In-network container port of the OTLP/HTTP receiver, not
+          # the localhost host publish (config.otlpHttpPort) (issue #1067).
+          port: 4318
           protocol: otlp-http
           ingestPath: /v1/traces
-          connectionUri: http://${service.dns}:${config.otlpHttpPort}
+          connectionUri: http://${service.dns}:4318
 
   implementation:
     kind: docker-compose
