@@ -38,6 +38,11 @@ The format is based on Keep a Changelog.
   port matches the binding port renders unchanged. README troubleshooting
   table, `docs/kubernetes.md`, and tests (uncovered port, second unopened
   provider port, `port`/`targetPort` remap) included.
+- `docs/roadmap.md` freshness refresh (issue #1246): closed issues #72, #77, and
+  #210 are no longer listed as available in "Ready For Contributors", and the
+  shipped near-term items (#348, #690, #75, #767, #768, #769, #1059, #776, #1171,
+  #778, #777) are promoted to "Completed", so `scripts/check_roadmap_freshness.py`
+  reports the roadmap fresh again.
 
 ## [0.15.1] - 2026-11-09
 
