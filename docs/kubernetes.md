@@ -99,6 +99,15 @@ The timeout bounds both Helm's wait and every explicit workload rollout check.
 Output is written to `.cds/logs/`. `--detach` submits the release without
 waiting for rollouts.
 
+Without `--timeout`, the settle budget defaults to 180s plus 120s per local
+image build (issue #1116): on a cold k3d cluster each built image adds build,
+`k3d image import`, and kubelet image-load time before its pods can become
+Ready, so a first run waits long enough instead of reporting a false failure.
+With `--no-build` (or no local images) the default stays at 180s. When the
+budget does expire, the failure message distinguishes pods that are still
+initializing from pods that are actually unhealthy, and hints at re-running
+`cds up` or passing `--timeout`.
+
 `cds up --target helm` is self-contained, like the Compose target (#690). Before
 `helm upgrade --install` runs, it:
 
@@ -341,6 +350,20 @@ NetworkPolicy (issue #75):
   unreachable host (#1031, #1033), and whose host:port no declared
   `implementation.kubernetes.egress` entry covers (#1023). A DNS-name gate
   host stays denied: a NetworkPolicy cannot express one.
+- `waitFor` entry shapes are re-checked at render time too: a plan loaded from
+  a file bypasses the module schema, so a malformed entry -- a non-list
+  block, a non-mapping entry, a missing or non-string `host`, a missing
+  `port`, a non-integer `timeoutSeconds` -- fails closed with E162 naming the
+  entry path instead of crashing the renderer with a `KeyError`/`TypeError`
+  (#1130).
+- A gate on a bound provider endpoint is also checked in the port dimension
+  (#1124): the binding-derived egress rule is port-scoped, so the gate's
+  Service-facing port is mapped through the provider Service's `port_map`
+  (exactly as the contract port is mapped for the rule itself, keeping a
+  `port`/`targetPort` remap correct) and must be covered by a binding to
+  that host. An uncovered port fails closed with E163 naming the gate, the
+  host, and the port. Same-module gates need no port check: same-module
+  egress is unscoped.
 - NodePort and LoadBalancer services are intended entry points: ingress is
   opened to all sources on exactly their exposed ports, and CDS-K8S-007
   flags that exposure.

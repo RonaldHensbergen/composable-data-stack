@@ -26,7 +26,12 @@ baseline unless the module declares it under
 `workloads.<name>.egress`), which renders an ipBlock rule for exactly that
 destination and port (issue #1023). `waitFor` gate hosts are validated
 against that baseline at render time and fail closed with E152 when no
-allow rule can cover them (issue #1031). Reverse-proxy `config.routes`
+allow rule can cover them (issue #1031), and `waitFor` entry shapes are
+re-checked the same way, failing closed with E162 on a malformed entry
+(issue #1130). A gate on a bound provider endpoint is additionally
+checked against the binding's port-scoped egress rule and fails closed
+with E163 when no binding opens the gate's port (issue #1124).
+Reverse-proxy `config.routes`
 entries are derived into the same policies: each route's target module
 opens a port-scoped egress edge on the proxy and a matching ingress edge
 on the target (issue #1033).
@@ -240,6 +245,17 @@ def render_helm(
             )
             workload_egress[(module_id, str(workload_name))] = workload_entries
             diagnostics.extend(workload_diags)
+        # waitFor entry shapes are re-checked on the substituted workloads
+        # (E162, issue #1130): `_wait_containers` reads gate["host"] and
+        # gate["port"] directly, and a plan loaded from a file bypasses the
+        # module schema, so a malformed entry must fail closed here instead
+        # of crashing the render with a KeyError/TypeError.
+        for workload_name, workload in enabled_workloads_by_module[module_id].items():
+            diagnostics.extend(
+                _wait_for_shape_diagnostics(
+                    module_id, str(workload_name), workload.get("waitFor")
+                )
+            )
 
     diagnostics.extend(_check_binding_services(renderable, service_names))
     diagnostics.extend(_check_provided_contract_services(renderable, service_names))
@@ -1655,6 +1671,89 @@ def _wait_containers(wait_for: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return containers
 
 
+def _wait_for_shape_diagnostic(where: str, requirement: str) -> Diagnostic:
+    return Diagnostic(
+        level="error",
+        code="E162",
+        message=(
+            f'Malformed waitFor gate at "{where}": {requirement}. A plan '
+            "loaded from a file bypasses the module schema, and the renderer "
+            "reads these fields directly when building the wait init "
+            "containers, so it fails closed here instead of crashing the "
+            "render with a KeyError/TypeError (issue #1130)."
+        ),
+        path=where,
+    )
+
+
+def _wait_for_shape_diagnostics(
+    module_id: str, workload_name: str, declared: Any
+) -> list[Diagnostic]:
+    """
+    Re-check `waitFor` entry shapes at render time (issue #1130).
+
+    A plan loaded from a file bypasses `module.schema.json`, and
+    `_wait_containers` reads `gate["host"]`/`gate["port"]` directly, so a
+    malformed entry would crash the render with a raw KeyError/TypeError.
+    The block must be a list of mappings, each with a non-empty string
+    `host`, a `port` (integer or string), and `timeoutSeconds` (if present)
+    an integer -- the same fail-closed convention as E148/E149/E151/E153.
+    """
+    base = (
+        f"module:{module_id}.implementation.kubernetes."
+        f"workloads.{workload_name}.waitFor"
+    )
+    if declared is None:
+        return []
+    if not isinstance(declared, list):
+        return [
+            _wait_for_shape_diagnostic(
+                base,
+                '"waitFor" must be a list of gate entries (mappings) with a '
+                'non-empty string "host" and a "port"',
+            )
+        ]
+    diagnostics: list[Diagnostic] = []
+    for index, gate in enumerate(declared):
+        where = f"{base}[{index}]"
+        if not isinstance(gate, dict):
+            diagnostics.append(
+                _wait_for_shape_diagnostic(
+                    where,
+                    "each waitFor entry must be a mapping with a non-empty "
+                    'string "host" and a "port" (integer or string)',
+                )
+            )
+            continue
+        host = gate.get("host")
+        if not isinstance(host, str) or not host:
+            diagnostics.append(
+                _wait_for_shape_diagnostic(
+                    where, 'each waitFor entry must declare a non-empty string "host"'
+                )
+            )
+            continue
+        port = gate.get("port")
+        if isinstance(port, bool) or not isinstance(port, (int, str)):
+            diagnostics.append(
+                _wait_for_shape_diagnostic(
+                    where,
+                    'each waitFor entry must declare a "port" (integer or string)',
+                )
+            )
+            continue
+        timeout = gate.get("timeoutSeconds")
+        if timeout is not None and (
+            isinstance(timeout, bool) or not isinstance(timeout, int)
+        ):
+            diagnostics.append(
+                _wait_for_shape_diagnostic(
+                    where, '"timeoutSeconds" must be an integer when present'
+                )
+            )
+    return diagnostics
+
+
 def _workload_manifest(
     kind: str,
     name: str,
@@ -2979,6 +3078,56 @@ def _passthrough_rule_covers(rule: dict[str, Any], host: str, port: int | None) 
     )
 
 
+def _bound_host_ports(
+    bindings: list[tuple[str, dict[str, Any]]],
+    surfaces: dict[str, list[dict[str, Any]]],
+) -> set[int]:
+    """
+    The pod ports the bindings to one host justify, resolved by
+    `_port_scope` exactly as `_binding_ports` resolves them for the egress
+    rule (issue #1124). A binding with no port evidence at all contributes
+    every port: its rule is not port-scoped (the W128 case).
+    """
+    allowed: set[int] = set()
+    for provider_id, consume in bindings:
+        spec = (consume.get("contract") or {}).get("spec") or {}
+        ports = _port_scope(spec, provider_id, surfaces)
+        if ports is None:
+            return set()
+        allowed.update(ports)
+    return allowed
+
+
+def _bound_host_covers_gate_port(
+    gate_port: int | None,
+    bindings: list[tuple[str, dict[str, Any]]],
+    surfaces: dict[str, list[dict[str, Any]]],
+) -> bool:
+    """
+    Whether the egress edges the bindings to one host justify cover the
+    gate's port (issue #1124). The gate connects to the Service, so its
+    port is Service-facing: it is mapped through the provider's `port_map`
+    to pod ports exactly as `_port_scope` maps the contract port, and the
+    result must intersect the binding-justified ports. A gate with no
+    numeric port has nothing to check, and a binding without port evidence
+    leaves the rule unscoped, so both are allowed.
+    """
+    if gate_port is None:
+        return True
+    allowed = _bound_host_ports(bindings, surfaces)
+    if not allowed:
+        # A binding with no port evidence: the egress rule is not
+        # port-scoped, so every port is covered (the W128 case).
+        return True
+    gate_pod_ports: set[int] = set()
+    for provider_id, _consume in bindings:
+        for surface in surfaces.get(provider_id, []):
+            gate_pod_ports.update(surface.get("port_map", {}).get(gate_port, []))
+    if not gate_pod_ports:
+        gate_pod_ports = {gate_port}
+    return bool(gate_pod_ports & allowed)
+
+
 def _check_wait_gate_hosts(
     modules: list[dict[str, Any]],
     service_names: dict[str, str],
@@ -2991,7 +3140,8 @@ def _check_wait_gate_hosts(
 ) -> list[Diagnostic]:
     """
     Validate every `waitFor` gate host against the default-deny NetworkPolicy
-    baseline (issue #1031).
+    baseline (issue #1031), and every gate on a bound provider endpoint
+    against the binding's port-scoped egress rule (issue #1124).
 
     A wait gate is an init container that connects to host:port before the
     workload starts. Under the per-module default-deny policy (issue #75)
@@ -3005,22 +3155,40 @@ def _check_wait_gate_hosts(
     module's Service that no binding or route names, an external address
     nobody declared, a DNS name (a NetworkPolicy cannot express one) -- can
     only hang until the gate's timeout with no diagnostic, so the render
-    fails closed with E152 instead of shipping the gate. The module contexts
-    and substituted enabled workloads are passed in from `render_helm`'s
-    single substitution pass per render (issue #1216), so
+    fails closed with E152 instead of shipping the gate.
+
+    A bound provider endpoint is host-allowed but its egress edge is
+    port-scoped (`_binding_ports`), so the gate's port is checked too: the
+    Service-facing gate port is mapped through the provider's `port_map`
+    exactly as `_binding_ports` maps the contract port, and a port no
+    binding justifies fails closed with E163 (issue #1124). Same-module
+    gates need no port check: same-module egress is unscoped. The module
+    contexts and substituted enabled workloads are passed in from
+    `render_helm`'s single substitution pass per render (issue #1216), so
     `${bindings.*.host}` and `${k8s.service.*}` gates are checked by their
     resolved value.
     """
     module_ids = {module["id"] for module in modules}
     modules_by_id = {module["id"]: module for module in modules}
+    # The NetworkPolicy surfaces of the substituted enabled workloads --
+    # the same surfaces `_render_module` collects for the policy generation
+    # below, computed here so the gate port check can map Service-facing
+    # ports through the provider's port_map (issue #1124).
+    surfaces = {
+        module_id: [_workload_surface(workload) for workload in workloads.values()]
+        for module_id, workloads in enabled_workloads_by_module.items()
+    }
     diagnostics: list[Diagnostic] = []
     for module in modules:
         module_id = module["id"]
         context = module_contexts[module_id]
 
-        # The hosts a binding-derived egress edge exists for: the
-        # release-scoped endpoint of every consumed provider in this render.
-        bound_hosts: set[str] = set()
+        # The hosts a binding-derived egress edge exists for, mapped to the
+        # (provider, consume) pairs that justify them: the release-scoped
+        # endpoint of every consumed provider in this render, kept with its
+        # contract so the gate's port can be checked against the binding's
+        # port-scoped rule (issue #1124).
+        bound_hosts: dict[str, list[tuple[str, dict[str, Any]]]] = {}
         for consume_name, consume in (module.get("consumes") or {}).items():
             if not isinstance(consume, dict):
                 continue
@@ -3029,7 +3197,9 @@ def _check_wait_gate_hosts(
                 continue
             binding = context.get("bindings", {}).get(consume_name)
             if isinstance(binding, dict) and binding.get("host"):
-                bound_hosts.add(str(binding["host"]))
+                bound_hosts.setdefault(str(binding["host"]), []).append(
+                    (provider_id, consume)
+                )
 
         # The enabled workloads were substituted once in render_helm's
         # pre-pass and are passed in (issue #1216): the resolved values
@@ -3066,7 +3236,6 @@ def _check_wait_gate_hosts(
             if isinstance(host, str) and host in service_names:
                 route_hosts.add(_release_scoped_service_name(service_names[host]))
 
-        allowed = same_module_services | bound_hosts | route_hosts
         compose_services = apply_production_gates(
             deepcopy(module["implementation"].get("compose", {}).get("services", {})),
             True,
@@ -3081,21 +3250,62 @@ def _check_wait_gate_hosts(
                 if not isinstance(gate, dict) or not gate.get("host"):
                     continue
                 host = str(gate["host"])
-                if host in allowed:
-                    continue
                 gate_port = _int_or_none(gate.get("port"))
+                if host in same_module_services or host in route_hosts:
+                    # Same-module egress is unscoped, and a route target is
+                    # covered by the route-derived edge: no port check.
+                    continue
                 declared = (external_egress or {}).get(module_id, []) + (
                     workload_egress or {}
                 ).get((module_id, str(workload_name)), [])
-                if any(
-                    _egress_entry_covers(entry, host, gate_port) for entry in declared
-                ):
-                    continue
                 custom_egress = (passthrough or {}).get(module_id, ([], []))[1]
-                if any(
+                covered_by_custom = any(
+                    _egress_entry_covers(entry, host, gate_port) for entry in declared
+                ) or any(
                     _passthrough_rule_covers(rule, host, gate_port)
                     for rule in custom_egress
-                ):
+                )
+                if host in bound_hosts:
+                    # A bound provider endpoint's egress edge is
+                    # port-scoped: the gate's port must be one the
+                    # binding(s) to that host justify (issue #1124). The
+                    # custom escape hatches still apply on top.
+                    if _bound_host_covers_gate_port(
+                        gate_port, bound_hosts[host], surfaces
+                    ) or covered_by_custom:
+                        continue
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E163",
+                            message=(
+                                f'waitFor gate of workload "{module_id}/{workload_name}" '
+                                f'names host "{host}" on port {gate_port}, but no '
+                                "binding to that host opens that port: the "
+                                "contract-derived NetworkPolicy egress rule for it "
+                                "covers only port(s) "
+                                + ", ".join(
+                                    str(port)
+                                    for port in sorted(
+                                        _bound_host_ports(bound_hosts[host], surfaces)
+                                    )
+                                )
+                                + ", so the init container would only hang until "
+                                "its timeout. Gate on one of the binding's ports "
+                                "(e.g. ${bindings.<name>.port}), open the port on "
+                                "the provider's Service and contract, or cover "
+                                f'host "{host}" and port {gate_port} with a custom '
+                                "networkPolicy.egress ipBlock rule or a declared "
+                                "implementation.kubernetes.egress entry."
+                            ),
+                            path=(
+                                f"module:{module_id}.implementation.kubernetes."
+                                f"workloads.{workload_name}.waitFor"
+                            ),
+                        )
+                    )
+                    continue
+                if covered_by_custom:
                     continue
                 diagnostics.append(
                     Diagnostic(

@@ -45,9 +45,14 @@ spec:
         maximum: 65535
         default: 3000
         description: >-
-          Host loopback port publishing the Grafana web UI
-          (127.0.0.1:<webPort>:3000). In-network consumers and the reverse
-          proxy use the provided http-service contract instead of this port.
+          Host-side publish only: Grafana always listens on the fixed
+          container port 3000 inside the Compose network, and the provided
+          http-service contract advertises that in-network port (issue
+          #1067). This value is rendered solely into the localhost-only host
+          publish 127.0.0.1:<webPort>:3000. In-network consumers and the
+          reverse proxy dial
+          ${bindings.<contract>.host}:${bindings.<contract>.port}, which is
+          always 3000 regardless of this setting.
 
       adminUser:
         type: object
@@ -146,7 +151,11 @@ spec:
           # ${service.dns}: the Compose service DNS name, so any instance
           # id works (issue #1010).
           host: ${service.dns}
-          port: ${config.webPort}
+          # The in-network container port, not the localhost host publish
+          # (webPort): route generation and in-network consumers dial the
+          # grafana service on the shared network, where it listens on 3000
+          # (issue #1067).
+          port: 3000
           healthPath: /api/health
           protocol: http
 

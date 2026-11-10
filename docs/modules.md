@@ -132,6 +132,7 @@ When authoring `spec.implementation.compose`:
 - include health checks where practical, guarded with `enabledFrom` if optional
 - attach services to the shared profile network
 - expose only the ports needed for local use, bound to `127.0.0.1` unless the profile requires otherwise
+- keep the two port roles apart (issue #1067): a provided contract's `port` (and `connectionUri`/endpoint port) is the **in-network port** — the container port on the Compose network, which on Kubernetes the Service port is rendered equal to — because consumers dial `${bindings.<contract>.host}:${bindings.<contract>.port}` inside the network. The `127.0.0.1:${config.port}:<containerPort>` host publish is a separate, host-side-only config knob and must never be advertised on a contract
 - use named volumes for persistent state where appropriate
 
 Prefer:
@@ -174,13 +175,17 @@ spec:
         kind: cache-service
         spec:
           host: ${service.host}
-          port: ${config.port}
+          # In-network port: the container port consumers dial on the
+          # shared network, not the host-published loopback port (#1067).
+          port: 6379
   implementation:
     kind: docker-compose
     compose:
       services:
         cache:
           ports:
+            # Host-side publish only; config.port never appears in a
+            # provided contract (#1067).
             - "127.0.0.1:${config.port}:6379"
 
 # modules/worker/module.yaml
@@ -232,7 +237,8 @@ spec:
         kind: sql-database
         spec:
           host: ${service.host}
-          port: ${config.port}
+          # In-network container port, not the host publish (#1067).
+          port: 5432
           tls: true
 ```
 
@@ -289,7 +295,8 @@ spec:
         kind: sql-database
         spec:
           host: ${service.host}
-          port: ${config.port}
+          # In-network container port, not the host publish (#1067).
+          port: 5432
           engine: postgres
 ```
 
@@ -386,7 +393,8 @@ spec:
         kind: sql-database
         spec:
           host: ${service.host}
-          port: ${config.port}
+          # In-network container port, not the host publish (#1067).
+          port: 5432
           authentication: ${config.authentication.hostAuth}   # e.g. scram-sha-256
 
 # modules/cache/keydb/module.yaml
@@ -439,7 +447,7 @@ For configuration values that require delimiters or prefixes only when set (such
 - **Example**: In `modules/cache/keydb/module.yaml`, constructing an authenticated Redis connection URI:
 
 ```yaml
-connectionUri: "redis://${ifNonempty:config.passwordFrom,:,@}${service.host}:${config.port}"
+connectionUri: "redis://${ifNonempty:config.passwordFrom,:,@}${service.host}:6379"
 ```
 
 If `config.passwordFrom` resolves to a secret placeholder such as

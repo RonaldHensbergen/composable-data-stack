@@ -17,11 +17,70 @@ import yaml
 
 from .state import group_services_by_health, parse_k8s_workloads_json
 from .up_runner import (
+    _FAILURE_BUCKETS,
+    _SETTLED_BUCKETS,
     DEFAULT_POLL_INTERVAL_SECONDS,
+    DEFAULT_TIMEOUT_SECONDS,
     _poll_until_settled,
     _validate_command,
     run_streamed,
 )
+
+# Cold-start allowance per locally built image (issue #1116): on a cold k3d
+# cluster each local image adds `docker build` + `k3d image import` + kubelet
+# image-load time before its pods can become Ready, so the helm settle budget
+# grows with the build count instead of expiring at the flat default.
+HELM_COLD_START_SECONDS_PER_IMAGE = 120.0
+
+
+def helm_settle_timeout(
+    base_timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    local_build_count: int = 0,
+) -> float:
+    """
+    Default settle budget for `cds up --target helm` (issue #1116).
+
+    Returns `base_timeout` plus `HELM_COLD_START_SECONDS_PER_IMAGE` per local
+    image build, because on a cold cluster each built image adds build,
+    import, and image-load time before its pods can settle. Callers with an
+    explicit `--timeout` should pass that through unchanged instead.
+    """
+    count = max(0, int(local_build_count))
+    return float(base_timeout) + HELM_COLD_START_SECONDS_PER_IMAGE * count
+
+
+def _settle_failure_message(
+    release: str, timeout: float, grouped: dict[str, list[str]]
+) -> str:
+    """
+    Settle-failure line for the helm target (issue #1116). Distinguishes pods
+    that are still initializing (non-terminal buckets such as STARTING) from
+    pods that are actually failing (UNHEALTHY buckets); when nothing is
+    failing, a slow cold start is not a stack failure, so the message hints at
+    re-running or passing `--timeout` instead of implying broken workloads.
+    """
+    unhealthy = [
+        name for bucket in _FAILURE_BUCKETS for name in grouped.get(bucket, [])
+    ]
+    initializing = [
+        name
+        for bucket, names in grouped.items()
+        if bucket not in _SETTLED_BUCKETS and bucket not in _FAILURE_BUCKETS
+        for name in names
+    ]
+    parts = [f"helm release {release} did not settle within {timeout:.0f}s"]
+    if unhealthy:
+        parts.append(f"unhealthy: {', '.join(unhealthy)}")
+    if initializing:
+        parts.append(f"still initializing: {', '.join(initializing)}")
+    message = "; ".join(parts)
+    if initializing and not unhealthy:
+        message += (
+            " (pods are still starting, not failing — "
+            "re-run `cds up` or pass --timeout to allow more time)"
+        )
+    return message
+
 
 # RFC 1123 DNS label: lowercase alphanumeric and `-`, not leading/trailing
 # with `-`, 1-63 chars. Both Kubernetes namespaces and Helm release names
@@ -173,17 +232,13 @@ def helm_up(
         redraw_fn=redraw_fn,
     )
     if not settled:
-        unhealthy = [
-            name
-            for bucket in ("UNHEALTHY", "UNHEALTHY EXIT")
-            for name in grouped.get(bucket, [])
-        ]
-        log_file.write(
-            f"helm release {release} did not settle within {timeout:.0f}s"
-            + (f"; unhealthy: {', '.join(unhealthy)}" if unhealthy else "")
-            + "\n"
-        )
+        message = _settle_failure_message(release, timeout, grouped)
+        log_file.write(message + "\n")
         log_file.flush()
+        # Surface the initializing-vs-unhealthy distinction on the terminal
+        # too (issue #1116): a slow cold start must not read as a stack
+        # failure without the hint that re-running settles immediately.
+        print(message)
         return 1
     return 0
 
@@ -195,7 +250,7 @@ def poll_k8s_state_until_settled(
     *,
     expected_service_count: int | None = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
-    timeout: float = 180.0,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
     use_color: bool = False,
     sleep_fn: Callable[[float], None] = time.sleep,
     now_fn: Callable[[], float] = time.monotonic,

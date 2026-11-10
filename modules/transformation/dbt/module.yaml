@@ -130,6 +130,12 @@ spec:
             minimum: 1
             maximum: 65535
             default: 8090
+            description: >-
+              Host-side publish only: the nginx docs server always listens on
+              the fixed container port 80 inside the Compose network, and the
+              provided docs-service contract advertises that in-network port
+              (issue #1067). This value is rendered solely into the
+              localhost-only host publish 127.0.0.1:<port>:80.
 
       healthcheck:
         type: object
@@ -162,7 +168,11 @@ spec:
         spec:
           portFrom: spec.config.docs.port
           host: ${service.host}
-          port: ${config.docs.port}
+          # The in-network container port, not the localhost host publish
+          # (config.docs.port): route generation dials the dbt-docs service
+          # on the shared Compose network, where nginx listens on 80
+          # (issue #1067).
+          port: 80
           # The docs server is one of this module's compose services
           # (dbt-run, dbt-docs); the instance id alone does not resolve on
           # the Compose network, so route generation maps this through the

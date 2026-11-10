@@ -1,3 +1,4 @@
+import contextlib
 import io
 import os
 import stat
@@ -10,15 +11,19 @@ from unittest.mock import patch
 import yaml
 
 from cli.k8s_runner import (
+    HELM_COLD_START_SECONDS_PER_IMAGE,
     _secret_values,
+    _settle_failure_message,
     _validate_k8s_name,
     _validate_kube_context,
     _validate_timeout,
     _write_secret_values,
     get_k8s_workloads,
     helm_down,
+    helm_settle_timeout,
     helm_up,
 )
+from cli.up_runner import DEFAULT_TIMEOUT_SECONDS
 
 
 class KubernetesRunnerTest(unittest.TestCase):
@@ -134,6 +139,46 @@ class KubernetesRunnerTest(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertEqual(mock_run.call_count, 1)
+
+    @patch("cli.k8s_runner.get_k8s_state")
+    @patch("cli.k8s_runner.get_k8s_workloads")
+    @patch("cli.k8s_runner.run_streamed", return_value=0)
+    def test_helm_up_settle_failure_distinguishes_initializing_from_unhealthy(
+        self, _mock_run, mock_workloads, mock_state
+    ) -> None:
+        # Issue #1116: a cold start whose pods are all still initializing
+        # (STARTING, not UNHEALTHY) must be reported as "still initializing"
+        # with a re-run/--timeout hint, in the log and on the terminal.
+        mock_workloads.return_value = [
+            {
+                "kind": "Deployment",
+                "metadata": {"name": "cds-web"},
+                "spec": {"replicas": 1},
+            }
+        ]
+        mock_state.return_value = [
+            {"Service": "cds-web", "Health": "STARTING", "State": "running"}
+        ]
+        log_file = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()) as stdout:
+            result = helm_up(
+                {"secrets": {}},
+                Path("chart"),
+                namespace="test",
+                release="cds",
+                kube_context=None,
+                timeout=0,  # clamped to 1s by _validate_timeout
+                detach=False,
+                log_file=log_file,
+                sleep_fn=lambda _seconds: None,
+            )
+
+        self.assertEqual(result, 1)
+        for sink in (log_file.getvalue(), stdout.getvalue()):
+            self.assertIn("did not settle within 1s", sink)
+            self.assertIn("still initializing: cds-web", sink)
+            self.assertNotIn("unhealthy:", sink)
+            self.assertIn("re-run `cds up` or pass --timeout", sink)
 
     @patch("cli.k8s_runner.get_k8s_state")
     @patch("cli.k8s_runner.get_k8s_workloads")
@@ -320,6 +365,66 @@ class K8sNameValidationTest(unittest.TestCase):
                 log_file=io.StringIO(),
             )
         mock_run_streamed.assert_not_called()
+
+
+class HelmSettleTimeoutTest(unittest.TestCase):
+    """Issue #1116: the helm settle default scales with local image builds."""
+
+    def test_no_local_builds_keeps_base_timeout(self) -> None:
+        self.assertEqual(helm_settle_timeout(), DEFAULT_TIMEOUT_SECONDS)
+        self.assertEqual(
+            helm_settle_timeout(local_build_count=0), DEFAULT_TIMEOUT_SECONDS
+        )
+
+    def test_scales_per_local_image_build(self) -> None:
+        # 3 local images on a cold k3d cluster: 180s base + 3 x 120s = 540s
+        self.assertEqual(
+            helm_settle_timeout(DEFAULT_TIMEOUT_SECONDS, 3),
+            DEFAULT_TIMEOUT_SECONDS + 3 * HELM_COLD_START_SECONDS_PER_IMAGE,
+        )
+        self.assertEqual(helm_settle_timeout(DEFAULT_TIMEOUT_SECONDS, 3), 540.0)
+
+    def test_negative_count_clamps_to_zero(self) -> None:
+        self.assertEqual(
+            helm_settle_timeout(DEFAULT_TIMEOUT_SECONDS, -2), DEFAULT_TIMEOUT_SECONDS
+        )
+
+    def test_custom_base_timeout(self) -> None:
+        self.assertEqual(
+            helm_settle_timeout(60.0, 2), 60.0 + 2 * HELM_COLD_START_SECONDS_PER_IMAGE
+        )
+
+
+class SettleFailureMessageTest(unittest.TestCase):
+    """Issue #1116: settle failures distinguish initializing from failing pods."""
+
+    def test_initializing_only_hints_rerun_and_is_not_called_unhealthy(self) -> None:
+        message = _settle_failure_message(
+            "cds", 540, {"STARTING": ["cds-web", "cds-worker"]}
+        )
+        self.assertIn("helm release cds did not settle within 540s", message)
+        self.assertIn("still initializing: cds-web, cds-worker", message)
+        self.assertNotIn("unhealthy:", message)
+        self.assertIn("re-run `cds up` or pass --timeout", message)
+
+    def test_unhealthy_only_reports_unhealthy_without_hint(self) -> None:
+        message = _settle_failure_message("cds", 180, {"UNHEALTHY": ["cds-db"]})
+        self.assertIn("unhealthy: cds-db", message)
+        self.assertNotIn("still initializing", message)
+        self.assertNotIn("re-run", message)
+
+    def test_mixed_reports_both_without_hint(self) -> None:
+        message = _settle_failure_message(
+            "cds", 180, {"UNHEALTHY": ["cds-db"], "STARTING": ["cds-web"]}
+        )
+        self.assertIn("unhealthy: cds-db", message)
+        self.assertIn("still initializing: cds-web", message)
+        self.assertNotIn("re-run", message)
+
+    def test_unhealthy_exit_counts_as_failing(self) -> None:
+        message = _settle_failure_message("cds", 180, {"UNHEALTHY EXIT": ["cds-init"]})
+        self.assertIn("unhealthy: cds-init", message)
+        self.assertNotIn("still initializing", message)
 
 
 if __name__ == "__main__":

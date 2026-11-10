@@ -14,6 +14,31 @@ The format is based on Keep a Changelog.
 
 - Modules can now declare `spec.requiresCliVersion` (a semver string, e.g. `"0.15.0"`) in `module.yaml` (issue #1111): `cds validate` and `cds plan` compare it against the installed CLI version (`importlib.metadata.version("composable-data-stack")`) and fail with a dedicated `E024` diagnostic — `Module "<id>" requires cds >= <version>, but <installed> is installed -- upgrade (pip install -U composable-data-stack) or fetch assets pinned to a matching ref (cds get --ref v<installed> ...)` — instead of surfacing later as a render-time `E071` (unresolved `${...}` in the rendered output). Malformed values are rejected at schema-validation time (`E021`) via a semver `pattern` on the new field in `cli/resources/module.schema.json`; when the installed version cannot be determined (source checkout without an installed distribution) the check is skipped. Backfilled `requiresCliVersion: "0.15.0"` on the modules whose templates rely on post-0.14.0 vocabulary: `defaultByEnvironment` on dagster (`config.image.variant`, #959) and `${service.dns}` contract hosts (#1028) on postgres, keydb, superset, traefik, keycloak, garage, and the experimental otel-collector/grafana. Documented in `docs/modules.md` (CLI version requirement) and the README troubleshooting table; unit tests in `tests/test_validator_extra.py` and `tests/test_planner_extra.py`.
 
+### Fixed
+
+- Contract port semantics are now unambiguous (issue #1067): a provided contract's `port` (and the port inside `connectionUri`/endpoint) is the **in-network port** consumers dial via `${bindings.<contract>.host}:${bindings.<contract>.port}` — the container port on the Compose network, and on Kubernetes the Service port, which CDS now renders equal to the container port. The `127.0.0.1:${config.port}:<containerPort>` host publish is a separate, host-side-only config knob that must never be advertised on a contract. Previously postgres (`port: ${config.port}` vs container 5432), keydb (6379), dbt's docs service (80), superset (8088), dagster (3000), grafana (3000), and otel-collector (4318) advertised the host-published port, so a non-default `config.port` rendered green but broke in-network consumers at runtime with connection refused. Those contracts now advertise the fixed in-network port, the `port`/`webPort`/`docs.port`/`otlpHttpPort` config descriptions document the host-publish-only role, and the shared contract field descriptions (`shared/contracts/{sql-database,cache-service,http-service,log-sink,metrics-sink,trace-sink,lineage-sink,object-storage}.yaml`) plus `docs/modules.md` state the semantic. Keycloak, garage, loki, and marquez already followed it. The superset and dagster Kubernetes Services now expose `port` = container port (`8088`/`3000`, `targetPort` equal), so the Service-facing port matches the advertised contract port on both render targets; `nodePort` stays the node-facing knob. postgres-operator (Helm-only) advertises the fixed CloudNativePG `<cluster>-rw` Service port 5432, and its misleading `config.port` knob was removed (update `profiles/local-kubernetes-postgres-operator`, which no longer sets `port: 5432`). `http-service`'s `portFrom` now documents the module's host-publish knob (keycloak points it at `spec.config.httpPort`); the in-network port is always the `port` field. Tests updated: `tests/test_grafana_module.py`, `tests/test_otel_collector_module.py`, `tests/test_postgres_operator_module.py`.
+
+  entry shapes at render time and fails closed with `E162` naming the entry
+  path (non-list block, non-mapping entry, missing/non-string `host`, missing
+  `port`, non-integer `timeoutSeconds`) instead of crashing with a raw
+  `KeyError`/`TypeError` on a plan loaded from a file, which bypasses the
+  module schema (issue #1130).
+- `cds up --target helm` no longer reports a false failure on a cold k3d cluster (issue #1116): when `--timeout` is not passed, the settle budget now defaults to 180s plus 120s per local image build (`helm_settle_timeout()`, `cli/k8s_runner.py:36`), covering the `docker build` + `k3d image import` + kubelet image-load time of a first run, so the first `cds up` exits 0 once pods are Ready without requiring `--timeout`. `--no-build` and build-free profiles keep the flat 180s default, and an explicit `--timeout` always wins. When the budget does expire, the settle-failure message now distinguishes pods that are still initializing (`STARTING`) from actually unhealthy pods, and hints at re-running `cds up` or passing `--timeout` (`_settle_failure_message()`, `cli/k8s_runner.py:52`, written to the log and echoed to the terminal). Covered by `tests/test_k8s_runner.py` (timeout calculation + message wording) and `tests/test_main.py` (default scaling vs. explicit `--timeout` vs. `--no-build`); documented in `docs/kubernetes.md` and `docs/underlying-commands.md`.
+- The Helm render now validates a `waitFor` gate's port against the
+  binding's port-scoped egress rule, closing the port dimension of the
+  silent-failure class #1031 closed for hosts (issue #1124): when a gate's
+  resolved host is a bound provider endpoint, `cli/k8s_renderer.py`'s
+  `_check_wait_gate_hosts` maps the gate's Service-facing port through the
+  provider Service's `port_map` (exactly as `_binding_ports` maps the
+  contract port, so a `port`/`targetPort` remap keeps the check correct)
+  and fails closed with the new E163 diagnostic -- naming the gate, the
+  host, the uncovered port, and the ports the binding does open -- when no
+  binding to that host covers it. A gate on a same-module Service still
+  needs no port check (same-module egress is unscoped), and a gate whose
+  port matches the binding port renders unchanged. README troubleshooting
+  table, `docs/kubernetes.md`, and tests (uncovered port, second unopened
+  provider port, `port`/`targetPort` remap) included.
+
 ## [0.15.1] - 2026-11-09
 
 ### Added

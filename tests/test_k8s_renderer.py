@@ -1369,6 +1369,115 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertIn("until nc -z {{ .Release.Name }}-demo-app 8080", deployment)
         self.assertIn("until nc -z {{ .Release.Name }}-consumer-app 8080", deployment)
 
+    def test_wait_gate_on_bound_host_with_binding_port_renders(self) -> None:
+        # A gate on a bound provider endpoint whose port matches the
+        # binding's port is covered by the binding's port-scoped egress
+        # rule, so it renders unchanged (issue #1124).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${bindings.backend.host}", "port": 8080}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        self.assertNotIn("E163", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z {{ .Release.Name }}-demo-app 8080",
+            files["templates/consumer-app-deployment.yaml"],
+        )
+
+    def test_wait_gate_on_bound_host_with_uncovered_port_fails_closed(self) -> None:
+        # The host check (E152, #1031) is host-only; the binding's egress
+        # rule is port-scoped, so a gate on a bound host naming a port no
+        # binding opens would still hang until its timeout: fail closed
+        # with E163 naming the gate, the host, and the uncovered port
+        # (#1124).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${bindings.backend.host}", "port": 5433}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        e162 = [d for d in diagnostics if d.code == "E163"]
+        self.assertEqual(len(e162), 1)
+        self.assertEqual(
+            e162[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.waitFor",
+        )
+        self.assertIn("consumer/app", e162[0].message)
+        self.assertIn("{{ .Release.Name }}-demo-app", e162[0].message)
+        self.assertIn("5433", e162[0].message)
+        self.assertIn("8080", e162[0].message)
+
+    def test_wait_gate_on_second_unopened_provider_port_fails_closed(self) -> None:
+        # The provider's Service exposes a second port the contract does
+        # not open: the binding-derived rule covers only the contract port,
+        # so a gate on the second port fails closed with E163 (#1124).
+        plan = self.bound_plan()
+        provider = plan["modules"][0]
+        provider["implementation"]["kubernetes"]["workloads"]["app"]["service"][
+            "ports"
+        ] = [{"name": "http", "port": 8080}, {"name": "admin", "port": 9090}]
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${bindings.backend.host}", "port": 9090}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e162 = [d for d in diagnostics if d.code == "E163"]
+        self.assertEqual(len(e162), 1)
+        self.assertIn("9090", e162[0].message)
+        self.assertIn("{{ .Release.Name }}-demo-app", e162[0].message)
+
+    def test_wait_gate_port_through_port_target_port_remap_renders(self) -> None:
+        # The contract's port is Service-facing while the NetworkPolicy
+        # matches the pod port: with a port: 80 / targetPort: 8080 remap a
+        # gate on the Service-facing port 80 must still render, because the
+        # check maps the gate port through the provider's port_map exactly
+        # as _binding_ports does (#1124).
+        plan = self.bound_plan()
+        provider = plan["modules"][0]
+        provider["implementation"]["kubernetes"]["workloads"]["app"]["service"][
+            "ports"
+        ] = [{"name": "http", "port": 80, "targetPort": 8080}]
+        plan["modules"][1]["consumes"]["backend"]["contract"]["spec"]["port"] = 80
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${bindings.backend.host}", "port": 80}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E163", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z {{ .Release.Name }}-demo-app 80",
+            files["templates/consumer-app-deployment.yaml"],
+        )
+        # The egress rule itself is scoped to the remapped pod port.
+        consumer = self.policy(files, "consumer")
+        self.assertEqual(
+            consumer["spec"]["egress"][2]["ports"],
+            [{"protocol": "TCP", "port": 8080}],
+        )
+
+        # A port the remap does not cover still fails closed with E163.
+        workload["waitFor"] = [{"host": "${bindings.backend.host}", "port": 9090}]
+        files, diagnostics = render_helm(plan)
+        self.assertEqual(files, {})
+        e162 = [d for d in diagnostics if d.code == "E163"]
+        self.assertEqual(len(e162), 1)
+        self.assertIn("9090", e162[0].message)
+
     def test_wait_gate_on_non_bound_cross_module_host_fails_closed(self) -> None:
         # A gate naming another module's Service without a binding for it can
         # only hang until its timeout under the default-deny policy: fail
@@ -1560,6 +1669,106 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertNotIn("E152", {d.code for d in diagnostics})
         self.assertIn(
             "until nc -z 10.8.1.5 443",
+            files["templates/consumer-app-deployment.yaml"],
+        )
+
+    def test_wait_for_entry_missing_host_fails_closed(self) -> None:
+        # A plan loaded from a file bypasses the module schema, and
+        # `_wait_containers` reads gate["host"] directly: a gate without a
+        # host must fail closed with E162 naming the entry path, not crash
+        # the render with a KeyError (issue #1130).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"port": 8080}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e162 = [d for d in diagnostics if d.code == "E162"]
+        self.assertEqual(len(e162), 1)
+        self.assertEqual(
+            e162[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.waitFor[0]",
+        )
+        self.assertIn('"host"', e162[0].message)
+
+    def test_wait_for_non_mapping_entry_fails_closed(self) -> None:
+        # Same crash class for a non-mapping entry: reading ["host"] from it
+        # raises TypeError -- fail closed with E162 instead (issue #1130).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = ["demo-app:8080"]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e162 = [d for d in diagnostics if d.code == "E162"]
+        self.assertEqual(len(e162), 1)
+        self.assertEqual(
+            e162[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.waitFor[0]",
+        )
+        self.assertIn("mapping", e162[0].message)
+
+    def test_wait_for_non_list_block_fails_closed(self) -> None:
+        # A mapping instead of a list iterates as its keys, each of which
+        # crashes on ["host"]: fail closed with E162 on the block (#1130).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = {"host": "demo-app", "port": 8080}
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e162 = [d for d in diagnostics if d.code == "E162"]
+        self.assertEqual(len(e162), 1)
+        self.assertEqual(
+            e162[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.waitFor",
+        )
+
+    def test_wait_for_non_integer_timeout_fails_closed(self) -> None:
+        # `timeoutSeconds` must be an integer when present; a string would
+        # pass the schema bypass but is rejected here (issue #1130).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [
+            {"host": "${k8s.service.app}", "port": 8080, "timeoutSeconds": "60"}
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e162 = [d for d in diagnostics if d.code == "E162"]
+        self.assertEqual(len(e162), 1)
+        self.assertIn("timeoutSeconds", e162[0].message)
+
+    def test_wait_for_valid_entry_renders_unchanged(self) -> None:
+        # Schema-valid entries (substituted host, integer port and
+        # timeoutSeconds) render unchanged and produce no E162, so golden
+        # hashes stay stable (issue #1130).
+        plan = self.bound_plan()
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [
+            {"host": "${k8s.service.app}", "port": 8080, "timeoutSeconds": 60}
+        ]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E162", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z {{ .Release.Name }}-consumer-app 8080",
             files["templates/consumer-app-deployment.yaml"],
         )
 
