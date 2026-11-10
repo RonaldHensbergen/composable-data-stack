@@ -14,7 +14,7 @@ name: Issue Project Order
 #   rest                                                1500+
 #
 # Within a band the new item appends at max+1 (band base when the band is
-# empty), so existing items are never reordered (AGENT.md, "Project `Order`
+# empty), so existing items are never reordered (AGENTS.md, "Project `Order`
 # tiers"). Items that already have an `Order` are left untouched, which also
 # makes manual re-runs via workflow_dispatch safe.
 #

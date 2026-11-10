@@ -144,7 +144,7 @@
       "managerFilePatterns": [
         "/^\\.github/workflows/ci\\.yml$/",
         "/^Makefile$/",
-        "/^AGENT\\.md$/"
+        "/^AGENTS\\.md$/"
       ]
     }
   ],

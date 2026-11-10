@@ -82,7 +82,7 @@ Structure follows Regulation (EU) 2024/2847, Annex II.
   [`docs/installation.md`](installation.md),
   [`docs/cli-reference.md`](cli-reference.md).
 - **How changes affect data security:** see
-  [`AGENT.md`](../AGENT.md) (`${CDS_*}` secret-placeholder invariant) and
+  [`AGENTS.md`](../AGENTS.md) (`${CDS_*}` secret-placeholder invariant) and
   [`docs/compliance-report.md`](compliance-report.md) (`secretLeakCheck`).
 - **Installing security-relevant updates:** see
   [`docs/security-support-policy.md`](security-support-policy.md) §3.

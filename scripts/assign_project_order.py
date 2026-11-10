@@ -7,7 +7,7 @@ items (`gh project item-list --format json`), print the next free `Order`
 for that issue.
 
 The assigned order reflects priority via auto-assign inbox bands (see
-AGENT.md, "Project `Order` tiers"): the issue's category is picked by
+AGENTS.md, "Project `Order` tiers"): the issue's category is picked by
 precedence — fix, milestone, security, priority:high, priority:medium,
 rest — and the issue appends at max+1 inside its band (band base when the
 band is empty), so existing items are never reordered.
