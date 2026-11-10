@@ -45,6 +45,18 @@ The format is based on Keep a Changelog.
   shipped near-term items (#348, #690, #75, #767, #768, #769, #1059, #776, #1171,
   #778, #777) are promoted to "Completed", so `scripts/check_roadmap_freshness.py`
   reports the roadmap fresh again.
+- The Helm render's E152 `waitFor` gate check now honors custom
+  `networkPolicy.egress` passthrough rules for DNS-name gate hosts (issue
+  #1126): a hostname cannot be matched against ipBlock CIDRs at render time
+  (no DNS resolution in the renderer), so when the module declares a
+  passthrough rule that could cover the resolved address on the gate's port
+  (an ipBlock peer and the gate's port open), the gate renders with the new
+  W133 warning instead of failing closed. Gates naming another module's
+  in-cluster Service still fail closed with E152 -- the passthrough hatch is
+  only trusted for hosts outside the chart -- as do DNS-name gates whose
+  passthrough rules open a different port or carry no ipBlock peer. Covered
+  by tests in `tests/test_k8s_renderer.py`; documented in `docs/kubernetes.md`
+  and the README troubleshooting table (new W133 row).
 
 ## [0.15.1] - 2026-11-09
 

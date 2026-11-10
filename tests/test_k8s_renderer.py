@@ -1672,6 +1672,135 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             files["templates/consumer-app-deployment.yaml"],
         )
 
+    def test_wait_gate_on_dns_name_with_passthrough_rule_warns_and_renders(
+        self,
+    ) -> None:
+        # A DNS-name gate host cannot be matched against ipBlock CIDRs at
+        # render time (no DNS resolution in the renderer), so when the
+        # module declares a custom networkPolicy.egress passthrough rule
+        # that could cover the resolved address on the gate's port, the
+        # gate renders with a W133 warning instead of failing E152 (#1126).
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [
+                {
+                    "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                    "ports": [{"protocol": "TCP", "port": 5432}],
+                }
+            ],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "db.example.com", "port": 5432}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        w133 = [d for d in diagnostics if d.code == "W133"]
+        self.assertEqual(len(w133), 1)
+        self.assertEqual(w133[0].level, "warning")
+        self.assertEqual(
+            w133[0].path,
+            "module:consumer.implementation.kubernetes.workloads.app.waitFor",
+        )
+        self.assertIn("db.example.com", w133[0].message)
+        self.assertIn(
+            "until nc -z db.example.com 5432",
+            files["templates/consumer-app-deployment.yaml"],
+        )
+
+    def test_wait_gate_on_dns_name_with_passthrough_wrong_port_fails_closed(
+        self,
+    ) -> None:
+        # The passthrough rule has an ipBlock peer but opens only port 443,
+        # so it cannot cover a gate on 5432 even after DNS resolution: the
+        # port dimension is checkable at render time and still fails closed
+        # with E152 (#1126).
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [
+                {
+                    "to": [{"ipBlock": {"cidr": "10.8.0.0/16"}}],
+                    "ports": [{"protocol": "TCP", "port": 443}],
+                }
+            ],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "db.example.com", "port": 5432}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("db.example.com", e152[0].message)
+        self.assertNotIn("W133", {d.code for d in diagnostics})
+
+    def test_wait_gate_on_dns_name_with_selector_only_passthrough_fails_closed(
+        self,
+    ) -> None:
+        # A passthrough rule with only selector peers (no ipBlock) can never
+        # match an external host at runtime, so a DNS-name gate on the open
+        # port still fails closed with E152 (#1126).
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [
+                {
+                    "to": [
+                        {
+                            "namespaceSelector": {
+                                "matchLabels": {
+                                    "kubernetes.io/metadata.name": "kube-system"
+                                }
+                            }
+                        }
+                    ],
+                    "ports": [{"protocol": "TCP", "port": 5432}],
+                }
+            ],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "db.example.com", "port": 5432}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("db.example.com", e152[0].message)
+        self.assertNotIn("W133", {d.code for d in diagnostics})
+
+    def test_wait_gate_on_cross_module_service_with_passthrough_fails_closed(
+        self,
+    ) -> None:
+        # Even a broad passthrough rule does not lift a gate naming another
+        # module's Service: the passthrough hatch is only trusted for hosts
+        # outside the chart, so this stays a hard E152 (#1126).
+        plan = self.bound_plan()
+        consumer = plan["modules"][1]
+        consumer["implementation"]["kubernetes"]["networkPolicy"] = {
+            "egress": [
+                {
+                    "to": [{"ipBlock": {"cidr": "0.0.0.0/0"}}],
+                    "ports": [{"protocol": "TCP", "port": 8080}],
+                }
+            ],
+        }
+        workload = consumer["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["waitFor"] = [{"host": "${k8s.service.isolated-app}", "port": 8080}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("consumer/app", e152[0].message)
+        self.assertIn("{{ .Release.Name }}-isolated-app", e152[0].message)
+        self.assertNotIn("W133", {d.code for d in diagnostics})
+
     def test_wait_for_entry_missing_host_fails_closed(self) -> None:
         # A plan loaded from a file bypasses the module schema, and
         # `_wait_containers` reads gate["host"] directly: a gate without a
@@ -2289,9 +2418,11 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertIn("203.0.113.99", e152[0].message)
 
     def test_wait_gate_on_external_dns_name_stays_denied(self) -> None:
-        # A DNS name cannot be expressed in a NetworkPolicy ipBlock, so even
-        # with egress declared the gate fails closed: resolve the name to an
-        # IP/CIDR and declare that instead.
+        # A DNS name cannot be matched against the declared egress entries
+        # either (they normalize to ipBlock CIDRs), so with no custom
+        # networkPolicy.egress passthrough rule declared the gate fails
+        # closed: resolve the name to an IP/CIDR, or declare a passthrough
+        # ipBlock rule, which downgrades the gate to a W133 warning (#1126).
         plan = self.bound_plan()
         consumer_k8s = plan["modules"][1]["implementation"]["kubernetes"]
         consumer_k8s["egress"] = [{"cidr": "0.0.0.0/0", "ports": [443]}]
@@ -2305,7 +2436,8 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         e152 = [d for d in diagnostics if d.code == "E152"]
         self.assertEqual(len(e152), 1)
         self.assertIn("api.example.com", e152[0].message)
-        self.assertIn("DNS-name host cannot be expressed", e152[0].message)
+        self.assertIn("cannot be matched against ipBlock CIDRs", e152[0].message)
+        self.assertNotIn("W133", {d.code for d in diagnostics})
 
     def test_workload_scoped_egress_covers_only_that_workloads_gates(self) -> None:
         # The worker's declaration opens its destination for the worker's

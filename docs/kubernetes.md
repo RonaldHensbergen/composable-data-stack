@@ -349,7 +349,13 @@ NetworkPolicy (issue #75):
   its timeout, so the render fails closed with E152 naming the gate and the
   unreachable host (#1031, #1033), and whose host:port no declared
   `implementation.kubernetes.egress` entry covers (#1023). A DNS-name gate
-  host stays denied: a NetworkPolicy cannot express one.
+  host cannot be matched against ipBlock CIDRs at render time (no DNS
+  resolution in the renderer): when the module declares a custom
+  `networkPolicy.egress` passthrough rule that could cover the resolved
+  address on the gate's port (an ipBlock peer and the gate's port open), the
+  gate renders with a W133 warning instead of failing closed, while a gate
+  naming another module's in-cluster Service still fails closed with E152
+  (#1126).
 - `waitFor` entry shapes are re-checked at render time too: a plan loaded from
   a file bypasses the module schema, so a malformed entry -- a non-list
   block, a non-mapping entry, a missing or non-string `host`, a missing
@@ -415,7 +421,12 @@ clients such as an ingress controller fronting a ClusterIP service, or
 selector-based peers -- declare raw rules via
 `implementation.kubernetes.networkPolicy.ingress`/`egress`: they are rendered
 verbatim after the binding-derived, route-derived, and declared-egress rules,
-and malformed shapes fail closed with E149. The security scan records every
+and malformed shapes fail closed with E149. An ipBlock egress rule here also
+lifts the E152 `waitFor` gate check for an external host it covers; a DNS-name
+gate host cannot be matched against the CIDR at render time, so with such a
+rule declared (ipBlock peer, gate port open) the gate renders with a W133
+warning instead of failing closed -- gates on other modules' Services still
+fail closed (#1126). The security scan records every
 external-egress rule as a low CDS-K8S-008 finding, and every ingress rule
 without a source restriction (no `from`, an empty `from` list, or an ipBlock
 peer) as a low CDS-K8S-010 finding, so intentional openings stay visible in
