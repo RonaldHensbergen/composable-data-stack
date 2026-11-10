@@ -65,7 +65,8 @@ class GrafanaModuleTest(unittest.TestCase):
         contract = provided["contract"]["spec"]
         self.assertEqual(contract["portFrom"], "spec.config.webPort")
         self.assertEqual(contract["host"], "${service.dns}")
-        self.assertEqual(contract["port"], "${config.webPort}")
+        # In-network container port, not the host publish (issue #1067).
+        self.assertEqual(contract["port"], 3000)
         self.assertEqual(contract["healthPath"], "/api/health")
         self.assertEqual(contract["protocol"], "http")
 
@@ -246,7 +247,9 @@ class GrafanaWiringTest(unittest.TestCase):
             grafana_plan = next(m for m in plan["modules"] if m["id"] == "grafana")
             provided = grafana_plan["provides"]["http-service"]["spec"]
             self.assertEqual(provided["host"], "grafana")
-            self.assertEqual(provided["port"], 13000)
+            # The contract advertises the in-network container port even
+            # when the host publish (webPort) differs (issue #1067).
+            self.assertEqual(provided["port"], 3000)
             self.assertEqual(provided["healthPath"], "/api/health")
             self.assertEqual(provided["protocol"], "http")
 

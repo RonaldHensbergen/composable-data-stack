@@ -63,6 +63,14 @@ spec:
         minimum: 1
         maximum: 65535
         default: 5432
+        description: >-
+          Host-side publish only: postgres always listens on the fixed
+          container port 5432 inside the Compose network, and the provided
+          contracts advertise that in-network port (issue #1067). This value
+          is rendered solely into the localhost-only host publish
+          127.0.0.1:<port>:5432; in-network consumers dial
+          ${bindings.<contract>.host}:${bindings.<contract>.port}, which is
+          always 5432 regardless of this setting.
 
       storage:
         type: object
@@ -260,7 +268,11 @@ spec:
           # instance id works (an "analytics-db" instance advertises
           # "analytics-db-postgres"); see issue #1010.
           host: ${service.dns}
-          port: ${config.port}
+          # The in-network container port, not the localhost host publish
+          # (config.port): consumers dial ${bindings.<name>.host}:${bindings.
+          # <name>.port} on the shared Compose network, where postgres
+          # always listens on 5432 (issue #1067).
+          port: 5432
           database: ${config.database}
           username: ${config.username}
           password: ${config.passwordFrom}
@@ -270,46 +282,46 @@ spec:
           # protocol, so binding it where a different engine is expected
           # fails validation with E154 instead of misconfiguring the consumer.
           engine: postgres
-          connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.dns}:${config.port}/${config.database}
+          connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.dns}:5432/${config.database}
 
     - name: dagster-database
       contract:
         kind: sql-database
         spec:
           host: ${service.dns}
-          port: ${config.port}
+          port: 5432
           database: ${config.dagsterDatabase.name}
           username: ${config.dagsterDatabase.username}
           password: ${config.dagsterDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
           engine: postgres
-          connectionUri: postgresql://${config.dagsterDatabase.username}:${config.dagsterDatabase.passwordFrom}@${service.dns}:${config.port}/${config.dagsterDatabase.name}
+          connectionUri: postgresql://${config.dagsterDatabase.username}:${config.dagsterDatabase.passwordFrom}@${service.dns}:5432/${config.dagsterDatabase.name}
 
     - name: superset-database
       contract:
         kind: sql-database
         spec:
           host: ${service.dns}
-          port: ${config.port}
+          port: 5432
           database: ${config.supersetDatabase.name}
           username: ${config.supersetDatabase.username}
           password: ${config.supersetDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
           engine: postgres
-          connectionUri: postgresql://${config.supersetDatabase.username}:${config.supersetDatabase.passwordFrom}@${service.dns}:${config.port}/${config.supersetDatabase.name}
+          connectionUri: postgresql://${config.supersetDatabase.username}:${config.supersetDatabase.passwordFrom}@${service.dns}:5432/${config.supersetDatabase.name}
 
     - name: marquez-database
       contract:
         kind: sql-database
         spec:
           host: ${service.dns}
-          port: ${config.port}
+          port: 5432
           database: ${config.marquezDatabase.name}
           username: ${config.marquezDatabase.username}
           password: ${config.marquezDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
           engine: postgres
-          connectionUri: postgresql://${config.marquezDatabase.username}:${config.marquezDatabase.passwordFrom}@${service.dns}:${config.port}/${config.marquezDatabase.name}
+          connectionUri: postgresql://${config.marquezDatabase.username}:${config.marquezDatabase.passwordFrom}@${service.dns}:5432/${config.marquezDatabase.name}
 
     - name: data-provider-metadata
       contract:

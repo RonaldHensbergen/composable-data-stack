@@ -40,6 +40,15 @@ spec:
         minimum: 1
         maximum: 65535
         default: 8088
+        description: >-
+          Host-side publish only: superset always listens on the fixed
+          container port 8088 inside the Compose network, and the provided
+          http-service contract advertises that in-network port (issue
+          #1067). This value is rendered solely into the Compose host
+          publish <webPort>:8088 (Kubernetes exposes the Service via
+          nodePort instead); in-network consumers and the reverse proxy dial
+          ${bindings.<contract>.host}:${bindings.<contract>.port}, which is
+          always 8088 regardless of this setting.
 
       webServer:
         type: object
@@ -260,7 +269,11 @@ spec:
           # ${service.dns}: the Compose service DNS name, so any instance
           # id works (issue #1010).
           host: ${service.dns}
-          port: ${config.webPort}
+          # The in-network container port, not the host publish (webPort):
+          # route generation and in-network consumers dial the superset
+          # service on the shared network, where it listens on 8088
+          # (issue #1067).
+          port: 8088
           healthPath: /health
           protocol: http
 
@@ -426,7 +439,10 @@ spec:
             type: "${config.kubernetesService.type}"
             ports:
               - name: http
-                port: "${config.webPort}"
+                # Service port equals the container port so the
+                # Service-facing port matches the advertised contract port
+                # (issue #1067); nodePort stays the node-facing knob.
+                port: 8088
                 targetPort: 8088
                 nodePort: "${config.kubernetesService.nodePort}"
           containerOverrides:

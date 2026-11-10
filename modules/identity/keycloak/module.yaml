@@ -222,7 +222,9 @@ spec:
       contract:
         kind: http-service
         spec:
-          portFrom: spec.config.containerPort
+          # portFrom names the host-side publish knob (httpPort); the
+          # in-network port consumers dial is `port` below (issue #1067).
+          portFrom: spec.config.httpPort
           host: ${service.dns}
           # The backend port is the in-network container port, not the
           # localhost host publish (httpPort): a reverse proxy generating
