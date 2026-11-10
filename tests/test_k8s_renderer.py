@@ -594,7 +594,9 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
             },
             "sql": {
                 "kind": "sql-database",
-                "spec": {"host": "demo-app", "port": 5432},
+                # The workload Service declares only port 8080, so a contract
+                # advertising any other port fails the E164 port check (#1245).
+                "spec": {"host": "demo-app", "port": 8080},
             },
         }
 
@@ -602,6 +604,27 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
 
         self.assertFalse(any(d.level == "error" for d in diagnostics))
         self.assertTrue(files)
+
+    def test_provided_contract_port_not_declared_by_service_fails_e164(self) -> None:
+        # Port dimension of the E150 check (issue #1245): the host matches a
+        # rendered Service, but the advertised port is one that Service does
+        # not declare, so consumers would dial a port nothing answers.
+        plan = self.minimal_plan()
+        plan["modules"][0]["provides"] = {
+            "sql": {
+                "kind": "sql-database",
+                "spec": {"host": "demo-app", "port": 5432},
+            },
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        matching = [d for d in diagnostics if d.code == "E164"]
+        self.assertEqual(len(matching), 1)
+        self.assertEqual(matching[0].path, "module:demo.provides.sql.spec.port")
+        self.assertIn("demo-app", matching[0].message)
+        self.assertIn("8080", matching[0].message)
 
     def test_provided_contract_service_name_maps_through_naming_rule(self) -> None:
         plan = self.minimal_plan()

@@ -55,6 +55,7 @@ from .confinement import plan_declares_confinement
 from .diagnostics import Diagnostic
 from .renderer import (
     _build_context,
+    _compose_port_target,
     _is_valid_backend_port,
     _merge_init_db_env,
     _resolve_expr,
@@ -62,6 +63,7 @@ from .renderer import (
     _resolve_project_root,
     _substitute_values,
     _validate_provided_contract_hosts_against,
+    _validate_provided_contract_ports_against,
     apply_production_gates,
 )
 from .resolver import iter_consume_bindings, parse_contract_ref
@@ -259,6 +261,11 @@ def render_helm(
 
     diagnostics.extend(_check_binding_services(renderable, service_names))
     diagnostics.extend(_check_provided_contract_services(renderable, service_names))
+    diagnostics.extend(
+        _check_provided_contract_ports(
+            renderable, service_names, enabled_workloads_by_module
+        )
+    )
     diagnostics.extend(
         _check_wait_gate_hosts(
             renderable,
@@ -1189,26 +1196,6 @@ def _translate_ports(compose_ports: Any, override: Any) -> list[dict[str, Any]]:
         seen.add(target)
         ports.append({"containerPort": target, "protocol": "TCP"})
     return ports
-
-
-def _compose_port_target(entry: Any) -> int | None:
-    """
-    Extract the container port from a compose port mapping.
-
-    Host bindings such as `127.0.0.1:5432:5432` carry no meaning in a cluster;
-    only the container side survives, and ADR 0001 records the loss.
-    """
-    if isinstance(entry, dict):
-        try:
-            return int(entry.get("target"))
-        except TypeError, ValueError:
-            return None
-    text = str(entry).split("/")[0]
-    parts = text.split(":")
-    try:
-        return int(parts[-1])
-    except ValueError:
-        return None
 
 
 def _translate_security_context(spec: dict[str, Any]) -> dict[str, Any]:
@@ -3427,6 +3414,92 @@ def _check_provided_contract_services(
             "StatefulSet), advertise the serving workload via a serviceName "
             "field, or build the endpoint from ${service.dns} or "
             "${service.services.<name>}."
+        ),
+        resolve_service_name=lambda _module_id, host: service_names.get(host, host),
+    )
+
+
+def _check_provided_contract_ports(
+    modules: list[dict[str, Any]],
+    service_names: dict[str, str],
+    enabled_workloads_by_module: dict[str, dict[str, dict[str, Any]]],
+) -> list[Diagnostic]:
+    """
+    Port dimension of the E150 provide-side check (issue #1245): cross-check
+    every provided contract's advertised port against the container ports
+    the rendered Kubernetes Services declare for that host.
+
+    Delegates to the E164 core shared with the compose renderer. The allowed
+    port set per rendered Service is both sides of its port entries -- the
+    Service-facing `port` consumers dial and the `targetPort` container port
+    (CDS renders them equal per issue #1067, but a `port`/`targetPort` remap
+    keeps both dialable/reachable, cf. the E163 port_map) -- plus the
+    declared `implementation.kubernetes.services` entries and the module's
+    `runtime.service.ports[].containerPort` when the plan carries the
+    runtime block. A Service that declares no ports (e.g. an
+    operator-created Service like CloudNativePG's `<cluster>-rw`) is left
+    unchecked, and hosts no rendered Service answers stay with E150.
+    """
+    ports_by_module: dict[str, dict[str, set[int]]] = {}
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        module_id = str(module.get("id"))
+        k8s = (module.get("implementation") or {}).get("kubernetes") or {}
+        enabled = enabled_workloads_by_module.get(module_id) or {}
+        ports_by_name: dict[str, set[int]] = {}
+        for workload_name, workload in (k8s.get("workloads") or {}).items():
+            if not isinstance(workload, dict):
+                continue
+            if not workload.get("service") and workload.get("kind") != "StatefulSet":
+                continue
+            full = _compose_service_name(module_id, workload_name)
+            if full not in service_names:
+                continue
+            # Prefer the substituted enabled workload (issue #1216) so
+            # `${config.*}` port values resolve; fall back to the raw block.
+            substituted = enabled.get(workload_name) or workload
+            surface = _workload_surface(substituted)
+            ports_by_name.setdefault(service_names[full], set()).update(
+                surface["ports"]
+            )
+            ports_by_name[service_names[full]].update(surface["port_map"])
+        for service_key, declared in (k8s.get("services") or {}).items():
+            if not isinstance(declared, dict):
+                continue
+            full = _compose_service_name(module_id, str(service_key))
+            if full not in service_names:
+                continue
+            for port in declared.get("ports") or []:
+                if isinstance(port, dict):
+                    for value in (_container_port(port), _int_or_none(port.get("port"))):
+                        if value is not None:
+                            ports_by_name.setdefault(service_names[full], set()).add(
+                                value
+                            )
+        runtime_service = (module.get("runtime") or {}).get("service") or {}
+        runtime_name = runtime_service.get("name")
+        if isinstance(runtime_name, str) and runtime_name:
+            full = _compose_service_name(module_id, runtime_name)
+            if full in service_names:
+                for port in runtime_service.get("ports") or []:
+                    if isinstance(port, dict):
+                        container_port = _int_or_none(port.get("containerPort"))
+                        if container_port is not None:
+                            ports_by_name.setdefault(service_names[full], set()).add(
+                                container_port
+                            )
+        if ports_by_name:
+            ports_by_module[module_id] = ports_by_name
+    return _validate_provided_contract_ports_against(
+        modules,
+        ports_by_module,
+        service_kind="Kubernetes Service",
+        fix_hint=(
+            "Advertise one of the serving Service's declared container ports "
+            "(the workload service targetPort / runtime.service.ports[].containerPort, "
+            "which CDS renders as the Service port, issue #1067), not the "
+            "node-published port."
         ),
         resolve_service_name=lambda _module_id, host: service_names.get(host, host),
     )
