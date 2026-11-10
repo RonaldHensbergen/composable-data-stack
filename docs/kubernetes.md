@@ -408,6 +408,14 @@ an unscoped destination or a missing port list is medium, and a
 destination+port-scoped entry is low -- the audit trail of an intentional
 opening in `cds security --target helm`.
 
+Declaring `egress` (or `networkPolicy` rules) on a module that renders no
+pods of its own -- a manifests-only module such as a GitOps bootstrap, or
+one whose workloads are all disabled by `enabledFrom` or scaled to zero --
+gives the module no NetworkPolicy, so the declaration would be a silent
+no-op. The render therefore warns with `W134` for each declared block on
+such a module instead of dropping it silently (issue #1131): move the
+declaration to a module that renders pods, or remove it.
+
 ### When the baseline denies something you need
 
 For anything the structured `egress` block cannot express -- cross-namespace

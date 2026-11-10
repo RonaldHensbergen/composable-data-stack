@@ -31,6 +31,9 @@ re-checked the same way, failing closed with E162 on a malformed entry
 (issue #1130). A gate on a bound provider endpoint is additionally
 checked against the binding's port-scoped egress rule and fails closed
 with E163 when no binding opens the gate's port (issue #1124).
+Declaring `egress` or `networkPolicy` rules on a module that renders no
+pods of its own warns with W134: the module gets no NetworkPolicy, so the
+declaration would otherwise be a silent no-op (issue #1131).
 Reverse-proxy `config.routes`
 entries are derived into the same policies: each route's target module
 opens a port-scoped egress edge on the proxy and a matching ingress edge
@@ -371,6 +374,15 @@ def render_helm(
             )
 
     diagnostics.extend(_check_service_mesh_enrollments(renderable, rendered_pod_modules))
+    diagnostics.extend(
+        _check_podless_network_declarations(
+            renderable,
+            rendered_pod_modules,
+            external_egress,
+            workload_egress,
+            network_policy_passthrough,
+        )
+    )
 
     workload_modules = [
         module
@@ -463,6 +475,77 @@ def _check_service_mesh_enrollments(
                         "cds.dev/module label."
                     ),
                     path=f"module:{module['id']}.config.services[{index}].name",
+                )
+            )
+    return diagnostics
+
+
+def _check_podless_network_declarations(
+    modules: list[dict[str, Any]],
+    rendered_pod_modules: set[str],
+    external_egress: dict[str, list[dict[str, Any]]],
+    workload_egress: dict[tuple[str, str], list[dict[str, Any]]],
+    passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]],
+) -> list[Diagnostic]:
+    """
+    Warn (W134) when a module declares NetworkPolicy allow rules but renders
+    no pods of its own (issue #1131).
+
+    `_network_policy_manifests` only receives modules that declare
+    `workloads`, so a manifests-only module (e.g. a GitOps bootstrap) that
+    declares module-level `egress` entries or `networkPolicy` rules gets them
+    validated (E153/E149) and then silently dropped: the module gets no
+    NetworkPolicy, so the declaration has no effect. The same holds when
+    every workload is gated off (`enabledFrom`) or scaled to zero replicas.
+    A no-op declaration must not pass silently, so each declared block on a
+    pod-less module warns with its own path.
+    """
+    diagnostics: list[Diagnostic] = []
+    for module in modules:
+        module_id = module["id"]
+        if module_id in rendered_pod_modules:
+            continue
+        declared: list[tuple[str, str]] = []
+        if external_egress.get(module_id):
+            declared.append(
+                (
+                    "egress",
+                    f"module:{module_id}.implementation.kubernetes.egress",
+                )
+            )
+        for (egress_module, workload_name), entries in workload_egress.items():
+            if egress_module == module_id and entries:
+                declared.append(
+                    (
+                        f"workloads.{workload_name}.egress",
+                        f"module:{module_id}.implementation.kubernetes."
+                        f"workloads.{workload_name}.egress",
+                    )
+                )
+        ingress_rules, egress_rules = passthrough.get(module_id, ([], []))
+        for direction, rules in (("ingress", ingress_rules), ("egress", egress_rules)):
+            if rules:
+                declared.append(
+                    (
+                        f"networkPolicy.{direction}",
+                        f"module:{module_id}.implementation.kubernetes."
+                        f"networkPolicy.{direction}",
+                    )
+                )
+        for where, path in declared:
+            diagnostics.append(
+                Diagnostic(
+                    level="warning",
+                    code="W134",
+                    message=(
+                        f'Module "{module_id}" declares "{where}" under '
+                        "implementation.kubernetes, but the module renders no "
+                        "Kubernetes workload pods, so it gets no NetworkPolicy and "
+                        f'the "{where}" declaration has no effect. Move the '
+                        "declaration to a module that renders pods, or remove it "
+                        "(issue #1131)."
+                    ),
+                    path=path,
                 )
             )
     return diagnostics
