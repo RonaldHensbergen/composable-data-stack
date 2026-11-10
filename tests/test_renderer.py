@@ -1793,8 +1793,11 @@ class ProductionGateTest(unittest.TestCase):
         # Production clears the host port publish (CDS-SEC-074, #981): the
         # TLS reverse proxy is the sole host-published entry point.
         self.assertEqual(production["superset"]["ports"], [])
-        # Learning keeps the direct publish for local access.
-        self.assertEqual(learning["superset"]["ports"], ["${config.webPort}:8088"])
+        # Learning keeps the direct loopback-bound publish for local access
+        # (issue #1244: the 127.0.0.1 convention from docs/modules.md).
+        self.assertEqual(
+            learning["superset"]["ports"], ["127.0.0.1:${config.webPort}:8088"]
+        )
         self.assertEqual(
             production["superset-init"]["entrypoint"], ["/app/docker/init.sh"]
         )
@@ -1813,7 +1816,8 @@ class ProductionGateTest(unittest.TestCase):
 
         learning = renderer.apply_production_gates(services, is_production=False)
         self.assertEqual(
-            learning["dagster-webserver"]["ports"], ["${config.webPort}:3000"]
+            learning["dagster-webserver"]["ports"],
+            ["127.0.0.1:${config.webPort}:3000"],
         )
 
         production = renderer.apply_production_gates(services, is_production=True)

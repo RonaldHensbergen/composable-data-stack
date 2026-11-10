@@ -138,9 +138,14 @@ class TeamProfileWorkflowTest(unittest.TestCase):
                         f"environment=prod: {backend} must not host-publish ports, got {ports}",
                     )
             else:
-                # Base/learning profile keeps direct local access.
-                self.assertEqual(services["dagster-webserver"]["ports"], ["3000:3000"])
-                self.assertEqual(services["superset"]["ports"], ["8088:8088"])
+                # Base/learning profile keeps direct local access, bound to
+                # loopback like every other host publish (issue #1244).
+                self.assertEqual(
+                    services["dagster-webserver"]["ports"], ["127.0.0.1:3000:3000"]
+                )
+                self.assertEqual(
+                    services["superset"]["ports"], ["127.0.0.1:8088:8088"]
+                )
 
             # No generated default ("change-me") or real secret value is
             # embedded in the rendered output; only placeholders are.
