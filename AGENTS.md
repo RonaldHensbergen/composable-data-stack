@@ -100,8 +100,8 @@ Tenzij anders aangegeven, handel ik een issue in één keer af volgens
 onderstaande loop. Pauzeer alleen bij merge/admin-acties of andere
 blast-radius-acties, of wanneer de opdracht ondubbelzinnig anders bedoeld is:
 
-1. Self-assign het issue vóórdat je begint: `gh issue edit <n> --add-assignee @me`
-   (zet ook de Project-status op `In Progress` als dat eenvoudig kan) — de
+1. Self-assign het issue vóórdat je begint — de commands hiervoor staan in het
+   gitignored `AGENTS.local.md` in de repo-root (zie `.gitignore`); de
    skip-criteria bij "het volgende issue" zien het issue dan als bezet.
 2. Werk in een throwaway worktree onder /tmp
    (`git worktree add /tmp/<branche>-wt <branche>`); de hoofd-checkout blijft
@@ -153,7 +153,9 @@ markers en zet `productionSuitable: true`; werk `docs/architecture.md`,
 Comments, reviewbevindingen en afspraken die de repo-kwaliteit structureel
 verbeteren (zoals de cross-linking hierboven) worden in dit repo-AGENTS.md
 vastgelegd — niet alleen in een PR-comment, review-thread of sessie. Dit
-bestand is getrackt in git.
+bestand is getrackt in git. Lokale workflows die níet gecommit mogen worden
+(bijv. de self-assign-stap) horen in `AGENTS.local.md` in de repo-root — die
+staat in `.gitignore`.
 
 ## Helper-scripts in ~/.vibe (één actie per repetitieve multi-step)
 

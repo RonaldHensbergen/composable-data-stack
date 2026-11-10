@@ -296,5 +296,8 @@ certs/traefik/*
 # bv (b9s) local config and caches
 .bv/
 
+# Lokale agent-instructies (niet committen)
+/AGENTS.local.md
+
 # Continue.dev local session state
 /.continue/session-state.md
