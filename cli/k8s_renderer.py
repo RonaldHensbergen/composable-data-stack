@@ -540,10 +540,11 @@ def _check_podless_network_declarations(
                     message=(
                         f'Module "{module_id}" declares "{where}" under '
                         "implementation.kubernetes, but the module renders no "
-                        "Kubernetes workload pods, so it gets no NetworkPolicy and "
-                        f'the "{where}" declaration has no effect. Move the '
-                        "declaration to a module that renders pods, or remove it "
-                        "(issue #1131)."
+                        "Kubernetes workload pods, so the declaration has no "
+                        "effect: a manifests-only module gets no NetworkPolicy at "
+                        "all, and a module whose workloads are all disabled gets "
+                        'one that selects zero pods. Move the declaration to a '
+                        "module that renders pods, or remove it (issue #1131)."
                     ),
                     path=path,
                 )
