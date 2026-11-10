@@ -1,3 +1,4 @@
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -5,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import yaml
@@ -13,6 +15,70 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "mutation-tests.yml"
 
 _MUTMUT_AVAILABLE = importlib.util.find_spec("mutmut") is not None
+
+# The torn mutants/*.meta tolerance (boxed/mutmut#630) exists only in this
+# pinned git commit — installed ad hoc by `make test-mutation` and
+# .github/workflows/mutation-tests.yml — or in a future PyPI release that
+# ships it. mutmut is in no dependency extra, so a dev machine with a PyPI
+# mutmut (3.8.1, which crashes with json.JSONDecodeError on an unparseable
+# mutants/*.meta) installed must not turn an otherwise green suite red (#1240).
+_MUTMUT_TORN_META_PIN = (
+    "git+https://github.com/boxed/mutmut@6837b3c3ab0cfa4f5488f68adbd1bb26f68b8eb8"
+)
+
+
+def _installed_mutmut_version() -> str | None:
+    if not _MUTMUT_AVAILABLE:
+        return None
+    try:
+        return importlib.metadata.version("mutmut")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
+def _installed_mutmut_tolerates_torn_meta() -> bool:
+    """Probe the installed mutmut: does export-cicd-stats survive a torn mutants/*.meta?
+
+    Runs the real CLI against an empty mutants/foo.py.meta. Returns False
+    whenever the fix cannot be confirmed (probe error included), so the
+    torn-cache tests skip instead of failing when an unpinned PyPI mutmut is
+    installed (#1240).
+    """
+    if not _MUTMUT_AVAILABLE:
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        project = Path(tmp)
+        (project / "mutants").mkdir()
+        (project / "mutants" / "foo.py.meta").write_text("", encoding="utf-8")
+        (project / "pyproject.toml").write_text(
+            '[tool.mutmut]\nsource_paths = ["foo.py"]\n', encoding="utf-8"
+        )
+        (project / "foo.py").write_text(
+            "def add(a, b):\n    return a + b\n", encoding="utf-8"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "mutmut", "export-cicd-stats"],
+                cwd=project,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except OSError, subprocess.SubprocessError:
+            return False
+        return result.returncode == 0
+
+
+# The export-step tests run against real mutmut only when it carries the
+# boxed/mutmut#630 torn-.meta fix; a PyPI mutmut without it cannot run the
+# torn-cache tests and must not fail the suite (#1240).
+_MUTMUT_VERSION = _installed_mutmut_version()
+_SKIP_WITHOUT_TORN_META_FIX = unittest.skipIf(
+    _MUTMUT_AVAILABLE and not _installed_mutmut_tolerates_torn_meta(),
+    "requires mutmut with the torn-.meta fix (boxed/mutmut#630): "
+    f"pip install 'mutmut @ {_MUTMUT_TORN_META_PIN}' or uninstall mutmut; "
+    f"the installed mutmut {_MUTMUT_VERSION or '(unknown version)'} lacks it (#1240)",
+)
 
 # A complete mutants/<path>.meta file as written by mutmut 3.8.1's
 # SourceFileMutationData.save() (exit code 0 == mutant survived).
@@ -185,7 +251,8 @@ class ExportStepFunctionalTest(unittest.TestCase):
     and leaves the torn file in place. With no results at all, `mutmut badge`
     would still exit 2 on the missing stats file, which the placeholder
     guards. Uses real mutmut when installed, otherwise a stub that mirrors the
-    fixed behaviour.
+    fixed behaviour. When the installed mutmut lacks the #630 fix (e.g. PyPI
+    3.8.1), the torn-cache tests skip instead of failing (#1240).
     """
 
     def setUp(self) -> None:
@@ -256,6 +323,7 @@ class ExportStepFunctionalTest(unittest.TestCase):
             (project / "mutants" / "mutmut-cicd-stats.json").read_text(encoding="utf-8")
         )
 
+    @_SKIP_WITHOUT_TORN_META_FIX
     def test_empty_meta_cache_no_longer_fails_the_export_step(self) -> None:
         # The original #1175 crash: time-capped run killed mid-write leaves an
         # empty mutants/foo.py.meta; export-cicd-stats used to die with
@@ -268,6 +336,7 @@ class ExportStepFunctionalTest(unittest.TestCase):
         self.assertTrue((project / "mutants" / "foo.py.meta").exists())
         self.assertTrue((project / "runner_temp" / "mutation-badge.svg").exists())
 
+    @_SKIP_WITHOUT_TORN_META_FIX
     def test_truncated_meta_cache_is_tolerated_not_dropped(self) -> None:
         # mutmut's load() treats an unparseable cache like a missing one
         # (boxed/mutmut#630), so the torn file is skipped, not unlinked.
@@ -310,6 +379,41 @@ class ExportStepFunctionalTest(unittest.TestCase):
         # The empty cache is tolerated by mutmut (boxed/mutmut#630), not dropped.
         self.assertTrue((project / "mutants" / "bar.py.meta").exists())
         self.assertTrue((project / "mutants" / "foo.py.meta").exists())
+
+
+class TornMetaProbeTest(unittest.TestCase):
+    """Pin the #1240 probe decision logic with a mocked mutmut CLI.
+
+    Hermetic: runs with or without mutmut installed, so CI (no mutmut) covers
+    the skip-condition logic too.
+    """
+
+    def _probe(self, run_result=None, run_error=None) -> bool:
+        module = sys.modules[__name__]
+        with unittest.mock.patch.object(module, "_MUTMUT_AVAILABLE", True):
+            with unittest.mock.patch.object(subprocess, "run") as run:
+                if run_error is not None:
+                    run.side_effect = run_error
+                else:
+                    run.return_value = run_result
+                return _installed_mutmut_tolerates_torn_meta()
+
+    def test_probe_passes_when_export_cicd_stats_succeeds(self) -> None:
+        self.assertTrue(self._probe(run_result=subprocess.CompletedProcess([], 0)))
+
+    def test_probe_fails_when_export_cicd_stats_crashes(self) -> None:
+        self.assertFalse(self._probe(run_result=subprocess.CompletedProcess([], 1)))
+
+    def test_probe_fails_on_subprocess_error(self) -> None:
+        self.assertFalse(self._probe(run_error=subprocess.TimeoutExpired("mutmut", 60)))
+        self.assertFalse(self._probe(run_error=OSError("boom")))
+
+    def test_probe_never_runs_without_mutmut(self) -> None:
+        module = sys.modules[__name__]
+        with unittest.mock.patch.object(module, "_MUTMUT_AVAILABLE", False):
+            with unittest.mock.patch.object(subprocess, "run") as run:
+                self.assertFalse(_installed_mutmut_tolerates_torn_meta())
+                run.assert_not_called()
 
 
 if __name__ == "__main__":

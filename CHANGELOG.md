@@ -6,12 +6,20 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Fixed
+
+- `python3 -m pytest tests/` is hermetic w.r.t. the installed mutmut again (issue #1240): the two torn-`mutants/*.meta` tests in `tests/test_mutation_tests_workflow.py::ExportStepFunctionalTest` now probe the installed mutmut and skip with a clear message (`requires mutmut with the torn-.meta fix (boxed/mutmut#630) ... or uninstall mutmut`) when it lacks the #630 fix — e.g. a PyPI mutmut 3.8.1 on a dev machine — instead of crashing with `json.decoder.JSONDecodeError` on an otherwise green `main`. The no-mutmut stub path (as in CI, where mutmut is in no dependency extra) and the pinned-commit path used by `make test-mutation` are unchanged.
+
 ### Added
+
+- Plan/render-time cross-check of provided contract ports, failing closed with the new `E164` diagnostic (issue #1245): when a provided `http-service`, `sql-database`, `cache-service`, `object-storage`, `lineage-sink`, `log-sink`, `metrics-sink`, or `trace-sink` contract advertises a host that is a service the render produced for that module (the E150 host check), its numeric `port` — and, for the sink kinds, the port embedded in `connectionUri` (and for `object-storage`, in `endpoint`) — must equal one of that service's declared container ports: `runtime.service.ports[].containerPort` or the compose service's container port on the Compose target (the planner now carries each module's `runtime` block into the plan so the renderers can consult it), and the Service's `port`/`targetPort` (plus declared `implementation.kubernetes.services` entries) on the Helm target. This closes the "renders green but connection-refused at runtime" class for ports that #1067 fixed for the existing modules — e.g. advertising the host-published `127.0.0.1:${config.port}:<containerPort>` port instead of the in-network container port. Hosts no render produced stay with E150; services that declare no ports (e.g. operator-created Services) are left unchecked. Implemented as `_validate_provided_contract_ports_against` in `cli/renderer.py`, shared by both render targets like E150; `cli/k8s_renderer.py`'s `_check_provided_contract_ports` feeds it the rendered Services' port sets. Documented in the README troubleshooting table, `docs/modules.md`, `docs/kubernetes.md`, and the shared contract field descriptions; tests in `tests/test_contract_port_validation.py` (compose + helm + planner runtime carry) and `tests/test_k8s_renderer.py`.
 
 - Modules can now declare `spec.requiresCliVersion` (a semver string, e.g. `"0.15.0"`) in `module.yaml` (issue #1111): `cds validate` and `cds plan` compare it against the installed CLI version (`importlib.metadata.version("composable-data-stack")`) and fail with a dedicated `E024` diagnostic — `Module "<id>" requires cds >= <version>, but <installed> is installed -- upgrade (pip install -U composable-data-stack) or fetch assets pinned to a matching ref (cds get --ref v<installed> ...)` — instead of surfacing later as a render-time `E071` (unresolved `${...}` in the rendered output). Malformed values are rejected at schema-validation time (`E021`) via a semver `pattern` on the new field in `cli/resources/module.schema.json`; when the installed version cannot be determined (source checkout without an installed distribution) the check is skipped. Backfilled `requiresCliVersion: "0.15.0"` on the modules whose templates rely on post-0.14.0 vocabulary: `defaultByEnvironment` on dagster (`config.image.variant`, #959) and `${service.dns}` contract hosts (#1028) on postgres, keydb, superset, traefik, keycloak, garage, and the experimental otel-collector/grafana. Documented in `docs/modules.md` (CLI version requirement) and the README troubleshooting table; unit tests in `tests/test_validator_extra.py` and `tests/test_planner_extra.py`.
 
 ### Fixed
 
+- The superset and dagster modules' Compose host publishes are now bound to `127.0.0.1` (`127.0.0.1:${config.webPort}:8088` and `127.0.0.1:${config.webPort}:3000`) like every other module, instead of publishing the admin UIs on all host interfaces in learning/dev profiles (issue #1244). This matches the `docs/modules.md` convention ("bound to `127.0.0.1` unless the profile requires otherwise") and the `CDS-SEC-020`/`CDS-SEC-022` loopback guidance; production profiles were already unaffected because the production gate clears these publishes (CDS-SEC-074, #981). Module READMEs, the `docs/from-docker-to-cds-profile.md` example, and tests (`tests/test_renderer.py`, `tests/test_team_profile.py`) updated.
+- Helm renderer now re-checks `implementation.kubernetes.workloads.<name>.waitFor`
 - Contract port semantics are now unambiguous (issue #1067): a provided contract's `port` (and the port inside `connectionUri`/endpoint) is the **in-network port** consumers dial via `${bindings.<contract>.host}:${bindings.<contract>.port}` — the container port on the Compose network, and on Kubernetes the Service port, which CDS now renders equal to the container port. The `127.0.0.1:${config.port}:<containerPort>` host publish is a separate, host-side-only config knob that must never be advertised on a contract. Previously postgres (`port: ${config.port}` vs container 5432), keydb (6379), dbt's docs service (80), superset (8088), dagster (3000), grafana (3000), and otel-collector (4318) advertised the host-published port, so a non-default `config.port` rendered green but broke in-network consumers at runtime with connection refused. Those contracts now advertise the fixed in-network port, the `port`/`webPort`/`docs.port`/`otlpHttpPort` config descriptions document the host-publish-only role, and the shared contract field descriptions (`shared/contracts/{sql-database,cache-service,http-service,log-sink,metrics-sink,trace-sink,lineage-sink,object-storage}.yaml`) plus `docs/modules.md` state the semantic. Keycloak, garage, loki, and marquez already followed it. The superset and dagster Kubernetes Services now expose `port` = container port (`8088`/`3000`, `targetPort` equal), so the Service-facing port matches the advertised contract port on both render targets; `nodePort` stays the node-facing knob. postgres-operator (Helm-only) advertises the fixed CloudNativePG `<cluster>-rw` Service port 5432, and its misleading `config.port` knob was removed (update `profiles/local-kubernetes-postgres-operator`, which no longer sets `port: 5432`). `http-service`'s `portFrom` now documents the module's host-publish knob (keycloak points it at `spec.config.httpPort`); the in-network port is always the `port` field. Tests updated: `tests/test_grafana_module.py`, `tests/test_otel_collector_module.py`, `tests/test_postgres_operator_module.py`.
 
   entry shapes at render time and fails closed with `E162` naming the entry
@@ -34,6 +42,23 @@ The format is based on Keep a Changelog.
   port matches the binding port renders unchanged. README troubleshooting
   table, `docs/kubernetes.md`, and tests (uncovered port, second unopened
   provider port, `port`/`targetPort` remap) included.
+- `docs/roadmap.md` freshness refresh (issue #1246): closed issues #72, #77, and
+  #210 are no longer listed as available in "Ready For Contributors", and the
+  shipped near-term items (#348, #690, #75, #767, #768, #769, #1059, #776, #1171,
+  #778, #777) are promoted to "Completed", so `scripts/check_roadmap_freshness.py`
+  reports the roadmap fresh again.
+- The Helm render's E152 `waitFor` gate check now honors custom
+  `networkPolicy.egress` passthrough rules for DNS-name gate hosts (issue
+  #1126): a hostname cannot be matched against ipBlock CIDRs at render time
+  (no DNS resolution in the renderer), so when the module declares a
+  passthrough rule that could cover the resolved address on the gate's port
+  (an ipBlock peer and the gate's port open), the gate renders with the new
+  W133 warning instead of failing closed. Gates naming another module's
+  in-cluster Service still fail closed with E152 -- the passthrough hatch is
+  only trusted for hosts outside the chart -- as do DNS-name gates whose
+  passthrough rules open a different port or carry no ipBlock peer. Covered
+  by tests in `tests/test_k8s_renderer.py`; documented in `docs/kubernetes.md`
+  and the README troubleshooting table (new W133 row).
 
 ## [0.15.1] - 2026-11-09
 

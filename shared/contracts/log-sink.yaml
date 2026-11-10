@@ -27,7 +27,7 @@ spec:
       required: true
       description: >-
         TCP port the collector listens on (OTLP/HTTP default 4318, Loki's
-        native OTLP endpoint 3100). In-network port (issue #1067): consumers dial ${bindings.<name>.host}:${bindings.<name>.port} on the shared Compose network, where the provider listens on its container port (on Kubernetes the Service port is rendered equal to that container port). It is not the localhost host-published port: the 127.0.0.1:<port>:<containerPort> publish is a separate module config concern and must never be advertised here.
+        native OTLP endpoint 3100). In-network port (issue #1067): consumers dial ${bindings.<name>.host}:${bindings.<name>.port} on the shared Compose network, where the provider listens on its container port (on Kubernetes the Service port is rendered equal to that container port). It is not the localhost host-published port: the 127.0.0.1:<port>:<containerPort> publish is a separate module config concern and must never be advertised here. Render-time cross-check (issue #1245): when the advertised host is a service the render produced, this port must equal one of that service's declared container ports, else the render fails closed with E164.
     protocol:
       type: string
       required: true
@@ -47,7 +47,7 @@ spec:
         `trace-sink`/`metrics-sink`/`sql-database`/`lineage-sink`. OTLP/HTTP
         forwarders (e.g. the `otel-collector` module's `backends.logs`) dial
         `connectionUri` + `ingestPath`, so providers that want their logs
-        signal to be forwardable should advertise it (issue #1076).
+        signal to be forwardable should advertise it (issue #1076). When its host is a service the render produced, the embedded port must equal one of that service's declared container ports, else the render fails closed with E164 (issue #1245).
     rawRetentionDays:
       type: integer
       required: false

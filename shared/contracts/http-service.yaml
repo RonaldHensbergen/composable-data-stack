@@ -71,7 +71,10 @@ spec:
         host-published port, which is a separate module config concern (see
         `portFrom`, issue #1067); absent means the provider does not
         advertise a directly reachable port and route generation fails with
-        a diagnostic instead of guessing.
+        a diagnostic instead of guessing. Render-time cross-check (issue
+        #1245): when the advertised host is a service the render produced,
+        this port must equal one of that service's declared container ports,
+        else the render fails closed with E164.
     healthPath:
       type: string
       required: false

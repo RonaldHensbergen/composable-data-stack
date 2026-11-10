@@ -372,6 +372,13 @@ def build_plan_from_profile(
                 "implementation": inst["module"]
                 .get("spec", {})
                 .get("implementation", {}),
+                # The module's runtime block is carried so render-time
+                # cross-checks can consult runtime.service.ports[]
+                # .containerPort, one of the two declaration sites of a
+                # serving service's container ports (issue #1245).
+                "runtime": deepcopy(
+                    inst["module"].get("spec", {}).get("runtime") or {}
+                ),
             }
         )
 

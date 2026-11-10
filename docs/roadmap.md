@@ -23,12 +23,6 @@ scope instead.
 - **`help wanted`** — scoped, but needs a design decision or more context read
   first; ask on the issue before starting:
   - #142 Add a runnable Airflow profile example
-- **`area:docs`** — low risk, no test suite to satisfy:
-  - #77 Publish Kubernetes docs, migration guide, and example profiles
-  - #72 Document and test the production hardening checklist
-- **`priority:high` / `priority:medium`** — higher-impact work for
-  contributors who want to go deeper; check for an in-progress PR first:
-  - #210 Add backup, restore, and disaster-recovery contracts
 
 New capability modules and contracts (S3-compatible object storage, log-sink,
 Keycloak realm/config, Grafana, etc.) are tracked with
@@ -78,7 +72,7 @@ These are considered production-ready in the current release (v0.15.1):
 
 These work but may have breaking changes in upcoming releases:
 
-- **Kubernetes/Helm rendering target** (`--target helm` on `render`/`validate`/`security`/`up`/`down`/`state`/`test`) — `cli/k8s_renderer.py`, `cli/k8s_security.py`, and `cli/k8s_runner.py` render a Helm chart and manage its lifecycle via `helm upgrade --install`; includes a k3d-based local-dev harness and a TenderNed demo profile (#608). Still missing the platform baseline (GitOps, observability, backup, network policy) tracked in [docs/haven-parity-plan.md](haven-parity-plan.md) and issues #690/#75/#77.
+- **Kubernetes/Helm rendering target** (`--target helm` on `render`/`validate`/`security`/`up`/`down`/`state`/`test`) — `cli/k8s_renderer.py`, `cli/k8s_security.py`, and `cli/k8s_runner.py` render a Helm chart and manage its lifecycle via `helm upgrade --install`; includes a k3d-based local-dev harness and a TenderNed demo profile (#608). The platform baseline once listed here as missing — GitOps (#767), observability (#777), backup (#210), network policies (#75), self-contained `cds up --target helm` (#690), and Kubernetes docs/example profiles (#77) — has shipped (see Completed below); remaining gaps to a full Haven+-style platform are tracked in [docs/haven-parity-plan.md](haven-parity-plan.md).
 - Module: Airflow (`modules-experimental/orchestration/airflow/`) — not yet integrated into a stable profile
 - Module: dlt (`modules-experimental/ingestion/dlt/`) — one-shot pipeline job, not yet wired into a stable profile
 - Module: Keycloak (`modules/identity/keycloak/`) — identity/SSO provider with production web serving by default (`config.webServer.mode`, #216/#974; `development`/`start-dev` is an explicit local-only opt-in rejected in production profiles by E140), backed by a consumed `sql-database` contract and providing `oidc-provider`; wired into the `local-haven-reference` profile (#772), remains experimental pending its `--target helm` implementation (#1075)
@@ -99,10 +93,6 @@ These work but may have breaking changes in upcoming releases:
 ## Near-Term (Next 1–3 Releases)
 
 - 📋 **Stabilize Vault-backed profile** — validate and harden `local-dagster-postgres-superset-vault` for regular use
-- 📋 **`cds update`** — refresh profiles, modules, and contracts previously fetched with `cds get` (#348)
-- 📋 **Kubernetes platform baseline** — close the gap to the full plan in [docs/haven-parity-plan.md](haven-parity-plan.md): self-contained `cds up --target helm` (#690), K8s secrets/configmaps/network policies (#75), Kubernetes docs/migration guide (#77); see the [Zero Trust mapping](zero-trust-architecture.md) for the security boundaries and remaining gaps
-- 🚧 **Haven parity — Kubernetes database operators** — GitOps rendering is delivered: `gitops-target` contract + FluxCD reference module render Flux bootstrap manifests over the Helm chart output (#767); the Kubernetes-native database operator pattern is delivered experimentally: CloudNativePG-backed `postgres-operator` module providing `sql-database` on `--target helm` (#768); the Basic/Automated/Observed/Secured/Resilient profile maturity report is implemented across #769 and #1059
-- 🚧 **Zero-Trust and OpenTelemetry** — previously unaddressed platform/standards gaps identified during the Dutch public-sector alignment review: service-mesh contract + production-suitable Istio reference module (#776, #1171 — `modules/security/istio`, Helm target only), consolidated Zero-Trust Architecture framing over existing TLS/identity/mesh/network-policy work (#778), `trace-sink`/`metrics-sink` contracts + OpenTelemetry Collector reference module (#777 — contracts and the experimental `otel-collector` module in progress)
 
 ---
 
@@ -195,6 +185,18 @@ Selected items shipped since v0.4.0 (see [CHANGELOG.md](../CHANGELOG.md) for the
 - ✅ **Compose-injection hardening** — `${config.*}`/`${bindings.*}` substitution can no longer splice a profile-supplied dict/list into compose-dangerous fields (new `E072` diagnostic)
 - ✅ **`scripts/compose_to_module.py`** — scaffold a starter module from an existing `docker-compose.yml` (#670)
 - ✅ **Schema-backed validation** — profile/module/contract shape enforced via bundled JSON schemas (#413)
+- ✅ **`cds update`** — refresh profiles, modules, contracts, and runtime assets previously fetched with `cds get`, reporting and preserving locally modified files (#348)
+- ✅ **Self-contained `cds up --target helm`** — one-command Helm lifecycle: cluster reachability check (with k3d cluster creation), local image builds, and image import before `helm upgrade --install` (#690)
+- ✅ **Kubernetes production resources** — default-deny NetworkPolicy and ServiceAccount generation on the Helm target, with allow rules derived from the plan's contract bindings (#75)
+- ✅ **Kubernetes docs and example profiles** — "Migrating from Docker Compose" guide plus the `local-kubernetes-example` and `production-kubernetes-example` profiles (#77)
+- ✅ **Production hardening checklist and verification procedure** — every hardening control mapped to CDS enforcement or operator responsibility, with a reproducible `cds validate` → `cds up` command sequence (#72)
+- ✅ **Backup, restore, and disaster recovery** — backup/restore contracts with an automated restore-verification runtime proof (#210)
+- ✅ **GitOps rendering** — vendor-neutral `gitops-target` contract and FluxCD reference module rendering Flux bootstrap manifests over the Helm chart output (#767)
+- ✅ **Kubernetes-native database operator pattern** — CloudNativePG-backed `postgres-operator` module providing the `sql-database` contract on `--target helm` (#768)
+- ✅ **`cds maturity`** — read-only profile maturity report across the Basic/Automated/Observed/Secured/Resilient tiers (#769, #1059)
+- ✅ **Service mesh with mutual TLS** — `service-mesh` contract plus the Istio reference module promoted to production-suitable (`modules/security/istio/`) (#776, #1171)
+- ✅ **Zero-Trust Architecture framing** — consolidated maturity tier over the existing TLS/identity/mesh/network-policy work, mapped to NIST SP 800-207 (#778)
+- ✅ **`trace-sink`/`metrics-sink` contracts and OpenTelemetry Collector** — vendor-neutral sink contracts plus the experimental `otel-collector` module providing `log-sink`/`metrics-sink`/`trace-sink` over OTLP/HTTP (#777)
 
 Items shipped in v0.1.1 through v0.4.0:
 
