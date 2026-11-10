@@ -635,8 +635,8 @@ def _validate_provided_contract_ports_against(
     refused. `rendered_ports_by_module` maps module id -> rendered service
     name -> the container ports declared for it (`runtime.service.ports[]
     .containerPort` / the compose container port / the Kubernetes
-    Service's targetPort); a service with no declared ports is skipped, and
-    hosts no render produced are left to the E150 host check. Sink
+    Service's port/targetPort entries); a service with no declared ports is
+    skipped, and hosts no render produced are left to the E150 host check. Sink
     contracts' `connectionUri` (and object-storage's `endpoint`) are checked
     by the port embedded in the URI. `service_kind`, `fix_hint` and
     `resolve_service_name` mirror the E150 host check.
