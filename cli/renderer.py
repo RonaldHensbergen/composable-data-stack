@@ -93,6 +93,7 @@ def render_compose(
         "volumes": {},
     }
     module_service_names: dict[str, list[str]] = {}
+    module_service_ports: dict[str, dict[str, set[int]]] = {}
 
     # Add networks if defined
     if networks or default_network_name:
@@ -243,14 +244,45 @@ def render_compose(
             module_service_names.setdefault(module["id"], []).append(
                 compose_service_name
             )
+            module_service_ports.setdefault(module["id"], {})[
+                compose_service_name
+            ] = _service_container_ports(service_def)
 
         for volume_name, volume_def in rendered_volumes.items():
             compose["volumes"][f"{module['id']}-{volume_name}"] = volume_def
+
+    # runtime.service.ports[].containerPort is the other declaration site of
+    # a serving service's container ports (issue #1245): merge it into the
+    # rendered service it names when the plan carries the module runtime block.
+    for module in plan.get("modules", []):
+        if not isinstance(module, dict):
+            continue
+        runtime_service = (module.get("runtime") or {}).get("service") or {}
+        runtime_name = runtime_service.get("name")
+        if not isinstance(runtime_name, str) or not runtime_name:
+            continue
+        bucket = module_service_ports.get(str(module.get("id")))
+        if bucket is None:
+            continue
+        full = _compose_service_name(str(module.get("id")), runtime_name)
+        if full not in bucket:
+            continue
+        for port_entry in runtime_service.get("ports") or []:
+            container_port = (
+                _port_or_none(port_entry.get("containerPort"))
+                if isinstance(port_entry, dict)
+                else None
+            )
+            if container_port is not None:
+                bucket[full].add(container_port)
 
     if not compose["volumes"]:
         compose.pop("volumes")
 
     diagnostics.extend(_validate_provided_contract_hosts(plan, module_service_names))
+    diagnostics.extend(
+        _validate_provided_contract_ports(plan, module_service_ports)
+    )
 
     _add_cross_module_dependencies(compose, plan, module_service_names)
 
@@ -297,6 +329,51 @@ def _is_valid_backend_port(value: Any) -> bool:
     return isinstance(value, int) and 1 <= value <= 65535
 
 
+def _port_or_none(value: Any) -> int | None:
+    """Normalize an advertised port to an int in 1-65535, else None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        if not value.isdigit():
+            return None
+        value = int(value)
+    if isinstance(value, int) and 1 <= value <= 65535:
+        return value
+    return None
+
+
+def _compose_port_target(entry: Any) -> int | None:
+    """
+    Extract the container port from a compose port mapping.
+
+    Host bindings such as `127.0.0.1:5432:5432` carry no meaning in a cluster;
+    only the container side survives, and ADR 0001 records the loss.
+    """
+    if isinstance(entry, dict):
+        try:
+            return int(entry.get("target"))
+        except TypeError, ValueError:
+            return None
+    text = str(entry).split("/")[0]
+    parts = text.split(":")
+    try:
+        return int(parts[-1])
+    except ValueError:
+        return None
+
+
+def _service_container_ports(service_def: Any) -> set[int]:
+    """The container ports a rendered compose service declares."""
+    ports: set[int] = set()
+    if not isinstance(service_def, dict):
+        return ports
+    for entry in service_def.get("ports") or []:
+        target = _compose_port_target(entry)
+        if target is not None:
+            ports.add(target)
+    return ports
+
+
 _DNS_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
 
@@ -324,6 +401,28 @@ def _endpoint_hostname(value: Any) -> str | None:
             return host
         return None
     return value
+
+
+def _endpoint_port(value: Any) -> int | None:
+    """
+    Extract the numeric port a contract endpoint advertises, if any.
+
+    URL-shaped endpoints (`<scheme>://<host>:<port>`) contribute their port
+    via `urlsplit`; a scheme-less ``host:port`` pair contributes its port
+    part. Placeholders (`${...}`) and non-numeric ports yield None: there is
+    no numeric port to cross-check.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    if "://" in value:
+        try:
+            return _port_or_none(urlsplit(value).port)
+        except ValueError:
+            return None
+    if ":" in value:
+        _host, _, port = value.rpartition(":")
+        return _port_or_none(port)
+    return None
 
 
 def _provided_contract_host_candidates(
@@ -456,6 +555,177 @@ def _validate_provided_contract_hosts(
             "Instantiate the module with an id matching its compose service "
             "name, advertise the serving service via a serviceName field, or "
             "build the endpoint from ${service.dns} or ${service.services.<name>}."
+        ),
+    )
+
+
+def _provided_contract_port_candidates(
+    kind: Any, spec: dict[str, Any], module_id: str
+) -> list[tuple[str, str, str, int | None]]:
+    """
+    The (host field, advertised host, port field, port) tuples a provided
+    contract's spec advertises, per contract kind — the port dimension of
+    `_provided_contract_host_candidates` (issue #1245).
+
+    For `host`/`serviceName` advertisements the port is the spec's `port`
+    field; for `endpoint`/`connectionUri` advertisements it is the port
+    embedded in the URI itself, so a sink contract is checked on both the
+    `port` field and the pre-composed `connectionUri`.
+    """
+    candidates: list[tuple[str, str, str, int | None]] = []
+    port = _port_or_none(spec.get("port"))
+    if kind == "http-service":
+        advertised_service = spec.get("serviceName")
+        if isinstance(advertised_service, str) and advertised_service:
+            candidates.append(
+                (
+                    "serviceName",
+                    _compose_service_name(module_id, advertised_service),
+                    "port",
+                    port,
+                )
+            )
+        else:
+            candidates.append(("host", spec.get("host"), "port", port))
+    elif kind in ("sql-database", "cache-service"):
+        candidates.append(("host", spec.get("host"), "port", port))
+    elif kind == "object-storage":
+        endpoint = spec.get("endpoint")
+        candidates.append(
+            ("endpoint", endpoint, "endpoint", _endpoint_port(endpoint))
+        )
+    elif kind in ("lineage-sink", "log-sink", "metrics-sink", "trace-sink"):
+        advertised_service = spec.get("serviceName")
+        if isinstance(advertised_service, str) and advertised_service:
+            candidates.append(
+                (
+                    "serviceName",
+                    _compose_service_name(module_id, advertised_service),
+                    "port",
+                    port,
+                )
+            )
+        candidates.append(("host", spec.get("host"), "port", port))
+        connection_uri = spec.get("connectionUri")
+        candidates.append(
+            (
+                "connectionUri",
+                connection_uri,
+                "connectionUri",
+                _endpoint_port(connection_uri),
+            )
+        )
+    return candidates
+
+
+def _validate_provided_contract_ports_against(
+    modules: Any,
+    rendered_ports_by_module: dict[str, dict[str, set[int]]],
+    *,
+    service_kind: str,
+    fix_hint: str,
+    resolve_service_name: Callable[[str, str], str] | None = None,
+) -> list[Diagnostic]:
+    """
+    E164 cross-check core shared by both render targets (issue #1245): a
+    provided contract whose advertised host is a service the render produced
+    for that module must advertise a numeric port equal to one of that
+    service's declared container ports, else the render fails closed
+    instead of shipping an endpoint consumers dial into a connection
+    refused. `rendered_ports_by_module` maps module id -> rendered service
+    name -> the container ports declared for it (`runtime.service.ports[]
+    .containerPort` / the compose container port / the Kubernetes
+    Service's targetPort); a service with no declared ports is skipped, and
+    hosts no render produced are left to the E150 host check. Sink
+    contracts' `connectionUri` (and object-storage's `endpoint`) are checked
+    by the port embedded in the URI. `service_kind`, `fix_hint` and
+    `resolve_service_name` mirror the E150 host check.
+    """
+    diagnostics: list[Diagnostic] = []
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        module_id = str(module.get("id"))
+        rendered = rendered_ports_by_module.get(module_id) or {}
+        if not rendered:
+            continue
+        provides = module.get("provides")
+        if not isinstance(provides, dict):
+            continue
+        for provide_name, provided in provides.items():
+            if not isinstance(provided, dict):
+                continue
+            kind = provided.get("kind")
+            spec = provided.get("spec")
+            if not isinstance(spec, dict):
+                continue
+            seen: set[tuple[str, str]] = set()
+            for host_field, advertised, port_field, port in (
+                _provided_contract_port_candidates(kind, spec, module_id)
+            ):
+                if port is None:
+                    continue
+                host = _endpoint_hostname(advertised)
+                if not isinstance(host, str) or not _DNS_LABEL_RE.match(host):
+                    continue
+                if host_field == "serviceName" and resolve_service_name is not None:
+                    host = resolve_service_name(module_id, host)
+                if (port_field, host) in seen:
+                    # A serviceName and host advertisement naming the same
+                    # service would double-report the same port field.
+                    continue
+                seen.add((port_field, host))
+                if host not in rendered:
+                    # Not a rendered service: the E150 host check owns it.
+                    continue
+                declared = rendered[host]
+                if not declared:
+                    # The service declares no container ports to check against.
+                    continue
+                if port in declared:
+                    continue
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E164",
+                        message=(
+                            f'Provided contract "{provide_name}" of module "{module_id}" '
+                            f'advertises port {port} on {service_kind} "{host}", but '
+                            "that service declares no such container port (declared "
+                            "container ports: "
+                            + ", ".join(str(p) for p in sorted(declared))
+                            + "); consumers of the contract would dial a port "
+                            "nothing listens on. " + fix_hint
+                        ),
+                        path=f"module:{module_id}.provides.{provide_name}.spec.{port_field}",
+                    )
+                )
+    return diagnostics
+
+
+def _validate_provided_contract_ports(
+    plan: dict[str, Any],
+    module_service_ports: dict[str, dict[str, set[int]]],
+) -> list[Diagnostic]:
+    """
+    Cross-check every provided contract's advertised port against the
+    container ports the render actually declared for the advertised compose
+    service (issue #1245).
+
+    The port dimension of the E150 host check: under the contract port
+    semantic (issue #1067) the advertised `port` (and the port inside
+    `connectionUri`/endpoint) is the in-network container port, never the
+    host-published loopback port, so a mismatch renders green but fails at
+    runtime with connection refused — it fails closed with E164 here.
+    """
+    return _validate_provided_contract_ports_against(
+        plan.get("modules", []),
+        module_service_ports,
+        service_kind="compose service",
+        fix_hint=(
+            "Advertise one of the serving service's declared container ports "
+            "(runtime.service.ports[].containerPort or the compose service's "
+            "container port), not the host-published port (issue #1067)."
         ),
     )
 

@@ -364,6 +364,17 @@ NetworkPolicy (issue #75):
   that host. An uncovered port fails closed with E163 naming the gate, the
   host, and the port. Same-module gates need no port check: same-module
   egress is unscoped.
+- Provided contracts get the port-dimension cross-check too (issue #1245):
+  when a provided contract's advertised host matches a rendered Service of
+  the module (the E150 check), its numeric `port` — and for the sink kinds
+  the port embedded in `connectionUri` — must equal one of that Service's
+  declared ports (its `port`/`targetPort` entries, or
+  `runtime.service.ports[].containerPort` when the plan carries the runtime
+  block). A mismatch fails closed with E164 instead of shipping an endpoint
+  consumers dial into a connection refused. Declared (not rendered)
+  `implementation.kubernetes.services` entries contribute their own
+  `port`/`targetPort`; an operator-created Service that declares no ports
+  (e.g. CloudNativePG's `<cluster>-rw`) is left unchecked.
 - NodePort and LoadBalancer services are intended entry points: ingress is
   opened to all sources on exactly their exposed ports, and CDS-K8S-007
   flags that exposure.
