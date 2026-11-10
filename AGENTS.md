@@ -6,9 +6,9 @@ canonical agent instruction file and is tracked in git; local-only
 workflows that must not be committed (e.g. the self-assign step) live in
 the gitignored `AGENTS.local.md` in the repo root (see `.gitignore`).
 
-## Picking the "next issue" (Composable Data Stack Roadmap)
+## Name the "next issue" (Composable Data Stack Roadmap)
 
-When asked to pick or name the "next issue":
+When asked to name the "next issue":
 
 - Order = the `Order` field of GitHub Project "Composable Data Stack Roadmap"
   (project 1, owner RonaldHensbergen). Lowest Order value wins — never the
@@ -24,7 +24,7 @@ When asked to pick or name the "next issue":
   (`gh api repos/RonaldHensbergen/composable-data-stack/issues/<n>/sub_issues`)
   or with a task list in the issue body.
 - Mechanics: prefer the script
-  `python3 ~/.vibe/next_issue.py` (also `--all`, `--json`, `--skip-first N`);
+  `python3 tools/next_issue.py` (also `--all`, `--json`, `--skip-first N`);
   it implements the skip criteria above. Manually: `gh project item-list 1
   --owner RonaldHensbergen --limit 200 --format json` (fields: `order`,
   `status`, `content.number`), then check sub-issues, assignees and body per
@@ -39,7 +39,7 @@ Work issue-first, not repo-first — the issue body usually already contains the
 anchors (file name, E-/W code, function name, test name):
 
 1. Fetch the issue first: `gh issue view <n>` (body, labels, comments, linked
-   PRs), plus roadmap context via `python3 ~/.vibe/next_issue.py`.
+   PRs), plus roadmap context via `python3 tools/next_issue.py`.
 2. Do one cheap orientation: a single top-level listing of the repo and the
    core directories, instead of reading many files to get "the shape".
 3. Grep for the unique tokens from the issue (error-code string, symbol name,
@@ -135,9 +135,9 @@ Always in both directions:
 - Right after creating the PR, post a comment on the issue with the PR number,
   e.g. `gh issue comment <n> --body "Linked PR: #<m> (<title>)"` — so the PR is
   already visible on the issue before merge.
-- Note: `~/.vibe/start_pr.sh` opens the PR with body `Implements #<n>` — change
-  the body to `Closes #<n>` (amend via `gh pr edit <m> --body ...` or adjust the
-  script), otherwise GitHub will not close the issue automatically on merge.
+- Note: `tools/start_pr.sh` opens the PR with body `Closes #<n>`; when opening a
+  PR by hand, use `Closes #<n>` as well (amend via `gh pr edit <m> --body ...`),
+  otherwise GitHub will not close the issue automatically on merge.
 
 ## Milestone inheritance for loose ends
 
@@ -158,30 +158,34 @@ and set `productionSuitable: true`; update `docs/architecture.md`,
 Comments, review findings and agreements that structurally improve repo quality
 (like the cross-linking above) are recorded in this AGENTS.md — not only in a
 PR comment, review thread or session. This file is tracked in git. Local
-workflows that must not be committed (e.g. the self-assign step) belong in
-`AGENTS.local.md` in the repo root — that file is in `.gitignore`.
+workflows that must not be committed belong in `AGENTS.local.md` in the
+repo root — that file is in `.gitignore`.
 
-## Helper scripts in ~/.vibe (one action per repetitive multi-step)
+## Helper scripts in `tools/` (tracked in git; one action per repetitive multi-step)
 
-- `python3 ~/.vibe/next_issue.py [--all|--json|--skip-first N]` — the next
+These live in the repository so they are versioned and reviewable; personal
+copies under `~/.vibe` are no longer canonical. They need the `gh` CLI
+authenticated against this repository.
+
+- `python3 tools/next_issue.py [--all|--json|--skip-first N]` — the next
   issue according to the rules above.
-- `python3 ~/.vibe/issue_context.py <n> [--json]` — issue bootstrap in one
+- `python3 tools/issue_context.py <n> [--json]` — issue bootstrap in one
   call: body, labels, milestone, assignees, linked PRs, sub-issues, comments,
   roadmap order/status.
-- `~/.vibe/start_pr.sh <n> <type> <slug> [label ...]` — throwaway worktree +
+- `tools/start_pr.sh <n> <type> <slug> [label ...]` — throwaway worktree +
   branch `<type>/<n>-<slug>` from main + push + open PR in one action; then work
   in `/tmp/<branch-with-dashes>-wt`.
-- `~/.vibe/ci_status.sh <branch|pr-nr>` — compact CI status (runs or PR checks).
-- `~/.vibe/pr_threads.sh <pr>` — overview of review threads (id, state, location).
-- `~/.vibe/pr_thread_reply.sh <pr> <thread-id> <body>` — reply + resolve in one call.
-- `python3 ~/.vibe/refresh_issue_pr_map.py` — issue ↔ open-PR cross-reference
+- `tools/ci_status.sh <branch|pr-nr>` — compact CI status (runs or PR checks).
+- `tools/pr_threads.sh <pr>` — overview of review threads (id, state, location).
+- `tools/pr_thread_reply.sh <pr> <thread-id> <body>` — reply + resolve in one call.
+- `python3 tools/refresh_issue_pr_map.py` — issue ↔ open-PR cross-reference
   map; output in `~/.vibe/issue_pr_map.md` / `.json`.
-- `~/.vibe/vibe_commit.sh "<msg>" [paths...]` — commit with the required
+- `tools/vibe_commit.sh "<msg>" [paths...]` — commit with the required
   Mistral Vibe footer.
 
 When you notice repetitive multi-step tasks during work that could fit into one
 script, mention it explicitly to Ronald — on repetition it becomes a helper in
-`~/.vibe` like the ones above.
+`tools/` like the ones above.
 
 ## GitHub Workflow
 

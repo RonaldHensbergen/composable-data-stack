@@ -5,6 +5,11 @@ repository. The scripts themselves are git-ignored (they are developer convenien
 and not part of the CDS package), but this README is tracked so contributors know
 what belongs here.
 
+Note: the shared agent workflow helpers (`start_pr.sh`, `pr_threads.sh`, …) live
+directly under `tools/` and are tracked in git — see the "Helper scripts" section in
+[AGENTS.md](../../AGENTS.md). Only the personal, per-contributor scripts in this
+`pr-cli/` directory stay uncommitted.
+
 ## Purpose
 
 The scripts in this directory automate the repetitive parts of opening a PR:

@@ -250,15 +250,17 @@ __marimo__/
 .streamlit/secrets.toml
 .aider*
 
-# PR creation tools (helper scripts, not part of main tool)
-/tools/
-
 # Generated PR documentation
 .github/pr-docs/
 tools/pr-docs/
 
+# Local PR-drafting scripts under tools/pr-cli/ stay uncommitted (the README
+# there is tracked); the agent helpers directly under tools/ are tracked.
+/tools/pr-cli/*
+!/tools/pr-cli/README.md
+
 # Stray PR-drafting scratch files (seen generated directly under .github/,
-# outside the gitignored tools/ and .github/pr-docs/ locations above)
+# outside the gitignored tools/pr-docs/ and .github/pr-docs/ locations above)
 .github/PR_DRAFT.md
 .github/PR_BODY_WITH_COMMENTS.md
 
