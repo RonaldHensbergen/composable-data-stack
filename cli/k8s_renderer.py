@@ -26,7 +26,10 @@ baseline unless the module declares it under
 `workloads.<name>.egress`), which renders an ipBlock rule for exactly that
 destination and port (issue #1023). `waitFor` gate hosts are validated
 against that baseline at render time and fail closed with E152 when no
-allow rule can cover them (issue #1031), and `waitFor` entry shapes are
+allow rule can cover them (issue #1031); a DNS-name gate host that a
+declared `networkPolicy.egress` passthrough rule could cover on the gate's
+port renders with a W133 warning instead, while gates on other modules'
+Services still fail closed (issue #1126), and `waitFor` entry shapes are
 re-checked the same way, failing closed with E162 on a malformed entry
 (issue #1130). A gate on a bound provider endpoint is additionally
 checked against the binding's port-scoped egress rule and fails closed
@@ -55,6 +58,7 @@ from .confinement import plan_declares_confinement
 from .diagnostics import Diagnostic
 from .renderer import (
     _build_context,
+    _compose_port_target,
     _is_valid_backend_port,
     _merge_init_db_env,
     _resolve_expr,
@@ -62,6 +66,7 @@ from .renderer import (
     _resolve_project_root,
     _substitute_values,
     _validate_provided_contract_hosts_against,
+    _validate_provided_contract_ports_against,
     apply_production_gates,
 )
 from .resolver import iter_consume_bindings, parse_contract_ref
@@ -259,6 +264,11 @@ def render_helm(
 
     diagnostics.extend(_check_binding_services(renderable, service_names))
     diagnostics.extend(_check_provided_contract_services(renderable, service_names))
+    diagnostics.extend(
+        _check_provided_contract_ports(
+            renderable, service_names, enabled_workloads_by_module
+        )
+    )
     diagnostics.extend(
         _check_wait_gate_hosts(
             renderable,
@@ -1189,26 +1199,6 @@ def _translate_ports(compose_ports: Any, override: Any) -> list[dict[str, Any]]:
         seen.add(target)
         ports.append({"containerPort": target, "protocol": "TCP"})
     return ports
-
-
-def _compose_port_target(entry: Any) -> int | None:
-    """
-    Extract the container port from a compose port mapping.
-
-    Host bindings such as `127.0.0.1:5432:5432` carry no meaning in a cluster;
-    only the container side survives, and ADR 0001 records the loss.
-    """
-    if isinstance(entry, dict):
-        try:
-            return int(entry.get("target"))
-        except TypeError, ValueError:
-            return None
-    text = str(entry).split("/")[0]
-    parts = text.split(":")
-    try:
-        return int(parts[-1])
-    except ValueError:
-        return None
 
 
 def _translate_security_context(spec: dict[str, Any]) -> dict[str, Any]:
@@ -3023,16 +3013,40 @@ def _enabled_workloads(
     return enabled
 
 
+def _is_ip_literal(host: str) -> bool:
+    """Whether the gate host is an IP literal (as opposed to a DNS name)."""
+    try:
+        ipaddress.ip_address(str(host).strip())
+    except ValueError:
+        return False
+    return True
+
+
+def _passthrough_ports_cover(rule: dict[str, Any], port: int | None) -> bool:
+    """
+    Whether a raw `networkPolicy.egress` rule's port list opens TCP `port`
+    (a rule without `ports` opens every port).
+    """
+    ports = rule.get("ports")
+    if not ports:
+        return True
+    return any(
+        isinstance(port_entry, dict)
+        and str(port_entry.get("protocol") or "TCP").upper() == "TCP"
+        and _int_or_none(port_entry.get("port")) == port
+        for port_entry in ports
+    )
+
+
 def _passthrough_rule_covers(rule: dict[str, Any], host: str, port: int | None) -> bool:
     """
     Whether a raw `networkPolicy.egress` rule with an ipBlock peer covers
     TCP traffic to host:port (used by the E152 wait-gate check, so the
     escape hatch the E152 message names actually lifts the gate).
     """
-    try:
-        address = ipaddress.ip_address(str(host).strip())
-    except ValueError:
+    if not _is_ip_literal(host):
         return False
+    address = ipaddress.ip_address(str(host).strip())
     destinations = rule.get("to")
     if not isinstance(destinations, list):
         return False
@@ -3067,15 +3081,31 @@ def _passthrough_rule_covers(rule: dict[str, Any], host: str, port: int | None) 
             break
     if not covered:
         return False
-    ports = rule.get("ports")
-    if not ports:
-        return True
-    return any(
-        isinstance(port_entry, dict)
-        and str(port_entry.get("protocol") or "TCP").upper() == "TCP"
-        and _int_or_none(port_entry.get("port")) == port
-        for port_entry in ports
-    )
+    return _passthrough_ports_cover(rule, port)
+
+
+def _passthrough_rule_may_cover_unresolved(
+    rule: dict[str, Any], port: int | None
+) -> bool:
+    """
+    Whether a raw `networkPolicy.egress` passthrough rule could allow TCP
+    traffic to an external host the renderer cannot resolve (a DNS-name
+    gate host): the rule needs an ipBlock peer -- selector-only peers match
+    in-cluster pods only -- and a port list that opens the gate's port.
+    Whether the resolved address actually lands in the CIDR (outside any
+    `except` carve-out) cannot be checked without DNS resolution in the
+    renderer, which is why such gates downgrade to W133 instead of failing
+    closed with E152 (issue #1126).
+    """
+    destinations = rule.get("to")
+    if not isinstance(destinations, list):
+        return False
+    if not any(
+        isinstance(peer, dict) and isinstance(peer.get("ipBlock"), dict)
+        for peer in destinations
+    ):
+        return False
+    return _passthrough_ports_cover(rule, port)
 
 
 def _bound_host_ports(
@@ -3189,6 +3219,15 @@ def _check_wait_gate_hosts(
     only hang until the gate's timeout with no diagnostic, so the render
     fails closed with E152 instead of shipping the gate.
 
+    A DNS-name gate host cannot be matched against ipBlock CIDRs at render
+    time (no DNS resolution in the renderer), so when the module declares a
+    custom `networkPolicy.egress` passthrough rule that could cover the
+    resolved address on the gate's port (an ipBlock peer and the gate's
+    port open), the gate renders with a W133 warning instead of failing
+    closed. A gate naming another module's Service still fails closed with
+    E152: the passthrough hatch is only trusted for hosts outside the
+    chart (issue #1126).
+
     A Service of a consumed provider module is host-allowed but its egress
     edge is port-scoped (`_binding_ports`), so the gate's port is checked
     too: the Service-facing gate port is mapped through the provider's
@@ -3202,6 +3241,13 @@ def _check_wait_gate_hosts(
     """
     module_ids = {module["id"] for module in modules}
     modules_by_id = {module["id"]: module for module in modules}
+    # Every Service name rendered in this chart (release-scoped), so a gate
+    # host can be classified as an in-cluster Service name: those fail
+    # closed with E152 even when a passthrough rule is declared, because the
+    # passthrough hatch is only trusted for hosts outside the chart (#1126).
+    chart_services = {
+        _release_scoped_service_name(service) for service in service_names.values()
+    }
     # The NetworkPolicy surfaces of the substituted enabled workloads --
     # the same surfaces `_render_module` collects for the policy generation
     # below, computed here so the gate port check can map Service-facing
@@ -3298,6 +3344,10 @@ def _check_wait_gate_hosts(
                     continue
                 host = str(gate["host"])
                 gate_port = _int_or_none(gate.get("port"))
+                gate_path = (
+                    f"module:{module_id}.implementation.kubernetes."
+                    f"workloads.{workload_name}.waitFor"
+                )
                 if host in same_module_services or host in route_hosts:
                     # Same-module egress is unscoped, and a route target is
                     # covered by the route-derived edge: no port check.
@@ -3313,7 +3363,7 @@ def _check_wait_gate_hosts(
                     for rule in custom_egress
                 )
                 if host in bound_hosts:
-                    # A bound provider endpoint's egress edge is
+                    # A consumed provider Service's egress edge is
                     # port-scoped: the gate's port must be one the
                     # binding(s) to that host justify (issue #1124). The
                     # custom escape hatches still apply on top.
@@ -3345,14 +3395,70 @@ def _check_wait_gate_hosts(
                                 "networkPolicy.egress ipBlock rule or a declared "
                                 "implementation.kubernetes.egress entry."
                             ),
-                            path=(
-                                f"module:{module_id}.implementation.kubernetes."
-                                f"workloads.{workload_name}.waitFor"
-                            ),
+                            path=gate_path,
                         )
                     )
                     continue
                 if covered_by_custom:
+                    continue
+                if host in chart_services:
+                    # A Service of another module in this chart that no
+                    # binding or route names stays a hard failure: the
+                    # passthrough hatch is only trusted for hosts outside
+                    # the chart (issue #1126).
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E152",
+                            message=(
+                                f'waitFor gate of workload "{module_id}/{workload_name}" '
+                                f'names host "{host}", a Service name in this chart '
+                                "that no egress rule of this module opens: it is "
+                                "neither a same-module Service emitted by this "
+                                "render, a Service of a provider this module "
+                                "consumes, nor a reverse-proxy route target, and "
+                                "the custom networkPolicy.egress passthrough is not "
+                                "consulted for in-cluster Service names, so the init "
+                                "container would only hang until its timeout. Bind "
+                                "the host's module through a contract (consumes) or "
+                                "route to it via config.routes."
+                            ),
+                            path=gate_path,
+                        )
+                    )
+                    continue
+                if not _is_ip_literal(host) and any(
+                    _passthrough_rule_may_cover_unresolved(rule, gate_port)
+                    for rule in custom_egress
+                ):
+                    # A DNS-name gate host cannot be matched against ipBlock
+                    # CIDRs at render time (no DNS resolution in the
+                    # renderer), so a module declaring a passthrough rule
+                    # that could cover the resolved address on the gate's
+                    # port gets a warning instead of a hard failure: the
+                    # gate may well work at runtime (issue #1126).
+                    diagnostics.append(
+                        Diagnostic(
+                            level="warning",
+                            code="W133",
+                            message=(
+                                f'waitFor gate of workload "{module_id}/{workload_name}" '
+                                f'names host "{host}", which is neither a Service '
+                                "rendered in this chart nor an IP literal, so the "
+                                "renderer cannot match it against the module's "
+                                "custom networkPolicy.egress ipBlock rules at "
+                                "render time (no DNS resolution). The gate renders "
+                                "because a declared passthrough rule has an ipBlock "
+                                f"peer and opens port {gate_port}, so the resolved "
+                                "address may be covered at runtime; if no ipBlock "
+                                "rule actually covers it (honoring `except`), the "
+                                "init container will only hang until its timeout. "
+                                "Gate on the resolved IP instead of a DNS name to "
+                                "make the check exact."
+                            ),
+                            path=gate_path,
+                        )
+                    )
                     continue
                 diagnostics.append(
                     Diagnostic(
@@ -3375,13 +3481,12 @@ def _check_wait_gate_hosts(
                             "under implementation.kubernetes.egress (an IP/CIDR "
                             "with the gate's port), or add a custom "
                             "networkPolicy.egress ipBlock rule covering the host "
-                            "and port (a DNS-name host cannot be expressed in a "
-                            "NetworkPolicy and stays denied)."
+                            "and port. A DNS-name host cannot be matched against "
+                            "ipBlock CIDRs at render time: when such a passthrough "
+                            "rule is declared, the gate renders with a W133 "
+                            "warning instead of this error (#1126)."
                         ),
-                        path=(
-                            f"module:{module_id}.implementation.kubernetes."
-                            f"workloads.{workload_name}.waitFor"
-                        ),
+                        path=gate_path,
                     )
                 )
     return diagnostics
@@ -3474,6 +3579,92 @@ def _check_provided_contract_services(
             "StatefulSet), advertise the serving workload via a serviceName "
             "field, or build the endpoint from ${service.dns} or "
             "${service.services.<name>}."
+        ),
+        resolve_service_name=lambda _module_id, host: service_names.get(host, host),
+    )
+
+
+def _check_provided_contract_ports(
+    modules: list[dict[str, Any]],
+    service_names: dict[str, str],
+    enabled_workloads_by_module: dict[str, dict[str, dict[str, Any]]],
+) -> list[Diagnostic]:
+    """
+    Port dimension of the E150 provide-side check (issue #1245): cross-check
+    every provided contract's advertised port against the container ports
+    the rendered Kubernetes Services declare for that host.
+
+    Delegates to the E164 core shared with the compose renderer. The allowed
+    port set per rendered Service is both sides of its port entries -- the
+    Service-facing `port` consumers dial and the `targetPort` container port
+    (CDS renders them equal per issue #1067, but a `port`/`targetPort` remap
+    keeps both dialable/reachable, cf. the E163 port_map) -- plus the
+    declared `implementation.kubernetes.services` entries and the module's
+    `runtime.service.ports[].containerPort` when the plan carries the
+    runtime block. A Service that declares no ports (e.g. an
+    operator-created Service like CloudNativePG's `<cluster>-rw`) is left
+    unchecked, and hosts no rendered Service answers stay with E150.
+    """
+    ports_by_module: dict[str, dict[str, set[int]]] = {}
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        module_id = str(module.get("id"))
+        k8s = (module.get("implementation") or {}).get("kubernetes") or {}
+        enabled = enabled_workloads_by_module.get(module_id) or {}
+        ports_by_name: dict[str, set[int]] = {}
+        for workload_name, workload in (k8s.get("workloads") or {}).items():
+            if not isinstance(workload, dict):
+                continue
+            if not workload.get("service") and workload.get("kind") != "StatefulSet":
+                continue
+            full = _compose_service_name(module_id, workload_name)
+            if full not in service_names:
+                continue
+            # Prefer the substituted enabled workload (issue #1216) so
+            # `${config.*}` port values resolve; fall back to the raw block.
+            substituted = enabled.get(workload_name) or workload
+            surface = _workload_surface(substituted)
+            ports_by_name.setdefault(service_names[full], set()).update(
+                surface["ports"]
+            )
+            ports_by_name[service_names[full]].update(surface["port_map"])
+        for service_key, declared in (k8s.get("services") or {}).items():
+            if not isinstance(declared, dict):
+                continue
+            full = _compose_service_name(module_id, str(service_key))
+            if full not in service_names:
+                continue
+            for port in declared.get("ports") or []:
+                if isinstance(port, dict):
+                    for value in (_container_port(port), _int_or_none(port.get("port"))):
+                        if value is not None:
+                            ports_by_name.setdefault(service_names[full], set()).add(
+                                value
+                            )
+        runtime_service = (module.get("runtime") or {}).get("service") or {}
+        runtime_name = runtime_service.get("name")
+        if isinstance(runtime_name, str) and runtime_name:
+            full = _compose_service_name(module_id, runtime_name)
+            if full in service_names:
+                for port in runtime_service.get("ports") or []:
+                    if isinstance(port, dict):
+                        container_port = _int_or_none(port.get("containerPort"))
+                        if container_port is not None:
+                            ports_by_name.setdefault(service_names[full], set()).add(
+                                container_port
+                            )
+        if ports_by_name:
+            ports_by_module[module_id] = ports_by_name
+    return _validate_provided_contract_ports_against(
+        modules,
+        ports_by_module,
+        service_kind="Kubernetes Service",
+        fix_hint=(
+            "Advertise one of the serving Service's declared container ports "
+            "(the workload service targetPort / runtime.service.ports[].containerPort, "
+            "which CDS renders as the Service port, issue #1067), not the "
+            "node-published port."
         ),
         resolve_service_name=lambda _module_id, host: service_names.get(host, host),
     )

@@ -167,6 +167,7 @@ Examples:
 - New features should include tests.
 - Bug fixes should include a regression test when possible.
 - Every test must earn its place: run the kill matrix with `make test-mutation` (mutation testing via mutmut) and keep a test only if it catches a mutant that no other test catches. CI publishes the matrix for changed files on PRs and the full report weekly.
+- `make test` assumes no unpinned PyPI mutmut is installed in the environment: the export-step tests in `tests/test_mutation_tests_workflow.py` run against the real mutmut only when it carries the boxed/mutmut#630 torn-cache fix (the commit pinned by `make test-mutation` and the mutation workflow) and skip with a clear message otherwise (#1240).
 - PRs should pass CI before merge.
 
 ### Writing Regression Tests

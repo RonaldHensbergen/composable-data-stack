@@ -40,9 +40,10 @@ The module applies the `production` tag convention (see
   cleared in production (`ports: []` in its `production:` mapping): the TLS
   reverse proxy is the sole host-published entry point and `CDS-SEC-074`
   does not fire (issue #981). Learning/dev profiles keep the direct
-  `webPort:8088` publish for local access. The Kubernetes target always
-  declares the container port via `containerOverrides`, independent of the
-  compose host publish.
+  `127.0.0.1:${config.webPort}:8088` publish for local access, bound to
+  loopback per the `docs/modules.md` convention (issue #1244). The
+  Kubernetes target always declares the container port via
+  `containerOverrides`, independent of the compose host publish.
 - `config.image.source: registry` continues to use the published CDS image
   for both services in either environment.
 

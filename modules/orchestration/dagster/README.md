@@ -29,9 +29,11 @@ tag (for example, `hardened-1.13.26`).
 In production profiles the webserver's host port publish is cleared
 (`production: { ports: [] }` on the compose service): the TLS reverse proxy
 is the sole host-published entry point and `CDS-SEC-074` does not fire
-(issue #981). Learning/dev profiles keep the direct `webPort:3000` publish
-for local access. The Kubernetes target always declares the container port
-via `containerOverrides`, independent of the compose host publish.
+(issue #981). Learning/dev profiles keep the direct
+`127.0.0.1:${config.webPort}:3000` publish for local access, bound to
+loopback per the `docs/modules.md` convention (issue #1244). The Kubernetes
+target always declares the container port via `containerOverrides`,
+independent of the compose host publish.
 
 ## Upstream documentation
 
