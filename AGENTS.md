@@ -1,181 +1,177 @@
-# Agent-instructies composable-data-stack (getrackt in git)
+# Agent instructions composable-data-stack (tracked in git)
 
-## "Het volgende issue" (Composable Data Stack Roadmap)
+## Picking the "next issue" (Composable Data Stack Roadmap)
 
-Wanneer gevraagd wordt om "het volgende issue" op te pakken of te noemen:
+When asked to pick or name the "next issue":
 
-- Volgorde = het `Order`-veld van GitHub Project "Composable Data Stack Roadmap"
-  (project 1, eigenaar RonaldHensbergen). Laagste Order-waarde wint — dus nooit
-  het laagste issuenummer.
-- Overslaan: items met Project-status `Done` of `In Progress`, en issues die al
-  in behandeling zijn via een open PR (gedetecteerd via timeline
-  connected/cross-referenced events — zie `next_issue.py`).
-- Overslaan: issues met assignees — controleer
-  `gh api repos/RonaldHensbergen/composable-data-stack/issues/<n>` (veld
-  `assignees`), want het project-JSON van `gh project item-list` bevat geen
+- Order = the `Order` field of GitHub Project "Composable Data Stack Roadmap"
+  (project 1, owner RonaldHensbergen). Lowest Order value wins — never the
+  lowest issue number.
+- Skip: items with Project status `Done` or `In Progress`, and issues already
+  being handled via an open PR (detected via timeline connected/cross-referenced
+  events — see `next_issue.py`).
+- Skip: issues with assignees — check
+  `gh api repos/RonaldHensbergen/composable-data-stack/issues/<n>` (field
+  `assignees`), because the project JSON of `gh project item-list` contains no
   assignees.
-- Overslaan: parent-issues — alles met sub-issues
+- Skip: parent issues — anything with sub-issues
   (`gh api repos/RonaldHensbergen/composable-data-stack/issues/<n>/sub_issues`)
-  of met een takenlijst in de issue-body.
-- Mechaniek: gebruik bij voorkeur het script
-  `python3 ~/.vibe/next_issue.py` (ook `--all`, `--json`, `--skip-first N`);
-  het implementeert bovenstaande skip-criteria. Handmatig kan ook:
-  `gh project item-list 1 --owner RonaldHensbergen --limit 200
-  --format json` (velden: `order`, `status`, `content.number`), daarna per
-  kandidaat sub-issues, assignees en body controleren.
-- De getrackte AGENT.md beschrijft de Order-tiers (0 = current, 1-46 =
-  production ready, 100+ = batches); die indeling geldt ook hier.
+  or with a task list in the issue body.
+- Mechanics: prefer the script
+  `python3 ~/.vibe/next_issue.py` (also `--all`, `--json`, `--skip-first N`);
+  it implements the skip criteria above. Manually: `gh project item-list 1
+  --owner RonaldHensbergen --limit 200 --format json` (fields: `order`,
+  `status`, `content.number`), then check sub-issues, assignees and body per
+  candidate.
+- The tracked AGENT.md describes the Order tiers (0 = current, 1-46 =
+  production ready, 100+ = batches); that grouping applies here too.
 
-## Issue-bootstrap (bij het implementeren van een issue)
+## Issue bootstrap (when implementing an issue)
 
-Werk issue-eerst, niet repo-eerst — de issue-body bevat meestal al de ankers
-(bestandsnaam, E-/W-code, functienaam, testnaam):
+Work issue-first, not repo-first — the issue body usually already contains the
+anchors (file name, E-/W code, function name, test name):
 
-1. Haal eerst het issue op: `gh issue view <n>` (body, labels, comments,
-   gekoppelde PR's), plus roadmap-context via `python3 ~/.vibe/next_issue.py`.
-2. Doe één goedkope oriëntatie: één top-level listing van de repo en de
-   kernmappen, in plaats van veel bestanden lezen om "de vorm" te zien.
-3. Grep op de unieke tokens uit het issue (error-code string, symboolnaam,
-   testnaam) om direct naar de implementatie, de callers en de aangrenzende
-   tests te springen — lees die, niet de hele module.
-4. Lees AGENTS.md alleen langs het pad van de bestanden die daadwerkelijk
-   aangeraakt worden, niet de hele boom vooraf.
-5. Ga alleen breder zoeken als de ankers verouderd blijken te zijn.
+1. Fetch the issue first: `gh issue view <n>` (body, labels, comments, linked
+   PRs), plus roadmap context via `python3 ~/.vibe/next_issue.py`.
+2. Do one cheap orientation: a single top-level listing of the repo and the
+   core directories, instead of reading many files to get "the shape".
+3. Grep for the unique tokens from the issue (error-code string, symbol name,
+   test name) to jump straight to the implementation, its callers and the
+   adjacent tests — read those, not the whole module.
+4. Read AGENTS.md only along the path of the files actually touched, not the
+   whole tree up front.
+5. Only go broader when the anchors turn out to be stale.
 
-## PR-review workflow
+## PR review workflow
 
-Bij het reviewen van PR's en het verwerken van reviewcommentaren:
+When reviewing PRs and handling review comments:
 
-- Geef reviewopmerkingen waar mogelijk als inline commentaren op specifieke
-  regels (REST `POST /repos/RonaldHensbergen/composable-data-stack/pulls/<n>/reviews`
-  met `comments[]`: `path` + `line`; `commit_id` moet de volledige SHA zijn),
-  niet alleen als reviewbody.
-- Wanneer een reviewcommentaar is verwerkt (fix gepusht) en beantwoord: sluit
-  dan ook de thread af. Volgorde: `addPullRequestReviewThreadReply`-mutatie met
-  verwijzing naar de fix-commit, daarna `resolveReviewThread`-mutatie met de
-  thread-ID uit `pullRequest.reviewThreads`.
-- `gh api graphql` accepteert géén `--repo`/`-R` flag — noem owner/name in de
-  query zelf (draai vanuit de repo-dir). Let op de input-veldnamen:
-  `addPullRequestReviewThreadReply` vraagt `pullRequestReviewThreadId` (géén
-  `threadId`), `resolveReviewThread` vraagt wél `threadId`.
-- Wanneer je er zeker van bent dat er voor de PR geen losse eindjes meer zijn
-  (codekwaliteit) of hiaten openstaan, vermeld dat dan expliciet en helder in
-  het (review)commentaar — bijvoorbeeld "geen openstaande punten meer; PR is
-  naar mijn oordeel merge-klaar" — in plaats van dat stilzwijgend aan te nemen.
-- Commits altijd afsluiten met:
+- Give review comments as inline comments on specific lines where possible
+  (REST `POST /repos/RonaldHensbergen/composable-data-stack/pulls/<n>/reviews`
+  with `comments[]`: `path` + `line`; `commit_id` must be the full SHA), not
+  only as a review body.
+- When a review comment has been handled (fix pushed) and answered: close the
+  thread as well. Order: `addPullRequestReviewThreadReply` mutation referencing
+  the fix commit, then `resolveReviewThread` mutation with the thread ID from
+  `pullRequest.reviewThreads`.
+- `gh api graphql` accepts no `--repo`/`-R` flag — put owner/name in the query
+  itself (run from the repo dir). Mind the input field names:
+  `addPullRequestReviewThreadReply` wants `pullRequestReviewThreadId` (not
+  `threadId`), while `resolveReviewThread` wants `threadId`.
+- When you are sure no loose ends (code quality) or gaps remain for the PR,
+  state that explicitly and clearly in the (review) comment — e.g. "no open
+  points left; in my judgment the PR is merge-ready" — instead of implicitly
+  assuming it.
+- Always end commits with:
 
   ```
   Generated by Mistral Vibe.
   Co-Authored-By: Mistral Vibe <vibe@mistral.ai>
   ```
 
-## Self-review wanneer contributor == reviewer
+## Self-review when contributor == reviewer
 
-Wanneer een PR door de agent zelf is gebouwd én gereviewd, in één keer
-volledig afhandelen:
+When a PR is both built and reviewed by the agent itself, handle it fully in
+one go:
 
-- Review vanuit alle hoeken: functionele correctheid (render/plan/runtime, ook
-  "rendert groen maar faalt pas at runtime"-scenario's), security-posture,
-  testen (unit + e2e + golden hashes), documentatie, repo-conventies
-  (CHANGELOG `[Unreleased]`, E-/W-codes vrij van botsingen met `main` en open
-  PR's — check met een verse fetch, README troubleshooting-tabel) en de
-  volledige CI incl. SonarCloud.
-- Deel de review in de PR: inline (regel-niveau) comments waar mogelijk plus
-  een gestructureerde review-body met expliciete blocking/major/minor-
-  markeringen.
-- Los alle gevonden issues in één keer op: fixes implementeren, pushen naar de
-  PR-branch, elke review-thread replyen én resolven, CHANGELOG en docs in sync.
-- Alles wat níet in scope van de PR is maar wel fixen/verbeteren waard is,
-  wordt als issue ingediend (juiste labels + effort-schatting +
-  milestone-overerving, zie hieronder) — niet alleen als noot in een
-  PR-comment. Na het indienen een korte PR-comment met de issue-verwijzingen
-  toevoegen voor traceerbaarheid.
-- "Kan deze PR gemerged worden?" is een kwaliteitsoordeel (tests, lint, CI,
-  review-substantie), nooit alleen GitHub's mergeable-status. Bij een
-  expliciete "admin merge"-opdracht eerst dat oordeel uitspreken.
+- Review from all angles: functional correctness (render/plan/runtime, also
+  "renders green but only fails at runtime" scenarios), security posture,
+  tests (unit + e2e + golden hashes), documentation, repo conventions
+  (CHANGELOG `[Unreleased]`, E-/W codes free of collisions with `main` and open
+  PRs — check with a fresh fetch, README troubleshooting table) and the full CI
+  incl. SonarCloud.
+- Share the review in the PR: inline (line-level) comments where possible plus a
+  structured review body with explicit blocking/major/minor markings.
+- Resolve all found issues in one go: implement the fixes, push to the PR
+  branch, reply to and resolve every review thread, keep CHANGELOG and docs in
+  sync.
+- Anything out of scope for the PR but worth fixing or improving is filed as an
+  issue (right labels + effort estimate + milestone inheritance, see below) —
+  not only as a note in a PR comment. After filing, add a short PR comment with
+  the issue references for traceability.
+- "Can this PR be merged?" is a quality judgment (tests, lint, CI, review
+  substance), never just GitHub's mergeable status. On an explicit
+  "admin merge" command, state that judgment first.
 
-## Standaard-workflow bij "implementeer issue #N"
+## Standard workflow for "implement issue #N"
 
-Tenzij anders aangegeven, handel ik een issue in één keer af volgens
-onderstaande loop. Pauzeer alleen bij merge/admin-acties of andere
-blast-radius-acties, of wanneer de opdracht ondubbelzinnig anders bedoeld is:
+Unless stated otherwise, an issue is handled end-to-end in one go following the
+loop below. Pause only on merge/admin actions or other blast-radius actions, or
+when the request is unambiguously meant differently:
 
-1. Self-assign het issue vóórdat je begint — de commands hiervoor staan in het
-   gitignored `AGENTS.local.md` in de repo-root (zie `.gitignore`); de
-   skip-criteria bij "het volgende issue" zien het issue dan als bezet.
-2. Werk in een throwaway worktree onder /tmp
-   (`git worktree add /tmp/<branche>-wt <branche>`); de hoofd-checkout blijft
-   schoon. Commits en pushes naar de PR-branch mogen vanuit de worktree.
-3. Tak vanaf `main` een PR-branch en open direct een PR met house-style labels.
-   Cross-link de PR met het issue — zie "PR ↔ issue cross-linking" hieronder.
-4. Implementeer via de issue-bootstrap hierboven; houd CHANGELOG
-   `[Unreleased]` en docs actueel.
-5. Draai unit + relevante e2e/golden-tests; bij falen: fix en opnieuw draaien.
-6. Push naar de PR-branch, poll CI tot groen, fix failures en push opnieuw.
-7. Self-review volgens "PR-review workflow" hierboven: inline comments plus
-   gestructureerde review-body, alles in één keer oplossen, threads
-   replyen/resolven.
-8. Rapporteer expliciet of de PR merge-klaar is (of wat er nog blokkeert);
-   merge zelf alleen op expliciete opdracht.
+1. Self-assign the issue before starting — the commands for this live in the
+   gitignored `AGENTS.local.md` in the repo root (see `.gitignore`); the skip
+   criteria for "the next issue" then see the issue as taken.
+2. Work in a throwaway worktree under /tmp
+   (`git worktree add /tmp/<branch>-wt <branch>`); the main checkout stays
+   clean. Commits and pushes to the PR branch may happen from the worktree.
+3. Branch from `main` and open a PR right away with house-style labels.
+   Cross-link the PR with the issue — see "PR ↔ issue cross-linking" below.
+4. Implement via the issue bootstrap above; keep CHANGELOG `[Unreleased]` and
+   docs up to date.
+5. Run unit + relevant e2e/golden tests; on failure: fix and re-run.
+6. Push to the PR branch, poll CI until green, fix failures and push again.
+7. Self-review per "PR review workflow" above: inline comments plus structured
+   review body, resolve everything in one go, reply/resolve threads.
+8. Report explicitly whether the PR is merge-ready (or what still blocks it);
+   only merge on explicit instruction.
 
-Bij meerdere issues achter elkaar in één sessie ("doe de volgende 3"):
-hergebruik de repo-context, maar start elk issue wel met de issue-bootstrap.
+When doing several issues in a row in one session ("do the next 3"): reuse the
+repo context, but start each issue with the issue bootstrap.
 
-## PR ↔ issue cross-linking (verplicht bij het aanmaken van een PR vanuit een issue)
+## PR ↔ issue cross-linking (required when opening a PR from an issue)
 
-Altijd in twee richtingen:
+Always in both directions:
 
-- De PR-body bevat `Closes #<n>` — GitHub linkt het issue dan automatisch en
-  sluit het bij merge.
-- Direct na het aanmaken van de PR een comment op het issue plaatsen met het
-  PR-nummer, bv. `gh issue comment <n> --body "Linked PR: #<m> (<titel>)"` —
-  zo is de PR al zichtbaar op het issue vóór merge.
-- Let op: `~/.vibe/start_pr.sh` opent de PR met body `Implements #<n>` — zet
-  de body op `Closes #<n>` (amend via `gh pr edit <m> --body ...` of pas het
-  script aan), anders sluit GitHub het issue niet automatisch bij merge.
+- The PR body contains `Closes #<n>` — GitHub then links the issue
+  automatically and closes it on merge.
+- Right after creating the PR, post a comment on the issue with the PR number,
+  e.g. `gh issue comment <n> --body "Linked PR: #<m> (<title>)"` — so the PR is
+  already visible on the issue before merge.
+- Note: `~/.vibe/start_pr.sh` opens the PR with body `Implements #<n>` — change
+  the body to `Closes #<n>` (amend via `gh pr edit <m> --body ...` or adjust the
+  script), otherwise GitHub will not close the issue automatically on merge.
 
-## Milestone-overerving bij loose ends
+## Milestone inheritance for loose ends
 
-Wanneer een nieuw issue wordt aangemaakt naar aanleiding van een loose end van
-een issue met een GitHub-milestone, krijgt het nieuwe issue diezelfde
-milestone: `gh issue edit <n> --milestone "<milestone-titel>"`.
+When a new issue is filed because of a loose end of an issue that has a GitHub
+milestone, the new issue gets the same milestone:
+`gh issue edit <n> --milestone "<milestone-title>"`.
 
-## Promotie-precedent: modules-experimental → modules (#594)
+## Promotion precedent: modules-experimental → modules (#594)
 
-Bij promotie-issues volg het dbt-precedent (#594): sluit eerst de gaps in
-documentatie, tests en profile-wiring, verplaats daarna de module van
-`modules-experimental/...` naar `modules/...`, drop de `(experimental)`
-markers en zet `productionSuitable: true`; werk `docs/architecture.md`,
-`docs/roadmap.md` en `CHANGELOG.md` bij. `make check` moet passen.
+For promotion issues, follow the dbt precedent (#594): first close the gaps in
+documentation, tests and profile wiring, then move the module from
+`modules-experimental/...` to `modules/...`, drop the `(experimental)` markers
+and set `productionSuitable: true`; update `docs/architecture.md`,
+`docs/roadmap.md` and `CHANGELOG.md`. `make check` must pass.
 
-## Kwaliteitsafspraken vastleggen in deze AGENTS.md
+## Recording quality agreements in this AGENTS.md
 
-Comments, reviewbevindingen en afspraken die de repo-kwaliteit structureel
-verbeteren (zoals de cross-linking hierboven) worden in dit repo-AGENTS.md
-vastgelegd — niet alleen in een PR-comment, review-thread of sessie. Dit
-bestand is getrackt in git. Lokale workflows die níet gecommit mogen worden
-(bijv. de self-assign-stap) horen in `AGENTS.local.md` in de repo-root — die
-staat in `.gitignore`.
+Comments, review findings and agreements that structurally improve repo quality
+(like the cross-linking above) are recorded in this AGENTS.md — not only in a
+PR comment, review thread or session. This file is tracked in git. Local
+workflows that must not be committed (e.g. the self-assign step) belong in
+`AGENTS.local.md` in the repo root — that file is in `.gitignore`.
 
-## Helper-scripts in ~/.vibe (één actie per repetitieve multi-step)
+## Helper scripts in ~/.vibe (one action per repetitive multi-step)
 
-- `python3 ~/.vibe/next_issue.py [--all|--json|--skip-first N]` — het
-  volgende issue volgens bovenstaande regels.
-- `python3 ~/.vibe/issue_context.py <n> [--json]` — issue-bootstrap in één
+- `python3 ~/.vibe/next_issue.py [--all|--json|--skip-first N]` — the next
+  issue according to the rules above.
+- `python3 ~/.vibe/issue_context.py <n> [--json]` — issue bootstrap in one
   call: body, labels, milestone, assignees, linked PRs, sub-issues, comments,
   roadmap order/status.
 - `~/.vibe/start_pr.sh <n> <type> <slug> [label ...]` — throwaway worktree +
-  branch `<type>/<n>-<slug>` vanaf main + push + PR openen in één actie; werk
-  daarna in `/tmp/<branch-met-dashes>-wt`.
-- `~/.vibe/ci_status.sh <branch|pr-nr>` — compacte CI-status (runs of PR checks).
-- `~/.vibe/pr_threads.sh <pr>` — overzicht van review-threads (id, state, locatie).
-- `~/.vibe/pr_thread_reply.sh <pr> <thread-id> <body>` — reply + resolve in één call.
-- `python3 ~/.vibe/refresh_issue_pr_map.py` — issue ↔ open-PR
-  cross-referentiemap; output in `~/.vibe/issue_pr_map.md` / `.json`.
-- `~/.vibe/vibe_commit.sh "<msg>" [paths...]` — commit met de verplichte
-  Mistral Vibe-footer.
+  branch `<type>/<n>-<slug>` from main + push + open PR in one action; then work
+  in `/tmp/<branch-with-dashes>-wt`.
+- `~/.vibe/ci_status.sh <branch|pr-nr>` — compact CI status (runs or PR checks).
+- `~/.vibe/pr_threads.sh <pr>` — overview of review threads (id, state, location).
+- `~/.vibe/pr_thread_reply.sh <pr> <thread-id> <body>` — reply + resolve in one call.
+- `python3 ~/.vibe/refresh_issue_pr_map.py` — issue ↔ open-PR cross-reference
+  map; output in `~/.vibe/issue_pr_map.md` / `.json`.
+- `~/.vibe/vibe_commit.sh "<msg>" [paths...]` — commit with the required
+  Mistral Vibe footer.
 
-Zie je tijdens het werk repetitieve multi-step taken die in één script kunnen?
-Meld dat expliciet aan Ronald — bij herhaling wordt het een helper in
-`~/.vibe` zoals bovenstaande.
-
+When you notice repetitive multi-step tasks during work that could fit into one
+script, mention it explicitly to Ronald — on repetition it becomes a helper in
+`~/.vibe` like the ones above.
