@@ -522,7 +522,7 @@ spec:
         dagster-webserver:
           image: local/dagster:custom
           ports:
-            - "${config.webPort}:3000"
+            - "127.0.0.1:${config.webPort}:3000"
           depends_on:
             user-code:
               condition: service_healthy

@@ -12,6 +12,7 @@ The format is based on Keep a Changelog.
 
 ### Fixed
 
+- The superset and dagster modules' Compose host publishes are now bound to `127.0.0.1` (`127.0.0.1:${config.webPort}:8088` and `127.0.0.1:${config.webPort}:3000`) like every other module, instead of publishing the admin UIs on all host interfaces in learning/dev profiles (issue #1244). This matches the `docs/modules.md` convention ("bound to `127.0.0.1` unless the profile requires otherwise") and the `CDS-SEC-020`/`CDS-SEC-022` loopback guidance; production profiles were already unaffected because the production gate clears these publishes (CDS-SEC-074, #981). Module READMEs, the `docs/from-docker-to-cds-profile.md` example, and tests (`tests/test_renderer.py`, `tests/test_team_profile.py`) updated.
 - Helm renderer now re-checks `implementation.kubernetes.workloads.<name>.waitFor`
   entry shapes at render time and fails closed with `E162` naming the entry
   path (non-list block, non-mapping entry, missing/non-string `host`, missing

@@ -498,7 +498,7 @@ spec:
             - -w
             - workspace.yaml
           ports:
-            - "${config.webPort}:3000"
+            - "127.0.0.1:${config.webPort}:3000"
           volumes:
             - dagster-io-manager-storage:/tmp/io_manager_storage
             - type: volume

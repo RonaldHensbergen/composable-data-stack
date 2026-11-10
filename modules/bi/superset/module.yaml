@@ -363,7 +363,7 @@ spec:
               target: /app/pythonpath/superset_config.py
               read_only: true
           ports:
-            - "${config.webPort}:8088"
+            - "127.0.0.1:${config.webPort}:8088"
           depends_on:
             superset-init:
               condition: service_completed_successfully
