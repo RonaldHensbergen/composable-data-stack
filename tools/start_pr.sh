@@ -39,6 +39,19 @@ case "$confirm" in
   y|Y|yes|YES) ;;
   *) echo "Aborted."; exit 1 ;;
 esac
+if [[ ! -t 0 || ! -t 1 ]]; then
+  echo "Refusing remote side effects without an interactive TTY."
+  exit 1
+fi
+expected_approval="$branch"
+if [[ -z "${START_PR_APPROVAL:-}" ]]; then
+  echo "Refusing remote side effects: set START_PR_APPROVAL to '$expected_approval'."
+  exit 1
+fi
+if [[ "$START_PR_APPROVAL" != "$expected_approval" ]]; then
+  echo "Refusing remote side effects: START_PR_APPROVAL mismatch."
+  exit 1
+fi
 git push -u origin "$branch" --quiet
 args=(--repo "$REPO" --base main --head "$branch" --title "$branch" --body "Closes #$n.")
 for label in "${labels[@]}"; do args+=(--label "$label"); done

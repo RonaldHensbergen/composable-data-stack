@@ -381,7 +381,11 @@ def main() -> int:
             f"[#{p['pr']}]({p['url']}) ({', '.join(p['link_types'])})"
             for p in iss["open_prs"]
         )
-        issue_title = sanitize_untrusted_text(iss.get("title", ""))
+        issue_title = (
+            sanitize_untrusted_text(iss.get("title", ""))
+            if INCLUDE_UNTRUSTED_TEXT
+            else "(redacted; set VIBE_INCLUDE_TITLES=1)"
+        )
         lines.append(f"| [{n}]({iss['url']}) | {iss['state']} | {issue_title} | {prs_str} |")
     if not any_linked:
         lines.append("| — | — | — | no open PR linked to any issue |")
