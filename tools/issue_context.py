@@ -109,8 +109,22 @@ def main() -> int:
         pass
 
     if args.json:
+        issue_for_output = dict(issue)
+        if args.include_untrusted:
+            issue_for_output["body"] = sanitize_untrusted_text(issue.get("body", ""))
+            issue_for_output["comments"] = [
+                {
+                    **c,
+                    "body": sanitize_untrusted_text((c or {}).get("body", "")),
+                }
+                for c in issue.get("comments", [])
+            ]
+        else:
+            issue_for_output["body"] = "[redacted; pass --include-untrusted to include sanitized text]"
+            issue_for_output["comments"] = []
+
         print(json.dumps({
-            "issue": issue, "order": order, "project_status": status,
+            "issue": issue_for_output, "order": order, "project_status": status,
             "linked_prs": linked_prs, "sub_issues": sub_issues,
         }, indent=2))
         return 0
