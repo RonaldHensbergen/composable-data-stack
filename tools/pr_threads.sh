@@ -29,7 +29,7 @@ fi
 # Only request untrusted comment bodies when explicitly asked for
 # (--include-bodies); the default query does not fetch them at all.
 if [[ "$include_bodies" == "1" ]]; then
-  query='query($pr:Int!){ repository(owner:"RonaldHensbergen", name:"composable-data-stack"){ pullRequest(number:$pr){ number title reviewThreads(first:100){ nodes { id isResolved path line comments(first:3){ nodes { body author{login} } } } } } }'
+  query='query($pr:Int!){ repository(owner:"RonaldHensbergen", name:"composable-data-stack"){ pullRequest(number:$pr){ number title reviewThreads(first:100){ nodes { id isResolved path line comments(first:3){ nodes { body author{login} } } } } } } }'
 else
   query='query($pr:Int!){ repository(owner:"RonaldHensbergen", name:"composable-data-stack"){ pullRequest(number:$pr){ number title reviewThreads(first:100){ nodes { id isResolved path line } } } } }'
 fi
