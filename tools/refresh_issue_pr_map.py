@@ -21,7 +21,6 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]")
 
 
