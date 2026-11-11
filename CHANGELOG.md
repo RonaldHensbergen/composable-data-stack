@@ -9,6 +9,7 @@ The format is based on Keep a Changelog.
 ### Fixed
 
 - `python3 -m pytest tests/` is hermetic w.r.t. the installed mutmut again (issue #1240): the two torn-`mutants/*.meta` tests in `tests/test_mutation_tests_workflow.py::ExportStepFunctionalTest` now probe the installed mutmut and skip with a clear message (`requires mutmut with the torn-.meta fix (boxed/mutmut#630) ... or uninstall mutmut`) when it lacks the #630 fix — e.g. a PyPI mutmut 3.8.1 on a dev machine — instead of crashing with `json.decoder.JSONDecodeError` on an otherwise green `main`. The no-mutmut stub path (as in CI, where mutmut is in no dependency extra) and the pinned-commit path used by `make test-mutation` are unchanged.
+- The README troubleshooting table renders as one table again (issue #1247): a blank line had split the rows from E130 onward out of the markdown table into plain text on GitHub, and merging them back exposed two malformed cells — the W134 row's literal pipes inside the code span (now escaped as `\|`) and the E135 row's missing space before its closing pipe — so `make lint-markdown` stays green.
 
 ### Added
 
