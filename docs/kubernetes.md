@@ -275,6 +275,8 @@ guess at semantics that differ between runtimes.
 | Local `build:` | Build first, then import into k3d; with `config.image.source: registry` the published image reference is rendered instead (no `imagePullPolicy: Never`) and the cluster pulls it itself |
 | Single-file host bind (`fromBind`) | ConfigMap projected at the bind target via `subPath`, read-only |
 | Directory host bind | `emptyDir` (host content is not carried over) |
+| Generated file-provider directory (`fromRoutes`) | ConfigMap mounted whole at the bind target (`directory`), content generated from the plan's `config.routes` (#1132) |
+| Certificate bind (`./certs/<module>`) | Secret projection via `certificateMounts`: each `spec.certificates` alias renders as `<alias>.crt`/`<alias>.key` from its `certEnv`/`keyEnv` keys (#1132) |
 
 Dagster's Compose-only Unix socket does not cross Pod boundaries. The
 Kubernetes implementation uses Dagster gRPC over a ClusterIP Service, as
@@ -295,6 +297,43 @@ container also gets `CDS_SAMPLE_DATA_ENABLED=true` and
 (idempotent: exactly 1,000 rows in `offers_1000` after every run). When the
 parameter is absent or `false`, neither the ConfigMap nor its mounts are
 rendered and behavior is unchanged.
+
+### Reverse proxies on the Helm target
+
+The traefik module ships a Kubernetes implementation (issue #1132), so a
+profile with `config.routes` renders `--target helm` without E072. The
+module's `implementation.kubernetes` block declares:
+
+- A Deployment (translated from the Compose fragment: image, env, hardening,
+  probes, tmpfs) plus a Service of type `config.kubernetesService.type`
+  (`NodePort` by default, `LoadBalancer` where a cluster load balancer
+  exists) exposing one port per declared `config.entryPoints` entry — the
+  Service port and `targetPort` are the entrypoint's listen address, so a
+  profile moving `web` to `:8080` gets 8080 throughout. The dashboard (port
+  8080) is not exposed through the Service; use `kubectl port-forward`.
+- The file-provider directory as a ConfigMap (`fromRoutes` + `directory`),
+  mounted whole at `config.fileProvider.directory`. Its content is the same
+  route document the Compose target writes as `traefik/dynamic/cds-routes-<id>.yml`,
+  generated with the same resolution/validation as
+  `_generate_reverse_proxy_routes` — but each backend is dialed by the
+  release-scoped DNS name of the target's rendered Kubernetes Service, and a
+  backend no rendered Service answers fails closed with E150. A proxy
+  without routes gets no ConfigMap; the directory falls back to an empty
+  `emptyDir`.
+- The `./certs/traefik` bind as a projection of the chart Secret
+  (`certificateMounts`): every alias of the plan's `spec.certificates` renders
+  as `<alias>.crt`/`<alias>.key` from its `certEnv`/`keyEnv` keys, supplied at
+  install time like any other secret — no certificate material enters the
+  chart.
+
+The generated NetworkPolicy then needs no passthrough rules: ingress is open
+on exactly the entry-point ports (the NodePort/LoadBalancer surface rule), and
+egress to each route target is the port-scoped edge derived from
+`config.routes` (issue #1033), matched by an ingress edge on the target. A
+host with no route is not reachable through the proxy: no edge, no router.
+Port declarations on workloads are re-checked at render time (E164; listen
+addresses like `:80` parse to their port), and a malformed
+`certificateMounts` entry fails closed with E165.
 
 ## Network isolation and least privilege
 

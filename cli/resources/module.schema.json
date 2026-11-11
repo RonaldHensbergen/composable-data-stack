@@ -320,6 +320,13 @@
           },
           "description": "Bind-mounted files promoted to ConfigMaps, keyed by the compose bind source path."
         },
+        "certificateMounts": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/kubernetesCertificateMount"
+          },
+          "description": "Compose binds that carry the profile's spec.certificates material become projections of the chart Secret on Kubernetes (issue #1132): each alias renders as <alias>.crt/<alias>.key files from the alias's certEnv/keyEnv secret keys, supplied at install time -- no certificate material enters the chart."
+        },
         "serviceAccount": {
           "$ref": "#/$defs/kubernetesServiceAccount"
         },
@@ -905,6 +912,41 @@
           "type": "string",
           "minLength": 1,
           "description": "Optional config path expression gating the ConfigMap (e.g. \"config.sampleData.enabled\"); when it resolves to False the ConfigMap is not rendered and its matching compose bind mounts are skipped on the Kubernetes target. Stripped from the rendered output."
+        },
+        "directory": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mount the whole ConfigMap as a directory at mountPath (every key lands as a file, no subPath) instead of projecting the single `key` as one file. Used for generated file-provider directories (issue #1132)."
+        },
+        "fromRoutes": {
+          "type": "boolean",
+          "default": false,
+          "description": "Generate the ConfigMap content from the plan's reverse-proxy `config.routes` for this module (issue #1132) instead of a static file: the single `key`'s value is the generated cds-routes-<instance-id>.yml file-provider document, resolved with the same validation as the Compose target plus the E150 host cross-check against the rendered Kubernetes Services. Only meaningful for modules providing a reverse-proxy contract; a proxy without routes gets no ConfigMap and its bind mounts fall back to an empty directory."
+        }
+      }
+    },
+    "kubernetesCertificateMount": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A compose bind that carries certificate material (e.g. ./certs/<module>) is projected from the chart Secret on Kubernetes: each alias of the plan's spec.certificates renders as <alias>.crt (certEnv key) and <alias>.key (keyEnv key) at the mount path (issue #1132).",
+      "properties": {
+        "fromBind": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Compose bind source path this mount replaces (e.g. \"./certs/traefik\")."
+        },
+        "mountPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path the certificates are projected to. Defaults to the compose bind target when omitted."
+        },
+        "containers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Containers that mount this path. Defaults to every container in the module."
         }
       }
     },
