@@ -13,6 +13,11 @@ tid=${2:?missing thread-id}
 body=${3:?missing reply-body}
 
 if [[ "${assume_yes}" -eq 1 ]]; then
+  if [[ "${PR_THREAD_REPLY_ALLOW:-}" != "1" ]]; then
+    echo "error: --yes requires explicit allow flag." >&2
+    echo "set PR_THREAD_REPLY_ALLOW=1 to permit non-interactive execution" >&2
+    exit 1
+  fi
   expected_confirm="pr:${pr}|tid:${tid}|body:${body}"
   if [[ "${PR_THREAD_REPLY_CONFIRM:-}" != "${expected_confirm}" ]]; then
     echo "error: --yes requires action-bound confirmation." >&2

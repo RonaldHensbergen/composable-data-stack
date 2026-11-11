@@ -1,15 +1,49 @@
 #!/usr/bin/env bash
-# pr_threads.sh <pr-number> — compact list of review threads (id, state, location, first comment).
+# pr_threads.sh <pr-number> [--include-bodies] — compact list of review threads (id, state, location, optional first comment).
 set -euo pipefail
-pr=${1:?usage: pr_threads.sh <pr-number>}
+
+include_bodies=0
+if [[ $# -lt 1 ]]; then
+  echo "usage: pr_threads.sh <pr-number> [--include-bodies]" >&2
+  exit 1
+fi
+
+pr="$1"
+shift
+
+if [[ $# -gt 0 ]]; then
+  if [[ "$1" == "--include-bodies" ]]; then
+    include_bodies=1
+    shift
+  else
+    echo "usage: pr_threads.sh <pr-number> [--include-bodies]" >&2
+    exit 1
+  fi
+fi
+
+if [[ $# -gt 0 ]]; then
+  echo "usage: pr_threads.sh <pr-number> [--include-bodies]" >&2
+  exit 1
+fi
+
 gh api graphql -f query='query($pr:Int!){ repository(owner:"RonaldHensbergen", name:"composable-data-stack"){ pullRequest(number:$pr){ number title reviewThreads(first:100){ nodes { id isResolved path line comments(first:3){ nodes { body author{login} } } } } } } }' -F pr="$pr" \
-| python3 -c "import json,sys
+| INCLUDE_BODIES="$include_bodies" python3 -c "import json,sys,os,re
+def sanitize(text):
+    text=re.sub(r'[\x00-\x1f\x7f]', ' ', text)
+    text=' '.join(text.split())
+    return text[:120]
+
+include_bodies=os.environ.get('INCLUDE_BODIES') == '1'
 d=json.load(sys.stdin)['data']['repository']['pullRequest']
 print(f\"PR #{d['number']}: {d['title']}\")
 ts=d['reviewThreads']['nodes']
 print(f'{len(ts)} threads')
 for t in ts:
     cs=t['comments']['nodes']
-    first=' '.join(cs[0]['body'].split())[:120] if cs else ''
     who=cs[0]['author']['login'] if cs and cs[0].get('author') else '?'
-    print(f\"- {'RESOLVED' if t['isResolved'] else 'OPEN    '} {t['id']} {t.get('path')}:{t.get('line')} @{who}: {first}\")"
+    base=f\"- {'RESOLVED' if t['isResolved'] else 'OPEN    '} {t['id']} {t.get('path')}:{t.get('line')} @{who}\"
+    if include_bodies:
+        first=sanitize(cs[0]['body']) if cs else ''
+        print(f\"{base}: {first}\")
+    else:
+        print(base)"
