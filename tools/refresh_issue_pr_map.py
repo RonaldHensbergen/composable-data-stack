@@ -296,7 +296,8 @@ def main() -> int:
             f"[#{p['pr']}]({p['url']}) ({', '.join(p['link_types'])})"
             for p in iss["open_prs"]
         )
-        lines.append(f"| [{n}]({iss['url']}) | {iss['state']} | {iss['title']} | {prs_str} |")
+        issue_title = sanitize_untrusted_text(iss.get("title", ""))
+        lines.append(f"| [{n}]({iss['url']}) | {iss['state']} | {issue_title} | {prs_str} |")
     if not any_linked:
         lines.append("| — | — | — | no open PR linked to any issue |")
     lines += [
