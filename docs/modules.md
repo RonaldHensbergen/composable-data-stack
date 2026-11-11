@@ -132,7 +132,7 @@ When authoring `spec.implementation.compose`:
 - include health checks where practical, guarded with `enabledFrom` if optional
 - attach services to the shared profile network
 - expose only the ports needed for local use, bound to `127.0.0.1` unless the profile requires otherwise
-- keep the two port roles apart (issue #1067): a provided contract's `port` (and `connectionUri`/endpoint port) is the **in-network port** — the container port on the Compose network, which on Kubernetes the Service port is rendered equal to — because consumers dial `${bindings.<contract>.host}:${bindings.<contract>.port}` inside the network. The `127.0.0.1:${config.port}:<containerPort>` host publish is a separate, host-side-only config knob and must never be advertised on a contract
+- keep the two port roles apart (issue #1067): a provided contract's `port` (and `connectionUri`/endpoint port) is the **in-network port** — the container port on the Compose network, which on Kubernetes the Service port is rendered equal to — because consumers dial `${bindings.<contract>.host}:${bindings.<contract>.port}` inside the network. The `127.0.0.1:${config.port}:<containerPort>` host publish is a separate, host-side-only config knob and must never be advertised on a contract. At render time the advertised port is cross-checked against the serving service's declared container ports (`runtime.service.ports[].containerPort` / compose container port / Service targetPort) and fails closed with `E164` on a mismatch (issue #1245)
 - use named volumes for persistent state where appropriate
 
 Prefer:
@@ -367,6 +367,16 @@ produces for the module (workloads with a `service` block, plus the
 governing Service of every StatefulSet), so a provided contract whose
 host matches no rendered Service also fails with `E150` there
 (issue #1035).
+
+The port dimension gets the same fail-closed treatment (issue #1245): when
+a provided contract's advertised host is a service the render produced, its
+numeric `port` — and, for the sink kinds, the port embedded in
+`connectionUri` (and for `object-storage`, in `endpoint`) — must equal one
+of that service's declared container ports (`runtime.service.ports[].containerPort`
+or the compose service's container port on the compose target; the Service's
+`port`/`targetPort` on the `helm` target). Advertising e.g. the host-published
+loopback port instead of the in-network container port renders green but
+refuses connections at runtime, so the mismatch fails with `E164`.
 
 A route's optional `certificate` names a profile certificate alias
 (`spec.certificates.values`, issue #578). The alias is only a name: CDS

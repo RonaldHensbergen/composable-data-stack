@@ -20,7 +20,10 @@ spec:
         S3 API endpoint URL, including scheme and port. The port is the
         in-network port of the storage service (container port on Compose,
         Service port on Kubernetes), not the localhost host-published port
-        (issue #1067).
+        (issue #1067). Render-time cross-check (issue #1245): when the
+        endpoint's host is a service the render produced, this port must
+        equal one of that service's declared container ports, else the render
+        fails closed with E164.
     bucket:
       type: string
       required: true
