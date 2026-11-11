@@ -1,3 +1,3 @@
 # Claude Instructions
 
-@AGENT.md
+@AGENTS.md

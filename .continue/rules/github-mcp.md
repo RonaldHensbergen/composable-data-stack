@@ -41,7 +41,7 @@ alwaysApply: true
   substance), not GitHub's mergeable status.
 - Use new GitHub Projects (`gh project`), never classic Projects.
 - Follow Conventional Commits for commit/PR titles and keep `CHANGELOG.md`
-  `[Unreleased]` in sync (see AGENT.md).
+  `[Unreleased]` in sync (see AGENTS.md).
 - Prefer the GitHub MCP for reads/writes on GitHub; fall back to the `gh` CLI
   for Projects and GraphQL (e.g. `resolveReviewThread`).
 - Never print or commit tokens. The token comes from the Continue secret

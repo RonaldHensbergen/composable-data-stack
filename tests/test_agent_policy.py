@@ -27,7 +27,7 @@ class AgentPolicyTest(unittest.TestCase):
             check_agent_policy.protected_hit(".github/workflows/ci.yml"),
         )
         self.assertEqual("certs/", check_agent_policy.protected_hit("certs/ca.crt"))
-        self.assertEqual("AGENT.md", check_agent_policy.protected_hit("AGENT.md"))
+        self.assertEqual("AGENTS.md", check_agent_policy.protected_hit("AGENTS.md"))
         self.assertIsNone(check_agent_policy.protected_hit("cli/main.py"))
         self.assertIsNone(check_agent_policy.protected_hit("docs/architecture.md"))
         # near-misses must not match

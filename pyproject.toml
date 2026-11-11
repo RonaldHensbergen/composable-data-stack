@@ -151,7 +151,7 @@ also_copy = [
   "tools/",
   "traefik/",
   "workdirs/",
-  "AGENT.md",
+  "AGENTS.md",
   "CHANGELOG.md",
   "CONTRIBUTING.md",
   "Makefile",

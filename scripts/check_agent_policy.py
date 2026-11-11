@@ -43,7 +43,7 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "scripts/redact_secrets.py",
     "renovate.json",
     "sonar-project.properties",
-    "AGENT.md",
+    "AGENTS.md",
     "docs/maintainer-merge-policy.md",
     "docs/security-rules.md",
 )
@@ -127,7 +127,7 @@ def check(base: str, head: str, labels: list[str]) -> list[str]:
         errors.append(
             f"agent-authored commits touch protected path(s): {', '.join(hits)}. "
             f"Add the `{APPROVAL_LABEL}` label to this PR (human approval) or revert "
-            f"those changes. See AGENT.md 'Agent approval policy'."
+            f"those changes. See AGENTS.md 'Agent approval policy'."
         )
     return errors
 

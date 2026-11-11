@@ -124,6 +124,10 @@ def run_shell_script(
             text=True,
             timeout=max(timeout, 20),
         )
+    # Git for Windows' sh.exe can take several seconds to cold-start on a
+    # loaded runner (same rationale as the WSL tier above); absorb that.
+    if sys.platform.startswith("win"):
+        timeout = max(timeout, 20)
     return subprocess.run(
         [*shell, *flags, "-c", script],
         env=env,
@@ -456,8 +460,18 @@ class WslShellTierTest(unittest.TestCase):
         self.assertEqual(run.call_args.args[0], ["/usr/bin/sh", "-eu", "-c", "echo hi"])
         kwargs = run.call_args.kwargs
         self.assertEqual(kwargs["env"], {"A": "b"})
-        self.assertEqual(kwargs["timeout"], 5)
+        expected = 20 if sys.platform.startswith("win") else 5
+        self.assertEqual(kwargs["timeout"], expected)
         self.assertNotIn("input", kwargs)
+
+    def test_run_shell_script_native_mode_absorbs_windows_cold_start(self) -> None:
+        with mock.patch("subprocess.run") as run, mock.patch(
+            "sys.platform", "win32"
+        ):
+            run_shell_script(["sh"], "echo hi", {}, timeout=5)
+
+        run.assert_called_once()
+        self.assertEqual(run.call_args.kwargs["timeout"], 20)
 
 
 if __name__ == "__main__":
