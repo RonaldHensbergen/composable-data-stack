@@ -605,7 +605,7 @@ filed as an issue (last column).
 | Gate | Testing command run | Path (A/B) | Result (pass/fail/blocked) | Tested by | Date | Signed off by (name, date) | Evidence link | Issues filed |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 — Bootstrap | | | | | | | | |
-| 1 — Kubernetes MVP | | | | | | | | |
+| 1 — Kubernetes MVP | `cds up --target helm` (up only; `state`/`down` and e2e boundary checks still pending) | A | in progress — up: pass (release `local-kubernetes-example` rev 2 in ns `cds-local` on k3d cluster `cds`, 2026-11-11 21:08Z; all 6 pods 1/1; `PeerAuthentication local-kubernetes-example-mesh-mtls` STRICT applied after out-of-band Istio 1.30.8 install — first attempt failed closed E155 missing operator) | ronalddev (hetzner-dev) | 2026-11-11 | — | `hetzner-dev:~/cds-mvp/.cds/audit-log.jsonl` (2026-11-11T21:08:12Z success) + `.cds/logs/up-local-kubernetes-example-20261111T210358Z.log` | #1031, #1023 (blocking, open) |
 | 2 — Production-ready | | | | | | | | |
 | 3 — Haven parity | | | | | | | | |
 | 4 — Evidence and issues | | | | | | | | |
