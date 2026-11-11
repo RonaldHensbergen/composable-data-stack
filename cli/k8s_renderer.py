@@ -2079,9 +2079,31 @@ def _render_certificate_mounts(
     """
     out: dict[str, dict[str, Any]] = {}
     diagnostics: list[Diagnostic] = []
+    if not specs:
+        return out, diagnostics
     items: list[dict[str, str]] = []
     secret_keys: set[str] = set()
+    # The alias interpolates into the projected file paths (<alias>.crt), so
+    # it must stay within the same character class the route `certificate`
+    # refs allow; anything else (a plan file can bypass the profile schema)
+    # fails closed instead of rendering a path Kubernetes would reject.
+    cert_alias_re = re.compile(r"^[A-Za-z0-9-]+$")
     for alias in sorted(certificates):
+        if not cert_alias_re.match(str(alias)):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E165",
+                    message=(
+                        f'Certificate alias "{alias}" of module "{module_id}" is not a '
+                        "safe file-name stem (letters, digits, hyphens only); the "
+                        "alias interpolates into the projected <alias>.crt/<alias>.key "
+                        "paths (issue #1132)."
+                    ),
+                    path=f"module:{module_id}.implementation.kubernetes.certificateMounts",
+                )
+            )
+            continue
         entry = certificates[alias]
         if not isinstance(entry, dict):
             continue

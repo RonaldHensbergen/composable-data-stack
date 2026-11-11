@@ -568,6 +568,23 @@ class TraefikKubernetesPlanFileTest(unittest.TestCase):
         self.assertEqual(len(e136), 1)
         self.assertIn("unknown module", e136[0].message)
 
+    def test_unsafe_certificate_alias_fails_e165(self) -> None:
+        # The alias interpolates into the projected <alias>.crt path, so a
+        # plan file naming an alias outside [A-Za-z0-9-] fails closed instead
+        # of rendering a path Kubernetes would reject at install time.
+        plan = self._plan()
+        plan["certificates"] = {
+            "../evil": {"cert": "CDS_EVIL_CERT", "key": "CDS_EVIL_KEY"}
+        }
+        # E165 is raised in the module rendering pass, so like E074/E075 the
+        # files mapping is returned but the CLI exits non-zero and writes
+        # nothing to disk.
+        files, diagnostics = render_helm(plan)
+        e165 = [d for d in diagnostics if d.code == "E165"]
+        self.assertEqual(len(e165), 1)
+        self.assertIn("../evil", e165[0].message)
+        self.assertNotIn("../evil", "\n".join(files.values()))
+
 
 if __name__ == "__main__":
     unittest.main()
