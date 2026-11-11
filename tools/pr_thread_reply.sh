@@ -64,5 +64,18 @@ if [[ ! "${confirm}" =~ ^([yY]|[yY][eE][sS])$ ]]; then
   exit 1
 fi
 
+if [[ -z "${PR_THREAD_REPLY_APPROVAL_TOKEN:-}" ]]; then
+  echo "error: PR_THREAD_REPLY_APPROVAL_TOKEN must be set for out-of-band approval." >&2
+  exit 1
+fi
+
+read -r -s -p "Enter approval token: " approval_token_input
+echo >&2
+if [[ "${approval_token_input}" != "${PR_THREAD_REPLY_APPROVAL_TOKEN}" ]]; then
+  echo "error: approval token mismatch; aborting" >&2
+  exit 1
+fi
+unset approval_token_input
+
 gh api graphql -f query='mutation($tid:ID!,$body:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$tid, body:$body}){ clientMutationId } }' -f tid="$tid" -f body="$body"
 gh api graphql -f query='mutation($tid:ID!){ resolveReviewThread(input:{threadId:$tid}){ thread{ isResolved } } }' -f tid="$tid"

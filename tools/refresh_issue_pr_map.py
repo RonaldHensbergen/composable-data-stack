@@ -278,7 +278,57 @@ def main() -> int:
         "issues": issues_out,
     }
 
-    OUT_JSON.write_text(json.dumps(mapping, indent=2) + "\n")
+    if INCLUDE_UNTRUSTED_TEXT:
+        persist_mapping = mapping
+    else:
+        persist_mapping = {
+            "generated_at": mapping["generated_at"],
+            "repo": mapping["repo"],
+            "scope": mapping["scope"],
+            "security_notice": mapping["security_notice"],
+            "untrusted_text_included": False,
+            "counts": mapping["counts"],
+            "open_prs": {
+                pr_num: {
+                    "number": pr.get("number"),
+                    "url": pr.get("url"),
+                    "branch": pr.get("branch"),
+                    "issues": [
+                        {
+                            "issue": i.get("issue"),
+                            "state": i.get("state"),
+                            "link_types": i.get("link_types", []),
+                        }
+                        for i in pr.get("issues", [])
+                    ],
+                    "related_prs": [
+                        {
+                            "pr": r.get("pr"),
+                            "link_types": r.get("link_types", []),
+                        }
+                        for r in pr.get("related_prs", [])
+                    ],
+                }
+                for pr_num, pr in prs_out.items()
+            },
+            "issues": {
+                issue_num: {
+                    "number": issue.get("number"),
+                    "state": issue.get("state"),
+                    "url": issue.get("url"),
+                    "open_prs": [
+                        {
+                            "pr": p.get("pr"),
+                            "link_types": p.get("link_types", []),
+                        }
+                        for p in issue.get("open_prs", [])
+                    ],
+                }
+                for issue_num, issue in issues_out.items()
+            },
+        }
+
+    OUT_JSON.write_text(json.dumps(persist_mapping, indent=2) + "\n")
 
     lines = [
         f"# Issue ↔ open-PR cross-reference — {REPO_OWNER}/{REPO_NAME}",
