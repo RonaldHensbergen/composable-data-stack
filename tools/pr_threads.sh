@@ -61,6 +61,6 @@ for t in ts:
     base=f\"- {'RESOLVED' if t['isResolved'] else 'OPEN    '} {t['id']} {t.get('path')}:{t.get('line')} @{who}\"
     if include_bodies:
         first=sanitize(cs[0]['body']) if cs else ''
-        print(f\"{base}: [UNTRUSTED_COMMENT] {first}\")
+        print(f\"{base}: [UNTRUSTED_COMMENT] {json.dumps(first)}\")
     else:
         print(base)"
