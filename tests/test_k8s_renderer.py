@@ -2642,3 +2642,134 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             "egress": [{"host": "1.2.3.4", "cidr": "10.0.0.0/8"}],
         }
         self.assertTrue(list(validator.iter_errors(invalid)))
+
+    # -- No-op network declarations on pod-less modules (issue #1131) ------
+
+    def manifests_only_module(self, module_id: str) -> dict:
+        # A manifests-only module (e.g. a GitOps bootstrap, issue #767): the
+        # kubernetes block has no "workloads", so the module renders no pods
+        # and gets no NetworkPolicy.
+        return {
+            "id": module_id,
+            "implementation": {
+                "kind": "kubernetes",
+                "targets": ["kubernetes"],
+                "kubernetes": {
+                    "manifests": {
+                        "peer-authentication": {
+                            "apiVersion": "security.istio.io/v1",
+                            "kind": "PeerAuthentication",
+                            "metadata": {"name": f"{module_id}-mtls"},
+                            "spec": {"mtls": {"mode": "STRICT"}},
+                        }
+                    }
+                },
+            },
+        }
+
+    def test_egress_on_workload_less_module_warns_w134(self) -> None:
+        # A manifests-only module declaring module-level egress gets the
+        # entries validated (E153) but no NetworkPolicy, so the declaration
+        # would be silently dropped: W134 says so instead (issue #1131).
+        plan = self.bound_plan()
+        gitops = self.manifests_only_module("gitops")
+        gitops["implementation"]["kubernetes"]["egress"] = [
+            {"host": "203.0.113.10", "port": 443},
+        ]
+        plan["modules"].append(gitops)
+
+        files, diagnostics = self.render(plan)
+
+        w134 = [d for d in diagnostics if d.code == "W134"]
+        self.assertEqual(len(w134), 1)
+        self.assertEqual(w134[0].level, "warning")
+        self.assertEqual(
+            w134[0].path, "module:gitops.implementation.kubernetes.egress"
+        )
+        self.assertIn('"gitops"', w134[0].message)
+        self.assertIn("no NetworkPolicy", w134[0].message)
+        # The module still gets no NetworkPolicy; the pod modules keep theirs.
+        self.assertNotIn("templates/gitops-network-policy.yaml", files)
+        self.assertIn("templates/consumer-network-policy.yaml", files)
+
+    def test_network_policy_rules_on_workload_less_module_warn_w134(self) -> None:
+        # The raw networkPolicy passthrough has the same silent-drop
+        # characteristic on a pod-less module: each declared direction warns
+        # with its own path (issue #1131).
+        plan = self.bound_plan()
+        gitops = self.manifests_only_module("gitops")
+        gitops["implementation"]["kubernetes"]["networkPolicy"] = {
+            "ingress": [{"from": [{"podSelector": {"matchLabels": {"app": "ingress"}}}]}],
+            "egress": [{"to": [{"ipBlock": {"cidr": "203.0.113.0/24"}}]}],
+        }
+        plan["modules"].append(gitops)
+
+        files, diagnostics = self.render(plan)
+
+        w134 = [d for d in diagnostics if d.code == "W134"]
+        self.assertEqual(len(w134), 2)
+        self.assertEqual(
+            {d.path for d in w134},
+            {
+                "module:gitops.implementation.kubernetes.networkPolicy.ingress",
+                "module:gitops.implementation.kubernetes.networkPolicy.egress",
+            },
+        )
+        self.assertNotIn("templates/gitops-network-policy.yaml", files)
+
+    def test_egress_on_module_with_all_workloads_gated_off_warns_w134(self) -> None:
+        # "Renders no pods" covers more than a missing workloads key: when
+        # every workload is disabled via enabledFrom, the module's policy
+        # selects zero pods, so its egress declarations are no-ops too
+        # (issue #1131).
+        plan = self.bound_plan()
+        isolated = plan["modules"][2]
+        isolated["config"] = {"workloadEnabled": False}
+        workload = isolated["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["enabledFrom"] = "config.workloadEnabled"
+        workload["egress"] = [{"host": "198.51.100.7", "ports": [443]}]
+        isolated["implementation"]["kubernetes"]["egress"] = [
+            {"cidr": "203.0.113.0/24"},
+        ]
+
+        files, diagnostics = self.render(plan)
+
+        w134 = [d for d in diagnostics if d.code == "W134"]
+        self.assertEqual(
+            {d.path for d in w134},
+            {
+                "module:isolated.implementation.kubernetes.egress",
+                "module:isolated.implementation.kubernetes.workloads.app.egress",
+            },
+        )
+        # No pod of the module carries the cds.dev/module label, so both the
+        # module policy and the workload-scoped policy select zero pods.
+        self.assertEqual(
+            yaml.safe_load(files["values.yaml"])["modules"]["isolated"]["workloads"],
+            {},
+        )
+
+    def test_egress_on_pod_rendering_module_emits_no_w134(self) -> None:
+        # A module that renders pods gets its NetworkPolicy, so declared
+        # egress is honored and stays warning-free (issue #1131).
+        plan = self.bound_plan()
+        plan["modules"][1]["implementation"]["kubernetes"]["egress"] = [
+            {"host": "203.0.113.10", "port": 5432},
+        ]
+
+        files, diagnostics = self.render(plan)
+
+        self.assertEqual([d for d in diagnostics if d.code == "W134"], [])
+        self.assertIn("ipBlock", yaml.safe_dump(self.policy(files, "consumer")["spec"]))
+
+    def test_empty_egress_on_workload_less_module_emits_no_w134(self) -> None:
+        # An empty declaration list carries no entries, so there is nothing
+        # to drop silently and no warning is emitted (issue #1131).
+        plan = self.bound_plan()
+        gitops = self.manifests_only_module("gitops")
+        gitops["implementation"]["kubernetes"]["egress"] = []
+        plan["modules"].append(gitops)
+
+        _, diagnostics = self.render(plan)
+
+        self.assertEqual([d for d in diagnostics if d.code == "W134"], [])
