@@ -124,6 +124,10 @@ def run_shell_script(
             text=True,
             timeout=max(timeout, 20),
         )
+    # Git for Windows' sh.exe can take several seconds to cold-start on a
+    # loaded runner (same rationale as the WSL tier above); absorb that.
+    if sys.platform.startswith("win"):
+        timeout = max(timeout, 20)
     return subprocess.run(
         [*shell, *flags, "-c", script],
         env=env,
