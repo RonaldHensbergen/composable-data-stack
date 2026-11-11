@@ -10,8 +10,9 @@ target the same self-contained `up`, in three steps that run before
    references locally built images with `imagePullPolicy: Never`, so the
    images have to exist in the Docker daemon. The build set is derived from
    the plan exactly the way `cli/k8s_renderer.py` derives the containers it
-   translates (production-gated compose services with a `build:` block), so
-   what `cds up` builds is always what the chart references.
+   translates (production-gated compose services with a `build:` block, after
+   the same `_apply_image_source()` step), so what `cds up` builds is always
+   what the chart references.
 2. `ensure_k8s_cluster()` — verifies the target cluster is reachable, and can
    create it when the kube context names a k3d cluster (`k3d-<name>`).
 3. `import_local_images()` — loads the built images into a k3d cluster with
@@ -34,6 +35,7 @@ from typing import IO, Any
 
 from .k8s_runner import _validate_k8s_name, _validate_kube_context, _validate_timeout
 from .renderer import (
+    _apply_image_source,
     _build_context,
     _choose_best_context_candidate,
     _context_bases,
@@ -113,12 +115,17 @@ def collect_local_builds(plan: dict[str, Any]) -> list[LocalImageBuild]:
 
     Mirrors `cli/k8s_renderer.render_helm()`: each module's compose services
     are production-gated (the Helm target always renders production variants),
-    interpolated with the module's build context, and every service that still
-    carries a `build:` block is exactly the set `_translate_container()` marks
-    `imagePullPolicy: Never`. Services sharing an image (e.g. dagster's three
-    containers) collapse into one build. Build contexts are resolved to
-    absolute paths the same way `renderer._resolve_context_path()` resolves
-    them, so `docker build` runs against the same directory compose would use.
+    interpolated with the module's build context, and passed through the same
+    `_apply_image_source()` step the renderers apply, so every service that
+    still carries a `build:` block afterwards is exactly the set
+    `_translate_container()` marks `imagePullPolicy: Never` — the invariant
+    "what `cds up` builds == what the chart references with pullPolicy Never"
+    holds for `config.image.source: registry` modules too (issues #1106/#407):
+    those drop their `build:` block and are not built locally. Services sharing
+    an image (e.g. dagster's three containers) collapse into one build. Build
+    contexts are resolved to absolute paths the same way
+    `renderer._resolve_context_path()` resolves them, so `docker build` runs
+    against the same directory compose would use.
     """
     secrets = plan.get("secrets", {})
     profile_dir = _resolve_profile_dir(plan)
@@ -146,6 +153,12 @@ def collect_local_builds(plan: dict[str, Any]) -> list[LocalImageBuild]:
             if _is_disabled(service_def.get("enabledFrom"), context):
                 continue
             spec = _substitute_values(deepcopy(service_def), context)
+            # The same step render_helm() and the compose renderer apply: a
+            # module with config.image.source "registry" (plus tag and a known
+            # registry) drops its build: block here and points at the
+            # published image, so it must stay out of the local build set
+            # (issues #1106/#407). No-op for source "build".
+            spec = _apply_image_source(spec, module)
             build = spec.get("build")
             if build is None:
                 continue
