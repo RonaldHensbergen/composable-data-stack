@@ -272,7 +272,7 @@ guess at semantics that differ between runtimes.
 | Compose network | Not translated; Kubernetes DNS and Services provide reachability |
 | Network policy | Emitted per module: default-deny ingress/egress with contract-derived allow rules (see [Network isolation](#network-isolation-and-least-privilege)) |
 | `pids_limit` | Not translated by the current schema |
-| Local `build:` | Build first, then import into k3d |
+| Local `build:` | Build first, then import into k3d; with `config.image.source: registry` the published image reference is rendered instead (no `imagePullPolicy: Never`) and the cluster pulls it itself |
 | Single-file host bind (`fromBind`) | ConfigMap projected at the bind target via `subPath`, read-only |
 | Directory host bind | `emptyDir` (host content is not carried over) |
 
@@ -343,10 +343,12 @@ NetworkPolicy (issue #75):
   resolve the name and declare the resulting IP/CIDR.
 - `waitFor` gates are validated against this baseline at render time: a gate
   whose resolved host is neither a same-module Service emitted by this render
-  (a workload disabled via `enabledFrom` gets no Service), the endpoint of
-  a consumed provider, nor a reverse-proxy route target, and whose host:port
-  no custom `networkPolicy.egress` ipBlock rule covers, would only hang until
-  its timeout, so the render fails closed with E152 naming the gate and the
+  (a workload disabled via `enabledFrom` gets no Service), a Service of a
+  consumed provider module (the binding-derived egress edge is
+  provider-module-wide, #1125), nor a reverse-proxy route target, and whose
+  host:port no custom `networkPolicy.egress` ipBlock rule covers, would only
+  hang until its timeout, so the render fails closed with E152 naming the
+  gate and the
   unreachable host (#1031, #1033), and whose host:port no declared
   `implementation.kubernetes.egress` entry covers (#1023). A DNS-name gate
   host cannot be matched against ipBlock CIDRs at render time (no DNS
@@ -362,9 +364,10 @@ NetworkPolicy (issue #75):
   `port`, a non-integer `timeoutSeconds` -- fails closed with E162 naming the
   entry path instead of crashing the renderer with a `KeyError`/`TypeError`
   (#1130).
-- A gate on a bound provider endpoint is also checked in the port dimension
-  (#1124): the binding-derived egress rule is port-scoped, so the gate's
-  Service-facing port is mapped through the provider Service's `port_map`
+- A gate on a consumed provider module's Service is also checked in the port
+  dimension (#1124): the binding-derived egress rule is port-scoped, so the
+  gate's Service-facing port is mapped through the provider Service's
+  `port_map`
   (exactly as the contract port is mapped for the rule itself, keeping a
   `port`/`targetPort` remap correct) and must be covered by a binding to
   that host. An uncovered port fails closed with E163 naming the gate, the
@@ -424,6 +427,14 @@ finding whose severity scales with breadth: `0.0.0.0/0` on all ports is high,
 an unscoped destination or a missing port list is medium, and a
 destination+port-scoped entry is low -- the audit trail of an intentional
 opening in `cds security --target helm`.
+
+Declaring `egress` (or `networkPolicy` rules) on a module that renders no
+pods of its own -- a manifests-only module such as a GitOps bootstrap, or
+one whose workloads are all disabled by `enabledFrom` or scaled to zero --
+gives the module no NetworkPolicy, so the declaration would be a silent
+no-op. The render therefore warns with `W134` for each declared block on
+such a module instead of dropping it silently (issue #1131): move the
+declaration to a module that renders pods, or remove it.
 
 ### When the baseline denies something you need
 

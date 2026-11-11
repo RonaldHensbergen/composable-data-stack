@@ -34,6 +34,9 @@ re-checked the same way, failing closed with E162 on a malformed entry
 (issue #1130). A gate on a bound provider endpoint is additionally
 checked against the binding's port-scoped egress rule and fails closed
 with E163 when no binding opens the gate's port (issue #1124).
+Declaring `egress` or `networkPolicy` rules on a module that renders no
+pods of its own warns with W134: the module gets no NetworkPolicy, so the
+declaration would otherwise be a silent no-op (issue #1131).
 Reverse-proxy `config.routes`
 entries are derived into the same policies: each route's target module
 opens a port-scoped egress edge on the proxy and a matching ingress edge
@@ -57,6 +60,7 @@ import yaml
 from .confinement import plan_declares_confinement
 from .diagnostics import Diagnostic
 from .renderer import (
+    _apply_image_source,
     _build_context,
     _compose_port_target,
     _is_valid_backend_port,
@@ -336,6 +340,19 @@ def render_helm(
             True,
         )
         _merge_init_db_env(compose_services, module, secrets)
+        # Honor config.image.source exactly like the compose renderer does
+        # (renderer._apply_image_source): a module sourced from "registry"
+        # drops its build: block here and its image becomes the published
+        # reference, so _translate_container() renders no imagePullPolicy:
+        # Never for it and the cluster pulls the image itself. This is the
+        # Helm slice of #407; k8s_provision.collect_local_builds() applies
+        # the same step, so `cds up --target helm` never builds local images
+        # the chart no longer references (issue #1106).
+        for service_name, service_def in compose_services.items():
+            if isinstance(service_def, dict):
+                compose_services[service_name] = _apply_image_source(
+                    service_def, module
+                )
 
         (
             module_values,
@@ -381,6 +398,15 @@ def render_helm(
             )
 
     diagnostics.extend(_check_service_mesh_enrollments(renderable, rendered_pod_modules))
+    diagnostics.extend(
+        _check_podless_network_declarations(
+            renderable,
+            rendered_pod_modules,
+            external_egress,
+            workload_egress,
+            network_policy_passthrough,
+        )
+    )
 
     workload_modules = [
         module
@@ -473,6 +499,78 @@ def _check_service_mesh_enrollments(
                         "cds.dev/module label."
                     ),
                     path=f"module:{module['id']}.config.services[{index}].name",
+                )
+            )
+    return diagnostics
+
+
+def _check_podless_network_declarations(
+    modules: list[dict[str, Any]],
+    rendered_pod_modules: set[str],
+    external_egress: dict[str, list[dict[str, Any]]],
+    workload_egress: dict[tuple[str, str], list[dict[str, Any]]],
+    passthrough: dict[str, tuple[list[dict[str, Any]], list[dict[str, Any]]]],
+) -> list[Diagnostic]:
+    """
+    Warn (W134) when a module declares NetworkPolicy allow rules but renders
+    no pods of its own (issue #1131).
+
+    `_network_policy_manifests` only receives modules that declare
+    `workloads`, so a manifests-only module (e.g. a GitOps bootstrap) that
+    declares module-level `egress` entries or `networkPolicy` rules gets them
+    validated (E153/E149) and then silently dropped: the module gets no
+    NetworkPolicy, so the declaration has no effect. The same holds when
+    every workload is gated off (`enabledFrom`) or scaled to zero replicas.
+    A no-op declaration must not pass silently, so each declared block on a
+    pod-less module warns with its own path.
+    """
+    diagnostics: list[Diagnostic] = []
+    for module in modules:
+        module_id = module["id"]
+        if module_id in rendered_pod_modules:
+            continue
+        declared: list[tuple[str, str]] = []
+        if external_egress.get(module_id):
+            declared.append(
+                (
+                    "egress",
+                    f"module:{module_id}.implementation.kubernetes.egress",
+                )
+            )
+        for (egress_module, workload_name), entries in workload_egress.items():
+            if egress_module == module_id and entries:
+                declared.append(
+                    (
+                        f"workloads.{workload_name}.egress",
+                        f"module:{module_id}.implementation.kubernetes."
+                        f"workloads.{workload_name}.egress",
+                    )
+                )
+        ingress_rules, egress_rules = passthrough.get(module_id, ([], []))
+        for direction, rules in (("ingress", ingress_rules), ("egress", egress_rules)):
+            if rules:
+                declared.append(
+                    (
+                        f"networkPolicy.{direction}",
+                        f"module:{module_id}.implementation.kubernetes."
+                        f"networkPolicy.{direction}",
+                    )
+                )
+        for where, path in declared:
+            diagnostics.append(
+                Diagnostic(
+                    level="warning",
+                    code="W134",
+                    message=(
+                        f'Module "{module_id}" declares "{where}" under '
+                        "implementation.kubernetes, but the module renders no "
+                        "Kubernetes workload pods, so the declaration has no "
+                        "effect: a manifests-only module gets no NetworkPolicy at "
+                        "all, and a module whose workloads are all disabled gets "
+                        'one that selects zero pods. Move the declaration to a '
+                        "module that renders pods, or remove it (issue #1131)."
+                    ),
+                    path=path,
                 )
             )
     return diagnostics
@@ -3158,6 +3256,37 @@ def _bound_host_covers_gate_port(
     return bool(gate_pod_ports & allowed)
 
 
+def _provider_release_services(
+    provider_id: str,
+    modules_by_id: dict[str, dict[str, Any]],
+    service_names: dict[str, str],
+    enabled_workloads_by_module: dict[str, dict[str, dict[str, Any]]],
+) -> set[str]:
+    """
+    Every release-scoped Service name the provider module renders in this
+    chart: the Services of its enabled workloads plus its declared
+    `implementation.kubernetes.services` entries (issue #768). A workload
+    disabled via `enabledFrom` renders no Service, so it is excluded here.
+    The binding-derived egress edge selects all of the provider's pods
+    (`_module_peer(provider_id)`), so each of these Services is reachable
+    from a consuming module whenever the port is covered (issue #1125).
+    """
+    services: set[str] = set()
+    for workload_name in enabled_workloads_by_module.get(provider_id, {}):
+        full = _compose_service_name(provider_id, workload_name)
+        if full in service_names:
+            services.add(_release_scoped_service_name(service_names[full]))
+    provider = modules_by_id.get(provider_id) or {}
+    k8s = (provider.get("implementation") or {}).get("kubernetes") or {}
+    for service_key, declared in (k8s.get("services") or {}).items():
+        if not isinstance(declared, dict):
+            continue
+        full = _compose_service_name(provider_id, str(service_key))
+        if full in service_names:
+            services.add(_release_scoped_service_name(service_names[full]))
+    return services
+
+
 def _check_wait_gate_hosts(
     modules: list[dict[str, Any]],
     service_names: dict[str, str],
@@ -3176,8 +3305,9 @@ def _check_wait_gate_hosts(
     A wait gate is an init container that connects to host:port before the
     workload starts. Under the per-module default-deny policy (issue #75)
     that connection is allowed only when the host is a Service of the same
-    module (pods of one module may talk freely), an endpoint of a provider
-    the module consumes (the binding-derived egress edge), the target of one
+    module (pods of one module may talk freely), a Service of a provider
+    the module consumes (the binding-derived egress edge is
+    provider-module-wide, issue #1125), the target of one
     of the module's reverse-proxy routes (the route-derived egress edge,
     issue #1033), or an external IP address a custom `networkPolicy.egress`
     ipBlock rule or a declared `egress` entry (issue #1023) covers on the
@@ -3196,13 +3326,13 @@ def _check_wait_gate_hosts(
     E152: the passthrough hatch is only trusted for hosts outside the
     chart (issue #1126).
 
-    A bound provider endpoint is host-allowed but its egress edge is
-    port-scoped (`_binding_ports`), so the gate's port is checked too: the
-    Service-facing gate port is mapped through the provider's `port_map`
-    exactly as `_binding_ports` maps the contract port, and a port no
-    binding justifies fails closed with E163 (issue #1124). Same-module
-    gates need no port check: same-module egress is unscoped. The module
-    contexts and substituted enabled workloads are passed in from
+    A Service of a consumed provider module is host-allowed but its egress
+    edge is port-scoped (`_binding_ports`), so the gate's port is checked
+    too: the Service-facing gate port is mapped through the provider's
+    `port_map` exactly as `_binding_ports` maps the contract port, and a
+    port no binding justifies fails closed with E163 (issue #1124).
+    Same-module gates need no port check: same-module egress is unscoped.
+    The module contexts and substituted enabled workloads are passed in from
     `render_helm`'s single substitution pass per render (issue #1216), so
     `${bindings.*.host}` and `${k8s.service.*}` gates are checked by their
     resolved value.
@@ -3230,21 +3360,36 @@ def _check_wait_gate_hosts(
         context = module_contexts[module_id]
 
         # The hosts a binding-derived egress edge exists for, mapped to the
-        # (provider, consume) pairs that justify them: the release-scoped
-        # endpoint of every consumed provider in this render, kept with its
-        # contract so the gate's port can be checked against the binding's
-        # port-scoped rule (issue #1124).
+        # (provider, consume) pairs that justify them. That edge is
+        # provider-module-wide (`_module_peer(provider_id)` in
+        # `_network_policy_manifests` selects all of the provider's pods),
+        # so every release-scoped Service the consumed provider renders is
+        # host-allowed, not just the binding's own endpoint (issue #1125).
+        # Each host keeps its contracts so the gate's port can still be
+        # checked against the binding's port-scoped rule (issue #1124).
         bound_hosts: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+        consumed_providers: dict[str, list[dict[str, Any]]] = {}
         for consume_name, consume in (module.get("consumes") or {}).items():
             if not isinstance(consume, dict):
                 continue
             provider_id = str(consume.get("contractRef", "")).split(".", 1)[0]
             if provider_id not in module_ids or provider_id == module_id:
                 continue
+            consumed_providers.setdefault(provider_id, []).append(consume)
             binding = context.get("bindings", {}).get(consume_name)
             if isinstance(binding, dict) and binding.get("host"):
                 bound_hosts.setdefault(str(binding["host"]), []).append(
                     (provider_id, consume)
+                )
+        for provider_id, consumes in consumed_providers.items():
+            for host in _provider_release_services(
+                provider_id,
+                modules_by_id,
+                service_names,
+                enabled_workloads_by_module,
+            ):
+                bound_hosts.setdefault(host, []).extend(
+                    (provider_id, consume) for consume in consumes
                 )
 
         # The enabled workloads were substituted once in render_helm's
@@ -3316,7 +3461,7 @@ def _check_wait_gate_hosts(
                     for rule in custom_egress
                 )
                 if host in bound_hosts:
-                    # A bound provider endpoint's egress edge is
+                    # A consumed provider Service's egress edge is
                     # port-scoped: the gate's port must be one the
                     # binding(s) to that host justify (issue #1124). The
                     # custom escape hatches still apply on top.
@@ -3368,7 +3513,7 @@ def _check_wait_gate_hosts(
                                 f'names host "{host}", a Service name in this chart '
                                 "that no egress rule of this module opens: it is "
                                 "neither a same-module Service emitted by this "
-                                "render, the endpoint of a provider this module "
+                                "render, a Service of a provider this module "
                                 "consumes, nor a reverse-proxy route target, and "
                                 "the custom networkPolicy.egress passthrough is not "
                                 "consulted for in-cluster Service names, so the init "
@@ -3421,8 +3566,8 @@ def _check_wait_gate_hosts(
                             f'waitFor gate of workload "{module_id}/{workload_name}" '
                             f'names host "{host}", which the module\'s default-deny '
                             "NetworkPolicy does not allow egress to: it is neither a "
-                            f'Service rendered for module "{module_id}", the '
-                            "endpoint of a provider this module consumes, the "
+                            f'Service rendered for module "{module_id}", a '
+                            "Service of a provider this module consumes, the "
                             "target of one of this module's reverse-proxy routes, "
                             "nor a destination a custom networkPolicy.egress "
                             "ipBlock rule or a declared implementation.kubernetes."

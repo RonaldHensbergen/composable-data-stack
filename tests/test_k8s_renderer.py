@@ -227,6 +227,89 @@ class RealProfileHelmRendererTest(unittest.TestCase):
         self.assertIn("{{ .Release.Name }}-postgres:5432", superset)
 
 
+class RegistryImageSourceHelmTest(unittest.TestCase):
+    """The Helm target honors config.image.source "registry" (issue #1106,
+    the Helm slice of #407): the chart references the published image and
+    does not mark it imagePullPolicy: Never, exactly like the compose
+    renderer's _apply_image_source step."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.repo_root = Path(__file__).resolve().parent.parent
+        cls.secret_values = RealProfileHelmRendererTest.secret_values
+        cls._tempdir = tempfile.TemporaryDirectory()
+        env_file = Path(cls._tempdir.name) / ".env"
+        env_file.write_text(
+            "\n".join(f"{key}={value}" for key, value in cls.secret_values.items())
+            + "\n",
+            encoding="utf-8",
+        )
+        cls.env_file = str(env_file)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tempdir.cleanup()
+
+    def _plan(self, image_source: str | None = None) -> dict:
+        profile = (
+            self.repo_root
+            / "profiles"
+            / "local-dagster-postgres-superset"
+            / "profile.yaml"
+        )
+        with mock.patch.dict(os.environ, self.secret_values, clear=False):
+            plan, diagnostics = build_plan(
+                str(profile), env_file=self.env_file, image_source=image_source
+            )
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(plan)
+        return plan
+
+    def _render(self, image_source: str | None = None) -> dict[str, str]:
+        files, diagnostics = render_helm(self._plan(image_source))
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        return files
+
+    def test_registry_modules_render_published_images_without_never(self) -> None:
+        files = self._render("registry")
+        for name, image in (
+            ("templates/dagster-user-code-deployment.yaml", "dagster:1.13.26"),
+            ("templates/dagster-webserver-deployment.yaml", "dagster:1.13.26"),
+            ("templates/dagster-daemon-deployment.yaml", "dagster:1.13.26"),
+            ("templates/superset-superset-deployment.yaml", "superset:6.1.0"),
+        ):
+            manifest = files[name]
+            self.assertIn(f"image: docker.io/ronaldsoeverein/{image}", manifest)
+            self.assertNotIn("imagePullPolicy: Never", manifest)
+        # postgres exposes no image.source config option, so it keeps its
+        # local build and pullPolicy Never.
+        postgres = files["templates/postgres-postgres-statefulset.yaml"]
+        self.assertIn("image: local/postgres:custom", postgres)
+        self.assertIn("imagePullPolicy: Never", postgres)
+        # Stock images without a build block are untouched.
+        self.assertIn(
+            "image: eqalpha/keydb:6.3.4@sha256:",
+            files["templates/keydb-keydb-deployment.yaml"],
+        )
+
+    def test_build_source_keeps_local_images_with_never(self) -> None:
+        # The default (source "build") render is unchanged: local images with
+        # pullPolicy Never, so cds up --target helm keeps building them.
+        files = self._render(None)
+        for name in (
+            "templates/dagster-user-code-deployment.yaml",
+            "templates/dagster-webserver-deployment.yaml",
+            "templates/dagster-daemon-deployment.yaml",
+        ):
+            manifest = files[name]
+            self.assertIn("image: local/dagster:custom", manifest)
+            self.assertIn("imagePullPolicy: Never", manifest)
+        superset = files["templates/superset-superset-deployment.yaml"]
+        self.assertIn("image: local/superset:custom", superset)
+        self.assertIn("imagePullPolicy: Never", superset)
+
+
 class HelmRendererDiagnosticTest(unittest.TestCase):
     def test_configmap_content_changes_the_workload_checksum(self) -> None:
         volumes = {"code": {"configMap": {"name": "release-code", "defaultMode": 292}}}
@@ -331,6 +414,56 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
 
         self.assertEqual(files, {})
         self.assertIn("E072", {diagnostic.code for diagnostic in diagnostics})
+
+    def test_registry_image_source_rewrites_build_service(self) -> None:
+        # Issue #1106 (the Helm slice of #407): with config.image.source
+        # "registry" plus a tag, the compose build: block is dropped and the
+        # container references the published image with no imagePullPolicy:
+        # Never -- exactly what the compose renderer's _apply_image_source
+        # produces, so cds up --target helm stops building the local image.
+        plan = self.minimal_plan()
+        service = plan["modules"][0]["implementation"]["compose"]["services"]["app"]
+        service["build"] = {"context": "/abs", "dockerfile": "Dockerfile"}
+        plan["modules"][0]["config"]["image"] = {"source": "registry", "tag": "9.9.9"}
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        manifest = files["templates/demo-app-statefulset.yaml"]
+        self.assertIn("image: docker.io/ronaldsoeverein/demo:9.9.9", manifest)
+        self.assertNotIn("imagePullPolicy: Never", manifest)
+
+    def test_ghcr_registry_image_source_rewrites_to_ghcr(self) -> None:
+        plan = self.minimal_plan()
+        service = plan["modules"][0]["implementation"]["compose"]["services"]["app"]
+        service["build"] = {"context": "/abs"}
+        plan["modules"][0]["config"]["image"] = {
+            "source": "registry",
+            "registry": "ghcr",
+            "tag": "sha-abc",
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        manifest = files["templates/demo-app-statefulset.yaml"]
+        self.assertIn("image: ghcr.io/ronaldhensbergen/cds-demo:sha-abc", manifest)
+        self.assertNotIn("imagePullPolicy: Never", manifest)
+
+    def test_registry_image_source_without_tag_keeps_build(self) -> None:
+        # Mirrors _apply_image_source: without a tag the service is left
+        # unchanged, so the local build and pullPolicy Never stay.
+        plan = self.minimal_plan()
+        service = plan["modules"][0]["implementation"]["compose"]["services"]["app"]
+        service["build"] = {"context": "/abs"}
+        plan["modules"][0]["config"]["image"] = {"source": "registry"}
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        manifest = files["templates/demo-app-statefulset.yaml"]
+        self.assertIn("image: example/app:1", manifest)
+        self.assertIn("imagePullPolicy: Never", manifest)
 
     def test_backup_capability_is_rejected_for_helm_target(self) -> None:
         # The built-in backup capability (issue #665) has no Kubernetes
@@ -1556,6 +1689,102 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
         self.assertEqual(len(e152), 1)
         self.assertIn("{{ .Release.Name }}-demo-app", e152[0].message)
 
+    def test_wait_gate_on_non_binding_service_of_consumed_provider_renders(
+        self,
+    ) -> None:
+        # The binding-derived egress edge selects all of the provider
+        # module's pods (`_module_peer(provider_id)`), so a gate on a
+        # *second* Service of a consumed provider is covered by the
+        # NetworkPolicy whenever the port is: here the contract advertises
+        # no port, so the rule is scoped to the provider's advertised
+        # ports and the metrics Service's port is covered -- the gate
+        # renders (issue #1125).
+        plan = self.bound_plan()
+        provider = plan["modules"][0]
+        provider["implementation"]["kubernetes"]["workloads"]["metrics"] = {
+            "kind": "Deployment",
+            "containers": ["app"],
+            "service": {
+                "type": "ClusterIP",
+                "ports": [{"name": "metrics", "port": 9090}],
+            },
+        }
+        del plan["modules"][1]["consumes"]["backend"]["contract"]["spec"]["port"]
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${k8s.service.demo-metrics}", "port": 9090}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        self.assertNotIn("E163", {d.code for d in diagnostics})
+        self.assertIn(
+            "until nc -z {{ .Release.Name }}-demo-metrics 9090",
+            files["templates/consumer-app-deployment.yaml"],
+        )
+
+    def test_wait_gate_on_non_binding_provider_service_uncovered_port_fails_e163(
+        self,
+    ) -> None:
+        # Same module-wide host allowlist (issue #1125), but the port rule
+        # still applies: the contract opens only 8080, so a gate on the
+        # provider's second Service on port 9090 is host-allowed yet
+        # port-denied -- fail closed with E163, not E152.
+        plan = self.bound_plan()
+        provider = plan["modules"][0]
+        provider["implementation"]["kubernetes"]["workloads"]["metrics"] = {
+            "kind": "Deployment",
+            "containers": ["app"],
+            "service": {
+                "type": "ClusterIP",
+                "ports": [{"name": "metrics", "port": 9090}],
+            },
+        }
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${k8s.service.demo-metrics}", "port": 9090}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        self.assertNotIn("E152", {d.code for d in diagnostics})
+        e163 = [d for d in diagnostics if d.code == "E163"]
+        self.assertEqual(len(e163), 1)
+        self.assertIn("{{ .Release.Name }}-demo-metrics", e163[0].message)
+        self.assertIn("9090", e163[0].message)
+
+    def test_wait_gate_on_disabled_provider_service_fails_closed(self) -> None:
+        # A consumed provider's workload disabled via enabledFrom renders
+        # no Service and no pods, so the module-wide edge does not reach
+        # it: a gate on its Service still fails closed with E152
+        # (issue #1125).
+        plan = self.bound_plan()
+        provider = plan["modules"][0]
+        provider["config"] = {"optional": {"enabled": False}}
+        provider["implementation"]["kubernetes"]["workloads"]["metrics"] = {
+            "kind": "Deployment",
+            "containers": ["app"],
+            "enabledFrom": "config.optional.enabled",
+            "service": {
+                "type": "ClusterIP",
+                "ports": [{"name": "metrics", "port": 9090}],
+            },
+        }
+        workload = plan["modules"][1]["implementation"]["kubernetes"]["workloads"][
+            "app"
+        ]
+        workload["waitFor"] = [{"host": "${k8s.service.demo-metrics}", "port": 9090}]
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual(files, {})
+        e152 = [d for d in diagnostics if d.code == "E152"]
+        self.assertEqual(len(e152), 1)
+        self.assertIn("{{ .Release.Name }}-demo-metrics", e152[0].message)
+
     def test_wait_gate_on_disabled_same_module_service_fails_closed(self) -> None:
         # A same-module Service whose workload is disabled (enabledFrom
         # resolves to False) renders no Service, so a gate on it would hang
@@ -2546,3 +2775,134 @@ class NetworkPolicyAndServiceAccountTest(unittest.TestCase):
             "egress": [{"host": "1.2.3.4", "cidr": "10.0.0.0/8"}],
         }
         self.assertTrue(list(validator.iter_errors(invalid)))
+
+    # -- No-op network declarations on pod-less modules (issue #1131) ------
+
+    def manifests_only_module(self, module_id: str) -> dict:
+        # A manifests-only module (e.g. a GitOps bootstrap, issue #767): the
+        # kubernetes block has no "workloads", so the module renders no pods
+        # and gets no NetworkPolicy.
+        return {
+            "id": module_id,
+            "implementation": {
+                "kind": "kubernetes",
+                "targets": ["kubernetes"],
+                "kubernetes": {
+                    "manifests": {
+                        "peer-authentication": {
+                            "apiVersion": "security.istio.io/v1",
+                            "kind": "PeerAuthentication",
+                            "metadata": {"name": f"{module_id}-mtls"},
+                            "spec": {"mtls": {"mode": "STRICT"}},
+                        }
+                    }
+                },
+            },
+        }
+
+    def test_egress_on_workload_less_module_warns_w134(self) -> None:
+        # A manifests-only module declaring module-level egress gets the
+        # entries validated (E153) but no NetworkPolicy, so the declaration
+        # would be silently dropped: W134 says so instead (issue #1131).
+        plan = self.bound_plan()
+        gitops = self.manifests_only_module("gitops")
+        gitops["implementation"]["kubernetes"]["egress"] = [
+            {"host": "203.0.113.10", "port": 443},
+        ]
+        plan["modules"].append(gitops)
+
+        files, diagnostics = self.render(plan)
+
+        w134 = [d for d in diagnostics if d.code == "W134"]
+        self.assertEqual(len(w134), 1)
+        self.assertEqual(w134[0].level, "warning")
+        self.assertEqual(
+            w134[0].path, "module:gitops.implementation.kubernetes.egress"
+        )
+        self.assertIn('"gitops"', w134[0].message)
+        self.assertIn("no NetworkPolicy", w134[0].message)
+        # The module still gets no NetworkPolicy; the pod modules keep theirs.
+        self.assertNotIn("templates/gitops-network-policy.yaml", files)
+        self.assertIn("templates/consumer-network-policy.yaml", files)
+
+    def test_network_policy_rules_on_workload_less_module_warn_w134(self) -> None:
+        # The raw networkPolicy passthrough has the same silent-drop
+        # characteristic on a pod-less module: each declared direction warns
+        # with its own path (issue #1131).
+        plan = self.bound_plan()
+        gitops = self.manifests_only_module("gitops")
+        gitops["implementation"]["kubernetes"]["networkPolicy"] = {
+            "ingress": [{"from": [{"podSelector": {"matchLabels": {"app": "ingress"}}}]}],
+            "egress": [{"to": [{"ipBlock": {"cidr": "203.0.113.0/24"}}]}],
+        }
+        plan["modules"].append(gitops)
+
+        files, diagnostics = self.render(plan)
+
+        w134 = [d for d in diagnostics if d.code == "W134"]
+        self.assertEqual(len(w134), 2)
+        self.assertEqual(
+            {d.path for d in w134},
+            {
+                "module:gitops.implementation.kubernetes.networkPolicy.ingress",
+                "module:gitops.implementation.kubernetes.networkPolicy.egress",
+            },
+        )
+        self.assertNotIn("templates/gitops-network-policy.yaml", files)
+
+    def test_egress_on_module_with_all_workloads_gated_off_warns_w134(self) -> None:
+        # "Renders no pods" covers more than a missing workloads key: when
+        # every workload is disabled via enabledFrom, the module's policy
+        # selects zero pods, so its egress declarations are no-ops too
+        # (issue #1131).
+        plan = self.bound_plan()
+        isolated = plan["modules"][2]
+        isolated["config"] = {"workloadEnabled": False}
+        workload = isolated["implementation"]["kubernetes"]["workloads"]["app"]
+        workload["enabledFrom"] = "config.workloadEnabled"
+        workload["egress"] = [{"host": "198.51.100.7", "ports": [443]}]
+        isolated["implementation"]["kubernetes"]["egress"] = [
+            {"cidr": "203.0.113.0/24"},
+        ]
+
+        files, diagnostics = self.render(plan)
+
+        w134 = [d for d in diagnostics if d.code == "W134"]
+        self.assertEqual(
+            {d.path for d in w134},
+            {
+                "module:isolated.implementation.kubernetes.egress",
+                "module:isolated.implementation.kubernetes.workloads.app.egress",
+            },
+        )
+        # No pod of the module carries the cds.dev/module label, so both the
+        # module policy and the workload-scoped policy select zero pods.
+        self.assertEqual(
+            yaml.safe_load(files["values.yaml"])["modules"]["isolated"]["workloads"],
+            {},
+        )
+
+    def test_egress_on_pod_rendering_module_emits_no_w134(self) -> None:
+        # A module that renders pods gets its NetworkPolicy, so declared
+        # egress is honored and stays warning-free (issue #1131).
+        plan = self.bound_plan()
+        plan["modules"][1]["implementation"]["kubernetes"]["egress"] = [
+            {"host": "203.0.113.10", "port": 5432},
+        ]
+
+        files, diagnostics = self.render(plan)
+
+        self.assertEqual([d for d in diagnostics if d.code == "W134"], [])
+        self.assertIn("ipBlock", yaml.safe_dump(self.policy(files, "consumer")["spec"]))
+
+    def test_empty_egress_on_workload_less_module_emits_no_w134(self) -> None:
+        # An empty declaration list carries no entries, so there is nothing
+        # to drop silently and no warning is emitted (issue #1131).
+        plan = self.bound_plan()
+        gitops = self.manifests_only_module("gitops")
+        gitops["implementation"]["kubernetes"]["egress"] = []
+        plan["modules"].append(gitops)
+
+        _, diagnostics = self.render(plan)
+
+        self.assertEqual([d for d in diagnostics if d.code == "W134"], [])
