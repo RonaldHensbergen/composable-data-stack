@@ -42,6 +42,7 @@ The format is based on Keep a Changelog.
   port matches the binding port renders unchanged. README troubleshooting
   table, `docs/kubernetes.md`, and tests (uncovered port, second unopened
   provider port, `port`/`targetPort` remap) included.
+- The E152 wait-gate host allowlist now matches the egress edge it guards (issue #1125): `cli/k8s_renderer.py`'s `_check_wait_gate_hosts` derived the allowlist from the binding's own `host` only, while the generated NetworkPolicy egress rule (`_module_peer(provider_id)`) selects all pods of the consumed provider module, so a gate on a second Service of a consumed provider got a false E152. The allowlist is now derived from the same edge computation: every release-scoped Service the consumed provider renders (its enabled workloads plus declared `implementation.kubernetes.services` entries) is host-allowed, still subject to the port-scoped E163 check (#1124). A Service of a provider workload disabled via `enabledFrom` renders nothing and stays denied, and Services of modules the module does not consume still fail E152. README troubleshooting table, `docs/kubernetes.md`, and tests (non-binding provider Service renders, uncovered port on it fails E163, disabled provider workload and unconsumed module still E152) included.
 - `docs/roadmap.md` freshness refresh (issue #1246): closed issues #72, #77, and
   #210 are no longer listed as available in "Ready For Contributors", and the
   shipped near-term items (#348, #690, #75, #767, #768, #769, #1059, #776, #1171,
