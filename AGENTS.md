@@ -53,18 +53,15 @@ anchors (file name, E-/W code, function name, test name):
 
 When reviewing PRs and handling review comments:
 
-- Give review comments as inline comments on specific lines where possible
-  (REST `POST /repos/RonaldHensbergen/composable-data-stack/pulls/<n>/reviews`
-  with `comments[]`: `path` + `line`; `commit_id` must be the full SHA), not
-  only as a review body.
+- Give review comments as inline comments on specific lines where possible, not
+  only as a review body. The exact review/reply/resolve commands (REST review
+  POST and the GraphQL reply/resolve mutations) are side-effecting API calls
+  and live in `AGENTS.local.md`. Gotchas that apply there: `gh api graphql`
+  accepts no `--repo`/`-R` flag (put owner/name in the query itself), and the
+  input field names differ — reply wants `pullRequestReviewThreadId`, resolve
+  wants `threadId`.
 - When a review comment has been handled (fix pushed) and answered: close the
-  thread as well. Order: `addPullRequestReviewThreadReply` mutation referencing
-  the fix commit, then `resolveReviewThread` mutation with the thread ID from
-  `pullRequest.reviewThreads`.
-- `gh api graphql` accepts no `--repo`/`-R` flag — put owner/name in the query
-  itself (run from the repo dir). Mind the input field names:
-  `addPullRequestReviewThreadReply` wants `pullRequestReviewThreadId` (not
-  `threadId`), while `resolveReviewThread` wants `threadId`.
+  thread as well — reply first (referencing the fix commit), then resolve.
 - When you are sure no loose ends (code quality) or gaps remain for the PR,
   state that explicitly and clearly in the (review) comment — e.g. "no open
   points left; in my judgment the PR is merge-ready" — instead of implicitly
@@ -89,9 +86,10 @@ one go:
   incl. SonarCloud.
 - Share the review in the PR: inline (line-level) comments where possible plus a
   structured review body with explicit blocking/major/minor markings.
-- Resolve all found issues in one go: implement the fixes, push to the PR
-  branch, reply to and resolve every review thread, keep CHANGELOG and docs in
-  sync.
+- Resolve all found issues in one go: implement the fixes and land them on the
+  PR branch (push command in `AGENTS.local.md` — blast-radius), reply to and
+  resolve every review thread (commands in `AGENTS.local.md`), keep CHANGELOG
+  and docs in sync.
 - Anything out of scope for the PR but worth fixing or improving is filed as an
   issue (right labels + effort estimate + milestone inheritance, see below) —
   not only as a note in a PR comment. After filing, add a short PR comment with
@@ -111,13 +109,15 @@ when the request is unambiguously meant differently:
    criteria for "the next issue" then see the issue as taken.
 2. Work in a throwaway worktree under /tmp
    (`git worktree add /tmp/<branch>-wt <branch>`); the main checkout stays
-   clean. Commits and pushes to the PR branch may happen from the worktree.
+   clean. Commits from the worktree are fine; pushing to the remote is a
+   blast-radius action (exact command in `AGENTS.local.md`).
 3. Branch from `main` and open a PR right away with house-style labels.
    Cross-link the PR with the issue — see "PR ↔ issue cross-linking" below.
 4. Implement via the issue bootstrap above; keep CHANGELOG `[Unreleased]` and
    docs up to date.
 5. Run unit + relevant e2e/golden tests; on failure: fix and re-run.
-6. Push to the PR branch, poll CI until green, fix failures and push again.
+6. Get the branch pushed and poll CI until green; on failure, fix and push
+   again (push command in `AGENTS.local.md` — blast-radius).
 7. Self-review per "PR review workflow" above: inline comments plus structured
    review body, resolve everything in one go, reply/resolve threads.
 8. Report explicitly whether the PR is merge-ready (or what still blocks it);
@@ -132,18 +132,20 @@ Always in both directions:
 
 - The PR body contains `Closes #<n>` — GitHub then links the issue
   automatically and closes it on merge.
-- Right after creating the PR, post a comment on the issue with the PR number,
-  e.g. `gh issue comment <n> --body "Linked PR: #<m> (<title>)"` — so the PR is
-  already visible on the issue before merge.
+- Right after creating the PR, post a comment on the issue with the PR number —
+  so the PR is already visible on the issue before merge. The `gh issue
+  comment` command is a side-effecting API call and lives in `AGENTS.local.md`.
 - Note: `tools/start_pr.sh` opens the PR with body `Closes #<n>`; when opening a
-  PR by hand, use `Closes #<n>` as well (amend via `gh pr edit <m> --body ...`),
-  otherwise GitHub will not close the issue automatically on merge.
+  PR by hand, use `Closes #<n>` as well (the `gh pr edit` amend command lives in
+  `AGENTS.local.md`), otherwise GitHub will not close the issue automatically
+  on merge.
 
 ## Milestone inheritance for loose ends
 
 When a new issue is filed because of a loose end of an issue that has a GitHub
-milestone, the new issue gets the same milestone:
-`gh issue edit <n> --milestone "<milestone-title>"`.
+milestone, the new issue gets the same milestone (the `gh issue edit
+--milestone` command is a side-effecting API call and lives in
+`AGENTS.local.md`).
 
 ## Promotion precedent: modules-experimental → modules (#594)
 
@@ -200,8 +202,8 @@ script, mention it explicitly to Ronald — on repetition it becomes a helper in
   for newcomer-suitable work instead of that label.
 - **When you address PR review comments, always resolve the corresponding
   review threads/comments too**, not just push the fix — see "PR review
-  workflow" above for the exact mechanics (reply with the fix commit, then
-  `resolveReviewThread`); do not leave threads open once addressed.
+  workflow" above for the mechanics (reply with the fix commit, then resolve;
+  commands in `AGENTS.local.md`); do not leave threads open once addressed.
 - Avoid module names in issue titles/bodies when a provider-neutral
   contract or capability description is suitable; this is a composable
   stack, not tied to one implementation.
@@ -379,7 +381,8 @@ Project and the repository's pinned issues.
   project's `Order` field (lower = higher priority) and take the first
   three that are childless.
 - Pinning is a replacement, not additive: unpin the existing pins first,
-  then pin the new set (GraphQL `pinIssue`/`unpinIssue`).
+  then pin the new set (GraphQL `pinIssue`/`unpinIssue` — side-effecting
+  mutations, exact commands in `AGENTS.local.md`).
 
 ### Project `Order` tiers
 
@@ -410,11 +413,12 @@ Rules of use:
   with the `project` scope plus `public_repo`, because `GITHUB_TOKEN` cannot
   access Projects and fine-grained PATs have no account-level Projects
   permission for user-owned projects. To backfill an existing issue, re-run
-  the workflow via workflow_dispatch with its issue number.
+  the workflow via workflow_dispatch with its issue number (side-effecting;
+  command in `AGENTS.local.md`).
 - Pick up work by the lowest `Order` that is open, not `Done`, and not
   already in flight via an open PR.
-- Mechanic: `gh project item-edit 1 --owner RonaldHensbergen --url
-  <issue-url> --field Order --value <n>`; the `Status` field is
+- Mechanic: set `Order`/`Status` via `gh project item-edit` (side-effecting API
+  call — exact command in `AGENTS.local.md`); the `Status` field is
   `Todo` / `In Progress` / `Done`.
 
 ## Agent approval policy
