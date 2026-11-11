@@ -28,9 +28,26 @@ fi
 
 gh api graphql -f query='query($pr:Int!){ repository(owner:"RonaldHensbergen", name:"composable-data-stack"){ pullRequest(number:$pr){ number title reviewThreads(first:100){ nodes { id isResolved path line comments(first:3){ nodes { body author{login} } } } } } } }' -F pr="$pr" \
 | INCLUDE_BODIES="$include_bodies" python3 -c "import json,sys,os,re
+def neutralize_prompt_injection(text):
+    patterns = [
+        r'(?i)\bignore\s+(all\s+)?(previous|prior|above)\s+instructions?\b',
+        r'(?i)\bsystem\s+prompt\b',
+        r'(?i)\bdeveloper\s+message\b',
+        r'(?i)\byou\s+are\s+chatgpt\b',
+        r'(?i)\btool\s*call\b',
+        r'(?i)\bfunction\s*call\b',
+        r'(?i)\bexecute\s+(a\s+)?command\b',
+        r'(?i)\bdo\s+not\s+follow\s+the\s+above\b',
+        r'(?i)\binstead,\s*you\s+must\b'
+    ]
+    for p in patterns:
+        text = re.sub(p, '[REDACTED-INSTRUCTION]', text)
+    return text
+
 def sanitize(text):
     text=re.sub(r'[\x00-\x1f\x7f]', ' ', text)
     text=' '.join(text.split())
+    text=neutralize_prompt_injection(text)
     return text[:120]
 
 include_bodies=os.environ.get('INCLUDE_BODIES') == '1'
@@ -44,6 +61,6 @@ for t in ts:
     base=f\"- {'RESOLVED' if t['isResolved'] else 'OPEN    '} {t['id']} {t.get('path')}:{t.get('line')} @{who}\"
     if include_bodies:
         first=sanitize(cs[0]['body']) if cs else ''
-        print(f\"{base}: {first}\")
+        print(f\"{base}: [UNTRUSTED_COMMENT] {first}\")
     else:
         print(base)"
