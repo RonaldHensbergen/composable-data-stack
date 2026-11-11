@@ -202,15 +202,15 @@ def main() -> int:
         n = i["number"]
         prs = issue_to_prs.get(n, {})
         issues_out[str(n)] = {
-            "title": i["title"],
+            "title": sanitize_untrusted_text(i["title"]),
             "state": i["state"],
-            "url": i["url"],
+            "url": sanitize_untrusted_text(i["url"]),
             "open_prs": [
                 {
                     "pr": pn,
-                    "title": next(p["title"] for p in open_prs if p["number"] == pn),
-                    "url": next(p["url"] for p in open_prs if p["number"] == pn),
-                    "branch": next(p["headRefName"] for p in open_prs if p["number"] == pn),
+                    "title": sanitize_untrusted_text(next(p["title"] for p in open_prs if p["number"] == pn)),
+                    "url": sanitize_untrusted_text(next(p["url"] for p in open_prs if p["number"] == pn)),
+                    "branch": sanitize_untrusted_text(next(p["headRefName"] for p in open_prs if p["number"] == pn)),
                     "link_types": sorted(prs[pn]),
                 }
                 for pn in sorted(prs)
