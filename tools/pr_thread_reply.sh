@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# pr_thread_reply.sh <pr> <thread-id> <reply-body> — reply to a review thread and resolve it, one call.
+# pr_thread_reply.sh [--yes] <pr> <thread-id> <reply-body> — reply to a review thread and resolve it, one call.
 set -euo pipefail
-pr=${1:?usage: pr_thread_reply.sh <pr> <thread-id> <reply-body>}
+assume_yes=0
+if [[ "${1:-}" == "--yes" ]]; then
+  assume_yes=1
+  shift
+fi
+pr=${1:?usage: pr_thread_reply.sh [--yes] <pr> <thread-id> <reply-body>}
 tid=${2:?missing thread-id}
 body=${3:?missing reply-body}
 
@@ -21,6 +26,15 @@ fi
 if [[ "${thread_pr_number}" != "${pr}" ]]; then
   echo "error: thread-id '$tid' belongs to PR #${thread_pr_number}, not PR #${pr}; aborting" >&2
   exit 1
+fi
+
+if [[ "${assume_yes}" -ne 1 ]]; then
+  echo "About to post a reply and resolve thread '$tid' on PR #$pr." >&2
+  read -r -p "Proceed? [y/N] " confirm
+  if [[ ! "${confirm}" =~ ^([yY]|[yY][eE][sS])$ ]]; then
+    echo "aborted" >&2
+    exit 1
+  fi
 fi
 
 gh api graphql -f query='mutation($tid:ID!,$body:String!){ addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$tid, body:$body}){ clientMutationId } }' -f tid="$tid" -f body="$body"
