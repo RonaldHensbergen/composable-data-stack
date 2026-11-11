@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # pr_thread_reply.sh [--yes] <pr> <thread-id> <reply-body> — reply to a review thread and resolve it, one call.
+# --yes requires PR_THREAD_REPLY_ALLOW_YES=1 to bypass interactive confirmation.
 set -euo pipefail
 assume_yes=0
 if [[ "${1:-}" == "--yes" ]]; then
   assume_yes=1
   shift
 fi
-pr=${1:?usage: pr_thread_reply.sh [--yes] <pr> <thread-id> <reply-body>}
+
+if [[ "${assume_yes}" -eq 1 && "${PR_THREAD_REPLY_ALLOW_YES:-0}" != "1" ]]; then
+  echo "error: --yes requires explicit opt-in: set PR_THREAD_REPLY_ALLOW_YES=1" >&2
+  exit 1
+fi
+
+pr=${1:?usage: PR_THREAD_REPLY_ALLOW_YES=1 pr_thread_reply.sh [--yes] <pr> <thread-id> <reply-body>}
 tid=${2:?missing thread-id}
 body=${3:?missing reply-body}
 

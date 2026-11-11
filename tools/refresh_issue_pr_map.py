@@ -31,8 +31,25 @@ def sanitize_untrusted_text(value: object) -> str:
         return ""
     text = str(value)
     text = _CONTROL_CHARS_RE.sub("", text)
+
+    # Remove markdown fenced code blocks and inline code spans.
+    text = re.sub(r"```[\s\S]*?```", " ", text)
+    text = re.sub(r"`[^`]*`", " ", text)
+
+    # Keep link text, drop URL target: [label](url) -> label
+    text = re.sub(r"\[([^\]]+)\]\((?:[^)]+)\)", r"\1", text)
+
+    # Drop common prompt/instruction markers frequently used in injections.
+    text = re.sub(
+        r"(?i)\b(ignore (all|any|the)?\s*(previous|prior|above)\s*(instructions?|context)?"
+        r"|system\s*:|assistant\s*:|developer\s*:|user\s*:|act as|follow these steps)\b",
+        " ",
+        text,
+    )
+
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("\n", " ").replace("\t", " ")
+    text = re.sub(r"\s{2,}", " ", text)
     return text.strip()
 
 REPO_OWNER = "RonaldHensbergen"
