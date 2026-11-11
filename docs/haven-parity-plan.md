@@ -3,7 +3,7 @@
 Version: 0.3
 Status: Draft — planning document. Section 4 tracks work already in flight
 against the workstreams below; section 7 recommends a concrete module per
-open gap (updated 2026-09-11).
+open gap (updated 2026-11-11).
 Related: [docs/roadmap.md](roadmap.md), [docs/architecture.md](architecture.md),
 [docs/observability.md](observability.md), [docs/threat-model.md](threat-model.md)
 
@@ -47,7 +47,7 @@ anything; it is the plan the roadmap items below should be pulled from.
 | Kubernetes-native rendering | `cli/renderer.py` (Compose) plus `cli/k8s_renderer.py` (Helm), landed via PR [#608](https://github.com/RonaldHensbergen/composable-data-stack/pull/608) | Largely closed for the core render/deploy path; NetworkPolicy generation and CI-based cluster validation remain (see 7.1) |
 | GitOps | None | No module/contract for declarative continuous deployment at drafting time; tracked by [#767](https://github.com/RonaldHensbergen/composable-data-stack/issues/767) — `gitops-target` contract + FluxCD reference module now in progress |
 | Observability stack (metrics/logs/traces) | `log-sink` contract + structured-event schema shipped (issue [#174](https://github.com/RonaldHensbergen/composable-data-stack/issues/174), [docs/observability.md](observability.md)) | No reference module implementing `log-sink`/metrics/tracing yet — tracked by [#369](https://github.com/RonaldHensbergen/composable-data-stack/issues/369) and [#662](https://github.com/RonaldHensbergen/composable-data-stack/issues/662) |
-| Security platform (cert lifecycle, service mesh, IAM, secrets sync) | `modules/secrets/vault` (secrets only); `cli/security.py` rule-based static checks; new `cli/k8s_security.py` (PR #608) adds pod/container hardening rules (non-root, read-only rootfs, capability drop, no privilege escalation, resource limits); production-suitable `service-mesh` contract + Istio reference module ([#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776), promoted by [#1171](https://github.com/RonaldHensbergen/composable-data-stack/issues/1171)) | No cert-management or IAM/identity-broker modules yet — tracked by [#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580) (TLS), [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) (identity) |
+| Security platform (cert lifecycle, service mesh, IAM, secrets sync) | `modules/secrets/vault` (secrets only); `cli/security.py` rule-based static checks; new `cli/k8s_security.py` (PR #608) adds pod/container hardening rules (non-root, read-only rootfs, capability drop, no privilege escalation, resource limits); production-suitable `service-mesh` contract + Istio reference module ([#776](https://github.com/RonaldHensbergen/composable-data-stack/issues/776), promoted by [#1171](https://github.com/RonaldHensbergen/composable-data-stack/issues/1171)); `modules/identity/keycloak` providing the [`oidc-provider` contract](../shared/contracts/oidc-provider.yaml) ([#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370), first consumer Superset in PR [#1064](https://github.com/RonaldHensbergen/composable-data-stack/pull/1064)) | No cert-management module yet — tracked by [#205](https://github.com/RonaldHensbergen/composable-data-stack/issues/205), [#577](https://github.com/RonaldHensbergen/composable-data-stack/issues/577), [#579](https://github.com/RonaldHensbergen/composable-data-stack/issues/579), [#580](https://github.com/RonaldHensbergen/composable-data-stack/issues/580) (TLS). Identity has landed: Keycloak provides `oidc-provider` (#370, consumer PR #1064), and the follow-ups [#682](https://github.com/RonaldHensbergen/composable-data-stack/issues/682) (`KC_DB` driven by the consumed `sql-database` binding, E154 engine match), [#974](https://github.com/RonaldHensbergen/composable-data-stack/issues/974) (production web-serving default, E140) and [#1075](https://github.com/RonaldHensbergen/composable-data-stack/issues/1075) (Superset OIDC on the Helm target, #1139) are closed. Remaining: Keycloak has no `kubernetes:` implementation block yet (gate G3.3 in [docs/plan/k8s-haven-mvp.md](plan/k8s-haven-mvp.md)) |
 | Database operators | `modules/warehouse/postgres` (plain container; StatefulSet+PVC on the new Kubernetes target, still not operator-managed) | No operator-managed/HA warehouse module yet — tracked by [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) |
 | Backup/restore | `backup-target` contract + `spec.backup` profile policies ([docs/backup-restore.md](backup-restore.md)) | No backup provider module yet — tracked by parent issue [#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210) and module-specific issues [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665) (Postgres), [#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668) (generic file/volume), [#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669) (object storage) |
 | Maturity model | `cds maturity` reports Basic/Automated/Observed/Secured/Resilient tiers from resolved platform contracts (#769, #1059) | Tier status is report-only; it does not enforce Kubernetes deployment or provider production suitability |
@@ -236,10 +236,18 @@ own* component readiness, not a *deployed profile's* compliance level):
 | Tier | Criteria |
 | --- | --- |
 | **Basic** | Profile provides a database and cache |
-| **Automated** | Basic, plus identity, TLS/reverse proxy, and a backup provider |
+| **Automated** | Basic, plus an identity provider (`oidc-provider`), TLS/reverse proxy, and a backup provider |
 | **Observed** | Automated, plus at least one logging, metrics, or tracing provider |
 | **Secured** | Observed, plus a TLS-certificate or service-mesh provider, or an identity-broker provider alongside a separate OIDC provider |
 | **Resilient** | Secured, plus backup coverage for every stateful module instance |
+
+The Automated tier's identity requirement is satisfied by an `oidc-provider`
+provider — landed as [`modules/identity/keycloak`](../modules/identity/keycloak/module.yaml)
+(#370, Superset consumer in PR [#1064](https://github.com/RonaldHensbergen/composable-data-stack/pull/1064)).
+`identity-broker` is a *separate* contract kind recognized by `cds maturity`
+(`cli/maturity.py`): it counts as the Secured-tier control only when a
+different module provides the `oidc-provider` it fronts, and no module
+provides `identity-broker` yet.
 
 This model is implemented by `cds maturity` ([#769](https://github.com/RonaldHensbergen/composable-data-stack/issues/769),
 extended by [#1059](https://github.com/RonaldHensbergen/composable-data-stack/issues/1059)).
@@ -326,7 +334,7 @@ following CDS's existing `modules/<category>/<name>/module.yaml` convention
 | 3.2 GitOps | `modules-experimental/gitops/` | `fluxcd` | new `gitops-target` contract | FluxCD over ArgoCD as the default reference: no separate UI/DB, lighter CRD surface, pull-based — matches Haven+'s lower-friction option. ArgoCD can be a documented alternative provider of the same contract, not a second mandatory module. |
 | 3.3 Observability — logs | `modules-experimental/observability/` | `loki` (Vector HTTP gateway, Loki as the store) | existing `log-sink` contract ([shared/contracts/log-sink.yaml](../shared/contracts/log-sink.yaml)) | Implemented experimentally in `modules-experimental/observability/loki/` (#662); accepts pushed records and does not automatically tail container logs. |
 | 3.3 Observability — metrics/traces | `modules-experimental/observability/` | `otel-collector` (OTLP receiver providing `log-sink`/`metrics-sink`/`trace-sink`, landing via #777) + `grafana` (bundling Grafana + Prometheus/Mimir; Tempo optional) as the storage/query backend | `metrics-sink` + `trace-sink` contracts landed via #777 | Grafana landed experimentally via #369 (`modules-experimental/observability/grafana`, a query/UI module consuming the sink contracts as datasources — not a storage backend, so profiles still pair it with `loki`/`otel-collector` or a Prometheus-shaped provider). Keep it as a second module rather than folding into `loki`, so profiles can opt into logs without pulling in the full metrics stack. |
-| 3.4 Security — identity/SSO | `modules/identity/` | `keycloak` | new `identity-broker` contract | Already scaffolded on branch `feat/identity-keycloak-module` (draft, closes #370) — needs `consumes`/`provides` filled in and the hardcoded `postgres` service name replaced with a consumed `sql-database` binding before it is profile-ready. |
+| 3.4 Security — identity/SSO | `modules/identity/` | `keycloak` | provides `oidc-provider` ([shared/contracts/oidc-provider.yaml](../shared/contracts/oidc-provider.yaml)) + `http-service`; consumes `sql-database` for its metadata store | **Landed** (#370; first consumer Superset via PR [#1064](https://github.com/RonaldHensbergen/composable-data-stack/pull/1064)): the module provides the shared `oidc-provider` contract and binds its metadata store through a consumed `sql-database` binding (`metadataDatabase.driver` drives `KC_DB`, validated against the provider's advertised engine with E154 — #682) instead of a hardcoded `postgres` service name; production web serving is the default and E140 rejects explicit `start-dev` in production profiles (#974); Superset OIDC on the Helm target is covered (#1075, #1139). Remaining gap: no `kubernetes:` implementation block yet (gate G3.3 in [docs/plan/k8s-haven-mvp.md](plan/k8s-haven-mvp.md)). |
 | 3.4 Security — TLS | `modules/integration/` or new `modules-experimental/security/` | `traefik` (already a dependency named in issue #549) | new `reverse-proxy` contract with TLS fields (#579) + `cert-issuer` contract | Edge TLS/certificate issuance is a separate capability from Istio's in-cluster peer mTLS; this work remains tracked by #205/#579/#580. |
 | 3.4 Security — service mesh | `modules/security/` | `istio` | `service-mesh` contract | Promoted to production-suitable by #1171: namespace-wide mTLS `PeerAuthentication` + optional per-service `AuthorizationPolicy` on the Helm target; enrolled in the production and local Kubernetes examples. Kubernetes-only by design; the Istio control plane remains an out-of-band prerequisite. |
 | 3.5 Backup — Postgres | `modules/warehouse/postgres/` (extend, don't fork) | add a sidecar/`backup-target` consumer to the existing module | consumes new `backup-target` contract | Closes #665. A `pgbackrest`- or `wal-g`-shaped sidecar, not a new warehouse module — keeps the existing stable Postgres module as the single source of truth. |
@@ -335,10 +343,10 @@ following CDS's existing `modules/<category>/<name>/module.yaml` convention
 | 3.6 Database operators | `modules-experimental/warehouse/` | `postgres-operator` (CloudNativePG) | same `sql-database` contract as `modules/warehouse/postgres`, Kubernetes-only implementation | Additive, not a replacement — keep the Compose-based `postgres` module as-is for local/dev; this is the Kubernetes-native HA alternative, gated to the Helm render target. |
 | 3.7 Maturity model | *(no module)* | `cds maturity` CLI feature reading Plan bindings | — | Implemented for all five tiers (#769, #1059). Not a module — a reporting layer over which platform contracts a profile provides. |
 
-Suggested build order: `log-sink` (`loki`) and the Keycloak identity module
-first — both have existing issues/scaffolding and no Kubernetes dependency
-blocking them. TLS (`traefik`) next, since #205/#579/#580 are already
-blocked on it. GitOps, metrics, backup, and the Postgres operator can follow
+Suggested build order: `log-sink` (`loki`) first — it has existing
+issues/scaffolding and no Kubernetes dependency blocking it (the Keycloak
+identity module has already landed: #370, PR #1064). TLS (`traefik`) next,
+since #205/#579/#580 are already blocked on it. GitOps, metrics, backup, and the Postgres operator can follow
 in parallel; the Istio service mesh (#776) was promoted to production-suitable
 with runnable profile coverage in #1171.
 
