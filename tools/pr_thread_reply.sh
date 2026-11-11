@@ -17,16 +17,40 @@ pr=${1:?usage: PR_THREAD_REPLY_ALLOW_YES=1 pr_thread_reply.sh [--yes] <pr> <thre
 tid=${2:?missing thread-id}
 body=${3:?missing reply-body}
 
-# Preflight verification: ensure the provided thread belongs to the provided PR.
+# Preflight verification: ensure the provided thread belongs to the provided PR and expected repository.
+expected_owner="RonaldHensbergen"
+expected_repo="composable-data-stack"
 thread_pr_number=$(
   gh api graphql \
-    -f query='query($tid:ID!){ node(id:$tid){ ... on PullRequestReviewThread { isResolved pullRequest { number } } } }' \
+    -f query='query($tid:ID!){ node(id:$tid){ ... on PullRequestReviewThread { isResolved pullRequest { number repository { owner { login } name } } } } }' \
     -f tid="$tid" \
     --jq '.data.node.pullRequest.number'
+)
+thread_repo_owner=$(
+  gh api graphql \
+    -f query='query($tid:ID!){ node(id:$tid){ ... on PullRequestReviewThread { pullRequest { repository { owner { login } } } } } }' \
+    -f tid="$tid" \
+    --jq '.data.node.pullRequest.repository.owner.login'
+)
+thread_repo_name=$(
+  gh api graphql \
+    -f query='query($tid:ID!){ node(id:$tid){ ... on PullRequestReviewThread { pullRequest { repository { name } } } } }' \
+    -f tid="$tid" \
+    --jq '.data.node.pullRequest.repository.name'
 )
 
 if [[ -z "${thread_pr_number}" || "${thread_pr_number}" == "null" ]]; then
   echo "error: thread-id '$tid' was not found or is not a pull request review thread" >&2
+  exit 1
+fi
+
+if [[ -z "${thread_repo_owner}" || "${thread_repo_owner}" == "null" || -z "${thread_repo_name}" || "${thread_repo_name}" == "null" ]]; then
+  echo "error: could not determine repository for thread-id '$tid'; aborting" >&2
+  exit 1
+fi
+
+if [[ "${thread_repo_owner}" != "${expected_owner}" || "${thread_repo_name}" != "${expected_repo}" ]]; then
+  echo "error: thread-id '$tid' belongs to ${thread_repo_owner}/${thread_repo_name}, expected ${expected_owner}/${expected_repo}; aborting" >&2
   exit 1
 fi
 
