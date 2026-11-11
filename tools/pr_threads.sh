@@ -44,10 +44,26 @@ def neutralize_prompt_injection(text):
         text = re.sub(p, '[REDACTED-INSTRUCTION]', text)
     return text
 
+def redact_secrets(text):
+    patterns = [
+        r'gh[pousr]_[A-Za-z0-9_]{20,}',                                  # GitHub tokens
+        r'AKIA[0-9A-Z]{16}',                                              # AWS access key id
+        r'xox[baprs]-[A-Za-z0-9-]{10,}',                                  # Slack tokens
+        r'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}', # JWT
+        r'-----BEGIN [A-Z ]*PRIVATE KEY-----',                            # PEM private key marker
+        r'(?i)\b(bearer)\s+[A-Za-z0-9._-]{12,}\b',                        # Bearer tokens
+        r'(?i)\b(password|passwd|pwd|secret|api[_-]?key|token)\b\s*[:=]\s*\S+',  # key=value secrets
+        r'\b[A-Za-z0-9+/=_-]{32,}\b'                                      # generic long token-like strings
+    ]
+    for p in patterns:
+        text = re.sub(p, '[REDACTED-SECRET]', text)
+    return text
+
 def sanitize(text):
     text=re.sub(r'[\x00-\x1f\x7f]', ' ', text)
     text=' '.join(text.split())
     text=neutralize_prompt_injection(text)
+    text=redact_secrets(text)
     return text[:120]
 
 include_bodies=os.environ.get('INCLUDE_BODIES') == '1'

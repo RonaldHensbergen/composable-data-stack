@@ -34,6 +34,14 @@ PROJECT_NUMBER = 1
 
 BLOCKED_STATUSES = {"done", "in progress"}
 TASK_LIST_RE = re.compile(r"^\s*[-*]\s+\[[ xX]\]", re.MULTILINE)
+CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def sanitize_untrusted_text(value: str) -> str:
+    """Return a single-line, control-char-neutralized string for safe terminal display."""
+    text = value.replace("\r", "\\r").replace("\n", "\\n")
+    text = CONTROL_CHARS_RE.sub("", text)
+    return text
 
 
 GH = shutil.which("gh") or "gh"
@@ -163,7 +171,7 @@ def main() -> int:
             print(json.dumps(issue, indent=2))
         else:
             print(f"Next issue: #{issue['number']} (order {issue['order']})")
-            print(f"Title:      {issue['title']}")
+            print(f"Title:      [UNTRUSTED] {sanitize_untrusted_text(issue['title'])}")
             print(f"Status:     {issue['status']}")
             print(f"Milestone:  {issue['milestone'] or '-'}")
             print(f"Labels:     {', '.join(issue['labels']) or '-'}")
