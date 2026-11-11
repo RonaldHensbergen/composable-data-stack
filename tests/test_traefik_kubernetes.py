@@ -455,7 +455,7 @@ class TraefikKubernetesProfileTest(unittest.TestCase):
 
 
 class TraefikKubernetesPlanFileTest(unittest.TestCase):
-    """Plan-file bypass shapes: fail closed instead of crashing (E164)."""
+    """Plan-file bypass shapes: fail closed instead of crashing (E165)."""
 
     def _plan(self, service_port=None, routes=None) -> dict:
         traefik_module = yaml.safe_load(
@@ -539,13 +539,13 @@ class TraefikKubernetesPlanFileTest(unittest.TestCase):
             "modules": [proxy, target],
         }
 
-    def test_garbage_service_port_fails_e164(self) -> None:
+    def test_garbage_service_port_fails_e165(self) -> None:
         files, diagnostics = render_helm(self._plan(service_port="not-a-port"))
         self.assertEqual(files, {})
-        e164 = [d for d in diagnostics if d.code == "E164"]
-        self.assertEqual(len(e164), 1)
-        self.assertIn('"port"', e164[0].message)
-        self.assertIn("not-a-port", e164[0].message)
+        e165 = [d for d in diagnostics if d.code == "E165"]
+        self.assertEqual(len(e165), 1)
+        self.assertIn('"port"', e165[0].message)
+        self.assertIn("not-a-port", e165[0].message)
 
     def test_address_shaped_service_port_parses(self) -> None:
         # ":8080" (a traefik entrypoint address) is a valid port declaration.
@@ -568,7 +568,7 @@ class TraefikKubernetesPlanFileTest(unittest.TestCase):
         self.assertEqual(len(e136), 1)
         self.assertIn("unknown module", e136[0].message)
 
-    def test_unsafe_certificate_alias_fails_e165(self) -> None:
+    def test_unsafe_certificate_alias_fails_e166(self) -> None:
         # The alias interpolates into the projected <alias>.crt path, so a
         # plan file naming an alias outside [A-Za-z0-9-] fails closed instead
         # of rendering a path Kubernetes would reject at install time.
@@ -576,13 +576,13 @@ class TraefikKubernetesPlanFileTest(unittest.TestCase):
         plan["certificates"] = {
             "../evil": {"cert": "CDS_EVIL_CERT", "key": "CDS_EVIL_KEY"}
         }
-        # E165 is raised in the module rendering pass, so like E074/E075 the
+        # E166 is raised in the module rendering pass, so like E074/E075 the
         # files mapping is returned but the CLI exits non-zero and writes
         # nothing to disk.
         files, diagnostics = render_helm(plan)
-        e165 = [d for d in diagnostics if d.code == "E165"]
-        self.assertEqual(len(e165), 1)
-        self.assertIn("../evil", e165[0].message)
+        e166 = [d for d in diagnostics if d.code == "E166"]
+        self.assertEqual(len(e166), 1)
+        self.assertIn("../evil", e166[0].message)
         self.assertNotIn("../evil", "\n".join(files.values()))
 
 

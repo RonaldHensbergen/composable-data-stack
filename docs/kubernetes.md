@@ -331,9 +331,9 @@ on exactly the entry-point ports (the NodePort/LoadBalancer surface rule), and
 egress to each route target is the port-scoped edge derived from
 `config.routes` (issue #1033), matched by an ingress edge on the target. A
 host with no route is not reachable through the proxy: no edge, no router.
-Port declarations on workloads are re-checked at render time (E164; listen
+Port declarations on workloads are re-checked at render time (E165; listen
 addresses like `:80` parse to their port), and a malformed
-`certificateMounts` entry fails closed with E165.
+`certificateMounts` entry fails closed with E166.
 
 ## Network isolation and least privilege
 

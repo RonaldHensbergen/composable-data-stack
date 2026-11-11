@@ -1970,7 +1970,7 @@ _PORT_FIELDS = {
 def _port_shape_diagnostics(
     module_id: str, workload_name: str, workload: dict[str, Any]
 ) -> list[Diagnostic]:
-    """Re-check port shapes on the substituted workload (E164, issue #1132)."""
+    """Re-check port shapes on the substituted workload (E165, issue #1132)."""
     base = f"module:{module_id}.implementation.kubernetes.workloads.{workload_name}"
     diagnostics: list[Diagnostic] = []
     for block, (list_field, fields) in _PORT_FIELDS.items():
@@ -2018,7 +2018,7 @@ def _port_shape_diagnostics(
 def _port_shape_diagnostic(where: str, requirement: str) -> Diagnostic:
     return Diagnostic(
         level="error",
-        code="E164",
+        code="E165",
         message=(
             f'Malformed port declaration at "{where}": {requirement}. A plan '
             "loaded from a file bypasses the module schema, and the renderer "
@@ -2093,7 +2093,7 @@ def _render_certificate_mounts(
             diagnostics.append(
                 Diagnostic(
                     level="error",
-                    code="E165",
+                    code="E166",
                     message=(
                         f'Certificate alias "{alias}" of module "{module_id}" is not a '
                         "safe file-name stem (letters, digits, hyphens only); the "
@@ -2123,7 +2123,7 @@ def _render_certificate_mounts(
             diagnostics.append(
                 Diagnostic(
                     level="error",
-                    code="E165",
+                    code="E166",
                     message=(
                         f'Certificate mount "{name}" of module "{module_id}" must be a '
                         "mapping (plan-file bypass of the module schema)."
@@ -2138,7 +2138,7 @@ def _render_certificate_mounts(
             diagnostics.append(
                 Diagnostic(
                     level="error",
-                    code="E165",
+                    code="E166",
                     message=(
                         f'Certificate mount "{name}" of module "{module_id}" needs a '
                         '"fromBind" (the compose bind source it replaces) or a '
@@ -2817,7 +2817,7 @@ def _required_port(value: Any) -> int:
     """
     Like `_as_port`, but keeps the renderer's fail-closed contract: a value
     no Kubernetes port can come from raises instead of rendering null. The
-    pre-pass shape check (E164) normally catches these first.
+    pre-pass shape check (E165) normally catches these first.
     """
     port = _as_port(value)
     if port is None:
