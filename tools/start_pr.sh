@@ -15,6 +15,17 @@ MAIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 wt="/tmp/${branch//\//-}-wt"
 git -C "$MAIN" worktree add -b "$branch" "$wt" main
 cd "$wt"
+echo "About to push and open PR with:"
+echo "  repo:   $REPO"
+echo "  base:   main"
+echo "  branch: $branch"
+echo "  issue:  #$n"
+echo "  wt:     $wt"
+read -r -p "Proceed with remote push and PR creation? [y/N] " confirm
+case "$confirm" in
+  y|Y|yes|YES) ;;
+  *) echo "Aborted."; exit 1 ;;
+esac
 git push -u origin "$branch" --quiet
 args=(--repo "$REPO" --base main --head "$branch" --title "$branch" --body "Closes #$n.")
 for label in "$@"; do args+=(--label "$label"); done
