@@ -52,7 +52,7 @@ def sanitize(text):
 
 include_bodies=os.environ.get('INCLUDE_BODIES') == '1'
 d=json.load(sys.stdin)['data']['repository']['pullRequest']
-print(f\"PR #{d['number']}: {d['title']}\")
+print(f\"PR #{d['number']}: {sanitize(d.get('title') or '')}\")
 ts=d['reviewThreads']['nodes']
 print(f'{len(ts)} threads')
 for t in ts:
