@@ -26,7 +26,15 @@ if [[ $# -gt 0 ]]; then
   exit 1
 fi
 
-gh api graphql -f query='query($pr:Int!){ repository(owner:"RonaldHensbergen", name:"composable-data-stack"){ pullRequest(number:$pr){ number title reviewThreads(first:100){ nodes { id isResolved path line comments(first:3){ nodes { body author{login} } } } } } } }' -F pr="$pr" \
+# Only request untrusted comment bodies when explicitly asked for
+# (--include-bodies); the default query does not fetch them at all.
+if [[ "$include_bodies" == "1" ]]; then
+  query='query($pr:Int!){ repository(owner:"RonaldHensbergen", name:"composable-data-stack"){ pullRequest(number:$pr){ number title reviewThreads(first:100){ nodes { id isResolved path line comments(first:3){ nodes { body author{login} } } } } } }'
+else
+  query='query($pr:Int!){ repository(owner:"RonaldHensbergen", name:"composable-data-stack"){ pullRequest(number:$pr){ number title reviewThreads(first:100){ nodes { id isResolved path line } } } } }'
+fi
+
+gh api graphql -f query="$query" -F pr="$pr" \
 | INCLUDE_BODIES="$include_bodies" python3 -c "import json,sys,os,re
 def neutralize_prompt_injection(text):
     patterns = [
@@ -72,7 +80,7 @@ print(f\"PR #{d['number']}: {sanitize(d.get('title') or '')}\")
 ts=d['reviewThreads']['nodes']
 print(f'{len(ts)} threads')
 for t in ts:
-    cs=t['comments']['nodes']
+    cs=(t.get('comments') or {}).get('nodes') or []
     who=cs[0]['author']['login'] if cs and cs[0].get('author') else '?'
     base=f\"- {'RESOLVED' if t['isResolved'] else 'OPEN    '} {t['id']} {t.get('path')}:{t.get('line')} @{who}\"
     if include_bodies:
