@@ -76,7 +76,7 @@ for t in ts:
     who=cs[0]['author']['login'] if cs and cs[0].get('author') else '?'
     base=f\"- {'RESOLVED' if t['isResolved'] else 'OPEN    '} {t['id']} {t.get('path')}:{t.get('line')} @{who}\"
     if include_bodies:
-        first=sanitize(cs[0]['body']) if cs else ''
-        print(f\"{base}: [UNTRUSTED_COMMENT] {json.dumps(first)}\")
+        raw_len=len(cs[0].get('body') or '') if cs else 0
+        print(f\"{base}: [UNTRUSTED_COMMENT_REDACTED] body_present={'yes' if raw_len > 0 else 'no'} body_len={raw_len}\")
     else:
         print(base)"

@@ -62,11 +62,6 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("number", type=int)
     ap.add_argument("--json", action="store_true")
-    ap.add_argument(
-        "--include-untrusted",
-        action="store_true",
-        help="Include sanitized issue body and comment text (redacted by default).",
-    )
     args = ap.parse_args()
     n = args.number
 
