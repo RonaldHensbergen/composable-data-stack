@@ -604,8 +604,8 @@ filed as an issue (last column).
 
 | Gate | Testing command run | Path (A/B) | Result (pass/fail/blocked) | Tested by | Date | Signed off by (name, date) | Evidence link | Issues filed |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 0 — Bootstrap | | | | | | | | |
-| 1 — Kubernetes MVP | | | | | | | | |
+| 0 — Bootstrap | `cds get <profiles> --remote RonaldHensbergen/composable-data-stack --into ~/cds-mvp`; `cds test local-kubernetes-example` (compose); compose smoke `cds up/state/down` on local-dagster-postgres-superset | A | pass — CLI 0.15.1 from PyPI; profiles re-fetched at commit `05fdc7a` (v0.15.1, contains #1105, so G0.0 satisfied); k3d v5.9.0 cluster `cds` up; `cds test` all stages PASS (2026-11-06 20:28Z); compose smoke green 2026-11-11 after `docker compose down -v` (stale 2026-10-02 postgres volume held pre-`cds init` passwords, causing auth failures) | ronalddev (hetzner-dev) | 2026-11-11 | Ronald Hensbergen, 2026-11-11 | `hetzner-dev:~/cds-mvp/evidence/` (compose-smoke-state-20261111.log, up log) + `.cds/get-manifest.json` + `.cds/audit-log.jsonl` | #690 closed via PR #1105 |
+| 1 — Kubernetes MVP | `cds up/state/down local-kubernetes-example --target helm` + boundary checks (`~/cds-mvp/boundary-checks.sh`, e2e.sh equivalent) | A | pass — full lifecycle green on k3d `cds`, ns `cds-local`: up rev 2 (2026-11-11 21:08Z; first attempt 20:59Z failed closed E155 until Istio 1.30.8 installed out of band in istio-system), state: all 6 workloads HEALTHY, boundary checks 13/13 pass (incl. PeerAuthentication STRICT, dagster/superset→postgres:5432 OPEN, dagster→keydb DENIED, Dagster+Superset HTTP via port-forward), down clean (release uninstalled 21:32Z, postgres PVC retained) | ronalddev (hetzner-dev) | 2026-11-11 | Ronald Hensbergen, 2026-11-11 | `hetzner-dev:~/cds-mvp/evidence/` (boundary-checks-20261111T222759Z.log) + `cdsstate_targethelm.log` + `.cds/audit-log.jsonl` + `.cds/logs/up-…-20261111T210358Z.log`, `down-…-20261111T213203Z.log` | #1031, #1023 closed (were the blocking issues) |
 | 2 — Production-ready | | | | | | | | |
 | 3 — Haven parity | | | | | | | | |
 | 4 — Evidence and issues | | | | | | | | |
@@ -619,7 +619,7 @@ Environment record (fill in once, reference everywhere):
 
 | Tool | Version | Notes |
 | --- | --- | --- |
-| Docker Engine | | memory/disk allocated |
-| `cds` CLI | | install path (pipx/pip), fetched commit SHA |
-| k3d / kubectl / Helm | | |
-| Cluster | `k3d-cds-mvp`, 1 server + 1 agent | |
+| Docker Engine | server 29.1.3 (client 29.9.3) | hetzner-dev, 8 CPUs / 62 GB RAM |
+| `cds` CLI | 0.15.1 | PyPI install (pip into `~/repo/cdsvenv`); fetched profiles commit `05fdc7a` (v0.15.1, contains #1105) |
+| k3d / kubectl / Helm | k3d v5.9.0 / kubectl v1.37.1 / Helm v3.22.0 | k3s v1.35.5+k3s1; Istio 1.30.8 out of band |
+| Cluster | `k3d-cds`, 1 server, loadbalancer | run on hetzner-dev; ns `cds-local`, release `local-kubernetes-example` (deviation from `k3d-cds-mvp`/`cds-mvp`/`cds` recorded) |
