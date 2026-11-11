@@ -298,7 +298,7 @@ certs/traefik/*
 # bv (b9s) local config and caches
 .bv/
 
-# Lokale agent-instructies (niet committen)
+# Local-only agent workflows (self-assign, push/merge commands) — never commit
 /AGENTS.local.md
 
 # Continue.dev local session state
