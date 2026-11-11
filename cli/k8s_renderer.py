@@ -615,7 +615,7 @@ def _check_podless_network_declarations(
                         "Kubernetes workload pods, so the declaration has no "
                         "effect: a manifests-only module gets no NetworkPolicy at "
                         "all, and a module whose workloads are all disabled gets "
-                        'one that selects zero pods. Move the declaration to a '
+                        "one that selects zero pods. Move the declaration to a "
                         "module that renders pods, or remove it (issue #1131)."
                     ),
                     path=path,
@@ -4104,7 +4104,10 @@ def _check_provided_contract_ports(
                 continue
             for port in declared.get("ports") or []:
                 if isinstance(port, dict):
-                    for value in (_container_port(port), _int_or_none(port.get("port"))):
+                    for value in (
+                        _container_port(port),
+                        _int_or_none(port.get("port")),
+                    ):
                         if value is not None:
                             ports_by_name.setdefault(service_names[full], set()).add(
                                 value

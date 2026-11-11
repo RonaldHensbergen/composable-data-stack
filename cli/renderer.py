@@ -244,9 +244,9 @@ def render_compose(
             module_service_names.setdefault(module["id"], []).append(
                 compose_service_name
             )
-            module_service_ports.setdefault(module["id"], {})[
-                compose_service_name
-            ] = _service_container_ports(service_def)
+            module_service_ports.setdefault(module["id"], {})[compose_service_name] = (
+                _service_container_ports(service_def)
+            )
 
         for volume_name, volume_def in rendered_volumes.items():
             compose["volumes"][f"{module['id']}-{volume_name}"] = volume_def
@@ -280,9 +280,7 @@ def render_compose(
         compose.pop("volumes")
 
     diagnostics.extend(_validate_provided_contract_hosts(plan, module_service_names))
-    diagnostics.extend(
-        _validate_provided_contract_ports(plan, module_service_ports)
-    )
+    diagnostics.extend(_validate_provided_contract_ports(plan, module_service_ports))
 
     _add_cross_module_dependencies(compose, plan, module_service_names)
 
@@ -599,9 +597,7 @@ def _provided_contract_port_candidates(
         candidates.append(("host", spec.get("host"), "port", port))
     elif kind == "object-storage":
         endpoint = spec.get("endpoint")
-        candidates.append(
-            ("endpoint", endpoint, "endpoint", _endpoint_port(endpoint))
-        )
+        candidates.append(("endpoint", endpoint, "endpoint", _endpoint_port(endpoint)))
     elif kind in ("lineage-sink", "log-sink", "metrics-sink", "trace-sink"):
         advertised_service = spec.get("serviceName")
         if isinstance(advertised_service, str) and advertised_service:
@@ -668,9 +664,12 @@ def _validate_provided_contract_ports_against(
             if not isinstance(spec, dict):
                 continue
             seen: set[tuple[str, str]] = set()
-            for host_field, advertised, port_field, port in (
-                _provided_contract_port_candidates(kind, spec, module_id)
-            ):
+            for (
+                host_field,
+                advertised,
+                port_field,
+                port,
+            ) in _provided_contract_port_candidates(kind, spec, module_id):
                 if port is None:
                     continue
                 host = _endpoint_hostname(advertised)
