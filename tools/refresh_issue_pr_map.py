@@ -299,7 +299,9 @@ def main() -> int:
     ]
     for n, pr in prs_out.items():
         display_pr_title = (
-            pr["title"] if INCLUDE_UNTRUSTED_TEXT else "(redacted; set VIBE_INCLUDE_TITLES=1)"
+            sanitize_untrusted_text(pr["title"])
+            if INCLUDE_UNTRUSTED_TEXT
+            else "(redacted; set VIBE_INCLUDE_TITLES=1)"
         )
         parts = [
             f"#{i['issue']} [{i['state']}] ({', '.join(i['link_types'])})"
