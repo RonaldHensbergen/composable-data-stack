@@ -227,6 +227,89 @@ class RealProfileHelmRendererTest(unittest.TestCase):
         self.assertIn("{{ .Release.Name }}-postgres:5432", superset)
 
 
+class RegistryImageSourceHelmTest(unittest.TestCase):
+    """The Helm target honors config.image.source "registry" (issue #1106,
+    the Helm slice of #407): the chart references the published image and
+    does not mark it imagePullPolicy: Never, exactly like the compose
+    renderer's _apply_image_source step."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.repo_root = Path(__file__).resolve().parent.parent
+        cls.secret_values = RealProfileHelmRendererTest.secret_values
+        cls._tempdir = tempfile.TemporaryDirectory()
+        env_file = Path(cls._tempdir.name) / ".env"
+        env_file.write_text(
+            "\n".join(f"{key}={value}" for key, value in cls.secret_values.items())
+            + "\n",
+            encoding="utf-8",
+        )
+        cls.env_file = str(env_file)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tempdir.cleanup()
+
+    def _plan(self, image_source: str | None = None) -> dict:
+        profile = (
+            self.repo_root
+            / "profiles"
+            / "local-dagster-postgres-superset"
+            / "profile.yaml"
+        )
+        with mock.patch.dict(os.environ, self.secret_values, clear=False):
+            plan, diagnostics = build_plan(
+                str(profile), env_file=self.env_file, image_source=image_source
+            )
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(plan)
+        return plan
+
+    def _render(self, image_source: str | None = None) -> dict[str, str]:
+        files, diagnostics = render_helm(self._plan(image_source))
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        return files
+
+    def test_registry_modules_render_published_images_without_never(self) -> None:
+        files = self._render("registry")
+        for name, image in (
+            ("templates/dagster-user-code-deployment.yaml", "dagster:1.13.26"),
+            ("templates/dagster-webserver-deployment.yaml", "dagster:1.13.26"),
+            ("templates/dagster-daemon-deployment.yaml", "dagster:1.13.26"),
+            ("templates/superset-superset-deployment.yaml", "superset:6.1.0"),
+        ):
+            manifest = files[name]
+            self.assertIn(f"image: docker.io/ronaldsoeverein/{image}", manifest)
+            self.assertNotIn("imagePullPolicy: Never", manifest)
+        # postgres exposes no image.source config option, so it keeps its
+        # local build and pullPolicy Never.
+        postgres = files["templates/postgres-postgres-statefulset.yaml"]
+        self.assertIn("image: local/postgres:custom", postgres)
+        self.assertIn("imagePullPolicy: Never", postgres)
+        # Stock images without a build block are untouched.
+        self.assertIn(
+            "image: eqalpha/keydb:6.3.4@sha256:",
+            files["templates/keydb-keydb-deployment.yaml"],
+        )
+
+    def test_build_source_keeps_local_images_with_never(self) -> None:
+        # The default (source "build") render is unchanged: local images with
+        # pullPolicy Never, so cds up --target helm keeps building them.
+        files = self._render(None)
+        for name in (
+            "templates/dagster-user-code-deployment.yaml",
+            "templates/dagster-webserver-deployment.yaml",
+            "templates/dagster-daemon-deployment.yaml",
+        ):
+            manifest = files[name]
+            self.assertIn("image: local/dagster:custom", manifest)
+            self.assertIn("imagePullPolicy: Never", manifest)
+        superset = files["templates/superset-superset-deployment.yaml"]
+        self.assertIn("image: local/superset:custom", superset)
+        self.assertIn("imagePullPolicy: Never", superset)
+
+
 class HelmRendererDiagnosticTest(unittest.TestCase):
     def test_configmap_content_changes_the_workload_checksum(self) -> None:
         volumes = {"code": {"configMap": {"name": "release-code", "defaultMode": 292}}}
@@ -331,6 +414,56 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
 
         self.assertEqual(files, {})
         self.assertIn("E072", {diagnostic.code for diagnostic in diagnostics})
+
+    def test_registry_image_source_rewrites_build_service(self) -> None:
+        # Issue #1106 (the Helm slice of #407): with config.image.source
+        # "registry" plus a tag, the compose build: block is dropped and the
+        # container references the published image with no imagePullPolicy:
+        # Never -- exactly what the compose renderer's _apply_image_source
+        # produces, so cds up --target helm stops building the local image.
+        plan = self.minimal_plan()
+        service = plan["modules"][0]["implementation"]["compose"]["services"]["app"]
+        service["build"] = {"context": "/abs", "dockerfile": "Dockerfile"}
+        plan["modules"][0]["config"]["image"] = {"source": "registry", "tag": "9.9.9"}
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        manifest = files["templates/demo-app-statefulset.yaml"]
+        self.assertIn("image: docker.io/ronaldsoeverein/demo:9.9.9", manifest)
+        self.assertNotIn("imagePullPolicy: Never", manifest)
+
+    def test_ghcr_registry_image_source_rewrites_to_ghcr(self) -> None:
+        plan = self.minimal_plan()
+        service = plan["modules"][0]["implementation"]["compose"]["services"]["app"]
+        service["build"] = {"context": "/abs"}
+        plan["modules"][0]["config"]["image"] = {
+            "source": "registry",
+            "registry": "ghcr",
+            "tag": "sha-abc",
+        }
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        manifest = files["templates/demo-app-statefulset.yaml"]
+        self.assertIn("image: ghcr.io/ronaldhensbergen/cds-demo:sha-abc", manifest)
+        self.assertNotIn("imagePullPolicy: Never", manifest)
+
+    def test_registry_image_source_without_tag_keeps_build(self) -> None:
+        # Mirrors _apply_image_source: without a tag the service is left
+        # unchanged, so the local build and pullPolicy Never stay.
+        plan = self.minimal_plan()
+        service = plan["modules"][0]["implementation"]["compose"]["services"]["app"]
+        service["build"] = {"context": "/abs"}
+        plan["modules"][0]["config"]["image"] = {"source": "registry"}
+
+        files, diagnostics = render_helm(plan)
+
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        manifest = files["templates/demo-app-statefulset.yaml"]
+        self.assertIn("image: example/app:1", manifest)
+        self.assertIn("imagePullPolicy: Never", manifest)
 
     def test_backup_capability_is_rejected_for_helm_target(self) -> None:
         # The built-in backup capability (issue #665) has no Kubernetes

@@ -272,7 +272,7 @@ guess at semantics that differ between runtimes.
 | Compose network | Not translated; Kubernetes DNS and Services provide reachability |
 | Network policy | Emitted per module: default-deny ingress/egress with contract-derived allow rules (see [Network isolation](#network-isolation-and-least-privilege)) |
 | `pids_limit` | Not translated by the current schema |
-| Local `build:` | Build first, then import into k3d |
+| Local `build:` | Build first, then import into k3d; with `config.image.source: registry` the published image reference is rendered instead (no `imagePullPolicy: Never`) and the cluster pulls it itself |
 | Single-file host bind (`fromBind`) | ConfigMap projected at the bind target via `subPath`, read-only |
 | Directory host bind | `emptyDir` (host content is not carried over) |
 

@@ -1,6 +1,7 @@
 import contextlib
 import io
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -21,6 +22,7 @@ from cli.k8s_provision import (
     import_local_images,
     k3d_cluster_name,
 )
+from cli.k8s_renderer import render_helm
 from cli.planner import build_plan
 from cli.up_runner import _ALLOWED_EXECUTABLES
 
@@ -128,6 +130,55 @@ class CollectLocalBuildsRealProfileTest(unittest.TestCase):
         self.assertIn("local/postgres:custom", builds)
         self.assertNotIn("postgres:18", {build.image for build in builds.values()})
 
+    def _registry_plan(self) -> dict:
+        # Same profile with --image-source registry: dagster and superset
+        # expose config.image.source in their schema, postgres does not.
+        env_file = Path(self._tempdir.name) / ".env"
+        with mock.patch.dict(os.environ, SECRET_VALUES, clear=False):
+            plan, diagnostics = build_plan(
+                str(
+                    REPO_ROOT
+                    / "profiles"
+                    / "local-dagster-postgres-superset"
+                    / "profile.yaml"
+                ),
+                env_file=str(env_file),
+                image_source="registry",
+            )
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual(errors, [])
+        self.assertIsNotNone(plan)
+        return plan
+
+    def test_registry_image_source_builds_only_modules_without_the_option(
+        self,
+    ) -> None:
+        # Issue #1106: collect_local_builds applies the same
+        # renderer._apply_image_source() step as the Helm renderer, so
+        # registry-sourced modules (dagster, superset) drop their build:
+        # block and stay out of the local build set; postgres has no
+        # image.source config option and is still built locally.
+        builds = collect_local_builds(self._registry_plan())
+        self.assertEqual([build.image for build in builds], ["local/postgres:custom"])
+
+    def test_build_set_matches_chart_pull_policy_never_images(self) -> None:
+        # The invariant recorded on collect_local_builds: what cds builds ==
+        # what the rendered chart references with imagePullPolicy: Never.
+        # Checked for both image sources so it stays true when the renderer
+        # honors registry images (issues #1106/#407). The workload manifests
+        # embed Helm {{ }} blocks, so the pull-policy pairs are matched as
+        # text: `image: <ref>` immediately followed by `imagePullPolicy: Never`.
+        pull_never_re = re.compile(r"image: (\S+)\n\s*imagePullPolicy: Never")
+        for plan in (self.plan, self._registry_plan()):
+            files, diagnostics = render_helm(plan)
+            self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+            pull_never = set()
+            for relative_path, content in files.items():
+                if relative_path.startswith("templates/"):
+                    pull_never.update(pull_never_re.findall(content))
+            built = {build.image for build in collect_local_builds(plan)}
+            self.assertEqual(built, pull_never)
+
 
 class CollectLocalBuildsUnitTest(unittest.TestCase):
     def test_services_without_build_are_skipped(self) -> None:
@@ -193,6 +244,54 @@ class CollectLocalBuildsUnitTest(unittest.TestCase):
         )
         builds = collect_local_builds(plan)
         self.assertEqual([b.image for b in builds], ["local/b:1"])
+
+    def test_registry_image_source_drops_the_build(self) -> None:
+        # Issue #1106: the same renderer._apply_image_source() step the Helm
+        # renderer applies runs here, so a module with
+        # config.image.source "registry" (plus tag and a known registry) drops
+        # its build: block and is not built locally.
+        plan = _synthetic_plan(
+            {"web": {"image": "local/web:1", "build": {"context": "/abs"}}},
+            config={"image": {"source": "registry", "tag": "1.2.3"}},
+        )
+        self.assertEqual(collect_local_builds(plan), [])
+
+    def test_registry_image_source_ghcr_drops_the_build(self) -> None:
+        plan = _synthetic_plan(
+            {"web": {"image": "local/web:1", "build": {"context": "/abs"}}},
+            config={
+                "image": {"source": "registry", "registry": "ghcr", "tag": "sha-abc"}
+            },
+        )
+        self.assertEqual(collect_local_builds(plan), [])
+
+    def test_registry_source_without_tag_keeps_the_build(self) -> None:
+        # Mirrors _apply_image_source: no tag means the service is left
+        # unchanged (build: block intact), so the image is still built.
+        plan = _synthetic_plan(
+            {"web": {"image": "local/web:1", "build": {"context": "/abs"}}},
+            config={"image": {"source": "registry"}},
+        )
+        builds = collect_local_builds(plan)
+        self.assertEqual([b.image for b in builds], ["local/web:1"])
+
+    def test_registry_source_with_unknown_registry_keeps_the_build(self) -> None:
+        # An unrecognized config.image.registry leaves the service unchanged
+        # rather than silently defaulting to Docker Hub.
+        plan = _synthetic_plan(
+            {"web": {"image": "local/web:1", "build": {"context": "/abs"}}},
+            config={"image": {"source": "registry", "registry": "quay", "tag": "1"}},
+        )
+        builds = collect_local_builds(plan)
+        self.assertEqual([b.image for b in builds], ["local/web:1"])
+
+    def test_build_source_is_the_default_noop(self) -> None:
+        plan = _synthetic_plan(
+            {"web": {"image": "local/web:1", "build": {"context": "/abs"}}},
+            config={"image": {"source": "build", "tag": "1.2.3"}},
+        )
+        builds = collect_local_builds(plan)
+        self.assertEqual([b.image for b in builds], ["local/web:1"])
 
     def test_interpolated_build_fields_are_substituted(self) -> None:
         plan = _synthetic_plan(

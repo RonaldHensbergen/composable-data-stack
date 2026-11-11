@@ -60,6 +60,7 @@ import yaml
 from .confinement import plan_declares_confinement
 from .diagnostics import Diagnostic
 from .renderer import (
+    _apply_image_source,
     _build_context,
     _compose_port_target,
     _is_valid_backend_port,
@@ -339,6 +340,19 @@ def render_helm(
             True,
         )
         _merge_init_db_env(compose_services, module, secrets)
+        # Honor config.image.source exactly like the compose renderer does
+        # (renderer._apply_image_source): a module sourced from "registry"
+        # drops its build: block here and its image becomes the published
+        # reference, so _translate_container() renders no imagePullPolicy:
+        # Never for it and the cluster pulls the image itself. This is the
+        # Helm slice of #407; k8s_provision.collect_local_builds() applies
+        # the same step, so `cds up --target helm` never builds local images
+        # the chart no longer references (issue #1106).
+        for service_name, service_def in compose_services.items():
+            if isinstance(service_def, dict):
+                compose_services[service_name] = _apply_image_source(
+                    service_def, module
+                )
 
         (
             module_values,
