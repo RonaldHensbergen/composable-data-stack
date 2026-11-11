@@ -311,7 +311,7 @@ def main() -> int:
         ]
         linked = "; ".join(parts) if parts else "— (no links)"
         lines.append(
-            f"| [{n}]({pr['url']}) | `{pr['branch']}` | {pr['title']} | {linked} |"
+            f"| [{n}]({pr['url']}) | `{pr['branch']}` | {display_pr_title} | {linked} |"
         )
     lines += [
         "",
