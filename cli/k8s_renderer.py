@@ -72,6 +72,7 @@ from .renderer import (
     _compose_port_target,
     _generate_reverse_proxy_routes,
     _inject_oidc_realm_imports,
+    _is_disabled,
     _is_valid_backend_port,
     _merge_init_db_env,
     _resolve_expr,
@@ -329,27 +330,6 @@ def render_helm(
             workload_egress,
         )
     )
-
-    # The built-in backup capability (config.backup.enabled, issue #665) is
-    # only implemented for the compose target: there is no Kubernetes
-    # sidecar workload yet. Fail closed instead of rendering a chart whose
-    # database is silently unprotected.
-    for module in renderable:
-        backup_config = (module.get("config") or {}).get("backup")
-        if isinstance(backup_config, dict) and backup_config.get("enabled") is True:
-            diagnostics.append(
-                Diagnostic(
-                    level="error",
-                    code="E142",
-                    message=(
-                        f'Module "{module["id"]}" enables config.backup.enabled, but the '
-                        'backup capability is not implemented for the "helm" render target '
-                        "(no Kubernetes sidecar workload exists yet). Render this profile "
-                        "with --target=compose, or disable backup for Kubernetes deploys."
-                    ),
-                    path=f"module:{module['id']}.config.backup.enabled",
-                )
-            )
 
     if any(diagnostic.level == "error" for diagnostic in diagnostics):
         return {}, diagnostics
@@ -803,6 +783,12 @@ def _render_module(
                     _missing_service(module_id, workload_name, compose_name)
                 )
                 continue
+            # Honor the compose service's own enabledFrom gate, like the
+            # compose renderer does: a gated-off service (e.g. the backup
+            # sidecar while config.backup.enabled is false) contributes no
+            # container to the pod.
+            if _is_disabled(spec.get("enabledFrom"), context):
+                continue
             container, vols, claims, keys = _translate_container(
                 compose_name,
                 spec,
@@ -827,6 +813,12 @@ def _render_module(
                 diagnostics.append(
                     _missing_service(module_id, workload_name, compose_name)
                 )
+                continue
+            # Honor the compose service's own enabledFrom gate, like the
+            # compose renderer does: a gated-off service (e.g. the backup
+            # sidecar while config.backup.enabled is false) contributes no
+            # container to the pod.
+            if _is_disabled(spec.get("enabledFrom"), context):
                 continue
             container, vols, claims, keys = _translate_container(
                 compose_name,

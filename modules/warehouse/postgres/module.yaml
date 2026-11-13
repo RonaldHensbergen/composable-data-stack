@@ -129,7 +129,8 @@ spec:
           archiving (point-in-time recovery) into an encrypted repository
           volume, with a gated one-shot restore service. Encryption is
           mandatory: enabling backup without a key fails validation (E141).
-          Not yet implemented for the helm render target (E142).
+          On the helm target the sidecar renders as a second container in the
+          postgres pod and the repository as a PVC (issue #1266).
         properties:
           enabled:
             type: boolean
@@ -172,6 +173,13 @@ spec:
               Days a restore point (and its WAL) is retained in the
               repository; advertised as maxRetentionDays on the
               backup-target contract.
+          repositorySize:
+            type: string
+            default: 10Gi
+            description: >-
+              Size of the pgBackRest repository PVC rendered for the helm
+              target (compose uses a plain named volume, so this only
+              applies to Kubernetes deploys).
 
       dagsterDatabase:
         type: object
@@ -567,6 +575,10 @@ spec:
             fsGroup: 999
           containers:
             - postgres
+            # pgBackRest sidecar (issue #665): gated by the compose service's
+            # own enabledFrom (config.backup.enabled), so it renders only when
+            # the backup capability is on.
+            - postgres-backup
           service:
             type: ClusterIP
             ports:
@@ -580,6 +592,12 @@ spec:
                 memory: 256Mi
               limits:
                 memory: 1Gi
+            postgres-backup:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 512Mi
       volumes:
         postgres-data:
           type: persistentVolumeClaim
@@ -587,6 +605,15 @@ spec:
           accessModes:
             - ReadWriteOnce
           enabledFrom: config.storage.enabled
+        # pgBackRest repository (issue #665): a PVC on the helm target,
+        # mounted by the postgres container (WAL archiving) and the
+        # postgres-backup sidecar.
+        postgres-backup-repo:
+          type: persistentVolumeClaim
+          sizeFrom: config.backup.repositorySize
+          accessModes:
+            - ReadWriteOnce
+          enabledFrom: config.backup.enabled
       configMaps:
         init-db:
           key: "${config.initDbScript}"

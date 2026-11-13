@@ -19,10 +19,13 @@ spec:
         # because validation runs before configSchema defaults apply.
         authentication:
           hostAuth: scram-sha-256
-        # The pgBackRest backup sidecar (issue #665) is deliberately not
-        # enabled here: the backup capability is not implemented for the
-        # "helm" render target yet (E142). The encrypted backup policies
-        # below are still declared, as production validation requires them.
+        # Built-in backup capability (issue #665, helm sidecar in #1266):
+        # pgBackRest sidecar container with continuous WAL archiving, daily
+        # full and hourly incremental backups into an encrypted repository
+        # PVC on the helm target.
+        backup:
+          enabled: true
+          encryptionKeyFrom: secrets.backup_encryption_key
 
   # Production profiles must declare encrypted backup policies per workload
   # class (see docs/backup-restore.md). The cache class is deliberately
