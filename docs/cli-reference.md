@@ -40,14 +40,22 @@ want to run the stack without the `cds` CLI.
 
 ## `cds preflight`
 
-`cds preflight [profile]` prints one `[PASS]`/`[WARN]`/`[FAIL]` line per check.
-Every `WARN` and `FAIL` line ends with a `(see <url>)` link to the repo doc that
-governs the check: the [host hardening baseline](docker-host-hardening.md) for
-`host.*` warnings (`host.rootless` links [rootless-docker.md](rootless-docker.md)),
-the [installation guide](installation.md) for runtime and environment findings,
+`cds preflight [profile] [--environment <name>] [--target compose|helm]` prints
+one `[PASS]`/`[WARN]`/`[FAIL]` line per check. Every `WARN` and `FAIL` line ends
+with a `(see <url>)` link to the repo doc that governs the check: the
+[host hardening baseline](docker-host-hardening.md) for `host.*` warnings
+(`host.rootless` links [rootless-docker.md](rootless-docker.md)), the
+[installation guide](installation.md) for runtime and environment findings,
 [from-docker-to-cds-profile.md](from-docker-to-cds-profile.md) for host-port
 findings, and the [image verification policy](image-signing.md#verification-policy)
 for `images.*` failures.
+
+`--target` falls back to `cds config get target` and then to `compose`. With
+`--target helm` (or when the only render errors are `E070`, i.e. modules without
+a Compose implementation such as kubernetes-only modules), no Compose model is
+rendered: the Docker host baseline and runtime checks still run, and the
+Compose-scoped checks (environment placeholders, host-port conflicts, image
+digest pinning) are skipped with a `[WARN] compose.render` line (issue #1265).
 
 Color output is terminal-only: when stdout is piped or redirected, `cds` prints
 plain text. On a terminal, `cds up` and `cds state` accept `--no-color`, and a
