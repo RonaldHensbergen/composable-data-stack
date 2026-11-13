@@ -1,8 +1,10 @@
 # Test fixture for issue #1075: a minimal oidc-provider that renders on BOTH
-# targets, unlike modules/identity/keycloak which is compose-only. It exists so
-# tests can exercise the Superset identityProvider wiring on --target helm
-# end to end. It is not a real identity provider and must never be wired into
-# a shipped profile.
+# targets. It exists so tests can exercise the Superset identityProvider wiring
+# on --target helm end to end without keycloak's sql-database dependency; since
+# #1140 the real modules/identity/keycloak also renders both targets and is
+# covered by the same assertions in tests/test_superset_oidc_helm.py. This
+# fixture is not a real identity provider and must never be wired into a
+# shipped profile.
 # yaml-language-server: $schema=../../../../../../cli/resources/module.schema.json
 apiVersion: cds/v1alpha1
 kind: Module
