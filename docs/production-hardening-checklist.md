@@ -55,7 +55,7 @@ stack owns the outcome.
 | 9 | Image supply chain: digest pinning, signature/SBOM/provenance evidence | `CDS-SEC-051` (critical services must be digest-pinned); `cds report` links evidence | Publish signed images and reference them by digest | `cds preflight`, `cds report --hardened` |
 | 10 | Image vulnerability management | Publishing pipeline scans every image; exceptions audited (`.trivyignore` audit) | Rebuild or bump within the documented SLA; file exceptions explicitly | [image-scanning.md](image-scanning.md) |
 | 11 | Backup and disaster recovery | `spec.backup` policy validation; `backup-target` contract ([#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210)) | Declare per-workload-class policies; run restore verification at the stated frequency | [backup-restore.md](backup-restore.md) |
-| 12 | Admin-UI authentication | `CDS-SEC-081` flags admin-facing services without an identity module | Front admin UIs with an identity provider (identity module work: [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370)) | `cds security` |
+| 12 | Admin-UI authentication | `CDS-SEC-081` flags each admin-facing service whose module consumes no `oidc-provider`/`identity-broker` contract when no identity module is in the profile | Front admin UIs with an identity provider: wire an `oidc-provider` consume binding (e.g. Superset's `identityProvider`) or include an identity module (identity module work: [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370)) | `cds security` |
 | 13 | Evidence and audit trail | `cds report` exports the readiness evidence snapshot | Retain the report with the deployment record | `cds report --hardened --output <file>` |
 
 ## 3. Operator verification procedure
@@ -180,7 +180,7 @@ Expected: `cds state` shows every service healthy; the proxy's TLS entry
 points answer (for example `curl -v https://<host>/`) and the backend ports
 answer only through the proxy. `cds down` stops the stack.
 
-## 4. Expected findings (snapshot 2026-10-30)
+## 4. Expected findings (snapshot 2026-11-13)
 
 `cds security team-dagster-postgres-superset --environment prod` currently
 exits 1 with the following findings. The set is stable; a deviation in either
@@ -198,7 +198,7 @@ Rendered output still contains only `${CDS_*}` placeholders.
 
 | Finding | Count | Classification | Action / tracking |
 | --- | --- | --- | --- |
-| `CDS-SEC-081` on the admin-facing services | 3 | Known gap: no identity module is bound | [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) |
+| `CDS-SEC-081` on the admin-facing services | 3 | Known gap: no identity module is bound and no admin-facing module consumes an `oidc-provider` contract (per-service binding check since [#1271](https://github.com/RonaldHensbergen/composable-data-stack/issues/1271)) | [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) |
 | `CDS-SEC-080` on `spec.modules` | 1 | Known gap: the backup policy is declared at profile level (`spec.backup`), which the rule does not yet recognize as contract consumption | [backup-restore.md](backup-restore.md) follow-ups ([#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210)) |
 | `W103` on `spec.security.waivers.runtimePolicy` | 1 | Informational: the documented non-root waiver for images that set `USER` in their Dockerfiles | Keep the waiver reason accurate |
 

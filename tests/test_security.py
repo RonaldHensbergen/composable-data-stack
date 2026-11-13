@@ -1800,6 +1800,179 @@ class AdminServiceIdentityBindingRuleTest(unittest.TestCase):
             [],
         )
 
+    @staticmethod
+    def _plan_module(
+        module_id,
+        consumes=None,
+        source="modules/bi/superset",
+        compose_services=("superset",),
+    ):
+        return {
+            "id": module_id,
+            "source": source,
+            "consumes": consumes or {},
+            "implementation": {
+                "compose": {"services": {name: {} for name in compose_services}}
+            },
+        }
+
+    def test_admin_ui_service_whose_module_consumes_oidc_provider_does_not_fire(self):
+        # Acceptance branch 1 (issue #1271): the admin-facing module is wired
+        # to an identity provider via an oidc-provider consume binding, so no
+        # identity module needs to be present in the profile.
+        plan = {
+            "modules": [
+                self._plan_module(
+                    "superset",
+                    consumes={
+                        "oidc-provider": {
+                            "contractRef": "keycloak.oidc-provider",
+                            "contract": {"kind": "oidc-provider"},
+                        }
+                    },
+                )
+            ]
+        }
+        rendered_compose = {"services": {"superset": {}}}
+        self.assertEqual(
+            _check_admin_service_identity_binding(
+                plan=plan, rendered_compose=rendered_compose
+            ),
+            [],
+        )
+
+    def test_admin_ui_service_whose_module_consumes_identity_broker_does_not_fire(self):
+        plan = {
+            "modules": [
+                self._plan_module(
+                    "superset",
+                    consumes={
+                        "broker": {
+                            "contractRef": "broker.identity-broker",
+                            "contract": {"kind": "identity-broker"},
+                        }
+                    },
+                )
+            ]
+        }
+        rendered_compose = {"services": {"superset": {}}}
+        self.assertEqual(
+            _check_admin_service_identity_binding(
+                plan=plan, rendered_compose=rendered_compose
+            ),
+            [],
+        )
+
+    def test_admin_ui_service_with_only_non_auth_consume_fires(self):
+        plan = {
+            "modules": [
+                self._plan_module(
+                    "superset",
+                    consumes={
+                        "metadata-database": {
+                            "contractRef": "postgres.sql-database",
+                            "contract": {"kind": "sql-database"},
+                        },
+                        "ignored": "not-a-dict",
+                    },
+                )
+            ]
+        }
+        rendered_compose = {"services": {"superset": {}}}
+        findings = _check_admin_service_identity_binding(
+            plan=plan, rendered_compose=rendered_compose
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-SEC-081")
+        self.assertEqual(findings[0]["path"], "services.superset")
+
+    def test_per_service_granularity_wired_and_unwired_admin_services(self):
+        # One finding per unwired admin service: the oidc-consuming superset
+        # is clean while dagster-webserver (no auth-delegation consume) fires.
+        plan = {
+            "modules": [
+                self._plan_module(
+                    "superset",
+                    consumes={
+                        "oidc-provider": {
+                            "contractRef": "keycloak.oidc-provider",
+                            "contract": {"kind": "oidc-provider"},
+                        }
+                    },
+                ),
+                self._plan_module(
+                    "dagster",
+                    source="modules/orchestration/dagster",
+                    compose_services=("dagster-webserver", "dagster-daemon"),
+                ),
+            ]
+        }
+        rendered_compose = {
+            "services": {"superset": {}, "dagster-webserver": {}, "dagster-daemon": {}}
+        }
+        findings = _check_admin_service_identity_binding(
+            plan=plan, rendered_compose=rendered_compose
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["path"], "services.dagster-webserver")
+
+    def test_explicit_service_to_module_map_is_used(self):
+        plan = {
+            "modules": [
+                self._plan_module(
+                    "superset",
+                    consumes={
+                        "oidc-provider": {
+                            "contractRef": "keycloak.oidc-provider",
+                            "contract": {"kind": "oidc-provider"},
+                        }
+                    },
+                )
+            ]
+        }
+        rendered_compose = {"services": {"superset": {}}}
+        # Even with no implementation block in the plan (so the derived map
+        # would be empty), an explicit map attributes the service and
+        # suppresses the finding.
+        self.assertEqual(
+            _check_admin_service_identity_binding(
+                plan={"modules": [plan["modules"][0] | {"implementation": {}}]},
+                rendered_compose=rendered_compose,
+                service_to_module={"superset": "superset"},
+            ),
+            [],
+        )
+
+    def test_unmapped_admin_service_fails_closed(self):
+        # A service the service->module map cannot attribute is conservatively
+        # flagged when no identity module is present.
+        plan = {"modules": [self._plan_module("superset")]}
+        rendered_compose = {"services": {"some-ui": {}}}
+        findings = _check_admin_service_identity_binding(
+            plan=plan,
+            rendered_compose=rendered_compose,
+            service_to_module={"superset": "superset"},
+        )
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["path"], "services.some-ui")
+
+    def test_identity_module_presence_still_suppresses_without_consume(self):
+        # The profile-wide identity-module presence remains an additional
+        # (not sole) signal: present-but-unwired still suppresses.
+        plan = {
+            "modules": [
+                self._plan_module("superset"),
+                {"id": "keycloak", "source": "modules-experimental/identity/keycloak"},
+            ]
+        }
+        rendered_compose = {"services": {"superset": {}}}
+        self.assertEqual(
+            _check_admin_service_identity_binding(
+                plan=plan, rendered_compose=rendered_compose
+            ),
+            [],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
