@@ -7,7 +7,10 @@ Date: 2026-11-13
 Related: [docs/architecture.md](architecture.md),
 [docs/haven-parity-plan.md](haven-parity-plan.md),
 [docs/common-ground-alignment.md](common-ground-alignment.md),
-[docs/kubernetes.md](kubernetes.md), [docs/roadmap.md](roadmap.md)
+[docs/kubernetes.md](kubernetes.md), [docs/roadmap.md](roadmap.md),
+[docs/repo-review-2026-11-13.md](repo-review-2026-11-13.md) (companion
+internal review of the same date; its findings F1–F4 are tracked in issues
+1277–1280)
 
 ## 1. Scope and method
 
