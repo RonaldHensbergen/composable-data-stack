@@ -197,17 +197,24 @@ it usable on a laptop with only Docker. The k8s/Helm target should be an
 additional rendering target, not a replacement — consistent with
 [docs/haven-parity-plan.md](haven-parity-plan.md).
 
-### Candidate follow-ups (not filed)
+### Follow-ups (filed 2026-11-13)
 
-- Golden-render a single module standalone (no full profile) for the Helm
-  target.
-- Canonical app-of-apps layout for rendered k8s manifests + docs page.
-- Profile overlay/inheritance mechanism (`base` profile + env patch).
-- "Platform release" concept: pinned, tested module version set + signed
-  images, surfaced in CHANGELOG.
-- Data-level policy contract exploration (OPA/Rego on a query engine module).
-- README/docs landing: compliance positioning (CRA/NIS2/Haven/Common Ground)
-  for public-sector adopters.
+- #1281 — Render a single module standalone for the Helm target (no full
+  profile required).
+- #1282 — Canonical app-of-apps/GitOps-friendly layout for rendered k8s
+  manifests + docs page.
+- #1283 — "Platform release" artifact: pinned, tested module-version set +
+  signing evidence, surfaced per release.
+- #1284 — Provider-neutral data-access policy contract (policy-as-code at the
+  query layer).
+- #1285 — README/docs landing: compliance positioning (CRA/NIS2/Haven/Common
+  Ground) for public-sector adopters.
+
+Not filed: profile overlay/inheritance — already exists today
+(`cli/overlay.py`, `profiles/<name>/environments/<env>.yaml`; consolidation
+tracked by #382), and `cds diff` over environment overlays is on the roadmap.
+The lesson from UWV is therefore "use and document the existing mechanism",
+not "build a new one".
 
 ## 8. Sources (accessed 2026-11-13)
 
