@@ -10,9 +10,9 @@ metadata:
     Reference profile showing CDS's module/contract/profile model wired into
     a Haven-aligned shape: an identity provider (Keycloak), a TLS-terminating
     reverse proxy (Traefik), and a sql-database provider (Postgres). See
-    docs/common-ground-alignment.md for the concept mapping. Experimental
-    pending the Keycloak `--target helm` implementation (#1075); the traefik
-    module renders `--target helm` since #1132.
+    docs/common-ground-alignment.md for the concept mapping. Experimental;
+    renders both Compose and `--target helm` (keycloak and traefik have
+    kubernetes implementations since #1132/#1140, closing #1075's loose end).
 
 spec:
   runtime:

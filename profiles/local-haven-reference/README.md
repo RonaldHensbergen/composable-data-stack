@@ -10,10 +10,11 @@ for the concept mapping between CDS and Haven/Common Ground principles.
 ## Status
 
 Experimental (tracked in [docs/roadmap.md](../../docs/roadmap.md) under
-Experimental Components) because the Traefik routing is hand-authored and
-the Keycloak module has no `--target helm` implementation yet (#1075;
-traefik gained one in #1132), and the routing relies on CDS-generated
-routes (#883). The
+Experimental Components) because the routing relies on CDS-generated
+routes (#883). Both the keycloak and traefik modules render `--target helm`
+(#1132, #1140), so the profile renders on both targets; on Helm the
+keycloak route becomes a generated ConfigMap dialing the release-scoped
+keycloak Service, with the route-derived NetworkPolicy edge from #1033. The
 profile configures the `cds` realm and advertises an OIDC issuer, but
 does not provision an application client (clients can now be declared on
 the keycloak module via `config.oidcClients`, issue #1074 — this reference

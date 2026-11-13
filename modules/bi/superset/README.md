@@ -104,7 +104,8 @@ runtime placeholders in rendered output: `${CDS_*}` in Compose, and on the
 Helm target a `$(CDS_*)` expansion backed by a `secretKeyRef` entry plus a
 `required` key in `templates/secret.yaml` — never a literal value in the
 chart (E078 stays green). This path is covered end to end on `--target helm`
-by `tests/test_superset_oidc_helm.py` using the kubernetes-capable fixture
-provider `tests/fixtures/helm-oidc/modules/identity/oidc-stub` (issue #1075;
-the real keycloak module is still compose-only and fails closed with E072 on
-the helm target).
+by `tests/test_superset_oidc_helm.py` twice over: with the kubernetes-capable
+fixture provider `tests/fixtures/helm-oidc/modules/identity/oidc-stub`
+(issue #1075), and since issue #1140 with the real
+`modules/identity/keycloak` module, which renders the helm target itself
+(E072 no longer fires for it).

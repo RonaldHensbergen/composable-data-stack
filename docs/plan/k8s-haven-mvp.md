@@ -63,7 +63,7 @@ post-MVP items at the end of this section may still be open after Gate 5.
 | [#1023](https://github.com/RonaldHensbergen/composable-data-stack/issues/1023) | Gate 1, task G1.9 | External egress for Helm workloads is declarable and rendered under the default-deny baseline, surfaced as `CDS-K8S-008` findings. |
 | [#1033](https://github.com/RonaldHensbergen/composable-data-stack/issues/1033) | Gates 2/3, tasks G2.8 and G3.4 | Reverse-proxy route targets are derived as NetworkPolicy edges, so an ingress fronting a ClusterIP service needs no hand-declared `networkPolicy.ingress` rules. |
 | [#665](https://github.com/RonaldHensbergen/composable-data-stack/issues/665)/[#668](https://github.com/RonaldHensbergen/composable-data-stack/issues/668)/[#669](https://github.com/RonaldHensbergen/composable-data-stack/issues/669); `E142` | Gate 2, task G2.9 | A `backup-target` provider renders and runs on Helm (pgBackRest sidecar or a restic-shaped module), and a backup **plus a restore verification** run against the prod profile. Policy-only declaration is not accepted. |
-| [#1075](https://github.com/RonaldHensbergen/composable-data-stack/issues/1075) (+ Keycloak/Traefik have no `kubernetes:` block in their `module.yaml`) | Gate 3, task G3.3 | `modules/identity/keycloak` and `modules/integration/traefik` have `kubernetes:` implementations, and `local-haven-reference` renders and runs on `--target helm`. |
+| [#1075](https://github.com/RonaldHensbergen/composable-data-stack/issues/1075) (+ Keycloak/Traefik had no `kubernetes:` block in their `module.yaml`; landed via #1132 for traefik and #1140 for keycloak) | Gate 3, task G3.3 | `modules/identity/keycloak` and `modules/integration/traefik` have `kubernetes:` implementations, and `local-haven-reference` renders and runs on `--target helm`. |
 | [#682](https://github.com/RonaldHensbergen/composable-data-stack/issues/682), [#974](https://github.com/RonaldHensbergen/composable-data-stack/issues/974) | Gate 3, task G3.3 | Keycloak consumes a generic `sql-database` binding (no hardcoded `KC_DB: postgres`) and defaults to production web serving under the prod overlay (`E140` enforced). |
 | [#883](https://github.com/RonaldHensbergen/composable-data-stack/issues/883) | Gate 3, task G3.4 | A provider-neutral HTTP routing contract exists and Traefik wiring is resolved from the contract graph, not hand-authored. |
 | [#768](https://github.com/RonaldHensbergen/composable-data-stack/issues/768) | Gate 3, task G3.5 | A CloudNativePG-shaped operator module provides `sql-database` on Helm as the production warehouse; StatefulSet+PVC Postgres stays the dev path. |
@@ -335,6 +335,10 @@ with the Gate-2 profile only.
   web serving under the prod overlay (`E140`). Then render
   `local-haven-reference --target helm` and run it on the k3d cluster, with
   Keycloak reachable behind TLS ingress. Exit: issues closed; the Haven
+  reference profile runs on Helm. Status: the `kubernetes:` blocks landed
+  (#1132 traefik, #1140 keycloak) and `local-haven-reference` renders
+  `--target helm` green (no E072, keycloak behind the traefik TLS ingress via
+  the generated routes ConfigMap + #1033 edges); the live k3d run remains.
   reference profile runs on Helm.
 - [ ] **G3.4 Routing contract + ingress edges — #883, #1033** (≤2 h subtasks
   under the issues). Introduce the provider-neutral HTTP routing contract and
@@ -554,8 +558,8 @@ module set, mapped to the Haven+ baseline of
 | `cache/keydb` | `cache-service` | cache | stable; has `kubernetes:` block |
 | `security/istio` | `service-mesh` | peer identity and optional L7 authorization | production-suitable; used in `production-kubernetes-example` and `local-kubernetes-example` (#1171); Helm-only with out-of-band istiod |
 | `transformation/dbt` | consumes `sql-database`, `docs-service` | transformation | stable; no `kubernetes:` block yet |
-| `identity/keycloak` | `oidc-provider` | identity/SSO (Haven+: Keycloak) | production-suitable with production web serving by default (#974 landed); no `kubernetes:` block — #1075, #682 (G3.3) |
-| `integration/traefik` | `reverse-proxy` with TLS | TLS ingress edge (stands in for cert-manager+ingress at MVP scope) | no `kubernetes:` block — #1075, #883, #1033 (G3.3/G3.4) |
+| `identity/keycloak` | `oidc-provider` | identity/SSO (Haven+: Keycloak) | production-suitable with production web serving by default (#974 landed); renders `--target helm` since #1140 — #682 landed (G3.3) |
+| `integration/traefik` | `reverse-proxy` with TLS | TLS ingress edge (stands in for cert-manager+ingress at MVP scope) | renders `--target helm` since #1132 — #883, #1033 landed (G3.3/G3.4) |
 | `backup/restic` | provides `backup-target`, consumes `backup-source` | backup (Haven+: Velero); Postgres sidecar is #665 | production-only piece (E143); no `kubernetes:` block — G2.9 |
 | `storage/garage` | `object-storage` (S3) | restic's S3 repository target / landing zone (#669) | `productionSuitable: false` (single-node) — deviation for the local MVP cluster only |
 | `secrets/vault` | `secrets-provider` | secrets sync (Haven+: Sealed/External Secrets) | `productionSuitable: false` currently |

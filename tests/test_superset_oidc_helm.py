@@ -1,12 +1,14 @@
 """
-Helm-target coverage for Superset's `identityProvider` wiring (issue #1075).
+Helm-target coverage for Superset's `identityProvider` wiring (issue #1075,
+real-provider follow-up #1140).
 
 PR #1064 implemented the wiring for both render targets, but the only
-`oidc-provider` provider in the repo (modules/identity/keycloak) is
+`oidc-provider` provider in the repo (modules/identity/keycloak) was
 compose-only, so no profile could exercise OIDC on `--target helm` end to
 end. These tests close that gap with a minimal kubernetes-capable fixture
-provider (tests/fixtures/helm-oidc/modules/identity/oidc-stub) and assert
-the helm contract of the wiring:
+provider (tests/fixtures/helm-oidc/modules/identity/oidc-stub), and since
+#1140 additionally wire the real keycloak module on the helm target, so the
+same helm contract is asserted against the real provider:
 
 - the issuer URL reaches the superset container as a literal env value,
 - the client secret appears ONLY as a `$(CDS_*)` expansion backed by a
@@ -284,10 +286,11 @@ class SupersetOidcHelmTest(unittest.TestCase):
         secret = files["templates/secret.yaml"]
         self.assertNotIn("CDS_SUPERSET_OIDC_CREDENTIAL", secret)
 
-    def test_compose_only_provider_still_fails_closed_on_helm_target(self):
-        # The fixture exists because the only real oidc-provider (keycloak) is
-        # compose-only: binding it on the helm target must keep failing closed
-        # with E072 until keycloak gains a kubernetes block.
+    def test_real_keycloak_provider_renders_on_helm_and_holds_the_oidc_contract(self):
+        # Issue #1140: keycloak gained a kubernetes implementation, so the
+        # helm OIDC contract must hold with the real provider, not just the
+        # fixture -- E072 no longer fires and the issuer URL / client-secret
+        # plumbing below is unchanged.
         tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(tempdir.cleanup)
         profile_dir = Path(tempdir.name)
@@ -333,12 +336,74 @@ class SupersetOidcHelmTest(unittest.TestCase):
                 msg=f"unexpected plan errors: {plan_diags}",
             )
             files, render_diags = render_helm(plan, env_file=str(env_file))
-        self.assertEqual(files, {})
-        self.assertIn(
-            "E072",
-            {d.code for d in render_diags if d.level == "error"},
-            msg=f"expected E072 for compose-only keycloak, got: {render_diags}",
+        errors = [d for d in render_diags if d.level == "error"]
+        self.assertEqual(errors, [], msg=f"unexpected helm render errors: {render_diags}")
+        self.assertNotIn("E072", {d.code for d in render_diags})
+
+        # The real provider renders its own workload and Service on helm
+        # (instance id "oidc", workload "keycloak").
+        keycloak_deployment = files["templates/oidc-keycloak-deployment.yaml"]
+        self.assertIn("templates/oidc-keycloak-service.yaml", files)
+        # The renderer injects the realm-import document on the helm target
+        # too (issue #1074/#1140), so the provider provisions its realm at
+        # container start.
+        import_match = re.search(
+            r'- name: CDS_OIDC_REALM_IMPORT\n\s+value: (.*)', keycloak_deployment
         )
+        self.assertIsNotNone(import_match, "no CDS_OIDC_REALM_IMPORT on keycloak")
+        self.assertIn('"realm": "analytics"', import_match.group(1))
+        # The bound sql-database host is release-scoped to the rendered
+        # postgres Service.
+        self.assertEqual(
+            self._env_value(keycloak_deployment, "KC_DB_URL_HOST"),
+            "{{ .Release.Name }}-postgres",
+        )
+
+        # The superset-side helm OIDC contract holds with the real provider:
+        # keycloak's issuerUrl is ${config.publicUrl}/realms/${config.realm}.
+        deployment = self._superset_deployment(files)
+        self.assertEqual(
+            self._env_value(deployment, "CDS_OIDC_ISSUER_URL"),
+            "https://identity.example.test/realms/analytics",
+        )
+        self.assertEqual(self._env_value(deployment, "CDS_OIDC_CLIENT_ID"), "superset")
+        self.assertEqual(
+            self._env_value(deployment, "CDS_OIDC_CLIENT_SECRET"),
+            "$(CDS_SUPERSET_OIDC_CREDENTIAL)",
+        )
+        header = re.search(
+            r"- name: CDS_SUPERSET_OIDC_CREDENTIAL\n"
+            r"\s+valueFrom:\n"
+            r"\s+secretKeyRef:\n"
+            r"\s+name: '\{\{ \.Release\.Name \}\}-secrets'\n"
+            r"\s+key: CDS_SUPERSET_OIDC_CREDENTIAL",
+            deployment,
+        )
+        self.assertIsNotNone(
+            header, "no secretKeyRef entry for CDS_SUPERSET_OIDC_CREDENTIAL"
+        )
+        secret = files["templates/secret.yaml"]
+        self.assertIn("CDS_SUPERSET_OIDC_CREDENTIAL", secret)
+        self.assertIn(
+            'required "secrets.CDS_SUPERSET_OIDC_CREDENTIAL is required"', secret
+        )
+
+        codes = {d.code for d in render_diags}
+        self.assertNotIn("E078", codes)
+        self.assertNotIn("E079", codes)
+        rendered = "\n".join(files.values())
+        # No Compose-style ${CDS_*} placeholder may survive in an env value:
+        # those must be $(CDS_*) expansions backed by secretKeyRef headers.
+        # (The keycloak entrypoint script legitimately keeps ${CDS_...:-...}
+        # shell parameter expansions -- Kubernetes does not touch ${...},
+        # only $(...), which bash expands against the container env.)
+        self.assertIsNone(
+            re.search(r"value:\s*['\"]?\$\{CDS_", rendered),
+            "a compose-style ${CDS_*} placeholder survived in an env value",
+        )
+        for value in _SECRET_VALUES.values():
+            self.assertNotIn(value, rendered)
+        self.assertNotIn("sentinel-keycloak-admin", rendered)
 
 
 if __name__ == "__main__":

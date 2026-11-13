@@ -238,8 +238,16 @@ spec:
         spec:
           issuerUrl: "${config.publicUrl}/realms/${config.realm}"
           realm: ${config.realm}
+          # In-cluster endpoint of the provider, so the Kubernetes
+          # consume-side binding check (E084) can match the binding against a
+          # renderable Service (issue #1140); issuerUrl is the external one.
+          host: ${service.dns}
+          port: ${config.containerPort}
   implementation:
     kind: docker-compose
+    targets:
+      - docker-compose
+      - kubernetes
     compose:
       services:
         keycloak:
@@ -325,3 +333,86 @@ spec:
 
       volumes:
         keycloak-quarkus: {}
+
+    kubernetes:
+      workloads:
+        keycloak:
+          kind: Deployment
+          # compose `user: "1000:0"` (the keycloak image's uid 1000). The
+          # process runs with gid 1000 + fsGroup 1000 here so the tmpfs
+          # emptyDirs (/tmp, /opt/keycloak/data) are writable; the image's
+          # own files are world-readable, so reading them needs no group 0.
+          podSecurityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            fsGroup: 1000
+          containers:
+            - keycloak
+          service:
+            type: ClusterIP
+            ports:
+              - name: http
+                # Service port equals the container port so the Service-facing
+                # port matches the advertised http-service contract port
+                # (issue #1067); the localhost host publish (config.httpPort)
+                # has no cluster meaning and stays compose-only. Keycloak is
+                # reached in-cluster through the reverse-proxy/ingress module.
+                port: ${config.containerPort}
+                targetPort: ${config.containerPort}
+          resources:
+            keycloak:
+              requests:
+                cpu: 250m
+                memory: 768Mi
+              limits:
+                memory: 2Gi
+          # Replaces the compose depends_on: the profile's dependsOn ordering.
+          # Keycloak runs its schema migrations against the bound
+          # sql-database on startup, so the pod must not start before the
+          # database accepts connections.
+          waitFor:
+            - host: "${bindings.metadata-database.host}"
+              port: "${bindings.metadata-database.port}"
+              description: Keycloak provisions its schema in the bound sql-database on startup.
+          containerOverrides:
+            keycloak:
+              # Kubernetes does not interpolate Compose's $$ escape, so the
+              # Helm render uses the single-$ form of the compose entrypoint
+              # (same pattern as keydb): Compose would eat a bare $VARIABLE,
+              # /bin/bash in the container must see it (issue #1140).
+              entrypoint:
+                - /bin/bash
+                - -ec
+                - |
+                  REALM="${CDS_KEYCLOAK_REALM:-master}"
+                  if [ "$REALM" != "master" ]; then
+                      mkdir -p /opt/keycloak/data/import
+                      # CDS_OIDC_REALM_IMPORT is injected by the CDS renderer
+                      # from config.realm + config.oidcClients (issue #1074),
+                      # on the Helm target as a $(CDS_*) expansion backed by a
+                      # secretKeyRef, so the import file holds the real value
+                      # while the chart never does.
+                      IMPORT_JSON="${CDS_OIDC_REALM_IMPORT:-}"
+                      if [ -z "$IMPORT_JSON" ]; then
+                          IMPORT_JSON="{\"realm\":\"$REALM\",\"enabled\":true}"
+                      fi
+                      printf '%s' "$IMPORT_JSON" > "/opt/keycloak/data/import/$REALM-realm.json"
+                      IMPORT_REALM="--import-realm"
+                  else
+                      IMPORT_REALM=""
+                  fi
+                  if [ "${CDS_WEBSERVER_MODE:-production}" = "development" ]; then
+                      exec /opt/keycloak/bin/kc.sh start-dev $IMPORT_REALM
+                  fi
+                  exec /opt/keycloak/bin/kc.sh start --http-enabled=true --hostname-strict=false $IMPORT_REALM
+              ports:
+                - name: http
+                  containerPort: ${config.containerPort}
+              # /opt/keycloak/lib/quarkus ships pre-built in the image; mounting
+              # the compose named volume there would hide it behind an empty
+              # emptyDir, so the mount is dropped on Kubernetes. The root
+              # filesystem is read-only and `kc.sh start` only reads the
+              # pre-built server (a start-dev rebuild is compose-local only).
+              dropVolumeMounts:
+                - /opt/keycloak/lib/quarkus

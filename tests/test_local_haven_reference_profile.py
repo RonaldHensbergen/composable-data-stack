@@ -4,15 +4,20 @@ Names `profiles/local-haven-reference` (see docs/contract-coverage.md,
 issue #1079) and exercises its contract behavior: the profile validates,
 plans, and renders to docker-compose without errors, publishing the
 identity provider (OIDC), edge (reverse proxy), and database output
-contracts of the Haven-aligned reference shape.
+contracts of the Haven-aligned reference shape. Since #1140 (MVP Gate 3
+G3.3) it also renders to `--target helm` without E072: keycloak and traefik
+ship kubernetes implementations, and the profile's keycloak route becomes
+a generated ConfigMap plus a NetworkPolicy edge on the helm target.
 """
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
 
 import yaml
 
+from cli.k8s_renderer import render_helm
 from cli.planner import build_plan
 from cli.renderer import render_compose
 from cli.validator import validate_profile
@@ -122,6 +127,92 @@ class LocalHavenReferenceProfileTest(unittest.TestCase):
 
         # No hand-written routing file remains in the repository.
         self.assertFalse((REPO_ROOT / "traefik" / "dynamic" / "keycloak.yml").exists())
+
+    def test_profile_renders_on_helm_target_without_e072(self) -> None:
+        # Issue #1140 (MVP Gate 3, task G3.3): keycloak and traefik have
+        # kubernetes implementations, so the Haven reference shape renders
+        # `--target helm` instead of failing closed with E072.
+        plan, plan_diags = build_plan(str(PROFILE_PATH), env_file=str(self.env_file))
+        self.assertIsNotNone(plan)
+        self.assertEqual([d for d in plan_diags if d.level == "error"], [])
+
+        files, render_diags = render_helm(plan, env_file=str(self.env_file))
+        errors = [d for d in render_diags if d.level == "error"]
+        self.assertEqual(errors, [], msg=f"unexpected helm render errors: {render_diags}")
+        self.assertNotIn("E072", {d.code for d in render_diags})
+
+        # Every module renders a workload and a Service on the helm target.
+        for module, workload in (
+            ("postgres", "postgres"),
+            ("keycloak", "keycloak"),
+            ("traefik", "traefik"),
+        ):
+            self.assertIn(f"templates/{module}-{workload}-service.yaml", files)
+            self.assertTrue(
+                any(
+                    name.startswith(f"templates/{module}-{workload}-")
+                    and name.endswith(("deployment.yaml", "statefulset.yaml"))
+                    for name in files
+                ),
+                f"no workload manifest for {module}",
+            )
+
+        # Keycloak sits behind the TLS ingress: the traefik route renders as
+        # a generated ConfigMap dialing the release-scoped keycloak Service,
+        # and the keycloak NetworkPolicy admits the proxy on the contract
+        # port (route-derived edges, issue #1033).
+        routes_cm = yaml.safe_load(files["templates/traefik-configmap-routes.yaml"])
+        route_document = yaml.safe_load(routes_cm["data"]["cds-routes-traefik.yml"])
+        router = route_document["http"]["routers"]["cds-route-0-default"]
+        self.assertEqual(router["entryPoints"], ["websecure"])
+        self.assertEqual(router["tls"], {})
+        servers = route_document["http"]["services"]["cds-service-keycloak"][
+            "loadBalancer"
+        ]["servers"]
+        self.assertEqual(
+            servers, [{"url": "http://{{ .Release.Name }}-keycloak:8080"}]
+        )
+        keycloak_np = files["templates/keycloak-network-policy.yaml"]
+        self.assertIn("cds.dev/module: traefik", keycloak_np)
+        self.assertIn("port: 8080", keycloak_np)
+
+        # Keycloak consumes the sql-database binding on helm as well: the
+        # wait gate targets the release-scoped postgres Service and the DB
+        # host env is release-scoped.
+        keycloak_deployment = files["templates/keycloak-keycloak-deployment.yaml"]
+        self.assertIn("{{ .Release.Name }}-postgres", keycloak_deployment)
+        self.assertIn("CDS_OIDC_REALM_IMPORT", keycloak_deployment)
+
+    def test_helm_chart_is_deterministic_and_matches_golden_hashes(self) -> None:
+        # Pins the whole Haven-shaped helm chart (issue #1140), mirroring
+        # tests/golden/k8s-chart.sha256 and k8s-chart-oidc.sha256.
+        def render() -> dict[str, str]:
+            plan, plan_diags = build_plan(
+                str(PROFILE_PATH), env_file=str(self.env_file)
+            )
+            self.assertIsNotNone(plan)
+            self.assertEqual([d for d in plan_diags if d.level == "error"], [])
+            files, render_diags = render_helm(plan, env_file=str(self.env_file))
+            self.assertEqual(
+                [d for d in render_diags if d.level == "error"], [],
+                msg=f"unexpected helm render errors: {render_diags}",
+            )
+            return files
+
+        first = render()
+        second = render()
+        self.assertEqual(first, second)
+
+        golden_path = REPO_ROOT / "tests" / "golden" / "k8s-chart-haven.sha256"
+        expected = {}
+        for line in golden_path.read_text(encoding="utf-8").splitlines():
+            digest, relative_path = line.split("  ", 1)
+            expected[relative_path] = digest
+        actual = {
+            relative_path: hashlib.sha256(content.encode("utf-8")).hexdigest()
+            for relative_path, content in sorted(first.items())
+        }
+        self.assertEqual(actual, expected)
 
 
 if __name__ == "__main__":
