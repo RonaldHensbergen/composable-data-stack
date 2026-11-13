@@ -345,15 +345,19 @@ bound contract, so no service name is hardcoded -- cross-checks the backend
 address against the compose services the render actually produced, and
 writes deterministic file-provider configuration next to the rendered
 compose file; invalid routing inputs fail with `E136` instead of silently
-generating broken config.
+generating broken config. On the Helm target the same document is generated
+into the proxy's file-provider ConfigMap, with backends cross-checked
+against the rendered Kubernetes Services (E150) and dialed by their
+release-scoped Service DNS names (issue #1132).
 
 The same fail-closed cross-check applies to plain provided contracts
-(issues #1010, #1029): every `http-service`, `sql-database`,
-`cache-service`, `object-storage`, `lineage-sink`, and `log-sink`
-contract's advertised network host (the `host` field, the `endpoint`'s
-hostname part, or -- for the sink kinds -- the `connectionUri`'s
-hostname part; a scheme-less `host:port` value contributes its host
-part, issue #1036) must match a compose service the render actually
+(issues #1010, #1029): every `http-service`, `reverse-proxy`,
+`sql-database`, `cache-service`, `object-storage`, `lineage-sink`, and
+`log-sink` contract's advertised network host (the `host` field, the
+`endpoint`'s hostname part, or -- for the sink and reverse-proxy kinds --
+the `connectionUri`'s hostname part; a scheme-less `host:port` value
+contributes its host part, issue #1036) must match a compose service the
+render actually
 produced for the providing module, and contracts that advertise a
 `serviceName` have that name mapped through the renderer's
 service-naming rule first. Mismatches fail with `E150` instead of
@@ -385,7 +389,11 @@ work, the external secret/cert provider must place the files as
 `<alias>.crt` and `<alias>.key` inside the proxy's certificate mount
 (`./certs/traefik/` for the Traefik module, mounted read-only at
 `/etc/traefik/certs/`); the generated configuration wires those paths as
-the router's certificate files. The alias is restricted to letters, digits
+the router's certificate files. On the Helm target there is no host
+directory: the module's `certificateMounts` entry projects the chart Secret
+instead, rendering each alias as `<alias>.crt`/`<alias>.key` from the
+alias's `certEnv`/`keyEnv` keys, supplied at install time like any other
+secret (issue #1132). The alias is restricted to letters, digits
 and hyphens because it interpolates into those file paths.
 
 ### Authentication advertisements (`authentication`)

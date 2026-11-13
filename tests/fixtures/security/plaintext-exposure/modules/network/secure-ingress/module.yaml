@@ -42,7 +42,7 @@ spec:
         spec:
           protocol: https
           port: 443
-          connectionUri: "https://${service.host}:443"
+          connectionUri: "https://${service.dns}:443"
   implementation:
     kind: docker-compose
     compose:

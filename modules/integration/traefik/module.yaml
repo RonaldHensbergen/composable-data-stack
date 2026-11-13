@@ -142,12 +142,14 @@ spec:
           at `cds validate` with E041/E042 -- and exposes it through this
           proxy's file provider, without Docker label-based autodiscovery
           and without hardcoding the backend's service name (the backend
-          host/port come from the bound contract). CDS generates
-          traefik/dynamic/cds-routes-<instance-id>.yml next to the rendered
-          compose file, and removes it again when the routes are removed.
-          Routes are generated for the Docker Compose render target only;
-          the Helm target does not render them (this module ships no
-          Kubernetes implementation yet).
+          host/port come from the bound contract). On the Compose target CDS
+          generates traefik/dynamic/cds-routes-<instance-id>.yml next to the
+          rendered compose file, and removes it again when the routes are
+          removed; on the Helm target (issue #1132) the same generated
+          document -- backends resolved against the rendered Kubernetes
+          Services, dialed by their release-scoped DNS names -- becomes the
+          data of the proxy's file-provider ConfigMap, mounted at
+          fileProvider.directory.
         items:
           type: object
           additionalProperties: false
@@ -218,6 +220,23 @@ spec:
             type: boolean
             default: true
 
+      kubernetesService:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          type:
+            type: string
+            enum: [NodePort, LoadBalancer]
+            default: NodePort
+            description: >-
+              Kubernetes Service type exposing the declared entryPoints on
+              the Helm target (issue #1132). NodePort works on k3d and bare
+              clusters; LoadBalancer needs a cluster load balancer (cloud,
+              MetalLB). The dashboard (port 8080) is never exposed through
+              the Service -- on Compose it is loopback-only -- use
+              `kubectl port-forward` for it.
+
   consumes:
     # Each config.routes entry is one binding to an http-service provide
     # (issue #883): the profile names the routed service with
@@ -251,6 +270,9 @@ spec:
 
   implementation:
     kind: docker-compose
+    targets:
+      - docker-compose
+      - kubernetes
     compose:
       services:
         traefik:
@@ -308,3 +330,77 @@ spec:
             interval: 10s
             timeout: 5s
             retries: 3
+
+    # Helm target (issue #1132): the compose fragment above is translated
+    # mechanically (image, env, hardening, probes, tmpfs); this block
+    # declares only what compose cannot express. The Service exposes the
+    # declared entryPoints (web/websecure) as NodePort/LoadBalancer, which
+    # also opens the generated NetworkPolicy's ingress on exactly those
+    # ports. The file-provider directory is a ConfigMap generated from the
+    # plan's config.routes (fromRoutes), and the certs bind is projected
+    # from the chart Secret via spec.certificates (certificateMounts).
+    kubernetes:
+      workloads:
+        traefik:
+          kind: Deployment
+          # compose `user: "65532:65532"` (the traefik image's nobody user).
+          podSecurityContext:
+            runAsUser: 65532
+            runAsGroup: 65532
+            runAsNonRoot: true
+            fsGroup: 65532
+          containers:
+            - traefik
+          service:
+            type: "${config.kubernetesService.type}"
+            ports:
+              # One Service port per declared entryPoint; the port is the
+              # entrypoint's listen address, so a profile that moves
+              # web to :8080 gets Service port 8080 -> targetPort 8080.
+              - name: web
+                port: ${config.entryPoints.web.address}
+                targetPort: ${config.entryPoints.web.address}
+              - name: websecure
+                port: ${config.entryPoints.websecure.address}
+                targetPort: ${config.entryPoints.websecure.address}
+          resources:
+            traefik:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+          containerOverrides:
+            traefik:
+              # The container listens on the entrypoint address port (the
+              # TRAEFIK_ENTRYPOINTS_* env), not on the compose publish
+              # mapping's fixed container side; the dashboard stays on
+              # 8080 and is not exposed through the Service.
+              ports:
+                - name: web
+                  containerPort: ${config.entryPoints.web.address}
+                - name: websecure
+                  containerPort: ${config.entryPoints.websecure.address}
+                - name: dashboard
+                  containerPort: 8080
+      configMaps:
+        # The file-provider directory, generated from the plan's
+        # config.routes (same resolution/validation as the Compose target,
+        # plus the E150 cross-check against rendered Kubernetes Services).
+        # Mounted as a whole directory, so the generated
+        # cds-routes-<instance-id>.yml lands inside it (issue #1132).
+        routes:
+          key: cds-routes-${service.host}.yml
+          fromBind: ./traefik/dynamic
+          fromRoutes: true
+          directory: true
+          containers:
+            - traefik
+      certificateMounts:
+        # ./certs/traefik:/etc/traefik/certs:ro becomes a projection of
+        # the chart Secret: each spec.certificates alias renders as
+        # <alias>.crt/<alias>.key from its certEnv/keyEnv keys (issue #1132).
+        certs:
+          fromBind: ./certs/traefik
+          containers:
+            - traefik

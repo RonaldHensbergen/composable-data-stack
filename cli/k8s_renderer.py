@@ -40,7 +40,13 @@ declaration would otherwise be a silent no-op (issue #1131).
 Reverse-proxy `config.routes`
 entries are derived into the same policies: each route's target module
 opens a port-scoped egress edge on the proxy and a matching ingress edge
-on the target (issue #1033).
+on the target (issue #1033). A reverse-proxy module's file-provider
+directory is rendered as a ConfigMap generated from those same routes --
+the Compose route resolution re-run against the rendered Kubernetes
+Services, dialing each backend by its release-scoped Service DNS name and
+failing closed with E150 when no Service answers (issue #1132) -- and
+its certificate bind is projected from the chart Secret using the plan's
+`spec.certificates` aliases.
 """
 
 from __future__ import annotations
@@ -51,6 +57,7 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Callable
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -63,6 +70,7 @@ from .renderer import (
     _apply_image_source,
     _build_context,
     _compose_port_target,
+    _generate_reverse_proxy_routes,
     _is_valid_backend_port,
     _merge_init_db_env,
     _resolve_expr,
@@ -265,9 +273,45 @@ def render_helm(
                     module_id, str(workload_name), workload.get("waitFor")
                 )
             )
+            diagnostics.extend(
+                _port_shape_diagnostics(module_id, str(workload_name), workload)
+            )
 
     diagnostics.extend(_check_binding_services(renderable, service_names))
     diagnostics.extend(_check_provided_contract_services(renderable, service_names))
+
+    # Reverse-proxy route documents are generated once per render from the
+    # plan's config.routes, with the same resolution/validation as the Compose
+    # target's _generate_reverse_proxy_routes -- but the backend host is
+    # resolved through the rendered Kubernetes Services and dialed by its
+    # release-scoped DNS name, and an unresolvable backend fails closed with
+    # E150 (issue #1132). Only proxies that render their routes as a ConfigMap
+    # (a `fromRoutes` configMap) are validated here; other proxies keep the
+    # warning-only NetworkPolicy edge derivation of issue #1033. The documents
+    # become the file-provider ConfigMaps in the rendering pass below.
+    route_proxy_ids = {
+        str(module["id"])
+        for module in renderable
+        if any(
+            isinstance(cm_spec, dict) and cm_spec.get("fromRoutes")
+            for cm_spec in (
+                module["implementation"]["kubernetes"].get("configMaps") or {}
+            ).values()
+        )
+    }
+    route_documents: dict[str, str] = {}
+    route_docs, route_diags = _generate_reverse_proxy_routes(
+        plan,
+        {},
+        resolve_backend_host=_helm_backend_resolver(service_names),
+        backend_error_code="E150",
+        only_modules=route_proxy_ids,
+    )
+    diagnostics.extend(route_diags)
+    for proxy_id, document in route_docs.items():
+        route_documents[str(proxy_id)] = yaml.safe_dump(
+            document, sort_keys=True, default_flow_style=False
+        )
     diagnostics.extend(
         _check_provided_contract_ports(
             renderable, service_names, enabled_workloads_by_module
@@ -373,6 +417,8 @@ def render_helm(
             project_root=project_root,
             enabled_workloads=enabled_workloads_by_module[module_id],
             is_production=True,
+            route_documents=route_documents,
+            certificates=plan.get("certificates", {}),
         )
         values["modules"][module_id] = {
             "config": _values_config(module.get("config", {})),
@@ -397,7 +443,9 @@ def render_helm(
                 )
             )
 
-    diagnostics.extend(_check_service_mesh_enrollments(renderable, rendered_pod_modules))
+    diagnostics.extend(
+        _check_service_mesh_enrollments(renderable, rendered_pod_modules)
+    )
     diagnostics.extend(
         _check_podless_network_declarations(
             renderable,
@@ -567,7 +615,7 @@ def _check_podless_network_declarations(
                         "Kubernetes workload pods, so the declaration has no "
                         "effect: a manifests-only module gets no NetworkPolicy at "
                         "all, and a module whose workloads are all disabled gets "
-                        'one that selects zero pods. Move the declaration to a '
+                        "one that selects zero pods. Move the declaration to a "
                         "module that renders pods, or remove it (issue #1131)."
                     ),
                     path=path,
@@ -583,9 +631,9 @@ def _module_renders_pods(
 ) -> bool:
     """Return whether the module renders at least one pod with its module label."""
     module_id = module["id"]
-    workload_specs = (
-        (module.get("implementation") or {}).get("kubernetes") or {}
-    ).get("workloads", {})
+    workload_specs = ((module.get("implementation") or {}).get("kubernetes") or {}).get(
+        "workloads", {}
+    )
     for name, rendered in rendered_workloads.items():
         spec = workload_specs.get(name, {})
         kind = spec.get("kind", "Deployment")
@@ -624,6 +672,8 @@ def _render_module(
     project_root: Path | None,
     enabled_workloads: dict[str, dict[str, Any]],
     is_production: bool = False,
+    route_documents: dict[str, str] | None = None,
+    certificates: dict[str, dict[str, str]] | None = None,
 ) -> tuple[
     dict[str, Any],
     list[tuple[str, dict[str, Any]]],
@@ -655,6 +705,34 @@ def _render_module(
         enabled_from = cm_spec.get("enabledFrom")
         if isinstance(enabled_from, str):
             cm_spec["enabledFrom"] = _resolve_expr(enabled_from, context)
+    # A ConfigMap declared `fromRoutes` is generated from the plan's
+    # reverse-proxy config.routes (issue #1132): its content is the route
+    # document computed once in render_helm. A proxy without routes gets no
+    # such ConfigMap -- the compose bind then falls back to an empty dir,
+    # and the file provider simply has no dynamic configuration.
+    for cm_name in list(configmap_specs):
+        cm_spec = configmap_specs[cm_name]
+        if cm_spec.get("fromRoutes"):
+            content = (route_documents or {}).get(module_id)
+            if content is None:
+                del configmap_specs[cm_name]
+            else:
+                cm_spec["content"] = content
+
+    # Certificate mounts (issue #1132): the compose bind that carries the
+    # profile's spec.certificates material becomes a projection of the
+    # chart Secret, so <alias>.crt/<alias>.key appear at the mount path
+    # without any certificate material in the chart itself.
+    cert_mount_specs = apply_production_gates(
+        _substitute_values(deepcopy(k8s.get("certificateMounts", {})), context),
+        is_production,
+    )
+    cert_mounts, cert_diags = _render_certificate_mounts(
+        module_id, cert_mount_specs, certificates or {}
+    )
+    diagnostics.extend(cert_diags)
+    for cert_mount in cert_mounts.values():
+        secret_keys.update(cert_mount["secret_keys"])
 
     # ConfigMaps are module-scoped: one manifest, mounted by whichever
     # containers name it.
@@ -717,6 +795,7 @@ def _render_module(
                 module_id,
                 context,
                 configmaps,
+                cert_mounts,
                 volume_specs,
                 pod_volumes,
                 pvcs,
@@ -741,6 +820,7 @@ def _render_module(
                 module_id,
                 context,
                 configmaps,
+                cert_mounts,
                 volume_specs,
                 pod_volumes,
                 pvcs,
@@ -1129,6 +1209,7 @@ def _translate_container(
     module_id: str,
     context: dict[str, Any],
     configmaps: dict[str, dict[str, Any]],
+    cert_mounts: dict[str, dict[str, Any]],
     volume_specs: dict[str, Any],
     pod_volumes: dict[str, dict[str, Any]],
     pvcs: dict[str, dict[str, Any]],
@@ -1192,6 +1273,7 @@ def _translate_container(
         compose_name,
         module_id,
         configmaps,
+        cert_mounts,
         volume_specs,
         pod_volumes,
         pvcs,
@@ -1283,7 +1365,7 @@ def _translate_ports(compose_ports: Any, override: Any) -> list[dict[str, Any]]:
         return [
             {
                 "name": p["name"],
-                "containerPort": int(p["containerPort"]),
+                "containerPort": _required_port(p["containerPort"]),
                 "protocol": p.get("protocol", "TCP"),
             }
             for p in override
@@ -1408,6 +1490,7 @@ def _translate_volumes(
     compose_name: str,
     module_id: str,
     configmaps: dict[str, dict[str, Any]],
+    cert_mounts: dict[str, dict[str, Any]],
     volume_specs: dict[str, Any],
     pod_volumes: dict[str, dict[str, Any]],
     pvcs: dict[str, dict[str, Any]],
@@ -1457,11 +1540,38 @@ def _translate_volumes(
                     }
                 },
             )
+            # A directory ConfigMap (issue #1132: the generated file-provider
+            # directory) is mounted whole, so every key lands as a file;
+            # a single-file ConfigMap projects its one key via subPath.
+            mount: dict[str, Any] = {
+                "name": name,
+                "mountPath": cm["mount_path"] or target,
+            }
+            if not cm.get("directory"):
+                mount["subPath"] = cm["key"]
+            mount["readOnly"] = True
+            mounts.append(mount)
+            continue
+
+        cert_mount = _cert_mount_for_target(cert_mounts, source, target, compose_name)
+        if cert_mount is not None:
+            # The profile's spec.certificates aliases project out of the
+            # chart Secret as <alias>.crt/<alias>.key files (issue #1132).
+            name = cert_mount["volume_name"]
+            pod_volumes.setdefault(
+                name,
+                {
+                    "secret": {
+                        "secretName": "{{ .Release.Name }}-secrets",
+                        "defaultMode": 0o400,
+                        "items": cert_mount["items"],
+                    }
+                },
+            )
             mounts.append(
                 {
                     "name": name,
-                    "mountPath": cm["mount_path"],
-                    "subPath": cm["key"],
+                    "mountPath": cert_mount["mount_path"] or target,
                     "readOnly": True,
                 }
             )
@@ -1639,6 +1749,9 @@ def _render_configmaps(
             "key": key,
             "mount_path": mount_path,
             "from_bind": from_bind,
+            # A directory ConfigMap (issue #1132: a generated file-provider
+            # directory) is mounted whole instead of projecting one key.
+            "directory": bool(spec.get("directory")),
             "containers": spec.get("containers") or [],
             "mode": _octal(spec.get("mode", "0444")),
             "manifest": {
@@ -1842,6 +1955,226 @@ def _wait_for_shape_diagnostics(
     return diagnostics
 
 
+# Port fields the renderer reads with `_required_port` when building Service
+# manifests and container ports: service.ports[].port/targetPort/nodePort and
+# containerOverrides.<c>.ports[].containerPort. A value that parses to no
+# port at all (e.g. a `${config.*}` expression resolving to garbage, in a
+# plan loaded from a file that bypassed the module schema) must fail closed
+# here instead of crashing the render or emitting null ports (issue #1132).
+_PORT_FIELDS = {
+    "service": ("ports", ("port", "targetPort", "nodePort")),
+    "containerOverrides": ("ports", ("containerPort",)),
+}
+
+
+def _port_shape_diagnostics(
+    module_id: str, workload_name: str, workload: dict[str, Any]
+) -> list[Diagnostic]:
+    """Re-check port shapes on the substituted workload (E165, issue #1132)."""
+    base = f"module:{module_id}.implementation.kubernetes.workloads.{workload_name}"
+    diagnostics: list[Diagnostic] = []
+    for block, (list_field, fields) in _PORT_FIELDS.items():
+        block_value = workload.get(block)
+        if block == "containerOverrides":
+            entries = []
+            for container_name, override in (block_value or {}).items():
+                if isinstance(override, dict):
+                    entries.append((str(container_name), override.get(list_field)))
+        else:
+            entries = [(None, (block_value or {}).get(list_field))]
+        for container_name, port_list in entries:
+            if port_list is None:
+                continue
+            where = (
+                f"{base}.{block}"
+                + (f".{container_name}" if container_name else "")
+                + f".{list_field}"
+            )
+            if not isinstance(port_list, list):
+                diagnostics.append(
+                    _port_shape_diagnostic(where, f'"{list_field}" must be a list')
+                )
+                continue
+            for index, port_entry in enumerate(port_list):
+                if not isinstance(port_entry, dict):
+                    diagnostics.append(
+                        _port_shape_diagnostic(
+                            f"{where}[{index}]", "each entry must be a mapping"
+                        )
+                    )
+                    continue
+                for field in fields:
+                    if field in port_entry and _as_port(port_entry[field]) is None:
+                        diagnostics.append(
+                            _port_shape_diagnostic(
+                                f"{where}[{index}].{field}",
+                                f'"{field}" must resolve to a port number '
+                                f"(got {port_entry[field]!r})",
+                            )
+                        )
+    return diagnostics
+
+
+def _port_shape_diagnostic(where: str, requirement: str) -> Diagnostic:
+    return Diagnostic(
+        level="error",
+        code="E165",
+        message=(
+            f'Malformed port declaration at "{where}": {requirement}. A plan '
+            "loaded from a file bypasses the module schema, and the renderer "
+            "converts these fields with _required_port when building the "
+            "Service/container manifests, so it fails closed here instead of "
+            "crashing or emitting a null port (issue #1132)."
+        ),
+        path=where,
+    )
+
+
+def _helm_backend_resolver(
+    service_names: dict[str, str],
+) -> Callable[[str, str], tuple[str | None, str | None]]:
+    """
+    Backend-host resolver for the Helm target's route documents (issue
+    #1132): maps the Compose-style backend name (the target's advertised
+    host or serviceName mapping) through the Services the render produced
+    and returns the release-scoped DNS name to dial. A backend no rendered
+    Service answers is the E150 cross-check: the route fails closed instead
+    of dialing a name nothing answers.
+    """
+
+    def resolve(
+        backend_host: str, target_module_id: str
+    ) -> tuple[str | None, str | None]:
+        service = service_names.get(backend_host)
+        if service is None:
+            rendered = sorted(set(service_names.values()))
+            return None, (
+                f"is not a Kubernetes Service the render produced for module "
+                f'"{target_module_id}" (rendered Services: '
+                f"{', '.join(rendered) or 'none'}); the route would dial a name "
+                "nothing answers. Render the target workload with a service "
+                "block, or advertise its serving workload via a serviceName "
+                "field in the http-service provide entry"
+            )
+        return _release_scoped_service_name(service), None
+
+    return resolve
+
+
+def _render_certificate_mounts(
+    module_id: str,
+    specs: dict[str, Any],
+    certificates: dict[str, dict[str, str]],
+) -> tuple[dict[str, dict[str, Any]], list[Diagnostic]]:
+    """
+    Build the certificate mount entries for a module (issue #1132).
+
+    Each declared mount projects the plan's `spec.certificates` aliases out
+    of the chart Secret: alias -> `<alias>.crt` (certEnv key) and
+    `<alias>.key` (keyEnv key). The env names join the module's secret keys,
+    so the chart's Secret carries them as install-time `required` lookups
+    and no certificate material ever enters the chart. A module with no
+    declared certificates gets no mount (the compose bind then falls back
+    to an empty dir).
+    """
+    out: dict[str, dict[str, Any]] = {}
+    diagnostics: list[Diagnostic] = []
+    if not specs:
+        return out, diagnostics
+    items: list[dict[str, str]] = []
+    secret_keys: set[str] = set()
+    # The alias interpolates into the projected file paths (<alias>.crt), so
+    # it must stay within the same character class the route `certificate`
+    # refs allow; anything else (a plan file can bypass the profile schema)
+    # fails closed instead of rendering a path Kubernetes would reject.
+    cert_alias_re = re.compile(r"^[A-Za-z0-9-]+$")
+    for alias in sorted(certificates):
+        if not cert_alias_re.match(str(alias)):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E166",
+                    message=(
+                        f'Certificate alias "{alias}" of module "{module_id}" is not a '
+                        "safe file-name stem (letters, digits, hyphens only); the "
+                        "alias interpolates into the projected <alias>.crt/<alias>.key "
+                        "paths (issue #1132)."
+                    ),
+                    path=f"module:{module_id}.implementation.kubernetes.certificateMounts",
+                )
+            )
+            continue
+        entry = certificates[alias]
+        if not isinstance(entry, dict):
+            continue
+        cert_env = entry.get("cert")
+        key_env = entry.get("key")
+        if not isinstance(cert_env, str) or not cert_env:
+            continue
+        if not isinstance(key_env, str) or not key_env:
+            continue
+        items.append({"key": cert_env, "path": f"{alias}.crt"})
+        items.append({"key": key_env, "path": f"{alias}.key"})
+        secret_keys.update((cert_env, key_env))
+    if not items:
+        return out, diagnostics
+    for name, spec in specs.items():
+        if not isinstance(spec, dict):
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E166",
+                    message=(
+                        f'Certificate mount "{name}" of module "{module_id}" must be a '
+                        "mapping (plan-file bypass of the module schema)."
+                    ),
+                    path=f"module:{module_id}.implementation.kubernetes.certificateMounts.{name}",
+                )
+            )
+            continue
+        from_bind = spec.get("fromBind")
+        mount_path = spec.get("mountPath")
+        if from_bind is None and mount_path is None:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E166",
+                    message=(
+                        f'Certificate mount "{name}" of module "{module_id}" needs a '
+                        '"fromBind" (the compose bind source it replaces) or a '
+                        '"mountPath".'
+                    ),
+                    path=f"module:{module_id}.implementation.kubernetes.certificateMounts.{name}",
+                )
+            )
+            continue
+        out[str(name)] = {
+            "volume_name": _k8s_name(f"certs-{module_id}-{name}"),
+            "mount_path": mount_path,
+            "from_bind": from_bind,
+            "containers": spec.get("containers") or [],
+            "items": deepcopy(items),
+            "secret_keys": set(secret_keys),
+        }
+    return out, diagnostics
+
+
+def _cert_mount_for_target(
+    cert_mounts: dict[str, dict[str, Any]],
+    source: Any,
+    target: str,
+    compose_name: str,
+) -> dict[str, Any] | None:
+    for cert_mount in cert_mounts.values():
+        if cert_mount["containers"] and compose_name not in cert_mount["containers"]:
+            continue
+        if cert_mount["mount_path"] == target or (
+            cert_mount["from_bind"] and str(source) == cert_mount["from_bind"]
+        ):
+            return dict(cert_mount, mount_path=cert_mount["mount_path"] or target)
+    return None
+
+
 def _workload_manifest(
     kind: str,
     name: str,
@@ -1908,12 +2241,12 @@ def _service_manifest(
     for port in svc.get("ports", []):
         entry = {
             "name": port["name"],
-            "port": int(port["port"]),
-            "targetPort": int(port.get("targetPort", port["port"])),
+            "port": _required_port(port["port"]),
+            "targetPort": _required_port(port.get("targetPort", port["port"])),
             "protocol": port.get("protocol", "TCP"),
         }
         if port.get("nodePort"):
-            entry["nodePort"] = int(port["nodePort"])
+            entry["nodePort"] = _required_port(port["nodePort"])
         ports.append(entry)
 
     spec: dict[str, Any] = {"selector": selector}
@@ -2447,7 +2780,7 @@ def _workload_surface(workload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _container_port(port: dict[str, Any]) -> int | None:
-    return _int_or_none(port.get("targetPort", port.get("port")))
+    return _as_port(port.get("targetPort", port.get("port")))
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -2457,6 +2790,39 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     except TypeError, ValueError:
         return None
+
+
+def _as_port(value: Any) -> int | None:
+    """
+    Parse a port that may be an int, a numeric string, or a listen address
+    whose port is the part after the last colon (":80", "0.0.0.0:8080") --
+    the shape a reverse proxy's `config.entryPoints.<name>.address` takes
+    (issue #1132). Plain ints and numeric strings parse exactly as
+    `_int_or_none` would, so existing modules render unchanged.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    if ":" in text:
+        text = text.rsplit(":", 1)[1]
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _required_port(value: Any) -> int:
+    """
+    Like `_as_port`, but keeps the renderer's fail-closed contract: a value
+    no Kubernetes port can come from raises instead of rendering null. The
+    pre-pass shape check (E165) normally catches these first.
+    """
+    port = _as_port(value)
+    if port is None:
+        raise K8sRenderError(f'Port value "{value}" is not a valid port number.')
+    return port
 
 
 def _network_policy_manifests(
@@ -3465,9 +3831,12 @@ def _check_wait_gate_hosts(
                     # port-scoped: the gate's port must be one the
                     # binding(s) to that host justify (issue #1124). The
                     # custom escape hatches still apply on top.
-                    if _bound_host_covers_gate_port(
-                        gate_port, bound_hosts[host], surfaces
-                    ) or covered_by_custom:
+                    if (
+                        _bound_host_covers_gate_port(
+                            gate_port, bound_hosts[host], surfaces
+                        )
+                        or covered_by_custom
+                    ):
                         continue
                     diagnostics.append(
                         Diagnostic(
@@ -3735,7 +4104,10 @@ def _check_provided_contract_ports(
                 continue
             for port in declared.get("ports") or []:
                 if isinstance(port, dict):
-                    for value in (_container_port(port), _int_or_none(port.get("port"))):
+                    for value in (
+                        _container_port(port),
+                        _int_or_none(port.get("port")),
+                    ):
                         if value is not None:
                             ports_by_name.setdefault(service_names[full], set()).add(
                                 value

@@ -244,9 +244,9 @@ def render_compose(
             module_service_names.setdefault(module["id"], []).append(
                 compose_service_name
             )
-            module_service_ports.setdefault(module["id"], {})[
-                compose_service_name
-            ] = _service_container_ports(service_def)
+            module_service_ports.setdefault(module["id"], {})[compose_service_name] = (
+                _service_container_ports(service_def)
+            )
 
         for volume_name, volume_def in rendered_volumes.items():
             compose["volumes"][f"{module['id']}-{volume_name}"] = volume_def
@@ -280,9 +280,7 @@ def render_compose(
         compose.pop("volumes")
 
     diagnostics.extend(_validate_provided_contract_hosts(plan, module_service_names))
-    diagnostics.extend(
-        _validate_provided_contract_ports(plan, module_service_ports)
-    )
+    diagnostics.extend(_validate_provided_contract_ports(plan, module_service_ports))
 
     _add_cross_module_dependencies(compose, plan, module_service_names)
 
@@ -433,11 +431,11 @@ def _provided_contract_host_candidates(
     addresses, per contract kind. Shared by both render targets' E150
     cross-checks (issues #1010, #1029, #1035).
 
-    Sink kinds (`lineage-sink`, `log-sink`, `metrics-sink`, `trace-sink`) are
-    dialed by consumers through both `host` and the pre-composed
-    `connectionUri`, so both are checked; a `serviceName` advertisement (as
-    on `http-service`) is checked as well, mapped through the renderer's
-    service-naming rule.
+    Sink kinds (`lineage-sink`, `log-sink`, `metrics-sink`, `trace-sink`) and
+    the `reverse-proxy` kind are dialed by consumers through both `host` and
+    the pre-composed `connectionUri`, so both are checked; a `serviceName`
+    advertisement (as on `http-service`) is checked as well, mapped through
+    the renderer's service-naming rule.
     """
     candidates: list[tuple[str, str | None]] = []
     if kind == "http-service":
@@ -448,6 +446,14 @@ def _provided_contract_host_candidates(
             )
         else:
             candidates.append(("host", spec.get("host")))
+    elif kind == "reverse-proxy":
+        # A reverse proxy is dialed by its `host` and its pre-composed
+        # `connectionUri` (issue #1132): both must name a service the
+        # render actually produced, on both render targets.
+        candidates.append(("host", spec.get("host")))
+        candidates.append(
+            ("connectionUri", _endpoint_hostname(spec.get("connectionUri")))
+        )
     elif kind in ("sql-database", "cache-service"):
         candidates.append(("host", spec.get("host")))
     elif kind == "object-storage":
@@ -591,9 +597,7 @@ def _provided_contract_port_candidates(
         candidates.append(("host", spec.get("host"), "port", port))
     elif kind == "object-storage":
         endpoint = spec.get("endpoint")
-        candidates.append(
-            ("endpoint", endpoint, "endpoint", _endpoint_port(endpoint))
-        )
+        candidates.append(("endpoint", endpoint, "endpoint", _endpoint_port(endpoint)))
     elif kind in ("lineage-sink", "log-sink", "metrics-sink", "trace-sink"):
         advertised_service = spec.get("serviceName")
         if isinstance(advertised_service, str) and advertised_service:
@@ -660,9 +664,12 @@ def _validate_provided_contract_ports_against(
             if not isinstance(spec, dict):
                 continue
             seen: set[tuple[str, str]] = set()
-            for host_field, advertised, port_field, port in (
-                _provided_contract_port_candidates(kind, spec, module_id)
-            ):
+            for (
+                host_field,
+                advertised,
+                port_field,
+                port,
+            ) in _provided_contract_port_candidates(kind, spec, module_id):
                 if port is None:
                     continue
                 host = _endpoint_hostname(advertised)
@@ -759,12 +766,23 @@ def _bound_route_contracts(module: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _generate_reverse_proxy_routes(
-    plan: dict[str, Any], module_service_names: dict[str, list[str]]
+    plan: dict[str, Any],
+    module_service_names: dict[str, list[str]],
+    *,
+    resolve_backend_host: Callable[[str, str], tuple[str | None, str | None]]
+    | None = None,
+    backend_error_code: str = "E136",
+    only_modules: set[str] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], list[Diagnostic]]:
     """
     Generate Traefik file-provider dynamic route documents from the plan's
     contract bindings instead of Docker label autodiscovery or hand-written
     files (issues #581, #883).
+
+    `only_modules` restricts generation to the given proxy instance ids --
+    the Helm target uses it to validate only the proxies that render their
+    routes as a ConfigMap (`fromRoutes`, issue #1132); other proxies keep
+    the warning-only NetworkPolicy edge derivation of issue #1033.
 
     For every module providing a `reverse-proxy` contract, each
     `config.routes` entry binds one `http-service` provide through its
@@ -779,7 +797,12 @@ def _generate_reverse_proxy_routes(
     service, since the instance id alone does not resolve on the Compose
     network), and is cross-checked against the services the render
     actually produced -- an address nothing answers fails closed instead
-    of 502ing at runtime. The optional `certificate` alias is validated
+    of 502ing at runtime. On the Compose target that cross-check compares
+    against `module_service_names` (E136); the Helm target passes
+    `resolve_backend_host` instead, which maps the backend host through
+    the rendered Kubernetes Services and returns the URL host to dial
+    (or a problem string, reported with `backend_error_code` -- E150 on
+    Helm, issue #1132). The optional `certificate` alias is validated
     against the plan's certificate mapping (issue #578) and, for TLS-enabled
     routers, wired as the router's certificate files. Invalid inputs -- a
     malformed or unknown contractRef, an unresolvable endpoint (host
@@ -805,6 +828,8 @@ def _generate_reverse_proxy_routes(
         if not any(
             p.get("kind") == "reverse-proxy" for p in resolved_provides.values()
         ):
+            continue
+        if only_modules is not None and str(proxy_id) not in only_modules:
             continue
 
         routes = (module.get("config") or {}).get("routes") or []
@@ -1001,25 +1026,48 @@ def _generate_reverse_proxy_routes(
             else:
                 backend_host = advertised_host
 
-            rendered_services = module_service_names.get(str(target_module_id), [])
-            if backend_host not in rendered_services:
-                diagnostics.append(
-                    Diagnostic(
-                        level="error",
-                        code="E136",
-                        message=(
-                            f'Reverse-proxy route contractRef "{contract_ref}" resolves to backend '
-                            f'address "{backend_host}", which is not a rendered compose service of '
-                            f'module "{target_module_id}" (rendered services: '
-                            f"{', '.join(rendered_services) or 'none'}); route generation refuses to "
-                            "emit an address nothing answers. Multi-service providers must advertise "
-                            "the serving service via a serviceName field in their http-service "
-                            "provide entry."
-                        ),
-                        path=f"{path_prefix}.contractRef",
+            if resolve_backend_host is None:
+                rendered_services = module_service_names.get(str(target_module_id), [])
+                if backend_host not in rendered_services:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code="E136",
+                            message=(
+                                f'Reverse-proxy route contractRef "{contract_ref}" resolves to backend '
+                                f'address "{backend_host}", which is not a rendered compose service of '
+                                f'module "{target_module_id}" (rendered services: '
+                                f"{', '.join(rendered_services) or 'none'}); route generation refuses to "
+                                "emit an address nothing answers. Multi-service providers must advertise "
+                                "the serving service via a serviceName field in their http-service "
+                                "provide entry."
+                            ),
+                            path=f"{path_prefix}.contractRef",
+                        )
                     )
+                    continue
+                url_host = backend_host
+            else:
+                # The Helm target resolves the backend through the rendered
+                # Kubernetes Services (issue #1132) and fails closed with the
+                # caller's error code (E150) when no Service answers.
+                url_host, problem = resolve_backend_host(
+                    backend_host, str(target_module_id)
                 )
-                continue
+                if url_host is None:
+                    diagnostics.append(
+                        Diagnostic(
+                            level="error",
+                            code=backend_error_code,
+                            message=(
+                                f'Reverse-proxy route contractRef "{contract_ref}" resolves to '
+                                f'backend address "{backend_host}" of module "{target_module_id}", '
+                                f"which {problem}"
+                            ),
+                            path=f"{path_prefix}.contractRef",
+                        )
+                    )
+                    continue
 
             # The public rule is a Host() and/or PathPrefix() matcher; at
             # least one must be present. A provider may advertise a default
@@ -1149,16 +1197,17 @@ def _generate_reverse_proxy_routes(
             # The backend URL is intentionally plain HTTP: Traefik
             # terminates TLS at the edge entrypoint (websecure, TLS 1.2+
             # per the module's policy) and proxies to target services over
-            # the profile's private Docker network, which outside clients
-            # cannot reach (docs/threat-model.md Boundary B; per-service
-            # transport encryption is tracked as T10 / #205). S5332
-            # therefore reports a false positive here.
+            # the profile's private network (the Compose network, or the
+            # release namespace's default-deny NetworkPolicies on Helm),
+            # which outside clients cannot reach (docs/threat-model.md
+            # Boundary B; per-service transport encryption is tracked as
+            # T10 / #205). S5332 therefore reports a false positive here.
             services[service_name] = {
                 "loadBalancer": {
                     "servers": [
                         # NOSONAR stays on the line with the http:// literal:
                         # wrapping this further would detach it and re-expose S5332.
-                        {"url": f"http://{backend_host}:{backend_port}"}  # NOSONAR
+                        {"url": f"http://{url_host}:{backend_port}"}  # NOSONAR
                     ]
                 },
             }
