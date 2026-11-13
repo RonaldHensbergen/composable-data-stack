@@ -1,16 +1,16 @@
 # Check-in: OKDP, Stackable and UWV's Open Data Analytics Platform
 
 Version: 0.1
-Status: Draft — landscape check-in, not a plan. Candidate follow-ups are listed
-in section 7 and are not filed as issues yet.
+Status: Draft — landscape check-in, not a plan. Follow-ups are listed
+in section 7 and filed as issues #1281–#1285.
 Date: 2026-11-13
 Related: [docs/architecture.md](architecture.md),
 [docs/haven-parity-plan.md](haven-parity-plan.md),
 [docs/common-ground-alignment.md](common-ground-alignment.md),
 [docs/kubernetes.md](kubernetes.md), [docs/roadmap.md](roadmap.md),
 [docs/repo-review-2026-11-13.md](repo-review-2026-11-13.md) (companion
-internal review of the same date; its findings F1–F4 are tracked in issues
-1277–1280)
+internal review of the same date; its findings F1–F4 are tracked in
+issues #1277–#1280)
 
 ## 1. Scope and method
 
