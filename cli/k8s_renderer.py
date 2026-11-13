@@ -71,6 +71,7 @@ from .renderer import (
     _build_context,
     _compose_port_target,
     _generate_reverse_proxy_routes,
+    _inject_oidc_realm_imports,
     _is_valid_backend_port,
     _merge_init_db_env,
     _resolve_expr,
@@ -384,6 +385,21 @@ def render_helm(
             True,
         )
         _merge_init_db_env(compose_services, module, secrets)
+        # The compose renderer injects CDS_OIDC_REALM_IMPORT into every
+        # service of an oidc-provider module (issue #1074) so the entrypoint
+        # can provision realm/clients at container start; the Helm target
+        # needs the same env on the translated containers (issue #1140), with
+        # client secrets staying ${CDS_*} placeholders that _translate_env
+        # turns into secretKeyRef-backed $(CDS_*) expansions.
+        diagnostics.extend(
+            _inject_oidc_realm_imports(
+                {"modules": [module]},
+                {"services": compose_services},
+                {module_id: list(compose_services.keys())},
+                secrets,
+                plan.get("certificates", {}),
+            )
+        )
         # Honor config.image.source exactly like the compose renderer does
         # (renderer._apply_image_source): a module sourced from "registry"
         # drops its build: block here and its image becomes the published

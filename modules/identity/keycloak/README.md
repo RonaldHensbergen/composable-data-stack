@@ -86,3 +86,26 @@ placeholders in the generated Compose file and are interpolated by Compose
 at `up` time, so a resolved secret value never lands in plans or rendered
 output (CDS-SEC-030/E078). A client without `secretFrom` is created as a
 public client. Malformed entries fail rendering with E160.
+
+## Kubernetes (`--target helm`)
+
+Since issue #1140 the module also renders the Helm target
+(`targets: [docker-compose, kubernetes]`): a Deployment translated from the
+compose fragment plus a ClusterIP Service on the contract port
+(`config.containerPort`), with a `waitFor` gate on the bound `sql-database`.
+Differences from the Compose render:
+
+- The compose entrypoint's `$$` escapes (which shield shell expansions from
+  Compose's own interpolation) become single-`$` expansions via
+  `containerOverrides`, because Kubernetes does not interpolate `$$` — the
+  script would otherwise run with a literal `$$` (the PID).
+- The `keycloak-quarkus` named volume is not mounted on Kubernetes: the image
+  ships the pre-built server at `/opt/keycloak/lib/quarkus`, and an emptyDir
+  would hide it. The root filesystem stays read-only; `kc.sh start` only
+  reads the pre-built server.
+- `CDS_OIDC_REALM_IMPORT` is injected on the Helm target exactly like on
+  Compose (issue #1074); client secrets render as `$(CDS_*)` expansions
+  backed by `secretKeyRef` entries, never as values in the chart.
+- The `oidc-provider` contract advertises the in-cluster `host`/`port`
+  (`${service.dns}`/`${config.containerPort}`) alongside `issuerUrl`, so the
+  consume-side binding check (E084) can match the rendered Service.
