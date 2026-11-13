@@ -465,19 +465,58 @@ class HelmRendererDiagnosticTest(unittest.TestCase):
         self.assertIn("image: example/app:1", manifest)
         self.assertIn("imagePullPolicy: Never", manifest)
 
-    def test_backup_capability_is_rejected_for_helm_target(self) -> None:
-        # The built-in backup capability (issue #665) has no Kubernetes
-        # sidecar workload yet; enabling it must fail closed instead of
-        # rendering a chart whose database is silently unprotected.
+    def backup_plan(self, *, backup_enabled: bool) -> dict:
+        # A module with a gated sidecar service (issue #665/#1266): the
+        # compose service carries enabledFrom, and the Kubernetes workload
+        # lists it as a second container in the same pod.
         plan = self.minimal_plan()
-        plan["modules"][0]["config"]["backup"] = {"enabled": True}
+        module = plan["modules"][0]
+        module["config"]["backup"] = {"enabled": backup_enabled}
+        module["implementation"]["compose"]["services"]["app-backup"] = {
+            "image": "example/app:1",
+            "enabledFrom": "config.backup.enabled",
+            "volumes": ["data:/data:ro", "repo:/repo"],
+        }
+        workload = module["implementation"]["kubernetes"]["workloads"]["app"]
+        # The gated service appears as both an init and a main container, so
+        # the enabledFrom guard is exercised in both translation loops.
+        workload["initContainers"] = ["app-backup"]
+        workload["containers"] = ["app", "app-backup"]
+        workload["resources"]["app-backup"] = {
+            "requests": {"cpu": "10m", "memory": "16Mi"},
+            "limits": {"memory": "32Mi"},
+        }
+        module["implementation"]["kubernetes"]["volumes"]["repo"] = {
+            "type": "persistentVolumeClaim",
+            "size": "1Gi",
+            "enabledFrom": "config.backup.enabled",
+        }
+        return plan
 
-        files, diagnostics = render_helm(plan)
+    def test_backup_sidecar_renders_as_pod_container_and_claim_when_enabled(
+        self,
+    ) -> None:
+        # Issue #1266: the helm target renders the pgBackRest sidecar as a
+        # container in the database pod plus a repository PVC, so a prod
+        # render no longer fails closed (formerly E142).
+        files, diagnostics = render_helm(self.backup_plan(backup_enabled=True))
 
-        self.assertEqual(files, {})
-        matching = [d for d in diagnostics if d.code == "E142"]
-        self.assertEqual(len(matching), 1)
-        self.assertEqual(matching[0].path, "module:demo.config.backup.enabled")
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        statefulset = files["templates/demo-app-statefulset.yaml"]
+        self.assertIn("name: app-backup", statefulset)
+        self.assertIn("name: demo-repo", statefulset)
+        self.assertIn("volumeClaimTemplates:", statefulset)
+
+    def test_backup_sidecar_is_skipped_when_disabled(self) -> None:
+        # The service-level enabledFrom gate must drop the sidecar container
+        # (and the repo claim) without an error when backup is off.
+        files, diagnostics = render_helm(self.backup_plan(backup_enabled=False))
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics))
+        statefulset = files["templates/demo-app-statefulset.yaml"]
+        self.assertNotIn("name: app-backup", statefulset)
+        self.assertNotIn("name: demo-repo", statefulset)
+        self.assertIn("name: app", statefulset)
 
     def test_disabled_backup_capability_renders_helm(self) -> None:
         plan = self.minimal_plan()

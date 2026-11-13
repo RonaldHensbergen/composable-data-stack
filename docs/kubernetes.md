@@ -252,10 +252,10 @@ bounded init-container wait gates, and named volumes become StatefulSet
 through the workload's Service (e.g. the `kubernetesService` NodePort config
 used by the example profiles) or port-forward. Modules that build locally
 (`image.source: build`) must be built and imported into the cluster first
-(`make k3d-build`). One capability is compose-only for now: the Postgres
-pgBackRest backup sidecar is not rendered for Helm yet (E142), so the
-production-style example declares its backup policies without enabling the
-sidecar.
+(`make k3d-build`). The Postgres pgBackRest backup sidecar renders for Helm
+as a second container in the postgres pod plus a `postgres-backup-repo` PVC
+(#1266), so the production-style example enables `config.backup.enabled`
+under the prod overlay and the database is protected on both targets.
 
 ## Translation boundaries
 

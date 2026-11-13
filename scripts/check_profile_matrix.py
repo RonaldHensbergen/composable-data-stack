@@ -12,8 +12,7 @@ commands ``cds validate`` and ``cds render`` run:
    is not compose-implemented (E070: the compose target is not defined for
    that profile, e.g. the Kubernetes example profiles),
 4. ``render_helm()``      -- ``--target helm``, skipped only when a module
-   lacks a Kubernetes implementation (E072) or the overlay enables a
-   compose-only capability (E142, backup sidecar).
+   lacks a Kubernetes implementation (E072).
 
 A target that is not defined for a profile is skipped; any other error fails
 the run. Guards keep the matrix from silently shrinking: every profile/overlay
@@ -53,11 +52,10 @@ PROFILES_ROOT = REPO_ROOT / "profiles"
 # Diagnostic codes that mean "this render target is not defined for the
 # profile/overlay combination" rather than a regression. In render_helm()
 # E072 is emitted exactly for modules without an implementation.kubernetes
-# block, and E142 exactly for config.backup.enabled (compose-only sidecar).
-# In render_compose() E070 is emitted exactly for non-docker-compose module
-# kinds. Any other error code fails the matrix.
+# block. In render_compose() E070 is emitted exactly for non-docker-compose
+# module kinds. Any other error code fails the matrix.
 COMPOSE_UNDEFINED_CODES = frozenset({"E070"})
-HELM_UNDEFINED_CODES = frozenset({"E072", "E142"})
+HELM_UNDEFINED_CODES = frozenset({"E072"})
 
 # Guards against silent shrinkage of the matrix: these (profile, environment)
 # combinations must render successfully for the given target. The Kubernetes

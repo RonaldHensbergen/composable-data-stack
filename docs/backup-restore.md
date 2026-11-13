@@ -85,7 +85,7 @@ enforced by `profile.schema.json` (`E010`). `cds validate` adds:
 | `E134` | Production profile does not declare backup encryption. |
 | `E135` | Production policy has no `restoreVerification`. |
 | `E141` | A module's built-in backup capability is enabled without a valid `backup.encryptionKeyFrom` `secrets.<alias>` reference (#665). |
-| `E142` | The built-in backup capability is enabled while rendering the `helm` target, which has no backup sidecar workload yet (#665). |
+| `E142` | Removed (#1266): the helm target now renders the pgBackRest sidecar as a container in the postgres pod plus a repository PVC, so enabling the built-in backup capability no longer fails the helm render. |
 | `E143` | A module's built-in backup capability (a production-only piece) is enabled outside a production profile (#665); also fires for a backup module (`metadata.category: backup`, e.g. restic, #668) instantiated outside a production profile, since its services would silently not render. |
 | `E146` | A bound `backup-source` contract advertises a Compose volume the producing module does not declare, so the backup engine would mount an empty implicit volume and protect nothing (plan stage, #668). |
 | `E147` | A backup module configures its object-storage destination as literally the bound source endpoint and bucket, so snapshots would copy the bucket onto itself (plan stage, #669). |
@@ -210,9 +210,12 @@ complete examples.
 
 ### Restore procedure
 
-The gated one-shot `postgres-restore` service (compose target only;
-`E142` on the helm target) restores the latest backup and replays WAL
-from the repository:
+The gated one-shot `postgres-restore` service restores the latest backup
+and replays WAL from the repository. On the compose target it runs via its
+`cds-restore` profile; on the helm target the chart renders the postgres
+pod with the `postgres-backup` sidecar container and a
+`postgres-backup-repo` PVC (#1266), and a restore is run as a one-off Job
+against the same image and volumes (see the module README):
 
 ```sh
 docker compose stop postgres

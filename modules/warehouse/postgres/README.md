@@ -17,8 +17,9 @@ with `E154` when bound to a provider speaking a different wire protocol
 - The host port is bound to `127.0.0.1` only, so Postgres is not exposed to other hosts
 - The init script runs only on first boot when the data volume is empty, later edits to the script or `initDbEnv` do not apply to an existing database
 - The container runs read-only with `cap_drop: ALL`, data lives in a named volume and tmpfs
-- The backup capability (below) is implemented for the compose target only;
-  rendering it for the helm target fails closed with `E142`
+- The backup capability (below) renders on both targets: compose as a
+  `postgres-backup` sidecar service, helm as a `postgres-backup` container in
+  the postgres pod plus a `postgres-backup-repo` PVC (#1266)
 
 ## Production and learning variants
 

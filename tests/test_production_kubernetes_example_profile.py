@@ -98,6 +98,32 @@ class ProductionKubernetesExampleProfileTest(unittest.TestCase):
                     ["postgres", "dagster", "superset"],
                 )
 
+    def test_prod_overlay_renders_backup_sidecar_and_repo_claim(self) -> None:
+        # Issue #1266: the prod overlay enables config.backup.enabled, and the
+        # helm target renders the pgBackRest sidecar as a container in the
+        # postgres StatefulSet plus a repository PVC (no more E142). The base
+        # environment leaves both out.
+        for environment, expect_backup in ((None, False), ("prod", True)):
+            with self.subTest(environment=environment or "base"):
+                plan, _ = build_plan(
+                    str(PROFILE_PATH),
+                    env_file=str(self.env_file),
+                    environment=environment,
+                )
+                self.assertIsNotNone(plan)
+                files, render_diags = render_helm(plan, env_file=str(self.env_file))
+                errors = [d for d in render_diags if d.level == "error"]
+                self.assertEqual(errors, [])
+                # Raw-text assertions: the chart templates contain Helm
+                # expressions ({{ .Release.Name }}) that are not parseable YAML.
+                statefulset = files["templates/postgres-postgres-statefulset.yaml"]
+                if expect_backup:
+                    self.assertIn("name: postgres-backup", statefulset)
+                    self.assertIn("name: postgres-postgres-backup-repo", statefulset)
+                else:
+                    self.assertNotIn("name: postgres-backup", statefulset)
+                    self.assertNotIn("name: postgres-postgres-backup-repo", statefulset)
+
     def test_prod_overlay_promotes_environment_and_requires_cache_secret(self) -> None:
         plan, _ = build_plan(
             str(PROFILE_PATH),
