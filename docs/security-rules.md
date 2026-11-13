@@ -52,7 +52,11 @@ Flags a profile whose rendered Compose includes an admin-ui-type service
 (the same heuristic `CDS-SEC-020`/`023` use: a service name containing
 `superset`, `dagster-webserver`, or `ui`) when no module in the profile is
 sourced from `modules/identity` (or `modules-experimental/identity`), e.g.
-`modules/identity/keycloak`.
+`modules/identity/keycloak`. One-shot init/migration/job containers are
+excluded: a compose service whose name ends in `-init`, `-migration`, or
+`-job` (e.g. `superset-init`) runs a bounded task and exits, so it is not
+an exposed admin entry point and does not fire this rule (issue
+[#1275](https://github.com/RonaldHensbergen/composable-data-stack/issues/1275)).
 
 **Known limitation:** this is a coarse, profile-wide presence check, not a
 per-service wiring check. No `identity-broker` contract exists yet (tracked
