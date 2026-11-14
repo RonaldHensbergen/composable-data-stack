@@ -147,17 +147,34 @@ jobs:
       - name: Push image
         id: push
         run: |
+          # Registries occasionally fail a push transiently (ghcr.io
+          # "unknown blob", 504s during blob upload — main runs 43584964949
+          # and 42570674108); retry each tag push with backoff instead of
+          # failing the whole publish on a registry hiccup.
+          retry_push() {
+            local attempts=4 delay=10 n=0
+            until "$@"; do
+              n=$((n + 1))
+              if [ "$n" -ge "$attempts" ]; then
+                echo "giving up after ${attempts} attempts: $*" >&2
+                return 1
+              fi
+              echo "retrying (${n}/${attempts}) after registry error: $*" >&2
+              sleep "$delay"
+              delay=$((delay * 2))
+            done
+          }
           variant="${{ matrix.image.variant }}"
           prefix=""
           if [ -n "$variant" ] && [ "$variant" != "base" ]; then
             prefix="${variant}-"
           fi
           ref="${{ steps.name.outputs.ref }}"
-          docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
-          docker push "$ref:${prefix}latest"
+          retry_push docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
+          retry_push docker push "$ref:${prefix}latest"
           if [ "$variant" = "hardened" ]; then
-            docker push "$ref:alpine-sha-${GITHUB_SHA::12}"
-            docker push "$ref:alpine-latest"
+            retry_push docker push "$ref:alpine-sha-${GITHUB_SHA::12}"
+            retry_push docker push "$ref:alpine-latest"
           fi
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
@@ -359,6 +376,22 @@ jobs:
       - name: Push image
         id: push
         run: |
+          # Same transient registry failures as the ghcr.io push above
+          # (504s hit Docker Hub on main run 42570674108); retry each tag
+          # push with backoff instead of failing the whole publish.
+          retry_push() {
+            local attempts=4 delay=10 n=0
+            until "$@"; do
+              n=$((n + 1))
+              if [ "$n" -ge "$attempts" ]; then
+                echo "giving up after ${attempts} attempts: $*" >&2
+                return 1
+              fi
+              echo "retrying (${n}/${attempts}) after registry error: $*" >&2
+              sleep "$delay"
+              delay=$((delay * 2))
+            done
+          }
           ref="docker.io/ronaldsoeverein/${{ matrix.image.name }}"
           tag="${{ steps.version.outputs.tag }}"
           latest_tag="${{ steps.version.outputs.latest_tag }}"
@@ -369,12 +402,12 @@ jobs:
           if [ -n "$variant" ] && [ "$variant" != "base" ]; then
             prefix="${variant}-"
           fi
-          docker push "$ref:$tag"
-          docker push "$ref:$latest_tag"
-          docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
+          retry_push docker push "$ref:$tag"
+          retry_push docker push "$ref:$latest_tag"
+          retry_push docker push "$ref:${prefix}sha-${GITHUB_SHA::12}"
           if [ -n "$alpine_tag" ]; then
-            docker push "$ref:$alpine_tag"
-            docker push "$ref:$alpine_latest_tag"
+            retry_push docker push "$ref:$alpine_tag"
+            retry_push docker push "$ref:$alpine_latest_tag"
           fi
           digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
