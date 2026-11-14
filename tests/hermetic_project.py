@@ -1,15 +1,21 @@
-"""Helpers for subprocess tests that must not depend on developer-local state.
+"""Helpers for tests that must not depend on developer-local state.
 
 `cds` loads `.env` from the working directory and resolves the project root
 from it, so tests that run the CLI against the sample profile use a temporary
 project copy plus a sanitized environment instead of the repository checkout.
+In-process `cli.main.main()` calls use `HermeticMainTestCase` instead.
 """
 
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import cli.main as cli_main
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -76,3 +82,42 @@ def init_env(
         raise RuntimeError(
             f"cds init failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
+
+
+class HermeticMainTestCase(unittest.TestCase):
+    """Base for test cases that invoke ``cli.main.main()`` in-process.
+
+    ``main()`` reads project-local state anchored at the current working
+    directory: every ``CDS_*`` key from ``./.env`` (``load_env_file``) and the
+    saved per-project config at ``<project root>/.cds/config.json``
+    (``get_config_path`` -- e.g. a saved ``"target": "helm"``, which turns
+    ``cds state``/``cds up`` into ``kubectl`` calls). On a developer checkout
+    that has those files, that state leaks into the tests and the suite fails
+    locally while CI (clean checkout) stays green (issue #1277).
+
+    This base points ``CDS_CONFIG_PATH``/``CDS_SHARED_CONFIG_PATH`` at
+    nonexistent files in a per-test temp dir and disables ``.env`` loading, so
+    ``main()`` sees no saved project state. Tests that need a specific saved
+    config set ``CDS_CONFIG_PATH`` themselves; their ``patch.dict`` is nested
+    inside this one and wins while it is active.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        env_patch = patch.dict(
+            os.environ,
+            {
+                "CDS_CONFIG_PATH": str(root / "config.json"),
+                "CDS_SHARED_CONFIG_PATH": str(root / "cds.shared.json"),
+            },
+        )
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
+        # main() mutates os.environ with every CDS_* key from ./.env; stop
+        # that so a project-local .env cannot leak into the test process.
+        env_file_patch = patch.object(cli_main, "load_env_file")
+        env_file_patch.start()
+        self.addCleanup(env_file_patch.stop)

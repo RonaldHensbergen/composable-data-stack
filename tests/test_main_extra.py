@@ -18,6 +18,7 @@ from cli.main import (
     set_config_value,
     unset_config_value,
 )
+from tests.hermetic_project import HermeticMainTestCase
 
 
 def _run(argv, env=None):
@@ -147,8 +148,9 @@ class ResolveProfilePathTest(unittest.TestCase):
             self.assertEqual(resolve_profile_path(str(missing)), str(missing.resolve()))
 
 
-class RenderErrorPathsTest(unittest.TestCase):
+class RenderErrorPathsTest(HermeticMainTestCase):
     def setUp(self):
+        super().setUp()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
@@ -322,8 +324,9 @@ class RenderErrorPathsTest(unittest.TestCase):
                 self.assertIn(text, out)
 
 
-class SecurityCommandErrorPathsTest(unittest.TestCase):
+class SecurityCommandErrorPathsTest(HermeticMainTestCase):
     def setUp(self):
+        super().setUp()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
@@ -429,8 +432,9 @@ class SecurityCommandErrorPathsTest(unittest.TestCase):
         self.assertIn("Security validation failed unexpectedly: explode", err)
 
 
-class ComposeProfileErrorPathsTest(unittest.TestCase):
+class ComposeProfileErrorPathsTest(HermeticMainTestCase):
     def setUp(self):
+        super().setUp()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
