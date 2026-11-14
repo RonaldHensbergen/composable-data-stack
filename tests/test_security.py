@@ -734,6 +734,46 @@ class ReferenceProfileRegressionTest(unittest.TestCase):
         ]
         self.assertEqual(false_positives, [])
 
+    def test_team_prod_profile_backup_target_wired_has_no_sec080(self):
+        # #1270 acceptance: the prod overlay wires
+        # spec.backup.target.contractRef: postgres.backup-target, so the
+        # reference prod profile must not draw CDS-SEC-080.
+        profile_path = (
+            _REPO_ROOT / "profiles" / "team-dagster-postgres-superset" / "profile.yaml"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_file = Path(tmp_dir) / ".env"
+            env_file.write_text(self._ENV, encoding="utf-8")
+            findings, _diags = run_security_validation(
+                profile_path,
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                env_file=str(env_file),
+                environment="prod",
+            )
+
+        self.assertEqual([f for f in findings if f["rule_id"] == "CDS-SEC-080"], [])
+
+    def test_team_profile_without_backup_target_still_draws_sec080(self):
+        # #1270 acceptance, other branch: the base profile declares no
+        # spec.backup and no module consumes a backup-target contract, so
+        # CDS-SEC-080 must keep firing.
+        profile_path = (
+            _REPO_ROOT / "profiles" / "team-dagster-postgres-superset" / "profile.yaml"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_file = Path(tmp_dir) / ".env"
+            env_file.write_text(self._ENV, encoding="utf-8")
+            findings, _diags = run_security_validation(
+                profile_path,
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                env_file=str(env_file),
+            )
+
+        sec080 = [f for f in findings if f["rule_id"] == "CDS-SEC-080"]
+        self.assertEqual(len(sec080), 1)
+
 
 class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):
     def test_each_remaining_none_scope_rule_declares_why_it_is_deferred(self):
@@ -1715,6 +1755,76 @@ class BackupTargetBindingRuleTest(unittest.TestCase):
             ]
         }
         self.assertEqual(_check_backup_target_binding(plan=plan), [])
+
+    def test_stateful_provider_with_profile_backup_target_does_not_fire(self):
+        # #1270: a resolved spec.backup.target.contractRef (carried through
+        # the plan's "backup" block) counts as backup coverage.
+        plan = {
+            "modules": [
+                {
+                    "id": "postgres",
+                    "provides": {
+                        "db": {"kind": "sql-database"},
+                        "backup-target": {"kind": "backup-target"},
+                    },
+                },
+            ],
+            "backup": {
+                "target": {"contractRef": "postgres.backup-target"},
+                "policies": [{"workloadClass": "warehouse"}],
+            },
+        }
+        self.assertEqual(_check_backup_target_binding(plan=plan), [])
+
+    def test_profile_backup_target_pointing_at_wrong_kind_still_fires(self):
+        plan = {
+            "modules": [
+                {
+                    "id": "postgres",
+                    "provides": {
+                        "db": {"kind": "sql-database"},
+                        "backup-target": {"kind": "sql-database"},
+                    },
+                },
+            ],
+            "backup": {"target": {"contractRef": "postgres.backup-target"}},
+        }
+        findings = _check_backup_target_binding(plan=plan)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-SEC-080")
+
+    def test_profile_backup_target_pointing_at_unknown_module_still_fires(self):
+        plan = {
+            "modules": [
+                {"id": "postgres", "provides": {"db": {"kind": "sql-database"}}},
+            ],
+            "backup": {"target": {"contractRef": "restic.backup-target"}},
+        }
+        findings = _check_backup_target_binding(plan=plan)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-SEC-080")
+
+    def test_backup_block_without_target_still_fires(self):
+        plan = {
+            "modules": [
+                {"id": "postgres", "provides": {"db": {"kind": "sql-database"}}},
+            ],
+            "backup": {"policies": [{"workloadClass": "warehouse"}]},
+        }
+        findings = _check_backup_target_binding(plan=plan)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-SEC-080")
+
+    def test_non_mapping_backup_block_is_ignored(self):
+        plan = {
+            "modules": [
+                {"id": "postgres", "provides": {"db": {"kind": "sql-database"}}},
+            ],
+            "backup": "not-a-dict",
+        }
+        findings = _check_backup_target_binding(plan=plan)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["rule_id"], "CDS-SEC-080")
 
     def test_non_mapping_module_and_consumed_entries_are_skipped(self):
         plan = {
