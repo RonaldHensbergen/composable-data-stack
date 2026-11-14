@@ -2,7 +2,10 @@
 """One-call issue bootstrap for RonaldHensbergen/composable-data-stack.
 
 Usage:
-    issue_context.py <issue-number> [--json]
+    issue_context.py <issue-number> [--json] [--include-untrusted]
+
+By default the issue body and comments are untrusted data and are redacted;
+pass --include-untrusted to include them in sanitized form.
 
 Prints a compact bundle — issue fields, roadmap Order/status, linked PRs,
 sub-issues, comments, body — that otherwise takes 5+ separate gh calls.
@@ -62,6 +65,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("number", type=int)
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--include-untrusted", action="store_true",
+                    help="include issue body/comments in sanitized form "
+                         "(default: redact untrusted text)")
     args = ap.parse_args()
     n = args.number
 
