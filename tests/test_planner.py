@@ -1899,6 +1899,34 @@ class InMemoryProfilePlanningTest(unittest.TestCase):
         self.assertEqual(plan["sourceProfile"], "generated-at-runtime")
         self.assertEqual(plan["environment"], "prod")
 
+    def test_build_plan_from_profile_carries_spec_backup_into_plan(self):
+        # #1270: the profile-level backup block is carried through verbatim
+        # so the security stage (CDS-SEC-080) can recognize a resolved
+        # spec.backup.target.contractRef as backup coverage.
+        import copy
+
+        backup = {
+            "target": {"contractRef": "db.backup-target"},
+            "policies": [{"workloadClass": "warehouse"}],
+        }
+        profile = copy.deepcopy(self.profile)
+        profile["spec"]["backup"] = backup
+
+        plan, diagnostics = planner.build_plan_from_profile(profile, self.profile_dir)
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan["backup"], backup)
+
+    def test_build_plan_from_profile_omits_backup_key_when_absent(self):
+        plan, diagnostics = planner.build_plan_from_profile(
+            self.profile, self.profile_dir
+        )
+
+        self.assertFalse(any(d.level == "error" for d in diagnostics), diagnostics)
+        self.assertIsNotNone(plan)
+        self.assertNotIn("backup", plan)
+
     def test_build_plan_from_profile_matches_disk_based_build_plan_output(self):
         import yaml
 

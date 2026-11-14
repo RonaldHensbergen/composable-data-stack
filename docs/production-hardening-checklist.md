@@ -182,7 +182,7 @@ Expected: `cds state` shows every service healthy; the proxy's TLS entry
 points answer (for example `curl -v https://<host>/`) and the backend ports
 answer only through the proxy. `cds down` stops the stack.
 
-## 4. Expected findings (snapshot 2026-11-13)
+## 4. Expected findings (snapshot 2026-11-14)
 
 `cds security team-dagster-postgres-superset --environment prod` currently
 exits 0 with the following findings: all of them are medium severity, and
@@ -203,8 +203,12 @@ Rendered output still contains only `${CDS_*}` placeholders.
 | Finding | Count | Classification | Action / tracking |
 | --- | --- | --- | --- |
 | `CDS-SEC-081` on the admin-facing services (`dagster-webserver`, `superset`; since #1275 one-shot jobs such as `superset-init` are no longer classified admin-ui) | 2 | Known gap: no identity module is bound and no admin-facing module consumes an `oidc-provider` contract (per-service binding check since [#1271](https://github.com/RonaldHensbergen/composable-data-stack/issues/1271)) | [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) |
-| `CDS-SEC-080` on `spec.modules` | 1 | Known gap: the backup policy is declared at profile level (`spec.backup`), which the rule does not yet recognize as contract consumption | [backup-restore.md](backup-restore.md) follow-ups ([#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210)) |
 | `W103` on `spec.security.waivers.runtimePolicy` | 1 | Informational: the documented non-root waiver for images that set `USER` in their Dockerfiles | Keep the waiver reason accurate |
+
+`CDS-SEC-080` no longer appears in this snapshot: since
+[#1270](https://github.com/RonaldHensbergen/composable-data-stack/issues/1270)
+the rule recognizes the profile-level `spec.backup.target.contractRef:
+postgres.backup-target` wired by the prod overlay as backup coverage.
 
 Additional `CDS-SEC-004` (placeholder/weak secret) or `CDS-SEC-012` (too
 weak or predictable) findings mean the `.env` still holds generated
