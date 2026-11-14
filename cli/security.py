@@ -1335,21 +1335,48 @@ _IDENTITY_SOURCE_SEGMENT_RE = re.compile(
     r"(?:^|/)(?:modules|modules-experimental)/identity(?:/|$)"
 )
 
+# Contract kinds that count as authentication delegation for CDS-SEC-081: a
+# module consuming one of these delegates user authentication to a shared
+# identity provider -- the shared `oidc-provider` contract (provided by e.g.
+# modules/identity/keycloak since #1064) or the reserved `identity-broker`
+# kind for a future broker fronting it (#370).
+_AUTH_DELEGATION_CONTRACT_KINDS = frozenset({"oidc-provider", "identity-broker"})
+
+
+def _module_consumes_auth_delegation_contract(module: dict[str, Any]) -> bool:
+    """Return whether a plan module consumes an `oidc-provider` (or
+    `identity-broker`) contract. The planner only emits a `consumes` entry
+    when the profile actually bound it (the mappedFrom path resolved), so a
+    resolved entry here means the service's module is genuinely wired to an
+    identity provider, not merely capable of being wired."""
+    consumes = module.get("consumes", {})
+    if not isinstance(consumes, dict):
+        return False
+    return any(
+        isinstance(consumed, dict)
+        and isinstance(consumed.get("contract"), dict)
+        and consumed["contract"].get("kind") in _AUTH_DELEGATION_CONTRACT_KINDS
+        for consumed in consumes.values()
+    )
+
 
 def _check_admin_service_identity_binding(
     plan: dict[str, Any] | None,
     rendered_compose: dict[str, Any] | None,
     rule_enabled: bool = True,
+    service_to_module: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """
-    CDS-SEC-081: flag a profile whose rendered Compose exposes an
-    admin-ui-type service (per the same `_service_type_for_path` heuristic
-    CDS-SEC-020/023 use) when no module in the profile is sourced from
-    `modules/identity` (or `modules-experimental/identity`).
+    CDS-SEC-081: flag each admin-ui-type service in the rendered Compose (per
+    the same `_service_type_for_path` heuristic CDS-SEC-020/023 use) whose
+    owning module is not wired to an identity provider.
 
-    This is a coarse profile-wide presence check, not a per-service wiring
-    check -- no identity-broker contract exists yet (tracked by #370) to
-    confirm the identity module actually protects that specific service.
+    Per service, the check is binding-aware: the service counts as
+    auth-delegated when its module consumes an `oidc-provider` (or future
+    `identity-broker`) contract. As an additional, coarser profile-wide
+    signal, the presence of any module sourced from `modules/identity` (or
+    `modules-experimental/identity`) also suppresses the finding. A service
+    that can be attributed to no module fails closed (the finding fires).
     See rule-set.json's $comment on CDS-SEC-081 for the full rationale.
     """
     if (
@@ -1372,33 +1399,54 @@ def _check_admin_service_identity_binding(
         return []
 
     modules = plan.get("modules", [])
-    has_identity_module = any(
-        isinstance(module, dict)
-        and isinstance(module.get("source"), str)
-        and _IDENTITY_SOURCE_SEGMENT_RE.search(module["source"])
+    if not isinstance(modules, list):
+        modules = []
+    modules_by_id = {
+        module.get("id"): module
         for module in modules
-        if isinstance(modules, list)
+        if isinstance(module, dict) and module.get("id")
+    }
+    has_identity_module = any(
+        isinstance(module.get("source"), str)
+        and _IDENTITY_SOURCE_SEGMENT_RE.search(module["source"])
+        for module in modules_by_id.values()
     )
     if has_identity_module:
         return []
 
-    return [
-        {
-            "rule_id": "CDS-SEC-081",
-            "severity": "medium",
-            "module": "profile",
-            "message": "Profile exposes an admin-facing service but includes no identity/auth module",
-            "path": f"services.{service_name}",
-            "value": None,
-            "recommendation": [
-                "Bind an identity/auth module (e.g. modules/identity/keycloak) "
-                "in front of admin-facing services.",
-                "If the admin-ui service has its own adequate authentication, "
-                "document why no additional identity module is needed.",
-            ],
-        }
-        for service_name in admin_services
-    ]
+    if service_to_module is None:
+        service_to_module = _map_service_to_module(plan)
+
+    findings = []
+    for service_name in admin_services:
+        module = modules_by_id.get(service_to_module.get(service_name, ""))
+        if module is not None and _module_consumes_auth_delegation_contract(module):
+            continue
+        findings.append(
+            {
+                "rule_id": "CDS-SEC-081",
+                "severity": "medium",
+                "module": "profile",
+                "message": (
+                    "Admin-facing service is not wired to an identity provider: "
+                    "its module consumes no oidc-provider/identity-broker "
+                    "contract and the profile includes no identity/auth module"
+                ),
+                "path": f"services.{service_name}",
+                "value": None,
+                "recommendation": [
+                    "Wire the service's module to an oidc-provider contract "
+                    "(e.g. keycloak.oidc-provider via the module's consume "
+                    "binding, such as Superset's identityProvider), or bind an "
+                    "identity/auth module (e.g. modules/identity/keycloak) in "
+                    "front of admin-facing services.",
+                    "If the admin-ui service has its own adequate "
+                    "authentication, document why no identity delegation is "
+                    "needed.",
+                ],
+            }
+        )
+    return findings
 
 
 @dataclass(frozen=True)
@@ -1777,6 +1825,7 @@ def run_security_validation(
             plan=rendered_plan,
             rendered_compose=rendered_compose,
             rule_enabled=admin_identity_rule_enabled,
+            service_to_module=service_to_module,
         )
     )
 
