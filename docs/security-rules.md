@@ -46,10 +46,9 @@ are wired into a profile through `spec.backup.target.contractRef` or
 `backup-source` bindings rather than a `backup-target` consume entry;
 since issue #1270 the profile-level `spec.backup.target` wiring is
 recognized, so the finding now fires only on profiles that have wired
-neither provider. Treat
-it as honest signal about a real NIS2 Article 21(2)(c) business-continuity
-gap: the finding stops firing for a given profile once a backup-capable
-module exists and is wired into it.
+neither provider. Treat it as honest signal about a real NIS2 Article
+21(2)(c) business-continuity gap: the finding stops firing for a given
+profile once a backup-capable module exists and is wired into it.
 
 ## CDS-SEC-081: Admin-facing service without identity-provider wiring
 
