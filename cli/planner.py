@@ -418,6 +418,15 @@ def build_plan_from_profile(
     if data_sharing is not None:
         plan["dataSharing"] = deepcopy(data_sharing)
 
+    # Profile-level backup declaration (issue #1270): carried through verbatim
+    # so the security stage (CDS-SEC-080) can recognize a resolved
+    # spec.backup.target.contractRef as backup coverage. Only present when the
+    # profile declares it, so plans for profiles without the block keep their
+    # existing shape.
+    backup = spec.get("backup")
+    if backup is not None:
+        plan["backup"] = deepcopy(backup)
+
     return plan, diagnostics
 
 

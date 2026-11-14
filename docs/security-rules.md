@@ -33,15 +33,20 @@ code-enforced rule.
 ## CDS-SEC-080: Stateful module has no backup/restore target bound
 
 Flags a profile where at least one module provides a `sql-database` or
-`file-database` contract (durable state) but no module in the profile
-consumes a `backup-target` contract anywhere.
+`file-database` contract (durable state) but no backup target is bound
+anywhere: neither a module in the profile consuming a `backup-target`
+contract, nor a profile-level `spec.backup.target.contractRef` that
+resolves to a `backup-target` contract (the planner carries `spec.backup`
+through the plan since #1270, so the profile-level wiring counts as
+coverage).
 
-**Known limitation:** the rule counts only modules *consuming* a
-`backup-target` contract; the two shipped providers (the postgres module's
-built-in pgBackRest capability of issue #665, and the restic file backup
-module of issue #668) are wired into a profile through
-`spec.backup.target.contractRef` or `backup-source` bindings instead, so the
-finding still fires on profiles that have not wired either provider. Treat
+The two shipped providers (the postgres module's built-in pgBackRest
+capability of issue #665, and the restic file backup module of issue #668)
+are wired into a profile through `spec.backup.target.contractRef` or
+`backup-source` bindings rather than a `backup-target` consume entry;
+since issue #1270 the profile-level `spec.backup.target` wiring is
+recognized, so the finding now fires only on profiles that have wired
+neither provider. Treat
 it as honest signal about a real NIS2 Article 21(2)(c) business-continuity
 gap: the finding stops firing for a given profile once a backup-capable
 module exists and is wired into it.

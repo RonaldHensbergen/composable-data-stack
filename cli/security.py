@@ -1264,6 +1264,41 @@ def _check_production_plaintext_exposure(
 _STATEFUL_CONTRACT_KINDS = {"sql-database", "file-database"}
 
 
+def _profile_backup_target_resolves(plan: dict[str, Any], modules: list[Any]) -> bool:
+    """
+    True when the plan's profile-level backup block (spec.backup, carried
+    through verbatim by the planner, issue #1270) names a target contractRef
+    that resolves against the plan's own modules to a provides entry of kind
+    backup-target. Validation (E132) already guarantees this resolution for
+    plans that passed validation; re-checking against the plan itself keeps
+    hand-built plans from claiming coverage they do not have.
+    """
+    backup = plan.get("backup")
+    if not isinstance(backup, dict):
+        return False
+    target = backup.get("target")
+    if not isinstance(target, dict):
+        return False
+    contract_ref = target.get("contractRef")
+    if not isinstance(contract_ref, str):
+        return False
+    parsed = parse_contract_ref(contract_ref)
+    if parsed is None:
+        return False
+    module_id, provide_name = parsed
+    producer = next(
+        (m for m in modules if isinstance(m, dict) and m.get("id") == module_id),
+        None,
+    )
+    if producer is None:
+        return False
+    provides = producer.get("provides", {})
+    if not isinstance(provides, dict):
+        return False
+    provided = provides.get(provide_name)
+    return isinstance(provided, dict) and provided.get("kind") == "backup-target"
+
+
 def _check_backup_target_binding(
     plan: dict[str, Any] | None,
     rule_enabled: bool = True,
@@ -1271,15 +1306,18 @@ def _check_backup_target_binding(
     """
     CDS-SEC-080: flag a profile that has at least one module providing a
     durable-state contract (sql-database or file-database) but where no
-    module anywhere in the profile consumes a backup-target contract.
+    backup target is bound anywhere -- neither a module consuming a
+    backup-target contract, nor a profile-level spec.backup.target
+    .contractRef resolving to a backup-target contract in the plan
+    (issue #1270).
 
     The two shipped backup providers (the postgres module's built-in
     pgBackRest capability, #665, and the restic file backup module, #668)
     are wired via spec.backup.target.contractRef or backup-source bindings
-    rather than a backup-target consume entry, so this is still expected to
-    fire on every profile that has not wired either provider -- that is
-    treated as honest signal about a real, currently-unaddressed gap, not a
-    bug. See rule-set.json's $comment on CDS-SEC-080 for the full rationale.
+    rather than a backup-target consume entry, so without either wiring
+    this still fires -- that is treated as honest signal about a real,
+    currently-unaddressed NIS2 Article 21(2)(c) gap, not a bug. See
+    rule-set.json's $comment on CDS-SEC-080 for the full rationale.
     """
     if not rule_enabled or not isinstance(plan, dict):
         return []
@@ -1305,7 +1343,13 @@ def _check_backup_target_binding(
             if consumed.get("contract", {}).get("kind") == "backup-target":
                 has_backup_target_consumer = True
 
-    if not has_stateful_provider or has_backup_target_consumer:
+    has_profile_backup_target = _profile_backup_target_resolves(plan, modules)
+
+    if (
+        not has_stateful_provider
+        or has_backup_target_consumer
+        or has_profile_backup_target
+    ):
         return []
 
     return [
@@ -1315,7 +1359,9 @@ def _check_backup_target_binding(
             "module": "profile",
             "message": (
                 "Profile has a module with durable state (sql-database or "
-                "file-database) but no module consumes a backup-target contract"
+                "file-database) but no backup target is bound (neither a "
+                "consumed backup-target contract nor "
+                "spec.backup.target.contractRef)"
             ),
             "path": "spec.modules",
             "value": None,
