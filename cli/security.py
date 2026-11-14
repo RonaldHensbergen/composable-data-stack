@@ -405,9 +405,29 @@ def _entropy_like(value: str) -> bool:
     return classes >= 3
 
 
+# One-shot init/migration/job containers (e.g. superset-init) run a bounded
+# task and exit; they are not long-running admin entry points, so they are
+# excluded from the admin-ui classification (and thereby from
+# CDS-SEC-020/081 findings). See issue #1275.
+_ONE_SHOT_JOB_NAME_SUFFIXES = ("-init", "-migration", "-job")
+
+
+def _compose_service_name_segment(path: str) -> str:
+    """Return the `<name>` segment of a `services.<name>...` path, else ""."""
+    segments = path.split(".")
+    if len(segments) >= 2 and segments[0] == "services":
+        return segments[1]
+    return ""
+
+
 def _service_type_for_path(path: str) -> str:
     p = path.lower()
-    if "superset" in p or "dagster-webserver" in p or "ui" in p:
+    is_one_shot_job = _compose_service_name_segment(p).endswith(
+        _ONE_SHOT_JOB_NAME_SUFFIXES
+    )
+    if ("superset" in p or "dagster-webserver" in p or "ui" in p) and (
+        not is_one_shot_job
+    ):
         return "admin-ui"
     if "postgres" in p or "mysql" in p or "db" in p:
         return "database"
