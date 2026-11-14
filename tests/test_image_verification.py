@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -17,7 +18,10 @@ from cli.image_verification import (
     validate_fixture,
     verify_images,
 )
-from cli.preflight import run_preflight
+from cli.planner import build_plan
+from cli.preflight import _check_images, run_preflight
+from cli.renderer import render_compose
+from cli.validator import validate_profile
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIXTURE_PATH = _REPO_ROOT / "tests" / "fixtures" / "signed-images.json"
@@ -709,6 +713,127 @@ class PreflightIntegrationTest(unittest.TestCase):
         self.assertTrue(
             any("CDS-SEC-052" in check.message for check in strict_image_checks)
         )
+
+
+class ReferenceProdProfileDigestPinTest(unittest.TestCase):
+    """#1286 regression: on the reference prod profile
+    (team-dagster-postgres-superset --environment prod) the postgres
+    backup/restore job services must render as local builds of
+    local/postgres:custom, so the prod image policy reports no CDS-SEC-051
+    finding for them in `cds preflight` / `cds security --verify-images`."""
+
+    _ENV = (
+        "\n".join(
+            f"{k}={v}"
+            for k, v in {
+                "CDS_POSTGRES_SUPERUSER_PASSWORD": "Str0ng!Superuser#2026x",
+                "CDS_ANALYTICS_DB_PASSWORD": "An4lytics!Pass#2026x",
+                "CDS_DAGSTER_DB_PASSWORD": "D4gster!Pass#2026x",
+                "CDS_SUPERSET_DB_PASSWORD": "Sup3rset!Pass#2026x",
+                "CDS_SUPERSET_SECRET_KEY": "Sup3rsetSecretKey!2026x",
+                "CDS_SUPERSET_ADMIN_PASSWORD": "Adm1n!Pass#2026x",
+                "CDS_CACHE_PASSWORD": "C4che!Pass#2026x",
+                "CDS_BACKUP_ENCRYPTION_KEY": "B4ckup!Key#2026x",
+                "CDS_ANALYTICS_DB_NAME": "analytics",
+                "CDS_ANALYTICS_DB_USER": "analytics_user",
+                "CDS_DAGSTER_DB_NAME": "dagster",
+                "CDS_DAGSTER_DB_USER": "dagster_user",
+                "CDS_SUPERSET_DB_NAME": "superset",
+                "CDS_SUPERSET_DB_USER": "superset_user",
+            }.items()
+        )
+        + "\n"
+    )
+
+    def _render_reference_prod_compose(self) -> tuple[dict, str]:
+        profile_path = (
+            _REPO_ROOT / "profiles" / "team-dagster-postgres-superset" / "profile.yaml"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_file = Path(tmp_dir) / ".env"
+            env_file.write_text(self._ENV, encoding="utf-8")
+            diagnostics = validate_profile(str(profile_path), environment="prod")
+            self.assertEqual(
+                [d for d in diagnostics if d.level == "error"],
+                [],
+                msg=f"unexpected validation errors: {diagnostics}",
+            )
+            plan, plan_diags = build_plan(
+                str(profile_path), env_file=str(env_file), environment="prod"
+            )
+            self.assertIsNotNone(plan)
+            self.assertEqual(
+                [d for d in plan_diags if d.level == "error"],
+                [],
+                msg=f"unexpected plan errors: {plan_diags}",
+            )
+            compose_yaml, render_diags = render_compose(plan, env_file=str(env_file))
+            self.assertEqual(
+                [d for d in render_diags if d.level == "error"],
+                [],
+                msg=f"unexpected render errors: {render_diags}",
+            )
+        return plan, compose_yaml
+
+    def test_backup_and_restore_jobs_render_as_local_builds(self) -> None:
+        """The exemption for local/<name>:custom is the service's own build
+        block (docs/image-signing.md); the job services must carry the same
+        build block as the main postgres service (#1286)."""
+        _plan, compose_yaml = self._render_reference_prod_compose()
+        services = yaml.safe_load(compose_yaml)["services"]
+        for name in ("postgres", "postgres-backup", "postgres-restore"):
+            with self.subTest(service=name):
+                self.assertIn(name, services)
+                self.assertEqual(services[name]["image"], "local/postgres:custom")
+                self.assertTrue(
+                    services[name].get("build"),
+                    f"{name} must declare a build block so the image policy "
+                    "recognizes local/postgres:custom as a local build",
+                )
+
+    def test_no_sec051_findings_on_reference_prod_profile(self) -> None:
+        _plan, compose_yaml = self._render_reference_prod_compose()
+        with patch.dict(os.environ, {}, clear=True):
+            policy = load_policy_from_env("prod", mode_override="policy")
+            findings = verify_images(compose_yaml, policy)
+        self.assertEqual(
+            [f for f in findings if f["rule_id"] == "CDS-SEC-051"],
+            [],
+            msg=f"prod policy must not flag any service on the reference prod "
+            f"profile, got: {findings}",
+        )
+        # Policy mode is fully clean here: the registry images are
+        # digest-pinned and the local/ images are local builds.
+        self.assertEqual(findings, [])
+
+    def test_no_image_findings_for_job_services_in_full_mode(self) -> None:
+        """Full mode (cds security --verify-images) skips local builds before
+        any fixture/cosign lookup, so the backup/restore jobs draw no
+        CDS-SEC-051/CDS-VER finding even when other images cannot be
+        verified offline."""
+        _plan, compose_yaml = self._render_reference_prod_compose()
+        with patch.dict(os.environ, {}, clear=True):
+            policy = load_policy_from_env("prod", mode_override="full")
+            findings = verify_images(
+                compose_yaml, policy, fixture=default_fixture_path()
+            )
+        self.assertEqual(
+            [f for f in findings if f["rule_id"] == "CDS-SEC-051"], [], msg=str(findings)
+        )
+        job_paths = ("services.postgres-backup.image", "services.postgres-restore.image")
+        self.assertEqual(
+            [f for f in findings if f["path"] in job_paths],
+            [],
+            msg=f"job services must not draw image findings, got: {findings}",
+        )
+
+    def test_preflight_image_check_passes_on_reference_prod_profile(self) -> None:
+        plan, compose_yaml = self._render_reference_prod_compose()
+        with patch.dict(os.environ, {}, clear=True):
+            checks = _check_images(plan, compose_yaml)
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0].name, "images")
+        self.assertEqual(checks[0].status, "PASS")
 
 
 if __name__ == "__main__":
