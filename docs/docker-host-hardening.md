@@ -57,8 +57,8 @@ Limits of the checks:
   `$XDG_RUNTIME_DIR/docker.sock` is inspected.
 
 ```text
-[PASS] host.rootless: Docker daemon runs in rootless mode.
-[WARN] host.live-restore: Live restore is not enabled; daemon restarts stop containers (HOST-005).
+[PASS] host.rootless: Docker daemon runs in rootless mode. (see https://github.com/RonaldHensbergen/composable-data-stack/blob/main/docs/rootless-docker.md)
+[WARN] host.live-restore: Live restore is not enabled; daemon restarts stop containers (HOST-005). (see https://github.com/RonaldHensbergen/composable-data-stack/blob/main/docs/docker-host-hardening.md)
 ```
 
 ## Verification On A Reference Host

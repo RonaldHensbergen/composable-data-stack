@@ -48,7 +48,8 @@ with a `(see <url>)` link to the repo doc that governs the check: the
 [installation guide](installation.md) for runtime and environment findings,
 [from-docker-to-cds-profile.md](from-docker-to-cds-profile.md) for host-port
 findings, and the [image verification policy](image-signing.md#verification-policy)
-for `images.*` failures.
+for `images.*` failures. `host.*` lines keep the link on `PASS` as well, so a
+passing host check still points at the doc that explains the control.
 
 `--target` falls back to `cds config get target` and then to `compose`. With
 `--target helm` (or when the only render errors are `E070`, i.e. modules without
