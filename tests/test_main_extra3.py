@@ -417,6 +417,63 @@ class PreflightCommandTest(_IsolatedConfigCase):
         self.assertEqual(code, 1)
         self.assertIn("Cannot run preflight because render failed.", out)
 
+    def _run_preflight_capture(self, argv, render, saved_target=None):
+        ok = MagicMock(status="PASS", message="fine")
+        ok.name = "docker"
+        with (
+            patch.object(
+                cli_main, "resolve_profile_path", return_value=self.tmp / "profile.yaml"
+            ),
+            patch.object(
+                cli_main, "resolve_env_file_path", return_value=self.tmp / ".env"
+            ),
+            patch.object(cli_main, "validate_profile", return_value=[]),
+            patch.object(cli_main, "build_plan", return_value=({"p": 1}, [])),
+            patch.object(cli_main, "render_compose", return_value=render) as render_mock,
+            patch.object(cli_main, "load_saved_target", return_value=saved_target),
+            patch.object(cli_main, "load_saved_security_strict", return_value=False),
+            patch.object(
+                cli_main, "run_preflight", return_value=[ok]
+            ) as preflight_mock,
+        ):
+            code, out, _ = _run(argv)
+        return code, out, render_mock, preflight_mock
+
+    def test_e070_only_render_errors_do_not_fail_closed(self):
+        # Kubernetes-only modules (E070) must not block the host baseline
+        # preflight; compose-scoped checks are skipped instead (#1265).
+        code, out, render_mock, preflight_mock = self._run_preflight_capture(
+            ["preflight", "p"], render=("", [_diag(code="E070")])
+        )
+        self.assertEqual(code, 0)
+        render_mock.assert_called_once()
+        self.assertIn("E070", out)
+        self.assertIsNone(preflight_mock.call_args.args[1])
+
+    def test_mixed_render_errors_still_fail_closed(self):
+        code, out, _, preflight_mock = self._run_preflight_capture(
+            ["preflight", "p"], render=("", [_diag(code="E070"), _diag(code="E001")])
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("Cannot run preflight because render failed.", out)
+        preflight_mock.assert_not_called()
+
+    def test_helm_target_skips_compose_render(self):
+        code, out, render_mock, preflight_mock = self._run_preflight_capture(
+            ["preflight", "p", "--target", "helm"], render=("services: {}", [])
+        )
+        self.assertEqual(code, 0)
+        render_mock.assert_not_called()
+        self.assertIsNone(preflight_mock.call_args.args[1])
+
+    def test_saved_helm_target_skips_compose_render(self):
+        code, out, render_mock, preflight_mock = self._run_preflight_capture(
+            ["preflight", "p"], render=("services: {}", []), saved_target="helm"
+        )
+        self.assertEqual(code, 0)
+        render_mock.assert_not_called()
+        self.assertIsNone(preflight_mock.call_args.args[1])
+
     def test_checks_pass_and_fail(self):
         ok = MagicMock(status="PASS", message="fine")
         ok.name = "docker"

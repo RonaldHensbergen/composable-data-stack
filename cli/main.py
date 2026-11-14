@@ -2147,6 +2147,7 @@ def _run() -> int:
     )
     _add_profile_arg(preflight_parser)
     _add_environment_arg(preflight_parser)
+    _add_target_arg(preflight_parser, "Runtime target.")
 
     state_parser = subparsers.add_parser(
         "state",
@@ -2481,6 +2482,7 @@ def _run() -> int:
         "test",
         "state",
         "security",
+        "preflight",
     }:
         args.target = getattr(args, "target", None) or load_saved_target() or "compose"
 
@@ -3927,15 +3929,28 @@ def _run() -> int:
             print("Cannot run preflight because plan generation failed.")
             return 1
 
-        compose_yaml, render_diags = render_compose(
-            plan,
-            env_file=str(env_file),
-        )
-        all_diags += render_diags
-        if has_errors(all_diags):
-            print_diagnostics(all_diags)
-            print("Cannot run preflight because render failed.")
-            return 1
+        compose_yaml: str | None = None
+        if args.target != "helm":
+            rendered_compose, render_diags = render_compose(
+                plan,
+                env_file=str(env_file),
+            )
+            all_diags += render_diags
+            render_errors = [d for d in render_diags if d.level == "error"]
+            if render_errors and not all(d.code == "E070" for d in render_errors):
+                print_diagnostics(all_diags)
+                print("Cannot run preflight because render failed.")
+                return 1
+            if render_errors:
+                # Only E070 errors: every failing module has no Compose
+                # implementation (e.g. a kubernetes-only module such as the
+                # service mesh on a Helm-target profile). Compose-scoped
+                # preflight checks do not apply; the host baseline still runs
+                # (issue #1265). This mirrors the security scan's E070
+                # handling in cli/security.py.
+                print_diagnostics(render_diags)
+            else:
+                compose_yaml = rendered_compose
 
         checks = run_preflight(
             plan, compose_yaml, env_file, strict=load_saved_security_strict()
