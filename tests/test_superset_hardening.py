@@ -60,6 +60,7 @@ class SupersetHardeningTest(unittest.TestCase):
             "mako": "1.3.12",
             "pyjwt": "2.13.0",
             "cryptography": "48.0.1",
+            "dnspython": "2.9.2",
             "jaraco-context": "6.1.0",
             "msgpack": "1.2.1",
             "pillow": "12.3.0",
