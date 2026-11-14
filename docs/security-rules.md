@@ -15,7 +15,7 @@ summarizes them for readers who aren't grepping the JSON directly.
 | --- | --- | --- |
 | `CDS-SEC-074` | Production profile exposes plaintext HTTP endpoint without TLS reverse-proxy | `_check_production_plaintext_exposure` |
 | `CDS-SEC-080` | Stateful module has no backup/restore target bound | `_check_backup_target_binding` |
-| `CDS-SEC-081` | Admin-facing service with no identity/auth module in profile | `_check_admin_service_identity_binding` |
+| `CDS-SEC-081` | Admin-facing service without identity-provider wiring | `_check_admin_service_identity_binding` |
 | `CDS-SEC-090` | Service violates the production runtime policy | `_check_runtime_policy` |
 | `CDS-SEC-091` | Runtime confinement (seccomp/AppArmor/SELinux) disabled | `_check_runtime_policy` |
 | `CDS-SEC-006` | Resolved secret present in rendered Compose output | `_check_rendered_secret_values` |
@@ -46,24 +46,33 @@ it as honest signal about a real NIS2 Article 21(2)(c) business-continuity
 gap: the finding stops firing for a given profile once a backup-capable
 module exists and is wired into it.
 
-## CDS-SEC-081: Admin-facing service with no identity/auth module in profile
+## CDS-SEC-081: Admin-facing service without identity-provider wiring
 
-Flags a profile whose rendered Compose includes an admin-ui-type service
-(the same heuristic `CDS-SEC-020`/`023` use: a service name containing
-`superset`, `dagster-webserver`, or `ui`) when no module in the profile is
+Flags each admin-ui-type service in the rendered Compose (the same heuristic
+`CDS-SEC-020`/`023` use: a service name containing `superset`,
+`dagster-webserver`, or `ui`) whose owning module is not wired to an identity
+provider (issue #1271). The check is binding-aware per service: a service
+counts as auth-delegated when its module consumes an `oidc-provider` (or the
+reserved `identity-broker` kind,
+[#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370))
+contract -- the planner only emits that consume entry when the profile
+actually bound it, e.g. Superset's `identityProvider` referencing
+`keycloak.oidc-provider` (available since
+[#1064](https://github.com/RonaldHensbergen/composable-data-stack/issues/1064)).
+As an additional, coarser profile-wide signal, the presence of any module
 sourced from `modules/identity` (or `modules-experimental/identity`), e.g.
-`modules/identity/keycloak`. One-shot init/migration/job containers are
-excluded: a compose service whose name ends in `-init`, `-migration`, or
-`-job` (e.g. `superset-init`) runs a bounded task and exits, so it is not
-an exposed admin entry point and does not fire this rule (issue
+`modules/identity/keycloak`, also suppresses the finding for every service.
+One-shot init/migration/job containers are excluded: a compose service
+whose name ends in `-init`, `-migration`, or `-job` (e.g. `superset-init`)
+runs a bounded task and exits, so it is not an exposed admin entry point and
+is not classified as admin-ui in the first place (issue
 [#1275](https://github.com/RonaldHensbergen/composable-data-stack/issues/1275)).
 
-**Known limitation:** this is a coarse, profile-wide presence check, not a
-per-service wiring check. No `identity-broker` contract exists yet (tracked
-by [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370))
-to confirm the identity module actually fronts/protects that specific
-admin-facing service -- the rule only confirms that *some* identity/auth
-module is present somewhere in the profile.
+**Known limitations:** the profile-wide identity-module presence signal can
+still mask a service that is not itself wired to the identity module, and the
+admin-ui detection is the name-based heuristic above rather than a declared
+service property. A service the service->module map cannot attribute fails
+closed (it is flagged).
 
 ## CDS-SEC-006 / CDS-SEC-030 / CDS-SEC-071: resolved secrets in output
 
