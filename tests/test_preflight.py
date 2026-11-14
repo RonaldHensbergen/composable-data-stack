@@ -704,5 +704,26 @@ class HostHardeningTest(unittest.TestCase):
         self.assertTrue(preflight_passed(checks))
 
 
+class RunPreflightWithoutComposeTest(unittest.TestCase):
+    """compose_yaml=None: Helm target or kubernetes-only modules (#1265)."""
+
+    @patch("cli.preflight.shutil.which", return_value=None)
+    def test_none_compose_yaml_warns_and_skips_compose_scoped_checks(
+        self, _mock_which
+    ) -> None:
+        checks = run_preflight(
+            {"runtime": {"type": "docker-compose"}}, None, Path("missing.env")
+        )
+        by_name = {c.name: c for c in checks}
+        self.assertIn("compose.render", by_name)
+        self.assertEqual(by_name["compose.render"].status, "WARN")
+        self.assertIn("Compose-scoped", by_name["compose.render"].message)
+        # runtime checks still ran; environment/ports/images checks did not
+        self.assertTrue(any(c.name.startswith("runtime") for c in checks))
+        self.assertFalse(any(c.name.startswith("environment.") for c in checks))
+        self.assertFalse(any(c.name.startswith("ports.") for c in checks))
+        self.assertFalse(any(c.name.startswith("images.") for c in checks))
+
+
 if __name__ == "__main__":
     unittest.main()

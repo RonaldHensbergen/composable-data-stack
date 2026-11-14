@@ -27,6 +27,7 @@ from cli.security import (
     _port_is_non_local_host_exposure,
     _redact,
     _rule_matches,
+    _service_type_for_path,
     _try_render_compose_for_scan,
     _validate_rule_set,
     run_security_validation,
@@ -1841,6 +1842,17 @@ class AdminServiceIdentityBindingRuleTest(unittest.TestCase):
             [],
         )
 
+    def test_one_shot_init_job_does_not_fire(self):
+        """Regression for #1275: superset-init is a job, not an admin UI."""
+        plan = {"modules": [{"id": "postgres", "source": "modules/warehouse/postgres"}]}
+        rendered_compose = {"services": {"superset-init": {}}}
+        self.assertEqual(
+            _check_admin_service_identity_binding(
+                plan=plan, rendered_compose=rendered_compose
+            ),
+            [],
+        )
+
     def test_admin_ui_service_whose_module_consumes_identity_broker_does_not_fire(self):
         plan = {
             "modules": [
@@ -1972,6 +1984,56 @@ class AdminServiceIdentityBindingRuleTest(unittest.TestCase):
             ),
             [],
         )
+
+    def test_one_shot_job_sibling_of_admin_ui_fires_only_on_the_ui(self):
+        plan = {"modules": [{"id": "postgres", "source": "modules/warehouse/postgres"}]}
+        rendered_compose = {"services": {"superset": {}, "superset-init": {}}}
+        findings = _check_admin_service_identity_binding(
+            plan=plan, rendered_compose=rendered_compose
+        )
+        self.assertEqual(
+            [f["path"] for f in findings],
+            ["services.superset"],
+        )
+
+
+class ServiceTypeForPathHeuristicTest(unittest.TestCase):
+    """Direct coverage for the admin-ui/database service-type heuristic."""
+
+    def test_admin_ui_services_are_classified_admin_ui(self):
+        for path in (
+            "services.superset",
+            "services.dagster-webserver",
+            "services.admin-ui",
+            "services.superset.ports[0]",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(_service_type_for_path(path), "admin-ui")
+
+    def test_one_shot_job_services_are_not_admin_ui(self):
+        """Regression for #1275: init/migration/job containers are one-shot
+        tasks, not exposed admin UIs, even when their name carries an
+        admin-ui token such as `superset` or `ui`."""
+        for path in (
+            "services.superset-init",
+            "services.superset-init.environment.SUPERSET_SECRET_KEY",
+            "services.dagster-webserver-migration",
+            "services.admin-ui-job",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(_service_type_for_path(path), "generic")
+
+    def test_job_suffix_outside_the_service_name_segment_is_ignored(self):
+        # The suffix exclusion applies to the compose service name only,
+        # not to nested keys of a genuine admin-ui service.
+        self.assertEqual(
+            _service_type_for_path("services.superset.environment.BOOTSTRAP-init"),
+            "admin-ui",
+        )
+
+    def test_database_and_generic_classification_is_unchanged(self):
+        self.assertEqual(_service_type_for_path("services.postgres"), "database")
+        self.assertEqual(_service_type_for_path("services.my-app"), "generic")
 
 
 if __name__ == "__main__":

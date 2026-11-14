@@ -62,6 +62,11 @@ actually bound it, e.g. Superset's `identityProvider` referencing
 As an additional, coarser profile-wide signal, the presence of any module
 sourced from `modules/identity` (or `modules-experimental/identity`), e.g.
 `modules/identity/keycloak`, also suppresses the finding for every service.
+One-shot init/migration/job containers are excluded: a compose service
+whose name ends in `-init`, `-migration`, or `-job` (e.g. `superset-init`)
+runs a bounded task and exits, so it is not an exposed admin entry point and
+is not classified as admin-ui in the first place (issue
+[#1275](https://github.com/RonaldHensbergen/composable-data-stack/issues/1275)).
 
 **Known limitations:** the profile-wide identity-module presence signal can
 still mask a service that is not itself wired to the identity module, and the

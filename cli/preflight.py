@@ -61,13 +61,29 @@ def format_check_line(check: PreflightCheck) -> str:
 
 def run_preflight(
     plan: dict[str, Any],
-    compose_yaml: str,
+    compose_yaml: str | None,
     env_file: Path,
     *,
     strict: bool = False,
 ) -> list[PreflightCheck]:
     checks: list[PreflightCheck] = []
     checks.extend(_check_runtime(plan.get("runtime", {}), plan))
+    if compose_yaml is None:
+        # No Compose model exists for this run (Helm target, or only E070
+        # modules without a Compose implementation). Compose-scoped checks
+        # (environment placeholders, port conflicts, image digest pinning) do
+        # not apply; the Docker host baseline above still does (issue #1265).
+        checks.append(
+            PreflightCheck(
+                "WARN",
+                "compose.render",
+                "No Compose model rendered (Helm target or kubernetes-only "
+                "modules); skipped Compose-scoped checks: environment "
+                "placeholders, port conflicts, image digest pinning.",
+                reference=_doc_ref("production-hardening-checklist.md"),
+            )
+        )
+        return checks
     checks.extend(_check_environment(compose_yaml, env_file))
     checks.extend(_check_ports(compose_yaml))
     checks.extend(_check_images(plan, compose_yaml, strict=strict))

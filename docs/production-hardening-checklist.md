@@ -119,12 +119,14 @@ Expected output categories:
 cds security team-dagster-postgres-superset --environment prod
 ```
 
-The command is fail-closed: it exits 1 when any finding is reported. As of
-the snapshot in section 4 the reference profile reports a known set of
-findings, so the operator's check is **diff-based**: the findings must match
-the documented set in section 4, and any *new* finding is a regression.
-`No security findings.` (exit 0) is the target state once the tracked items
-land.
+The command is fail-closed for high-severity findings and incomplete scans:
+it exits 1 when a high-severity finding is reported or when the
+rendered-compose checks were skipped (`W096`). The remaining tracked
+findings in section 4 are medium severity, so the command currently exits
+0 — the operator's check is therefore **diff-based**, not exit-code-based:
+the findings must match the documented set in section 4, and any *new*
+finding is a regression. `No security findings.` is the target state once
+the tracked items land.
 
 Run this only after step 2: without a provisioned `.env` the plan fails
 closed (`E081`) and the rendered-compose checks — including `CDS-SEC-074` —
@@ -183,7 +185,9 @@ answer only through the proxy. `cds down` stops the stack.
 ## 4. Expected findings (snapshot 2026-11-13)
 
 `cds security team-dagster-postgres-superset --environment prod` currently
-exits 1 with the following findings. The set is stable; a deviation in either
+exits 0 with the following findings: all of them are medium severity, and
+the command's exit code is 1 only for high-severity findings or an
+incomplete scan (`W096`). The set is stable; a deviation in either
 direction is the operator's signal to stop and investigate.
 
 Renderer references (for example `config.passwordFrom` in `initDbEnv.*`,
@@ -198,7 +202,7 @@ Rendered output still contains only `${CDS_*}` placeholders.
 
 | Finding | Count | Classification | Action / tracking |
 | --- | --- | --- | --- |
-| `CDS-SEC-081` on the admin-facing services | 3 | Known gap: no identity module is bound and no admin-facing module consumes an `oidc-provider` contract (per-service binding check since [#1271](https://github.com/RonaldHensbergen/composable-data-stack/issues/1271)) | [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) |
+| `CDS-SEC-081` on the admin-facing services (`dagster-webserver`, `superset`; since #1275 one-shot jobs such as `superset-init` are no longer classified admin-ui) | 2 | Known gap: no identity module is bound and no admin-facing module consumes an `oidc-provider` contract (per-service binding check since [#1271](https://github.com/RonaldHensbergen/composable-data-stack/issues/1271)) | [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) |
 | `CDS-SEC-080` on `spec.modules` | 1 | Known gap: the backup policy is declared at profile level (`spec.backup`), which the rule does not yet recognize as contract consumption | [backup-restore.md](backup-restore.md) follow-ups ([#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210)) |
 | `W103` on `spec.security.waivers.runtimePolicy` | 1 | Informational: the documented non-root waiver for images that set `USER` in their Dockerfiles | Keep the waiver reason accurate |
 
