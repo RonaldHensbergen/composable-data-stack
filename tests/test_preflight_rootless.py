@@ -34,7 +34,8 @@ class RootlessPreflightTest(unittest.TestCase):
             "production", _info("name=seccomp,profile=builtin", "name=rootless")
         )
         self.assertEqual(check.status, "PASS")
-        self.assertIsNone(check.reference)
+        self.assertIsNotNone(check.reference)
+        self.assertIn("rootless-docker.md", check.reference or "")
 
     def test_rootful_daemon_warns_for_production(self, _which):
         check = self._check("production", _info("name=seccomp,profile=builtin"))

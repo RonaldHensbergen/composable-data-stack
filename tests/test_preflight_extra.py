@@ -349,7 +349,7 @@ class NonPassDocReferenceTest(unittest.TestCase):
         self.assert_doc_reference(unsupported[0])
         self.assertIn("how-it-works.md", unsupported[0].reference or "")
 
-    def test_format_check_line_appends_reference_only_for_non_pass(self) -> None:
+    def test_format_check_line_appends_reference_whenever_set(self) -> None:
         warn = PreflightCheck(
             "WARN", "host.rootless", "warn msg", reference="https://x/docs/a.md"
         )
@@ -363,6 +363,13 @@ class NonPassDocReferenceTest(unittest.TestCase):
         self.assertEqual(
             format_check_line(fail),
             "[FAIL] runtime.daemon: fail msg (see https://x/docs/b.md)",
+        )
+        passed_with_ref = PreflightCheck(
+            "PASS", "host.seccomp", "ok msg", reference="https://x/docs/c.md"
+        )
+        self.assertEqual(
+            format_check_line(passed_with_ref),
+            "[PASS] host.seccomp: ok msg (see https://x/docs/c.md)",
         )
         passed = PreflightCheck("PASS", "runtime.cli", "ok msg")
         self.assertEqual(format_check_line(passed), "[PASS] runtime.cli: ok msg")

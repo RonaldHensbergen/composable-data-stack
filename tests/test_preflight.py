@@ -548,6 +548,16 @@ class HostHardeningTest(unittest.TestCase):
             checks = self._by_name(self.HARDENED)
         self.assertTrue(all(c.status == "PASS" for c in checks.values()), checks)
 
+    def test_host_pass_results_link_to_the_governing_doc(self) -> None:
+        with patch.dict(
+            os.environ, {"DOCKER_HOST": "tcp://h:2376", "DOCKER_TLS_VERIFY": "1"}
+        ):
+            checks = self._by_name(self.HARDENED)
+        for check in checks.values():
+            self.assertEqual(check.status, "PASS", check.name)
+            self.assertIsNotNone(check.reference, check.name)
+            self.assertIn("blob/main/docs/", check.reference or "")
+
     def test_default_rootful_daemon_warns_but_never_fails(self) -> None:
         info = {
             "SecurityOptions": ["name=seccomp,profile=unconfined"],
@@ -585,11 +595,15 @@ class HostHardeningTest(unittest.TestCase):
     def test_tls_verify_set_to_any_value_counts_as_enabled(self) -> None:
         env = {"DOCKER_HOST": "tcp://h:2376", "DOCKER_TLS_VERIFY": "0"}
         with patch.dict(os.environ, env, clear=True):
-            self.assertEqual(_check_socket_exposure().status, "PASS")
+            check = _check_socket_exposure()
+        self.assertEqual(check.status, "PASS")
+        self.assertIn("docker-host-hardening.md", check.reference or "")
 
     def test_ssh_docker_host_passes_without_stat(self) -> None:
         with patch.dict(os.environ, {"DOCKER_HOST": "ssh://user@host"}, clear=True):
-            self.assertEqual(_check_socket_exposure().status, "PASS")
+            check = _check_socket_exposure()
+        self.assertEqual(check.status, "PASS")
+        self.assertIn("docker-host-hardening.md", check.reference or "")
 
     def test_uninspectable_socket_is_omitted(self) -> None:
         with patch.dict(
@@ -669,7 +683,9 @@ class HostHardeningTest(unittest.TestCase):
                 with patch.dict(
                     os.environ, {"DOCKER_HOST": f"unix://{sock}"}, clear=True
                 ):
-                    self.assertEqual(_check_socket_exposure().status, expected)
+                    check = _check_socket_exposure()
+                    self.assertEqual(check.status, expected)
+                    self.assertIn("docker-host-hardening.md", check.reference or "")
 
     @patch("cli.preflight.subprocess.run")
     @patch("cli.preflight.shutil.which", return_value="/usr/bin/docker")
