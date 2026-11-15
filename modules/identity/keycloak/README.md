@@ -95,10 +95,15 @@ compose fragment plus a ClusterIP Service on the contract port
 (`config.containerPort`), with a `waitFor` gate on the bound `sql-database`.
 Differences from the Compose render:
 
-- The compose entrypoint's `$$` escapes (which shield shell expansions from
-  Compose's own interpolation) become single-`$` expansions via
-  `containerOverrides`, because Kubernetes does not interpolate `$$` — the
-  script would otherwise run with a literal `$$` (the PID).
+- The compose entrypoint reads the CDS-injected variables (`CDS_KEYCLOAK_REALM`,
+  `CDS_WEBSERVER_MODE`, `CDS_OIDC_REALM_IMPORT`) via `printenv`, so the
+  rendered Compose file contains no `${CDS_` text (the CDS-SEC-070
+  rendered-compose leak rule stays quiet) and Compose cannot interpolate
+  them from the host environment at up time; local variables keep the `$$`
+  escape (issue #1273). On the Helm target the entrypoint keeps single-`$`
+  `${CDS_...}` expansions via `containerOverrides` (rendered as `$(CDS_*)`
+  secret/env expansions), because Kubernetes does not interpolate Compose's
+  `$$` — the script would otherwise run with a literal `$$` (the PID).
 - The `keycloak-quarkus` named volume is not mounted on Kubernetes: the image
   ships the pre-built server at `/opt/keycloak/lib/quarkus`, and an emptyDir
   would hide it. The root filesystem stays read-only; `kc.sh start` only

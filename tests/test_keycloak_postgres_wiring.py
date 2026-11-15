@@ -230,16 +230,18 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                 )
                 self.assertEqual(keycloak_env["KC_BOOTSTRAP_ADMIN_USERNAME"], "admin")
 
-    def test_entrypoint_reads_container_env_via_compose_escape(self):
+    def test_entrypoint_reads_container_env_without_rendered_cds_placeholders(self):
         # The serving-mode switch lives in an inline entrypoint script, so the
-        # mode placeholder must reach the container as a literal
-        # ${CDS_WEBSERVER_MODE:-production} that /bin/bash resolves against
-        # the service's own environment entry. If the $$ escape were lost,
-        # Docker Compose would interpolate the placeholder itself at up time
-        # from the *host* environment (defaulting it to "production" there)
-        # and the rendered CDS_WEBSERVER_MODE environment entry would never
-        # be consulted -- a profile's explicit `development` override in a
-        # local profile would silently run production mode on every `cds up`.
+        # script reads the CDS_* variables from the container environment via
+        # printenv instead of a ${CDS_WEBSERVER_MODE:-production} expansion: a
+        # bare ${...} form would let Docker Compose interpolate the placeholder
+        # itself at up time from the *host* environment (eating the rendered
+        # CDS_WEBSERVER_MODE environment entry), and even the $$ escaped form
+        # still leaves a literal ${CDS_ text in the rendered Compose file, which
+        # the CDS-SEC-070 rendered-compose leak rule flags (issue #1273). The
+        # printenv form keeps the runtime behavior -- /bin/bash resolves the
+        # value against the service's own environment entry -- while the
+        # rendered entrypoint contains no ${CDS_ text at all.
         with tempfile.TemporaryDirectory() as root:
             profile_dir = Path(root)
             profile_file = self._write_profile(profile_dir)
@@ -267,11 +269,14 @@ class KeycloakPostgresWiringTest(unittest.TestCase):
                 compose = yaml.safe_load(output)
                 service = compose["services"]["keycloak"]
                 script = "\n".join(str(line) for line in service["entrypoint"])
-                # Every mode placeholder must carry the $$ escape; a bare
-                # unescaped ${...} would let Compose hijack the mode switch.
-                bare = script.replace("$${CDS_WEBSERVER_MODE:-production}", "")
-                self.assertNotIn("${CDS_WEBSERVER_MODE", bare)
-                self.assertIn("$${CDS_WEBSERVER_MODE:-production}", script)
+                # The script must read the mode from the container env at
+                # runtime, and the rendered text must not contain a ${CDS_
+                # placeholder (CDS-SEC-070) nor a bare ${CDS_...} that Compose
+                # would hijack at up time.
+                self.assertIn("printenv CDS_WEBSERVER_MODE || echo production", script)
+                self.assertNotIn("${CDS_", script)
+                self.assertIn("printenv CDS_KEYCLOAK_REALM || echo master", script)
+                self.assertIn("printenv CDS_OIDC_REALM_IMPORT", script)
 
                 # The rendered mode the script will read at container runtime
                 # is the module's configSchema default (production, #974).
