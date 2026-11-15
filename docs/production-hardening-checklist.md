@@ -112,6 +112,11 @@ Expected output categories:
   placeholders.
 - `[FAIL]` for port conflicts and for critical services whose images are not
   digest-pinned (`CDS-SEC-051`). Preflight exits nonzero if any check fails.
+  Services built locally from the repo (image `local/<name>:custom` with a
+  `build:` block — e.g. the postgres `postgres-backup`/`postgres-restore`
+  job services, since #1286) are exempt from the digest pin: their supply
+  chain is the repository itself, and the `local/` prefix alone never
+  exempts an image (see [image-signing.md](image-signing.md)).
 
 ### Step 4: run the security rule set
 

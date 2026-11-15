@@ -456,6 +456,13 @@ spec:
           production: true
           enabledFrom: config.backup.enabled
           image: local/postgres:custom
+          # Same image as the main postgres service, built from the same
+          # Dockerfile: the build: block is what marks local/postgres:custom
+          # as a local build for the image policy, so CDS-SEC-051 does not
+          # flag this job service on production profiles (issue #1286).
+          build:
+            context: ../../../
+            dockerfile: images/postgres/Dockerfile
           user: postgres
           init: true
           read_only: true
@@ -511,6 +518,12 @@ spec:
           profiles:
             - cds-restore
           image: local/postgres:custom
+          # Same local build as the main postgres service (issue #1286):
+          # the build: block keeps CDS-SEC-051 from flagging this one-shot
+          # job service on production profiles.
+          build:
+            context: ../../../
+            dockerfile: images/postgres/Dockerfile
           user: postgres
           init: true
           read_only: true
