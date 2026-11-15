@@ -5416,6 +5416,10 @@ class AuditLogCLIIntegrationTest(HermeticMainTestCase):
     command was invoked from (#822) -- and both the env-var and config
     disable paths must suppress it."""
 
+    # This class exercises the audit log itself, so it opts out of the
+    # HermeticMainTestCase default CDS_AUDIT_LOG_DISABLE=true (#1312).
+    audit_log_enabled = True
+
     _MODULE_YAML = """\
 apiVersion: cds/v1alpha1
 kind: Module
