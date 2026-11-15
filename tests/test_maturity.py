@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from cli.main import main
 from cli.maturity import build_maturity_report, format_maturity_report
+from tests.hermetic_project import HermeticMainTestCase
 
 
 def _module(module_id: str, *contract_kinds: str) -> dict:
@@ -298,7 +299,7 @@ class MaturityReportTest(unittest.TestCase):
         )
 
 
-class MaturityCommandTest(unittest.TestCase):
+class MaturityCommandTest(HermeticMainTestCase):
     def test_json_command_uses_static_plan_and_allows_missing_secrets(self) -> None:
         plan = {
             "metadata": {"name": "minimal"},
