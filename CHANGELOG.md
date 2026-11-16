@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-11-16
+
 ### Fixed
 
 - Unit tests that invoke `cli.main.main()` in-process are now hermetic against project-local state in the checkout: they derive from the new `tests/hermetic_project.py::HermeticMainTestCase`, which points `CDS_CONFIG_PATH`/`CDS_SHARED_CONFIG_PATH` at nonexistent files in a per-test temp dir and disables `.env` loading for the duration of each test, so a developer-local `.cds/config.json` (e.g. a saved `"target": "helm"`, which turned `cds state`/`cds up` tests into `kubectl` invocations) or a project `.env` (whose `CDS_*` keys `load_env_file()` injected into `os.environ`) no longer fails `tests/test_main.py`, `tests/test_environment_cli.py` and `tests/test_secret_output_scanning.py` — a full local suite run from such a checkout now reports the same result as a clean CI checkout (`OK (skipped=25)`); `local-test-skips.md` documents the fixed failure class (issue #1277, PR #1310).
