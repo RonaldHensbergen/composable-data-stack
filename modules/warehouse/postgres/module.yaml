@@ -246,6 +246,30 @@ spec:
             type: string
             pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
 
+      identityDatabase:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Dedicated database for an identity provider's metadata store (e.g.
+          Keycloak's realm/user database, issue #1273), advertised as the
+          `identity-database` contract so consumers such as
+          modules/identity/keycloak bind to their own database instead of
+          sharing the analytics one. Provisioned by the profile's init-db
+          script via the IDENTITY_DB_* initDbEnv entries.
+        properties:
+          name:
+            type: string
+            minLength: 1
+            default: keycloak
+          username:
+            type: string
+            minLength: 1
+            default: keycloak
+          passwordFrom:
+            type: string
+            pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+
       dataProvider:
         type: object
         additionalProperties: false
@@ -351,6 +375,19 @@ spec:
           engine: postgres
           governed: ${config.governed}
           connectionUri: postgresql://${config.marquezDatabase.username}:${config.marquezDatabase.passwordFrom}@${service.dns}:5432/${config.marquezDatabase.name}
+
+    - name: identity-database
+      contract:
+        kind: sql-database
+        spec:
+          host: ${service.dns}
+          port: 5432
+          database: ${config.identityDatabase.name}
+          username: ${config.identityDatabase.username}
+          password: ${config.identityDatabase.passwordFrom}
+          authentication: ${config.authentication.hostAuth}
+          engine: postgres
+          connectionUri: postgresql://${config.identityDatabase.username}:${config.identityDatabase.passwordFrom}@${service.dns}:5432/${config.identityDatabase.name}
 
     - name: data-provider-metadata
       contract:

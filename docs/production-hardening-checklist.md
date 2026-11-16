@@ -55,7 +55,7 @@ stack owns the outcome.
 | 9 | Image supply chain: digest pinning, signature/SBOM/provenance evidence | `CDS-SEC-051` (critical services must be digest-pinned); `cds report` links evidence | Publish signed images and reference them by digest | `cds preflight`, `cds report --hardened` |
 | 10 | Image vulnerability management | Publishing pipeline scans every image; exceptions audited (`.trivyignore` audit) | Rebuild or bump within the documented SLA; file exceptions explicitly | [image-scanning.md](image-scanning.md) |
 | 11 | Backup and disaster recovery | `spec.backup` policy validation; `backup-target` contract ([#210](https://github.com/RonaldHensbergen/composable-data-stack/issues/210)) | Declare per-workload-class policies; run restore verification at the stated frequency | [backup-restore.md](backup-restore.md) |
-| 12 | Admin-UI authentication | `CDS-SEC-081` flags each admin-facing service whose module consumes no `oidc-provider`/`identity-broker` contract when no identity module is in the profile | Front admin UIs with an identity provider: wire an `oidc-provider` consume binding (e.g. Superset's `identityProvider`) or include an identity module (identity module work: [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370)) | `cds security` |
+| 12 | Admin-UI authentication | `CDS-SEC-081` flags each admin-facing service whose module consumes no `oidc-provider`/`identity-broker` contract when no identity module is in the profile | Front admin UIs with an identity provider: wire an `oidc-provider` consume binding (e.g. Superset's `identityProvider`) or include an identity module. The reference profile's `prod` overlay now does both (Keycloak + Superset OIDC, [#1273](https://github.com/RonaldHensbergen/composable-data-stack/issues/1273), resolving the [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) gap); Dagster has no native OIDC consume, so protect its router proxy-level | `cds security` |
 | 13 | Evidence and audit trail | `cds report` exports the readiness evidence snapshot | Retain the report with the deployment record | `cds report --hardened --output <file>` |
 
 ## 3. Operator verification procedure
@@ -82,11 +82,16 @@ cds init team-dagster-postgres-superset --environment prod
 ```
 
 Expected: a project-root `.env` created with owner-only permissions,
-containing every `CDS_*` key the resolved profile requires (14 keys for the
+containing every `CDS_*` key the resolved profile requires (19 keys for the
 reference profile: 13 from the base profile, including `CDS_CACHE_PASSWORD`,
-plus the one the prod overlay adds: `CDS_BACKUP_ENCRYPTION_KEY`). Replace
-every placeholder with a strong, unique value; `cds preflight` and `cds
-security` both fail closed on placeholder or weak values
+plus 6 the prod overlay adds: `CDS_BACKUP_ENCRYPTION_KEY` and the identity
+keys `CDS_IDENTITY_DB_NAME`, `CDS_IDENTITY_DB_USER`,
+`CDS_IDENTITY_DB_PASSWORD`, `CDS_KEYCLOAK_ADMIN_PASSWORD`,
+`CDS_SUPERSET_OIDC_CLIENT_SECRET` — the latter three required by the
+Keycloak module and Superset's `identityProvider` binding wired since
+[#1273](https://github.com/RonaldHensbergen/composable-data-stack/issues/1273)).
+Replace every placeholder with a strong, unique value; `cds preflight` and
+`cds security` both fail closed on placeholder or weak values
 (`CDS-SEC-004`/`012`). Rendering fails closed (`E081`) while a required
 secret key is missing from `.env`; a render with placeholder values still
 succeeds, so preflight and security are the gates for weak values.
@@ -126,12 +131,14 @@ cds security team-dagster-postgres-superset --environment prod
 
 The command is fail-closed for high-severity findings and incomplete scans:
 it exits 1 when a high-severity finding is reported or when the
-rendered-compose checks were skipped (`W096`). The remaining tracked
-findings in section 4 are medium severity, so the command currently exits
-0 — the operator's check is therefore **diff-based**, not exit-code-based:
-the findings must match the documented set in section 4, and any *new*
-finding is a regression. `No security findings.` is the target state once
-the tracked items land.
+rendered-compose checks were skipped (`W096`). Since the identity provider
+is wired in the `prod` overlay
+([#1273](https://github.com/RonaldHensbergen/composable-data-stack/issues/1273))
+the reference profile reaches the target state `No security findings.` and
+exits 0; the operator's check is still **diff-based**, not exit-code-based:
+any *new* finding in either direction is a regression, and the only
+expected non-finding output is the `W103` waiver notice on stderr (section
+4).
 
 Run this only after step 2: without a provisioned `.env` the plan fails
 closed (`E081`) and the rendered-compose checks — including `CDS-SEC-074` —
@@ -157,12 +164,15 @@ for name, svc in sorted(compose["services"].items()):
 EOF
 ```
 
-Database and cache services should publish loopback-only
-(`127.0.0.1:...`); the proxy publishes the TLS entry points. The admin
-backends (dagster-webserver, superset) no longer host-publish in the prod
-overlay — their compose `ports` are cleared by the modules' `production:`
-mapping, leaving the proxy as the sole host-published entry point
-(resolved in [#981](https://github.com/RonaldHensbergen/composable-data-stack/issues/981)).
+Database, cache, and identity services should publish loopback-only
+(`127.0.0.1:...` — postgres, keydb, and since
+[#1273](https://github.com/RonaldHensbergen/composable-data-stack/issues/1273)
+keycloak at `127.0.0.1:8081`); the proxy publishes the TLS entry points.
+The admin backends (dagster-webserver, superset) no longer host-publish in
+the prod overlay — their compose `ports` are cleared by the modules'
+`production:` mapping, leaving the proxy as the sole host-published entry
+point (resolved in
+[#981](https://github.com/RonaldHensbergen/composable-data-stack/issues/981)).
 
 ### Step 6: export the evidence report
 
@@ -187,11 +197,14 @@ Expected: `cds state` shows every service healthy; the proxy's TLS entry
 points answer (for example `curl -v https://<host>/`) and the backend ports
 answer only through the proxy. `cds down` stops the stack.
 
-## 4. Expected findings (snapshot 2026-11-14)
+## 4. Expected findings (snapshot 2026-11-15)
 
 `cds security team-dagster-postgres-superset --environment prod` currently
-exits 0 with the following findings: all of them are medium severity, and
-the command's exit code is 1 only for high-severity findings or an
+exits 0 and prints `No security findings.` — the target state reached since
+the `prod` overlay wires the Keycloak identity module and binds Superset's
+`identityProvider` to `keycloak.oidc-provider`
+([#1273](https://github.com/RonaldHensbergen/composable-data-stack/issues/1273)).
+The command's exit code is 1 only for high-severity findings or an
 incomplete scan (`W096`). The set is stable; a deviation in either
 direction is the operator's signal to stop and investigate.
 
@@ -207,13 +220,24 @@ Rendered output still contains only `${CDS_*}` placeholders.
 
 | Finding | Count | Classification | Action / tracking |
 | --- | --- | --- | --- |
-| `CDS-SEC-081` on the admin-facing services (`dagster-webserver`, `superset`; since #1275 one-shot jobs such as `superset-init` are no longer classified admin-ui) | 2 | Known gap: no identity module is bound and no admin-facing module consumes an `oidc-provider` contract (per-service binding check since [#1271](https://github.com/RonaldHensbergen/composable-data-stack/issues/1271)) | [#370](https://github.com/RonaldHensbergen/composable-data-stack/issues/370) |
-| `W103` on `spec.security.waivers.runtimePolicy` | 1 | Informational: the documented non-root waiver for images that set `USER` in their Dockerfiles | Keep the waiver reason accurate |
+| `W103` on `spec.security.waivers.runtimePolicy` (stderr notice, not a finding) | 1 | Informational: the documented non-root waiver for images that set `USER` in their Dockerfiles | Keep the waiver reason accurate |
 
-`CDS-SEC-080` no longer appears in this snapshot: since
+`CDS-SEC-081` no longer appears in this snapshot: since
+[#1273](https://github.com/RonaldHensbergen/composable-data-stack/issues/1273)
+the `prod` overlay includes `modules/identity/keycloak` and binds Superset's
+`identityProvider` to `keycloak.oidc-provider`, so the per-service binding
+check (since [#1271](https://github.com/RonaldHensbergen/composable-data-stack/issues/1271))
+and the profile-wide identity-module signal both clear (`dagster-webserver`,
+`superset`; one-shot jobs such as `superset-init` have not been classified
+admin-ui since #1275). Dagster's webserver has no native OIDC consume — see
+the profile README for the proxy-level mitigation.
+
+`CDS-SEC-080` no longer appears in this snapshot either: since
 [#1270](https://github.com/RonaldHensbergen/composable-data-stack/issues/1270)
 the rule recognizes the profile-level `spec.backup.target.contractRef:
-postgres.backup-target` wired by the prod overlay as backup coverage.
+postgres.backup-target` wired by the prod overlay as backup coverage
+(including the new `identity-metadata` workload-class policy for Keycloak's
+database).
 
 Additional `CDS-SEC-004` (placeholder/weak secret) or `CDS-SEC-012` (too
 weak or predictable) findings mean the `.env` still holds generated

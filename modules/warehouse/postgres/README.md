@@ -78,7 +78,7 @@ elapsed restore time against `rpoMinutes`/`rtoMinutes` as described in
 
 ## Configuration notes
 
-- `sql-database`, `dagster-database`, and `superset-database` are separate logical databases on the same instance, each with its own user
+- `sql-database`, `dagster-database`, `superset-database`, `marquez-database`, and `identity-database` are separate logical databases on the same instance, each with its own user (`identity-database` serves identity-provider metadata, e.g. Keycloak's realm/user store)
 - `superuserPasswordFrom` sets the `postgres` superuser password via `POSTGRES_PASSWORD`
 - `initDbScript` defaults to `init-db.sql` and is mounted into `/docker-entrypoint-initdb.d`, which the official image executes on first boot
 - `storage.enabled` toggles the `postgres-data` named volume
