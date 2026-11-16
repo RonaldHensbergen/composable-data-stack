@@ -298,8 +298,8 @@ idna==3.20 \
     --hash=sha256:ab7ae7122974553370f0bdb919e1a960b2cd1bc1ef0276416d896db81c14582c
     # via requests
 importlib-metadata==10.1.0 \
-    --hash=sha256:REPLACE_WITH_10_1_0_HASH_1 \
-    --hash=sha256:REPLACE_WITH_10_1_0_HASH_2
+    --hash=sha256:<REAL_IMPORTLIB_METADATA_10_1_0_HASH_1> \
+    --hash=sha256:<REAL_IMPORTLIB_METADATA_10_1_0_HASH_2>
     # via metricflow
 isodate==0.7.2 \
     --hash=sha256:28009937d8031054830160fce6d409ed342816b543597cece116d966c6d99e15 \
