@@ -89,6 +89,20 @@ spec:
         minLength: 1
         default: init-db.sql
 
+      governed:
+        type: boolean
+        default: false
+        description: >-
+          Declares the data behind every sql-database contract this instance
+          provides as governed (issue #1284): each provided contract spec
+          advertises "governed: ${config.governed}", and every consumer of a
+          governed contract must bind a "data-access-policy" contract through
+          its consume entry's policyFrom -- validation fails closed with E167
+          when that binding is missing. Defaults to false, so existing
+          profiles keep working unchanged; set true in a profile to opt the
+          warehouse's data into policy-as-code enforcement (see
+          docs/data-access-policy.md).
+
       healthcheck:
         type: object
         additionalProperties: false
@@ -313,7 +327,11 @@ spec:
           # entry (issue #682): this module always speaks the Postgres wire
           # protocol, so binding it where a different engine is expected
           # fails validation with E154 instead of misconfiguring the consumer.
+          # Governed-data advertisement (issue #1284): when the profile sets
+          # config.governed to true, consumers of this contract must bind a
+          # data-access-policy contract via policyFrom (E167 otherwise).
           engine: postgres
+          governed: ${config.governed}
           connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.dns}:5432/${config.database}
 
     - name: dagster-database
@@ -327,6 +345,7 @@ spec:
           password: ${config.dagsterDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
           engine: postgres
+          governed: ${config.governed}
           connectionUri: postgresql://${config.dagsterDatabase.username}:${config.dagsterDatabase.passwordFrom}@${service.dns}:5432/${config.dagsterDatabase.name}
 
     - name: superset-database
@@ -340,6 +359,7 @@ spec:
           password: ${config.supersetDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
           engine: postgres
+          governed: ${config.governed}
           connectionUri: postgresql://${config.supersetDatabase.username}:${config.supersetDatabase.passwordFrom}@${service.dns}:5432/${config.supersetDatabase.name}
 
     - name: marquez-database
@@ -353,6 +373,7 @@ spec:
           password: ${config.marquezDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
           engine: postgres
+          governed: ${config.governed}
           connectionUri: postgresql://${config.marquezDatabase.username}:${config.marquezDatabase.passwordFrom}@${service.dns}:5432/${config.marquezDatabase.name}
 
     - name: identity-database

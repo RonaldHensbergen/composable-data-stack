@@ -68,6 +68,21 @@ spec:
         advertises a matching engine here (a literal string, or a pure
         ${config.<path>} reference resolving against the producer instance's
         profile config).
+    governed:
+      type: boolean
+      required: false
+      description: >-
+        Declares that the data behind this contract is governed by a
+        data-access policy (issue #1284): every consumer of this contract
+        must additionally bind a "data-access-policy" contract through the
+        consume entry's "policyFrom", and validation fails closed with E167
+        when that binding is missing. Optional for backward compatibility:
+        an absent field (or false) means the contract is not governed. A
+        provider sets this to true (a literal boolean, or a pure
+        ${config.<path>} reference resolving against the producer instance's
+        profile config, e.g. a per-instance config flag defaulting to false)
+        to opt its data into policy-as-code enforcement; see
+        shared/contracts/data-access-policy.yaml and docs/data-access-policy.md.
   examples:
     - host: postgres
       port: 5432
