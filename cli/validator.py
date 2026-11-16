@@ -748,6 +748,212 @@ def _consumer_expected_engine(
     return _schema_default_at_config_path(inst["module"], config_path)
 
 
+def _provider_contract_governed(
+    provider_contract: dict[str, Any], producer_inst: dict[str, Any]
+) -> bool:
+    """
+    Evaluate the provider's contract-spec `governed` advertisement for the
+    data-access-policy binding check (issue #1284), mirroring how the TLS and
+    engine advertisements are evaluated: a boolean literal is used as-is, and
+    a pure "${config.<path>}" reference is resolved against the producer
+    instance's profile config, falling back to the configSchema default at
+    that path when the profile leaves the field unset (validation runs before
+    the planner applies defaults, so the fallback is what makes a defaulted
+    flag enforceable at validate time). Anything else -- an absent field, a
+    non-boolean value, or an unresolvable reference with no default -- means
+    "not governed", so existing profiles and modules stay valid.
+    """
+    value = (provider_contract.get("spec") or {}).get("governed")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.startswith("${config.") and value.endswith("}"):
+        inner = value[2:-1]
+        resolved: Any = None
+        try:
+            resolved = resolve_path({"config": producer_inst.get("config")}, inner)
+        except KeyError:
+            config_path = inner[len("config.") :] if inner.startswith("config.") else inner
+            has_default, default = _schema_default_at_config_path(
+                producer_inst["module"], config_path
+            )
+            if has_default:
+                resolved = default
+        if isinstance(resolved, bool):
+            return resolved
+        if isinstance(resolved, str) and resolved.strip().lower() == "true":
+            return True
+    return False
+
+
+def _validate_policy_binding(
+    consume: dict[str, Any],
+    inst: dict[str, Any],
+    by_id: dict[str, dict[str, Any]],
+    *,
+    required: bool,
+    governed_ref: str | None,
+    ref_path: str,
+    diagnostics: list[Diagnostic],
+) -> None:
+    """
+    Validate a consume entry's `policyFrom` binding (issue #1284). When the
+    bound data contract is governed (`governed: true` in the provider's
+    contract spec), every consumer must bind a `data-access-policy` contract
+    here, and the check fails closed with E167 when it does not. A declared
+    policyFrom is always validated (even for ungoverned contracts) so a typo'd
+    path or a wrong-kind ref fails loudly instead of silently disabling the
+    policy wiring; malformed refs use the same codes as the main binding
+    (E041 for unparseable/unknown refs, E042 for a kind mismatch).
+    """
+    name = consume.get("name")
+    policy_from = consume.get("policyFrom")
+    if not isinstance(policy_from, str) or not policy_from:
+        if required:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E167",
+                    message=(
+                        f'Consume entry "{name}" in module "{inst["id"]}" binds governed '
+                        f'contract "{governed_ref}" (its contract spec declares '
+                        '"governed: true"), but the consume entry declares no "policyFrom". '
+                        "Add policyFrom: spec.config.<path> to the consume entry, pointing "
+                        "at a {contractRef: <module-id>.<provide-name>} binding to a "
+                        '"data-access-policy" provider, or bind an ungoverned provider '
+                        "(issue #1284)."
+                    ),
+                    path=ref_path,
+                )
+            )
+        return
+
+    # Resolve policyFrom against the consumer config, falling back to the
+    # configSchema default at that path when the profile leaves the field
+    # unset (validation runs before the planner applies defaults). An absent
+    # path with an empty/absent default means "no policy binding configured":
+    # silent when the contract is not governed (backward compatible with
+    # optional policy fields), E167 when it is governed.
+    policy_value: Any = None
+    try:
+        policy_value = resolve_path(
+            {"spec": {"config": inst.get("config")}}, policy_from
+        )
+    except KeyError:
+        config_path = (
+            policy_from[len("spec.config.") :]
+            if policy_from.startswith("spec.config.")
+            else policy_from
+        )
+        has_default, default = _schema_default_at_config_path(inst["module"], config_path)
+        if has_default:
+            policy_value = default
+
+    if policy_value is None or policy_value == {}:
+        if required:
+            diagnostics.append(
+                Diagnostic(
+                    level="error",
+                    code="E167",
+                    message=(
+                        f'Consume entry "{name}" in module "{inst["id"]}" declares '
+                        f'policyFrom "{policy_from}", but it resolves to no policy '
+                        f'binding, while the bound contract "{governed_ref}" is governed '
+                        '(its contract spec declares "governed: true"). Bind a '
+                        '"data-access-policy" contract at that path '
+                        "(issue #1284)."
+                    ),
+                    path=ref_path,
+                )
+            )
+        return
+
+    if not isinstance(policy_value, dict) or "contractRef" not in policy_value:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E167" if required else "E041",
+                message=(
+                    f'Consume entry "{name}" in module "{inst["id"]}" has policyFrom '
+                    f'"{policy_from}", which must resolve to an object with "contractRef"'
+                    + (
+                        f', because the bound contract "{governed_ref}" is governed '
+                        "(issue #1284)."
+                        if required
+                        else "."
+                    )
+                ),
+                path=ref_path,
+            )
+        )
+        return
+
+    contract_ref = policy_value["contractRef"]
+    parsed = parse_contract_ref(contract_ref) if isinstance(contract_ref, str) else None
+    if parsed is None:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E041",
+                message=(
+                    f'Invalid policy contract ref "{contract_ref}" for consume entry '
+                    f'"{name}" in module "{inst["id"]}". Expected '
+                    '"<module-id>.<contract-name>".'
+                ),
+                path=ref_path,
+            )
+        )
+        return
+
+    producer_id, provide_name = parsed
+    producer = by_id.get(producer_id)
+    if producer is None:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E041",
+                message=(
+                    f'Policy contract ref "{contract_ref}" for consume entry "{name}" in '
+                    f'module "{inst["id"]}" points to unknown module "{producer_id}".'
+                ),
+                path=ref_path,
+            )
+        )
+        return
+
+    provides = producer["module"].get("spec", {}).get("provides", [])
+    matched = next((p for p in provides if p.get("name") == provide_name), None)
+    if matched is None:
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E041",
+                message=(
+                    f'Policy contract ref "{contract_ref}" for consume entry "{name}" in '
+                    f'module "{inst["id"]}" points to module "{producer_id}", but it does '
+                    f'not provide "{provide_name}".'
+                ),
+                path=ref_path,
+            )
+        )
+        return
+
+    actual_kind = matched.get("contract", {}).get("kind")
+    if actual_kind != "data-access-policy":
+        diagnostics.append(
+            Diagnostic(
+                level="error",
+                code="E042",
+                message=(
+                    f'Policy contract ref "{contract_ref}" for consume entry "{name}" in '
+                    f'module "{inst["id"]}" must resolve to a "data-access-policy" '
+                    f'contract, but "{producer_id}.{provide_name}" exposes kind '
+                    f'"{actual_kind}".'
+                ),
+                path=ref_path,
+            )
+        )
+
+
 def validate_contract_bindings(
     module_instances: list[dict[str, Any]],
 ) -> list[Diagnostic]:
@@ -832,6 +1038,12 @@ def validate_contract_bindings(
 
             config_path = f"spec.modules[{inst['index']}].config"
 
+            # Issue #1284: per-entry state for the policyFrom check, run at
+            # most once per consume entry (list-valued bindings call
+            # _validate_one_ref per item). Kept in a dict so closures can
+            # mutate it via default args (ruff B023).
+            policy_state: dict[str, Any] = {"checked": False, "governed_ref": None}
+
             def _validate_one_ref(
                 contract_ref: Any,
                 ref_path: str,
@@ -839,6 +1051,7 @@ def validate_contract_bindings(
                 _inst: dict = inst,
                 _kind: Any = expected_kind,
                 _consume: dict = consume,
+                _state: dict[str, Any] = policy_state,
             ) -> None:
                 """Validate one contractRef binding; shared by single-object and
                 list-valued mappedFrom targets (issue #883)."""
@@ -900,6 +1113,24 @@ def validate_contract_bindings(
                         )
                     )
                     return
+
+                # Issue #1284: a governed data contract requires a bound
+                # data-access-policy contract via the consume entry's
+                # policyFrom; fail closed (E167) when it is missing.
+                if _provider_contract_governed(matched.get("contract", {}), producer):
+                    if _state["governed_ref"] is None:
+                        _state["governed_ref"] = str(contract_ref)
+                    if not _state["checked"]:
+                        _state["checked"] = True
+                        _validate_policy_binding(
+                            _consume,
+                            _inst,
+                            by_id,
+                            required=True,
+                            governed_ref=_state["governed_ref"],
+                            ref_path=ref_path,
+                            diagnostics=diagnostics,
+                        )
 
                 if _consume.get("tls") == "required" and not _provider_advertises_tls(
                     matched.get("contract", {}), producer
@@ -1063,6 +1294,19 @@ def validate_contract_bindings(
                             path=config_path,
                         )
                     )
+                # Issue #1284: also validate a declared policyFrom when no
+                # bound ref turned out governed (typo'd policyFrom fails loud).
+                if not policy_state["checked"]:
+                    policy_state["checked"] = True
+                    _validate_policy_binding(
+                        consume,
+                        inst,
+                        by_id,
+                        required=False,
+                        governed_ref=None,
+                        ref_path=config_path,
+                        diagnostics=diagnostics,
+                    )
                 continue
 
             if not isinstance(value, dict) or "contractRef" not in value:
@@ -1086,6 +1330,17 @@ def validate_contract_bindings(
                 continue
 
             _validate_one_ref(value["contractRef"], config_path)
+            if not policy_state["checked"]:
+                policy_state["checked"] = True
+                _validate_policy_binding(
+                    consume,
+                    inst,
+                    by_id,
+                    required=False,
+                    governed_ref=None,
+                    ref_path=config_path,
+                    diagnostics=diagnostics,
+                )
 
     return diagnostics
 
