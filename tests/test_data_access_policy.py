@@ -401,6 +401,136 @@ class GovernedContractValidationTest(unittest.TestCase):
         self.assertEqual([d.code for d in diags], ["E041"])
 
 
+class PlannerPolicyBindingTest(unittest.TestCase):
+    """resolve_consumed_contracts resolves policyFrom into "<name>-policy"."""
+
+    def _inst(self, config, consume_extra=None):
+        consume = {
+            "name": "db",
+            "contract": {"kind": "sql-database"},
+            "required": True,
+            "mappedFrom": "spec.config.db",
+        }
+        if consume_extra:
+            consume.update(consume_extra)
+        return {
+            "id": "app",
+            "config": config,
+            "module": {"spec": {"consumes": [consume]}},
+        }
+
+    def _modules(self):
+        pg = {
+            "id": "pg",
+            "config": {},
+            "module": {
+                "spec": {
+                    "provides": [
+                        {
+                            "name": "sql",
+                            "contract": {
+                                "kind": "sql-database",
+                                "spec": {"host": "pg", "port": 5432},
+                            },
+                        }
+                    ]
+                }
+            },
+        }
+        policy = {
+            "id": "policy",
+            "config": {},
+            "module": {
+                "spec": {
+                    "provides": [
+                        {
+                            "name": "data-access-policy",
+                            "contract": {
+                                "kind": "data-access-policy",
+                                "spec": {"decisionUri": "http://policy-opa:8181/v1/data"},
+                            },
+                        }
+                    ]
+                }
+            },
+        }
+        resolved = {
+            "pg": {
+                "sql": {"kind": "sql-database", "spec": {"host": "pg", "port": 5432}}
+            },
+            "policy": {
+                "data-access-policy": {
+                    "kind": "data-access-policy",
+                    "spec": {"decisionUri": "http://policy-opa:8181/v1/data"},
+                }
+            },
+        }
+        return {"pg": pg, "policy": policy}, resolved
+
+    def _resolve(self, inst, modules_by_id, resolved):
+        from cli.planner import resolve_consumed_contracts
+
+        diagnostics: list = []
+        result = resolve_consumed_contracts(
+            inst, modules_by_id, resolved, diagnostics
+        )
+        return result, diagnostics
+
+    def test_single_policy_from_resolves_under_policy_key(self) -> None:
+        modules_by_id, resolved = self._modules()
+        inst = self._inst(
+            {
+                "db": {"contractRef": "pg.sql"},
+                "dbPolicy": {"contractRef": "policy.data-access-policy"},
+            },
+            {"policyFrom": "spec.config.dbPolicy"},
+        )
+        result, diagnostics = self._resolve(inst, modules_by_id, resolved)
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        self.assertEqual(
+            result["db-policy"]["contract"]["spec"]["decisionUri"],
+            "http://policy-opa:8181/v1/data",
+        )
+
+    def test_list_valued_policy_from_resolves_each_entry(self) -> None:
+        modules_by_id, resolved = self._modules()
+        inst = self._inst(
+            {
+                "db": {"contractRef": "pg.sql"},
+                "dbPolicy": [{"contractRef": "policy.data-access-policy"}],
+            },
+            {"policyFrom": "spec.config.dbPolicy"},
+        )
+        result, diagnostics = self._resolve(inst, modules_by_id, resolved)
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        self.assertIsInstance(result["db-policy"], list)
+        self.assertEqual(result["db-policy"][0]["contractRef"], "policy.data-access-policy")
+
+    def test_unresolvable_policy_from_is_silent(self) -> None:
+        # defaults are applied to planned config; an absent policyFrom path
+        # means "no policy binding" (the validator owns E167 for governed
+        # contracts)
+        modules_by_id, resolved = self._modules()
+        inst = self._inst(
+            {"db": {"contractRef": "pg.sql"}},
+            {"policyFrom": "spec.config.dbPolicy"},
+        )
+        result, diagnostics = self._resolve(inst, modules_by_id, resolved)
+        self.assertEqual([d for d in diagnostics if d.level == "error"], [])
+        self.assertNotIn("db-policy", result)
+
+    def test_malformed_policy_value_is_e041(self) -> None:
+        modules_by_id, resolved = self._modules()
+        inst = self._inst(
+            {"db": {"contractRef": "pg.sql"}, "dbPolicy": "oops"},
+            {"policyFrom": "spec.config.dbPolicy"},
+        )
+        result, diagnostics = self._resolve(inst, modules_by_id, resolved)
+        errors = [d for d in diagnostics if d.level == "error"]
+        self.assertEqual([d.code for d in errors], ["E041"])
+        self.assertNotIn("db-policy", result)
+
+
 class RenderCrossCheckCandidatesTest(unittest.TestCase):
     """The provided data-access-policy contract is host/port cross-checked
     like the other endpoint contracts (E150/E164, issues #1010/#1245)."""
