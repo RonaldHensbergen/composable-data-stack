@@ -25,6 +25,88 @@ spec:
         backup:
           enabled: true
           encryptionKeyFrom: secrets.backup_encryption_key
+        # Dedicated metadata database for the identity provider (issue
+        # #1273): Keycloak's realm/user store gets its own database and user,
+        # advertised as postgres.identity-database, instead of sharing the
+        # analytics database. The init-db script provisions it from the
+        # IDENTITY_DB_* initDbEnv entries below.
+        identityDatabase:
+          name: "${CDS_IDENTITY_DB_NAME}"
+          username: "${CDS_IDENTITY_DB_USER}"
+          passwordFrom: secrets.identity_db_password
+        initDbEnv:
+          IDENTITY_DB_NAME: config.identityDatabase.name
+          IDENTITY_DB_USER: config.identityDatabase.username
+          IDENTITY_DB_PASSWORD: config.identityDatabase.passwordFrom
+
+    # Identity provider (issue #1273, loose end of #370): Keycloak serves SSO
+    # for the admin UIs. It binds its metadata store to the dedicated
+    # postgres.identity-database contract and publishes oidc-provider, which
+    # the Superset module below consumes. Its only host publish stays
+    # loopback-only; browsers reach it through the TLS edge route generated
+    # from keycloak.http-service (traefik's routes entry below).
+    - id: keycloak
+      source: ../../modules/identity/keycloak
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+      config:
+        httpPort: 8081
+        # Canonical issuer URL as seen by browsers and by in-network
+        # consumers: the TLS edge route for identity.cds.local must resolve
+        # to this host from both (add it to the team DNS or hosts files).
+        publicUrl: https://identity.cds.local
+        realm: cds
+        metadataDatabase:
+          contractRef: postgres.identity-database
+          driver: postgres
+        adminUser:
+          username: admin
+          passwordFrom: secrets.keycloak_admin_password
+        # Declarative OIDC client provisioning (issue #1074): the Superset
+        # consumer gets its client in the imported "cds" realm, with the
+        # secret staying a ${CDS_*} runtime placeholder.
+        oidcClients:
+          - clientId: superset
+            redirectUris:
+              - https://superset.cds.local/oauth-authorized/keycloak
+            webOrigins:
+              - https://superset.cds.local
+            secretFrom: secrets.superset_oidc_client_secret
+        healthcheck:
+          enabled: true
+
+    # Superset delegates admin-UI authentication to Keycloak (issue #1273,
+    # module surface since #1064): binding identityProvider switches on
+    # OAuth in the rendered superset config and clears CDS-SEC-081 for the
+    # superset service. Dagster has no native OIDC consume; its webserver is
+    # covered by the profile-wide identity-module signal of CDS-SEC-081 and
+    # should be fronted by a proxy-level middleware until it grows one.
+    - id: superset
+      dependsOn:
+        - postgres
+        - keydb
+        - keycloak
+      config:
+        identityProvider:
+          contractRef: keycloak.oidc-provider
+          clientId: superset
+          clientSecretFrom: secrets.superset_oidc_client_secret
+
+    # The edge also routes the identity provider's hostname (issue #883):
+    # the route is generated from keycloak's http-service contract into
+    # traefik/dynamic/cds-routes-traefik.yml at render time, so no backend
+    # service name is hardcoded here.
+    - id: traefik
+      dependsOn:
+        - dagster
+        - superset
+        - keycloak
+      config:
+        routes:
+          - host: identity.cds.local
+            contractRef: keycloak.http-service
 
   # Production profiles must declare encrypted backup policies per workload
   # class (see docs/backup-restore.md). The cache class is deliberately
@@ -35,6 +117,15 @@ spec:
     values:
       backup_encryption_key:
         env: CDS_BACKUP_ENCRYPTION_KEY
+        required: true
+      identity_db_password:
+        env: CDS_IDENTITY_DB_PASSWORD
+        required: true
+      keycloak_admin_password:
+        env: CDS_KEYCLOAK_ADMIN_PASSWORD
+        required: true
+      superset_oidc_client_secret:
+        env: CDS_SUPERSET_OIDC_CLIENT_SECRET
         required: true
 
   backup:
@@ -59,6 +150,14 @@ spec:
         retentionDays: 30
         rpoMinutes: 1440
         rtoMinutes: 480
+        restoreVerification:
+          frequencyDays: 90
+      # Keycloak's realm/user database (issue #1273): identity metadata is
+      # re-creatable from the IdP's own export, so a day-level RPO suffices.
+      - workloadClass: identity-metadata
+        retentionDays: 30
+        rpoMinutes: 1440
+        rtoMinutes: 240
         restoreVerification:
           frequencyDays: 90
       - workloadClass: configuration
