@@ -60,6 +60,9 @@ remains an operator responsibility.
    configurations, and operational assumptions can be inspected.
 5. **Continuity and portability** — a data environment can be reproduced and
    moved, with documented handling of data, secrets, storage, and backups.
+6. **No lock-in — not even to CDS itself** — components are replaceable via
+   contracts, and once rendered the stack runs on standard artifacts without
+   CDS (see [No Lock-In](#no-lock-in)).
 
 These are architectural objectives, not finished product claims. They must
 not be presented as fully demonstrated capabilities until supported by tests
