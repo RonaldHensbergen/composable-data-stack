@@ -185,6 +185,23 @@ spec:
             type: string
             pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
 
+      metadataDataPolicy:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Optional data-access policy binding for the metadata database
+          (issue #1284): when the bound sql-database contract is governed
+          ("governed: true" in the provider's contract spec), this binding is
+          required and validation fails closed with E167 without it. The
+          resolved policy endpoint is rendered into the superset service as
+          CDS_METADATA_DB_POLICY_DECISION_URI.
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+            description: "Reference to a data-access-policy binding (e.g., policy.data-access-policy)"
+
       analyticsDatabase:
         type: object
         additionalProperties: false
@@ -194,6 +211,23 @@ spec:
           contractRef:
             type: string
             pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+
+      analyticsDataPolicy:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Optional data-access policy binding for the analytics database
+          (issue #1284): when the bound sql-database contract is governed
+          ("governed: true" in the provider's contract spec), this binding is
+          required and validation fails closed with E167 without it. The
+          resolved policy endpoint is rendered into the superset service as
+          CDS_ANALYTICS_DB_POLICY_DECISION_URI.
+        properties:
+          contractRef:
+            type: string
+            pattern: "^[a-z0-9-]+\\.[a-z0-9-]+$"
+            description: "Reference to a data-access-policy binding (e.g., policy.data-access-policy)"
 
       cacheService:
         type: object
@@ -241,12 +275,18 @@ spec:
         kind: sql-database
       required: true
       mappedFrom: spec.config.metadataDatabase
+      # Issue #1284: required when the bound sql-database contract is
+      # governed; fails closed with E167 when absent.
+      policyFrom: spec.config.metadataDataPolicy
 
     - name: analytics-database
       contract:
         kind: sql-database
       required: true
       mappedFrom: spec.config.analyticsDatabase
+      # Issue #1284: required when the bound sql-database contract is
+      # governed; fails closed with E167 when absent.
+      policyFrom: spec.config.analyticsDataPolicy
 
     - name: cache-service
       contract:
@@ -384,6 +424,13 @@ spec:
             SUPERSET_SECRET_KEY: "${config.secretKeyFrom}"
             SUPERSET__SQLALCHEMY_DATABASE_URI: "${bindings.metadata-database.connectionUri}"
             SUPERSET_ANALYTICS_DATABASE_URI: "${bindings.analytics-database.connectionUri}"
+            # Data-access policy decision points for the two database
+            # bindings (issue #1284): empty when the profile binds no policy
+            # (ungoverned contracts); when the provider is governed, validate
+            # already required the binding (E167), so this renders the
+            # composed decisionUri of the bound data-access-policy contract.
+            CDS_METADATA_DB_POLICY_DECISION_URI: "${ifNonempty:bindings.metadata-database-policy.decisionUri,,}"
+            CDS_ANALYTICS_DB_POLICY_DECISION_URI: "${ifNonempty:bindings.analytics-database-policy.decisionUri,,}"
             # Redis cache configuration
             SUPERSET__REDIS_URL: "${bindings.cache-service.connectionUri}"
             SUPERSET__CACHE_CONFIG: '{"CACHE_TYPE": "redis", "CACHE_REDIS_URL": "${bindings.cache-service.connectionUri}", "CACHE_DEFAULT_TIMEOUT": 300}'

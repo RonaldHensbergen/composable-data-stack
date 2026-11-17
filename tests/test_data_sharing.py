@@ -41,7 +41,7 @@ from cli.validator import (
     validate_profile,
     validate_profile_shape,
 )
-from tests.hermetic_project import make_project
+from tests.hermetic_project import HermeticMainTestCase, make_project
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PROFILE_NAME = "local-dagster-postgres-superset"
@@ -358,7 +358,7 @@ class BuildReportDataSharingTest(unittest.TestCase):
         self.assertNotIn("dataSharing", report)
 
 
-class MainReportTextFormatTest(unittest.TestCase):
+class MainReportTextFormatTest(HermeticMainTestCase):
     def _canned_report(self) -> dict:
         return {
             "apiVersion": "cds/v1alpha1",

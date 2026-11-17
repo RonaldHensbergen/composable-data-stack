@@ -1,0 +1,89 @@
+# yaml-language-server: $schema=../../cli/resources/contract.schema.json
+apiVersion: cds/v1alpha1
+kind: Contract
+
+metadata:
+  name: data-access-policy
+  category: shared
+  version: "0.1.0"
+  description: >
+    Provider-neutral contract describing how to reach a data-access policy
+    decision point: the endpoint a query engine, catalog, or consumer module
+    consults to decide whether a given access (which rows, which columns,
+    for which purpose) is allowed. CDS contracts are otherwise
+    deployment-level (wiring, ports, credentials); this kind carries the
+    data-level authorization plane as code, version-controlled and validated
+    like everything else in CDS (issue #1284, following up
+    docs/okdp-stackable-uwv-checkin.md section 7). The contract is
+    deliberately provider-neutral: it names no policy engine, language, or
+    storage format -- providers advertise their own decision API shape
+    through `decisionPath`/`decisionUri`. A data provider (e.g. a
+    sql-database warehouse) declares its contract governed by setting
+    `governed: true` in its provide entry's contract spec; every consumer of
+    a governed contract must then bind a `data-access-policy` contract via
+    the consume entry's `policyFrom` (see docs/data-access-policy.md), and
+    validation fails closed with E167 when that binding is missing.
+
+spec:
+  fields:
+    host:
+      type: string
+      required: true
+      description: >
+        In-network DNS name consumers use to reach the policy decision
+        endpoint (the Compose service DNS name, like other contracts; issue
+        #1028/#1067).
+    port:
+      type: integer
+      required: true
+      description: >
+        In-network container port where the policy decision API listens. Not
+        a localhost host-published port: consumers dial
+        ${bindings.<name>.host}:${bindings.<name>.port} on the shared
+        Compose network (issue #1067).
+    scheme:
+      type: string
+      required: false
+      description: >
+        URL scheme of the decision endpoint: "http" or "https". Optional for
+        backward compatibility: an absent field means "http", and a consumer
+        that needs TLS must check the provider's advertised scheme itself or
+        go through a TLS-terminating contract. Never "https" unless the
+        provider actually serves TLS on this port.
+    decisionPath:
+      type: string
+      required: true
+      description: >
+        Base path under which policy decisions are queried, engine-specific
+        (e.g. "/v1/data" for a decision API that answers per-resource
+        queries under that prefix). Consumers append the resource path they
+        are authorizing.
+    decisionUri:
+      type: string
+      required: true
+      description: >
+        Fully composed decision endpoint, "<scheme>://<host>:<port><decisionPath>",
+        composed by the provider from its own fields (same convention as
+        sql-database's connectionUri), so consumers can dial
+        ${bindings.<name>.decisionUri} directly.
+    healthPath:
+      type: string
+      required: false
+      description: >
+        Path of the provider's health endpoint, used by orchestration
+        readiness probes. Absent means "/health".
+    policyVersion:
+      type: string
+      required: false
+      description: >
+        Identifier of the loaded policy set (e.g. a VCS revision, bundle id,
+        or content hash), advertised for audit and drift detection. Absent
+        means the provider does not version its policies.
+  examples:
+    - host: policy-engine
+      port: 8181
+      scheme: http
+      decisionPath: /v1/data
+      decisionUri: http://policy-engine:8181/v1/data
+      healthPath: /health
+      policyVersion: "main@9f2c1ab"

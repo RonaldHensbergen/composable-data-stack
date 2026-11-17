@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 from cli import main as cli_main
 from cli.diagnostics import Diagnostic
 from cli.main import ConfigIOError, main
+from tests.hermetic_project import HermeticMainTestCase
 
 
 def _run(argv, env=None):
@@ -50,8 +51,9 @@ def _finding(severity="high", value="v", category=None):
     return finding
 
 
-class _IsolatedConfigCase(unittest.TestCase):
+class _IsolatedConfigCase(HermeticMainTestCase):
     def setUp(self):
+        super().setUp()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)

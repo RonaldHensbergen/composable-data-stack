@@ -1,0 +1,142 @@
+# profiles/local-postgres-opa-superset/profile.yaml
+# yaml-language-server: $schema=../../cli/resources/profile.schema.json
+apiVersion: cds/v1alpha1
+kind: Profile
+
+metadata:
+  name: local-postgres-opa-superset
+  environment: local
+  displayName: Local Postgres + OPA + Superset (governed warehouse)
+  description: >
+    Local development stack demonstrating policy-as-code at the data layer
+    (issue #1284): postgres declares its sql-database contracts governed
+    (config.governed: true), the experimental opa module serves the
+    version-controlled Rego policies from ./policies through the
+    provider-neutral data-access-policy contract, and superset binds that
+    policy for both of its database consume entries (policyFrom), so
+    `cds validate`/`cds test` accept the wiring — and would fail closed with
+    E167 if the policy binding were removed.
+
+spec:
+  runtime:
+    type: docker-compose
+    namespace: cds-local
+    networks:
+      - name: cds-local
+        driver: bridge
+
+  modules:
+    - id: postgres
+      source: ../../modules/warehouse/postgres
+      version: "0.1.0"
+      enabled: true
+      config:
+        database: "${CDS_ANALYTICS_DB_NAME}"
+        username: "${CDS_ANALYTICS_DB_USER}"
+        passwordFrom: secrets.analytics_db_password
+        superuserPasswordFrom: secrets.postgres_superuser_password
+        port: 5432
+        # Governed-data advertisement (issue #1284): every consumer of this
+        # instance's sql-database contracts must bind a data-access-policy
+        # contract via its consume entry's policyFrom (E167 otherwise).
+        governed: true
+        initDbScript: init-db.sh
+        initDbEnv:
+          ANALYTICS_DB_NAME: config.database
+          ANALYTICS_DB_USER: config.username
+          ANALYTICS_DB_PASSWORD: config.passwordFrom
+          SUPERSET_DB_NAME: config.supersetDatabase.name
+          SUPERSET_DB_USER: config.supersetDatabase.username
+          SUPERSET_DB_PASSWORD: config.supersetDatabase.passwordFrom
+        supersetDatabase:
+          name: "${CDS_SUPERSET_DB_NAME}"
+          username: "${CDS_SUPERSET_DB_USER}"
+          passwordFrom: secrets.superset_db_password
+        storage:
+          enabled: true
+          size: 5Gi
+        healthcheck:
+          enabled: true
+
+    - id: policy
+      source: ../../modules-experimental/security/opa
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+      config:
+        apiPort: 8181
+        # Version-controlled policy files, resolved relative to this profile
+        # directory and mounted read-only into the policy engine.
+        policiesDir: policies
+        policyVersion: local-example
+        logLevel: info
+        healthcheck:
+          enabled: true
+
+    - id: keydb
+      source: ../../modules/cache/keydb
+      version: "0.1.0"
+      enabled: true
+      config:
+        port: 6379
+        healthcheck:
+          enabled: true
+
+    - id: superset
+      source: ../../modules/bi/superset
+      version: "0.1.0"
+      enabled: true
+      dependsOn:
+        - postgres
+        - keydb
+        - policy
+      config:
+        webPort: 8088
+        secretKeyFrom: secrets.superset_secret_key
+        adminUser:
+          username: admin
+          passwordFrom: secrets.superset_admin_password
+          email: admin@example.local
+        metadataDatabase:
+          contractRef: postgres.superset-database
+        analyticsDatabase:
+          contractRef: postgres.sql-database
+        # Policy bindings required because postgres is governed (issue #1284).
+        metadataDataPolicy:
+          contractRef: policy.data-access-policy
+        analyticsDataPolicy:
+          contractRef: policy.data-access-policy
+        cacheService:
+          contractRef: keydb.cache-service
+        healthcheck:
+          enabled: true
+
+  secrets:
+    provider:
+      type: env
+    values:
+      postgres_superuser_password:
+        env: CDS_POSTGRES_SUPERUSER_PASSWORD
+        required: true
+      analytics_db_password:
+        env: CDS_ANALYTICS_DB_PASSWORD
+        required: true
+      superset_db_password:
+        env: CDS_SUPERSET_DB_PASSWORD
+        required: true
+      superset_secret_key:
+        env: CDS_SUPERSET_SECRET_KEY
+        required: true
+      superset_admin_password:
+        env: CDS_SUPERSET_ADMIN_PASSWORD
+        required: true
+
+  outputs:
+    contracts:
+      warehouse:
+        from: postgres.sql-database
+      biApi:
+        from: superset.http-service
+      policyApi:
+        from: policy.data-access-policy

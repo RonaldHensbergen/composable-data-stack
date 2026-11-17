@@ -734,12 +734,17 @@ class ReferenceProdProfileDigestPinTest(unittest.TestCase):
                 "CDS_SUPERSET_ADMIN_PASSWORD": "Adm1n!Pass#2026x",
                 "CDS_CACHE_PASSWORD": "C4che!Pass#2026x",
                 "CDS_BACKUP_ENCRYPTION_KEY": "B4ckup!Key#2026x",
+                "CDS_IDENTITY_DB_PASSWORD": "Ident1ty!Pass#2026x",
+                "CDS_KEYCLOAK_ADMIN_PASSWORD": "Keycl0ak!Admin#2026x",
+                "CDS_SUPERSET_OIDC_CLIENT_SECRET": "Oidc!Secret#2026x",
                 "CDS_ANALYTICS_DB_NAME": "analytics",
                 "CDS_ANALYTICS_DB_USER": "analytics_user",
                 "CDS_DAGSTER_DB_NAME": "dagster",
                 "CDS_DAGSTER_DB_USER": "dagster_user",
                 "CDS_SUPERSET_DB_NAME": "superset",
                 "CDS_SUPERSET_DB_USER": "superset_user",
+                "CDS_IDENTITY_DB_NAME": "keycloak",
+                "CDS_IDENTITY_DB_USER": "keycloak_user",
             }.items()
         )
         + "\n"

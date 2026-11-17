@@ -327,6 +327,45 @@ the only `sql-database` provider and advertises `engine: postgres` on all of
 its database provides, and `modules/identity/keycloak` is the only consumer
 declaring `engineFrom`.
 
+### Data-access policy bindings (`policyFrom`)
+
+A data provider can declare its contract *governed* by setting
+`governed: true` in the provide entry's contract spec (a literal boolean, or
+a pure `${config.<path>}` reference resolved against the producer instance's
+profile config, falling back to the `configSchema` default) -- e.g.
+`modules/warehouse/postgres` advertises `governed: ${config.governed}` on all
+of its `sql-database` provides (issue #1284). Every consumer of a governed
+contract must then bind a `data-access-policy` contract through the consume
+entry's optional `policyFrom` key, a `spec.config.<path>` reference to a
+`{contractRef: ...}` binding in the consumer's own config:
+
+```yaml
+consumes:
+  - name: analytics-database
+    contract:
+      kind: sql-database
+    required: true
+    mappedFrom: spec.config.analyticsDatabase
+    policyFrom: spec.config.analyticsDataPolicy
+```
+
+- When the bound provider contract is governed, `cds validate` fails closed
+  with `E167` if `policyFrom` is absent or resolves to no binding; a
+  `policyFrom` resolving to a different contract kind is `E042`, a malformed
+  or unknown ref is `E041` (see
+  [Troubleshooting](../README.md#️-troubleshooting)).
+- Omitting `policyFrom` (or an ungoverned provider) places no policy
+  requirement, so existing modules and profiles stay valid unless they
+  explicitly opt in.
+- The planner resolves the policy binding into a `<consume-name>-policy`
+  entry next to the main binding, so templates can use
+  `${bindings.analytics-database-policy.decisionUri}` during `cds render`.
+
+The `data-access-policy` contract itself is provider-neutral
+(`shared/contracts/data-access-policy.yaml`); `modules-experimental/security/opa`
+is the reference implementation behind it. See
+[docs/data-access-policy.md](data-access-policy.md).
+
 ### Reverse-proxy dynamic routes
 
 A module providing the `reverse-proxy` contract (e.g. Traefik) exposes public
