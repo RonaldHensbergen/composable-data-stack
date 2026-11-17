@@ -70,6 +70,33 @@ keep the profile current: it refreshes profiles, modules, contracts, and
 runtime assets previously fetched with `cds get` from their recorded source,
 preserving your local edits.
 
+## Security Is a Top Priority
+
+Security is a first-class, built-in concern in CDS — not an add-on:
+
+- `cds security` runs a data-driven rule set (`cli/resources/rule-set.json`)
+  against every profile before deployment and fails closed on unsafe
+  configurations: weak or default credentials, missing secrets, wrongly
+  exposed services, unsafe module defaults, and contract bindings that can
+  leak data.
+- Secrets are never resolved into plans or rendered Compose/Helm output:
+  profiles only map aliases to `CDS_*` environment names, and the runtime
+  resolves the values at container start.
+- Validation failures are structured diagnostics with stable E-/W- codes and
+  precise data paths, so problems surface at compile time instead of at
+  runtime.
+- Published images are signed and carry SBOM and SLSA provenance
+  attestations, and `cds preflight` checks the Docker host against a
+  hardening baseline before anything starts.
+- Vulnerability reporting and the security support window are defined in
+  [SECURITY.md](SECURITY.md) and
+  [docs/security-support-policy.md](docs/security-support-policy.md); CRA
+  and NIS2 readiness work is tracked in [docs/roadmap.md](docs/roadmap.md).
+
+As with sovereignty, security claims must be backed by tests and evidence —
+the rule set, golden tests, and CI scans are the proof, and known gaps are
+tracked as issues, not hidden.
+
 ## Non-Goals
 
 - CDS is not Kubernetes-only: Docker Compose is the stable single-host path;
