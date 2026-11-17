@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added `MISSION.md` at the repository root: the project mission, target audiences, the five data-sovereignty principles (stated as architectural objectives, not demonstrated capabilities), an explicit is/is-not scope with non-goals, the decision process, and links to the authoritative roadmap, governance and support docs (PR #1324).
+
 ### Fixed
 
 - `cds preflight team-dagster-postgres-superset --environment prod` no longer reports `CDS-SEC-051` FAILs for the `postgres-backup`/`postgres-restore` job services (issue #1286): those services now declare the same `build:` block as the main `postgres` service, so the image policy recognizes `local/postgres:custom` as a local build of the repo's own `images/postgres/Dockerfile` — the same exemption mechanism every other `local/*:custom` service uses (the `local/` prefix alone never exempted an image). On the Helm target the pgBackRest sidecar container additionally gets `imagePullPolicy: Never` like the main container, matching the `collect_local_builds()` invariant. Covered by `ReferenceProdProfileDigestPinTest` in `tests/test_image_verification.py`, which renders the reference prod profile and asserts no `CDS-SEC-051` findings and a passing preflight `images` check.
