@@ -16,16 +16,37 @@ not a long-running service and does not run containers itself.
 
 ## Who CDS Is For
 
-- Organizations that need control over sensitive or strategically important
-  data
-- Public-sector bodies working under data-sharing and security frameworks
-  (FDS/Common Ground/Haven conventions, NIS2/Cyberbeveiligingswet operator
-  obligations — see [docs/roadmap.md](docs/roadmap.md))
+- **Dutch local governments — the primary launching customer.** CDS is first
+  built and validated for Common Ground/Haven platform conventions, FDS/IBDS
+  data-sharing agreements, and NIS2/Cyberbeveiligingswet operator
+  obligations (see [docs/roadmap.md](docs/roadmap.md) and the *Dutch
+  Public-Sector Data & Security Alignment* milestone)
+- Other organizations that need control over sensitive or strategically
+  important data
 - Smaller teams that need reproducible infrastructure across dev, CI, and
   prod
 - Research organizations and independent service providers
 
-These are audiences to validate, not confirmed market segments.
+These remain audiences to validate, not confirmed market segments — and the
+launching customer is a starting point, not a limit; see
+[Beyond Haven, NIS2 and CRA](#beyond-haven-nis2-and-cra).
+
+## Beyond Haven, NIS2 and CRA
+
+The Dutch public-sector alignment is a beachhead, not a boundary. CDS itself
+is jurisdiction-agnostic: profiles, modules, and contracts carry no
+hardcoded legal assumptions, so the same stack can run under different laws
+and frameworks — other EU rules such as GDPR, national or sector-specific
+regimes, or none of these at all.
+
+Compliance mappings are layered on top as documentation and checkable
+evidence, never baked into the core. Haven/Common Ground alignment and NIS2
+operator-readiness checks live in the `cds security` rule set and docs, and
+[docs/cra-scope-decision.md](docs/cra-scope-decision.md) shows the pattern:
+CDS documents its own product-security posture without claiming CRA scope or
+conformity. A new jurisdiction is added the same way — map its obligations,
+encode what can be machine-checked in `cds security`, and document what
+remains an operator responsibility.
 
 ## What Data Sovereignty Means Here
 
