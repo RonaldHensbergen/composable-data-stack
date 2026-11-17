@@ -54,6 +54,21 @@ an issue.
 | A validator + planner + renderer | An orchestrator or runtime agent |
 | A generator of Compose and Helm artifacts | A service that stays running |
 | A contract-checking compiler for data platforms | A re-implementation of the tools it composes |
+| A runtime requirement after rendering | A lock-in — the rendered artifacts run standalone (see below) |
+
+## No Lock-In
+
+CDS compiles; it does not own your runtime. The rendered artifacts are
+standard and standalone: a `docker-compose.yml` that runs with plain
+`docker compose`, or a Helm chart that installs with plain `helm`. After
+rendering, CDS is **not required** to keep using or operating the stack — the
+artifacts have no runtime dependency on CDS, so you can stop using CDS
+entirely and keep running them as-is.
+
+If you do keep using CDS, [`cds update`](docs/cli-reference.md) still helps
+keep the profile current: it refreshes profiles, modules, contracts, and
+runtime assets previously fetched with `cds get` from their recorded source,
+preserving your local edits.
 
 ## Non-Goals
 
