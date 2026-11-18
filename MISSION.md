@@ -12,7 +12,8 @@ existing technologies together through declarative **profiles**, reusable
 the stack to a runtime artifact (Docker Compose today; Helm for Kubernetes as
 an experimental target). CDS is a compiler and CLI for data platforms — it
 renders configuration and delegates lifecycle to the selected runtime; it is
-not a long-running service and does not run containers itself.
+not a long-running service and does not run containers itself. The one-page
+project scope lives in [SCOPE.md](SCOPE.md).
 
 ## Who CDS Is For
 
