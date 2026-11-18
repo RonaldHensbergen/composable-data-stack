@@ -8,7 +8,7 @@ The format is based on Keep a Changelog.
 
 ### Added
 
-- Added `MISSION.md` and `SCOPE.md` at the repository root: the project mission, target audiences (Dutch local governments as the primary launching customer, without limiting CDS to Haven/NIS2/CRA), the six data-sovereignty principles (stated as objectives, not demonstrated capabilities), explicit no-lock-in (including no lock-in to CDS itself after rendering) and security-as-a-top-priority statements, the one-page project scope aligned with the leading six-point action plan for Nov–Dec 2026, the decision process, and links to the authoritative roadmap, governance and support docs (PR #1324).
+- Added `MISSION.md` and `SCOPE.md` at the repository root: the project mission, target audiences (Dutch local governments as the primary launching customer, without limiting CDS to Haven/NIS2/CRA), the six data-sovereignty principles (stated as objectives, not demonstrated capabilities), explicit no-lock-in (including no lock-in to CDS itself after rendering) and security-as-a-top-priority statements, the one-page project scope aligned with the leading six-point action plan for Nov–Dec 2026 — including the planned transition of project collaboration to Codeberg, with GitHub read-only as a signpost afterwards — the decision process, and links to the authoritative roadmap, governance and support docs (PR #1324).
 
 ### Fixed
 

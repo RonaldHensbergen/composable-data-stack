@@ -143,6 +143,14 @@ tracked as issues, not hidden.
 - Changes ship as small PRs from short-lived branches with green CI; `main`
   is protected and merges follow [docs/maintainer-merge-policy.md](docs/maintainer-merge-policy.md).
   See [CONTRIBUTING.md](CONTRIBUTING.md) for the full working style.
+- **Repository transition (the plan):** per the leading plan, project
+  collaboration — source history, issues, PRs, CI — migrates to **Codeberg**
+  (planned 20 November – 4 December 2026; see [SCOPE.md](SCOPE.md)). GitHub
+  then stays read-only as a signpost. This is consistent with the sovereignty
+  principles above: hosting and collaboration under the project's own
+  control, not on a platform it does not control. Until the cutover
+  completes, the flow above runs on GitHub as it does today; afterwards the
+  same flow runs on Codeberg.
 - The maintainer is Ronald Hensbergen (see `.github/CODEOWNERS`); roles and
   authority are revisited as the community grows.
 - Agent contributors follow the canonical instructions in

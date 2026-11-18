@@ -10,8 +10,12 @@ deliberately out of scope.
 1. **Mission, scope and decision-making** — `MISSION.md` + this scope
 2. **MVP and acceptance criteria** — defined from existing implementation,
    including the Stackable/OKDP landscape comparison
-3. **Repository migration** — project collaboration moves to Codeberg; GitHub
-   stays read-only as a signpost
+3. **Repository migration (20 Nov – 4 Dec) — the plan** — project
+   collaboration moves to **Codeberg**: git history and feasible issues
+   migrate, CI dependencies are reviewed, documentation and contributor links
+   updated, backups and maintainer access defined; GitHub stays read-only as
+   a signpost. This follows from CDS's sovereignty principles: hosting under
+   the project's own control, not on a platform it does not control.
 4. **Two independent reviews** — functional fit against the MVP, and code
    quality / security / tests, plus the infrastructure-backend assessment
    (Podman/Quadlet, Docker Swarm, Incus)
@@ -58,13 +62,16 @@ deliberately out of scope.
 
 ## Maintainer Responsibilities And Decision Process
 
-- **Maintainer and code owner:** Ronald Hensbergen (`.github/CODEOWNERS`).
+- **Maintainer and code owner:** Ronald Hensbergen (code owner via
+  `.github/CODEOWNERS` today, the Codeberg equivalent after the cutover).
   Owns final merge and release decisions, security triage, and roadmap
   ordering; roles are revisited as the community grows.
 - **Decisions:** labeled issues ordered by the roadmap project; PRs merge on
   review plus green CI into protected `main`
   ([docs/maintainer-merge-policy.md](docs/maintainer-merge-policy.md));
   releases follow the weekly train
-  ([docs/release-strategy.md](docs/release-strategy.md)).
+  ([docs/release-strategy.md](docs/release-strategy.md)). Until the Codeberg
+  cutover (plan point 3) completes, this flow runs on GitHub; afterwards the
+  same flow runs on Codeberg.
 - **Agents** follow [AGENTS.md](AGENTS.md), including the agent approval
   policy: merges, protected-path changes, and secrets always require a human.
