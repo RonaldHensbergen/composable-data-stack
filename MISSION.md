@@ -17,11 +17,13 @@ project scope lives in [SCOPE.md](SCOPE.md).
 
 ## Who CDS Is For
 
-- **Dutch local governments — the primary launching customer.** CDS is first
-  built and validated for Common Ground/Haven platform conventions, FDS/IBDS
-  data-sharing agreements, and NIS2/Cyberbeveiligingswet operator
+- **Dutch local governments — the target launching-customer segment.** CDS is
+  first built and validated against Common Ground/Haven platform conventions,
+  FDS/IBDS data-sharing agreements, and NIS2/Cyberbeveiligingswet operator
   obligations (see [docs/roadmap.md](docs/roadmap.md) and the *Dutch
-  Public-Sector Data & Security Alignment* milestone)
+  Public-Sector Data & Security Alignment* milestone). This is targeted, not
+  agreed: no government has committed yet, and pilot conversations are part
+  of the leading plan (see [SCOPE.md](SCOPE.md)).
 - Other organizations that need control over sensitive or strategically
   important data
 - Smaller teams that need reproducible infrastructure across dev, CI, and
@@ -29,7 +31,7 @@ project scope lives in [SCOPE.md](SCOPE.md).
 - Research organizations and independent service providers
 
 These remain audiences to validate, not confirmed market segments — and the
-launching customer is a starting point, not a limit; see
+target segment is a starting point, not a limit; see
 [Beyond Haven, NIS2 and CRA](#beyond-haven-nis2-and-cra).
 
 ## Beyond Haven, NIS2 and CRA

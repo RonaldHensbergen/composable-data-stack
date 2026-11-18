@@ -33,8 +33,9 @@ deliberately out of scope.
   `shared/contracts/`), profiles (`profiles/`), the security rule set,
   tests, docs, and release engineering
 - The Dutch public-sector alignment (FDS/Common Ground/Haven, NIS2, CRA
-  records) as the launching-customer beachhead — layered on top, never
-  limiting CDS to those frameworks (see
+  records) as the beachhead for the target launching customer — Dutch local
+  governments, targeted but not yet agreed by any government — layered on
+  top, never limiting CDS to those frameworks (see
   [MISSION.md](MISSION.md#beyond-haven-nis2-and-cra))
 
 ## Out Of Scope For Now
