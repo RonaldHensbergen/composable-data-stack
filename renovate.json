@@ -5,10 +5,7 @@
   ],
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
-    "enabled": true,
-    "addLabels": [
-      "automerge"
-    ]
+    "enabled": true
   },
   "pip-compile": {
     "managerFilePatterns": [
