@@ -26,6 +26,13 @@
       "consumer": "bi/superset",
       "status": "tested",
       "notes": "Exercised end-to-end by profiles/local-dagster-postgres-superset/profile.yaml, covered by the \"CDS Test (Stable Profile)\" CI workflow."
+    },
+    {
+      "contract": "data-access-policy",
+      "provider": "security/opa",
+      "consumer": "bi/superset",
+      "status": "tested",
+      "notes": "Exercised end-to-end by profiles/local-postgres-opa-superset/profile.yaml (postgres declares its sql-database contracts governed; superset binds policy.data-access-policy for both database consume entries), covered by the profile-matrix CI job and tests/test_data_access_policy.py (#1284)."
     }
   ]
 }

@@ -15,7 +15,7 @@ least one test file names it — in the test file's own name, or as a path or
 name reference in the test body. Reaching 100% is hard; the number tells
 everyone how much of the system is still unwritten.
 
-**Overall contract coverage: 49 of 49 (100%)** — modules 21/21 (100%), profiles 12/12 (100%), shared contracts 16/16 (100%)
+**Overall contract coverage: 52 of 52 (100%)** — modules 22/22 (100%), profiles 13/13 (100%), shared contracts 17/17 (100%)
 
 ## Modules
 
@@ -41,6 +41,7 @@ everyone how much of the system is still unwritten.
 | `modules-experimental/observability/marquez` | marquez | yes |
 | `modules-experimental/observability/otel-collector` | otel-collector | yes |
 | `modules-experimental/orchestration/airflow` | airflow | yes |
+| `modules-experimental/security/opa` | opa | yes |
 | `modules-experimental/warehouse/postgres-operator` | postgres-operator | yes |
 
 ## Profiles
@@ -57,6 +58,7 @@ everyone how much of the system is still unwritten.
 | `profiles/local-kubernetes-postgres-operator` | local-kubernetes-postgres-operator | yes |
 | `profiles/local-loki-otel-collector` | local-loki-otel-collector | yes |
 | `profiles/local-postgres-grafana` | local-postgres-grafana | yes |
+| `profiles/local-postgres-opa-superset` | local-postgres-opa-superset | yes |
 | `profiles/production-kubernetes-example` | production-kubernetes-example | yes |
 | `profiles/team-dagster-postgres-superset` | team-dagster-postgres-superset | yes |
 
@@ -67,6 +69,7 @@ everyone how much of the system is still unwritten.
 | `shared/contracts/backup-source.yaml` | backup-source | yes |
 | `shared/contracts/backup-target.yaml` | backup-target | yes |
 | `shared/contracts/cache-service.yaml` | cache-service | yes |
+| `shared/contracts/data-access-policy.yaml` | data-access-policy | yes |
 | `shared/contracts/file-database.yaml` | file-database | yes |
 | `shared/contracts/gitops-target.yaml` | gitops-target | yes |
 | `shared/contracts/http-service.yaml` | http-service | yes |

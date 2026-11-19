@@ -193,6 +193,11 @@
           "type": "string",
           "pattern": "^spec\\.config(\\.[A-Za-z0-9_]+)+$",
           "description": "Engine requirement for the bound sql-database provider (issue #682). Dotted 'spec.config.<path>' reference to a string field in this module's own config holding the database engine/wire-protocol vendor the consumer expects the provider to speak (e.g. spec.config.metadataDatabase.driver in identity/keycloak, feeding KC_DB). At validate time the referenced value -- taken from the profile config when set, otherwise from the module configSchema default at that path -- is compared case-insensitively with the provider contract spec's advertised 'engine' (a literal string, or a pure ${config.<path>} reference resolving against the producer instance's profile config); a mismatch, or a provider that advertises no engine at all, fails validation with E154 so a wrong-vendor binding fails loudly instead of silently misconfiguring the consumer. An omitted engineFrom key places no engine requirement (backward compatible). Must match spec.config.<path> (dotted path under spec.config) so a typo fails at schema validation (E021) instead of silently disabling enforcement."
+        },
+        "policyFrom": {
+          "type": "string",
+          "pattern": "^spec\\.config(\\.[A-Za-z0-9_]+)+$",
+          "description": "Data-access policy binding for the contract this consume entry binds (issue #1284). Dotted 'spec.config.<path>' reference to a field in this module's own config holding a {contractRef: <module-id>.<provide-name>} binding to a provider of the 'data-access-policy' contract (e.g. spec.config.analyticsDataPolicy). When the bound provider's contract spec declares 'governed: true' (a literal boolean, or a pure ${config.<path>} reference resolving against the producer instance's profile config), this binding is required: validation fails closed with E167 when policyFrom is absent, does not resolve, or resolves to a contract of a different kind. An omitted policyFrom key places no policy requirement (backward compatible: ungoverned contracts need no binding). The resolved policy contract is exposed to templates as ${bindings.<consume-name>-policy.<field>}. Must match spec.config.<path> so a typo fails at schema validation (E021) instead of silently disabling enforcement."
         }
       }
     },

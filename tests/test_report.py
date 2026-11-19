@@ -21,7 +21,13 @@ from cli.report import (
     _check_no_leaked_secrets,
     build_compliance_report,
 )
-from tests.hermetic_project import find_cds, hermetic_env, init_env, make_project
+from tests.hermetic_project import (
+    HermeticMainTestCase,
+    find_cds,
+    hermetic_env,
+    init_env,
+    make_project,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _PROFILE_NAME = "local-dagster-postgres-superset"
@@ -241,7 +247,7 @@ class SecretLeakCheckTest(unittest.TestCase):
             self.assertEqual(diagnostics, [])
 
 
-class MainReportCommandTest(unittest.TestCase):
+class MainReportCommandTest(HermeticMainTestCase):
     """In-process tests for cli.main's `report` handler (mocks
     build_compliance_report so these don't depend on plan/render/.env
     state -- that end-to-end path is covered by BuildComplianceReportTest
