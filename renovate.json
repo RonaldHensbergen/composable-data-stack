@@ -3,6 +3,13 @@
   "extends": [
     "config:recommended"
   ],
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "addLabels": [
+      "automerge"
+    ]
+  },
   "pip-compile": {
     "managerFilePatterns": [
       "/^images/.+/requirements.*\\.txt$/"
