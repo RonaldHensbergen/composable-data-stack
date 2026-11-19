@@ -13,9 +13,9 @@ stack (not this repository-wide scanning process), see
 | Trigger | Workflow | What happens |
 | --- | --- | --- |
 | PR touching `images/**` | `image-security-scan.yml` | Builds the images and fails the PR when HIGH/CRITICAL vulnerabilities are found (trivy, `exit-code: 1`, `ignore-unfixed`). |
-| Daily (03:23 UTC) | `image-security-scan.yml` | Rescans the **published** digests recorded in `tests/fixtures/signed-images.json`. On HIGH/CRITICAL findings it fails the run and files or updates a `vuln-scan` issue per image with the CVE table and a remediation deadline. |
+| Daily (03:23 UTC) | `image-security-scan.yml` | Rescans the **published** digests recorded in `tests/fixtures/signed-images.json`. On HIGH/CRITICAL findings it fails the run and files or updates a `vuln-scan` issue per image with the CVE table and a remediation deadline. On a clean rescan it closes the matching open `vuln-scan` issue (with an explanatory comment). |
 | Push to `main` touching `images/**` / weekly (Monday 04:17 UTC) | `publish-images.yml` | Rebuilds the images, **fails before push when HIGH/CRITICAL vulnerabilities are found** (trivy gate, `exit-code: 1`, `ignore-unfixed`; same `.trivyignore` exceptions as the PR scan), then signs, attests, and pushes them, and auto-refreshes `tests/fixtures/signed-images.json` via a PR (job `update-fixture`). |
-| Base image digest available upstream | Renovate | Opens PRs bumping the digest-pinned base images (`renovate.json`), which are then gated by the PR scan above. |
+| Base image digest available upstream, or a known vulnerability in a current pin | Renovate | Opens PRs bumping the digest-pinned base images (`renovate.json`), which are then gated by the PR scan above. Vulnerability-alert PRs (`vulnerabilityAlerts` + `osvVulnerabilityAlerts` in `renovate.json`) are raised immediately as standalone PRs and labeled `automerge`, so the auto-merge flow (`auto-merge.yml`) lands them once CI — including the PR scan above for `images/**` — is green. |
 
 Because the images re-resolve pip ranges (`>=`) and explicitly upgrade OS
 packages at build time, a weekly rebuild picks up available security fixes
@@ -107,7 +107,12 @@ The deadline is computed in the scanning workflow and printed in the issue.
 Remediation means one of:
 
 1. a Renovate or manual PR that bumps the affected dependency or base
-   image digest (merged, then the weekly/triggered rebuild republishes), or
+   image digest (merged, then the weekly/triggered rebuild republishes).
+   Bump-fixable findings are automated: Renovate raises a vulnerability-alert
+   PR as soon as a current pin is affected and labels it `automerge`, so it
+   merges automatically once CI is green — for `images/**` PRs the PR-time
+   trivy gate is part of CI, so a bump that does not clear the finding never
+   merges, or
 2. an approved exception (below).
 
 Publishing is gated: `publish-images.yml` builds each image and runs the
@@ -213,5 +218,6 @@ pinned digests rather than the images CDS publishes.
    the fix is already in the pinned base digest.
 3. If the finding cannot be remediated in time, file an exception PR that
    adds a `.trivyignore` entry with owner, justification, and expiry.
-4. The daily scan updates the issue body automatically; close the issue
-   only after a scan run passes with no findings for that image.
+4. The daily scan updates the issue body automatically and closes the issue
+   automatically once a scheduled rescan passes with zero HIGH/CRITICAL
+   findings for that image (guarded on the report's `Total: 0`).

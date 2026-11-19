@@ -213,6 +213,45 @@ jobs:
               --body-file issue-body.md --label "$label"
           fi
 
+      - name: Close the vuln-scan issue when the scheduled rescan is clean
+        if: ${{ github.event_name == 'schedule' && steps.scan.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image="${{ matrix.image.name }}"
+          variant="${{ matrix.image.variant }}"
+          # Same report/issue-key convention as the issue-filing step above
+          # (the report filename keeps the variant, the issue search key
+          # drops a "base" variant).
+          file_key="$image"
+          if [ -n "$variant" ]; then
+            file_key="${image}-${variant}"
+          fi
+          image_key="$image"
+          if [ -n "$variant" ] && [ "$variant" != "base" ]; then
+            image_key="${image}-${variant}"
+          fi
+          report="scan-${file_key}.txt"
+          # Only close when the rescan actually produced a report recording
+          # zero HIGH/CRITICAL findings; a missing report means the scan did
+          # not complete cleanly, so leave any open issue untouched.
+          if [ ! -s "$report" ] || ! grep -qE "Total: 0" "$report"; then
+            echo "::notice::No confirmed clean report in ${report}; leaving any open vuln-scan issue for cds-${image_key} untouched."
+            exit 0
+          fi
+          existing="$(
+            gh issue list --repo "$GITHUB_REPOSITORY" --label "vuln-scan" \
+              --search "cds-${image_key} in:title" --state open --limit 1 \
+              --json number --jq '.number' 2>/dev/null || true
+          )"
+          if [ -z "$existing" ]; then
+            echo "No open vuln-scan issue for cds-${image_key}; nothing to close."
+            exit 0
+          fi
+          gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "Closed automatically by the daily image security rescan: zero HIGH/CRITICAL findings remain for \`${{ steps.ref.outputs.image-ref }}\`. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} (see docs/image-scanning.md)."
+          gh issue close "$existing" --repo "$GITHUB_REPOSITORY" --comment "Resolved: the scheduled rescan reports no HIGH/CRITICAL findings for this image."
+
       - name: Generate SBOM (CycloneDX)
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
