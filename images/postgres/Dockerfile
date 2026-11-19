@@ -21,7 +21,7 @@
 # (CGO_ENABLED=0). The source tarball is verified against the pinned
 # sha256 below (review hardening on #1041); module dependencies would be
 # covered by the Go checksum database, but gosu has none.
-FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS gosu
+FROM golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS gosu
 ARG GOSU_VERSION=1.20
 # sha256 of https://codeload.github.com/tianon/gosu/tar.gz/refs/tags/${GOSU_VERSION}
 # (verified stable across downloads). No Renovate datasource exists for

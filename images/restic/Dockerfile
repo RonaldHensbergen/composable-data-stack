@@ -21,7 +21,7 @@
 # advisories (x/net v0.62.0 requires x/crypto >= v0.58.0 and x/text
 # >= v0.43.0); Renovate tracks them via the regex manager in renovate.json.
 
-FROM golang:1.27.3-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS restic-build
+FROM golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280 AS restic-build
 ARG RESTIC_VERSION=0.19.1
 # sha256 of https://codeload.github.com/restic/restic/tar.gz/refs/tags/v${RESTIC_VERSION}
 # (verified stable across downloads). No Renovate datasource exists for
