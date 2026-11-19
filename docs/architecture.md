@@ -39,7 +39,7 @@ The platform is divided into logical layers.
 | --- | --- | --- |
 | **Secrets** | credentials, secret injection, key management | Vault |
 | **Identity** | authentication, SSO, and centrally revocable identity for admin-facing modules | Keycloak |
-| **Security** | peer identity and optional L7 authorization between Kubernetes workloads | Istio service mesh (`modules/security/istio`, Helm target only) |
+| **Security** | peer identity and optional L7 authorization between Kubernetes workloads; data-level access policy as code at the query layer | Istio service mesh (`modules/security/istio`, Helm target only); OPA policy engine (`modules-experimental/security/opa`, experimental) providing the provider-neutral `data-access-policy` contract, see [docs/data-access-policy.md](data-access-policy.md) (#1284) |
 | **Infrastructure services** | service coordination backends and support systems | KeyDB |
 | **Ingestion** | extract-load pipelines into the warehouse | dlt (experimental) |
 | **Storage / compute** | databases, warehouses, and processing engines | Postgres, DuckDB |

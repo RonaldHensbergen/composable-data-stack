@@ -92,6 +92,21 @@ class TeamProfileWorkflowTest(unittest.TestCase):
         if os.name != "nt":
             self.assertEqual(env_file.stat().st_mode & 0o777, 0o600)
 
+    def test_init_writes_prod_identity_secrets(self):
+        # The prod overlay wires Keycloak and Superset's OIDC client (issue
+        # #1273), so `cds init --environment prod` must also emit the identity
+        # database, keycloak admin, and OIDC client secret keys.
+        env_file = self.project / ".env"
+        text = env_file.read_text(encoding="utf-8")
+        for key in (
+            "CDS_IDENTITY_DB_PASSWORD=",
+            "CDS_IDENTITY_DB_NAME=",
+            "CDS_IDENTITY_DB_USER=",
+            "CDS_KEYCLOAK_ADMIN_PASSWORD=",
+            "CDS_SUPERSET_OIDC_CLIENT_SECRET=",
+        ):
+            self.assertIn(key, text)
+
     def test_validate_and_render_base_and_prod(self):
         for environment in (None, "prod"):
             subTest = f"environment={environment or 'base'}"
@@ -137,20 +152,90 @@ class TeamProfileWorkflowTest(unittest.TestCase):
                         [],
                         f"environment=prod: {backend} must not host-publish ports, got {ports}",
                     )
+
+                # The prod overlay adds the identity provider (issue #1273):
+                # Keycloak binds its metadata store to the dedicated
+                # postgres.identity-database contract, and Superset consumes
+                # keycloak.oidc-provider with the secret staying a runtime
+                # placeholder.
+                self.assertIn("keycloak", services)
+                keycloak_env = services["keycloak"]["environment"]
+                self.assertEqual(keycloak_env["KC_DB"], "postgres")
+                self.assertEqual(keycloak_env["KC_DB_URL_HOST"], "postgres")
+                self.assertEqual(keycloak_env["KC_DB_URL_DATABASE"], "${CDS_IDENTITY_DB_NAME}")
+                self.assertEqual(
+                    keycloak_env["KC_DB_PASSWORD"], "${CDS_IDENTITY_DB_PASSWORD}"
+                )
+                self.assertEqual(
+                    keycloak_env["KC_BOOTSTRAP_ADMIN_PASSWORD"],
+                    "${CDS_KEYCLOAK_ADMIN_PASSWORD}",
+                )
+                # Loopback-only host publish; browsers reach it via the edge.
+                self.assertEqual(
+                    services["keycloak"]["ports"], ["127.0.0.1:8081:8080"]
+                )
+                self.assertIn("keycloak", services["superset"]["depends_on"])
+
+                superset_env = services["superset"]["environment"]
+                self.assertEqual(
+                    superset_env["CDS_OIDC_ISSUER_URL"],
+                    "https://identity.cds.local/realms/cds",
+                )
+                self.assertEqual(superset_env["CDS_OIDC_CLIENT_ID"], "superset")
+                self.assertEqual(
+                    superset_env["CDS_OIDC_CLIENT_SECRET"],
+                    "${CDS_SUPERSET_OIDC_CLIENT_SECRET}",
+                )
+
+                # The edge route for the identity provider is generated from
+                # keycloak's http-service contract (issue #883), next to the
+                # rendered compose file.
+                routes_file = (
+                    Path(self._render_tmp.name)
+                    / "traefik"
+                    / "dynamic"
+                    / "cds-routes-traefik.yml"
+                )
+                self.assertTrue(routes_file.exists())
+                routes = yaml.safe_load(routes_file.read_text(encoding="utf-8"))
+                router = routes["http"]["routers"]["cds-route-0-identity.cds.local"]
+                self.assertEqual(router["rule"], "Host(`identity.cds.local`)")
+                server = routes["http"]["services"]["cds-service-keycloak"][
+                    "loadBalancer"
+                ]["servers"][0]["url"]
+                self.assertEqual(server, "http://keycloak:8080")
             else:
                 # Base/learning profile keeps direct local access, bound to
-                # loopback like every other host publish (issue #1244).
+                # loopback like every other host publish (issue #1244), and
+                # carries no identity module: OIDC stays disabled.
                 self.assertEqual(
                     services["dagster-webserver"]["ports"], ["127.0.0.1:3000:3000"]
                 )
                 self.assertEqual(
                     services["superset"]["ports"], ["127.0.0.1:8088:8088"]
                 )
+                self.assertNotIn("keycloak", services)
+                superset_env = services["superset"]["environment"]
+                self.assertEqual(superset_env["CDS_OIDC_ISSUER_URL"], "")
 
             # No generated default ("change-me") or real secret value is
             # embedded in the rendered output; only placeholders are.
             self.assertNotIn("change-me", rendered)
             self.assertIn("${CDS_CACHE_PASSWORD}", rendered)
+
+    def test_prod_maturity_reaches_automated_via_identity_contract(self):
+        # #1273 acceptance: with the keycloak identity module in the prod
+        # overlay, `cds maturity --environment prod` reports Automated.
+        maturity = self._run("maturity", _PROFILE_NAME, environment="prod")
+        self.assertEqual(
+            maturity.returncode, 0, f"{maturity.stdout}{maturity.stderr}"
+        )
+        self.assertIn("Highest tier: Automated", maturity.stdout)
+        self.assertIn("Identity | oidc-provider, identity-broker | Yes | keycloak", maturity.stdout)
+
+        base = self._run("maturity", _PROFILE_NAME)
+        self.assertEqual(base.returncode, 0, f"{base.stdout}{base.stderr}")
+        self.assertIn("Highest tier: Basic", base.stdout)
 
 
 if __name__ == "__main__":

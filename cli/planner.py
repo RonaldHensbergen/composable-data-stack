@@ -1153,6 +1153,77 @@ def resolve_consumed_contracts(
 
         consume_path = f"module:{inst['id']}.consumes.{consume_name}"
 
+        def _resolve_policy_binding(
+            _consume: dict = consume,
+            _consume_name: str = consume_name,
+            _consume_path: str = consume_path,
+            _inst: dict = inst,
+        ) -> None:
+            """Resolve a consume entry's policyFrom into "<name>-policy" (issue #1284).
+
+            The resolved policy contract is exposed to templates as
+            ${bindings.<consume-name>-policy.<field>}, alongside the main
+            binding's ${bindings.<consume-name>.<field>}.
+            """
+            policy_from = _consume.get("policyFrom")
+            if not isinstance(policy_from, str) or not policy_from:
+                return
+            policy_key = f"{_consume_name}-policy"
+            try:
+                policy_value = resolve_path(
+                    {"spec": {"config": _inst["config"]}}, policy_from
+                )
+            except KeyError:
+                # Defaults are already applied to planned config, so an
+                # unresolvable policyFrom here means "no policy binding"; the
+                # validator owns the fail-closed E167 when a governed contract
+                # lacks one (issue #1284).
+                return
+            if policy_value is None or policy_value == {}:
+                return
+            if isinstance(policy_value, list):
+                entries: list[dict[str, Any]] = []
+                for item_index, item in enumerate(policy_value):
+                    if not isinstance(item, dict) or "contractRef" not in item:
+                        diagnostics.append(
+                            Diagnostic(
+                                level="error",
+                                code="E041",
+                                message=(
+                                    f'Policy binding for "{_consume_name}" entry '
+                                    f"{item_index} must contain \"contractRef\"."
+                                ),
+                                path=f"{_consume_path}.policy[{item_index}]",
+                            )
+                        )
+                        continue
+                    resolved_item = _resolve_one_ref(
+                        item["contractRef"], f"{_consume_path}.policy[{item_index}]"
+                    )
+                    if resolved_item is not None:
+                        entries.append(resolved_item)
+                if entries:
+                    resolved[policy_key] = entries
+                return
+            if not isinstance(policy_value, dict) or "contractRef" not in policy_value:
+                diagnostics.append(
+                    Diagnostic(
+                        level="error",
+                        code="E041",
+                        message=(
+                            f'Policy binding for "{_consume_name}" must contain '
+                            '"contractRef".'
+                        ),
+                        path=_consume_path,
+                    )
+                )
+                return
+            resolved_policy = _resolve_one_ref(
+                policy_value["contractRef"], f"{_consume_path}.policy"
+            )
+            if resolved_policy is not None:
+                resolved[policy_key] = resolved_policy
+
         if isinstance(binding, list):
             # List-valued binding (issue #883): the mappedFrom path resolves
             # to a list of route-style entries, each carrying its own
@@ -1189,6 +1260,7 @@ def resolve_consumed_contracts(
                         path=consume_path,
                     )
                 )
+            _resolve_policy_binding()
             continue
 
         if not isinstance(binding, dict) or "contractRef" not in binding:
@@ -1207,6 +1279,7 @@ def resolve_consumed_contracts(
         resolved_ref = _resolve_one_ref(binding["contractRef"], consume_path)
         if resolved_ref is not None:
             resolved[consume_name] = resolved_ref
+        _resolve_policy_binding()
 
     return resolved
 

@@ -694,12 +694,17 @@ class ReferenceProfileRegressionTest(unittest.TestCase):
                 "CDS_SUPERSET_ADMIN_PASSWORD": "Adm1n!Pass#2026x",
                 "CDS_CACHE_PASSWORD": "C4che!Pass#2026x",
                 "CDS_BACKUP_ENCRYPTION_KEY": "B4ckup!Key#2026x",
+                "CDS_IDENTITY_DB_PASSWORD": "Ident1ty!Pass#2026x",
+                "CDS_KEYCLOAK_ADMIN_PASSWORD": "Keycl0ak!Admin#2026x",
+                "CDS_SUPERSET_OIDC_CLIENT_SECRET": "Oidc!Secret#2026x",
                 "CDS_ANALYTICS_DB_NAME": "analytics",
                 "CDS_ANALYTICS_DB_USER": "analytics_user",
                 "CDS_DAGSTER_DB_NAME": "dagster",
                 "CDS_DAGSTER_DB_USER": "dagster_user",
                 "CDS_SUPERSET_DB_NAME": "superset",
                 "CDS_SUPERSET_DB_USER": "superset_user",
+                "CDS_IDENTITY_DB_NAME": "keycloak",
+                "CDS_IDENTITY_DB_USER": "keycloak_user",
             }.items()
         )
         + "\n"
@@ -773,6 +778,44 @@ class ReferenceProfileRegressionTest(unittest.TestCase):
 
         sec080 = [f for f in findings if f["rule_id"] == "CDS-SEC-080"]
         self.assertEqual(len(sec080), 1)
+
+    def test_team_prod_profile_identity_wired_has_no_sec081(self):
+        # #1273 acceptance: the prod overlay adds the keycloak identity module
+        # and binds Superset's identityProvider to keycloak.oidc-provider, so
+        # CDS-SEC-081 must not fire on any admin-facing service in prod. The
+        # base profile (no identity module) must keep drawing it, proving the
+        # clearing comes from the overlay wiring and not a rule change.
+        profile_path = (
+            _REPO_ROOT / "profiles" / "team-dagster-postgres-superset" / "profile.yaml"
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            env_file = Path(tmp_dir) / ".env"
+            env_file.write_text(self._ENV, encoding="utf-8")
+            prod_findings, _diags = run_security_validation(
+                profile_path,
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                env_file=str(env_file),
+                environment="prod",
+            )
+            base_findings, _diags = run_security_validation(
+                profile_path,
+                _RULE_SCHEMA_PATH,
+                _RULE_SET_PATH,
+                env_file=str(env_file),
+            )
+
+        self.assertEqual(
+            [f for f in prod_findings if f["rule_id"] == "CDS-SEC-081"], []
+        )
+        # The keycloak entrypoint must not draw the rendered-compose leak rule
+        # either: it reads the CDS_* variables via printenv, leaving no ${CDS_
+        # text in the rendered entrypoint.
+        self.assertEqual(
+            [f for f in prod_findings if f["rule_id"] == "CDS-SEC-070"], []
+        )
+        base_081 = [f for f in base_findings if f["rule_id"] == "CDS-SEC-081"]
+        self.assertEqual(len(base_081), 2)
 
 
 class DeferredNoneScopeRuleDocumentationTest(unittest.TestCase):

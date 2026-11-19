@@ -1,0 +1,163 @@
+# modules-experimental/security/opa/module.yaml
+# yaml-language-server: $schema=../../../cli/resources/module.schema.json
+apiVersion: cds/v1alpha1
+kind: Module
+
+metadata:
+  name: opa
+  category: security
+  version: "0.1.0"
+  productionSuitable: false
+  displayName: Open Policy Agent (experimental)
+  description: >
+    Reference implementation of the provider-neutral `data-access-policy`
+    contract (issue #1284): runs a policy engine that evaluates data-level
+    access policies (row filters, column masking, purpose binding) as
+    version-controlled policy files stored in the profile/repo
+    (`config.policiesDir`, mounted read-only). Provides the
+    `data-access-policy` contract so query engines, catalogs, and BI or
+    notebook modules can bind a policy decision point for every governed
+    data contract they consume (a data provider declares `governed: true`;
+    validation fails closed with E167 when a consumer of a governed contract
+    binds no policy). The contract itself names no engine or policy language;
+    this module is the OPA/Rego reference implementation behind it. See
+    docs/data-access-policy.md. Experimental: single-node, unauthenticated
+    decision API intended for the in-network Compose target; do not expose
+    it beyond the Compose network.
+
+spec:
+  # Contract hosts are built from ${service.dns} (#1028), which requires
+  # cds >= 0.15.0; older CLIs fail at validate/plan time with E024.
+  requiresCliVersion: "0.15.0"
+  runtime:
+    type: container
+    service:
+      name: opa
+      ports:
+        - name: api
+          containerPort: 8181
+          protocol: TCP
+      networks:
+        - default
+
+  configSchema:
+    type: object
+    additionalProperties: false
+    properties:
+      apiPort:
+        type: integer
+        minimum: 1
+        maximum: 65535
+        default: 8181
+        description: >-
+          Host-side publish only: the policy engine always listens on the
+          fixed container port 8181 inside the Compose network, and the
+          provided data-access-policy contract advertises that in-network
+          port (issue #1067). This value is rendered solely into the
+          localhost-only host publish 127.0.0.1:<apiPort>:8181 for local
+          debugging (e.g. `curl 127.0.0.1:<apiPort>/v1/data/...`); in-network
+          consumers dial ${bindings.<contract>.host}:${bindings.<contract>.port},
+          which is always 8181 regardless of this setting.
+
+      policiesDir:
+        type: string
+        minLength: 1
+        default: policies
+        description: >-
+          Directory with the version-controlled policy files (and optional
+          data documents) the engine loads at startup, resolved relative to
+          the profile directory (same convention as warehouse/postgres's
+          initDbScript). Bind-mounted read-only at /policies and passed to
+          `run --server /policies`, so policies are reviewed and versioned
+          like the rest of the profile instead of being baked into an image.
+          The directory must exist and contain at least one policy file; an
+          empty or missing directory makes the engine start with no policies,
+          which fails closed for any query (no policy allows nothing).
+
+      policyVersion:
+        type: string
+        default: ""
+        description: >-
+          Optional identifier of the loaded policy set (e.g. the git SHA of
+          the repository or the policies directory), advertised as
+          `policyVersion` on the provided data-access-policy contract for
+          audit and drift detection. Empty string means "not versioned".
+
+      logLevel:
+        type: string
+        enum:
+          - debug
+          - info
+          - warning
+          - error
+        default: info
+        description: Engine log level (--log-level).
+
+      healthcheck:
+        type: object
+        additionalProperties: false
+        default: {}
+        properties:
+          enabled:
+            type: boolean
+            default: true
+
+  provides:
+    - name: data-access-policy
+      contract:
+        kind: data-access-policy
+        spec:
+          # ${service.dns} resolves to the Compose service DNS name, so any
+          # instance id works (issue #1028/#1010).
+          host: ${service.dns}
+          # The in-network container port, not the localhost host publish
+          # (config.apiPort) (issue #1067).
+          port: 8181
+          scheme: http
+          decisionPath: /v1/data
+          decisionUri: http://${service.dns}:8181/v1/data
+          healthPath: /health
+          policyVersion: ${config.policyVersion}
+
+  implementation:
+    kind: docker-compose
+    compose:
+      services:
+        opa:
+          image: openpolicyagent/opa:1.22.4@sha256:ff50f50332ff9e722ffafe2658c195ced1f9b6d4f3064000c2ecfa8cdf7acccf
+          command:
+            - run
+            - --server
+            - --addr
+            - 0.0.0.0:8181
+            - --log-level
+            - ${config.logLevel}
+            - /policies
+          restart: unless-stopped
+          # The upstream image already runs as uid/gid 1000; pin it
+          # explicitly so a future image change cannot silently re-root it.
+          user: "1000:1000"
+          read_only: true
+          cap_drop:
+            - ALL
+          security_opt:
+            - no-new-privileges:true
+          pids_limit: 128
+          tmpfs:
+            - /tmp:rw,noexec,nosuid,nodev,uid=1000,gid=1000,mode=1777
+          ports:
+            - "127.0.0.1:${config.apiPort}:8181"
+          volumes:
+            - type: bind
+              source: "${config.policiesDir}"
+              target: /policies
+              read_only: true
+          healthcheck:
+            conditionallyEnabledFrom: config.healthcheck.enabled
+            test:
+              - CMD-SHELL
+              - wget -q -O /dev/null http://127.0.0.1:8181/health || exit 1
+            interval: 10s
+            timeout: 5s
+            retries: 10
+            start_period: 5s

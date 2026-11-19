@@ -18,10 +18,12 @@ from unittest.mock import patch
 import yaml
 
 from cli.main import main
+from tests.hermetic_project import HermeticMainTestCase
 
 
-class EnvironmentOverlayFixture(unittest.TestCase):
+class EnvironmentOverlayFixture(HermeticMainTestCase):
     def setUp(self):
+        super().setUp()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)

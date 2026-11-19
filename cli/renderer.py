@@ -468,6 +468,13 @@ def _provided_contract_host_candidates(
         candidates.append(
             ("connectionUri", _endpoint_hostname(spec.get("connectionUri")))
         )
+    elif kind == "data-access-policy":
+        # A policy decision point is dialed through both `host` and the
+        # pre-composed `decisionUri` (issue #1284), so both are checked.
+        candidates.append(("host", spec.get("host")))
+        candidates.append(
+            ("decisionUri", _endpoint_hostname(spec.get("decisionUri")))
+        )
     return candidates
 
 
@@ -617,6 +624,19 @@ def _provided_contract_port_candidates(
                 connection_uri,
                 "connectionUri",
                 _endpoint_port(connection_uri),
+            )
+        )
+    elif kind == "data-access-policy":
+        # Issue #1284: the policy decision point's `port` field and the port
+        # embedded in `decisionUri` are both checked (like the sink kinds).
+        candidates.append(("host", spec.get("host"), "port", port))
+        decision_uri = spec.get("decisionUri")
+        candidates.append(
+            (
+                "decisionUri",
+                decision_uri,
+                "decisionUri",
+                _endpoint_port(decision_uri),
             )
         )
     return candidates
