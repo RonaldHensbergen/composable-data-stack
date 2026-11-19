@@ -77,6 +77,11 @@ The format is based on Keep a Changelog.
   passthrough rules open a different port or carry no ipBlock peer. Covered
   by tests in `tests/test_k8s_renderer.py`; documented in `docs/kubernetes.md`
   and the README troubleshooting table (new W133 row).
+- The `cds-postgres` and `cds-restic` images now build their `gosu`/`restic`
+  binaries with Go 1.27.4 instead of 1.27.3 (`golang:1.27.4-alpine` pinned by
+  digest in `images/postgres/Dockerfile` and `images/restic/Dockerfile`),
+  clearing the HIGH Go stdlib finding CVE-2026-97054 in `usr/local/bin/gosu`
+  and `usr/bin/restic` flagged by the daily Trivy scan (issues #1326, #1327).
 
 ## [0.15.1] - 2026-11-09
 
