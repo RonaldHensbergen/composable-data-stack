@@ -82,8 +82,12 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         # the publish fails with UNAUTHORIZED (main runs 44620091483 and
         # 44722015312), which stalled republishing the Go 1.27.4 images and
         # left the daily scan re-flagging CVE-2026-97054. The push step must
-        # select the $ref-prefixed RepoDigest entry and fail closed when no
-        # entry matches, in both the ghcr.io and the Docker Hub job.
+        # select the RepoDigest entry belonging to $ref and fail closed when no
+        # entry matches, in both the ghcr.io and the Docker Hub job. Docker Hub
+        # stores RepoDigests with the registry prefix normalized away
+        # (ronaldsoververeion/<name>@... instead of docker.io/...), so the match
+        # must compare registry-normalized repository paths (#1340, main run
+        # 44810946507) and then re-emit the full $ref@digest for cosign.
         for job_name in ("publish", "publish-dockerhub"):
             with self.subTest(job=job_name):
                 push_step = next(
@@ -94,9 +98,11 @@ class PublishImagesWorkflowTest(unittest.TestCase):
                 run = push_step["run"]
                 self.assertNotIn("--format='{{index .RepoDigests 0}}'", run)
                 self.assertIn("--format='{{json .RepoDigests}}'", run)
-                self.assertIn('--arg want "$ref@"', run)
-                self.assertIn("select(startswith($want))", run)
-                self.assertIn('if [ -z "$digest" ]', run)
+                self.assertIn('--arg ref "$ref"', run)
+                self.assertIn("def norm", run)
+                self.assertIn("select(($p[0] | norm) == ($ref | norm))", run)
+                self.assertIn('digest="$ref@$digest"', run)
+                self.assertIn('if [ -z "$digest" ] || [ "$digest" = "null" ]', run)
                 self.assertIn("exit 1", run)
                 self.assertIn('echo "digest=$digest" >> "$GITHUB_OUTPUT"', run)
 
