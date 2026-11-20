@@ -37,16 +37,18 @@ fi
 gh api graphql -f query="$query" -F pr="$pr" \
 | INCLUDE_BODIES="$include_bodies" python3 -c "import json,sys,os,re
 def neutralize_prompt_injection(text):
+    # Word separators may be spaces, hyphens or underscores: a crafted diff
+    # path like "ignore-all-previous-instructions.md" must be caught too.
     patterns = [
-        r'(?i)\bignore\s+(all\s+)?(previous|prior|above)\s+instructions?\b',
-        r'(?i)\bsystem\s+prompt\b',
-        r'(?i)\bdeveloper\s+message\b',
-        r'(?i)\byou\s+are\s+chatgpt\b',
-        r'(?i)\btool\s*call\b',
-        r'(?i)\bfunction\s*call\b',
-        r'(?i)\bexecute\s+(a\s+)?command\b',
-        r'(?i)\bdo\s+not\s+follow\s+the\s+above\b',
-        r'(?i)\binstead,\s*you\s+must\b'
+        r'(?i)\bignore[\s_-]+(?:all[\s_-]+)?(?:previous|prior|above)[\s_-]+instructions?\b',
+        r'(?i)\bsystem[\s_-]+prompt\b',
+        r'(?i)\bdeveloper[\s_-]+message\b',
+        r'(?i)\byou[\s_-]+are[\s_-]+chatgpt\b',
+        r'(?i)\btool[\s_-]*call\b',
+        r'(?i)\bfunction[\s_-]*call\b',
+        r'(?i)\bexecute[\s_-]+(?:a[\s_-]+)?command\b',
+        r'(?i)\bdo[\s_-]+not[\s_-]+follow[\s_-]+the[\s_-]+above\b',
+        r'(?i)\binstead,[\s_-]*you[\s_-]+must\b'
     ]
     for p in patterns:
         text = re.sub(p, '[REDACTED-INSTRUCTION]', text)
@@ -67,12 +69,12 @@ def redact_secrets(text):
         text = re.sub(p, '[REDACTED-SECRET]', text)
     return text
 
-def sanitize(text):
+def sanitize(text, limit=120):
     text=re.sub(r'[\x00-\x1f\x7f]', ' ', text)
     text=' '.join(text.split())
     text=neutralize_prompt_injection(text)
     text=redact_secrets(text)
-    return text[:120]
+    return text[:limit]
 
 include_bodies=os.environ.get('INCLUDE_BODIES') == '1'
 d=json.load(sys.stdin)['data']['repository']['pullRequest']
@@ -82,9 +84,13 @@ print(f'{len(ts)} threads')
 for t in ts:
     cs=(t.get('comments') or {}).get('nodes') or []
     who=cs[0]['author']['login'] if cs and cs[0].get('author') else '?'
+    # Every field that comes from GitHub (thread id, diff path, author login)
+    # is untrusted: route the whole line through sanitize() so a crafted path
+    # or login cannot carry instruction-like text into the reader's context
+    # (#1338, residual of the #1254 advanced-security review).
     base=f\"- {'RESOLVED' if t['isResolved'] else 'OPEN    '} {t['id']} {t.get('path')}:{t.get('line')} @{who}\"
     if include_bodies:
         raw_len=len(cs[0].get('body') or '') if cs else 0
-        print(f\"{base}: [UNTRUSTED_COMMENT_REDACTED] body_present={'yes' if raw_len > 0 else 'no'} body_len={raw_len}\")
+        print(f\"{sanitize(base, 300)}: [UNTRUSTED_COMMENT_REDACTED] body_present={'yes' if raw_len > 0 else 'no'} body_len={raw_len}\")
     else:
-        print(base)"
+        print(sanitize(base, 300))"
