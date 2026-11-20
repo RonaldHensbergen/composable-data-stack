@@ -181,14 +181,22 @@ jobs:
           # RepoDigest for every tag, so '{{index .RepoDigests 0}}' can pick the
           # unpushed cds/<name> entry — cosign then resolves it against
           # docker.io and the publish fails with UNAUTHORIZED (main runs
-          # 44620091483 and 44722015312; issues #1333/#1334). Select the $ref
-          # entry explicitly and fail closed when it is absent.
+          # 44620091483 and 44722015312; issues #1333/#1334). Select the entry
+          # for $ref explicitly and fail closed when it is absent. Docker Hub
+          # normalizes the registry prefix away in RepoDigests
+          # (ronaldsoververeion/<name>@... instead of docker.io/...), so compare
+          # registry-normalized repository paths on both sides and re-emit the
+          # full $ref@ digest (issue #1340, main run 44810946507).
           digest="$(docker inspect --format='{{json .RepoDigests}}' "$ref:${prefix}sha-${GITHUB_SHA::12}" \
-            | jq -r --arg want "$ref@" '.[] | select(startswith($want))')"
-          if [ -z "$digest" ]; then
+            | jq -r --arg ref "$ref" '
+                def norm: (split("/")[0] as $f
+                          | if ($f == "localhost") or ($f | test("[.:]")) then sub("^[^/]+/"; "") else . end);
+                [.[] | split("@") as $p | select(($p[0] | norm) == ($ref | norm)) | $p[1]][0]')"
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
             echo "no RepoDigest for $ref after push; refusing to sign a guessed digest" >&2
             exit 1
           fi
+          digest="$ref@$digest"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Sign image (keyless)
@@ -426,14 +434,22 @@ jobs:
           # RepoDigest for every tag, so '{{index .RepoDigests 0}}' can pick the
           # unpushed cds/<name> entry — cosign then resolves it against
           # docker.io and the publish fails with UNAUTHORIZED (main runs
-          # 44620091483 and 44722015312; issues #1333/#1334). Select the $ref
-          # entry explicitly and fail closed when it is absent.
+          # 44620091483 and 44722015312; issues #1333/#1334). Select the entry
+          # for $ref explicitly and fail closed when it is absent. Docker Hub
+          # normalizes the registry prefix away in RepoDigests
+          # (ronaldsoververeion/<name>@... instead of docker.io/...), so compare
+          # registry-normalized repository paths on both sides and re-emit the
+          # full $ref@ digest (issue #1340, main run 44810946507).
           digest="$(docker inspect --format='{{json .RepoDigests}}' "$ref:${prefix}sha-${GITHUB_SHA::12}" \
-            | jq -r --arg want "$ref@" '.[] | select(startswith($want))')"
-          if [ -z "$digest" ]; then
+            | jq -r --arg ref "$ref" '
+                def norm: (split("/")[0] as $f
+                          | if ($f == "localhost") or ($f | test("[.:]")) then sub("^[^/]+/"; "") else . end);
+                [.[] | split("@") as $p | select(($p[0] | norm) == ($ref | norm)) | $p[1]][0]')"
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
             echo "no RepoDigest for $ref after push; refusing to sign a guessed digest" >&2
             exit 1
           fi
+          digest="$ref@$digest"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Sign image (keyless)
