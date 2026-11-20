@@ -73,6 +73,33 @@ class PublishImagesWorkflowTest(unittest.TestCase):
         self.assertIn("$(docker inspect", push_run)
         self.assertIn('echo "digest=$digest" >> "$GITHUB_OUTPUT"', push_run)
 
+    def test_push_step_selects_the_published_repodigest_and_fails_closed(self) -> None:
+        # Regression test for #1333/#1334: the built image carries several
+        # tags (the published $ref plus the local-only cds/<name>:scan gate
+        # tag) and current buildx records a RepoDigest for each of them, so
+        # '{{index .RepoDigests 0}}' can resolve to the unpushed cds/<name>
+        # entry; cosign then resolves that reference against docker.io and
+        # the publish fails with UNAUTHORIZED (main runs 44620091483 and
+        # 44722015312), which stalled republishing the Go 1.27.4 images and
+        # left the daily scan re-flagging CVE-2026-97054. The push step must
+        # select the $ref-prefixed RepoDigest entry and fail closed when no
+        # entry matches, in both the ghcr.io and the Docker Hub job.
+        for job_name in ("publish", "publish-dockerhub"):
+            with self.subTest(job=job_name):
+                push_step = next(
+                    s
+                    for s in self.jobs[job_name]["steps"]
+                    if s.get("name") == "Push image"
+                )
+                run = push_step["run"]
+                self.assertNotIn("--format='{{index .RepoDigests 0}}'", run)
+                self.assertIn("--format='{{json .RepoDigests}}'", run)
+                self.assertIn('--arg want "$ref@"', run)
+                self.assertIn("select(startswith($want))", run)
+                self.assertIn('if [ -z "$digest" ]', run)
+                self.assertIn("exit 1", run)
+                self.assertIn('echo "digest=$digest" >> "$GITHUB_OUTPUT"', run)
+
     def _find_vuln_gate(self, job: dict) -> dict:
         return next(
             s
