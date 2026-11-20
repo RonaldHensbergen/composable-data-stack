@@ -422,7 +422,7 @@ spec:
         # production-only pieces below replace these fields in production
         # profiles (production: mapping form; see apply_production_gates).
         postgres:
-          image: postgres:18@sha256:e923a22ac074261dd73970c57edf659475bf0497cb9456f17d98ed7cdd3ca913
+          image: postgres:19@sha256:e923a22ac074261dd73970c57edf659475bf0497cb9456f17d98ed7cdd3ca913
           user: postgres
           init: true
           read_only: true
