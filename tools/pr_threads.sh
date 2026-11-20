@@ -40,15 +40,15 @@ def neutralize_prompt_injection(text):
     # Word separators may be spaces, hyphens or underscores: a crafted diff
     # path like "ignore-all-previous-instructions.md" must be caught too.
     patterns = [
-        r'(?i)\bignore[\s_-]+(?:all[\s_-]+)?(?:previous|prior|above)[\s_-]+instructions?\b',
-        r'(?i)\bsystem[\s_-]+prompt\b',
-        r'(?i)\bdeveloper[\s_-]+message\b',
-        r'(?i)\byou[\s_-]+are[\s_-]+chatgpt\b',
-        r'(?i)\btool[\s_-]*call\b',
-        r'(?i)\bfunction[\s_-]*call\b',
-        r'(?i)\bexecute[\s_-]+(?:a[\s_-]+)?command\b',
-        r'(?i)\bdo[\s_-]+not[\s_-]+follow[\s_-]+the[\s_-]+above\b',
-        r'(?i)\binstead,[\s_-]*you[\s_-]+must\b'
+        r'(?i)(?<![A-Za-z0-9])ignore[\s_-]+(?:all[\s_-]+)?(?:previous|prior|above)[\s_-]+instructions?(?![A-Za-z0-9])',
+        r'(?i)(?<![A-Za-z0-9])system[\s_-]+prompt(?![A-Za-z0-9])',
+        r'(?i)(?<![A-Za-z0-9])developer[\s_-]+message(?![A-Za-z0-9])',
+        r'(?i)(?<![A-Za-z0-9])you[\s_-]+are[\s_-]+chatgpt(?![A-Za-z0-9])',
+        r'(?i)(?<![A-Za-z0-9])tool[\s_-]*call(?![A-Za-z0-9])',
+        r'(?i)(?<![A-Za-z0-9])function[\s_-]*call(?![A-Za-z0-9])',
+        r'(?i)(?<![A-Za-z0-9])execute[\s_-]+(?:a[\s_-]+)?command(?![A-Za-z0-9])',
+        r'(?i)(?<![A-Za-z0-9])do[\s_-]+not[\s_-]+follow[\s_-]+the[\s_-]+above(?![A-Za-z0-9])',
+        r'(?i)(?<![A-Za-z0-9])instead,[\s_-]*you[\s_-]+must(?![A-Za-z0-9])'
     ]
     for p in patterns:
         text = re.sub(p, '[REDACTED-INSTRUCTION]', text)
