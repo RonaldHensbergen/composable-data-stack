@@ -9,7 +9,9 @@ a hostile payload and assert the printed output is neutralized.
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -47,6 +49,11 @@ HOSTILE_PAYLOAD = {
 }
 
 
+@unittest.skipIf(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    "pr_threads.sh is a bash script that only runs on runners with a real bash; "
+    "Windows runners have only the WSL stub bash.exe",
+)
 class PrThreadsSanitizerTest(unittest.TestCase):
     def _run_script(self, payload, extra_args=()):
         with tempfile.TemporaryDirectory() as tmp:
