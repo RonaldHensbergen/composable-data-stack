@@ -258,6 +258,51 @@ class ImageSecurityScanWorkflowTest(unittest.TestCase):
         self.assertIn("gh issue create", run)
         self.assertIn("gh issue edit", run)
 
+    def test_clean_scheduled_rescan_closes_the_vuln_scan_issue(self) -> None:
+        close_step = self._find_step(
+            lambda s: "gh issue close" in str(s.get("run", "")),
+            "the issue-close step on a clean scheduled rescan",
+        )
+        self.assertIn("github.event_name == 'schedule'", close_step["if"])
+        self.assertIn("steps.scan.outcome == 'success'", close_step["if"])
+        run = str(close_step["run"])
+        # Guard: only close on a report that actually records zero
+        # HIGH/CRITICAL findings, mirroring the filing step's Total: [1-9]
+        # guard against transient scan errors.
+        self.assertIn('[ ! -s "$report" ]', run)
+        self.assertIn("Total: 0", run)
+        self.assertIn("exit 0", run)
+        # Same deduped issue lookup as the filing step.
+        self.assertIn('--label "vuln-scan"', run)
+        self.assertIn("in:title", run)
+        self.assertIn("gh issue list", run)
+        self.assertIn("gh issue comment", run)
+        self.assertIn("gh issue close", run)
+        # The close step must run after the scan step, after the filing
+        # step, and before the fail-the-job gate (which must stay last).
+        steps = self._scan_steps()
+        scan_index = steps.index(next(s for s in steps if s.get("id") == "scan"))
+        filing_index = steps.index(
+            self._find_step(
+                lambda s: "gh issue create" in str(s.get("run", "")),
+                "the issue-filing step",
+            )
+        )
+        gate_index = steps.index(
+            self._find_step(
+                lambda s: (
+                    "steps.scan.outcome" in str(s.get("if", ""))
+                    and "failure" in str(s.get("if", ""))
+                    and "exit 1" in str(s.get("run", ""))
+                ),
+                "the scan-outcome gate step",
+            )
+        )
+        close_index = steps.index(close_step)
+        self.assertGreater(close_index, scan_index)
+        self.assertGreater(close_index, filing_index)
+        self.assertGreater(gate_index, close_index)
+
 
 if __name__ == "__main__":
     unittest.main()

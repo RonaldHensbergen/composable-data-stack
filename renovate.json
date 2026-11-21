@@ -3,6 +3,10 @@
   "extends": [
     "config:recommended"
   ],
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "enabled": true
+  },
   "pip-compile": {
     "managerFilePatterns": [
       "/^images/.+/requirements.*\\.txt$/"
