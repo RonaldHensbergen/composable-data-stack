@@ -24,9 +24,12 @@ like everything else the chart produces:
   named `mesh-allow-<service>` and carries
   `spec.selector.matchLabels: {cds.dev/module: <service>}`, so it applies
   only to that service's pods, with `spec.rules` coming verbatim from
-  `config.authorization.rules` — the per-service allow rules on top of mTLS
-  (e.g. only `warehouse`'s pods may be called by `orchestration`'s service
-  account). When disabled (the default) no `AuthorizationPolicy` is rendered,
+  `config.authorization.rules` on top of mTLS. Two boundary facts follow
+  from this design (see "boundaries" below): only enrolled workloads are
+  selected by these ALLOW policies, and every enrolled service receives the
+  **same** rules — e.g. a rule allowing `orchestration`'s service account
+  applies to each enrolled service's policy, not just to `warehouse`'s pods.
+  When disabled (the default) no `AuthorizationPolicy` is rendered,
   because an ALLOW policy with an empty rules list would deny everything it
   selects; mTLS alone then governs between enrolled services.
 
@@ -45,7 +48,7 @@ ServiceAccount, and no NetworkPolicy — only the Istio CR templates
 this module with `--target compose` fails closed with `E070`, since a service
 mesh has no Compose meaning.
 
-Two boundaries worth knowing:
+Boundaries worth knowing:
 
 - **The mesh does not open network paths.** CDS's per-module default-deny
   NetworkPolicy still governs L3/L4 reachability between module instances;
@@ -65,6 +68,18 @@ Two boundaries worth knowing:
   whose workloads are all gated off). If authorization is enabled, its
   per-service policy would select zero pods; enroll a module with an enabled
   workload or remove the enrollment.
+- **L7 authorization covers only enrolled workloads.** In Istio, a workload
+  with no `AuthorizationPolicy` selecting it accepts all requests; the module
+  renders only per-service ALLOW policies and never a namespace-wide deny.
+  So a workload in the release namespace that is not enrolled in
+  `config.services` is **not** restricted by this module's L7 authorization
+  layer — it is still mTLS-protected by the namespace-wide
+  `PeerAuthentication` and L3/L4-governed by CDS's default-deny
+  NetworkPolicies, but L7 calls to it are unrestricted unless another
+  policy selects it. And because all enrolled services share the same
+  `config.authorization.rules` verbatim, the rules are not isolated per
+  service: a rule written for one enrolled service is copied into every
+  enrolled service's policy.
 
 ## Configuration
 
@@ -73,7 +88,7 @@ Two boundaries worth knowing:
 | `services` | Yes | Named services enrolled in the mesh: a list of `{name, port}` where `name` is a module instance id of the profile (e.g. `warehouse`, `orchestration`) and `port` the TCP port peers call it on |
 | `mtlsMode` | No | `STRICT` (default) or `PERMISSIVE`; rendered into the namespace-wide `PeerAuthentication` |
 | `authorization.enabled` | No | Render the per-service mesh `AuthorizationPolicy` copies; defaults to `false` |
-| `authorization.rules` | No | Istio `AuthorizationPolicy` rules (`from`/`to`/`operation`), rendered verbatim into each per-service policy's `spec.rules`; defaults to `[]` |
+| `authorization.rules` | No | Istio `AuthorizationPolicy` rules (`from`/`to`/`operation`), rendered verbatim into each per-service policy's `spec.rules` — the same rules for every enrolled service, not per-service isolation; defaults to `[]` |
 
 Example profile fragment — two existing modules enrolled with no changes to
 those modules:
