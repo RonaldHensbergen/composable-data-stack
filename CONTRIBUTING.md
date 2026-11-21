@@ -146,6 +146,8 @@ If your PR touches a SonarCloud-flagged security/vulnerability finding, read [do
 
 Use imperative style, keep scope clear, and prefix conventional types so git-cliff groups the changelog correctly: `feat:`, `fix:`, `refine:`, `refactor:`, `perf:`, `docs:`, `test:`, `chore:`.
 
+**Feature freeze (in effect until v1.0.0, declared 2026-11-21 in #1332):** only `fix:`, `docs:`, `chore:` (including release/CI hardening) and security-fix PRs merge in this window. `feat:`/`enhancement` PRs are labelled and parked in the post-1.0.0 backlog (see [docs/roadmap.md](docs/roadmap.md)) and re-triaged after 1.0.0; an exception needs maintainer sign-off recorded on #1332. See [docs/release-strategy.md](docs/release-strategy.md) for the full freeze rule and the v1.0.0-rc1 → v1.0.0 release path.
+
 `fix:` is reserved for defects in code that is live in production. Refinement of work that has not shipped yet is `refine:`, not `fix:` — label honestly so throughput metrics stay truthful (see "How We Work").
 
 Examples:

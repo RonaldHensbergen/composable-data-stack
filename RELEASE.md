@@ -38,6 +38,12 @@ This document describes how to create a release.
 7. Pushing the tag triggers `.github/workflows/release.yml`, which creates a GitHub release automatically. The release body is populated from the matching `CHANGELOG.md` section (falling back to a note if no entry is found), plus GitHub's auto-generated commit comparison. The workflow creates the release with `draft: true` so the evidence assets can be attached first, then explicitly publishes it (`gh release edit --draft=false`, retried briefly) and verifies it is no longer a draft, failing the job if it still is -- `action-gh-release` has intermittently left releases as drafts (#765), so publication does not rely on its behavior. Check the workflow run (or the release page) if that step fails.
 8. If you forget to tag: `.github/workflows/release-tag-reminder.yml` runs on every push to `main` (plus a daily backstop) and opens/updates a tracking issue titled "Release vX.Y.Z is untagged on main" whenever `pyproject.toml`'s version has no matching git tag yet. It auto-closes once the tag exists. Don't rely on it as your only signal -- tag promptly after merging a `chore(release): bump version to X.Y.Z` PR.
 
+## Prerelease Candidates (rc)
+
+A pre-release tag such as `v1.0.0-rc1` (PEP 440 `1.0.0rc1` — set `version = "1.0.0rc1"` in `pyproject.toml`; `Version("1.0.0-rc1") == Version("1.0.0rc1")`) triggers `release.yml` like any other `v*.*.*` tag, but `pypi.yml` runs `scripts/check_release_version.py --block-prerelease`, so a pre-release is a **GitHub release only** and is never published to production PyPI. Use the TestPyPI flow below to validate the exact rc package instead.
+
+The current release-candidate path is **v1.0.0-rc1** against the [`MVP.md`](MVP.md) acceptance checklist (PR #1331), declared in #1332 and [docs/release-strategy.md](docs/release-strategy.md): while that feature freeze is in effect, close or supersede the pending weekly `chore(release): bump version …` PR first so the `git-auto-semver` train does not fight the manual rc version, and announce rc1 with its explicit non-claims (no certified Haven+ compliance; Helm still experimental until runbook Gate 4.5; classifier stays `3 - Alpha` until G4.7).
+
 ## TestPyPI validation
 
 Before enabling production PyPI publishing, validate the exact package flow

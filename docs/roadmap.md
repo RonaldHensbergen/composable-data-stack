@@ -6,6 +6,15 @@ A Kubernetes/Helm rendering target now exists (see Experimental Components below
 
 ---
 
+## Feature Freeze And Post-1.0.0 Backlog
+
+Declared 2026-11-21 (#1332): CDS is in a feature freeze until `v1.0.0`. Only `fix:`, `docs:`, `chore:` (incl. release/CI hardening) and security-fix PRs merge in this window — see [docs/release-strategy.md](release-strategy.md) for the canonical freeze rule and the v1.0.0-rc1 → v1.0.0 release path. `feat:`/`enhancement` PRs are parked in the backlog below.
+
+- **MVP delivery scope** — what ships as v1.0.0-rc1 → v1.0.0 against the acceptance checklist in [`MVP.md`](../MVP.md) §4 (PR #1331) — is tracked under the milestone **v1.0.0 — MVP delivery (rc1 → final)**: #1332, #1115, #1242, #1269, #1136, #1137, #1272, #1206, #1207, #1158, #1159, #1160, #1161, #1162.
+- **Post-1.0.0 backlog** — everything else open, sequenced by the roadmap Project `Order` field: the platform-neutral deployment targets #1302–#1308 (#1302 capability contracts is explicitly cut by the freeze), and the unmilestoned non-MVP items #65, #1203, #1230, #1278, #1279, #1280, #1281, #1282, #1283, #1285.
+
+---
+
 ## Ready For Contributors
 
 Every issue below is open and unassigned. Filter the
