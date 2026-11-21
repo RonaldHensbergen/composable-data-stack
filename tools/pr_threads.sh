@@ -81,8 +81,12 @@ ts=d['reviewThreads']['nodes']
 print(f'{len(ts)} threads')
 for t in ts:
     cs=(t.get('comments') or {}).get('nodes') or []
-    who=cs[0]['author']['login'] if cs and cs[0].get('author') else '?'
-    base=f\"- {'RESOLVED' if t['isResolved'] else 'OPEN    '} {t['id']} {t.get('path')}:{t.get('line')} @{who}\"
+    who_raw=cs[0]['author']['login'] if cs and cs[0].get('author') else '?'
+    who=sanitize(str(who_raw or '?'))
+    thread_id=sanitize(str(t.get('id') or ''))
+    thread_path=sanitize(str(t.get('path') or ''))
+    thread_line=sanitize(str(t.get('line') or ''))
+    base=f\"- {'RESOLVED' if t['isResolved'] else 'OPEN    '} {thread_id} {thread_path}:{thread_line} @{who}\"
     if include_bodies:
         raw_len=len(cs[0].get('body') or '') if cs else 0
         print(f\"{base}: [UNTRUSTED_COMMENT_REDACTED] body_present={'yes' if raw_len > 0 else 'no'} body_len={raw_len}\")
