@@ -251,7 +251,14 @@ spec:
     compose:
       services:
         keycloak:
-          image: quay.io/keycloak/keycloak:26.8.0@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c
+          # docker.io/keycloak/keycloak is the official Docker Hub mirror of
+          # the same image index as quay.io/keycloak/keycloak; the pinned
+          # digest sha256:82a7... resolves identically on both registries
+          # (verified via both registry APIs), and docker.io is in the
+          # default trusted-registry allowlist, so production profiles that
+          # include this module pass CDS-SEC-052 without widening the
+          # allowlist (issue #1273).
+          image: docker.io/keycloak/keycloak:26.8.0@sha256:82a77884f3af238beab1e7afd63b5f530e1b5c0590bd7aa60b40a40463e29b2c
           user: "1000:0"
           init: true
           read_only: true
@@ -265,27 +272,30 @@ spec:
           volumes:
             - keycloak-quarkus:/opt/keycloak/lib/quarkus
           command: []
-          # CDS's renderer only processes ${...} expressions, so the $$ escape
-          # below reaches Docker Compose untouched and Compose hands a literal
-          # ${CDS_WEBSERVER_MODE:-production} to /bin/bash in the container.
-          # Without the escape Compose interpolates the placeholder itself at
-          # up time from the *host* environment (defaulting it to "production"
-          # there) and the rendered CDS_WEBSERVER_MODE environment entry below
-          # would never be consulted (keydb uses the same escape).
+          # The script reads the CDS-injected variables (CDS_KEYCLOAK_REALM,
+          # CDS_WEBSERVER_MODE, CDS_OIDC_REALM_IMPORT) via printenv instead of
+          # ${VAR:-default} expansions: a ${CDS_...} form in the rendered file
+          # would either be interpolated by Compose at up time from the *host*
+          # environment (eating the container's own value) or, with the $$
+          # escape, still match the CDS-SEC-070 rendered-compose leak regex
+          # even though the value never lands in argv. printenv reads the
+          # container environment at runtime and leaves no ${CDS_ text in the
+          # rendered Compose file. Local variables keep the $$ escape so
+          # Compose hands a single $ to /bin/bash (keydb uses the same escape).
           entrypoint:
             - /bin/bash
             - -ec
             - |
-              REALM="$${CDS_KEYCLOAK_REALM:-master}"
+              REALM="$(printenv CDS_KEYCLOAK_REALM || echo master)"
               if [ "$$REALM" != "master" ]; then
                   mkdir -p /opt/keycloak/data/import
                   # CDS_OIDC_REALM_IMPORT is injected by the CDS renderer from
                   # config.realm + config.oidcClients (issue #1074). Client
-                  # secrets inside it are ${CDS_*} placeholders in the
-                  # rendered Compose file, interpolated by Compose at up time,
-                  # so the import file on the tmpfs holds the real value while
-                  # the rendered output never does.
-                  IMPORT_JSON="$${CDS_OIDC_REALM_IMPORT:-}"
+                  # secrets inside it are CDS_* placeholders in the rendered
+                  # Compose file, interpolated by Compose at up time, so the
+                  # import file on the tmpfs holds the real value while the
+                  # rendered output never does.
+                  IMPORT_JSON="$(printenv CDS_OIDC_REALM_IMPORT || true)"
                   if [ -z "$$IMPORT_JSON" ]; then
                       IMPORT_JSON="{\"realm\":\"$$REALM\",\"enabled\":true}"
                   fi
@@ -294,7 +304,7 @@ spec:
               else
                   IMPORT_REALM=""
               fi
-              if [ "$${CDS_WEBSERVER_MODE:-production}" = "development" ]; then
+              if [ "$(printenv CDS_WEBSERVER_MODE || echo production)" = "development" ]; then
                   exec /opt/keycloak/bin/kc.sh start-dev $$IMPORT_REALM
               fi
               # Plain HTTP on the localhost-only bind for the TLS-terminating

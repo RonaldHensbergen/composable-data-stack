@@ -176,7 +176,27 @@ jobs:
             retry_push docker push "$ref:alpine-sha-${GITHUB_SHA::12}"
             retry_push docker push "$ref:alpine-latest"
           fi
-          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
+          # The image is built with several tags (the published $ref plus the
+          # local-only cds/<name>:scan gate tag), and current buildx records a
+          # RepoDigest for every tag, so '{{index .RepoDigests 0}}' can pick the
+          # unpushed cds/<name> entry — cosign then resolves it against
+          # docker.io and the publish fails with UNAUTHORIZED (main runs
+          # 44620091483 and 44722015312; issues #1333/#1334). Select the entry
+          # for $ref explicitly and fail closed when it is absent. Docker Hub
+          # normalizes the registry prefix away in RepoDigests
+          # (ronaldsoververeion/<name>@... instead of docker.io/...), so compare
+          # registry-normalized repository paths on both sides and re-emit the
+          # full $ref@ digest (issue #1340, main run 44810946507).
+          digest="$(docker inspect --format='{{json .RepoDigests}}' "$ref:${prefix}sha-${GITHUB_SHA::12}" \
+            | jq -r --arg ref "$ref" '
+                def norm: (split("/")[0] as $f
+                          | if ($f == "localhost") or ($f | test("[.:]")) then sub("^[^/]+/"; "") else . end);
+                [.[] | split("@") as $p | select(($p[0] | norm) == ($ref | norm)) | $p[1]][0]')"
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+            echo "no RepoDigest for $ref after push; refusing to sign a guessed digest" >&2
+            exit 1
+          fi
+          digest="$ref@$digest"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Sign image (keyless)
@@ -409,7 +429,27 @@ jobs:
             retry_push docker push "$ref:$alpine_tag"
             retry_push docker push "$ref:$alpine_latest_tag"
           fi
-          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$ref:${prefix}sha-${GITHUB_SHA::12}")"
+          # The image is built with several tags (the published $ref plus the
+          # local-only cds/<name>:scan gate tag), and current buildx records a
+          # RepoDigest for every tag, so '{{index .RepoDigests 0}}' can pick the
+          # unpushed cds/<name> entry — cosign then resolves it against
+          # docker.io and the publish fails with UNAUTHORIZED (main runs
+          # 44620091483 and 44722015312; issues #1333/#1334). Select the entry
+          # for $ref explicitly and fail closed when it is absent. Docker Hub
+          # normalizes the registry prefix away in RepoDigests
+          # (ronaldsoververeion/<name>@... instead of docker.io/...), so compare
+          # registry-normalized repository paths on both sides and re-emit the
+          # full $ref@ digest (issue #1340, main run 44810946507).
+          digest="$(docker inspect --format='{{json .RepoDigests}}' "$ref:${prefix}sha-${GITHUB_SHA::12}" \
+            | jq -r --arg ref "$ref" '
+                def norm: (split("/")[0] as $f
+                          | if ($f == "localhost") or ($f | test("[.:]")) then sub("^[^/]+/"; "") else . end);
+                [.[] | split("@") as $p | select(($p[0] | norm) == ($ref | norm)) | $p[1]][0]')"
+          if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+            echo "no RepoDigest for $ref after push; refusing to sign a guessed digest" >&2
+            exit 1
+          fi
+          digest="$ref@$digest"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
       - name: Sign image (keyless)
@@ -465,17 +505,24 @@ jobs:
           # consistent for OCI referrers/attestations: a verify-attestation
           # call made immediately after "cosign attest" can transiently see
           # only a subset of the just-pushed attestations. Retry with
-          # backoff instead of failing the whole publish on a race.
+          # backoff instead of failing the whole publish on a race. Bound
+          # both the attempt count and the total wall time, and cap each
+          # call: against Docker Hub's slow registry API a single cosign
+          # call can hang for minutes, and propagation has been observed
+          # beyond the old 6-attempt/~155s budget (main run 44816568559:
+          # postgres failed after 6 attempts, superset took 14+ minutes in
+          # this step; issue #1343).
           retry() {
-            local attempts=6 delay=5 n=0
-            until "$@"; do
+            local attempts=10 delay=10 deadline=$((SECONDS + 900)) n=0
+            until timeout 90 "$@"; do
               n=$((n + 1))
-              if [ "$n" -ge "$attempts" ]; then
+              if [ "$n" -ge "$attempts" ] || [ "$SECONDS" -ge "$deadline" ]; then
                 return 1
               fi
               echo "Retrying (${n}/${attempts}) after Docker Hub propagation delay..." >&2
               sleep "$delay"
               delay=$((delay * 2))
+              if [ "$delay" -gt 60 ]; then delay=60; fi
             done
           }
 

@@ -28,6 +28,7 @@ from cli.main import (
 from cli.planner import build_plan
 from cli.preflight import PreflightCheck
 from cli.validator import validate_profile
+from tests.hermetic_project import HermeticMainTestCase
 
 
 @contextlib.contextmanager
@@ -45,8 +46,9 @@ def _subdirectory_without_overrides(repo_root: Path, *keys: str):
         os.chdir(original_cwd)
 
 
-class MainCLITest(unittest.TestCase):
+class MainCLITest(HermeticMainTestCase):
     def setUp(self):
+        super().setUp()
         self.repo_root = Path(__file__).resolve().parent.parent
         self.profiles_root = self.repo_root / "profiles"
         self.modules_root = self.repo_root / "modules"
@@ -4295,7 +4297,7 @@ spec:
         self.assertEqual(mock_helm_down.call_args.kwargs["namespace"], "prod-ns")
 
 
-class ComposeProfileCommandCLITest(unittest.TestCase):
+class ComposeProfileCommandCLITest(HermeticMainTestCase):
     """`cds compose-profile` (#807): merges a new module instance into an
     existing profile on disk, resolving contract bindings/secrets, in
     place of hand-editing profile.yaml before handing it to
@@ -4308,6 +4310,7 @@ class ComposeProfileCommandCLITest(unittest.TestCase):
         path.write_text(textwrap.dedent(content), encoding="utf-8")
 
     def setUp(self):
+        super().setUp()
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.root = Path(self._tmp.name)
@@ -4794,8 +4797,9 @@ class CollectModuleImagesTest(unittest.TestCase):
         self.assertEqual(base, declared_image)
 
 
-class StateCLITest(unittest.TestCase):
+class StateCLITest(HermeticMainTestCase):
     def setUp(self):
+        super().setUp()
         self.repo_root = Path(__file__).resolve().parent.parent
         self.profiles_root = self.repo_root / "profiles"
 
@@ -5000,8 +5004,9 @@ class StateCLITest(unittest.TestCase):
         )
 
 
-class UseCommandCLITest(unittest.TestCase):
+class UseCommandCLITest(HermeticMainTestCase):
     def setUp(self):
+        super().setUp()
         self.repo_root = Path(__file__).resolve().parent.parent
         self.profiles_root = self.repo_root / "profiles"
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -5157,8 +5162,9 @@ class UseCommandCLITest(unittest.TestCase):
         self.assertIn("Profile is valid", captured.getvalue())
 
 
-class ConfigCommandCLITest(unittest.TestCase):
+class ConfigCommandCLITest(HermeticMainTestCase):
     def setUp(self):
+        super().setUp()
         self.repo_root = Path(__file__).resolve().parent.parent
         self.profiles_root = self.repo_root / "profiles"
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -5404,11 +5410,15 @@ class ConfigCommandCLITest(unittest.TestCase):
         mock_render_helm.assert_not_called()
 
 
-class AuditLogCLIIntegrationTest(unittest.TestCase):
+class AuditLogCLIIntegrationTest(HermeticMainTestCase):
     """`cds validate`/`cds render` must append a local audit-trail entry
     (#737) anchored to the profile's own project root -- not the cwd the
     command was invoked from (#822) -- and both the env-var and config
     disable paths must suppress it."""
+
+    # This class exercises the audit log itself, so it opts out of the
+    # HermeticMainTestCase default CDS_AUDIT_LOG_DISABLE=true (#1312).
+    audit_log_enabled = True
 
     _MODULE_YAML = """\
 apiVersion: cds/v1alpha1
@@ -5459,6 +5469,7 @@ spec:
 """
 
     def setUp(self):
+        super().setUp()
         self.tmpdir = tempfile.TemporaryDirectory()
         # A self-contained "profiles checkout" with its own project marker
         # (pyproject.toml), so resolve_project_root() anchors here -- exactly
@@ -5589,7 +5600,7 @@ spec:
         self.assertEqual(self._audit_entries(), [])
 
 
-class CompletionCommandCLITest(unittest.TestCase):
+class CompletionCommandCLITest(HermeticMainTestCase):
     def _run(self, shell):
         captured = io.StringIO()
         with (

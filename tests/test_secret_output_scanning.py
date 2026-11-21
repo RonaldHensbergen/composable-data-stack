@@ -15,6 +15,7 @@ from cli.k8s_renderer import render_helm
 from cli.planner import build_plan
 from cli.renderer import render_compose
 from cli.security import run_security_validation
+from tests.hermetic_project import HermeticMainTestCase
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _FIXTURE = _REPO_ROOT / "tests" / "fixtures" / "security" / "literal-secret-output"
@@ -215,7 +216,7 @@ class RenderedOutputScanTest(unittest.TestCase):
         self.assertEqual([f for f in findings if f["rule_id"] == "CDS-SEC-006"], [])
 
 
-class CliOutputRedactionTest(unittest.TestCase):
+class CliOutputRedactionTest(HermeticMainTestCase):
     """CDS-SEC-071."""
 
     def _run(self, *argv: str) -> tuple[int, str, str]:

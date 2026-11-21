@@ -89,6 +89,20 @@ spec:
         minLength: 1
         default: init-db.sql
 
+      governed:
+        type: boolean
+        default: false
+        description: >-
+          Declares the data behind every sql-database contract this instance
+          provides as governed (issue #1284): each provided contract spec
+          advertises "governed: ${config.governed}", and every consumer of a
+          governed contract must bind a "data-access-policy" contract through
+          its consume entry's policyFrom -- validation fails closed with E167
+          when that binding is missing. Defaults to false, so existing
+          profiles keep working unchanged; set true in a profile to opt the
+          warehouse's data into policy-as-code enforcement (see
+          docs/data-access-policy.md).
+
       healthcheck:
         type: object
         additionalProperties: false
@@ -232,6 +246,30 @@ spec:
             type: string
             pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
 
+      identityDatabase:
+        type: object
+        additionalProperties: false
+        default: {}
+        description: >-
+          Dedicated database for an identity provider's metadata store (e.g.
+          Keycloak's realm/user database, issue #1273), advertised as the
+          `identity-database` contract so consumers such as
+          modules/identity/keycloak bind to their own database instead of
+          sharing the analytics one. Provisioned by the profile's init-db
+          script via the IDENTITY_DB_* initDbEnv entries.
+        properties:
+          name:
+            type: string
+            minLength: 1
+            default: keycloak
+          username:
+            type: string
+            minLength: 1
+            default: keycloak
+          passwordFrom:
+            type: string
+            pattern: "^secrets\\.[a-zA-Z0-9_-]+$"
+
       dataProvider:
         type: object
         additionalProperties: false
@@ -289,7 +327,11 @@ spec:
           # entry (issue #682): this module always speaks the Postgres wire
           # protocol, so binding it where a different engine is expected
           # fails validation with E154 instead of misconfiguring the consumer.
+          # Governed-data advertisement (issue #1284): when the profile sets
+          # config.governed to true, consumers of this contract must bind a
+          # data-access-policy contract via policyFrom (E167 otherwise).
           engine: postgres
+          governed: ${config.governed}
           connectionUri: postgresql://${config.username}:${config.passwordFrom}@${service.dns}:5432/${config.database}
 
     - name: dagster-database
@@ -303,6 +345,7 @@ spec:
           password: ${config.dagsterDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
           engine: postgres
+          governed: ${config.governed}
           connectionUri: postgresql://${config.dagsterDatabase.username}:${config.dagsterDatabase.passwordFrom}@${service.dns}:5432/${config.dagsterDatabase.name}
 
     - name: superset-database
@@ -316,6 +359,7 @@ spec:
           password: ${config.supersetDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
           engine: postgres
+          governed: ${config.governed}
           connectionUri: postgresql://${config.supersetDatabase.username}:${config.supersetDatabase.passwordFrom}@${service.dns}:5432/${config.supersetDatabase.name}
 
     - name: marquez-database
@@ -329,7 +373,21 @@ spec:
           password: ${config.marquezDatabase.passwordFrom}
           authentication: ${config.authentication.hostAuth}
           engine: postgres
+          governed: ${config.governed}
           connectionUri: postgresql://${config.marquezDatabase.username}:${config.marquezDatabase.passwordFrom}@${service.dns}:5432/${config.marquezDatabase.name}
+
+    - name: identity-database
+      contract:
+        kind: sql-database
+        spec:
+          host: ${service.dns}
+          port: 5432
+          database: ${config.identityDatabase.name}
+          username: ${config.identityDatabase.username}
+          password: ${config.identityDatabase.passwordFrom}
+          authentication: ${config.authentication.hostAuth}
+          engine: postgres
+          connectionUri: postgresql://${config.identityDatabase.username}:${config.identityDatabase.passwordFrom}@${service.dns}:5432/${config.identityDatabase.name}
 
     - name: data-provider-metadata
       contract:
@@ -364,7 +422,7 @@ spec:
         # production-only pieces below replace these fields in production
         # profiles (production: mapping form; see apply_production_gates).
         postgres:
-          image: postgres:18@sha256:e923a22ac074261dd73970c57edf659475bf0497cb9456f17d98ed7cdd3ca913
+          image: postgres:19@sha256:e923a22ac074261dd73970c57edf659475bf0497cb9456f17d98ed7cdd3ca913
           user: postgres
           init: true
           read_only: true
