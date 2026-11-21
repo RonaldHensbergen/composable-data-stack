@@ -6,6 +6,10 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+### Added
+
+- Added `MISSION.md` and `SCOPE.md` at the repository root: the project mission, target audiences (Dutch local governments as the target launching-customer segment — targeted, no government agreed yet — without limiting CDS to Haven/NIS2/CRA), the six data-sovereignty principles (stated as objectives, not demonstrated capabilities), explicit no-lock-in (including no lock-in to CDS itself after rendering) and security-as-a-top-priority statements, the one-page project scope aligned with the leading six-point action plan for Nov–Dec 2026 — including the planned transition of project collaboration to Codeberg, with GitHub read-only as a signpost afterwards — the decision process, and links to the authoritative roadmap, governance and support docs (PR #1324).
+
 ### Fixed
 
 - `tools/pr_threads.sh` now routes every printed thread field (thread id, diff path, author login) through the same deterministic `sanitize()` as the PR title, and the injection patterns are separator-tolerant (`[\s_-]+`), so a crafted path like `ignore-all-previous-instructions.md` or a login like `evil-system-prompt` is redacted to `[REDACTED-INSTRUCTION]` instead of reaching the reader's context — the residual of the #1254 advanced-security review; covered by `tests/test_pr_threads.py`, which runs the script against a hostile stubbed `gh` payload (issue #1338).
