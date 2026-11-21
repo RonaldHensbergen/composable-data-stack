@@ -944,6 +944,8 @@ Next:
 - advanced secret providers
 - stack bootstrap and health checks
 
+See [MVP.md](MVP.md) for the MVP definition, feature inventory, acceptance
+checklist and landscape comparison.
 See [docs/roadmap.md](docs/roadmap.md) for milestones and detailed status.
 See [docs/support-policy.md](docs/support-policy.md) for OS support policy and platform-specific limitations.
 
@@ -996,6 +998,7 @@ Development helper tools are located in the gitignored `tools/` directory. See
 - [Repository Layout](docs/repo-layout.md) — best practice for keeping platform assets (modules, profiles) separate from project code (Dagster pipelines, dbt/dlt, database scripts)
 - [Workload Runtime API](docs/runtime-api.md) — `cds-runtime`: named database connections for Python workloads
 - [Production Hardening Checklist](docs/production-hardening-checklist.md) — control-to-owner mapping and the operator verification procedure for a production profile
+- [MVP](MVP.md) — minimum deployable use case, feature inventory, testable acceptance checklist, and Stackable/OKDP comparison
 - [Roadmap](docs/roadmap.md) — planned features and milestones
 
 ---
