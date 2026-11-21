@@ -35,7 +35,7 @@ else
 fi
 
 gh api graphql -f query="$query" -F pr="$pr" \
-| INCLUDE_BODIES="$include_bodies" python3 -c "import json,sys,os,re
+| INCLUDE_BODIES="$include_bodies" python3 -c "import json,sys,os,re"
 def neutralize_prompt_injection(text):
     # Word separators may be spaces, hyphens or underscores: a crafted diff
     # path like "ignore-all-previous-instructions.md" must be caught too.
