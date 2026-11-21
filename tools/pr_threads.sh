@@ -35,7 +35,7 @@ else
 fi
 
 gh api graphql -f query="$query" -F pr="$pr" \
-| INCLUDE_BODIES="$include_bodies" python3 -c "import json,sys,os,re
+| INCLUDE_BODIES="$include_bodies" python3 -c "import json,sys,os,re"
 def neutralize_prompt_injection(text):
     patterns = [
         r'(?i)\bignore\s+(all\s+)?(previous|prior|above)\s+instructions?\b',
