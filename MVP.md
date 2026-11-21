@@ -31,8 +31,9 @@ today, on both render targets CDS already ships.
 > through the full lifecycle (`init` → `test` → `up` → `state` → `down`),
 > with fail-closed validation and security checks at every static gate. The
 > same profile renders and runs on a local Kubernetes cluster via
-> `--target helm`. The Haven-shaped reference profile additionally shows
-> identity (Keycloak) and TLS ingress (Traefik) — the sovereignty headline.
+> `--target helm` (experimental at v0.15.1, #608). The Haven-shaped reference
+> profile additionally shows identity (Keycloak) and TLS ingress (Traefik) on
+> Compose — the sovereignty headline.
 
 Reference profiles that define the MVP surface:
 
@@ -40,7 +41,7 @@ Reference profiles that define the MVP surface:
 | --- | --- |
 | `profiles/local-dagster-postgres-superset` | the core stack on Compose (the default target) |
 | `profiles/team-dagster-postgres-superset` (+ `prod` overlay) | the same stack with the production security policy, fail-closed gates (`E139`/`E140`/`E142`/`E143`, backup policies) |
-| `profiles/local-haven-reference` | Haven-shaped reference: Keycloak `oidc-provider` behind Traefik TLS ingress, on both Compose and `--target helm` (#1132, #1140) |
+| `profiles/local-haven-reference` | Haven-shaped reference: Keycloak `oidc-provider` behind Traefik TLS ingress on Compose at v0.15.1; the Keycloak/Traefik Helm implementations land after the tag (#1132, #1140; PR #1267) |
 | `profiles/local-kubernetes-example` / `profiles/production-kubernetes-example` | the core stack on the Helm target with k3d lifecycle (#608) |
 
 What "deployable" means concretely: `cds get <profile> --remote ... --into <dir>` fetches everything (with a `.cds/get-manifest.json` provenance record),
@@ -49,7 +50,15 @@ plan → render green, `cds up` starts the stack, `cds state` reports health,
 `cds down` tears it down. All of this from public documentation alone — no
 source checkout required.
 
-## 3. Feature inventory (implemented as of v0.15.1)
+## 3. Feature inventory (as of the `v0.15.1` release tag)
+
+All counts and maturity classifications in this section come from one
+explicit repository snapshot: the `v0.15.1` release tag — the latest
+published release, and the baseline the PyPI CLI and `cds get --remote`
+release assets resolve to. (`main` has since added one experimental module
+(opa), one shared contract (`data-access-policy`) and one profile
+(`local-postgres-opa-superset`); those are not part of the v0.15.1
+inventory.)
 
 ### 3.1 Compile pipeline and CLI
 
@@ -66,24 +75,28 @@ source checkout required.
 
 - **Docker Compose** (default, stable): full lifecycle via the real
   `docker compose` executable.
-- **Kubernetes/Helm** (`--target helm`): `spec.implementation.kubernetes`
+- **Kubernetes/Helm** (`--target helm`; experimental at v0.15.1 per
+  [docs/roadmap.md](docs/roadmap.md), #608): `spec.implementation.kubernetes`
   rendered independently from the same plan (ADR 0001), Helm chart output,
   NetworkPolicies, pod/container hardening (`cli/k8s_security.py`), k3d E2E
   harness (#608, #75).
 
 ### 3.3 Modules and contracts
 
-- Production modules (12): `orchestration/dagster`, `warehouse/postgres`,
-  `warehouse/duckdb`, `bi/superset`, `cache/keydb`, `secrets/vault`,
-  `transformation/dbt`, `identity/keycloak`, `integration/traefik`,
-  `security/istio`, `backup/restic`, `storage/garage`.
-- Experimental modules (10): fluxcd, loki, grafana, otel-collector, marquez,
-  opa, dlt, airflow, postgres-operator, object-storage under
-  `modules-experimental/`.
-- 18 vendor-neutral contract kinds under `shared/contracts/` (`sql-database`,
-  `http-service`, `oidc-provider`, `service-mesh`, `log-sink`,
-  `metrics-sink`, `trace-sink`, `backup-target`, `gitops-target`, …) — see
-  [docs/contract-coverage.md](docs/contract-coverage.md).
+- Production modules (11) in the `modules/` tree: `orchestration/dagster`,
+  `warehouse/postgres`, `warehouse/duckdb`, `bi/superset`, `cache/keydb`,
+  `secrets/vault`, `transformation/dbt`, `integration/traefik`,
+  `security/istio`, `backup/restic`, `storage/garage`. The 12th module in
+  that tree, `identity/keycloak`, is still classified experimental in
+  [docs/roadmap.md](docs/roadmap.md) at v0.15.1.
+- Experimental modules (10): the 9 under `modules-experimental/` — fluxcd,
+  loki, grafana, otel-collector, marquez, dlt, airflow, postgres-operator,
+  object-storage — plus Keycloak (above), which lives in `modules/` but is
+  roadmap-classified experimental.
+- 16 vendor-neutral shared contracts under `shared/contracts/`
+  (`sql-database`, `http-service`, `oidc-provider`, `service-mesh`,
+  `log-sink`, `metrics-sink`, `trace-sink`, `backup-target`, `gitops-target`,
+  …) — see [docs/contract-coverage.md](docs/contract-coverage.md).
 
 ### 3.4 Security, compliance and evidence
 
@@ -116,7 +129,7 @@ severity, not waived silently (the rule from
 | F4 | functional | Full static pipeline passes on the reference stack | `cds test local-dagster-postgres-superset` → validate/security/plan/render all `[PASS]` | CI (profile matrix) |
 | F5 | functional | Compose lifecycle works end to end | `cds up` → `cds state` all healthy → Dagster/Superset UIs answer on their published ports → `cds down` clean | `tests/test_compose_runtime_smoke` (docker smoke CI) |
 | F6 | functional | Helm lifecycle works on a local cluster | `cds test/up/state/down local-kubernetes-example --target helm` on k3d; `helm lint`/`template` clean; boundary checks of `scripts/k8s/e2e.sh` pass | `make k3d-e2e` |
-| F7 | functional | Haven-shaped reference renders on both targets | `cds render local-haven-reference [--target helm]` green; Keycloak reachable behind Traefik TLS ingress | `tests/test_local_haven_reference_profile.py` |
+| F7 | functional | Haven-shaped reference passes the full static pipeline on Compose at v0.15.1 | `cds test local-haven-reference` green (validate → security → plan → render) and the Keycloak→Traefik `websecure` TLS route is generated from the bound `http-service` contract | `tests/test_local_haven_reference_profile.py` |
 | S1 | security | Security stage is fail-closed on weak config | `cds security` rejects placeholder/reused secrets (CDS-SEC-012/013) and reports only the documented snapshot on reference profiles | CI |
 | S2 | security | No secret values in plans or rendered output | rendered Compose/chart contain only `${CDS_*}`/`$(CDS_*)` placeholders; `cds report --hardened` secret-leak check `status=pass` | `tests/test_secret_output_scanning.py` |
 | S3 | security | Production overlay enforces its gates | `cds test team-dagster-postgres-superset --environment prod` fails closed on E139/E140/E142/E143 violations; passes when compliant | CI (profile matrix) |
@@ -127,6 +140,13 @@ severity, not waived silently (the rule from
 | DOC1 | documentation | Quickstart works as written | README Quickstart copy-paste green on a clean machine | maintainer |
 | DOC2 | documentation | Error codes are documented | every `E###`/`W###` in README troubleshooting table maps to a cause + fix; codes collision-free with `main` | CI (`scripts/check_*` + lint) |
 | DOC3 | documentation | CLI reference matches implementation | `cds --help` per command matches [docs/cli-reference.md](docs/cli-reference.md) | CI |
+
+F7 is deliberately limited to what the v0.15.1 release ships and what the
+cited test actually proves — validate/plan/render only, no deployment. The
+Keycloak/Traefik `--target helm` implementations landed after the v0.15.1
+tag (#1132/#1140, PR #1267), so the haven reference is Compose-only at this
+snapshot; runtime reachability of Keycloak behind the Traefik TLS ingress is
+not asserted here — the k8s e2e that proves exactly that is tracked as #1269.
 
 ## 5. Landscape comparison: Stackable and OKDP (concise)
 
@@ -182,6 +202,6 @@ workstreams and the MVP:
 | --- | --- | --- |
 | 3.1 Kubernetes render target | yes | section 3.2; acceptance F6 |
 | 3.7 Maturity model | yes (reporting only) | section 3.4; acceptance S4 |
-| 3.4 Identity + TLS ingress (Keycloak/Traefik) | yes, reference shape | `local-haven-reference`; acceptance F7 |
+| 3.4 Identity + TLS ingress (Keycloak/Traefik) | yes, reference shape (Compose at v0.15.1) | `local-haven-reference`; acceptance F7 |
 | 3.2 GitOps, 3.3 observability providers, 3.5 backup provider, 3.6 operator warehouse | no — post-MVP roadmap | tracked by #767, #369/#662/#777, #210/#665/#668/#669, #768; full profile = #1242 |
 | CI cluster validation | no — follow-up | #76 |
