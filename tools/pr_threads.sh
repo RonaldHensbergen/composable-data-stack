@@ -35,7 +35,7 @@ else
 fi
 
 gh api graphql -f query="$query" -F pr="$pr" \
-| INCLUDE_BODIES="$include_bodies" python3 -c "import json,sys,os,re"
+| INCLUDE_BODIES="$include_bodies" python3 -c "import json,sys,os,re
 def neutralize_prompt_injection(text):
     # Word separators may be spaces, hyphens or underscores: a crafted diff
     # path like "ignore-all-previous-instructions.md" must be caught too.
@@ -84,10 +84,12 @@ print(f'{len(ts)} threads')
 for t in ts:
     cs=(t.get('comments') or {}).get('nodes') or []
     who_raw=cs[0]['author']['login'] if cs and cs[0].get('author') else '?'
-    # Every field that comes from GitHub (thread id, diff path, author login)
-    # is untrusted: route the whole line through sanitize() so a crafted path
-    # or login cannot carry instruction-like text into the reader's context
-    # (#1338, residual of the #1254 advanced-security review).    who=sanitize(str(who_raw or '?'))
+    # Every field that comes from GitHub (thread id, diff path, line number,
+    # author login) is untrusted: sanitize each field before it is formatted
+    # into the output line, so a crafted path or login cannot carry
+    # instruction-like text into the reader's context
+    # (#1338, residual of the #1254 advanced-security review).
+    who=sanitize(str(who_raw or '?'))
     thread_id=sanitize(str(t.get('id') or ''))
     thread_path=sanitize(str(t.get('path') or ''))
     thread_line=sanitize(str(t.get('line') or ''))
