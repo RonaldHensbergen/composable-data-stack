@@ -6,6 +6,8 @@ The format is based on Keep a Changelog.
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-11-23
+
 ### Fixed
 
 - `tools/pr_threads.sh` now routes every printed thread field (thread id, diff path, author login) through the same deterministic `sanitize()` as the PR title, and the injection patterns are separator-tolerant (`[\s_-]+`), so a crafted path like `ignore-all-previous-instructions.md` or a login like `evil-system-prompt` is redacted to `[REDACTED-INSTRUCTION]` instead of reaching the reader's context — the residual of the #1254 advanced-security review; covered by `tests/test_pr_threads.py`, which runs the script against a hostile stubbed `gh` payload (issue #1338).
