@@ -1,4 +1,4 @@
-FROM python:3.14-slim@sha256:ac25e5afbfdb4a94ff99cc24b0345719210133144481480bcba6085efa36a341 AS builder
+FROM python:3.14-slim@sha256:080b4f1282edb604b21e61dfca35d1d215ed6cd1c17de27ccfc34e6fadc4ee49 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1
@@ -15,7 +15,7 @@ COPY images/dlt/requirements.txt ./
 RUN python -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r requirements.txt && \
     python -m pip uninstall --yes pip
 
-FROM python:3.14-slim@sha256:ac25e5afbfdb4a94ff99cc24b0345719210133144481480bcba6085efa36a341
+FROM python:3.14-slim@sha256:080b4f1282edb604b21e61dfca35d1d215ed6cd1c17de27ccfc34e6fadc4ee49
 
 ENV HOME=/home/dlt \
     PATH="/opt/venv/bin:$PATH" \
