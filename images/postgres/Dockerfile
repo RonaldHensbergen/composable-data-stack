@@ -36,7 +36,7 @@ RUN mkdir -p /src \
     && cd /src \
     && CGO_ENABLED=0 go build -trimpath -o /go/bin/gosu .
 
-FROM postgres:19@sha256:d2c8a7d3d224a9c0335bf9f69ae6ad0b9aa7d88c4b64bab89f0f261332f6d4de
+FROM postgres:19@sha256:3fb624f672a1cb628d0bdc0f533cffad31345421eedf16ab1f85ed1ea0d07d2e
 
 USER root
 
