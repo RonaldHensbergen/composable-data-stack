@@ -1,0 +1,119 @@
+name: Issue Project Order
+
+# Assigns an `Order` value in the "Composable Data Stack Roadmap" project
+# to every newly opened issue: the issue is added to the project when it is
+# not an item yet (with `Status: Todo`), then its `Order` is set inside the
+# auto-assign inbox band for its priority category, so the order reflects
+# priority (see scripts/assign_project_order.py):
+#
+#   fix (label `bug` or a `fix:`/`fix(scope):` title)   1000+
+#   has a milestone                                     1100+
+#   security (area:security / vuln-scan)                1200+
+#   priority:high                                       1300+
+#   priority:medium                                     1400+
+#   rest                                                1500+
+#
+# Within a band the new item appends at max+1 (band base when the band is
+# empty), so existing items are never reordered (AGENTS.md, "Project `Order`
+# tiers"). Items that already have an `Order` are left untouched, which also
+# makes manual re-runs via workflow_dispatch safe.
+#
+# Codeberg/Forgejo migration notes (see docs/ci-codeberg.md): GitHub Projects
+# v2 (GraphQL) does not exist on Forgejo, and fj has no `project` commands.
+# The roadmap project is therefore backed by repository labels —
+# `roadmap-project` (membership), `order:<n>` (the Order field) and
+# `status:<value>` (the Status field) — via the helpers in
+# .forgejo/lib/api.sh, so scripts/assign_project_order.py keeps working
+# unmodified. Authentication is the automatic repo-scoped
+# `${{ github.token }}` (no PROJECTS_TOKEN secret needed anymore).
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to assign an order to (defaults to the event issue)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: issue-project-order
+  cancel-in-progress: false
+
+jobs:
+  assign-order:
+    # Bot-opened issues (audit reports etc.) stay out of the roadmap project.
+    if: github.event.issue.user.type != 'Bot'
+    runs-on: codeberg-tiny
+    permissions:
+      contents: read
+      issues: write
+    env:
+      ORDER_FIELD: Order
+      STATUS_FIELD: Status
+      STATUS_TODO: Todo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup fj (Forgejo CLI)
+        uses: ./.forgejo/actions/setup-fj
+
+      - name: Resolve issue
+        id: issue
+        env:
+          EVENT_NUMBER: ${{ github.event.issue.number }}
+          INPUT_NUMBER: ${{ inputs.issue_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          number="${INPUT_NUMBER:-${EVENT_NUMBER}}"
+          if [[ -z "${number}" ]]; then
+            echo "No issue number available; nothing to do."
+            exit 0
+          fi
+          if [[ ! "${number}" =~ ^[0-9]+$ ]]; then
+            echo "Invalid issue number '${number}'; expected a positive integer." >&2
+            exit 1
+          fi
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+
+      - name: Add issue to project and assign priority-band order
+        if: steps.issue.outputs.number != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .forgejo/lib/api.sh
+          number="${{ steps.issue.outputs.number }}"
+
+          fj_get "repos/$FORGEJO_REPOSITORY/issues/$number" > "$RUNNER_TEMP/issue.json"
+          project_items_json > "$RUNNER_TEMP/items.json"
+
+          existing_order="$(jq -r --argjson n "${number}" \
+            '[.items[] | select((.content.number // 0) == $n and (.content.type // "") == "Issue") | .order // empty] | first // ""' \
+            < "$RUNNER_TEMP/items.json")"
+
+          if [[ -n "${existing_order}" ]]; then
+            echo "Issue #${number} already has Order=${existing_order}; leaving existing items untouched."
+            exit 0
+          fi
+
+          if ! jq -e --argjson n "${number}" \
+            '.items[] | select((.content.number // 0) == $n and (.content.type // "") == "Issue")' \
+            < "$RUNNER_TEMP/items.json" > /dev/null; then
+            project_add "$number"
+            # New items also get the board's default Status so they don't show
+            # up blank.
+            project_set_field "$number" "$STATUS_FIELD" "$STATUS_TODO"
+            echo "Added issue #${number} to the roadmap project with Status=${STATUS_TODO}."
+          fi
+
+          next="$(python3 scripts/assign_project_order.py \
+            "$RUNNER_TEMP/issue.json" "$RUNNER_TEMP/items.json")"
+
+          project_set_field "$number" "$ORDER_FIELD" "${next}"
+          echo "Assigned Order=${next} to issue #${number}."

@@ -1,0 +1,133 @@
+# MVP CI Proof — runtime half, migrated from the `runtime-proof` job of
+# .github/workflows/mvp-proof.yml. Needs a real Docker daemon: routed to a
+# self-hosted Woodpecker agent via the `docker=true` label with the host
+# socket mounted (see docs/ci-codeberg.md). Until that agent is registered,
+# pull_request is excluded (a docker=true pipeline pends forever without the
+# agent and would block PR merging); re-add pull_request once it exists.
+
+when:
+  - event: push
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+    path: ["cli/**", "images/**", "modules/**", "modules-experimental/**", "profiles/**", "cli/resources/**", "shared/**", "tests/test_compose_runtime_smoke.py", "workdirs/**", ".woodpecker/mvp-proof.yml", ".woodpecker/mvp-proof-runtime.yml"]
+  - event: cron
+    cron: mvp-proof-weekly
+  - event: manual
+
+labels:
+  docker: "true"
+
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+
+depends_on:
+  - mvp-proof
+
+variables:
+  - &cds_env
+    CDS_POSTGRES_SUPERUSER_PASSWORD: ci-postgres-superuser-password
+    CDS_ANALYTICS_DB_NAME: analytics
+    CDS_ANALYTICS_DB_USER: analytics
+    CDS_ANALYTICS_DB_PASSWORD: ci-analytics-password
+    CDS_DAGSTER_DB_NAME: dagster
+    CDS_DAGSTER_DB_USER: dagster
+    CDS_DAGSTER_DB_PASSWORD: ci-dagster-password
+    CDS_SUPERSET_DB_NAME: superset
+    CDS_SUPERSET_DB_USER: superset
+    CDS_SUPERSET_DB_PASSWORD: ci-superset-database-password
+    CDS_SUPERSET_SECRET_KEY: ci-superset-secret-key-for-mvp-proof
+    CDS_SUPERSET_ADMIN_PASSWORD: ci-superset-admin-password
+    CDS_RUN_DOCKER_SMOKE: "1"
+    CDS_KEEP_DOCKER_STACK: "1"
+
+steps:
+  - name: runtime-proof
+    image: python:3.14-bookworm
+    environment: *cds_env
+    commands:
+      - curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz | tar -xz --strip-components=1 -C /usr/local/bin docker/docker
+      - mkdir -p /usr/local/lib/docker/cli-plugins
+      - curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64
+      - chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+      - docker info
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet .
+      - mkdir -p mvp-artifacts
+      - python -m unittest tests.test_compose_runtime_smoke -v 2>&1 | tee mvp-artifacts/runtime-proof.log
+
+  - name: failure-diagnostics
+    image: python:3.14-bookworm
+    environment: *cds_env
+    commands:
+      - mkdir -p mvp-artifacts
+      - |
+        if [ -f docker-compose.yml ]; then
+          cp docker-compose.yml mvp-artifacts/rendered-compose.yml
+          docker compose -f docker-compose.yml ps -a > mvp-artifacts/compose-ps.txt 2>&1 || true
+          docker compose -f docker-compose.yml logs --no-color --timestamps > mvp-artifacts/compose-logs.txt 2>&1 || true
+          : > mvp-artifacts/container-health.jsonl
+          for container_id in $$(docker compose -f docker-compose.yml ps -aq); do
+            docker inspect "$$container_id" --format '{"Name":{{json .Name}},"Image":{{json .Config.Image}},"State":{{json .State}},"RestartCount":{{json .RestartCount}}}' >> mvp-artifacts/container-health.jsonl || true
+          done
+          docker compose -f docker-compose.yml exec -T postgres sh -c 'PGPASSWORD="$CDS_ANALYTICS_DB_PASSWORD" psql -U "$CDS_ANALYTICS_DB_USER" -d "$CDS_ANALYTICS_DB_NAME" -At -c "SELECT count(*) FROM offers_1000 WHERE source_file = '"'"'offers-1000.csv'"'"';"' > mvp-artifacts/sql-assertions.txt 2>&1 || true
+          docker compose -f docker-compose.yml exec -T dagster-user-code dagster run list --limit 10 > mvp-artifacts/dagster-runs.txt 2>&1 || true
+        fi
+      - |
+        python - <<'PYEOF'
+        import os
+        import re
+        from pathlib import Path
+
+        artifact_dir = Path("mvp-artifacts")
+        sensitive_values = {
+            value
+            for key, value in os.environ.items()
+            if value
+            and any(marker in key.upper() for marker in ("PASSWORD", "SECRET", "TOKEN"))
+        }
+        for path in artifact_dir.iterdir():
+            if not path.is_file():
+                continue
+            content = path.read_text(encoding="utf-8", errors="replace")
+            for value in sorted(sensitive_values, key=len, reverse=True):
+                content = content.replace(value, "<redacted>")
+            content = re.sub(
+                r"(postgresql(?:\+[a-z0-9]+)?://[^:/\s]*:)[^@/\s]+",
+                r"\1<redacted>",
+                content,
+                flags=re.IGNORECASE,
+            )
+            path.write_text(content, encoding="utf-8")
+
+        combined = "\n".join(
+            path.read_text(encoding="utf-8", errors="replace")
+            for path in artifact_dir.iterdir()
+            if path.is_file()
+        )
+        leaked_names = sorted(
+            key
+            for key, value in os.environ.items()
+            if value
+            and any(marker in key.upper() for marker in ("PASSWORD", "SECRET", "TOKEN"))
+            and value in combined
+        )
+        if leaked_names:
+            raise SystemExit(
+                "Diagnostic artifacts contain sensitive values from: "
+                + ", ".join(leaked_names)
+            )
+        PYEOF
+      - cat mvp-artifacts/compose-ps.txt mvp-artifacts/sql-assertions.txt 2>/dev/null || true
+    when:
+      status: [failure]
+    failure: ignore
+
+  - name: cleanup
+    image: docker:27-cli
+    commands:
+      - |
+        if [ -f docker-compose.yml ]; then
+          docker compose -f docker-compose.yml down -v --remove-orphans || true
+        fi
+    when:
+      status: [success, failure]
+    failure: ignore

@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "refreshRequired": false,
-  "refreshInstructions": "Refreshed automatically by the update-fixture job in .github/workflows/publish-images.yml after each successful publish.",
-  "updated": "2026-11-23",
-  "source": "https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/publish-images.yml",
+  "refreshInstructions": "Refreshed automatically by the update-fixture step in .woodpecker/publish-images-update-fixture.yml (Codeberg Woodpecker) after each successful publish.",
+  "updated": "2026-11-20",
+  "source": "https://codeberg.org/composable-data-stack/composable-data-stack/blob/branch/main/.woodpecker/publish-images.yml",
   "trustRoot": {
     "registries": [
-      "ghcr.io",
+      "codeberg.org",
       "docker.io",
       "registry-1.docker.io"
     ],
@@ -16,14 +16,14 @@
   },
   "images": {
     "cds-dagster": {
-      "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
+      "repository": "codeberg.org/composable-data-stack/cds-dagster",
       "digest": "sha256:4fd613b8358751a161b2b5b0231474343d9d65511060fec5ac101519ec219fa1",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dagster-hardened": {
-      "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
+      "repository": "codeberg.org/composable-data-stack/cds-dagster",
       "tagPrefix": "hardened-",
       "digest": "sha256:3cfdcc8983066dea2953297d91a91391af4c024cea46c7d7206e9d925c2702e7",
       "signed": true,
@@ -31,28 +31,28 @@
       "sbomAttested": true
     },
     "cds-superset": {
-      "repository": "ghcr.io/ronaldhensbergen/cds-superset",
+      "repository": "codeberg.org/composable-data-stack/cds-superset",
       "digest": "sha256:7dd87cc420e4351c3278aa9e6c7f0d44c7647f7a93d7627f162e781fb8aeb66a",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dbt": {
-      "repository": "ghcr.io/ronaldhensbergen/cds-dbt",
+      "repository": "codeberg.org/composable-data-stack/cds-dbt",
       "digest": "sha256:da9c9b0f98768244aba9d829372df3fcf1242b28f3f8f91f12b37dc5adf4c12a",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dlt": {
-      "repository": "ghcr.io/ronaldhensbergen/cds-dlt",
+      "repository": "codeberg.org/composable-data-stack/cds-dlt",
       "digest": "sha256:dde3a01373c2fa0f4e504dda99cbd446ad0fa48f849d3237b0803ee7a1f3c002",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-restic": {
-      "repository": "ghcr.io/ronaldhensbergen/cds-restic",
+      "repository": "codeberg.org/composable-data-stack/cds-restic",
       "digest": "sha256:82014c4f8cb994eaa12d24bd2261a132d082c94e7dd02acf21bcebe9a31ec3c0",
       "signed": true,
       "provenanceAttested": true,
@@ -102,7 +102,7 @@
       "sbomAttested": true
     },
     "cds-postgres": {
-      "repository": "ghcr.io/ronaldhensbergen/cds-postgres",
+      "repository": "codeberg.org/composable-data-stack/cds-postgres",
       "digest": "sha256:0893424748f607ce4c832d75766e7d62d0fb6b8bd972cfb4a16f07965f8b1c75",
       "signed": true,
       "provenanceAttested": true,

@@ -1,0 +1,47 @@
+# MVP CI Proof — validate/render half, migrated from
+# .github/workflows/mvp-proof.yml (the runtime half is mvp-proof-runtime.yml,
+# which needs a Docker daemon and runs on a `docker=true` self-hosted agent).
+
+when:
+  - event: [push, pull_request]
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+    path: ["cli/**", "images/**", "modules/**", "modules-experimental/**", "profiles/**", "cli/resources/**", "shared/**", "tests/test_compose_runtime_smoke.py", "workdirs/**", ".woodpecker/mvp-proof.yml", ".woodpecker/mvp-proof-runtime.yml"]
+  - event: cron
+    cron: mvp-proof-weekly
+  - event: manual
+
+variables:
+  - &cds_env
+    CDS_POSTGRES_SUPERUSER_PASSWORD: ci-postgres-superuser-password
+    CDS_ANALYTICS_DB_NAME: analytics
+    CDS_ANALYTICS_DB_USER: analytics
+    CDS_ANALYTICS_DB_PASSWORD: ci-analytics-password
+    CDS_DAGSTER_DB_NAME: dagster
+    CDS_DAGSTER_DB_USER: dagster
+    CDS_DAGSTER_DB_PASSWORD: ci-dagster-password
+    CDS_SUPERSET_DB_NAME: superset
+    CDS_SUPERSET_DB_USER: superset
+    CDS_SUPERSET_DB_PASSWORD: ci-superset-database-password
+    CDS_SUPERSET_SECRET_KEY: ci-superset-secret-key-for-mvp-proof
+    CDS_SUPERSET_ADMIN_PASSWORD: ci-superset-admin-password
+
+steps:
+  - name: validate-render
+    image: python:3.14-bookworm
+    environment: *cds_env
+    commands:
+      # docker CLI + compose plugin (client-side only: `docker compose config` needs no daemon)
+      - curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz | tar -xz --strip-components=1 -C /usr/local/bin docker/docker
+      - mkdir -p /usr/local/lib/docker/cli-plugins
+      - curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64
+      - chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet .
+      - mkdir -p /tmp/mvp-compile-proof
+      - cds validate local-dagster-postgres-superset
+      - cds plan local-dagster-postgres-superset --output /tmp/mvp-compile-proof/plan.json
+      - cds render local-dagster-postgres-superset --output /tmp/mvp-compile-proof/render-1.yml
+      - cds render local-dagster-postgres-superset --output /tmp/mvp-compile-proof/render-2.yml
+      - cmp /tmp/mvp-compile-proof/render-1.yml /tmp/mvp-compile-proof/render-2.yml
+      - docker compose -f /tmp/mvp-compile-proof/render-1.yml config --quiet
+      # compile proof stays in the workspace (/tmp/mvp-compile-proof)

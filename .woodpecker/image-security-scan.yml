@@ -1,0 +1,192 @@
+# Image Security Scan — migrated from .github/workflows/image-security-scan.yml.
+#
+# Runs daemonless on the shared agents: PR/push runs build with buildah and
+# scan the exported docker-archive with trivy `--input`; the daily cron run
+# scans the published `repo@digest` refs from tests/fixtures/signed-images.json
+# directly (no build, no daemon). The daily cron must be registered as a cron
+# job named `image-security-scan-daily` at ci.codeberg.org.
+# SBOMs are written to the workspace (Woodpecker has no artifact upload).
+#
+# Issue filing uses fj (forgejo-cli) plus the REST helpers in
+# .forgejo/lib/api.sh; see docs/ci-codeberg.md.
+
+when:
+  - event: cron
+    cron: image-security-scan-daily
+  - event: [push, pull_request]
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+    path: ["images/**", ".woodpecker/image-security-scan.yml"]
+  - event: manual
+
+# Woodpecker 3 matrix: axes are string lists; structured combinations go in `include:`
+matrix:
+  include:
+    - IMAGE_NAME: dagster
+      IMAGE_VARIANT: base
+      IMAGE_DOCKERFILE: images/dagster/base/Dockerfile
+    - IMAGE_NAME: dagster
+      IMAGE_VARIANT: hardened
+      IMAGE_DOCKERFILE: images/dagster/hardened/Dockerfile
+    - IMAGE_NAME: superset
+      IMAGE_VARIANT: base
+      IMAGE_DOCKERFILE: images/superset/base/Dockerfile
+    - IMAGE_NAME: dbt
+      IMAGE_VARIANT: ""
+      IMAGE_DOCKERFILE: images/dbt/Dockerfile
+    - IMAGE_NAME: dlt
+      IMAGE_VARIANT: ""
+      IMAGE_DOCKERFILE: images/dlt/Dockerfile
+    - IMAGE_NAME: postgres
+      IMAGE_VARIANT: ""
+      IMAGE_DOCKERFILE: images/postgres/Dockerfile
+    - IMAGE_NAME: restic
+      IMAGE_VARIANT: ""
+      IMAGE_DOCKERFILE: images/restic/Dockerfile
+
+steps:
+  # Installs fj and writes its keys.json into the shared workspace (.ci-fj/).
+  # Writes issues: never on pull_request (secrets are blocked there).
+  - name: setup-fj
+    image: quay.io/buildah/stable
+    when:
+      event: [push, cron, manual]
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: codeberg_token
+    commands:
+      - bash .forgejo/lib/setup-fj.sh
+
+  - name: scan
+    image: quay.io/buildah/stable
+    # writes issues via fj/REST: never on pull_request (secrets are blocked there)
+    when:
+      event: [push, cron, manual]
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: codeberg_token
+      FORGEJO_API_URL: https://codeberg.org/api/v1
+      FORGEJO_REPOSITORY: ${CI_REPO_OWNER}/${CI_REPO_NAME}
+    commands:
+      - curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz | tar -xz -C /usr/local/bin trivy
+      - command -v jq >/dev/null || dnf install -y -q jq
+      - . .forgejo/lib/api.sh
+      - |
+        file_issue() {
+          set -euo pipefail
+          file_key="$$1"; image_key="$$2"; image_ref="$$3"
+          report="scan-$${file_key}.txt"
+          ensure_label vuln-scan "B60205" \
+            "Scheduled image scan found HIGH/CRITICAL vulnerabilities"
+          if grep -q "CRITICAL" "$$report" 2>/dev/null; then
+            severities="HIGH and CRITICAL"
+            deadline="$$(date -u -d '+72 hours' +%Y-%m-%d)"
+          else
+            severities="HIGH"
+            deadline="$$(date -u -d '+7 days' +%Y-%m-%d)"
+          fi
+          title="[vuln-scan] HIGH/CRITICAL findings in cds-$${image_key}"
+          {
+            echo "## HIGH/CRITICAL vulnerabilities detected"
+            echo
+            echo "- Scanned target: \`$${image_ref}\`"
+            echo "- Pipeline run: ${CI_BUILD_LINK}"
+            echo
+            echo "- SLA: $${severities} findings must be remediated by **$${deadline}** (see docs/image-scanning.md). Open a Renovate/dependency bump or a rebuild PR, or file an exception per docs/image-scanning.md."
+            echo
+            echo "### Findings"
+            echo
+            echo '```'
+            cat "$$report"
+            echo '```'
+          } > issue-body.md
+          q="$$(jq -rn --arg t "$$title" '$$t|@uri')"
+          existing="$$(fj_get "repos/$$FORGEJO_REPOSITORY/issues?state=open&labels=vuln-scan&q=$$q&limit=10" \
+            | jq -r --arg t "$$title" '.[] | select(.title == $$t) | .number' | head -n1)"
+          if [ -n "$$existing" ]; then
+            fj issue -R origin edit "$$existing" body "$$(cat issue-body.md)"
+          else
+            create_issue "$$title" "$$(cat issue-body.md)" vuln-scan
+          fi
+        }
+        close_issue_if_clean() {
+          set -euo pipefail
+          file_key="$$1"; image_key="$$2"; image_ref="$$3"
+          report="scan-$${file_key}.txt"
+          if [ ! -s "$$report" ] || ! grep -qE "Total: 0" "$$report"; then
+            echo "No confirmed clean report in $$report; leaving any open vuln-scan issue for cds-$${image_key} untouched."
+            return 0
+          fi
+          title="[vuln-scan] HIGH/CRITICAL findings in cds-$${image_key}"
+          q="$$(jq -rn --arg t "$$title" '$$t|@uri')"
+          existing="$$(fj_get "repos/$$FORGEJO_REPOSITORY/issues?state=open&labels=vuln-scan&q=$$q&limit=10" \
+            | jq -r --arg t "$$title" '.[] | select(.title == $$t) | .number' | head -n1)"
+          if [ -z "$$existing" ]; then
+            echo "No open vuln-scan issue for cds-$${image_key}; nothing to close."
+            return 0
+          fi
+          fj issue -R origin comment "$$existing" "Closed automatically by the daily image security rescan: zero HIGH/CRITICAL findings remain for \`$${image_ref}\`. Run: ${CI_BUILD_LINK} (see docs/image-scanning.md)."
+          fj issue -R origin close "$$existing" --with-msg "Resolved: the scheduled rescan reports no HIGH/CRITICAL findings for this image."
+        }
+
+        set -euo pipefail
+        file_key="${IMAGE_NAME}"
+        [ -n "${IMAGE_VARIANT}" ] && file_key="${IMAGE_NAME}-${IMAGE_VARIANT}"
+        image_key="${IMAGE_NAME}"
+        if [ -n "${IMAGE_VARIANT}" ] && [ "${IMAGE_VARIANT}" != "base" ]; then
+          image_key="${IMAGE_NAME}-${IMAGE_VARIANT}"
+        fi
+
+        scan_input=""
+        if [ "${CI_PIPELINE_EVENT}" = "cron" ]; then
+          image_ref="$$(python3 - "${IMAGE_NAME}" "${IMAGE_VARIANT}" <<'PY'
+        import json, sys
+        name, variant = sys.argv[1:3]
+        key = f"cds-{name}"
+        if variant and variant != "base":
+            key += f"-{variant}"
+        fixture = json.load(open("tests/fixtures/signed-images.json", encoding="utf-8"))
+        entry = fixture["images"].get(key)
+        if entry is None:
+            sys.exit(f"fixture has no entry for {key}")
+        print(f"{entry['repository']}@{entry['digest']}")
+        PY
+          )"
+          scan_target="$$image_ref"
+        else
+          dockerfile="${IMAGE_DOCKERFILE}"
+          context="$$(dirname "$$dockerfile")"
+          case "$$dockerfile" in
+            images/dagster/*|images/superset/*|images/dbt/*|images/dlt/*|images/postgres/*|images/restic/*) context="." ;;
+          esac
+          buildah bud --storage-driver vfs --isolation chroot -f "$$dockerfile" -t "cds/$${file_key}:scan" "$$context"
+          buildah push --storage-driver vfs "cds/$${file_key}:scan" "docker-archive:scan-$${file_key}.tar"
+          scan_input="--input scan-$${file_key}.tar"
+          scan_target="scan-$${file_key}.tar"
+          image_ref="cds/$${file_key}:scan (local build)"
+        fi
+
+        echo "Scanning $$image_ref"
+        set +e
+        trivy image --quiet $$scan_input --scanners vuln --severity HIGH,CRITICAL \
+          --ignore-unfixed --ignorefile .trivyignore --format table \
+          --output "scan-$${file_key}.txt" $$scan_target
+        scan_rc=$$?
+        set -e
+        # SBOM (CycloneDX) always
+        trivy image --quiet $$scan_input --format cyclonedx \
+          --output "sbom-$${file_key}.cdx.json" $$scan_target || true
+
+        if [ "$$scan_rc" -ne 0 ]; then
+          if [ "${CI_PIPELINE_EVENT}" = "cron" ]; then
+            if [ ! -s "scan-$${file_key}.txt" ] || ! grep -qE "Total: [1-9]" "scan-$${file_key}.txt"; then
+              echo "No confirmed HIGH/CRITICAL findings in scan-$${file_key}.txt (possible transient scan error); failing without filing an issue."
+              exit 1
+            fi
+            file_issue "$$file_key" "$$image_key" "$$image_ref"
+          fi
+          exit 1
+        fi
+        if [ "${CI_PIPELINE_EVENT}" = "cron" ]; then
+          close_issue_if_clean "$$file_key" "$$image_key" "$$image_ref"
+        fi
+        exit 0

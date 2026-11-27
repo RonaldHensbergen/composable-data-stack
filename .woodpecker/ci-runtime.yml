@@ -1,0 +1,76 @@
+# cds-runtime backend integration tests — migrated from the `cds-runtime` job
+# of .github/workflows/ci.yml. Kept in its own pipeline so the postgres/mysql
+# service containers only run here (Woodpecker services start per pipeline).
+# In Woodpecker, services are reachable under their service name, so the
+# CDS_IT_* URIs use `postgres`/`mysql` instead of 127.0.0.1.
+
+when:
+  - event: [push, pull_request]
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+
+depends_on:
+  - ci
+
+services:
+  postgres:
+    image: postgres:19-alpine
+    environment:
+      POSTGRES_USER: ituser
+      POSTGRES_PASSWORD: itpass
+      POSTGRES_DB: itdb
+  mysql:
+    image: mysql:26
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: itdb
+      MYSQL_USER: ituser
+      MYSQL_PASSWORD: itpass
+
+steps:
+  - name: cds-runtime-tests
+    image: python:3.14-bookworm
+    environment:
+      CDS_IT_POSTGRES_URI: postgresql+psycopg2://ituser:itpass@postgres:5432/itdb
+      CDS_IT_MYSQL_URI: mysql+pymysql://ituser:itpass@mysql:3306/itdb
+    commands:
+      # wait for both services to accept connections (Woodpecker services
+      # have no health-check gate)
+      - |
+        # POSIX sh has no /dev/tcp; probe with python3 instead
+        for i in $$(seq 1 60); do
+          python3 -c 'import socket; socket.create_connection(("postgres", 5432), 2).close()' 2>/dev/null && pg=ok || pg=""
+          python3 -c 'import socket; socket.create_connection(("mysql", 3306), 2).close()' 2>/dev/null && my=ok || my=""
+          [ -n "$$pg" ] && [ -n "$$my" ] && break
+          sleep 2
+        done
+        [ -n "$$pg" ] && [ -n "$$my" ] || { echo "services not ready" >&2; exit 1; }
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet ".[test]" psycopg2-binary pymysql
+      - python -m unittest tests.test_cds_runtime_backends -v
+      # Build the cds-runtime wheel (exact-pinned like build-python-package)
+      - python -m pip install --quiet build==1.6.1
+      - python -m build runtime
+      - wheel="$$(find runtime/dist -maxdepth 1 -name '*.whl' -print -quit)"
+      - test -n "$$wheel"
+      - echo "Built $$wheel"
+      # Smoke test the installed cds-runtime wheel
+      - mkdir -p .ci-tmp
+      - python -m venv .ci-tmp/cds-runtime-venv
+      - .ci-tmp/cds-runtime-venv/bin/pip install --quiet "$$wheel" "sqlalchemy>=2.0"
+      - |
+        .ci-tmp/cds-runtime-venv/bin/python - <<'PYEOF'
+        import pathlib
+
+        import cds_runtime
+        from cds_runtime import connections
+
+        conn = connections.database("smoke", env={
+            "CDS_DB_SMOKE_BACKEND": "sqlite",
+            "CDS_DB_SMOKE_SQLITE_PATH": ":memory:",
+        })
+        conn.execute("CREATE TABLE t (x INTEGER)")
+        conn.execute("INSERT INTO t (x) VALUES (:v)", {"v": 42})
+        assert conn.fetch_one("SELECT x FROM t") == {"x": 42}
+        assert (pathlib.Path(cds_runtime.__file__).parent / "py.typed").exists()
+        print("cds-runtime wheel smoke ok:", cds_runtime.__version__)
+        PYEOF

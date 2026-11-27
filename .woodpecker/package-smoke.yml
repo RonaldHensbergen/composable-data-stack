@@ -1,0 +1,62 @@
+# Full-stack smoke test of the *packaged* wheel (cds get/init/up) — migrated
+# from the docker-smoke portion of .github/workflows/build-python-package.yml.
+# Needs a Docker daemon: routed to a self-hosted agent via `docker=true`.
+# The pure-Python build/SBOM/inventory steps live in release.yml, pypi.yml
+# and testpypi.yml (Woodpecker has no reusable workflows / cross-pipeline
+# artifacts, so each publishing pipeline rebuilds dist/ in its workspace).
+
+when:
+  - event: push
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+    path: ["pyproject.toml", "cli/**", "images/**", "modules/**", "modules-experimental/**", "profiles/**", "shared/**", "workdirs/**", ".woodpecker/package-smoke.yml"]
+  - event: manual
+
+labels:
+  docker: "true"
+
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+
+steps:
+  - name: package-smoke
+    image: python:3.14-bookworm
+    commands:
+      - curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz | tar -xz --strip-components=1 -C /usr/local/bin docker/docker
+      - mkdir -p /usr/local/lib/docker/cli-plugins
+      - curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64
+      - chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+      - docker info
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet build==1.6.1 twine==7.0.0
+      - python -m build
+      - python -m twine check dist/*
+      # wheel smoke
+      - wheel="$$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+      - test -n "$$wheel"
+      - mkdir -p .ci-tmp
+      - python -m venv .ci-tmp/cds-wheel
+      - .ci-tmp/cds-wheel/bin/python -m pip install --quiet "$$wheel"
+      - cd .ci-tmp
+      - .ci-tmp/cds-wheel/bin/cds --help
+      - .ci-tmp/cds-wheel/bin/cds validate "$$OLDPWD/profiles/local-dagster-postgres-superset/profile.yaml"
+      - .ci-tmp/cds-wheel/bin/python -c "from cli.security import _validate_rule_set; assert _validate_rule_set()['rules']"
+      - cd "$$OLDPWD"
+      # full-stack smoke via cds get/init/up with the packaged wheel
+      - stack_dir="$$PWD/.ci-tmp/cds-stack-smoke"
+      - rm -rf "$$stack_dir" && mkdir -p "$$stack_dir"
+      - cd "$$stack_dir"
+      - $$OLDPWD/.ci-tmp/cds-wheel/bin/cds get local-dagster-postgres-superset --local "$$OLDPWD"
+      - $$OLDPWD/.ci-tmp/cds-wheel/bin/cds init local-dagster-postgres-superset
+      - $$OLDPWD/.ci-tmp/cds-wheel/bin/cds up local-dagster-postgres-superset --timeout 600
+
+  - name: teardown
+    image: docker:27-cli
+    commands:
+      - |
+        stack_dir="$$PWD/.ci-tmp/cds-stack-smoke"
+        if [ -f "$$stack_dir/docker-compose.yml" ]; then
+          docker compose -f "$$stack_dir/docker-compose.yml" down -v --remove-orphans || true
+        fi
+    when:
+      status: [success, failure]
+    failure: ignore

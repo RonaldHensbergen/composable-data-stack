@@ -1,0 +1,315 @@
+# Publish Signed Images — migrated from .github/workflows/publish-images.yml.
+#
+# Runs daemonless on the shared agents using buildah (no Docker daemon needed):
+# build -> export docker-archive -> trivy gate on the archive -> push tags ->
+# digest -> cosign sign/attest -> verify. The weekly cron must be registered
+# as a cron job named `publish-images-weekly` at ci.codeberg.org.
+#
+# Migration deltas:
+# - Keyless cosign (GitHub OIDC, issuer token.actions.githubusercontent.com) is
+#   impossible on Codeberg: signing is key-based via the Woodpecker secrets
+#   COSIGN_PRIVATE_KEY / COSIGN_PASSWORD / COSIGN_PUBLIC_KEY
+#   (`cosign generate-key-pair`). FOLLOW-UP: tests/fixtures/signed-images.json
+#   `trustRoot` and the tests asserting it still reference the GitHub OIDC
+#   trust root — update them to the key-based trust root (see docs/ci-codeberg.md).
+# - docker/setup-buildx-action, docker/login-action, aquasecurity/trivy-action,
+#   sigstore/cosign-installer, peter-evans/dockerhub-description are replaced
+#   by buildah + trivy/cosign binaries + curl.
+# - Registries: codeberg.org (Forgejo package registry, the ghcr.io equivalent)
+#   + docker.io. The codeberg.org login uses the codeberg_token PAT, which must
+#   have the write:package scope. Secrets: codeberg_token, dockerhub_username,
+#   dockerhub_token (a Docker Hub access token, not the account password).
+# - The fixture-refresh PR is opened by .woodpecker/publish-images-update-fixture.yml.
+
+when:
+  - event: cron
+    cron: publish-images-weekly
+  - event: push
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+    path: ["images/**", ".woodpecker/publish-images.yml", ".woodpecker/publish-images-update-fixture.yml"]
+  - event: manual
+
+# Woodpecker 3 matrix: axes are string lists; structured combinations go in `include:`
+matrix:
+  include:
+    - IMAGE_NAME: dagster
+      IMAGE_VARIANT: base
+      IMAGE_DOCKERFILE: images/dagster/base/Dockerfile
+    - IMAGE_NAME: dagster
+      IMAGE_VARIANT: hardened
+      IMAGE_DOCKERFILE: images/dagster/hardened/Dockerfile
+    - IMAGE_NAME: superset
+      IMAGE_VARIANT: base
+      IMAGE_DOCKERFILE: images/superset/base/Dockerfile
+    - IMAGE_NAME: dbt
+      IMAGE_VARIANT: ""
+      IMAGE_DOCKERFILE: images/dbt/Dockerfile
+    - IMAGE_NAME: dlt
+      IMAGE_VARIANT: ""
+      IMAGE_DOCKERFILE: images/dlt/Dockerfile
+    - IMAGE_NAME: postgres
+      IMAGE_VARIANT: ""
+      IMAGE_DOCKERFILE: images/postgres/Dockerfile
+    - IMAGE_NAME: restic
+      IMAGE_VARIANT: ""
+      IMAGE_DOCKERFILE: images/restic/Dockerfile
+
+variables:
+  - REGISTRY: codeberg.org
+  # login user for the codeberg.org registry (owner of the codeberg_token PAT)
+  - REGISTRY_USER: RonaldHensbergen
+  - DOCKERHUB_REPO_PREFIX: docker.io/$${DOCKERHUB_USERNAME}
+
+steps:
+  - name: publish-codeberg
+    image: quay.io/buildah/stable
+    environment:
+      REGISTRY_TOKEN:
+        from_secret: codeberg_token
+      COSIGN_PRIVATE_KEY:
+        from_secret: cosign_private_key
+      COSIGN_PASSWORD:
+        from_secret: cosign_password
+      COSIGN_PUBLIC_KEY:
+        from_secret: cosign_public_key
+    commands:
+      - |
+        set -euo pipefail
+        # tools: trivy v0.75.0, cosign
+        curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz | tar -xz -C /usr/local/bin trivy
+        curl -fsSL https://github.com/sigstore/cosign/releases/download/v3.0.4/cosign-linux-amd64 -o /usr/local/bin/cosign && chmod +x /usr/local/bin/cosign
+        command -v jq >/dev/null || dnf install -y -q jq
+
+        owner="$$(echo "${CI_REPO_OWNER}" | tr '[:upper:]' '[:lower:]')"
+        ref="${REGISTRY}/$${owner}/cds-${IMAGE_NAME}"
+        variant="${IMAGE_VARIANT}"; prefix=""
+        if [ -n "$$variant" ] && [ "$$variant" != "base" ]; then prefix="$${variant}-"; fi
+        sha12="${CI_COMMIT_SHA:0:12}"
+        file_key="${IMAGE_NAME}"; [ -n "$$variant" ] && file_key="${IMAGE_NAME}-$${variant}"
+
+        dockerfile="${IMAGE_DOCKERFILE}"
+        context="$$(dirname "$$dockerfile")"
+        case "$$dockerfile" in
+          images/dagster/*|images/superset/*|images/dbt/*|images/dlt/*|images/postgres/*|images/restic/*) context="." ;;
+        esac
+
+        # POSIX sh: no arrays — collect extra tags in a string (word-split on use)
+        extra_tags=""
+        if [ "$$variant" = "hardened" ]; then
+          extra_tags="-t $$ref:alpine-sha-$${sha12} -t $$ref:alpine-latest"
+        fi
+
+        buildah login -u "$$REGISTRY_USER" -p "$$REGISTRY_TOKEN" "$REGISTRY"
+        # build all tags; the cds/<name>:scan tag stays local and is only used
+        # for the pre-push vulnerability gate via a docker-archive export
+        buildah bud --storage-driver vfs --isolation chroot -f "$$dockerfile" \
+          -t "$$ref:$${prefix}sha-$${sha12}" -t "$$ref:$${prefix}latest" $$extra_tags \
+          -t "cds/$${file_key}:scan" "$$context"
+
+        # gate: scan the exact image about to be published, BEFORE any push
+        buildah push --storage-driver vfs "cds/$${file_key}:scan" "docker-archive:scan.tar"
+        set +e
+        trivy image --quiet --input scan.tar --scanners vuln --severity HIGH,CRITICAL \
+          --ignore-unfixed --ignorefile .trivyignore --format table --output "gate-$${file_key}.txt"
+        gate_rc=$$?
+        set -e
+        if [ "$$gate_rc" -ne 0 ]; then
+          echo "HIGH/CRITICAL findings; refusing to publish $${ref} (see gate-$${file_key}.txt)" >&2
+          cat "gate-$${file_key}.txt" || true
+          exit 1
+        fi
+
+        # push with retry (transient registry errors: "unknown blob", 504s)
+        retry_push() {
+          local attempts=4 delay=10 n=0
+          until "$$@"; do
+            n=$$((n + 1))
+            if [ "$$n" -ge "$$attempts" ]; then echo "giving up after $${attempts} attempts: $$*" >&2; return 1; fi
+            echo "retrying ($${n}/$${attempts}) after registry error: $$*" >&2
+            sleep "$$delay"; delay=$$((delay * 2))
+          done
+        }
+        retry_push buildah push --storage-driver vfs "$$ref:$${prefix}sha-$${sha12}" "docker://$$ref:$${prefix}sha-$${sha12}"
+        retry_push buildah push --storage-driver vfs "$$ref:$${prefix}latest" "docker://$$ref:$${prefix}latest"
+        if [ "$$variant" = "hardened" ]; then
+          retry_push buildah push --storage-driver vfs "$$ref:alpine-sha-$${sha12}" "docker://$$ref:alpine-sha-$${sha12}"
+          retry_push buildah push --storage-driver vfs "$$ref:alpine-latest" "docker://$$ref:alpine-latest"
+        fi
+
+        digest="$$(buildah inspect --storage-driver vfs --type image --format '{{.FromImageDigest}}' "$$ref:$${prefix}sha-$${sha12}")"
+        if [ -z "$$digest" ] || [ "$$digest" = "<no value>" ]; then
+          echo "no digest for $$ref after push; refusing to sign a guessed digest" >&2; exit 1
+        fi
+        digest="$$ref@$$digest"
+        echo "published $$digest"
+
+        # sign (key-based) + attestations + verify
+        export COSIGN_PRIVATE_KEY COSIGN_PASSWORD
+        cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$$digest"
+        trivy image --quiet --input scan.tar --format cyclonedx --output sbom.json
+        cosign attest --yes --key env://COSIGN_PRIVATE_KEY --predicate sbom.json --type cyclonedx "$$digest"
+        cat > provenance.json <<EOF
+        {
+          "builder": { "id": "https://ci.codeberg.org" },
+          "buildType": "https://codeberg.org/${CI_REPO_OWNER}/${CI_REPO_NAME}/publish-images@v1",
+          "invocation": {
+            "configSource": {
+              "uri": "git+https://codeberg.org/${CI_REPO_OWNER}/${CI_REPO_NAME}@${CI_COMMIT_REF}",
+              "digest": { "sha1": "${CI_COMMIT_SHA}" },
+              "entryPoint": ".woodpecker/publish-images.yml"
+            }
+          },
+          "metadata": {
+            "buildInvocationId": "${CI_PIPELINE_ID}-${CI_BUILD_NUMBER}",
+            "completeness": { "parameters": true, "environment": false, "materials": false },
+            "reproducible": false
+          },
+          "materials": [
+            { "uri": "git+https://codeberg.org/${CI_REPO_OWNER}/${CI_REPO_NAME}@${CI_COMMIT_REF}", "digest": { "sha1": "${CI_COMMIT_SHA}" } }
+          ]
+        }
+        EOF
+        cosign attest --yes --key env://COSIGN_PRIVATE_KEY --predicate provenance.json --type slsaprovenance "$$digest"
+        cosign verify --key env://COSIGN_PUBLIC_KEY "$$digest"
+        echo "### Signed image fixture: ${IMAGE_NAME}${IMAGE_VARIANT:+ (${IMAGE_VARIANT})}"
+        echo "- digest: \`$$digest\`"
+        echo "- trust: key-based cosign (COSIGN_PUBLIC_KEY), see docs/ci-codeberg.md"
+
+  - name: publish-dockerhub
+    image: quay.io/buildah/stable
+    environment:
+      DOCKERHUB_USERNAME:
+        from_secret: dockerhub_username
+      DOCKERHUB_TOKEN:
+        from_secret: dockerhub_token
+      COSIGN_PRIVATE_KEY:
+        from_secret: cosign_private_key
+      COSIGN_PASSWORD:
+        from_secret: cosign_password
+      COSIGN_PUBLIC_KEY:
+        from_secret: cosign_public_key
+    commands:
+      - |
+        set -euo pipefail
+        curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz | tar -xz -C /usr/local/bin trivy
+        curl -fsSL https://github.com/sigstore/cosign/releases/download/v3.0.4/cosign-linux-amd64 -o /usr/local/bin/cosign && chmod +x /usr/local/bin/cosign
+        command -v jq >/dev/null || dnf install -y -q jq
+
+        # Determine base version per image (same rules as the GitHub original)
+        case "${IMAGE_NAME}" in
+          dagster)  base_version="$$(grep -m1 '^dagster==' images/dagster/requirements.in | cut -d= -f3)" ;;
+          superset) base_version="$$(grep -m1 '^FROM apache/superset:' images/superset/base/Dockerfile | sed -E 's#^FROM apache/superset:([^@[:space:]]+).*#\1#' | sed -E 's/-py[0-9]+$$//')" ;;
+          dbt)      base_version="$$(grep -m1 '^dbt-core==' images/dbt/requirements.in | cut -d= -f3)" ;;
+          dlt)      base_version="$$(grep -m1 '^dlt\[postgres\]==' images/dlt/requirements.in | sed -E 's/^dlt\[postgres\]==([^[:space:]]+).*/\1/')" ;;
+          postgres) base_version="$$(grep -m1 '^FROM postgres:' images/postgres/Dockerfile | sed -E 's#^FROM postgres:([^@[:space:]]+).*#\1#')" ;;
+          restic)   base_version="$$(grep -m1 '^ARG RESTIC_VERSION=' images/restic/Dockerfile | cut -d= -f2-)" ;;
+          *) echo "No version scheme defined for image '${IMAGE_NAME}'" >&2; exit 1 ;;
+        esac
+        [ -n "$$base_version" ] || { echo "Failed to determine base version for '${IMAGE_NAME}'" >&2; exit 1; }
+
+        variant="${IMAGE_VARIANT}"; prefix=""
+        if [ -n "$$variant" ] && [ "$$variant" != "base" ]; then prefix="$${variant}-"; fi
+        tag="$${prefix}$${base_version}"
+        latest_tag="$${prefix}latest"
+        alpine_tag=""; alpine_latest_tag=""
+        if [ "$$variant" = "hardened" ]; then alpine_tag="alpine-$${base_version}"; alpine_latest_tag="alpine-latest"; fi
+
+        ref="docker.io/$${DOCKERHUB_USERNAME}/${IMAGE_NAME}"
+        sha12="${CI_COMMIT_SHA:0:12}"
+        file_key="${IMAGE_NAME}"; [ -n "$$variant" ] && file_key="${IMAGE_NAME}-$${variant}"
+
+        dockerfile="${IMAGE_DOCKERFILE}"
+        context="$$(dirname "$$dockerfile")"
+        case "$$dockerfile" in
+          images/dagster/*|images/superset/*|images/dbt/*|images/dlt/*|images/postgres/*|images/restic/*) context="." ;;
+        esac
+
+        buildah login -u "$$DOCKERHUB_USERNAME" -p "$$DOCKERHUB_TOKEN" docker.io
+        extra_tags=""
+        if [ -n "$$alpine_tag" ]; then extra_tags="-t $$ref:$$alpine_tag -t $$ref:$$alpine_latest_tag"; fi
+        buildah bud --storage-driver vfs --isolation chroot -f "$$dockerfile" \
+          -t "$$ref:$$tag" -t "$$ref:$$latest_tag" $$extra_tags \
+          -t "$$ref:$${prefix}sha-$${sha12}" \
+          -t "cds/$${file_key}:scan" "$$context"
+
+        buildah push --storage-driver vfs "cds/$${file_key}:scan" "docker-archive:scan-dh.tar"
+        set +e
+        trivy image --quiet --input scan-dh.tar --scanners vuln --severity HIGH,CRITICAL \
+          --ignore-unfixed --ignorefile .trivyignore --format table --output "gate-dh-$${file_key}.txt"
+        gate_rc=$$?
+        set -e
+        if [ "$$gate_rc" -ne 0 ]; then
+          echo "HIGH/CRITICAL findings; refusing to publish $${ref}" >&2; cat "gate-dh-$${file_key}.txt" || true; exit 1
+        fi
+
+        retry_push() {
+          local attempts=4 delay=10 n=0
+          until "$$@"; do
+            n=$$((n + 1))
+            if [ "$$n" -ge "$$attempts" ]; then echo "giving up after $${attempts} attempts: $$*" >&2; return 1; fi
+            echo "retrying ($${n}/$${attempts}) after registry error: $$*" >&2
+            sleep "$$delay"; delay=$$((delay * 2))
+          done
+        }
+        retry_push buildah push --storage-driver vfs "$$ref:$$tag" "docker://$$ref:$$tag"
+        retry_push buildah push --storage-driver vfs "$$ref:$$latest_tag" "docker://$$ref:$$latest_tag"
+        retry_push buildah push --storage-driver vfs "$$ref:$${prefix}sha-$${sha12}" "docker://$$ref:$${prefix}sha-$${sha12}"
+        if [ -n "$$alpine_tag" ]; then
+          retry_push buildah push --storage-driver vfs "$$ref:$$alpine_tag" "docker://$$ref:$$alpine_tag"
+          retry_push buildah push --storage-driver vfs "$$ref:$$alpine_latest_tag" "docker://$$ref:$$alpine_latest_tag"
+        fi
+
+        digest="$$(buildah inspect --storage-driver vfs --type image --format '{{.FromImageDigest}}' "$$ref:$${prefix}sha-$${sha12}")"
+        if [ -z "$$digest" ] || [ "$$digest" = "<no value>" ]; then
+          echo "no digest for $$ref after push; refusing to sign a guessed digest" >&2; exit 1
+        fi
+        digest="$$ref@$$digest"
+        echo "published $$digest"
+
+        export COSIGN_PRIVATE_KEY COSIGN_PASSWORD
+        cosign sign --yes --key env://COSIGN_PRIVATE_KEY "$$digest"
+        trivy image --quiet --input scan-dh.tar --format cyclonedx --output sbom-dh.json
+        cosign attest --yes --key env://COSIGN_PRIVATE_KEY --predicate sbom-dh.json --type cyclonedx "$$digest"
+        cat > provenance-dh.json <<EOF
+        {
+          "builder": { "id": "https://ci.codeberg.org" },
+          "buildType": "https://codeberg.org/${CI_REPO_OWNER}/${CI_REPO_NAME}/publish-images@v1",
+          "invocation": {
+            "configSource": {
+              "uri": "git+https://codeberg.org/${CI_REPO_OWNER}/${CI_REPO_NAME}@${CI_COMMIT_REF}",
+              "digest": { "sha1": "${CI_COMMIT_SHA}" },
+              "entryPoint": ".woodpecker/publish-images.yml"
+            }
+          },
+          "metadata": {
+            "buildInvocationId": "${CI_PIPELINE_ID}-${CI_BUILD_NUMBER}",
+            "completeness": { "parameters": true, "environment": false, "materials": false },
+            "reproducible": false
+          }
+        }
+        EOF
+        cosign attest --yes --key env://COSIGN_PRIVATE_KEY --predicate provenance-dh.json --type slsaprovenance "$$digest"
+        # Docker Hub is eventually consistent for OCI referrers: retry with backoff
+        retry() {
+          local attempts=10 delay=10 deadline=$$((SECONDS + 900)) n=0
+          until timeout 90 "$$@"; do
+            n=$$((n + 1))
+            if [ "$$n" -ge "$$attempts" ] || [ "$$SECONDS" -ge "$$deadline" ]; then return 1; fi
+            echo "Retrying ($${n}/$${attempts}) after Docker Hub propagation delay..." >&2
+            sleep "$$delay"; delay=$$((delay * 2)); [ "$$delay" -gt 60 ] && delay=60
+          done
+        }
+        retry cosign verify --key env://COSIGN_PUBLIC_KEY "$$digest"
+        retry cosign verify-attestation --key env://COSIGN_PUBLIC_KEY --type cyclonedx "$$digest"
+        retry cosign verify-attestation --key env://COSIGN_PUBLIC_KEY --type slsaprovenance "$$digest"
+
+        # Update Docker Hub overview (replaces peter-evans/dockerhub-description)
+        if [ -z "$$variant" ] || [ "$$variant" = "base" ]; then
+          readme="$$(cat "images/${IMAGE_NAME}/README.md")"
+          jq -n --arg desc "Result of Composable Data Stack (https://codeberg.org/${CI_REPO_OWNER}/${CI_REPO_NAME})" --arg readme "$$readme" \
+            '{short_description: $$desc, full_description: $$readme}' > dh-payload.json
+          curl -sS -f -X PATCH "https://hub.docker.com/v2/repositories/$${DOCKERHUB_USERNAME}/${IMAGE_NAME}/" \
+            -H "Authorization: Bearer $$(curl -sS -X POST https://hub.docker.com/v2/users/login/ -H 'Content-Type: application/json' -d "$$(jq -n --arg u "$$DOCKERHUB_USERNAME" --arg p "$$DOCKERHUB_TOKEN" '{username:$$u, password:$$p}')" | jq -r .token)" \
+            -H "Content-Type: application/json" --data-binary @dh-payload.json >/dev/null \
+            && echo "docker hub description updated" || echo "docker hub description update failed (non-fatal)" >&2
+        fi

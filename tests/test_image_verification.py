@@ -45,7 +45,7 @@ _COMPOSE = yaml.safe_dump(
 def _policy(mode: str = "full", **overrides) -> dict:
     defaults = {
         "mode": mode,
-        "trusted_registries": ("ghcr.io", "docker.io"),
+        "trusted_registries": ("codeberg.org", "ghcr.io", "docker.io"),
         "oidc_issuer": "https://token.actions.githubusercontent.com",
         "cert_identity_regexp": r"^https://github\.com/example/repo/.+$",
         "cosign_bin": "cosign",
@@ -294,7 +294,7 @@ class FixtureVerificationTest(unittest.TestCase):
         compose = yaml.safe_dump(
             {
                 "services": {
-                    "app": {"image": f"ghcr.io/ronaldhensbergen/cds-dagster@{digest}"}
+                    "app": {"image": f"codeberg.org/composable-data-stack/cds-dagster@{digest}"}
                 }
             }
         )
@@ -310,7 +310,7 @@ class FixtureVerificationTest(unittest.TestCase):
             {
                 "services": {
                     "app": {
-                        "image": f"ghcr.io/ronaldhensbergen/cds-dagster@{_DIGEST_B}"
+                        "image": f"codeberg.org/composable-data-stack/cds-dagster@{_DIGEST_B}"
                     }
                 }
             }

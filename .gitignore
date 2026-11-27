@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# but not the Forgejo CI helper library used by .forgejo/workflows and .woodpecker
+!/.forgejo/lib/
 parts/
 sdist/
 var/
@@ -213,6 +215,10 @@ tempCodeRunnerFile.py
 
 # Obsidian per-user vault/workspace state, at any depth (e.g. docs/plan/.obsidian/)
 .obsidian/
+
+# CI workspace scratch: fj keys.json (setup-fj) and runner temp dirs
+.ci-fj/
+.ci-tmp/
 
 # Generated compose output from `cds render`
 docker-compose.yml

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Compute the next project `Order` value for an issue in the roadmap project.
 
-Used by .github/workflows/issue-project-order.yml: given an issue's metadata
-(`gh issue view --json number,title,labels,milestone`) and the project's
-items (`gh project item-list --format json`), print the next free `Order`
-for that issue.
+Used by the issue-project-order CI workflow: given an issue's metadata
+(`gh issue view --json ...` on GitHub; a Forgejo REST issue on Codeberg) and
+the project's items (`gh project item-list --format json` on GitHub; the
+label-backed `project_items_json` helper in .forgejo/lib/api.sh on Codeberg),
+print the next free `Order` for that issue.
 
 The assigned order reflects priority via auto-assign inbox bands (see
 AGENTS.md, "Project `Order` tiers"): the issue's category is picked by

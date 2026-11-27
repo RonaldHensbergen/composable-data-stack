@@ -1,0 +1,165 @@
+name: Version Bump
+
+# Codeberg/Forgejo migration notes (see docs/ci-codeberg.md):
+# - `bitshifted/git-auto-semver` (a Docker action, not mirrored by Forgejo) is
+#   replaced by an inline Python step with the same semantics: first-parent
+#   Conventional-Commit subjects since the latest `vX.Y.Z` tag decide the bump
+#   (BREAKING CHANGE / `!` -> major, `feat` -> minor, everything else ->
+#   patch).
+# - `peter-evans/create-pull-request` is replaced by a direct `git push` (the
+#   checkout action persists the automatic Forgejo token) plus `fj pr create`.
+
+on:
+  schedule:
+    # Every Monday at 09:00 UTC. A single weekly bump PR (instead of one per
+    # push to main) so the accumulated Conventional Commits are reviewed and
+    # merged/tagged in one batch rather than opening/closing noisy PRs after
+    # nearly every merge.
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: version-bump-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version-bump:
+    runs-on: codeberg-small
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Setup fj (Forgejo CLI)
+        uses: ./.forgejo/actions/setup-fj
+
+      - name: Calculate next semantic version from Conventional Commits
+        id: calculate-version
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import re
+          import subprocess
+          import tomllib
+
+          def git(*args: str) -> str:
+              return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
+
+          tags = [t for t in git("tag", "--list", "v*.*.*", "--sort=-v:refname").split() if re.fullmatch(r"v\d+\.\d+\.\d+", t)]
+          if tags:
+              base = tags[0][1:]
+              rev_range = f"{tags[0]}..main"
+          else:
+              base = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+              rev_range = "main"
+          subjects = git("log", "--first-parent", "--format=%s", rev_range).splitlines()
+
+          def bump_for(subjects: list[str]) -> str:
+              for s in subjects:
+                  if re.match(r"^[a-zA-Z]+(\([^)]*\))?!:", s) or "BREAKING CHANGE" in s or "BREAKING-CHANGE" in s:
+                      return "major"
+              if any(re.match(r"^feat(\([^)]*\))?!?:", s) for s in subjects):
+                  return "minor"
+              return "patch"
+
+          major, minor, patch = (int(x) for x in base.split("."))
+          kind = bump_for(subjects)
+          if kind == "major":
+              next_v = f"{major + 1}.0.0"
+          elif kind == "minor":
+              next_v = f"{major}.{minor + 1}.0"
+          else:
+              next_v = f"{major}.{minor}.{patch + 1}"
+          print(f"version-string={next_v}")
+          PY
+
+      - name: Update pyproject.toml if a newer version was calculated
+        id: bump
+        run: |
+          set -euo pipefail
+          calculated="${{ steps.calculate-version.outputs.version-string }}"
+          current="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+
+          if [ "$calculated" = "$current" ]; then
+            echo "No version change: pyproject.toml is already at ${current}."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          python - "$current" "$calculated" <<'PY'
+          import pathlib
+          import sys
+
+          current, calculated = sys.argv[1], sys.argv[2]
+          path = pathlib.Path("pyproject.toml")
+          text = path.read_text(encoding="utf-8")
+          needle = f'version = "{current}"'
+          replacement = f'version = "{calculated}"'
+          if needle not in text:
+              raise SystemExit(f"Could not find {needle!r} in pyproject.toml")
+          path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+          PY
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "current_version=${current}" >> "$GITHUB_OUTPUT"
+          echo "next_version=${calculated}" >> "$GITHUB_OUTPUT"
+
+      - name: Date the CHANGELOG.md [Unreleased] section
+        if: steps.bump.outputs.changed == 'true'
+        run: python scripts/bump_changelog.py "${{ steps.bump.outputs.next_version }}"
+
+      - name: Open a pull request to bump the version
+        # main is a protected branch, so a direct `git push` to main is
+        # rejected. Route the bump through a PR instead, mirroring the
+        # signed-images-fixture refresh job in the Woodpecker publish-images
+        # pipeline. This bundles the CHANGELOG.md dating step (see
+        # scripts/bump_changelog.py) into the same PR as the pyproject.toml
+        # bump, so a single weekly PR is release-ready. It still does NOT
+        # create a release tag: cutting `vX.Y.Z` (which triggers the release
+        # and pypi pipelines) remains a maintainer action once they're happy
+        # with the CHANGELOG for that version.
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          NEXT: ${{ steps.bump.outputs.next_version }}
+          CURRENT: ${{ steps.bump.outputs.current_version }}
+        run: |
+          set -euo pipefail
+          source .forgejo/lib/api.sh
+          branch="chore/version-bump-${NEXT}"
+          git config user.name "forgejo-actions[bot]"
+          git config user.email "forgejo-actions[bot]@noreply.codeberg.org"
+          git checkout -b "$branch"
+          git add pyproject.toml CHANGELOG.md
+          git commit -m "chore(release): bump version to ${NEXT}" \
+            -m "Generated by Mistral Vibe." \
+            -m "Co-Authored-By: Mistral Vibe <vibe@mistral.ai>"
+          git push origin "HEAD:${branch}"
+
+          existing="$(fj_get "repos/$FORGEJO_REPOSITORY/pulls?state=open&limit=100" \
+            | jq -r --arg b "$branch" \
+              '[.[] | select(.head.ref == $b) | .number] | first // empty')"
+
+          title="chore(release): bump version to ${NEXT}"
+          body="Automated version bump calculated from first-parent Conventional Commits since the last \`v${CURRENT}\` tag (major on BREAKING CHANGE / \`!\`, minor on \`feat\`, patch otherwise).
+
+          The \`[Unreleased]\` section of \`CHANGELOG.md\` has already been dated as \`## [${NEXT}]\` by \`scripts/bump_changelog.py\`, with a fresh empty \`[Unreleased]\` section above it for future PRs. Review the dated section for accuracy before merging. Merging this PR does not publish a release by itself -- tag the merge commit \`v${NEXT}\` and push the tag to trigger the release/pypi pipelines."
+
+          if [ -n "$existing" ]; then
+            echo "PR #${existing} for ${branch} already exists; branch was force-updated."
+          else
+            fj pr create "$title" \
+              -r "$FORGEJO_REPOSITORY" --head "$branch" --base main --body "$body"
+          fi

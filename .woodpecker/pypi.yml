@@ -1,0 +1,54 @@
+# Publish CLI to PyPI — migrated from .github/workflows/pypi.yml.
+#
+# GitHub used OIDC trusted publishing (pypa/gh-action-pypi-publish with
+# id-token); Codeberg/Woodpecker issue no GitHub-compatible OIDC token, so
+# this publishes with a PyPI API token from the Woodpecker secret
+# `pypi_api_token` via twine. Attestations (which needed OIDC) are dropped —
+# see docs/ci-codeberg.md. Triggers on v* tags and manual runs.
+
+when:
+  - event: tag
+    ref: refs/tags/v
+  - event: manual
+
+steps:
+  - name: verify-version
+    image: python:3.14-bookworm
+    commands:
+      - python -m pip install --quiet --upgrade pip packaging
+      - |
+        if [ "${CI_PIPELINE_EVENT}" = "tag" ]; then
+          ref="$CI_COMMIT_TAG"
+        else
+          # manual run has no tag ref to check against; fall back to
+          # pyproject.toml's own declared version so the pre-release guard
+          # below still applies to manual publishes.
+          ref="v$$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+        fi
+        python scripts/check_release_version.py "$$ref" --block-prerelease
+
+  - name: build
+    image: python:3.14-bookworm
+    commands:
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet build==1.6.1 twine==7.0.0
+      - python -m build
+      - python -m twine check dist/*
+      - wheel="$$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+      - test -n "$$wheel"
+      - mkdir -p .ci-tmp
+      - python -m venv .ci-tmp/cds-wheel
+      - .ci-tmp/cds-wheel/bin/python -m pip install --quiet "$$wheel"
+      - cd .ci-tmp
+      - .ci-tmp/cds-wheel/bin/cds --help
+      - .ci-tmp/cds-wheel/bin/cds validate "$$OLDPWD/profiles/local-dagster-postgres-superset/profile.yaml"
+
+  - name: publish
+    image: python:3.14-bookworm
+    environment:
+      TWINE_USERNAME: __token__
+      TWINE_PASSWORD:
+        from_secret: pypi_api_token
+    commands:
+      - python -m pip install --quiet --upgrade pip twine==7.0.0
+      - python -m twine upload dist/*

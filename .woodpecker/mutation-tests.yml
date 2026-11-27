@@ -1,0 +1,73 @@
+# Mutation Tests (Kill Matrix) — migrated from .github/workflows/mutation-tests.yml.
+#
+# PR runs are time-capped (timeout 180) and publish a partial matrix; the
+# weekly cron run is uncapped and produces the full matrix. The weekly cron
+# must be registered as a cron job named `mutation-tests-weekly` in the repo
+# settings at ci.codeberg.org. Woodpecker has no artifact upload: the stats,
+# badge and results stay in the workspace and are echoed to the step log.
+# `::notice::` workflow commands are not supported; the notice is a plain echo.
+# The dependabot[bot] skip becomes renovate[bot] (this repo uses Renovate).
+
+when:
+  - event: pull_request
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+  - event: cron
+    cron: mutation-tests-weekly
+  - event: manual
+
+steps:
+  - name: kill-matrix
+    image: python:3.14-bookworm
+    commands:
+      - python -m pip install --quiet --upgrade pip
+      # mutmut is pinned ad hoc here (and in the Makefile test-mutation
+      # target), not in uv.lock. The git pin points at the boxed/mutmut
+      # main commit shipping the torn-.meta fix (boxed/mutmut#630, merged
+      # 2026-11-07); flip it to "mutmut==<release>" once a mutmut release
+      # > 3.8.1 is on PyPI (#1193).
+      - pip install --quiet -e ".[test]" "mutmut @ git+https://github.com/boxed/mutmut@6837b3c3ab0cfa4f5488f68adbd1bb26f68b8eb8" pytest
+      # Run kill matrix (PR runs time-capped at 180s, partial results accepted)
+      - |
+        set +e
+        if [ "${CI_PIPELINE_EVENT}" = "pull_request" ]; then
+          timeout 180 python -m mutmut run
+        else
+          python -m mutmut run
+        fi
+        rc=$$?
+        set -e
+        if [ $$rc -ne 0 ] && [ $$rc -ne 124 ]; then
+          exit $$rc
+        fi
+        if [ $$rc -eq 124 ]; then
+          echo "Kill matrix time-capped on PR run; publishing the partial matrix (weekly run completes the full one)."
+        fi
+      # Export stats, badge, and results
+      - python -m mutmut export-cicd-stats
+      - |
+        if ! python -c 'import json; json.load(open("mutants/mutmut-cicd-stats.json"))' 2>/dev/null; then
+          mkdir -p mutants
+          printf '%s\n' '{"killed": 0, "survived": 0, "total": 0, "no_tests": 0, "skipped": 0, "suspicious": 0, "timeout": 0, "check_was_interrupted_by_user": 0, "segfault": 0}' > mutants/mutmut-cicd-stats.json
+          echo "NOTICE: No mutation results recorded (time-capped run); wrote empty-stats placeholder (#1175)."
+        fi
+      - mkdir -p .ci-tmp
+      - python -m mutmut badge --output .ci-tmp/mutation-badge.svg --label "mutation score"
+      - python -m mutmut results --all true > .ci-tmp/mutmut-results.txt || true
+      - cat .ci-tmp/mutmut-results.txt || true
+      # Mutation score summary (echoed to the log; Woodpecker has no step summary)
+      - |
+        python - <<'PYEOF'
+        import json
+        from pathlib import Path
+        lines = ["## Kill matrix (mutation testing)", ""]
+        stats = Path("mutants/mutmut-cicd-stats.json")
+        if stats.exists():
+            lines.append("```json")
+            lines.append(json.dumps(json.loads(stats.read_text(encoding="utf-8")), indent=2, sort_keys=True))
+            lines.append("```")
+        else:
+            lines.append("_No stats exported._")
+        lines.append("")
+        lines.append("Full per-mutant results: `mutants/mutants.log`, `.ci-tmp/mutmut-results.txt`, `.ci-tmp/mutation-badge.svg` in the workspace.")
+        print("\n".join(lines))
+        PYEOF

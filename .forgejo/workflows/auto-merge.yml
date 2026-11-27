@@ -1,0 +1,74 @@
+name: Auto-merge Green PRs
+
+# "Let green merge itself", scoped: a PR labeled `automerge` whose head
+# pipeline (the CI run for its head SHA) succeeded is merged (squash, delete
+# branch). Branch protection still applies. Every PR without the label keeps
+# the normal human review path — see docs/maintainer-merge-policy.md.
+#
+# Codeberg/Forgejo migration notes (see docs/ci-codeberg.md):
+# - Forgejo Actions has no `workflow_run` event, so this workflow runs on
+#   `pull_request` (labeled/synchronize/reopened) plus a periodic `schedule`
+#   sweep that re-checks still-open labeled PRs.
+# - Forgejo has no auto-merge queue: `merge_pr_if_green` (in
+#   .forgejo/lib/api.sh) merges directly via fj, but only when the combined
+#   commit status of the head SHA is `success` and the PR is not from a fork.
+
+on:
+  pull_request:
+    types: [labeled, synchronize, reopened]
+  schedule:
+    # Sweep every 15 minutes for labeled PRs whose CI finished in the meantime.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-merge
+  cancel-in-progress: false
+
+jobs:
+  automerge:
+    runs-on: codeberg-tiny
+    permissions:
+      pull-requests: write
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup fj (Forgejo CLI)
+        uses: ./.forgejo/actions/setup-fj
+
+      - name: Ensure the automerge label exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .forgejo/lib/api.sh
+          ensure_label automerge "0e8a16" \
+            "Green PRs with this label auto-merge once CI passes and review rules allow it"
+
+      - name: Merge labeled PRs with a green head pipeline
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -e
+          source .forgejo/lib/api.sh
+          # Trust gate: only non-fork PRs are eligible; fork PRs never get
+          # automated merges. On the schedule sweep (no pull_request event)
+          # HEAD_SHA is empty, so every open non-fork PR labeled 'automerge'
+          # is considered; merge_pr_if_green still only merges when the head
+          # status is green.
+          prs="$(open_labeled_prs automerge "${HEAD_SHA:-}")"
+          if [[ -z "$prs" ]]; then
+            echo "No open non-fork PR labeled 'automerge' to act on."
+            exit 0
+          fi
+          for pr in $prs; do
+            echo "Merging #$pr (head pipeline green)"
+            merge_pr_if_green "$pr" \
+              || echo "Could not merge #$pr yet (checks pending or branch protection); leaving it open for the normal path."
+          done

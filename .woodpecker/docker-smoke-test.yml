@@ -1,0 +1,86 @@
+# Docker Runtime Smoke Test — migrated from .github/workflows/docker-smoke-test.yml.
+#
+# Needs a real Docker daemon, which Codeberg's shared agents don't provide:
+# this pipeline is routed to a self-hosted Woodpecker agent via the
+# `docker=true` label (see docs/ci-codeberg.md), with the host docker socket
+# mounted in (requires the "Volumes" trusted setting for this repo).
+# Until that agent is registered, pull_request is excluded: without a
+# docker=true agent the pipeline would pend forever and never let the PR
+# head reach a terminal status. Re-add pull_request once the agent exists.
+
+when:
+  - event: push
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+  - event: manual
+
+labels:
+  docker: "true"
+
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+
+steps:
+  - name: build-images
+    image: docker:27-cli
+    commands:
+      - |
+        for dockerfile in $$(find . -name "Dockerfile*" -type f); do
+          dir=$$(dirname "$$dockerfile")
+          echo "Building $$dockerfile in directory $$dir..."
+          context="$$dir"
+          case "$$dockerfile" in
+            ./images/dagster/*|./images/superset/*|./images/dbt/*|./images/dlt/*|./images/postgres/*|./images/restic/*) context="." ;;
+          esac
+          docker build -f "$$dockerfile" "$$context" || exit 1
+        done
+
+  - name: smoke-test
+    image: python:3.14-bookworm
+    environment:
+      CDS_RUN_DOCKER_SMOKE: "1"
+    commands:
+      # docker CLI + compose plugin, talking to the mounted host socket
+      - curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz | tar -xz --strip-components=1 -C /usr/local/bin docker/docker
+      - mkdir -p /usr/local/lib/docker/cli-plugins
+      - curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64
+      - chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+      - docker info
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet .
+      - python -m unittest tests.test_compose_runtime_smoke -v
+      - python -m unittest tests.test_compose_profile_lifecycle_smoke -v
+      - python -m unittest tests.test_vault_init_db_runtime -v
+      - python -m unittest tests.test_postgres_backup_restore_runtime -v
+      - python -m unittest tests.test_restic_backup_restore_runtime -v
+      - python -m unittest tests.test_object_storage_backup_runtime -v
+      - python -m unittest tests.test_observability_runtime_smoke -v
+    # container logs land in smoke-logs/ in the workspace on failure (visible
+    # in the step logs; Woodpecker has no artifact upload)
+    failure: ignore
+
+  - name: cleanup
+    image: docker:27-cli
+    commands:
+      - |
+        if [ -f docker-compose.yml ]; then
+          docker compose -f docker-compose.yml down -v --remove-orphans || true
+        fi
+        if [ -f docker-compose.restore-proof.yml ]; then
+          for p in cds-restore-proof-src cds-restore-proof-clean; do
+            docker compose -f docker-compose.restore-proof.yml -p "$$p" down -v --remove-orphans || true
+          done
+        fi
+        if [ -f docker-compose.restic-proof.yml ]; then
+          for p in cds-restic-proof-src cds-restic-proof-clean; do
+            docker compose -f docker-compose.restic-proof.yml -p "$$p" down -v --remove-orphans || true
+          done
+        fi
+        if [ -f docker-compose.objstore-proof.yml ]; then
+          docker compose -f docker-compose.objstore-proof.yml -p cds-objstore-proof down -v --remove-orphans || true
+        fi
+        if [ -f docker-compose.observability-smoke.yml ]; then
+          docker compose -f docker-compose.observability-smoke.yml -p cds-observability-smoke-proof down -v --remove-orphans || true
+        fi
+    when:
+      status: [success, failure]
+    failure: ignore

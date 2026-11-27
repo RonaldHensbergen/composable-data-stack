@@ -1,0 +1,203 @@
+# Main CI pipeline — migrated from .github/workflows/ci.yml to Woodpecker CI
+# (ci.codeberg.org). See docs/ci-codeberg.md for the migration notes.
+#
+# Migration deltas vs the GitHub original:
+# - Codeberg's Woodpecker only offers linux/amd64, so the macos/windows
+#   matrix legs of the `test` job are dropped; the ubuntu leg (with the
+#   coverage gate) remains.
+# - `services:` postgres/mysql move to .woodpecker/ci-runtime.yml (a
+#   pipeline-level service would start for every step of this pipeline).
+# - coverage.xml is shared between steps through the pipeline workspace
+#   (no upload/download-artifact needed).
+# - GitHub runner env vars map to Woodpecker's CI_* vars
+#   ($$GITHUB_WORKSPACE -> $$PWD, $$RUNNER_TEMP -> .ci-tmp, $$GITHUB_SHA ->
+#   $CI_COMMIT_SHA, ...).
+# - Full clone (like the GitHub original's fetch-depth: 0): the agent-policy
+#   step runs `git log origin/main..HEAD`, which needs the base branch history
+#   (Woodpecker 3 defaults to a depth-1 partial clone of the PR head only).
+
+when:
+  - event: [push, pull_request]
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+
+clone:
+  git:
+    image: woodpeckerci/plugin-git
+    settings:
+      depth: 0
+      partial: false
+
+variables:
+  - &cds_test_env
+    CDS_ANALYTICS_DB_NAME: analytics
+    CDS_ANALYTICS_DB_PASSWORD: analytics_testpass
+    CDS_ANALYTICS_DB_USER: analytics
+    CDS_DAGSTER_DB_NAME: dagster
+    CDS_DAGSTER_DB_PASSWORD: dagster_testpass
+    CDS_DAGSTER_DB_USER: dagster
+    CDS_POSTGRES_SUPERUSER_PASSWORD: postgres_testpass
+    CDS_SUPERSET_ADMIN_PASSWORD: admin_testpass
+    CDS_SUPERSET_DB_NAME: superset
+    CDS_SUPERSET_DB_PASSWORD: superset_testpass
+    CDS_SUPERSET_DB_USER: superset
+    CDS_SUPERSET_SECRET_KEY: ci-only-superset-secret-key
+
+steps:
+  - name: lint-python
+    image: python:3.14-bookworm
+    commands:
+      - python -m pip install --quiet uv
+      - uv lock --check
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet ".[dev]" yamllint==1.38.0
+      - yamllint .
+      - ruff check .
+      - python scripts/check_prompts.py
+      - mkdir -p .ci-tmp
+
+  - name: lint-node
+    image: node:26-bookworm
+    commands:
+      - npx --yes markdownlint-cli@0.49.0 "**/*.md" ".github/**/*.md"
+      - npx --yes --package renovate@44.140.0 -- renovate-config-validator --strict renovate.json
+
+  - name: agent-policy
+    image: python:3.14-bookworm
+    environment:
+      # No secret here on purpose: this step only reads PR labels, and the repo
+      # is public, so the Forgejo REST API works anonymously (the script reads
+      # FORGEJO_API_URL/FORGEJO_REPOSITORY). Secrets must never be exposed to
+      # pull_request events (fork PRs).
+      FORGEJO_API_URL: https://codeberg.org/api/v1
+      FORGEJO_REPOSITORY: ${CI_REPO_OWNER}/${CI_REPO_NAME}
+      # check_agent_policy.py parses the PR number from GITHUB_REF
+      GITHUB_REF: refs/pull/${CI_PULL_REQUEST}/head
+    commands:
+      - git fetch --quiet origin +refs/heads/${CI_REPO_DEFAULT_BRANCH}:refs/remotes/origin/${CI_REPO_DEFAULT_BRANCH} || true
+      - pip install --quiet --upgrade pip && pip install --quiet ".[dev]"
+      - python scripts/check_agent_policy.py --base origin/${CI_REPO_DEFAULT_BRANCH} --head HEAD
+    when:
+      event: pull_request
+
+  - name: test
+    image: python:3.14-bookworm
+    commands:
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet ".[dev,test]"
+      - coverage run scripts/run_tests_with_deprecation_gate.py
+      - coverage report -m
+      - coverage xml
+
+  - name: profile-matrix
+    image: python:3.14-bookworm
+    commands:
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet .
+      - python scripts/check_profile_matrix.py
+
+  - name: package
+    image: python:3.14-bookworm
+    environment: *cds_test_env
+    commands:
+      - python -m pip install --quiet --upgrade pip
+      - python -m pip install --quiet build twine pipx
+      - python -m build
+      - python -m twine check dist/*
+      # Smoke test installed wheel
+      - wheel="$$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+      - test -n "$$wheel"
+      - export PIPX_BIN_DIR="$$PWD/.ci-tmp/pipx-bin"
+      - python -m pipx install "$$wheel"
+      - cd .ci-tmp
+      - $$PIPX_BIN_DIR/cds --help
+      - $$PIPX_BIN_DIR/cds validate "$$OLDPWD/profiles/local-dagster-postgres-superset/profile.yaml"
+      - set +e; security_output="$$("$$PIPX_BIN_DIR/cds" security "$$OLDPWD/profiles/local-dagster-postgres-superset/profile.yaml" 2>&1)"; security_status=$$?; set -e
+      - test "$$security_status" -eq 0 || test "$$security_status" -eq 1
+      - printf "%s\n" "$$security_output" | grep -Eq "No security findings|CDS-SEC-"
+      # Smoke test image verification on installed wheel
+      - set +e; verify_output="$$("$$PIPX_BIN_DIR/cds" security "$$OLDPWD/profiles/local-dagster-postgres-superset/profile.yaml" --verify-images 2>&1)"; verify_status=$$?; set -e
+      - test "$$verify_status" -eq 1
+      - printf "%s\n" "$$verify_output" | grep -Eq "CDS-VER-001"
+
+  - name: cds-test
+    image: python:3.14-bookworm
+    environment: *cds_test_env
+    commands:
+      # helm v4.3.0 (same version as azure/setup-helm used before)
+      - curl -fsSL https://get.helm.sh/helm-v4.3.0-linux-amd64.tar.gz | tar -xz --strip-components=1 -C /usr/local/bin linux-amd64/helm
+      # docker CLI + compose plugin (client-side only: `docker compose config` needs no daemon)
+      - apt-get update -qq && apt-get install -y -qq docker-ce-cli >/dev/null || (curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz | tar -xz --strip-components=1 -C /usr/local/bin docker/docker)
+      - mkdir -p /usr/local/lib/docker/cli-plugins
+      - curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64
+      - chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet .
+      # Run end-to-end smoke test (validate/security/plan/render must PASS)
+      - set +e; test_output="$$(cds test local-dagster-postgres-superset 2>&1)"; test_status=$$?; set -e
+      - echo "$$test_output"
+      - printf "%s\n" "$$test_output" | grep -Eq "^\[PASS\] validate$$"
+      - printf "%s\n" "$$test_output" | grep -Eq "^\[PASS\] security$$"
+      - printf "%s\n" "$$test_output" | grep -Eq "^\[PASS\] plan$$"
+      - printf "%s\n" "$$test_output" | grep -Eq "^\[PASS\] render$$"
+      - test "$$test_status" -eq 0
+      - cds plan local-dagster-postgres-superset --output /tmp/plan.json
+      # Render MVP profile deterministically + compose schema check
+      - cds render local-dagster-postgres-superset --output /tmp/docker-compose.first.yml
+      - cds render local-dagster-postgres-superset --output /tmp/docker-compose.second.yml
+      - cmp /tmp/docker-compose.first.yml /tmp/docker-compose.second.yml
+      - docker compose -f /tmp/docker-compose.first.yml config --quiet
+      # Render and verify Kubernetes chart (deterministic, lint, no secret leak)
+      - chart_root="$$(mktemp -d)"
+      - timeout 120s cds render local-dagster-postgres-superset --target=helm --output "$$chart_root/first"
+      - timeout 120s cds render local-dagster-postgres-superset --target=helm --output "$$chart_root/second"
+      - diff -qr "$$chart_root/first" "$$chart_root/second"
+      - |
+        # POSIX sh only (Woodpecker runs /bin/sh): no arrays, no indirect expansion
+        (
+          set --
+          for key in CDS_ANALYTICS_DB_NAME CDS_ANALYTICS_DB_PASSWORD CDS_ANALYTICS_DB_USER CDS_DAGSTER_DB_NAME CDS_DAGSTER_DB_PASSWORD CDS_DAGSTER_DB_USER CDS_POSTGRES_SUPERUSER_PASSWORD CDS_SUPERSET_ADMIN_PASSWORD CDS_SUPERSET_DB_NAME CDS_SUPERSET_DB_PASSWORD CDS_SUPERSET_DB_USER CDS_SUPERSET_SECRET_KEY; do
+            set -- "$$@" --set-string "secrets.$${key}=ci-placeholder"
+          done
+          timeout 120s helm lint "$$chart_root/first" "$$@"
+          timeout 120s helm template ci "$$chart_root/first" "$$@" >/dev/null
+        )
+        for key in CDS_ANALYTICS_DB_PASSWORD CDS_DAGSTER_DB_PASSWORD CDS_POSTGRES_SUPERUSER_PASSWORD CDS_SUPERSET_ADMIN_PASSWORD CDS_SUPERSET_DB_PASSWORD CDS_SUPERSET_SECRET_KEY; do
+          value="$$(printenv "$$key")"
+          if grep -R -F -q "$$value" "$$chart_root/first"; then
+            echo "Secret value for $$key leaked into the rendered chart" >&2
+            exit 1
+          fi
+        done
+      # Verify unverifiable images fail closed
+      - set +e; verify_output="$$(cds security local-dagster-postgres-superset --verify-images 2>&1)"; verify_status=$$?; set -e
+      - test "$$verify_status" -eq 1
+      - printf "%s\n" "$$verify_output" | grep -Eq "CDS-VER-"
+
+  - name: security-scan
+    image: python:3.14-bookworm
+    commands:
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet ".[dev]"
+      - bandit -r cli/ shared/ images/ workdirs/
+      - python -c "import tomllib; d = tomllib.load(open('pyproject.toml', 'rb')); print('\n'.join(d['project']['dependencies']))" > /tmp/runtime-deps.txt
+      - pip-audit -r /tmp/runtime-deps.txt
+      - for lock in images/*/requirements*.txt; do pip-audit --require-hashes --disable-pip -r "$$lock"; done
+      - pip install --quiet uv
+      - python scripts/check_image_locks.py
+      - git diff --exit-code images
+
+  - name: sonarcloud
+    image: sonarsource/sonar-scanner-cli:latest
+    environment:
+      SONAR_TOKEN:
+        from_secret: sonar_token
+      SONAR_SCANNER_JAVA_VERSION: 21
+      # the scanner needs the repo coordinates; SonarCloud project must be
+      # re-created for the Codeberg repo (see docs/ci-codeberg.md)
+      SONAR_SCANNER_OPTS: -Dsonar.projectKey=${CI_REPO_OWNER}_${CI_REPO_NAME} -Dsonar.organization=composable-data-stack -Dsonar.host.url=https://sonarcloud.io -Dsonar.sources=. -Dsonar.python.coverage.reportPaths=coverage.xml
+    commands:
+      - sonar-scanner
+    depends_on: [test]
+    # push only: sonar_token must not be exposed to pull_request events (fork PRs)
+    when:
+      event: [push]

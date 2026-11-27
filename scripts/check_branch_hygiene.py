@@ -30,6 +30,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    import forgejo_rest
+except ImportError:  # loaded via importlib from a test: add scripts/ to sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import forgejo_rest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MAIN = "origin/main"
 IN_CI = bool(os.environ.get("GITHUB_ACTIONS"))
@@ -60,7 +66,22 @@ def _short_name(ref: str) -> str:
 
 
 def _open_pr_heads() -> dict[str, tuple[int, str]]:
-    """Map head branch name -> (PR number, title) for open PRs, if gh works."""
+    """Map head branch name -> (PR number, title) for open PRs, if the API works."""
+    if forgejo_rest.enabled():
+        # Codeberg CI: Forgejo REST API (public repo, anonymous read is fine).
+        repo = forgejo_rest.repo()
+        if not repo:
+            return {}
+        try:
+            pulls = forgejo_rest.get(f"repos/{repo}/pulls?state=open&limit=200")
+        except Exception:
+            return {}
+        prs: dict[str, tuple[int, str]] = {}
+        for pr in pulls:
+            head = (pr.get("head") or {}).get("ref", "")
+            if head:
+                prs[head] = (int(pr["number"]), pr.get("title", ""))
+        return prs
     rc, out = _run(
         [
             "gh",

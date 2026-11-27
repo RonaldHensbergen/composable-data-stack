@@ -133,7 +133,7 @@ class ImageEvidenceTest(unittest.TestCase):
         )
         compose = self._compose(
             {
-                "dagster": {"image": f"ghcr.io/ronaldhensbergen/cds-dagster@{digest}"},
+                "dagster": {"image": f"codeberg.org/composable-data-stack/cds-dagster@{digest}"},
             }
         )
         entries, diagnostics = _build_image_evidence(compose, _FIXTURE_PATH)

@@ -1,0 +1,119 @@
+# Refresh tests/fixtures/signed-images.json after a successful publish and
+# open a PR — migrated from the `update-fixture` job of
+# .github/workflows/publish-images.yml (peter-evans/create-pull-request is
+# replaced by git push + `fj pr create`).
+# Daemonless: digests are resolved with skopeo against the registry API.
+
+when:
+  - event: cron
+    cron: publish-images-weekly
+  - event: push
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+    path: ["images/**", ".woodpecker/publish-images.yml", ".woodpecker/publish-images-update-fixture.yml"]
+  - event: manual
+
+depends_on:
+  - publish-images
+
+steps:
+  - name: setup-fj
+    image: quay.io/skopeo/stable
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: codeberg_token
+    commands:
+      - apk add --no-cache git jq curl python3 bash >/dev/null 2>&1 || true
+      - bash .forgejo/lib/setup-fj.sh
+
+  - name: update-fixture
+    image: quay.io/skopeo/stable
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: codeberg_token
+      REGISTRY_TOKEN:
+        from_secret: codeberg_token
+      DOCKERHUB_USERNAME:
+        from_secret: dockerhub_username
+      DOCKERHUB_TOKEN:
+        from_secret: dockerhub_token
+      FORGEJO_API_URL: https://codeberg.org/api/v1
+      FORGEJO_REPOSITORY: ${CI_REPO_OWNER}/${CI_REPO_NAME}
+    commands:
+      - . .forgejo/lib/api.sh
+      - |
+        set -euo pipefail
+        # registry logins for skopeo
+        echo "$$REGISTRY_TOKEN" | skopeo login -u "RonaldHensbergen" --password-stdin codeberg.org
+        echo "$$DOCKERHUB_TOKEN" | skopeo login -u "$$DOCKERHUB_USERNAME" --password-stdin docker.io
+
+        python3 - <<'PY'
+        import datetime as _dt
+        import json
+        import os
+        import pathlib
+        import re
+        import subprocess
+
+        fixture_path = pathlib.Path("tests/fixtures/signed-images.json")
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+
+        digest_re = re.compile(r"^sha256:[0-9a-f]{64}$$")
+        changed = {}
+        tags = {}
+        sha12 = os.environ["CI_COMMIT_SHA"][:12]
+        for name in sorted(fixture["images"]):
+            entry = fixture["images"][name]
+            repo = entry["repository"]
+            tag = f"{entry.get('tagPrefix', '')}sha-{sha12}"
+            tagged = f"{repo}:{tag}"
+            if tagged in tags:
+                raise SystemExit(f"fixture entries {tags[tagged]} and {name} resolve to {tagged}")
+            tags[tagged] = name
+            # daemonless digest lookup against the registry API
+            out = subprocess.check_output(
+                ["skopeo", "inspect", "--format", "{{.Digest}}", f"docker://{tagged}"],
+                text=True,
+            ).strip()
+            if not digest_re.match(out):
+                raise SystemExit(f"unexpected digest for {name}: {out}")
+            if entry.get("digest") != out:
+                entry["digest"] = out
+                changed[name] = out
+
+        if changed:
+            fixture["refreshRequired"] = False
+            fixture["updated"] = _dt.date.today().isoformat()
+            fixture["refreshInstructions"] = (
+                "Refreshed automatically by the update-fixture step in "
+                ".woodpecker/publish-images-update-fixture.yml after each successful publish."
+            )
+            fixture_path.write_text(json.dumps(fixture, indent=2) + "\n", encoding="utf-8")
+            print("changed:", changed)
+        else:
+            print("no digest changes")
+        PY
+
+      - |
+        if git diff --quiet -- tests/fixtures/signed-images.json; then
+          echo "No digest changes; no PR needed."
+          exit 0
+        fi
+        set -euo pipefail
+        branch="chore/update-signed-images-fixture"
+        git config user.name "woodpecker-ci[bot]"
+        git config user.email "woodpecker-ci[bot]@noreply.codeberg.org"
+        git checkout -b "$$branch"
+        git add tests/fixtures/signed-images.json
+        git commit -m "chore(images): refresh signed-images fixture"
+        git remote set-url origin "https://oauth2:$${FORGEJO_TOKEN}@codeberg.org/$${FORGEJO_REPOSITORY}.git"
+        git push origin "HEAD:$${branch}" --force-with-lease
+        existing="$$(fj_get "repos/$$FORGEJO_REPOSITORY/pulls?state=open&limit=100" \
+          | jq -r --arg b "$$branch" \
+            '[.[] | select(.head.ref == $$b) | .number] | first // empty')"
+        if [ -n "$$existing" ]; then
+          echo "PR #$${existing} already open for $${branch}."
+        else
+          fj pr create "chore(images): refresh signed-images fixture" \
+            -r "$$FORGEJO_REPOSITORY" --head "$$branch" --base "${CI_REPO_DEFAULT_BRANCH}" \
+            --body "Automated digest refresh by the update-fixture step in .woodpecker/publish-images-update-fixture.yml after a successful publish."
+        fi

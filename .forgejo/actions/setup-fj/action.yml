@@ -1,0 +1,95 @@
+name: "Setup fj (Forgejo CLI)"
+description: >-
+  Installs the pinned fj (forgejo-cli) binary and logs in non-interactively
+  by writing the CLI's keys.json with the given token. Also exports
+  FORGEJO_API_URL / FORGEJO_REPOSITORY / FORGEJO_TOKEN / FJ_FALLBACK_HOST
+  for the REST helpers in .forgejo/lib/api.sh. See docs/ci-codeberg.md.
+inputs:
+  token:
+    description: "Forgejo access token (defaults to the automatic github.token)"
+    required: false
+    default: ${{ github.token }}
+  host:
+    description: "Forgejo instance URL"
+    required: false
+    default: https://codeberg.org
+  fj-version:
+    description: "Pinned forgejo-cli release tag"
+    required: false
+    default: v0.7.0
+runs:
+  using: composite
+  steps:
+    - name: Install jq (needed by the REST helpers)
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v jq >/dev/null 2>&1; then
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq jq
+          elif command -v apk >/dev/null 2>&1; then
+            sudo apk add --no-cache jq
+          else
+            echo "jq is required but no apt/apk available" >&2; exit 1
+          fi
+        fi
+
+    - name: Install fj
+      shell: bash
+      env:
+        FJ_VERSION: ${{ inputs.fj-version }}
+      run: |
+        set -euo pipefail
+        arch="$(uname -m)"
+        case "$arch" in
+          x86_64)  fj_arch="x86_64" ;;
+          aarch64) fj_arch="aarch64" ;;
+          *) echo "unsupported arch $arch" >&2; exit 1 ;;
+        esac
+        url="https://codeberg.org/forgejo-contrib/forgejo-cli/releases/download/${FJ_VERSION}/forgejo-cli-${fj_arch}-linux.tar.gz"
+        curl -fsSL "$url" -o "${RUNNER_TEMP:-/tmp}/fj.tar.gz"
+        tmp="$(mktemp -d)"
+        tar -xzf "${RUNNER_TEMP:-/tmp}/fj.tar.gz" -C "$tmp"
+        sudo install -m 0755 "$tmp/fj" /usr/local/bin/fj
+        fj version
+
+    - name: Log fj in non-interactively (keys.json in the workspace)
+      shell: bash
+      env:
+        FJ_TOKEN: ${{ inputs.token }}
+        FJ_HOST: ${{ inputs.host }}
+        FJ_USER: ${{ github.actor }}
+      run: |
+        set -euo pipefail
+        host="${FJ_HOST#https://}"; host="${host#http://}"; host="${host%%/*}"
+        # Keep the key inside the checked-out workspace (gitignored as
+        # .ci-fj/) so Woodpecker steps share it too via XDG_DATA_HOME; the
+        # setup-fj.sh script uses the same location.
+        data_home="${GITHUB_WORKSPACE}/.ci-fj"
+        mkdir -p "$data_home/forgejo-cli"
+        keys="$data_home/forgejo-cli/keys.json"
+        if [ -f "$keys" ]; then
+          jq --arg h "$host" --arg u "$FJ_USER" --arg t "$FJ_TOKEN" \
+            '.hosts[$h] = {type: "Application", name: $u, token: $t}' "$keys" > "$keys.tmp"
+        else
+          jq -n --arg h "$host" --arg u "$FJ_USER" --arg t "$FJ_TOKEN" \
+            '{hosts: {($h): {type: "Application", name: $u, token: $t}}, aliases: {}, default_ssh: []}' > "$keys.tmp"
+        fi
+        mv "$keys.tmp" "$keys"
+        chmod 600 "$keys"
+        XDG_DATA_HOME="$data_home" fj -H "$FJ_HOST" whoami \
+          || echo "::warning::fj whoami failed (token may lack the user scope); API calls still work"
+
+    - name: Export Forgejo env for REST helpers
+      shell: bash
+      env:
+        FJ_TOKEN: ${{ inputs.token }}
+        FJ_HOST: ${{ inputs.host }}
+      run: |
+        {
+          echo "FORGEJO_API_URL=${FJ_HOST}/api/v1"
+          echo "FORGEJO_REPOSITORY=${GITHUB_REPOSITORY}"
+          echo "FORGEJO_TOKEN=${FJ_TOKEN}"
+          echo "FJ_FALLBACK_HOST=${FJ_HOST}"
+          echo "XDG_DATA_HOME=${GITHUB_WORKSPACE}/.ci-fj"
+        } >> "$GITHUB_ENV"

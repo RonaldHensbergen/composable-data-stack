@@ -37,7 +37,7 @@ import yaml
 from .image_updates import parse_image_reference
 from .security_common import SEVERITY_ORDER
 
-DEFAULT_TRUSTED_REGISTRIES = ("ghcr.io", "docker.io", "registry-1.docker.io")
+DEFAULT_TRUSTED_REGISTRIES = ("codeberg.org", "ghcr.io", "docker.io", "registry-1.docker.io")
 DEFAULT_TRUSTED_OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 DEFAULT_CERT_IDENTITY_REGEXP = (
     r"^https://github\.com/RonaldHensbergen/composable-data-stack/"

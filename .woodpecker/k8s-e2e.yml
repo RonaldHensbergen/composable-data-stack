@@ -1,0 +1,117 @@
+# Kubernetes E2E (k3d) — migrated from .github/workflows/k8s-e2e.yml.
+#
+# k3d needs a Docker daemon, so this pipeline is routed to a self-hosted
+# Woodpecker agent via the `docker=true` label with the host socket mounted
+# (see docs/ci-codeberg.md). The weekly cron must be registered as a cron job
+# named `k8s-e2e-weekly` in the repo settings at ci.codeberg.org.
+# Until that agent is registered, pull_request is excluded (a docker=true
+# pipeline pends forever without the agent and would block PR merging);
+# re-add pull_request once the agent exists.
+
+when:
+  - event: push
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+    path: [Makefile, "cli/**", "images/**", "modules/**", "modules-experimental/**", "profiles/**", "pyproject.toml", "scripts/k8s/**", "shared/**", "workdirs/**", ".woodpecker/k8s-e2e.yml"]
+  - event: cron
+    cron: k8s-e2e-weekly
+  - event: manual
+
+labels:
+  docker: "true"
+
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+
+variables:
+  - &cds_env
+    CDS_ANALYTICS_DB_NAME: analytics
+    CDS_ANALYTICS_DB_PASSWORD: analytics_testpass
+    CDS_ANALYTICS_DB_USER: analytics
+    CDS_DAGSTER_DB_NAME: dagster
+    CDS_DAGSTER_DB_PASSWORD: dagster_testpass
+    CDS_DAGSTER_DB_USER: dagster
+    CDS_POSTGRES_SUPERUSER_PASSWORD: postgres_testpass
+    CDS_SUPERSET_ADMIN_PASSWORD: admin_testpass
+    CDS_SUPERSET_DB_NAME: superset
+    CDS_SUPERSET_DB_PASSWORD: superset_testpass
+    CDS_SUPERSET_DB_USER: superset
+    CDS_SUPERSET_SECRET_KEY: ci-only-superset-secret-key
+  - K3D_VERSION: v5.9.0
+  - K3D_LINUX_AMD64_SHA256: 06d8f25bc3a971c4eb29e0ff08429b180402db0f4dec838c9eac427e296800a0
+
+steps:
+  - name: setup-tools
+    image: python:3.14-bookworm
+    environment: *cds_env
+    commands:
+      # k3d (checksum-verified) + helm v4.3.0 + kubectl
+      - mkdir -p .ci-tmp/bin
+      - curl --fail --silent --show-error --location --output .ci-tmp/bin/k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+      - echo "${K3D_LINUX_AMD64_SHA256}  .ci-tmp/bin/k3d" | sha256sum --check -
+      - chmod +x .ci-tmp/bin/k3d
+      - curl -fsSL https://get.helm.sh/helm-v4.3.0-linux-amd64.tar.gz | tar -xz --strip-components=1 -C .ci-tmp/bin linux-amd64/helm
+      - curl -fsSL -o .ci-tmp/bin/kubectl "https://dl.k8s.io/release/v1.33.0/bin/linux/amd64/kubectl" && chmod +x .ci-tmp/bin/kubectl
+      # docker CLI + compose plugin for the host socket
+      - curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz | tar -xz --strip-components=1 -C /usr/local/bin docker/docker
+      - mkdir -p /usr/local/lib/docker/cli-plugins
+      - curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose https://github.com/docker/compose/releases/download/v2.32.4/docker-compose-linux-x86_64
+      - chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+      - export PATH="$$PWD/.ci-tmp/bin:$$PATH"
+      - python -m venv .venv
+      - .venv/bin/python -m pip install --quiet --upgrade pip
+      - .venv/bin/python -m pip install --quiet .
+      - echo "$$PWD/.ci-tmp/bin" >> /etc/profile.d/ci-path.sh 2>/dev/null || true
+
+  - name: build-images
+    image: docker:27-cli
+    environment: *cds_env
+    commands:
+      - export PATH="$$PWD/.ci-tmp/bin:$$PATH"
+      - make k3d-build
+
+  - name: k3d-e2e
+    image: docker:27-cli
+    environment:
+      <<: *cds_env
+      CDS_CLUSTER: cds-k8s-e2e-ci
+      CDS_E2E_KEEP_CLUSTER: "1"
+    commands:
+      - export PATH="$$PWD/.ci-tmp/bin:$$PATH"
+      - docker info
+      - make k3d-e2e
+
+  - name: diagnostics
+    image: docker:27-cli
+    environment:
+      <<: *cds_env
+      CDS_CLUSTER: cds-k8s-e2e-ci
+    commands:
+      - export PATH="$$PWD/.ci-tmp/bin:$$PATH"
+      # k3d-env.sh is a bash script; under /bin/sh (busybox ash in docker:27-cli)
+      # derive the two variables it would set instead of sourcing it
+      # (CDS_CLUSTER is set in this step's environment): CDS_CONTEXT is k3d- plus CDS_CLUSTER
+      - ctx="k3d-$${CDS_CLUSTER}"; ns="$${CDS_NAMESPACE:-cds-local}-e2e"
+      - mkdir -p k8s-e2e-logs
+      - kubectl --context "$$ctx" -n "$$ns" get pods,events -o wide > k8s-e2e-logs/pods-and-events.txt 2>&1 || true
+      - kubectl --context "$$ctx" -n "$$ns" describe pods > k8s-e2e-logs/describe-pods.txt 2>&1 || true
+      - |
+        for pod in $$(kubectl --context "$$ctx" -n "$$ns" get pods -o name); do
+          echo "=== $$pod ===" >> k8s-e2e-logs/pod-logs.txt
+          kubectl --context "$$ctx" -n "$$ns" logs "$$pod" --all-containers --tail=500 >> k8s-e2e-logs/pod-logs.txt 2>&1 || true
+        done
+      - cat k8s-e2e-logs/pods-and-events.txt k8s-e2e-logs/describe-pods.txt || true
+    when:
+      status: [failure]
+    failure: ignore
+
+  - name: teardown
+    image: docker:27-cli
+    environment:
+      <<: *cds_env
+      CDS_CLUSTER: cds-k8s-e2e-ci
+    commands:
+      - export PATH="$$PWD/.ci-tmp/bin:$$PATH"
+      - make k3d-down || true
+    when:
+      status: [success, failure]
+    failure: ignore

@@ -1,0 +1,76 @@
+# Trivyignore Audit — migrated from .github/workflows/trivyignore-audit.yml.
+# Daemonless (trivy scans the published repo@digest refs from the fixture
+# directly). The cron must be registered as a cron job named
+# `trivyignore-audit-daily` at ci.codeberg.org.
+
+when:
+  - event: cron
+    cron: trivyignore-audit-daily
+  - event: [push, pull_request]
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+    path: [".trivyignore", "scripts/audit_trivyignore.py", ".woodpecker/trivyignore-audit.yml"]
+  - event: manual
+
+steps:
+  # Installs fj and writes its keys.json into the shared workspace (.ci-fj/).
+  # Never on pull_request (secrets are blocked there).
+  - name: setup-fj
+    image: python:3.14-bookworm
+    when:
+      event: [push, cron, manual]
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: codeberg_token
+    commands:
+      - bash .forgejo/lib/setup-fj.sh
+
+  - name: audit
+    image: python:3.14-bookworm
+    # writes issues via fj/REST: never on pull_request (secrets are blocked there)
+    when:
+      event: [push, cron, manual]
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: codeberg_token
+      FORGEJO_API_URL: https://codeberg.org/api/v1
+      FORGEJO_REPOSITORY: ${CI_REPO_OWNER}/${CI_REPO_NAME}
+    commands:
+      - curl -fsSL https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz | tar -xz -C /usr/local/bin trivy
+      - . .forgejo/lib/api.sh
+      # Scan published images without the ignore file
+      - mkdir -p reports
+      - |
+        python3 - > images.txt <<'PY'
+        import json
+        fixture = json.load(open("tests/fixtures/signed-images.json", encoding="utf-8"))
+        for key, entry in sorted(fixture["images"].items()):
+            print(f"{key} {entry['repository']}@{entry['digest']}")
+        PY
+      - |
+        while read -r key ref; do
+          trivy image --quiet --scanners vuln --severity HIGH,CRITICAL \
+            --ignorefile /dev/null --format json --output "reports/$${key}.json" "$$ref"
+        done < images.txt
+      # Audit .trivyignore entries
+      - python3 scripts/audit_trivyignore.py reports/*.json
+      # File or update the audit issue (not on PRs; only when a report was produced)
+      - |
+        if [ "${CI_PIPELINE_EVENT}" = "pull_request" ] || [ ! -s trivyignore-audit.md ]; then
+          echo "No audit report to file."
+          exit 0
+        fi
+        set -euo pipefail
+        label="trivyignore-audit"
+        title="[trivyignore-audit] Resolved or expiring vulnerability exceptions"
+        ensure_label "$$label" "FBCA04" "Stale or expiring .trivyignore exceptions"
+        {
+          cat trivyignore-audit.md
+          echo
+          echo "Run: ${CI_BUILD_LINK}"
+        } > issue-body.md
+        existing="$$(fj_get "repos/$$FORGEJO_REPOSITORY/issues?state=open&labels=$$label&limit=10" | jq -r '.[0].number // empty')"
+        if [ -n "$$existing" ]; then
+          fj issue -R origin edit "$$existing" body "$$(cat issue-body.md)"
+        else
+          create_issue "$$title" "$$(cat issue-body.md)" "$$label"
+        fi

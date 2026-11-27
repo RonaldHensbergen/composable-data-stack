@@ -1,0 +1,111 @@
+# Release — migrated from .github/workflows/release.yml (the `build` job used
+# the reusable .github/workflows/build-python-package.yml; Woodpecker has no
+# reusable workflows, so the build steps are inlined here — the docker-based
+# `cds up` smoke of that reusable workflow now lives in package-smoke.yml).
+#
+# Triggers on v* tags. Creates the Forgejo release via fj (forgejo-cli) with
+# the `codeberg_token` Woodpecker secret — replacing softprops/action-gh-release
+# (which needs the GitHub API) — uploads the evidence assets, then publishes
+# (draft=false) and verifies.
+
+when:
+  - event: tag
+    ref: refs/tags/v
+
+steps:
+  - name: build
+    image: python:3.14-bookworm
+    commands:
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet build==1.6.1 twine==7.0.0
+      - python -m build
+      - python -m twine check dist/*
+      # wheel smoke
+      - wheel="$$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+      - test -n "$$wheel"
+      - mkdir -p .ci-tmp
+      - python -m venv .ci-tmp/cds-wheel
+      - .ci-tmp/cds-wheel/bin/python -m pip install --quiet "$$wheel"
+      - cd .ci-tmp
+      - .ci-tmp/cds-wheel/bin/cds --help
+      - .ci-tmp/cds-wheel/bin/cds validate "$$OLDPWD/profiles/local-dagster-postgres-superset/profile.yaml"
+      - .ci-tmp/cds-wheel/bin/python -c "from cli.security import _validate_rule_set; assert _validate_rule_set()['rules']"
+      - cd "$$OLDPWD"
+      # CLI SBOM (CycloneDX)
+      - python -m venv .ci-tmp/cdx-tools
+      - .ci-tmp/cdx-tools/bin/pip install --quiet cyclonedx-bom==7.4.0
+      - .ci-tmp/cdx-tools/bin/cyclonedx-py environment .ci-tmp/cds-wheel/bin/python --pyproject pyproject.toml --output-format json --output-reproducible -o cli-sbom.cyclonedx.json
+      - python scripts/validate_cli_sbom.py --sbom cli-sbom.cyclonedx.json
+      # release artifact inventory
+      - python scripts/generate_release_inventory.py --dist-dir dist --sbom-file cli-sbom.cyclonedx.json --commit-sha "$CI_COMMIT_SHA" --source-ref "$CI_COMMIT_TAG" --generated-at "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" --generated-by "$CI_BUILD_LINK" --output release-inventory.json
+
+  - name: setup-fj
+    image: python:3.14-bookworm
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: codeberg_token
+    commands:
+      - bash .forgejo/lib/setup-fj.sh
+
+  - name: release
+    image: python:3.14-bookworm
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: codeberg_token
+      FORGEJO_API_URL: https://codeberg.org/api/v1
+      FORGEJO_REPOSITORY: ${CI_REPO_OWNER}/${CI_REPO_NAME}
+    commands:
+      - . .forgejo/lib/api.sh
+      - python -m pip install --quiet --upgrade pip packaging
+      # Verify tag matches pyproject.toml version
+      - python scripts/check_release_version.py "$CI_COMMIT_TAG"
+      # Extract changelog section for this tag
+      - |
+        VERSION="${CI_COMMIT_TAG#v}"
+        if [ ! -f CHANGELOG.md ]; then
+          echo "_CHANGELOG.md not found. See the commit comparison below._" > release_notes.md
+        else
+          ESCAPED_VERSION=$$(printf '%s' "$$VERSION" | sed 's/\./\\./g')
+          awk -v ver="$$ESCAPED_VERSION" '
+            BEGIN { found=0 }
+            /^## \[/ {
+              if (found) exit
+              if ($$0 ~ "\\[" ver "\\]") { found=1; next }
+              next
+            }
+            found { print }
+          ' CHANGELOG.md > release_notes.md 2>/dev/null
+          if [ ! -s release_notes.md ]; then
+            echo "_No CHANGELOG.md entry found for ${CI_COMMIT_TAG}. See the commit comparison below._" > release_notes.md
+          fi
+        fi
+      # CRA release-evidence manifest + gate
+      - mkdir -p release-evidence
+      - python scripts/build_cra_release_evidence_manifest.py --commit-sha "$CI_COMMIT_SHA" --source-ref "$CI_COMMIT_TAG" --generated-at "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" --generated-by "$CI_BUILD_LINK" --output release-evidence/cra-release-evidence-manifest.json
+      - python scripts/check_cra_release_gate.py release-evidence/cra-release-evidence-manifest.json
+      - cp cli-sbom.cyclonedx.json release-inventory.json release-evidence/
+      # Append support notice and verify
+      - printf '\n' >> release_notes.md
+      - python scripts/render_support_notice.py "$CI_COMMIT_TAG" >> release_notes.md
+      - python scripts/check_release_notes_support.py release_notes.md
+      # Create the Forgejo release as a draft, upload evidence assets, publish
+      - fj release -r "$FORGEJO_REPOSITORY" create "$CI_COMMIT_TAG" -t "$CI_COMMIT_TAG" -b "$$(cat release_notes.md)" -d
+      - fj release -r "$FORGEJO_REPOSITORY" asset create "$CI_COMMIT_TAG" release-evidence/cli-sbom.cyclonedx.json
+      - fj release -r "$FORGEJO_REPOSITORY" asset create "$CI_COMMIT_TAG" release-evidence/release-inventory.json
+      - fj release -r "$FORGEJO_REPOSITORY" asset create "$CI_COMMIT_TAG" release-evidence/cra-release-evidence-manifest.json
+      - |
+        set -euo pipefail
+        for attempt in 1 2 3 4 5; do
+          if fj release -r "$$FORGEJO_REPOSITORY" edit "$CI_COMMIT_TAG" -d false; then break; fi
+          if [ "$${attempt}" -eq 5 ]; then
+            echo "ERROR: Could not publish release ${CI_COMMIT_TAG}: ${FORGEJO_HOST:-https://codeberg.org}/$${FORGEJO_REPOSITORY}/-/releases/tag/${CI_COMMIT_TAG}" >&2
+            exit 1
+          fi
+          sleep $$((attempt * 5))
+        done
+        is_draft="$$(release_is_draft "$CI_COMMIT_TAG")"
+        if [ "$${is_draft}" = "true" ]; then
+          echo "ERROR: Release ${CI_COMMIT_TAG} is still a draft and needs to be published manually." >&2
+          exit 1
+        fi
+        echo "OK: release ${CI_COMMIT_TAG} is published."

@@ -26,6 +26,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+try:
+    import forgejo_rest
+except ImportError:  # loaded via importlib from a test: add scripts/ to sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import forgejo_rest
+
 ISSUE_REF_RE = re.compile(r"#(\d+)")
 SECTION_HEADING_RE = re.compile(r"^## (.+?)\s*$", re.MULTILINE)
 STABLE_VERSION_RE = re.compile(r"current release \(v(\d+\.\d+\.\d+)\)")
@@ -144,6 +150,41 @@ def fetch_issue_states_via_gh(
 DONE_STATES = {"CLOSED", "MERGED"}
 
 
+def fetch_issue_states_via_forgejo(
+    repo: str, numbers: list[int]
+) -> dict[int, dict[str, object]]:
+    """Look up issue state/assignees via the Forgejo REST API (Codeberg CI).
+
+    Same contract as fetch_issue_states_via_gh; Forgejo returns lowercase
+    states and marks PR-backed issues via the `pull_request` field, which is
+    mapped to MERGED when closed.
+    """
+    states: dict[int, dict[str, object]] = {}
+    for number in numbers:
+        try:
+            payload = forgejo_rest.get(f"repos/{repo}/issues/{number}")
+            state = str(payload.get("state", "UNKNOWN")).upper()
+            if payload.get("pull_request") and state == "CLOSED":
+                state = "MERGED"
+            assignees = payload.get("assignees")
+            if assignees is None and payload.get("assignee"):
+                assignees = [payload["assignee"]]
+            states[number] = {
+                "state": state,
+                "assignees": assignees or [],
+            }
+        except Exception:
+            states[number] = {"state": "UNKNOWN", "assignees": []}
+    return states
+
+
+def default_fetcher() -> IssueFetcher:
+    """gh on GitHub; the Forgejo REST API on Codeberg (FORGEJO_API_URL set)."""
+    if forgejo_rest.enabled():
+        return fetch_issue_states_via_forgejo
+    return fetch_issue_states_via_gh
+
+
 def check_entries(
     entries: list[RoadmapEntry],
     issue_states: dict[int, dict[str, object]],
@@ -211,8 +252,10 @@ def run_check(
     roadmap_path: Path,
     pyproject_path: Path,
     repo: str,
-    fetch_issue_states: IssueFetcher = fetch_issue_states_via_gh,
+    fetch_issue_states: IssueFetcher | None = None,
 ) -> list[str]:
+    if fetch_issue_states is None:
+        fetch_issue_states = default_fetcher()
     """Run the full freshness check and return all problems found."""
     roadmap_text = roadmap_path.read_text(encoding="utf-8")
     entries = extract_entries(roadmap_text)
@@ -227,7 +270,13 @@ def run_check(
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
-    repo = "RonaldHensbergen/composable-data-stack"
+    # On Codeberg the repo lives at composable-data-stack/composable-data-stack;
+    # on GitHub the legacy RonaldHensbergen name still works with gh.
+    repo = (
+        forgejo_rest.repo()
+        if forgejo_rest.enabled()
+        else "RonaldHensbergen/composable-data-stack"
+    )
 
     problems = run_check(
         repo_root / "docs" / "roadmap.md",

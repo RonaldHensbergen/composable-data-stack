@@ -24,6 +24,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    import forgejo_rest
+except ImportError:  # loaded via importlib from a test: add scripts/ to sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import forgejo_rest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 AGENT_FOOTER = "Co-Authored-By: Mistral Vibe"
@@ -95,8 +101,21 @@ def pr_labels() -> list[str]:
     """Labels of the current PR when running in CI, else empty."""
     ref = os.environ.get("GITHUB_REF", "")
     match = re.search(r"refs/pull/(\d+)/", ref)
+    if not match:
+        return []
+    if forgejo_rest.enabled():
+        # Codeberg CI (Woodpecker/Forgejo Actions): read the PR via the
+        # Forgejo REST API; the repo is public, so this works anonymously.
+        repo = forgejo_rest.repo()
+        if not repo:
+            return []
+        try:
+            payload = forgejo_rest.get(f"repos/{repo}/pulls/{match.group(1)}")
+            return [label["name"] for label in payload.get("labels", [])]
+        except Exception:
+            return []
     repo = os.environ.get("GITHUB_REPOSITORY")
-    if not match or not repo:
+    if not repo:
         return []
     rc, out = _run(
         [

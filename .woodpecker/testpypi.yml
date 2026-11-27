@@ -1,0 +1,33 @@
+# Publish CLI to TestPyPI — migrated from .github/workflows/testpypi.yml.
+# Manual runs only; token-based (no OIDC on Codeberg) via the Woodpecker
+# secret `testpypi_api_token`.
+
+when:
+  - event: manual
+
+steps:
+  - name: build
+    image: python:3.14-bookworm
+    commands:
+      - python -m pip install --quiet --upgrade pip
+      - pip install --quiet build==1.6.1 twine==7.0.0
+      - python -m build
+      - python -m twine check dist/*
+      - wheel="$$(find dist -maxdepth 1 -name '*.whl' -print -quit)"
+      - test -n "$$wheel"
+      - mkdir -p .ci-tmp
+      - python -m venv .ci-tmp/cds-wheel
+      - .ci-tmp/cds-wheel/bin/python -m pip install --quiet "$$wheel"
+      - cd .ci-tmp
+      - .ci-tmp/cds-wheel/bin/cds --help
+      - .ci-tmp/cds-wheel/bin/cds validate "$$OLDPWD/profiles/local-dagster-postgres-superset/profile.yaml"
+
+  - name: publish
+    image: python:3.14-bookworm
+    environment:
+      TWINE_USERNAME: __token__
+      TWINE_PASSWORD:
+        from_secret: testpypi_api_token
+    commands:
+      - python -m pip install --quiet --upgrade pip twine==7.0.0
+      - python -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*
