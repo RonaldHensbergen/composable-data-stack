@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "refreshRequired": false,
   "refreshInstructions": "Refreshed automatically by the update-fixture job in .github/workflows/publish-images.yml after each successful publish.",
-  "updated": "2026-11-23",
+  "updated": "2026-11-27",
   "source": "https://github.com/RonaldHensbergen/composable-data-stack/actions/workflows/publish-images.yml",
   "trustRoot": {
     "registries": [
@@ -17,7 +17,7 @@
   "images": {
     "cds-dagster": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
-      "digest": "sha256:4fd613b8358751a161b2b5b0231474343d9d65511060fec5ac101519ec219fa1",
+      "digest": "sha256:d71f73bd96fba1c1b09a8527edae39d29ef445855ef02e0cf628620f97944c5f",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
@@ -25,42 +25,42 @@
     "cds-dagster-hardened": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dagster",
       "tagPrefix": "hardened-",
-      "digest": "sha256:3cfdcc8983066dea2953297d91a91391af4c024cea46c7d7206e9d925c2702e7",
+      "digest": "sha256:e4e73cd59eaee0f812707ee9819ca3580b530f7e254bf2def5b64e4199082553",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-superset": {
       "repository": "ghcr.io/ronaldhensbergen/cds-superset",
-      "digest": "sha256:7dd87cc420e4351c3278aa9e6c7f0d44c7647f7a93d7627f162e781fb8aeb66a",
+      "digest": "sha256:ffbfc96937c1febc794a618312f17b63e84a7cdcf73f572d952e085e5641bc3e",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dbt": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dbt",
-      "digest": "sha256:da9c9b0f98768244aba9d829372df3fcf1242b28f3f8f91f12b37dc5adf4c12a",
+      "digest": "sha256:84769730ce17032f0474c831a889b9e2f1d7300c5c02ba1dc8193cdda232a7c0",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-dlt": {
       "repository": "ghcr.io/ronaldhensbergen/cds-dlt",
-      "digest": "sha256:dde3a01373c2fa0f4e504dda99cbd446ad0fa48f849d3237b0803ee7a1f3c002",
+      "digest": "sha256:59da62d08cd9cc5565bf25496ea36e016d9d7cf3bcd925e9c91cd79f8ee68af0",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-restic": {
       "repository": "ghcr.io/ronaldhensbergen/cds-restic",
-      "digest": "sha256:82014c4f8cb994eaa12d24bd2261a132d082c94e7dd02acf21bcebe9a31ec3c0",
+      "digest": "sha256:1bf45b0ca647f342150807c381605dcdbe06088d590ee4cedf6e54fa8f681e60",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "dockerhub-dagster": {
       "repository": "docker.io/ronaldsoeverein/dagster",
-      "digest": "sha256:007fb9b2d40f33f210ee0e8a347b38d54e40ef0e6b48187d42aed6349bcf639e",
+      "digest": "sha256:7d89f370d561a86a639d84c0612d338ddf31477f02962328d4d892c91dc18d4a",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
@@ -68,49 +68,49 @@
     "dockerhub-dagster-hardened": {
       "repository": "docker.io/ronaldsoeverein/dagster",
       "tagPrefix": "hardened-",
-      "digest": "sha256:4c51a1baad6d403d651bf0a91364f4cfba7e730a045d5e87c109dd9c23711152",
+      "digest": "sha256:53b70b84026b5b6bc85a30c0b8342c9420fc34448fda379257a665784f751426",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "dockerhub-superset": {
       "repository": "docker.io/ronaldsoeverein/superset",
-      "digest": "sha256:c81067f7a8a673a0ac4b732baaa707b02c4155b3307e0f7e3bcb510c7cd7a26d",
+      "digest": "sha256:7fb6af415a065d1d7f609d9dbf387bdb2fc4a737c71ee10c92c0ab3968516563",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "dockerhub-dbt": {
       "repository": "docker.io/ronaldsoeverein/dbt",
-      "digest": "sha256:ea3867e6d3db977b3fc0d3884201e32f13072832031c7e22673440f93b7f3a7a",
+      "digest": "sha256:f4d1253b30f25b6217e8b35d20b9cfcef0f0e714c50f7c001997f2a39de46066",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "dockerhub-dlt": {
       "repository": "docker.io/ronaldsoeverein/dlt",
-      "digest": "sha256:c1c0597388cf377245d1b24d24c91f4fbdbf7112d8141c999a3f3546aebb7977",
+      "digest": "sha256:536fe88405ca24b812226ce9a6d420bfc07ef805bdb617c5dda3b6ae7671ca64",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "dockerhub-restic": {
       "repository": "docker.io/ronaldsoeverein/restic",
-      "digest": "sha256:33be49839ca4d999a1798cefe29cf9a9cecd68c908dcd79c0de5165e67802316",
+      "digest": "sha256:bd46dd829f761dbd9a1546845606159ee4c35fdc29b4ed9a38873e00382d3c51",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "cds-postgres": {
       "repository": "ghcr.io/ronaldhensbergen/cds-postgres",
-      "digest": "sha256:0893424748f607ce4c832d75766e7d62d0fb6b8bd972cfb4a16f07965f8b1c75",
+      "digest": "sha256:3a265ee06446b82159a79d8a87685e5af798adb9e77c03f630d3a3088089b15b",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
     },
     "dockerhub-postgres": {
       "repository": "docker.io/ronaldsoeverein/postgres",
-      "digest": "sha256:844f132879f7851c629a7cab7e84a54fc1dec01c9c0f182651a94e0776d06887",
+      "digest": "sha256:5159fce8b34c0ff59561255e5c2b50a2996f93466a50d90ee7e51930b1fd84ea",
       "signed": true,
       "provenanceAttested": true,
       "sbomAttested": true
