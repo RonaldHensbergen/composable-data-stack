@@ -186,18 +186,8 @@ steps:
       - python scripts/check_image_locks.py
       - git diff --exit-code images
 
-  - name: sonarcloud
-    image: sonarsource/sonar-scanner-cli:latest
-    environment:
-      SONAR_TOKEN:
-        from_secret: sonar_token
-      SONAR_SCANNER_JAVA_VERSION: 21
-      # the scanner needs the repo coordinates; SonarCloud project must be
-      # re-created for the Codeberg repo (see docs/ci-codeberg.md)
-      SONAR_SCANNER_OPTS: -Dsonar.projectKey=${CI_REPO_OWNER}_${CI_REPO_NAME} -Dsonar.organization=composable-data-stack -Dsonar.host.url=https://sonarcloud.io -Dsonar.sources=. -Dsonar.python.coverage.reportPaths=coverage.xml
-    commands:
-      - sonar-scanner
-    depends_on: [test]
-    # push only: sonar_token must not be exposed to pull_request events (fork PRs)
-    when:
-      event: [push]
+  # SonarCloud step removed: sonarcloud.io only binds GitHub/GitLab ALMs and
+  # the sonar_token secret is intentionally not created on Codeberg (it would
+  # also fail the whole push pipeline when missing). SonarCloud is replaced by
+  # a fully open-source code-analysis stack — tracking issue #1362; bandit +
+  # pip-audit in the security-scan step above keep the local gates meanwhile.

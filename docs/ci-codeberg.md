@@ -104,7 +104,7 @@ Woodpecker repo secrets (ci.codeberg.org → repo → Settings → Secrets):
 | Secret | Used by | Notes |
 | --- | --- | --- |
 | `codeberg_token` | `fj` login + REST helpers in Woodpecker pipelines (issue filing, releases, PRs) + registry login for `codeberg.org` | Codeberg access token with `read:user`, `read:issue,write:issue`, `read:repository,write:repository` **plus `read:package,write:package`** (needed to push images to the Codeberg package registry) |
-| `sonar_token` | `ci.yml` sonarcloud step | re-create the SonarCloud project for the Codeberg repo |
+| ~~`sonar_token`~~ | — | intentionally **not** set: the sonarcloud step was removed from `ci.yml` (SonarCloud binds GitHub/GitLab ALMs only, and a missing secret would fail every push pipeline). Replaced by the OSS code-analysis stack in #1362 |
 | `dockerhub_username` / `dockerhub_token` | `publish-images.yml` | Docker Hub **access token** (Account Settings → Security), not the account password; replaces `RONALDSOEVEREIN_LOGIN` |
 | `cosign_private_key` / `cosign_password` / `cosign_public_key` | `publish-images.yml` | `cosign generate-key-pair`; replaces keyless OIDC signing |
 | `pypi_api_token` / `testpypi_api_token` | `pypi.yml` / `testpypi.yml` | replaces OIDC trusted publishing |
