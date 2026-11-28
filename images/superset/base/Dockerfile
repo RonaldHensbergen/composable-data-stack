@@ -9,6 +9,12 @@ RUN /usr/local/bin/python -m pip install --no-cache-dir --upgrade \
     && /usr/local/bin/uv --version \
     && /usr/local/bin/uvx --version
 
+# Build-time OS upgrade against the base image's bookworm + bookworm-security
+# sources: this is what pulls Debian security fixes that were published after
+# the pinned apache/superset digest was built (e.g. libzstd1
+# 1.5.4+dfsg2-5+deb12u1 for CVE-2026-124851, DLA-4946-1), so a republish of
+# this image clears vuln-scan findings in the Debian base even when the pinned
+# base digest itself has not changed (#1376).
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && apt-get clean \
